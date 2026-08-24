@@ -2,15 +2,18 @@ import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import type { AnyCollector, CollectorContext, Exec } from '@rhizomorph/core'
 import { createEvent } from '@rhizomorph/core'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { repoSlug, sessionDirFor } from '../log/paths.js'
 import { decideSessionBoot, readSessionEvents, sessionFilePath } from '../log/session-log.js'
 import { writeSessionLock } from '../log/session-lock.js'
 import { buildApp } from '../server/build-app.js'
 import type { ServerContext } from '../server/context.js'
+import { createPollLoop } from '../server/poll-loop.js'
 import type { PollLoop, PollLoopResetOptions } from '../server/poll-loop.js'
 import { SessionRecorder } from '../server/recorder.js'
+import * as retargetValidationModule from '../server/retarget-validation.js'
 import { CAPABILITY_TOKEN_HEADER } from './security.js'
 
 /**
@@ -383,6 +386,182 @@ describe('POST /api/retarget', () => {
     expect(ctx.repoPath).toBe(watched)
 
     await app.close()
+  })
+
+  describe('two retargets fired without awaiting the first (#14)', () => {
+    async function jsonlCount(dir: string): Promise<number> {
+      try {
+        return (await readdir(dir)).filter((n) => n.endsWith('.jsonl')).length
+      } catch {
+        return 0
+      }
+    }
+
+    it('one proceeds, one is refused 409, and exactly one new session directory results', async () => {
+      const other = await makeRepo(path.join(root, 'other'))
+      const app = buildApp(ctx)
+
+      const [first, second] = await Promise.all([post(app, { path: adopted }), post(app, { path: other })])
+
+      expect([first.statusCode, second.statusCode].sort()).toEqual([200, 409])
+      const refused = first.statusCode === 409 ? first : second
+      expect(refused.json().code).toBe('retarget-in-flight')
+
+      // Not just the status codes: count the directories a session actually
+      // landed in. A coalesced (rather than refused) second caller would
+      // report 200/200 here while only one boundary ran; a guard that failed
+      // to hold would let both proceed and open two.
+      const adoptedCount = await jsonlCount(sessionDirFor(adopted, dataRoot))
+      const otherCount = await jsonlCount(sessionDirFor(other, dataRoot))
+      expect(adoptedCount + otherCount).toBe(1)
+
+      // The old repo's log was sealed exactly once — never raced into a second close.
+      const closedEvents = await readSessionEvents(sessionFilePath(sessionDirFor(watched, dataRoot), '1000'))
+      expect(closedEvents.filter((e) => e.type === 'session.closed')).toHaveLength(1)
+
+      // The refused request never touched the loop at all — it is refused
+      // before it ever calls stop(), because the boundary is acquired before
+      // anything else. A `start()` landing before the winner's own `reset()`
+      // is exactly the bug (#14 defect 1): it would re-arm the timer while
+      // the winner is still mid-boundary, against the STALE repoPath this
+      // closure held before the re-point.
+      expect(loopLog.map((call) => call.phase)).toEqual(['stop', 'reset', 'start'])
+
+      await app.close()
+    })
+  })
+
+  describe('a real poll loop — a spurious tick must never land in the wrong session (#14 defect 1)', () => {
+    it('the only tick anyone sees is the winner\'s own, after the re-point — never a stray one against the repo just left', async () => {
+      const seenRepoPaths: string[] = []
+      const repoPathTickCollector: AnyCollector = {
+        name: 'repo-path-spy',
+        initialSnapshot: () => undefined,
+        poll: (_prev: unknown, c: CollectorContext) => {
+          seenRepoPaths.push(c.repoPath)
+          return {
+            nextSnapshot: undefined,
+            events: [c.emit('collector.error', { collector: 'repo-path-spy', message: `TICK-SAW:${c.repoPath}` })],
+          }
+        },
+      }
+      const nullExec: Exec = async () => ({ stdout: '', stderr: '', code: 0, failed: false })
+      const realLoop = createPollLoop({
+        repoPath: watched,
+        collectors: [repoPathTickCollector],
+        recorder,
+        exec: nullExec,
+        now: () => CLOCK,
+        // Real, not the spy's no-op — a `void tick()` fired by a wrongly
+        // re-armed `start()` is exactly what this test has to be able to see.
+        intervalMs: 1_000_000,
+      })
+      const realCtx: ServerContext = { ...ctx, pollLoop: realLoop }
+      const app = buildApp(realCtx)
+      const other = await makeRepo(path.join(root, 'other'))
+
+      const [first, second] = await Promise.all([post(app, { path: adopted }), post(app, { path: other })])
+      // Flush whatever tick the winner's own start() fired before asserting.
+      await realLoop.stop()
+
+      expect([first.statusCode, second.statusCode].sort()).toEqual([200, 409])
+      const winner = first.statusCode === 200 ? first : second
+      const winnerRepo = winner.json().to.repoPath as string
+
+      // No tick ever saw the repo the operator LEFT.
+      expect(seenRepoPaths).not.toContain(watched)
+      // And if a tick ran at all (the winner's own start()), it saw only the
+      // ADOPTED repo — never a stray one racing against the stale closure.
+      if (seenRepoPaths.length > 0) {
+        expect(seenRepoPaths.every((p) => p === winnerRepo)).toBe(true)
+      }
+
+      // Durable evidence in the log itself: the OLD session was sealed clean
+      // — no tick event ever landed in it, because nothing ticked before it
+      // was sealed and nothing was left able to tick against it afterwards.
+      const oldEvents = await readSessionEvents(sessionFilePath(sessionDirFor(watched, dataRoot), '1000'))
+      expect(oldEvents.some((e) => e.type === 'collector.error')).toBe(false)
+
+      await app.close()
+    })
+  })
+
+  describe('a slow validator must not let a second retarget slip past an empty guard (#14 defect 2)', () => {
+    it('whichever request wins the boundary, the OTHER is refused immediately — even while the winner is still validating', async () => {
+      const other = await makeRepo(path.join(root, 'other'))
+      const app = buildApp(ctx)
+
+      // Exactly one of the two requests below ever calls `validateRetargetTarget`
+      // at all — whichever wins the boundary. The old guard (only around the
+      // close/open) let that winner run start-to-finish while the loser was
+      // still inside ITS OWN validation, so the loser's later guard check
+      // found an empty map and slipped through on a stale snapshot. Gating
+      // every call to validate — indefinitely, until released below — proves
+      // the fix does not depend on that timing at all: the loser must be
+      // refused before validation, not merely before the winner finishes it.
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      let validateInvoked = false
+      const realValidate = retargetValidationModule.validateRetargetTarget
+      const spy = vi
+        .spyOn(retargetValidationModule, 'validateRetargetTarget')
+        .mockImplementation(async (...args: Parameters<typeof realValidate>) => {
+          validateInvoked = true
+          await gate
+          return realValidate(...args)
+        })
+
+      async function tick(): Promise<void> {
+        await new Promise((resolve) => setImmediate(resolve))
+      }
+
+      try {
+        let aSettled = false
+        let bSettled = false
+        const aPromise = post(app, { path: adopted }).then((r) => {
+          aSettled = true
+          return r
+        })
+        const bPromise = post(app, { path: other }).then((r) => {
+          bSettled = true
+          return r
+        })
+
+        // Poll rather than guess a fixed number of event-loop turns: Fastify's
+        // own request dispatch (preHandler, body parsing, reply serialization)
+        // takes an unknown number of microtask/macrotask hops. Wait for the
+        // concrete signal that the winner is inside the gate, then for the
+        // loser to settle — it must, since its refusal never depends on the
+        // gate at all.
+        while (!validateInvoked) await tick()
+        while (!aSettled && !bSettled) await tick()
+        // Snapshot who lost NOW — `aSettled`/`bSettled` both flip true once
+        // `Promise.all` below awaits the winner too, so re-reading them after
+        // that point would no longer say who was refused early.
+        const aWasLoser = aSettled
+        expect(aSettled).not.toBe(bSettled)
+
+        const loserPromise = aWasLoser ? aPromise : bPromise
+        const loserTargetSessionDir = aWasLoser ? sessionDirFor(adopted, dataRoot) : sessionDirFor(other, dataRoot)
+        const loserResponse = await loserPromise
+        expect(loserResponse.statusCode).toBe(409)
+        expect(loserResponse.json().code).toBe('retarget-in-flight')
+        // The loser never reached validation, the loop, or its own directory.
+        expect(loopLog).toEqual([])
+        await expect(readdir(loserTargetSessionDir)).rejects.toThrow()
+
+        release()
+        const [aResponse, bResponse] = await Promise.all([aPromise, bPromise])
+        const winnerResponse = aWasLoser ? bResponse : aResponse
+        expect(winnerResponse.statusCode).toBe(200)
+      } finally {
+        spy.mockRestore()
+      }
+
+      await app.close()
+    })
   })
 
   it('a server with no poll loop retargets anyway — the loop is optional, the boundary is not', async () => {

@@ -2,7 +2,8 @@ import path from 'node:path'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { repoSlug, sessionDirFor, snapshotDirFor } from '../log/paths.js'
 import { RESUME_WINDOW_MS } from '../log/session-log.js'
-import { retargetSession, type Rotation } from '../recorder/index.js'
+import type { Rotation } from '../recorder/index.js'
+import { beginRetargetBoundary, performRetarget } from '../recorder/rotate.js'
 import type { ServerContext } from '../server/context.js'
 import { exec as realExec, withTimeout } from '../server/exec.js'
 import { describeTelemetryCost, lanesAtBoundary } from '../server/retarget-cost.js'
@@ -104,7 +105,12 @@ export const RETARGET_EXEC_TIMEOUT_MS = 5000
  * three of them are `validateRetargetTarget`'s own reasons, passed through
  * unchanged so the route never re-words a refusal the module below it owns.
  */
-export type RetargetRefusalCode = 'not-found' | 'not-a-repo' | 'writer-alive' | 'already-watching'
+export type RetargetRefusalCode =
+  | 'not-found'
+  | 'not-a-repo'
+  | 'writer-alive'
+  | 'already-watching'
+  | 'retarget-in-flight'
 
 /**
  * The data root the adopted repo's session directory is built under, derived
@@ -141,125 +147,174 @@ export function registerRetargetRoute(app: FastifyInstance, ctx: ServerContext):
         throw err
       }
 
-      const from = {
-        repoPath: ctx.repoPath,
-        repoName: ctx.repoName,
-        repoSlug: repoSlug(ctx.repoPath),
-        sessionDir: ctx.sessionDir,
-      }
-      const repoPath = path.resolve(requested)
-      const to = {
-        repoPath,
-        repoName: path.basename(repoPath),
-        repoSlug: repoSlug(repoPath),
-        sessionDir: sessionDirFor(repoPath, dataRootOf(ctx)),
-      }
-
-      // (1) VALIDATE, BEFORE ANYTHING CLOSES. The 409 path is the feature
-      // (#386): it is the whole of what rotate-and-reinit has over supervised
-      // respawn, whose equivalent check runs inside the image it is about to
-      // destroy and whose failure is an uncatchable SIGABRT.
+      // ACQUIRE THE BOUNDARY FIRST (#14) — before `from`/`to` are even
+      // snapshotted, before validation, before the loop is touched. Two
+      // defects lived in doing this later, around the close/open alone:
       //
-      // "Already watching this repo" is asked first and here rather than in
-      // `validateRetargetTarget`, because the session lock cannot tell it from
-      // the news the module reports. Our OWN live lock sits in the target's
-      // session dir in exactly this case, so the honest-looking answer would
-      // be "another rhizomorph (pid <ours>) is already watching it" — true,
-      // and it sends the operator hunting for the process they are talking to.
-      if (path.resolve(repoPath) === path.resolve(ctx.repoPath)) {
+      // 1. A refused request that had already stopped the loop restarted it
+      //    unconditionally, re-arming the timer WHILE the winner was still
+      //    between its own stop() and reset() — `poll-loop.ts`'s `start()`
+      //    fires a tick immediately when the timer is down, and that tick
+      //    read the stale `repoPath` this closure still held, then landed in
+      //    whichever session was open by the time its `recorder.record` wait
+      //    ended: the NEW one. Acquiring first means a refused request never
+      //    calls `stop()` at all, so there is nothing of its own to restart.
+      // 2. Validation is the slow part (`RETARGET_EXEC_TIMEOUT_MS` names a
+      //    real subprocess). A guard held only around the close/open leaves
+      //    the whole validate-and-snapshot window unguarded: a first retarget
+      //    could run start-to-finish while a second was still inside ITS OWN
+      //    validation, so by the time the second reached the (old) guard the
+      //    map was already empty again — it would proceed on a `from` it
+      //    snapshotted before either await, now stale. Acquiring before
+      //    validation closes that window: whichever request wins the
+      //    synchronous acquisition below holds it for validation AND the
+      //    close/open, so the other is refused immediately, before it does
+      //    anything — including reading `from`.
+      const boundary = beginRetargetBoundary(ctx.recorder)
+      if (boundary === null) {
         return reply.code(409).send({
-          code: 'already-watching' satisfies RetargetRefusalCode,
+          code: 'retarget-in-flight' satisfies RetargetRefusalCode,
           error:
-            `this rhizomorph is already watching ${repoPath} — there is nothing to retarget; ` +
-            '`rhizomorph rotate` (or the dashboard\'s "end session · start fresh") is how a new recording begins here',
+            'another retarget (or rotation) is already in flight for this recorder — refused rather than ' +
+            'queued, so this request never risks writing a session into a repo the operator has already moved away from',
         })
       }
 
-      const validation = await validateRetargetTarget(to.repoPath, to.sessionDir, {
-        exec: withTimeout(realExec, RETARGET_EXEC_TIMEOUT_MS),
-        ...(ctx.now === undefined ? {} : { now: ctx.now }),
-      })
-      if (!validation.ok) {
-        return reply.code(409).send({
-          code: validation.failure.reason satisfies RetargetRefusalCode,
-          error: validation.failure.message,
-        })
-      }
-
-      // Read BEFORE the boundary, and this ordering is the whole of #391 being
-      // possible: after the close the recorder's buffer is the NEW session's
-      // and holds none of the lanes whose telemetry is about to be refused.
-      // Answering with an empty list would be the instrument reporting a cost
-      // of zero for a cost it had just imposed.
-      const lanes = lanesAtBoundary(ctx.recorder.eventsSoFar())
-
-      // (2) SUSPEND. See this module's own doc for why a retarget stops the
-      // timer where a rotation does not.
-      await ctx.pollLoop?.stop()
-
-      // (3) CLOSE OVER THERE, OPEN OVER HERE.
-      let retarget: Rotation
       try {
-        retarget = await retargetSession({
-          oldSessionDir: from.sessionDir,
-          oldRepoPath: from.repoPath,
-          newSessionDir: to.sessionDir,
-          newRepoPath: to.repoPath,
-          newRepoName: to.repoName,
-          recorder: ctx.recorder,
+        const from = {
+          repoPath: ctx.repoPath,
+          repoName: ctx.repoName,
+          repoSlug: repoSlug(ctx.repoPath),
+          sessionDir: ctx.sessionDir,
+        }
+        const repoPath = path.resolve(requested)
+        const to = {
+          repoPath,
+          repoName: path.basename(repoPath),
+          repoSlug: repoSlug(repoPath),
+          sessionDir: sessionDirFor(repoPath, dataRootOf(ctx)),
+        }
+
+        // (1) VALIDATE, BEFORE ANYTHING CLOSES. The 409 path is the feature
+        // (#386): it is the whole of what rotate-and-reinit has over supervised
+        // respawn, whose equivalent check runs inside the image it is about to
+        // destroy and whose failure is an uncatchable SIGABRT.
+        //
+        // "Already watching this repo" is asked first and here rather than in
+        // `validateRetargetTarget`, because the session lock cannot tell it from
+        // the news the module reports. Our OWN live lock sits in the target's
+        // session dir in exactly this case, so the honest-looking answer would
+        // be "another rhizomorph (pid <ours>) is already watching it" — true,
+        // and it sends the operator hunting for the process they are talking to.
+        if (path.resolve(repoPath) === path.resolve(ctx.repoPath)) {
+          boundary.reject(new Error('refused: already-watching'))
+          return reply.code(409).send({
+            code: 'already-watching' satisfies RetargetRefusalCode,
+            error:
+              `this rhizomorph is already watching ${repoPath} — there is nothing to retarget; ` +
+              '`rhizomorph rotate` (or the dashboard\'s "end session · start fresh") is how a new recording begins here',
+          })
+        }
+
+        const validation = await validateRetargetTarget(to.repoPath, to.sessionDir, {
+          exec: withTimeout(realExec, RETARGET_EXEC_TIMEOUT_MS),
           ...(ctx.now === undefined ? {} : { now: ctx.now }),
         })
-      } catch (err) {
-        // The boundary failed partway. Bring the loop back up against whatever
-        // the context still names — a suspended instrument left down is a
-        // worse outcome than the one that already went wrong, and it is the
-        // one nobody would notice.
+        if (!validation.ok) {
+          boundary.reject(new Error(`refused: ${validation.failure.reason}`))
+          return reply.code(409).send({
+            code: validation.failure.reason satisfies RetargetRefusalCode,
+            error: validation.failure.message,
+          })
+        }
+
+        // Read BEFORE the boundary, and this ordering is the whole of #391 being
+        // possible: after the close the recorder's buffer is the NEW session's
+        // and holds none of the lanes whose telemetry is about to be refused.
+        // Answering with an empty list would be the instrument reporting a cost
+        // of zero for a cost it had just imposed.
+        const lanes = lanesAtBoundary(ctx.recorder.eventsSoFar())
+
+        // (2) SUSPEND. See this module's own doc for why a retarget stops the
+        // timer where a rotation does not.
+        await ctx.pollLoop?.stop()
+
+        // (3) CLOSE OVER THERE, OPEN OVER HERE. The boundary is already ours —
+        // this is the raw close/open, not a second acquisition.
+        let retarget: Rotation
+        try {
+          retarget = await performRetarget({
+            oldSessionDir: from.sessionDir,
+            oldRepoPath: from.repoPath,
+            newSessionDir: to.sessionDir,
+            newRepoPath: to.repoPath,
+            newRepoName: to.repoName,
+            recorder: ctx.recorder,
+            ...(ctx.now === undefined ? {} : { now: ctx.now }),
+          })
+        } catch (err) {
+          // The boundary failed partway. Bring the loop back up against
+          // whatever the context still names — a suspended instrument left
+          // down is a worse outcome than the one that already went wrong, and
+          // it is the one nobody would notice. This is the ONLY path that
+          // restarts the loop on a non-success exit, because it is the only
+          // one that ever stopped it in the first place (#14 defect 1).
+          ctx.pollLoop?.start()
+          throw err
+        }
+        boundary.resolve(retarget)
+
+        // (4) RE-POINT, before anything resumes. The fresh snapshot dir below is
+        // read off this context, so re-pointing after the resume would land the
+        // new session's snapshots in the directory of the repo just left —
+        // silently, since a loop polling a real repo looks entirely healthy.
+        ctx.repoPath = to.repoPath
+        ctx.repoName = to.repoName
+        ctx.sessionDir = to.sessionDir
+
+        // (5) RESUME, against the adopted repo. `repoPath` is the one thing the
+        // loop itself closes over (the spike's Q1 headline: no collector holds
+        // it); the fresh store is the spike's gap (b), so snapshots stop landing
+        // in a session directory nobody resuming this one will ever read.
+        await ctx.pollLoop?.reset({
+          repoPath: ctx.repoPath,
+          snapshotStore: createFileSnapshotStore(snapshotDirFor(ctx.sessionDir, retarget.opened.sessionId)),
+        })
         ctx.pollLoop?.start()
+
+        // The new session's boot facts, replacing the closed session's — the same
+        // move `/api/rotate` makes, with the one word that must differ. Recording
+        // this as `rotated` would tell the provenance bar the predecessor is the
+        // previous log in this repo's replay picker, and it is not: it is under
+        // the old repo's slug, which is precisely what `retargeted` says instead.
+        recordSessionBootMeta(ctx.recorder, {
+          resumedCount: 0,
+          resumeWindowMs: sessionBootMetaFor(ctx.recorder)?.resumeWindowMs ?? RESUME_WINDOW_MS,
+          lastBootReason: 'retargeted',
+        })
+
+        // What it cost, in the answer to the act that caused it (#391). The
+        // instance id is the session id, so a retarget changes it under any
+        // design — the spike measured that respawn pays it identically. What is
+        // available is saying so before the first `telemetry.refused` says it,
+        // ~60 s later and once for the whole swarm rather than once per lane.
+        const telemetry = describeTelemetryCost({
+          lanes,
+          previousInstance: retarget.closed.sessionId,
+          instance: retarget.opened.sessionId,
+          ...(ctx.port === undefined ? {} : { port: ctx.port }),
+        })
+
+        return { closed: retarget.closed, opened: retarget.opened, from, to, telemetry }
+      } catch (err) {
+        // Safety net: release the boundary on ANY throw between acquiring it
+        // above and one of the explicit settlements above catching it first —
+        // a leaked slot would refuse every retarget and rotation on this
+        // recorder forever. Idempotent against a settlement that already ran
+        // (a native promise's second resolve/reject is a no-op).
+        boundary.reject(err)
         throw err
       }
-
-      // (4) RE-POINT, before anything resumes. The fresh snapshot dir below is
-      // read off this context, so re-pointing after the resume would land the
-      // new session's snapshots in the directory of the repo just left —
-      // silently, since a loop polling a real repo looks entirely healthy.
-      ctx.repoPath = to.repoPath
-      ctx.repoName = to.repoName
-      ctx.sessionDir = to.sessionDir
-
-      // (5) RESUME, against the adopted repo. `repoPath` is the one thing the
-      // loop itself closes over (the spike's Q1 headline: no collector holds
-      // it); the fresh store is the spike's gap (b), so snapshots stop landing
-      // in a session directory nobody resuming this one will ever read.
-      await ctx.pollLoop?.reset({
-        repoPath: ctx.repoPath,
-        snapshotStore: createFileSnapshotStore(snapshotDirFor(ctx.sessionDir, retarget.opened.sessionId)),
-      })
-      ctx.pollLoop?.start()
-
-      // The new session's boot facts, replacing the closed session's — the same
-      // move `/api/rotate` makes, with the one word that must differ. Recording
-      // this as `rotated` would tell the provenance bar the predecessor is the
-      // previous log in this repo's replay picker, and it is not: it is under
-      // the old repo's slug, which is precisely what `retargeted` says instead.
-      recordSessionBootMeta(ctx.recorder, {
-        resumedCount: 0,
-        resumeWindowMs: sessionBootMetaFor(ctx.recorder)?.resumeWindowMs ?? RESUME_WINDOW_MS,
-        lastBootReason: 'retargeted',
-      })
-
-      // What it cost, in the answer to the act that caused it (#391). The
-      // instance id is the session id, so a retarget changes it under any
-      // design — the spike measured that respawn pays it identically. What is
-      // available is saying so before the first `telemetry.refused` says it,
-      // ~60 s later and once for the whole swarm rather than once per lane.
-      const telemetry = describeTelemetryCost({
-        lanes,
-        previousInstance: retarget.closed.sessionId,
-        instance: retarget.opened.sessionId,
-        ...(ctx.port === undefined ? {} : { port: ctx.port }),
-      })
-
-      return { closed: retarget.closed, opened: retarget.opened, from, to, telemetry }
     },
   )
 }

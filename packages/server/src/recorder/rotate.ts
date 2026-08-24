@@ -193,10 +193,24 @@ export function nextSessionStart(closedSessionId: string, nowMs: number): number
 }
 
 /**
- * Rotations already running, keyed by recorder. Two operators (or a click and
- * a `rhizomorph rotate` in the same second) asking at once is ONE boundary,
- * not two — the second caller awaits the first's answer instead of closing a
- * session that is a millisecond old.
+ * Boundaries already running, keyed by recorder — shared by `rotateSession`
+ * AND `retargetSession` (#14), because the guarantee is "never two
+ * close/open pairs racing the same recorder", and that has to be true whether
+ * both sides are rotations, both are retargets, or one of each. What differs
+ * is what the SECOND caller gets, and that stays per-function rather than
+ * becoming a flag on the map:
+ *
+ * - `rotateSession` COALESCES — two operators (or a click and a
+ *   `rhizomorph rotate` in the same second) asking at once is ONE boundary,
+ *   not two, so the second caller awaits the first's answer instead of
+ *   closing a session that is a millisecond old. That is a considered
+ *   decision (its own doc, above) and #14 does not change it.
+ * - `retargetSession` REFUSES. Coalescing would hand the second caller the
+ *   FIRST caller's destination — asked to move to B, told "moved to A",
+ *   status 200 — which is exactly the queued-retarget failure mode the PRD
+ *   rejects. So a retarget that finds this map already occupied (by a
+ *   rotation or another retarget) throws {@link RetargetInFlightError}
+ *   instead of returning the entry.
  */
 const inFlight = new WeakMap<SessionRecorder, Promise<Rotation>>()
 
@@ -242,12 +256,88 @@ export interface RetargetSessionOptions {
  * that was just sealed, which only the open half can know (the close half
  * finishes before the new session id is even minted).
  *
- * No in-flight guard here, unlike `rotateSession`'s `WeakMap`: a retarget is
- * validated against the new target BEFORE this is ever called (validate-then-
- * release — #386), so a second concurrent retarget racing this one is that
- * caller's own boundary to hold, not this function's.
+ * Validation against the new target happens BEFORE this is ever called
+ * (validate-then-release — #386), but that only ever ruled out a bad
+ * destination — it says nothing about a second retarget racing this one, and
+ * nothing upstream of here was actually holding that boundary (#14: the
+ * caller this doc used to name did not exist). So this function shares
+ * `rotateSession`'s `inFlight` map (above) and REFUSES rather than coalesces:
+ * a retarget that finds the map already occupied throws
+ * {@link RetargetInFlightError} instead of returning someone else's result
+ * under the caller's own name.
+ *
+ * That guard is exposed as two separable steps — {@link beginRetargetBoundary}
+ * (reserve) and this function's own body (do the work) — because #14's
+ * second defect was that reserving it only around the close/open leaves the
+ * SLOW part (`api/retarget.ts`'s validation, well before either half here
+ * ever runs) outside the guard entirely: a second retarget arriving while the
+ * first is still validating would find the map EMPTY and slip through on a
+ * `from` snapshot the first retarget had, by then, already made stale. A
+ * caller that itself has slow work to do before it may call this function —
+ * `api/retarget.ts` is exactly that caller — reserves the slot with
+ * `beginRetargetBoundary` FIRST, before any of that slow work, and this
+ * function stays the simple, self-contained, all-in-one entry point for a
+ * caller (this module's own tests included) that has nothing to do first.
  */
-export async function retargetSession(options: RetargetSessionOptions): Promise<Rotation> {
+export class RetargetInFlightError extends Error {}
+
+export interface RetargetBoundary {
+  /** The close/open actually happened — settle with its real result, releasing the guard and, if `rotateSession` coalesced onto it, handing that caller the SAME `Rotation` this one got. */
+  resolve(rotation: Rotation): void
+  /** The boundary is being abandoned without ever running the close/open (a refusal upstream of it, or an unexpected failure) — releases the guard just the same, but as a rejection. */
+  reject(err: unknown): void
+}
+
+/**
+ * Reserve this recorder's slot in the shared `inFlight` map — the FIRST thing
+ * any retarget does, before validation, before it even snapshots which repo
+ * it is leaving. Returns null when a rotation or another retarget already
+ * holds it, so the caller can refuse immediately, having touched nothing
+ * (no loop stop, no validation, no snapshot) rather than discovering the
+ * collision only after doing all of that.
+ *
+ * The reservation is a `Promise<Rotation>` in `inFlight` the instant this
+ * returns, so a `rotateSession` racing this retarget coalesces onto it
+ * exactly as it would onto a running rotation, from the very first instant —
+ * it never observes a window where the retarget is "reserved but not really
+ * running yet".
+ */
+export function beginRetargetBoundary(recorder: SessionRecorder): RetargetBoundary | null {
+  if (inFlight.has(recorder)) return null
+
+  let settle!: (rotation: Rotation) => void
+  let fail!: (err: unknown) => void
+  const pending = new Promise<Rotation>((res, rej) => {
+    settle = res
+    fail = rej
+  })
+  // Nobody may ever coalesce onto a boundary that is refused before it does
+  // any work — this reference must not turn that into an unhandled rejection.
+  pending.catch(() => {})
+  inFlight.set(recorder, pending)
+
+  const release = () => {
+    if (inFlight.get(recorder) === pending) inFlight.delete(recorder)
+  }
+  return {
+    resolve: (rotation) => {
+      settle(rotation)
+      release()
+    },
+    reject: (err) => {
+      fail(err)
+      release()
+    },
+  }
+}
+
+/**
+ * The close/open pair itself, guard-free — reserving the slot is the
+ * caller's job, either directly via {@link beginRetargetBoundary} (what
+ * `api/retarget.ts` does, having already reserved it well before this point)
+ * or implicitly by calling {@link retargetSession} instead of this function.
+ */
+export async function performRetarget(options: RetargetSessionOptions): Promise<Rotation> {
   const closed = await closeCurrentSession({
     sessionDir: options.oldSessionDir,
     recorder: options.recorder,
@@ -269,4 +359,22 @@ export async function retargetSession(options: RetargetSessionOptions): Promise<
     closed,
   )
   return { closed, opened }
+}
+
+export async function retargetSession(options: RetargetSessionOptions): Promise<Rotation> {
+  const boundary = beginRetargetBoundary(options.recorder)
+  if (boundary === null) {
+    throw new RetargetInFlightError(
+      'a rotation or retarget is already in flight for this recorder — refusing rather than coalescing, ' +
+        'since coalescing would report the FIRST boundary\'s destination as this call\'s own result',
+    )
+  }
+  try {
+    const rotation = await performRetarget(options)
+    boundary.resolve(rotation)
+    return rotation
+  } catch (err) {
+    boundary.reject(err)
+    throw err
+  }
 }
