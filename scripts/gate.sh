@@ -1,9 +1,12 @@
 #!/bin/bash
 # gate.sh <handle> <fence-regex> [load-batches] — a landing gate that BLOCKS.
 #
-# Every check exits 1 on failure, so the merge is unreachable from a failed
-# check. Written after a gate that printed "RED" and merged anyway: a check that
-# reports without honouring itself is not a gate.
+# Every check exits 1 on failure: a failed check BEFORE the merge makes the
+# merge unreachable, and a failed check after it (install, build) makes the
+# PUSH unreachable and says so. Written after a gate that printed "RED" and
+# merged anyway: a check that reports without honouring itself is not a gate.
+# The one exception is the final push — see push_or_warn(), which names and
+# scopes that exemption instead of leaving it as a comment on the line.
 #
 # Callers must also gate their side effects:
 #     gate.sh 37 '^src/foo/' 3 && gh issue close 37   # NOT on separate lines
@@ -22,20 +25,36 @@ W=$(workmux path "$H" 2>/dev/null | tail -1)
 
 clean() { git -C "$root" checkout -- package-lock.json 2>/dev/null || true
           git -C "$W"    checkout -- package-lock.json 2>/dev/null || true; }
-fail()  { echo "GATE FAILED: $1"; echo ">>> HOLDING $H — not merged"; exit 1; }
+# MERGED flips at the merge so fail()'s recovery line stays TRUE on both sides
+# of it. Before: nothing landed, the lane still holds the work. After: local
+# main carries the merge and the only thing held is the push — so "not merged"
+# would send the operator to a lane whose branch and worktree are already gone.
+MERGED=0
+fail()  { echo "GATE FAILED: $1"
+          if [ "$MERGED" = 0 ]; then echo ">>> HOLDING $H — not merged"
+          else echo ">>> MERGED to local main, NOT pushed — fix forward on main immediately, then push"; fi
+          exit 1; }
 
 echo "════════ GATE: $H ════════"
+command -v python3 >/dev/null 2>&1 || fail "python3 not found — the NUL-byte guard cannot run without it"
 [ -d "$W" ] || fail "worktree missing (resolved: ${W:-none})"
 BRANCH=$(git -C "$W" rev-parse --abbrev-ref HEAD 2>/dev/null) || fail "cannot read branch"
 echo "  worktree: $W (branch $BRANCH)"
 
 # lockfile churn from per-worktree installs blocks merges on either side
 clean
-workmux rebase "$H" >/dev/null 2>&1 || echo "  (rebase reported an issue — continuing to checks)"
+workmux rebase "$H" >/dev/null 2>&1 || echo "  (rebase reported an issue — the branch's base is asserted below)"
 # In a linked worktree .git is a FILE, so $W/.git/rebase-merge never exists —
 # resolve the real git dir first (learned when a mid-rebase lane read as "stranded").
 GD=$(git -C "$W" rev-parse --absolute-git-dir 2>/dev/null || echo "$W/.git")
 { [ -d "$GD/rebase-merge" ] || [ -d "$GD/rebase-apply" ]; } && fail "worktree is mid-rebase (conflict) — resolve on the branch first"
+# workmux's exit code is not the check — the STATE is. A rebase that never ran
+# (workmux absent, unknown handle) or aborted cleanly leaves the branch on an
+# old base, where the three-dot fence audit and the suite below both measure a
+# tree that is not the one landing. Verified: this holds a stale branch and
+# false-holds nothing — an already-current branch, a fresh zero-commit branch
+# and HEAD == main all have main as an ancestor.
+git -C "$W" merge-base --is-ancestor main HEAD 2>/dev/null || fail "branch $BRANCH is not on top of main (the rebase did not take) — rebase it, then re-run"
 
 viol=$(git -C "$W" diff main...HEAD --name-only | grep -vE "$FENCE" || true)
 [ -n "$viol" ] && { echo "  outside fence:"; echo "$viol" | sed 's/^/    /'; fail "fence violated (widen it deliberately, with the diff as justification, or send it back)"; }
@@ -59,7 +78,7 @@ while read -r f; do
   case "$f" in
     *.png|*.jpg|*.jpeg|*.gif|*.ico|*.webp|*.woff|*.woff2|*.ttf|*.pdf|*.zip|*.gz) continue ;;
   esac
-  c=$(python3 -c "import sys;print(open(sys.argv[1],'rb').read().count(b'\x00'))" "$W/$f" 2>/dev/null || echo 0)
+  c=$(python3 -c "import sys;print(open(sys.argv[1],'rb').read().count(b'\x00'))" "$W/$f" 2>/tmp/gate-nul-$H.log) || fail "$f unreadable — cannot verify NUL bytes (see /tmp/gate-nul-$H.log)"
   [ "$c" != "0" ] && fail "$f contains $c NUL byte(s) — git treats it as binary: undiffable, unmergeable"
 done < <(git -C "$W" diff main...HEAD --name-only)
 echo "  no NUL bytes (text files; binary assets exempt)"
@@ -145,6 +164,7 @@ fi
 clean
 workmux merge "$H" 2>&1 | grep -E "Merged '|Error|Caused by" | head -2
 git rev-parse --verify "refs/heads/$BRANCH" >/dev/null 2>&1 && fail "branch $BRANCH still exists — the merge did not complete"
+MERGED=1   # every fail() past this point reports the post-merge truth
 
 # The lane manifest (ruling 19, written by dispatch.sh) describes CURRENT
 # lanes. Prune the merged lane or observers fence a ghost — three landed
@@ -166,16 +186,23 @@ fi
 # boot with "Failed to resolve module specifier". Reconcile here, then prove
 # the thing actually builds — a gate that never builds is a gate that ships
 # a broken bundle behind a green suite.
-npm install --no-audit --no-fund >/tmp/gate-install-$H.log 2>&1 || echo "  ! npm install after merge reported an issue (see /tmp/gate-install-$H.log)"
+npm install --no-audit --no-fund >/tmp/gate-install-$H.log 2>&1 || fail "npm install after merge broke — see /tmp/gate-install-$H.log"
 if npm run build >/tmp/gate-build-$H.log 2>&1; then
   echo "  build OK"
 else
   tail -6 /tmp/gate-build-$H.log
-  echo "  !! BUILD BROKEN ON MAIN after merging $H — fix forward immediately"
+  fail "BUILD BROKEN ON MAIN after merging $H"
 fi
 echo "  MERGED, main now at $(git log --oneline -1)"
 
+# push_or_warn() is THE ONE NON-FATAL CHECK IN THIS SCRIPT. Every other check
+# above exits through fail(); this single line is exempted, by name, so a
+# reader can see it is one line's exemption and not the script's posture.
 # Landings are not durable until they leave this disk (operator ruling
-# 2026-08-04: "where are we pushing these changes?"). Loud but non-fatal —
-# an offline push must not hold a green landing hostage.
-git push origin main 2>&1 | tail -1 || echo "  ! push FAILED — main is LOCAL-ONLY until pushed by hand"
+# 2026-08-04: "where are we pushing these changes?"), but an offline operator
+# must still be able to land — loud but non-fatal, so a failed push does not
+# hold a green landing hostage.
+push_or_warn() {
+  git push origin main 2>&1 | tail -1 || echo "  ! push FAILED — main is LOCAL-ONLY until pushed by hand"
+}
+push_or_warn

@@ -275,9 +275,26 @@ Two failures worth knowing, because both actually happened (#649):
 `scripts/gate.sh <handle> <fence-regex>` is **not a pre-push check**. Running it
 *is* the landing. It blocks rather than reports —
 `rebase → fence audit → nothing stranded → typecheck → suite`, every check
-exiting non-zero on failure — and then, once green, it **merges the branch into
-local `main`** (`gate.sh:172`), runs `npm install` and `npm run build` against
-the merged result, and ends with **`git push origin main`** (`gate.sh:177`).
+exiting non-zero on failure — and then, once green, it merges the branch into
+local `main`, runs `npm install` and `npm run build` against the merged
+result, and finishes by pushing that merged `main` to `origin`.
+
+Exactly one step in that sequence is deliberately non-fatal: **the final push**.
+Every earlier check exits non-zero on failure — but *what* a failure holds moves
+with the merge. A check that fails **before** the merge holds the merge: nothing
+landed and the lane still has the work. The two that run **after** it
+(`npm install`, `npm run build`) hold the *push*: local `main` already carries
+the merge and the lane's branch and worktree are already gone, so recovery there
+is to fix forward on `main`, never to go back to the lane. The gate says which
+side of the merge it failed on, and that sentence is the one to read first.
+
+The push alone is allowed to fail loudly and let the landing stand anyway,
+because an offline operator must still be able to land — a merge that cannot
+reach `origin` yet is still a merge, and refusing to keep it on `main` locally
+would throw away real work over a network problem rather than a bad change.
+That exemption belongs to the push, and only the push; no other step in the
+script inherits it. Do not read it as license to treat the rest of the gate as
+advisory too.
 
 That last third used to be missing from this section, which described the
 command under a heading that read as "the thing you run before pushing". On
