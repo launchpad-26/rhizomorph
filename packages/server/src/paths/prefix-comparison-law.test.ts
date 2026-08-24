@@ -134,6 +134,23 @@ import { describe, expect, it } from 'vitest'
  *     `slice` alone, to close this, was tried and rejected: it re-convicts
  *     `argv.indexOf(flag) === 0` immediately, which is the regression
  *     `hasPathContextNearby` exists to prevent.
+ *   - An idiom sharing a line with a string literal that contains `//`, or
+ *     sitting between two string literals that spell a block-comment
+ *     opener and closer.
+ *     `codeOf` is a text stripper, not a lexer: it cannot tell a comment
+ *     opener from the same characters inside a string or a regex, so it
+ *     blanks from the `//` to end of line, and from an opener to the
+ *     next closer across lines. Both were reproduced as planted production files during
+ *     review of this commit and are asserted below, so the miss is recorded
+ *     rather than merely true. Its sibling law found the same root cause
+ *     from the other side — `forward-transform-law.test.ts` documents a bare
+ *     `/\//g` regex whose escape abuts the closing delimiter, corrupting the
+ *     code AFTER it — and that is the tell that this belongs to `codeOf`
+ *     itself, not to either law's shape patterns. Swept the tree for real
+ *     instances at the time this was written: zero non-comment lines in
+ *     `packages/server/src` lose an idiom to either blanking, so nothing is
+ *     hidden today. Closing it means a real tokenizer, which is the same
+ *     AST-with-types trade the gaps above decline.
  * A line-oriented text scan — the same style `no-personal-paths-
  * law.test.ts` and `retarget-law.test.ts` already use in this package — is
  * the right tool for the shapes above; chasing every one of these gaps into
@@ -729,6 +746,32 @@ describe('a path-containment comparison outside paths/containment.ts is a defect
       for (const snippet of noPathContextAnywhere) {
         expect(scanForViolations(codeOf(snippet)), snippet).toEqual([])
       }
+    })
+
+    it('an idiom hidden by codeOf\'s comment blanking is missed — a documented gap, not a silent one', () => {
+      // `codeOf` strips comments by text, not by tokenizing, so the same
+      // characters inside a STRING LITERAL blank real code. Both spellings
+      // below were planted as real files under packages/server/src during
+      // review of this PR and passed the whole suite 26/26; asserted here
+      // as mutations instead, per this file's own "rigged snippets, never
+      // live code" discipline. The sibling law hit this root cause from
+      // the other side (a bare `/\//g` regex corrupting the code after
+      // it), which is what places the fault in `codeOf` rather than in
+      // either law's shape patterns. Neither shape occurs on a
+      // non-comment line anywhere in the tree today.
+      const lineComment = [
+        'const requested = path.resolve(root, rest)',
+        "const docs = 'https://example.invalid/docs'; if (!requested.startsWith(root)) return docs",
+      ].join('\n')
+      expect(scanForViolations(codeOf(lineComment))).toEqual([])
+
+      const blockComment = [
+        'const openGlob = ' + "'/*'",
+        'const requested = path.resolve(root, rest)',
+        'if (!requested.startsWith(root)) return null',
+        'const closeGlob = ' + "'*/'",
+      ].join('\n')
+      expect(scanForViolations(codeOf(blockComment))).toEqual([])
     })
   })
 })
