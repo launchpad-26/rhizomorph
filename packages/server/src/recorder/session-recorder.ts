@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events'
-import type { EventOf, RhizomorphEvent } from '@rhizomorph/core'
+import { initialSessionState, reduce, reduceAll } from '@rhizomorph/core'
+import type { EventOf, RhizomorphEvent, SessionState } from '@rhizomorph/core'
 import { SessionLogWriter } from './session-log-writer.js'
 
 export interface SessionRecorderOptions {
@@ -34,6 +35,20 @@ export class SessionRecorder {
   private currentSessionId: string
   private currentFilePath: string
   private buffer: RhizomorphEvent[] = []
+  /**
+   * The fold of {@link buffer}, maintained incrementally rather than
+   * rebuilt per read (prd40 ruling 2). Kept exactly in step with `buffer`:
+   * every push into it is followed, in the same synchronous step, by an
+   * `advanceFold` call — see `record`, `closeWith` and `openSession`.
+   */
+  private foldState: SessionState
+  /**
+   * True when {@link advanceFold} could not keep `foldState` in step with an
+   * event that DID land in `buffer` — see its own comment. `foldSoFar` checks
+   * this on every read and self-heals by rebuilding from `buffer` once,
+   * rather than ever answering with a fold it knows has fallen behind.
+   */
+  private foldDesynced = false
   private readonly emitter = new EventEmitter()
   private writer: SessionLogWriter
   /**
@@ -50,6 +65,7 @@ export class SessionRecorder {
     this.currentFilePath = filePath
     const resuming = options.resumeFrom !== undefined
     if (options.resumeFrom) this.buffer.push(...options.resumeFrom)
+    this.foldState = reduceAll(this.buffer)
     this.writer = new SessionLogWriter(filePath, { resuming })
     // Many concurrent SSE clients each subscribe once; the default cap of 10 is easy to hit honestly.
     this.emitter.setMaxListeners(0)
@@ -75,9 +91,33 @@ export class SessionRecorder {
     return this.sealed !== null
   }
 
+  /**
+   * Folds one event into the running {@link foldState}. Always called
+   * immediately after the matching `this.buffer.push`, in the same
+   * synchronous step — so a subscriber reading `foldSoFar()` from inside
+   * `emitter.emit` sees exactly the events `eventsSoFar()` already shows it,
+   * and the fold can never observably lag the buffer.
+   *
+   * `reduce` is total over the validated `RhizomorphEvent` union (see its
+   * own exhaustiveness proof), so the catch below is defensive rather than
+   * expected. It exists anyway because a bug in the accelerator must never
+   * become a new way for `record`/`closeWith` to reject — those methods'
+   * contracts are governed by the writer, not by this. `foldSoFar` notices
+   * `foldDesynced` and repairs it from `buffer`, which is always ground
+   * truth.
+   */
+  private advanceFold(event: RhizomorphEvent): void {
+    try {
+      this.foldState = reduce(this.foldState, event)
+    } catch {
+      this.foldDesynced = true
+    }
+  }
+
   async record(event: RhizomorphEvent): Promise<void> {
     while (this.sealed !== null) await this.sealed
     this.buffer.push(event)
+    this.advanceFold(event)
     // A throwing subscriber here just rejects this call's promise — unlike
     // closeWith, record() holds no seal that would otherwise stay stuck.
     this.emitter.emit('event', event)
@@ -99,6 +139,7 @@ export class SessionRecorder {
       this.releaseSeal = resolve
     })
     this.buffer.push(event)
+    this.advanceFold(event)
     try {
       this.emitter.emit('event', event)
       await this.writer.append(event)
@@ -123,6 +164,8 @@ export class SessionRecorder {
     this.currentFilePath = filePath
     this.writer = new SessionLogWriter(filePath)
     this.buffer = []
+    this.foldState = initialSessionState()
+    this.foldDesynced = false
     const release = this.releaseSeal
     this.sealed = null
     this.releaseSeal = null
@@ -132,6 +175,31 @@ export class SessionRecorder {
   /** flush + fsync of the session being written now — see `SessionLogWriter.sync`. */
   async sync(): Promise<void> {
     await this.writer.sync()
+  }
+
+  /**
+   * The fold of every event recorded so far *this session* — maintained
+   * incrementally (prd40 ruling 2), never rebuilt per call. Deep-equal to
+   * `reduceAll(eventsSoFar())` for the same stream (proven over the
+   * golden-era corpus in `session-recorder.test.ts`), and the number of
+   * `reduce` calls one read costs is zero regardless of session length (the
+   * spy law, same file). `/api/meta` and every future reader should answer
+   * from this rather than re-folding `eventsSoFar()` themselves — see
+   * prd-40's open question on whether `eventsSoFar()` should eventually
+   * narrow to the exporter only; that is not decided here.
+   *
+   * Returned by reference, not copied — `SessionState` is treated as
+   * read-only by the same convention every other reader of `reduceAll(...)`
+   * already relies on (e.g. `api/meta.ts`, `cli/run.ts`); copying it here
+   * would both invent a new discipline and defeat the O(1) cost this method
+   * exists to provide.
+   */
+  foldSoFar(): SessionState {
+    if (this.foldDesynced) {
+      this.foldState = reduceAll(this.buffer)
+      this.foldDesynced = false
+    }
+    return this.foldState
   }
 
   /** Every event recorded so far *this session*, in order. */
