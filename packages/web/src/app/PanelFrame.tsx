@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { useFocusRequest, usePanelCollapsed, usePanelFocus } from './panelPrefs.js'
 
 export interface PanelFrameProps {
@@ -118,6 +118,19 @@ export function PanelFrame({
 
   return (
     <div
+      /*
+       * A focused panel covers the dock, so the dock's height stops being an
+       * offset anything should honour (review of #65). `--dock-h` exists so a
+       * sticky child can stop where the shell's dock ends — but this container
+       * is `fixed inset-0` at `--z-focus` (30) over the dock's `--z-header`
+       * (20), and opaque, so there IS no dock above it any more. Left alone,
+       * the collisions table's `sticky top-(--dock-h)` headings would hold a
+       * ~146px gap open at the top of a focused panel, reserving room for a bar
+       * that is not on screen. Zeroing it for this subtree only is the whole
+       * fix: the same declaration keeps meaning "stop below the chrome", and
+       * here the chrome is nothing.
+       */
+      style={focused ? ({ ['--dock-h' as string]: '0px' } as CSSProperties) : undefined}
       className={
         focused
           ? 'fixed inset-0 z-(--z-focus) flex flex-col overflow-auto bg-(--surface-floor) p-4 [scrollbar-gutter:stable]'
