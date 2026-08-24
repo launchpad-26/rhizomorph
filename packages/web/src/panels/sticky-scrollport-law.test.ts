@@ -80,6 +80,12 @@ function panelSources(): { name: string; text: string }[] {
 }
 
 const VERTICAL_SCROLLPORT = /overflow-auto|overflow-y-auto|overflow-y-scroll/
+
+/** The shell publishes the offset; `panels/` consumes it. This law reads both
+ *  ends, because a `top-(--dock-h)` that resolves to nothing is not an error —
+ *  it is `top: auto`, and a sticky element with `top: auto` silently does not
+ *  stick at all. */
+const SHELL = path.join(dirname, '..', 'app', 'Shell.tsx')
 /** Option B (review of #65): stuck to the DOCUMENT on purpose, offset below
  *  the shell's own sticky dock rather than assuming a local scrollport. */
 const DOCK_OFFSET_STICKY = /sticky\s+top-\(--dock-h\)/
@@ -111,6 +117,40 @@ describe('sticky scrollport law: a vertically-sticky child needs a scrolling anc
         "behind the shell dock — either restore the panel's own overflow wrapper, " +
         'offset with `top-(--dock-h)`, or drop the sticky (see this file\'s header for #65)',
     ).toEqual([])
+  })
+
+  it('whoever offsets by `--dock-h` is answered — the shell still publishes it, measured', () => {
+    /*
+     * The sibling the law above cannot see (review of 13308c5). It pins the
+     * CONSUMER's declaration; nothing pinned the PRODUCER's. Deleting the
+     * `style={{ '--dock-h': ... }}` line from `Shell.tsx` left all 166 web
+     * test files green, because an undefined custom property does not throw:
+     * `top: var(--dock-h)` becomes invalid at computed-value time, `top` falls
+     * back to its initial `auto`, and a `position: sticky` element with
+     * `top: auto` simply never sticks. The headings would quietly go back to
+     * scrolling away — the exact behaviour option B was chosen over — with no
+     * test, no console error and nothing on screen to say so.
+     *
+     * Conditional on purpose: if no panel offsets by `--dock-h` any more, the
+     * shell owes nobody a measurement and this stops applying.
+     */
+    const consumers = panelSources()
+      .map((file) => ({ ...file, code: withoutComments(file.text) }))
+      .filter((file) => DOCK_OFFSET_STICKY.test(file.code))
+      .map((file) => file.name)
+    if (consumers.length === 0) return
+
+    const shell = withoutComments(readFileSync(SHELL, 'utf8'))
+    expect(shell, 'Shell.tsx not found where this law expects it').toContain('export function Shell()')
+    expect(
+      shell,
+      `${consumers.join(', ')} offset by --dock-h, so Shell must publish it — see this test's comment`,
+    ).toContain('--dock-h')
+    // Measured, not a constant: the dock's height changes when the attention
+    // strip and replay banner swap. A hard-coded `--dock-h: 146px` would pass
+    // the line above while being wrong in exactly the mode that motivated it.
+    expect(shell, '--dock-h must be measured from the live dock, not hard-coded').toMatch(/ResizeObserver/)
+    expect(shell, "the measured height must reach the dock's own element").toMatch(/ref=\{[^}]*[Rr]ef\}/)
   })
 
   it('the collisions table took the dock-offset path, not the scrollport one', () => {
