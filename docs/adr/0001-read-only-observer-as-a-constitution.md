@@ -83,3 +83,14 @@ Tracked as issue #234.
 
 **Neutral.** Every future capability that wants to write must argue for a fourth
 hand in public, which is the intended friction.
+
+> **Amendment — the fence caught up (2026-08-24).** The decision is unchanged.
+> **#234 closed:** `POST /api/lab/launch` is declared `gated-mutation` in
+> `api/index.ts`'s `ROUTE_CLASSES` and
+> [ADR-0024](0024-a-gated-read-is-the-fourth-route-class.md)'s gate-presence law
+> fails the build if it loses its token `preHandler` — so the route now meets the
+> "explicitly invoked by a human" condition the amendment was granted under.
+> #245's separate defect (the namespace law's per-file walk is blind to a reach
+> through the declared CLI wiring point) was **not** verified closed and stands as
+> recorded. And the fourth hand was duly argued in public: it is
+> [ADR-0019](0019-the-fourth-hand.md), the concierge.

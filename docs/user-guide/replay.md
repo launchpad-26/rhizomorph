@@ -14,8 +14,9 @@ the recorded session with the most history — its exact label:
 
 > **Replay this session's birth**
 
-(If no sessions are recorded yet, the same button reads **No recorded
-sessions yet** and is disabled.) Beside it: a session dropdown — named by an
+(If no sessions are recorded yet, the label does not change — the button is
+simply disabled, and *"No recorded sessions yet"* is what it says on hover.)
+Beside it: a session dropdown — named by an
 operator label if one was set, else the auto-title `rhizomorph sessions`
 also shows, never a bare timestamp — and a speed control with three exact
 steps: **1x**, **4x**, **16x**.

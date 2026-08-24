@@ -83,3 +83,12 @@ a designed placeholder, not a built system.
 **Bad — one law of this ruling is unresolved.** Fold order (arrival vs
 timestamp) is pinned by a fixture but decided in neither direction — see
 ADR-0002 and issue #205.
+
+> **Amendment — the fold-order law is resolved (2026-08-24).** #205 was ruled: **a
+> record's own append order is the truth.** Replay honours it unconditionally —
+> `web/src/replay/replayFold.ts` folds the log's order in `buildSessionIndex`,
+> `foldFrom` and `foldUpTo`, keeping a `ts`-sorted copy for time navigation only —
+> and `docs/record-format.md` states the per-actor append-order law.
+> [ADR-0002](0002-one-reducer-for-live-and-replay.md) carries the matching
+> amendment. Four of this ruling's five laws were already recorded as landed; this
+> was the fifth.

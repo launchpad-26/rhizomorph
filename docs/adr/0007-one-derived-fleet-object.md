@@ -72,3 +72,9 @@ clean; the layering is inverted.
 **Neutral.** `buildFleet` is large and composes a dozen selectors. That is
 inherent: it is where the product's judgment lives, and concentrating it is the
 decision, not a side effect of it.
+
+> **Amendment — the layering was righted (2026-08-24).** The decision is unchanged.
+> **#246 closed:** `buildFleet` and `fences` now live in
+> `packages/core/src/fleet/` (with their tests), so the server reaches the same
+> judgment the browser does rather than re-folding with `reduceAll` beside it. The
+> inverted layering the consequence names no longer exists.

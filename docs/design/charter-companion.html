@@ -24,6 +24,7 @@
     --ice-800:#1b2438;  --ice-700:#26334d; --ice-600:#364768; --ice-500:#4c6289;
     --ice-400:#6a81a8;  --ice-300:#8ea3c4; --ice-200:#b3c6de; --ice-100:#d6e2f2;
     --ice-050:#f0f5fc;
+    --calm:#b3c6de;
     --working:#40d98c; --done:#2e9d74; --waiting:#d9a441; --needs-you:#ffc857;
     --broken:#ff3d68;  --notice:#4deaff; --necrotic:#4a5266;
     --tissue-900:#1e1833; --tissue-700:#322752; --tissue-500:#4b3a7a;
@@ -130,7 +131,7 @@
 </head>
 <body>
 <main>
-  <p class="kicker">visual companion to docs/design/charter.md · restates, never rules · 2026-08-13</p>
+  <p class="kicker">visual companion to docs/design/charter.md · restates, never rules · 2026-08-13, restated against the charter 2026-08-25</p>
   <h1>the design charter — visual companion</h1>
   <p style="margin-top:10px">One page, both registers, every number transcribed. Sections are tagged:
     <span class="chip binding">binding</span> charter-normative on merge ·
@@ -148,6 +149,7 @@
   <p>Six status hues, each owning exactly one meaning. A stranger can guess them; that is the test.</p>
   <table>
     <tr><th>swatch</th><th>token</th><th>hex</th><th>meaning</th></tr>
+    <tr><td><span class="sw" style="background:var(--calm)"></span></td><td class="fig">--color-calm</td><td class="fig">#b3c6de</td><td>structure's bright end — <code>ice-200</code> duplicated, not a seventh hue</td></tr>
     <tr><td><span class="sw" style="background:var(--working)"></span></td><td class="fig">--color-working</td><td class="fig">#40d98c</td><td>productive — the lane is getting on with it</td></tr>
     <tr><td><span class="sw" style="background:var(--done)"></span></td><td class="fig">--color-done</td><td class="fig">#2e9d74</td><td>the same green, dimmer: it got on with it, and stopped</td></tr>
     <tr><td><span class="sw" style="background:var(--waiting)"></span></td><td class="fig">--color-waiting-benign</td><td class="fig">#d9a441</td><td>blocked on a human, nobody summoned — amber's muted end</td></tr>
@@ -198,10 +200,13 @@
   dead; it buys dominance with the spotlight, the only cartouche, and fade exemption instead.</p>
 
   <h2>the type ramp, two registers<span class="chip binding">binding — structure, units, floors</span><span class="chip pending">values tuned here, with hchristina</span></h2>
-  <p style="font-size:12px"><span class="chip today">today</span> The named faces have never shipped —
-  <code>--font-sans</code> and <code>--font-mono</code> name Inter and JetBrains Mono but nothing loads
-  them; 239 sizing sites, mode 10px, ceiling 14px, zero rem. This page is the first surface where the
-  instrument wears its own typeface. The app self-hosts via <code>@fontsource-variable</code>.</p>
+  <p style="font-size:12px"><span class="chip today">replaced</span> The named faces had never shipped when
+  this page was drawn — <code>--font-sans</code> and <code>--font-mono</code> named Inter and JetBrains Mono
+  and nothing loaded them; 239 sizing sites, mode 10px, ceiling 14px, zero rem, and this page was the first
+  surface on which the instrument wore its own typeface. The faces have since landed: the app self-hosts
+  them via <code>@fontsource-variable</code>, imported at the entry point
+  (<span class="fig">packages/web/src/main.tsx:17–18</span>), so the instrument now reads in Inter and
+  JetBrains Mono rather than Segoe UI and Consolas.</p>
   <div class="duo">
     <div class="spec">
       <div class="lab">reading register — conversation · tooltips · prose</div>
@@ -272,19 +277,25 @@
   <p style="font-size:12px">Vibrancy rises only via the lawful recipe: chroma (<code>ACTIVITY_TINT</code>)
   and the floor (<code>CALM_BODY_FLOOR</code>) — the 0.78/0.84 band does not move.</p>
 
-  <h2>motion — four closed classes<span class="chip binding">binding</span><span class="chip pending">growth — owned by the scene PRD</span></h2>
+  <h2>motion — five closed classes<span class="chip binding">binding</span></h2>
   <table>
     <tr><th>class</th><th>what moves</th><th>budget</th></tr>
     <tr><td class="fig">ambient</td><td>root-mass breath, idle life</td><td class="fig">4–8s · ≤3% amplitude · unlimited</td></tr>
-    <tr><td class="fig">event</td><td>pulse travel, flare, alarm throb</td><td class="fig">400–600ms · ≤5 concurrent</td></tr>
+    <tr><td class="fig">event</td><td>pulse travel, flare, alarm throb</td><td class="fig">400–600ms · ≤7 concurrent, measured · alarms exempt</td></tr>
     <tr><td class="fig">structural</td><td>a lane appearing, reflowing</td><td class="fig">~800ms critically damped · ≤2 staggered</td></tr>
     <tr><td class="fig">dissolution</td><td>matter returning</td><td class="fig">≤240 pooled motes · luminance-only · typed cause</td></tr>
+    <tr><td class="fig">growth</td><td>a thread growing in, then thickening while the lane lives</td><td class="fig">350ms bud + 1400ms reach · thicken τ 30s, ≤0.35/s · ≤8 concurrent swells, a cost bound and never a queue · typed cause</td></tr>
   </table>
   <p style="font-size:12px">Degradation substitutes rather than stops: <em>reduced</em> drops travel and
   scale, keeps colour and opacity; <em>paused</em> stops everything, except structural motion settles
-  first. The growth question — threads growing like living matter — either fits inside structural's
-  damped envelope or becomes a fifth class, opened only the way dissolution was: typed cause, hard caps,
-  every older cap untouched.</p>
+  first. The growth question — threads growing like living matter — was
+  <strong style="color:var(--ice-100)">ruled 2026-08-15 (prd-33 ruling 9): growth is the fifth class</strong>,
+  on its own budget rather than borrowing structural's, and it opened the set the way dissolution did —
+  typed cause, hard caps, every older cap untouched. The same day, ruling 10 raised the event cap from 5 to
+  7, derived from the measured concurrency distribution rather than chosen by appetite, and exempted alarms
+  so a death stays visible at any density. Both are in the code:
+  <span class="fig">scene/motion.ts:49</span> holds the five classes,
+  <span class="fig">:79</span> the event cap, <span class="fig">:202</span> the growth budget.</p>
 
   <h2>one hover-disclosure vocabulary<span class="chip binding">the “one, not three” ruling binds now</span></h2>
   <p style="font-size:12px"><span class="chip today">today</span> three components in flight plus ~85
@@ -314,18 +325,27 @@
 
   <h2>the dispositions, at a glance</h2>
   <p style="font-size:12px">All fifteen registered laws: <strong style="color:var(--working)">KEEP</strong>.
-  The four amendments are pending rulings with named owners — ambient layer, ceilings and growth to the
-  <em>scene PRD</em>; the light-mode band to the <em>legibility PRD</em>. The charter's own additive rulings
+  The four amendments were pending rulings with named owners — ambient layer, ceilings and growth to the
+  <em>scene PRD</em>; the light-mode band to the <em>legibility PRD</em> — and all four were
+  <strong style="color:var(--ice-100)">ruled 2026-08-15</strong>: prd-32 rulings 7 and 8, prd-33 rulings 9
+  and 10, each recorded inline where it lands, in the charter's §4 and §5. The charter's own additive rulings
   (fonts, ramp, roles, mirrors, contrast-as-arithmetic, hover vocabulary, focus floor, kind→lightness
-  module, bracketing reservation) bind on merge and amend nothing. Two tensions named, not resolved:
-  prd-14 ruling 1's contradictory amendments (PR #431 r5 vs r8 — the lab review owns it), and prd-21
-  cited-but-unlanded. One standing booking: the #158 glance re-run rides the scene PRD's gate — an
-  operator act with a real lay viewer.</p>
+  module, bracketing reservation) bind on merge and amend nothing; several of them have since been built.
+  The two tensions it named have both <strong style="color:var(--ice-100)">resolved (2026-08-24)</strong>:
+  prd-14 ruling 1's contradictory amendments (PR #431 r5 vs r8 — dead-repo provenance) fell to the
+  operator's coexist-by-surface ruling, different surfaces carrying different pictures and both lawful, and
+  prd-14 itself was ruled 2026-08-24; prd-21, cited-but-unlanded then, landed and shipped —
+  <span class="fig">docs/prds/done/prd-21-scrub-bar.md</span>, so nothing is barred from leaning on its
+  text. One standing booking is still owed: the glance re-run rides the scene PRD's wave-0 gate — an
+  operator act with a real lay viewer, booked and not skipped, its old tracker number (#158) dead with the
+  repo while the obligation lives on in prd-33's gate text.</p>
 
   <footer>
     the artifact restates, never rules — where this page and <span class="fig">docs/design/charter.md</span>
     disagree, the charter is right and this page has a rendering bug · iterate here, record there ·
-    2026-08-13
+    2026-08-13 · restated 2026-08-25 against <span class="fig">main</span> at
+    <span class="fig">4140f6b</span>: the hue table completed, law 10's five classes and the raised event
+    cap transcribed, the font note and the dispositions brought up to the charter
   </footer>
 </main>
 </body>

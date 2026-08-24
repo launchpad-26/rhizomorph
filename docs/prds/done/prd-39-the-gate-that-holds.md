@@ -1,5 +1,12 @@
 # prd-39 — the gate that holds: the landing tool's own checks are checks
 
+> **Outcome:** **shipped 2026-08-24** — rulings 1 and 2 landed in `scripts/gate.sh` and wave 3
+> in `AGENTS.md`, via PR #40; milestone `prd39` closed with issues #1, #2 and #27. Success
+> criterion 2 turned out to be broader than the rulings that served it — the same
+> could-not-run-reads-as-passed shape survives in seven other checks in the same file — and that
+> remainder is **prd-45's** ("the earned verdict", blessed 2026-08-24), not a reopening of this
+> PRD. The `shellcheck` pass described-not-numbered below is prd-45's too.
+>
 > **Status:** **BLESSED** — Ciaran Slow, 2026-08-22, in session. Milestone `prd39`. Drafted the
 > same day from the reconciled audit at `03df141` (findings 1 and 45, both re-verified there —
 > untracked artefact, `.gitignore`d; the sha is the anchor, and the Evidence below restates what

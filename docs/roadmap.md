@@ -53,7 +53,14 @@
   balcony, policy in the conductor.
 - **prd7 — procedural form** (`docs/prds/done/prd-07-procedural-form.md`, shipped): ribbons replace
   stroked lines, the root-mass becomes one marching-squares contour, canvas
-  2D confirmed over WebGL by measurement rather than assumed.
+  2D confirmed over WebGL by measurement rather than assumed. *That last half
+  was reversed by measurement of the same kind:
+  `docs/adr/0021-webgl2-for-the-living-scene.md` (accepted 2026-08-15,
+  supersedes ADR-0006) moved the scene to WebGL2 on the several-colonies case —
+  canvas needs 127.8 ms at 30 lanes × 3 colonies on integrated graphics — and
+  the scene renders through it today (`packages/web/src/scene/gl/frame.ts`).
+  prd7's number stands as the record of what canvas 2D could carry before
+  several colonies became the product; it is not the shipped renderer.*
 - **prd8 — from private project to published software** (`docs/prds/done/prd-08-published-software.md`,
   shipped): the `rhizomorph` rename, a `files` allowlist verified by
   `npm pack`, the README as a trust document, CHANGELOG/semver policy, a
@@ -202,8 +209,13 @@
   switch whose chrome never impersonates status.
 - **prd33 — the living scene** (`docs/prds/prd-33-the-living-scene.md`, BLESSED 2026-08-08,
   acceptance pending): the scene work and recorded before/after frame measurements ship. The
-  remaining gate is the first-glance operator act. Success criterion 1's five-lane cap is
-  historical and superseded by ruling 10's seven-lane cap.
+  remaining gate is the first-glance operator act. Success criterion 1's blanket *"not met
+  while any older cap has moved"* is historical and superseded by ruling 10, which raises the
+  concurrent-**motion** cap — `EVENT.maxConcurrent` from 5 to 7, derived from the recorded
+  load rather than guessed, with the alarm class exempt and always winning (the PRD's own
+  amendment, 2026-08-22). The instrument's supported size is a different ruling and a stated
+  number: ruling 13's 90 threads at 60 fps — three colonies of thirty — with 180 threads
+  rendering correctly at 30 fps and *"not a bug to be closed by relaxing this table"*.
 - **prd34 — the doorstep** (`docs/prds/prd-34-the-doorstep.md`, ruled 2026-08-24, release
   acceptance parked): the Electron shell, tray, first run, three-platform installer workflow
   and update gate ship; rulings 1–9 accepted and Success 3 reconciled with ruling 9's signing
@@ -223,10 +235,33 @@
 - **prd38 — the borrowed credential** (`docs/prds/parked/prd-38-the-borrowed-credential.md`,
   parked): a speculative remote-credential direction with no acceptance evidence, milestone or
   backlog. It requires renewed product and security approval before grooming.
-- **prd39–43 — current blessed programme** (`docs/prds/prd-39-the-gate-that-holds.md` through
-  `docs/prds/prd-43-the-claim-is-a-test.md`): the 24 open board issues all belong here — 2 in
-  prd39, 3 in prd40, 5 in prd41, 5 in prd42 and 9 in prd43. These PRDs are fresh, blessed and
-  actively represented by the GitHub backlog.
+- **prd39 — the gate that holds** (`docs/prds/done/prd-39-the-gate-that-holds.md`, shipped): the
+  landing tool's own checks became checks. Its milestone closed 2026-08-24 with all three
+  issues done — the NUL guard that fails when it cannot run (#27), then a gate check whose
+  printed fault holds the landing and a runbook citing `gate.sh`'s behaviour rather than its
+  line numbers (#1 and #2, landed together as PR #40). What that PR's verify pass found beyond
+  them is prd45's, not a residual here.
+- **prd40–43 — current blessed programme** (`docs/prds/prd-40-the-record-survives-the-write.md`
+  through `docs/prds/prd-43-the-claim-is-a-test.md`): the record survives the write, the
+  laboratory is confined in fact, one path has one spelling, and a document's factual claim
+  fails the build when it goes false. These PRDs are fresh, blessed and actively represented by
+  the GitHub backlog. **Per-milestone issue counts are deliberately not restated here** — a
+  hand-maintained number in this file goes false the same day and reads as live state; the
+  board is the source, via `scripts/dev/issues.sh list` and the `prd40`–`prd43` milestones.
+- **prd44 — the flat instrument** (`docs/prds/prd-44-the-flat-instrument.md`, BLESSED
+  2026-08-24): what it costs to watch tracks the swarm, not the session's age. Five rulings —
+  a finished recording is parsed once rather than once per request, the log is opened once per
+  session rather than once per event, independent subprocesses start together without the log's
+  order becoming theirs to decide, the server states its retention as the client already does,
+  and a picture that cannot change is not rebuilt. Drafted the same day from
+  `docs/review/2026-08-24-performance.md`, a measured pass; consumes prd40's ordering and
+  refuses prd33's model stage.
+- **prd45 — the earned verdict** (`docs/prds/prd-45-the-earned-verdict.md`, BLESSED
+  2026-08-24): a check that could not run says so. Drafted from prd39's verify pass and from
+  prd24's closing amendment, which retired to `done/` leaving two residuals with no owner.
+  Four rulings — a guard in the landing tool may not print a verdict it did not earn, a
+  postcondition asserts the fact it claims, the landing tool is covered by an executable
+  check, and a red CI leg still produces the evidence of its remaining gates.
 
 ## Unclaimed candidates (cohort-facing)
 
@@ -237,12 +272,18 @@ project rather than this week's work:
   flagship first milestone, with the trace layer as its enabler.
 - **Task graphs** — a TodoWrite/beads collector for task-size-and-growth per
   lane.
-- **LiteLLM/OpenRouter/pi capture** — CLIs without native OTel; prd9 ruling 9
+- **LiteLLM/OpenRouter passthrough** — CLIs without native OTel; prd9 ruling 9
   scoped these as cohort issues rather than building them now. Narrower
   since prd15: ruling 4 (`docs/prds/done/prd-15-anywhere-instrument.md`) already rules the adapter contract,
   and ruling 3 names pi-on-OpenRouter/Gemini explicitly, both ruled but not yet landed —
   what remains cohort-inheritable is building the adapters against it, not
-  designing the contract.
+  designing the contract. *The pi half of this candidate is discharged, and the
+  prd26 row above says so: the observation dialect shipped
+  (`packages/server/src/collectors/pi/`, capture-gated against six real
+  `pi-0.83.0` captures, `openrouter/anthropic-claude-haiku-4.5` among them), and
+  pi is one of the six live poll-loop collectors — 13.9 ms of a measured tick in
+  `docs/review/2026-08-24-performance.md` §4. Launching it belongs to prd20. What
+  is left unclaimed is the LiteLLM/OpenRouter passthrough route itself.*
 - **A Langfuse forwarder** — an opt-in outbound relay, filed as a future
   issue and gated on a re-ruling of the Trust section (see
   [docs/telemetry.md](telemetry.md#coexisting-with-langfuse)); "nothing
@@ -271,4 +312,15 @@ captures before the repo goes public.
 - **prd3 next:** the visualization design study, run as a bounded prd; its
   spend-surface patterns feed the factory GUI alpha.
 - **macOS CI:** repo is private → claim softened to match verification (#74)
-  instead of paying 10x for a macos-latest leg.
+  instead of paying 10x for a macos-latest leg. *Reversed 2026-08-06 by
+  `9a7e619` ("feat(ci): min-node leg, a macOS runner, and the pack-smoke job"):
+  the leg was added and macOS is CI-verified on every push —
+  `.github/workflows/ci.yml:32` and `:170` both run the matrix on
+  `macos-latest`, and `desktop.yml` builds the mac installer on its own
+  deliberately non-push trigger. The 10x billing was
+  answered rather than avoided: the macOS leg runs the suite once, at current
+  node, and the min-node floor is checked on the cheaper runner. The leg's stated
+  reason is the one this decision could not have predicted — a case-only filename
+  collision (#201's class) is invisible on Linux and silent on macOS's default
+  case-insensitive checkout. #74 stands as the citation for the softened claim
+  this replaced.*

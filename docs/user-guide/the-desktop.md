@@ -82,8 +82,10 @@ The appearance group is the one you'll touch first:
   palette, not just the chrome.
 - **Density** — comfortable or compact; compact tightens instrument rows,
   table cells and panel gutters, and never touches reading prose.
-- **Motion** *(its own group)* — full, reduced, or still. This is a health
-  control (ruling 5): it can go further than your OS asks, never less far.
+- **Motion** *(its own group)* — follow system, reduced, or still. `full` is
+  not on the menu: it is what *follow system* resolves to when the OS asks
+  for nothing, which is what makes this a health control (ruling 5) — it can
+  go further than your OS asks, never less far.
   *Still* genuinely holds the canvas — the scene's pause button disables
   itself and reads "Motion stilled", so the chrome tells you who is holding
   the picture.
