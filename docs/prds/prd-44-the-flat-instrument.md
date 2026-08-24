@@ -277,3 +277,45 @@ already by a 15 s TTL and single-flight.
   any one collector. Open, not ruled.
 - **Can a retired lane's vertex range survive a camera or resize change without a full rebuild?**
   The world signature catches resize, but a persistent range's *offsets* may not. Open, not ruled.
+
+## Amendment — the waves collapse from five to three (grooming, landed 2026-08-24)
+
+Groomed the same day it was blessed, and the grooming found the Sequencing above paying the
+per-PR toll twice for no dependency. Recorded here rather than left to diverge on the tracker.
+
+**The shared counting harness is withdrawn.** Wave 1 asked for one, and the five count laws it
+would serve spy on five unrelated things — filesystem reads, `open` calls, subprocess spawns, a
+buffer's length, vertex writes — across three packages with separate vitest configs. The shared
+part is a `vi.spyOn` wrapper with one caller per site. **The rule survives, the module does not:**
+every issue asserts a count and never a wall clock, stated in its own Definition of done. Nothing
+about success 6 changes; only the vehicle does.
+
+**With the harness gone, wave 2 depended on nothing in wave 1.** The only real keystone left was
+the bounded-concurrency helper, and it is consumed by wave 3 alone — additive, claimed by nobody,
+and therefore safe to ride inside another wave's PR. So the old waves 1 and 2 are one wave, and the
+numbering closes up:
+
+| now | was | contents |
+|---|---|---|
+| **wave 1** | 1 + 2 | the lane-index parse cache · the writer's held descriptor · the retired-lane vertex cache · the bounded fan-out helper |
+| **wave 2** | 3 | workmux · git · tmux · the declared buffer ceiling |
+| **wave 3** | 4 | retention enforcement |
+
+Four fences in the new wave 1, pairwise disjoint, no intra-wave dependency: `log/`,
+`recorder/session-log-writer.ts`, `scene/gl/`, and one new file. **Three PR tolls instead of four**
+— against a measured 20.9 h median toll, the reason this amendment exists at all.
+
+**Open question 2 is answered by the same pass.** The old descriptor's close cannot go in
+`closeWith`: `recorder/session-recorder.ts` is prd-40 issue #3's live fence, and reaching into it
+would have broken ruling 2's own "before or with prd-40 wave 1" timing. The writer **releases its
+handle on `sync()`** instead — which `closeWith` already calls, and which already opens a
+descriptor of its own today — so the change stays inside `session-log-writer.ts` entirely. The
+interleaving that follows (an append after a `sync()` must reopen) is the lane's to prove, not an
+assumption this amendment makes.
+
+**One constraint the grooming surfaced, recorded because a lane cannot see it coming.** No law
+added by any wave may be named `*.bench.test.ts` or carry a `// @gate-timing` marker.
+`scripts/gate.sh:100` derives its timing set from exactly those two, runs it under 4× load, and
+ratchets the count in `.swarm/timing-count`. A count law is deterministic and belongs in the
+normal suite; put it in the timing set and it slows the operator's landing tool and moves a ratchet
+only a human can clear.
