@@ -159,4 +159,162 @@ if any of them caches a slug across the change, it is its own issue.
 - **Should `isInside` case-fold on macOS and Windows?** It changes the primitive's meaning on two
   platforms and interacts with prd-25's Windows leg. Open, not ruled.
 - **Is 409 the right refusal for an overlapping retarget, or 423?** 409 matches the repo's
-  existing vocabulary; nobody has ruled on it. Open, not ruled.
+  existing vocabulary; nobody has ruled on it. — ANSWERED (wave 2 as landed, 2026-08-25): **409**.
+  `#14` shipped it, in five places in `api/retarget.ts` (`:136`, `:175`, `:211`, `:225`, and the
+  doc comment at `:29` describing the contract); ruling 5 then adopts the same code for the
+  rotation direction rather than minting a second refusal vocabulary. 423 was never implemented
+  and is not proposed.
+
+## Amendment — the residuals (verification of waves 2–3, landed 2026-08-25)
+
+> **Blessed** — gabriel-canaan, 2026-08-25, in session. Rulings 4–6 and waves 4–7 only;
+> rulings 1–3 and waves 1–3 are merged and are neither renumbered nor rewritten.
+
+Waves 1–3 are merged: `#12`/`#13`/`#14` in PR #54, `#15`/`#45` in PR #56. Five
+defects remain **inside this PRD's own territory**, every one found by the
+verification passes on those waves rather than by new work. They are recorded
+here, not in a successor PRD, because the thesis and the territory are
+unchanged — a path still means the same thing everywhere it is written, and
+these are the places it does not.
+
+Rulings 1–3 and waves 1–3 stand exactly as written. Nothing below renumbers or
+rewrites them.
+
+**Two of this PRD's four Success criteria have live falsifiers, and it is more
+honest to say so here than to let the merged waves read as delivery:**
+
+- **Success 1 is not met.** Its falsifier is *"the encoder and the reverse walk
+  disagree on any character"*. They disagree on a **colon** and a
+  **backslash** (`#47`): the encoder maps both to a dash, the reverse walk has
+  never handled either, so any repo path containing one mints a slug the walk
+  cannot resolve. Ruling 1's round-trip law is green only because `#12`
+  asserted an *honest refusal* for the colon case instead of a round trip —
+  which makes the gap a tested fact rather than a closed one.
+- **Success 3 is met in one direction only.** Its falsifier includes *"a
+  retarget can interleave with a rotation"*. Two concurrent retargets now
+  refuse (`#14`), but a **rotation** asked during a retarget is handed the
+  retarget's boundary at status 200 (`#49`) — the same input class, pointed the
+  other way.
+
+## Ruling 4 — the probe decides which side is wrong, and it runs before either fix
+
+For any character on which the encoder and the reverse walk disagree, **neither
+side may be changed until a probe has established what Claude Code's own
+slugger does with it.** The probe is the one this PRD already ran for the
+space: create a directory whose name contains the character, start a real
+session in it, read the slug that appears under the projects root, and record
+the result on the issue. The code change follows from what it says, and not
+before.
+
+Why: the space was settled by exactly this method — the slug showed a dash, so
+the encoder was wrong and the walk was right. That probe tested **only** the
+space. For a colon and a backslash the two possibilities carry opposite fixes:
+if the slugger maps them, the reverse walk is wrong and gains both characters;
+if it does not, the **encoder** is wrong and must stop mapping them. Choosing
+without the probe is a coin toss with a 50% chance of hardening the wrong side,
+and widening the walk to match the encoder is the rejected alternative this PRD
+already names: *it would make both sides agree on the wrong answer.*
+
+Extent: covers the colon and the backslash now (`#47`), and any character later
+found to disagree. It licenses no change to `isInside`, which this PRD consumes
+and never edits.
+
+## Ruling 5 — a rotation refuses a retarget's boundary; coalescing stays rotation-to-rotation
+
+A rotation asked while a **retarget** is in flight **refuses with 409** rather
+than being handed the retarget's `Rotation`. Two concurrent **rotations** still
+coalesce, unchanged.
+
+Why: rotation's coalescing rationale (`recorder/rotate.ts:203-207`) is an
+argument about *two rotations* — "two operators asking at once is ONE boundary,
+not two". It does not carry to a **repo move**. Handing a rotation caller a
+boundary whose `closed.reason` is `'retargeted'`, opening a session in a
+different repo than they asked about, at status 200, is precisely the input
+class `#14` refused in the other direction: *asked to move to B, told "moved to
+A", status 200.* Same defect, same answer.
+
+Extent: the fix belongs in the shared in-flight map learning the operation
+kind, or the route learning to refuse. Route classes in `api/index.ts` remain
+prd-29's territory and no wave here enters them. `recorder/rotate.test.ts:466`
+currently pins this behaviour under a heading that reads as endorsement; it
+becomes a named hazard.
+
+*Rejected alternative — wait for the retarget, then rotate.* It queues, and
+this PRD's own rule is **refuse, never queue**. A caller who asked to rotate a
+repo that is being moved out from under them wants an error, not a delayed
+success against a boundary they never asked for.
+
+## Ruling 6 — a widening on the tokenless route is pinned by a test, in the commit that widens it
+
+Any change to what `GET /*` will serve is **stated in the PR and pinned by a
+test asserting the chosen outcome**, and the assertion is expressed through the
+containment layer — never by re-adding a string comparison (ruling 2 still
+holds).
+
+Why: `#13` correctly replaced `static.ts`'s prefix comparison with the shared
+primitive, and in doing so moved a path that is textually outside the dist root
+but resolves inside it via a symlink from **403 to 200** — a widening nobody
+asked for, on a permanently tokenless route (ADR-0012, prd-29 ruling 1). The
+commit does not mention it, because it was not the change being made, and
+`static.test.ts:152` pins only the sibling-*directory* case. So the behaviour is
+currently whatever the primitive happens to do, and a future change to
+`canonicalize` could flip it in either direction in silence.
+
+Extent: covers `#51` now and every later containment change on that route. It
+deliberately does **not** decide which outcome is right — permissive may well
+be the more correct reading of canonicalized containment. It rules only that
+the outcome is chosen, stated, and pinned, rather than inherited.
+
+### Sequencing amendment — waves 4–7
+
+Territory is unchanged: `paths/containment.ts` is consumed, never edited, and
+`api/index.ts`'s route classes are prd-29's. Every wave below follows waves 1–3,
+which are merged.
+
+**Wave 4 — an operator act, then two lanes.**
+
+*The operator act, booked and not dispatchable:* the colon-and-backslash probe
+ruling 4 requires. Create directories whose names contain each character, start
+a real session in each, read the slug that appears under the projects root, and
+record the answer on `#47`. It is not a lane's to run — `#47` says so in its own
+Blocked by, and an agent cannot be handed "start a real session on a real
+machine" as a fenced code change. prd-39 booked its wave 0 the same way, for the
+same reason.
+
+*The two dispatchable lanes, parallel and fenced apart:* `prd42 w4: a rotation
+refuses a retarget's boundary` (`recorder/rotate.ts` + `api/rotate.ts` + their
+tests) · `prd42 w4: the served page's symlink verdict is pinned`
+(`server/static.ts` + its test). No shared file — `scripts/fence-lint.sh 49 51`
+PASSED with zero overlaps, 2026-08-25.
+
+**Wave 5 — the spelling, once the probe has answered.** `#47`. It cannot join
+wave 4's lanes: its first requirement is the probe's answer, and until that
+exists neither direction of the fix is knowable. It cannot join wave 6 either —
+it claims `worktree-slug.test.ts` and `concierge/repos.test.ts`, which wave 6
+also needs.
+
+**Wave 6 — the law's escape hatch.** `#52`. After wave 5, not beside it: it
+moves or re-authorises the round-trip law living in a file `#47` claims.
+
+**Wave 7 — the tidy-ups, last.** `#53`. It touches `recorder/rotate.ts`,
+`server/static.ts` and `worktree-slug.test.ts` — three other issues' territory.
+Sweep-shaped work comes last by the corpus's own rule, and this is sweep-shaped
+even though it is small.
+
+**Waves 5, 6 and 7 are each a single issue, and that is a cost, not a
+preference.** Three waves means three PRs and three payments of the ~21 h queue
+toll for three small changes. They cannot be bundled as they stand: every
+pairing among `#47`, `#52` and `#53` shares at least one file. The lawful way to
+collapse them is to reconcile their fences — most plausibly by deciding, once,
+where the round-trip law lives, which is the question `#52` exists to answer.
+That reconciliation is worth doing before wave 5 is dispatched, and is recorded
+here rather than discovered at landing.
+
+**Unfiled work implied, described not numbered:** `isInside`'s behaviour on
+case-insensitive filesystems (open question 2 below, still open, and
+interacting with prd-25's Windows leg); the eight call sites downstream of the
+slug encoder, counted but never individually tested; and the six issue
+citations in this document's own Status line and Evidence — `#217`, `#228`,
+`#243`, `#299`, `#401`, `#649` — which resolve to nothing in this repository
+(highest real issue: `#64`). They are references to a previous incarnation of
+the tracker and are filed separately rather than silently rewritten here.
