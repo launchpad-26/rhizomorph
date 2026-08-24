@@ -1,6 +1,8 @@
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
+import { isPathContained } from '../log/transcript-attribution.js'
+import { canonicalize } from '../paths/containment.js'
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -116,11 +118,43 @@ export function registerStaticRoute(app: FastifyInstance, distDir: string, capab
     // `root` as a literal string prefix (`/a/dist2/x` starts with `/a/dist`)
     // — the separator makes this a path-segment check, not a string one, the
     // same guard `log/transcript-attribution.ts`'s containment check applies.
-    if (requested !== root && !requested.startsWith(root + path.sep)) {
+    // `isPathContained` — that file's own fail-closed wrapper over
+    // `paths/containment.ts`'s `isInside` — also canonicalizes both sides
+    // through `realpath`, so a symlink placed inside `root` whose target
+    // resolves outside it is caught too, where a prefix check on the
+    // un-followed spelling would miss it. The raw `isInside` is deliberately
+    // not used directly here: it throws on a canonicalization error it
+    // cannot recover from (ENOTDIR — a path segment naming an existing
+    // file, e.g. `/index.html/x` — or ELOOP from a symlink cycle), and this
+    // route has no error handler, so an uncaught throw would reach the
+    // caller as a 500 whose body is Fastify's default error shape: the
+    // absolute dist path, verbatim. `GET /*` is tokenless forever
+    // (ADR-0012, prd-29 ruling 1), so that 500 would hand the server's own
+    // filesystem layout to whoever asked. `isPathContained` refuses (`403`)
+    // instead of guessing whenever canonicalization cannot decide — a path
+    // that cannot be vouched for is never served, so `/index.html/x` now
+    // answers 403 where it used to fall through to the SPA shell at 200; a
+    // request that cannot be canonicalized is not a client route to fall
+    // back for, it is a shape the containment check cannot clear.
+    if (!isPathContained(root, requested)) {
       return reply.code(403).send({ error: 'forbidden' })
     }
 
-    let filePath = requested
+    // `isPathContained` already canonicalized `requested` once to reach that
+    // verdict, but it only hands back a boolean. Canonicalizing again here
+    // and using THIS value for every read below (`existsSync`, `statSync`,
+    // the eventual `readFileSync`/`createReadStream`) means all of them
+    // agree on one already-resolved, symlink-free name — rather than each
+    // independently re-resolving the still-symlinked `requested` string, the
+    // TOCTOU an attacker could otherwise win by swapping what a symlink
+    // inside `root` points to between the containment check and the read
+    // that follows it.
+    let filePath: string
+    try {
+      filePath = canonicalize(requested)
+    } catch {
+      return reply.code(403).send({ error: 'forbidden' })
+    }
     if (!existsSync(filePath) || statSync(filePath).isDirectory()) {
       filePath = path.join(root, 'index.html')
     }

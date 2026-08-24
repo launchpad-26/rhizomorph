@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createEventFactory, eventsToJsonl, type RhizomorphEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { parsedSessionLogCache, readLaneIndex } from './lane-index.js'
 import { writeSessionLabel } from './label.js'
 import { buildSessionListing, listSessionListings, type SessionListingLog } from './listing.js'
 import { sessionFileName } from './paths.js'
@@ -125,6 +126,7 @@ describe('listSessionListings', () => {
 
   beforeEach(async () => {
     dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-listing-'))
+    parsedSessionLogCache.resetForTests()
   })
 
   afterEach(async () => {
@@ -234,5 +236,69 @@ describe('listSessionListings', () => {
     const [listing] = await listSessionListings(dir)
     expect(listing?.transcriptCapture?.complete).toBe(false)
     expect(listing?.transcriptCapture?.lanes[0]?.reason).toContain('TRANSCRIPT NOT CAPTURED')
+  })
+})
+
+describe('listSessionListings — shares the parsed-session cache with the lane index (prd-44 ruling 1 / #30)', () => {
+  let dir: string
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-listing-cache-'))
+    parsedSessionLogCache.resetForTests()
+  })
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('parses a closed session once across repeated listing calls', async () => {
+    const f = createEventFactory({ startTs: 1000 })
+    f.sessionStarted({ sessionId: '1000' })
+    await writeFile(path.join(dir, sessionFileName(1000)), eventsToJsonl(f.all()), 'utf8')
+
+    await listSessionListings(dir)
+    await listSessionListings(dir)
+    await listSessionListings(dir)
+
+    expect(parsedSessionLogCache.parseCount).toBe(1)
+  })
+
+  it('reflects a relabel immediately without re-parsing the log', async () => {
+    const f = createEventFactory({ startTs: 1000 })
+    f.sessionStarted({ sessionId: '1000' })
+    await writeFile(path.join(dir, sessionFileName(1000)), eventsToJsonl(f.all()), 'utf8')
+
+    const [before] = await listSessionListings(dir)
+    expect(before?.label).toBeNull()
+    expect(parsedSessionLogCache.parseCount).toBe(1)
+
+    await writeSessionLabel(dir, '1000', 'renamed later', 9999)
+    const [after] = await listSessionListings(dir)
+    expect(after?.label).toBe('renamed later')
+    // The label sidecar is mutable and never cached — only the log's parse is.
+    expect(parsedSessionLogCache.parseCount).toBe(1)
+  })
+
+  it('reuses a parse the lane index already warmed, and vice versa', async () => {
+    const f = createEventFactory({ startTs: 1000 })
+    f.sessionStarted({ sessionId: '1000' })
+    f.worktreeDiscovered({ path: '/repo', branch: 'main', isMain: true })
+    f.worktreeDiscovered({ path: '/repo-wt/9-thing', branch: '9-thing', isMain: false })
+    await writeFile(path.join(dir, sessionFileName(1000)), eventsToJsonl(f.all()), 'utf8')
+
+    await readLaneIndex(dir)
+    expect(parsedSessionLogCache.parseCount).toBe(1)
+
+    const [listing] = await listSessionListings(dir)
+    expect(listing?.lanes).toBe(1)
+    expect(parsedSessionLogCache.parseCount).toBe(1) // no second parse — one cache, two readers
+  })
+
+  it('never touches the cache for the live session', async () => {
+    await writeFile(path.join(dir, sessionFileName(3000)), '', 'utf8')
+    const liveEvents = createEventFactory({ startTs: 3000 })
+    liveEvents.sessionStarted({ sessionId: '3000' })
+
+    await listSessionListings(dir, { liveSessionId: '3000', liveEvents: liveEvents.all() })
+    expect(parsedSessionLogCache.parseCount).toBe(0)
   })
 })

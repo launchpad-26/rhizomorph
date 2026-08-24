@@ -228,6 +228,7 @@ have carried no information.
 | [0025](0025-a-native-otlp-harness-gets-a-mapping-profile.md) | A harness that exports OTLP natively gets a mapping profile, not a collector | 2026-08-18 | accepted |
 | [0026](0026-the-shell-is-driven-by-playwright-not-certified-by-hand.md) | The desktop shell is driven by Playwright for visual certification, not certified by hand | 2026-08-21 | accepted |
 | [0027](0027-the-served-page-declares-its-own-security-policy.md) | The served page declares its own security policy | 2026-08-21 | accepted |
+| [0028](0028-bounded-lru-cache-for-parsed-session-logs.md) | A bounded, single-flight, mtime+size-validated cache for parsed session logs | 2026-08-24 | accepted |
 
 Records 0001–0011 were reconstructed on 2026-08-06 and say so in their Context.
 One, **ADR-0003**, has an inverted evidence shape worth knowing about: the

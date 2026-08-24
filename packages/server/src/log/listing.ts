@@ -1,7 +1,7 @@
 import type { RhizomorphEvent } from '@rhizomorph/core'
+import { parsedSessionLogCache } from './lane-index.js'
 import { readSessionLabel } from './label.js'
 import {
-  readSessionLog,
   sessionFilePath,
   listSessions,
   voiceLargeSession,
@@ -112,15 +112,29 @@ export interface ListSessionListingsOptions {
   liveEvents?: readonly RhizomorphEvent[]
 }
 
+/** Chooses the live buffer or the cache, for one session, in `listSessionListings`'s loop. */
+async function readListingLog(
+  dir: string,
+  summary: SessionSummary,
+  options: ListSessionListingsOptions,
+): Promise<SessionListingLog> {
+  if (options.liveSessionId === summary.id && options.liveEvents !== undefined) {
+    return { events: options.liveEvents, lineCount: options.liveEvents.length, unreadableLineCount: 0 }
+  }
+  return parsedSessionLogCache.read(sessionFilePath(dir, summary.id))
+}
+
 /**
  * Every session recorded for a repo, each fully parsed. A full parse rather
- * than a bounded head/tail sample: this only runs once per page load (the
- * replay picker fetches it on mount, not on a poll) or once per CLI
- * invocation, and a lane's landing can occur anywhere in a session's
- * timeline — sampling the head or tail would silently miss a landing that
- * happened in the middle of a long session, which is exactly the fact this
- * listing exists to surface. Correctness wins here because nothing repeats
- * this call often enough for the cost to matter.
+ * than a bounded head/tail sample: a lane's landing can occur anywhere in a
+ * session's timeline — sampling the head or tail would silently miss a
+ * landing that happened in the middle of a long session, which is exactly
+ * the fact this listing exists to surface. A closed session's parse is now
+ * cached (prd-44 ruling 1 / #30) — {@link parsedSessionLogCache}, shared with
+ * `lane-index.ts`'s own reader of the same directory — so repeating this
+ * call no longer repeats that cost; only the live session (from
+ * `options.liveEvents`, never disk) and a recording that actually changed on
+ * disk pay for a fresh parse.
  */
 export async function listSessionListings(
   dir: string,
@@ -134,12 +148,11 @@ export async function listSessionListings(
     // `createEvent`'s own validation, so it has nothing to count as unreadable —
     // one line per event, exactly, unlike a file that may hold a half-written
     // tail or an era-gap line.
-    const log: SessionListingLog =
-      options.liveSessionId === summary.id && options.liveEvents !== undefined
-        ? { events: options.liveEvents, lineCount: options.liveEvents.length, unreadableLineCount: 0 }
-        : await readSessionLog(sessionFilePath(dir, summary.id))
-    const label = await readSessionLabel(dir, summary.id)
-    const transcriptCapture = await readTranscriptCaptureManifest(dir, summary.id)
+    const [log, label, transcriptCapture] = await Promise.all([
+      readListingLog(dir, summary, options),
+      readSessionLabel(dir, summary.id),
+      readTranscriptCaptureManifest(dir, summary.id),
+    ])
     listings.push(buildSessionListing(summary, log, label, transcriptCapture))
   }
 
