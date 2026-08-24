@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createEventFactory, fixtureTraceSpans, type RhizomorphEvent } from '@rhizomorph/core'
@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   buildLaneIndex,
   findLaneInIndex,
+  ParsedSessionLogCache,
+  parsedSessionLogCache,
   readLaneIndex,
   type LaneIndexSession,
 } from './lane-index.js'
@@ -320,6 +322,7 @@ describe('readLaneIndex — over a real session directory', () => {
 
   beforeEach(async () => {
     dir = await mkdtemp(path.join(tmpdir(), 'rhizo-lane-index-'))
+    parsedSessionLogCache.resetForTests()
   })
   afterEach(async () => {
     await rm(dir, { recursive: true, force: true })
@@ -377,5 +380,262 @@ describe('readLaneIndex — over a real session directory', () => {
 
   it('is empty and calm for a directory with nothing in it', async () => {
     expect(await readLaneIndex(dir)).toEqual({ lanes: [], unreadableSessionIds: [] })
+  })
+})
+
+describe('ParsedSessionLogCache — the mechanics behind ruling 1 (#30)', () => {
+  let dir: string
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizo-parsed-session-cache-'))
+  })
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  async function write(name: string, content: string): Promise<string> {
+    const filePath = path.join(dir, name)
+    await writeFile(filePath, content, 'utf8')
+    return filePath
+  }
+
+  // A real, schema-valid event line — `parseJsonl` validates the full envelope
+  // against `rhizomorphEventSchema` (no lenient/passthrough path for the raw
+  // read this cache wraps), so an arbitrary `source`/`type`/`payload` fails
+  // validation and lands in `errors`, not `events`. `collector.error` is the
+  // schema with the fewest required payload fields (`collector`, `message`,
+  // both plain strings), which is why it is used here purely as fixture
+  // plumbing — this test is about the cache, not about collectors.
+  const line = (id: string) =>
+    `{"id":"${id}","ts":1,"source":"system","type":"collector.error","payload":{"collector":"c","message":"m"}}\n`
+
+  it('parses a file once across repeated reads of an unchanged file', async () => {
+    const cache = new ParsedSessionLogCache()
+    const filePath = await write('a.jsonl', line('aaa'))
+
+    await cache.read(filePath)
+    await cache.read(filePath)
+    await cache.read(filePath)
+
+    expect(cache.parseCount).toBe(1)
+  })
+
+  it('re-parses once the file grows (size changed)', async () => {
+    const cache = new ParsedSessionLogCache()
+    const filePath = await write('a.jsonl', line('aaa'))
+    await cache.read(filePath)
+
+    await write('a.jsonl', `${line('aaa')}${line('bbb')}`)
+    await cache.read(filePath)
+
+    expect(cache.parseCount).toBe(2)
+  })
+
+  it('re-parses on a same-size edit if mtime moved — mtime alone catches what size cannot', async () => {
+    const cache = new ParsedSessionLogCache()
+    const filePath = await write('a.jsonl', line('aaa'))
+    await cache.read(filePath)
+    const first = await stat(filePath)
+
+    // Same length, different id — nothing about `size` moved.
+    await writeFile(filePath, line('bbb'), 'utf8')
+    await utimes(filePath, new Date(first.mtimeMs + 5_000), new Date(first.mtimeMs + 5_000))
+
+    const read = await cache.read(filePath)
+    expect(cache.parseCount).toBe(2)
+    expect(read.events[0]?.id).toBe('bbb')
+  })
+
+  it('re-parses on a size change with mtime provably identical — the size half of the key, on its own', async () => {
+    // The mtime must be PINNED BEFORE the first read, not restored after it.
+    // `utimes` takes whole milliseconds while APFS stores sub-millisecond
+    // mtimes, so "forcing it back" to a value `stat` reported yields a
+    // DIFFERENT number: mtime alone then invalidates the entry and the size
+    // check never runs. The earlier version of this law asserted parseCount
+    // === 2 and got it for the wrong reason — dropping `size` from the
+    // validity key left every test green while the cache served stale
+    // content. Pinning to a whole-second value first makes the mtime one
+    // `utimes` can restore exactly, and the precondition is now asserted
+    // rather than assumed.
+    const cache = new ParsedSessionLogCache()
+    const filePath = await write('a.jsonl', line('aaa'))
+    const pinned = new Date(1_700_000_000_000)
+    await utimes(filePath, pinned, pinned)
+    await cache.read(filePath)
+    const before = await stat(filePath)
+
+    await writeFile(filePath, `${line('aaa')}${line('bbb')}`, 'utf8')
+    await utimes(filePath, pinned, pinned)
+    const after = await stat(filePath)
+
+    expect(after.mtimeMs).toBe(before.mtimeMs)
+    expect(after.size).not.toBe(before.size)
+
+    const read = await cache.read(filePath)
+    expect(cache.parseCount).toBe(2)
+    expect(read.events).toHaveLength(2)
+  })
+
+  it('answers empty and drops any entry when the file is gone, never throws', async () => {
+    const cache = new ParsedSessionLogCache()
+    const filePath = await write('a.jsonl', line('aaa'))
+    await cache.read(filePath)
+    expect(cache.cachedFileCount).toBe(1)
+
+    await rm(filePath)
+    const read = await cache.read(filePath)
+    expect(read).toEqual({ events: [], lineCount: 0, unreadableLineCount: 0 })
+    expect(cache.cachedFileCount).toBe(0)
+  })
+
+  it('single-flights concurrent reads of the same cold file into one parse', async () => {
+    const cache = new ParsedSessionLogCache()
+    const filePath = await write('a.jsonl', line('aaa'))
+
+    const [x, y, z] = await Promise.all([cache.read(filePath), cache.read(filePath), cache.read(filePath)])
+    expect(cache.parseCount).toBe(1)
+    expect(x).toEqual(y)
+    expect(y).toEqual(z)
+  })
+
+  it('evicts the least-recently-read file once the byte budget is exceeded', async () => {
+    const a = await write('a.jsonl', line('a'))
+    const b = await write('b.jsonl', line('b'))
+    const oneFileBudget = (await stat(a)).size
+    const cache = new ParsedSessionLogCache(oneFileBudget)
+
+    await cache.read(a)
+    expect(cache.parseCount).toBe(1)
+    await cache.read(b) // pushes total bytes over budget with 2 entries — a evicted
+    expect(cache.parseCount).toBe(2)
+    expect(cache.cachedFileCount).toBe(1)
+
+    await cache.read(a) // a is gone — must re-parse
+    expect(cache.parseCount).toBe(3)
+  })
+
+  it('LRU, not FIFO: touching a file keeps it, so a fresher neighbour is evicted instead', async () => {
+    const a = await write('a.jsonl', line('a'))
+    const b = await write('b.jsonl', line('b'))
+    const c = await write('c.jsonl', line('c'))
+    const twoFileBudget = (await stat(a)).size * 2
+    const cache = new ParsedSessionLogCache(twoFileBudget)
+
+    await cache.read(a)
+    await cache.read(b)
+    await cache.read(a) // touch: a is now freshest, b is now oldest
+    expect(cache.parseCount).toBe(2) // the touch was a cache HIT, not a re-parse
+
+    await cache.read(c) // over budget with 3 — the oldest (b) must go, not a
+    expect(cache.parseCount).toBe(3)
+    expect(cache.cachedFileCount).toBe(2)
+
+    await cache.read(a) // still cached
+    expect(cache.parseCount).toBe(3)
+    await cache.read(b) // evicted — must re-parse
+    expect(cache.parseCount).toBe(4)
+  })
+
+  it('a refreshed entry counts as freshly used, not still the oldest', async () => {
+    const a = await write('a.jsonl', line('a'))
+    const b = await write('b.jsonl', line('b'))
+    const c = await write('c.jsonl', line('c'))
+    const twoFileBudget = (await stat(a)).size * 2
+    const cache = new ParsedSessionLogCache(twoFileBudget)
+
+    await cache.read(a)
+    await cache.read(b) // oldest to newest: a, b
+    const firstA = await stat(a)
+    await writeFile(a, line('x'), 'utf8') // same length as line('a') — only the id character differs
+    await utimes(a, new Date(firstA.mtimeMs + 1_000), new Date(firstA.mtimeMs + 1_000))
+    await cache.read(a) // changed — re-parse, AND must move a to the fresh end
+    expect(cache.parseCount).toBe(3)
+
+    await cache.read(c) // over budget with 3 — if a's refresh hadn't reordered it, a (wrongly oldest) would be evicted instead of b
+    expect(cache.parseCount).toBe(4)
+    expect(cache.cachedFileCount).toBe(2)
+
+    await cache.read(a) // still cached — proves a survived
+    expect(cache.parseCount).toBe(4)
+    await cache.read(b) // b was the one evicted
+    expect(cache.parseCount).toBe(5)
+  })
+})
+
+describe('readLaneIndex — the parsed-session cache end-to-end (prd-44 ruling 1 / #30)', () => {
+  let dir: string
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizo-lane-index-cache-'))
+    parsedSessionLogCache.resetForTests()
+  })
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  async function writeSession(id: string, events: readonly RhizomorphEvent[]): Promise<void> {
+    await writeFile(
+      path.join(dir, `session-${id}.jsonl`),
+      `${events.map((event) => JSON.stringify(event)).join('\n')}\n`,
+      'utf8',
+    )
+  }
+
+  async function writeCapture(id: string, body: TranscriptCaptureManifest): Promise<void> {
+    const captureDir = transcriptCaptureDir(dir, id)
+    await mkdir(captureDir, { recursive: true })
+    await writeFile(path.join(captureDir, TRANSCRIPT_CAPTURE_MANIFEST_FILE_NAME), JSON.stringify(body), 'utf8')
+  }
+
+  it('parses each closed recording once, however many times the index is read', async () => {
+    await writeSession(SESSION_A, sessionAEvents())
+    await writeSession(SESSION_B, sessionBEvents())
+
+    await readLaneIndex(dir)
+    await readLaneIndex(dir)
+    await readLaneIndex(dir)
+
+    // Two closed files, three reads of the whole directory — the count is the file count.
+    expect(parsedSessionLogCache.parseCount).toBe(2)
+  })
+
+  it('costs one parse per file even when many reads race a cold cache', async () => {
+    await writeSession(SESSION_A, sessionAEvents())
+    await writeSession(SESSION_B, sessionBEvents())
+
+    await Promise.all([readLaneIndex(dir), readLaneIndex(dir), readLaneIndex(dir)])
+
+    expect(parsedSessionLogCache.parseCount).toBe(2)
+  })
+
+  it('never touches the cache for the live session', async () => {
+    await readLaneIndex(dir, { liveSessionId: SESSION_A, liveEvents: sessionAEvents() })
+    await readLaneIndex(dir, { liveSessionId: SESSION_A, liveEvents: sessionAEvents() })
+    expect(parsedSessionLogCache.parseCount).toBe(0)
+    expect(parsedSessionLogCache.cachedFileCount).toBe(0)
+  })
+
+  it('degrades a pruned recording as unreadable, never as a lane that never existed', async () => {
+    await writeSession(SESSION_A, sessionAEvents())
+    await writeSession(SESSION_B, sessionBEvents())
+    await writeCapture(
+      SESSION_B,
+      manifest(SESSION_B, [{ lane: LANE, claudeSessionId: 'claude-b', captured: true, bytes: 99 }]),
+    )
+
+    const before = await readLaneIndex(dir)
+    expect(findLaneInIndex(before, LANE)?.sessions.map((s) => s.sessionId)).toEqual([SESSION_A, SESSION_B])
+    expect(parsedSessionLogCache.cachedFileCount).toBe(2) // B is warm in the cache here
+
+    // Wave 3's sweep (#38): the log is gone, but its capture sidecar outlives it.
+    await rm(path.join(dir, `session-${SESSION_B}.jsonl`))
+
+    const after = await readLaneIndex(dir)
+    expect(after.unreadableSessionIds).toEqual([SESSION_B])
+    const lane = findLaneInIndex(after, LANE)
+    expect(lane?.sessions.map((s) => s.sessionId)).toEqual([SESSION_A, SESSION_B])
+    expect(lane?.sessions[1]?.recordingPresent).toBe(false)
+    expect(lane?.sessions[1]?.gap).toContain(SESSION_B)
+    expect(lane?.partialVoice).toContain(SESSION_B)
   })
 })

@@ -1,4 +1,5 @@
-import { appendFile, chmod, lstat, mkdir, open, readFile, truncate } from 'node:fs/promises'
+import { chmod, lstat, mkdir, open, readFile, truncate } from 'node:fs/promises'
+import type { FileHandle } from 'node:fs/promises'
 import path from 'node:path'
 import type { RhizomorphEvent } from '@rhizomorph/core'
 
@@ -60,6 +61,14 @@ export interface SessionLogWriterOptions {
  * (a collector's poll and the recorder's own rotation, the only two that
  * ever can). Without that, prd17 ruling 1's "a final `session.closed`" would
  * be a hope about scheduling rather than a property of the file.
+ *
+ * The file descriptor is held across appends rather than opened and closed
+ * per event (prd44 ruling 2: 4.1x on 5,000 events, no change to the bytes
+ * written or their order). `sync()` is where it is released — `closeWith`
+ * already calls `sync()`, and rotation's `openSession` replaces this object
+ * wholesale rather than reusing it, so releasing anywhere else would either
+ * leak across a rotation or reach into `session-recorder.ts`, which is
+ * prd-40 #3's live fence. An append issued after a `sync()` reopens one.
  */
 export class SessionLogWriter {
   readonly filePath: string
@@ -67,6 +76,8 @@ export class SessionLogWriter {
   private ready: Promise<void> | null = null
   /** The last append's promise — the chain every later append queues behind. */
   private tail: Promise<void> = Promise.resolve()
+  /** Held across appends; opened by `ensureHandle()`, released by `sync()`. */
+  private handle: FileHandle | null = null
 
   constructor(filePath: string, options: SessionLogWriterOptions = {}) {
     this.filePath = filePath
@@ -79,7 +90,8 @@ export class SessionLogWriter {
     }
     const written = this.tail.then(async () => {
       await this.ready
-      await appendFile(this.filePath, `${JSON.stringify(event)}\n`, 'utf8')
+      const handle = await this.ensureHandle()
+      await handle.appendFile(`${JSON.stringify(event)}\n`, 'utf8')
     })
     // One failed append must not poison every later one: the chain continues
     // from a settled promise, while `written` still rejects for its own caller.
@@ -88,28 +100,42 @@ export class SessionLogWriter {
   }
 
   /**
-   * flush + fsync (prd17 ruling 3.5): awaits every append issued so far, then
-   * asks the OS to put this file on the disk. Rotation's durability promise —
-   * a closed log survives the machine losing power a moment later — is exactly
-   * this call, so it is deliberately not fire-and-forget.
+   * flush + fsync (prd17 ruling 3.5): awaits every append issued so far, asks
+   * the OS to put this file on the disk, then releases the held descriptor
+   * (prd44 ruling 2) — the next `append()` reopens one via `ensureHandle()`.
+   * Rotation's durability promise — a closed log survives the machine losing
+   * power a moment later — is exactly this call, so it is deliberately not
+   * fire-and-forget.
    *
-   * A writer nobody has appended to has no file yet; that is not an error.
+   * A writer nobody has appended to has no file and no handle either; that
+   * is not an error.
    */
   async sync(): Promise<void> {
     await this.tail
-    await assertNotSymlink(this.filePath)
-    let handle
-    try {
-      handle = await open(this.filePath, 'r+')
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return
-      throw err
-    }
+    const handle = this.handle
+    this.handle = null
+    if (!handle) return
     try {
       await handle.sync()
     } finally {
       await handle.close()
     }
+  }
+
+  /**
+   * Opens the held descriptor if none is currently open — true on the very
+   * first append, and true again on any append after a `sync()` released
+   * it. Not folded into `prepare()`: `prepare()`'s guards (symlink/mkdir/
+   * chmod/dropping a crash's partial line) run exactly once per instance,
+   * but a reopen after `sync()` still needs its own symlink check — nothing
+   * upstream re-runs it for a handle opened well after `prepare()` settled.
+   */
+  private async ensureHandle(): Promise<FileHandle> {
+    if (!this.handle) {
+      await assertNotSymlink(this.filePath)
+      this.handle = await open(this.filePath, 'a', SECURE_FILE_MODE)
+    }
+    return this.handle
   }
 
   /**
@@ -130,11 +156,10 @@ export class SessionLogWriter {
     await assertNotSymlink(this.filePath)
     if (this.resuming) await dropTrailingPartialLine(this.filePath)
 
-    // `'a'` creates the file if it's missing (at `SECURE_FILE_MODE`,
-    // never-followed by the `appendFile` calls this unblocks) and otherwise
-    // just opens it — no truncation, no data touched either way.
-    const handle = await open(this.filePath, 'a', SECURE_FILE_MODE)
-    await handle.close()
+    // Opens (and holds) the session's one descriptor; `'a'` creates the file
+    // if it's missing (at `SECURE_FILE_MODE`) and otherwise just opens it —
+    // no truncation, no data touched either way.
+    await this.ensureHandle()
     await chmod(this.filePath, SECURE_FILE_MODE)
   }
 }

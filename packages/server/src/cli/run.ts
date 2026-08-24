@@ -216,7 +216,17 @@ export async function runServerCommand(
     clearInterval(lockHeartbeat)
     await pollLoop.stop()
     await app.close()
-    // A clean stop releases the lock immediately rather than waiting for the
+    try {
+      // Releases the session log's held descriptor. Since prd44 ruling 2 the
+      // writer holds one open across appends and lets it go only in `sync()`,
+      // whose sole other caller is rotation (`closeWith`) — so without this,
+      // the session open at shutdown was closed by garbage collection, which
+      // Node deprecates (DEP0137) and will one day throw on. It also makes the
+      // last session durable, which is prd17 ruling 3.5's promise applied to
+      // the session nobody rotated as well as the ones somebody did.
+      await recorder.sync()
+    } finally {
+      // A clean stop releases the lock immediately rather than waiting for the
     // pid to die and the next boot's staleness check to notice — the same
     // process may be the very next thing to boot this session (the resume
     // tests do exactly that), and it shouldn't have to wait itself out.
@@ -226,7 +236,13 @@ export async function runServerCommand(
     // CURRENT repo's directory, and leaving either boot-time value behind
     // would make the next boot refuse to resume a session nobody is writing,
     // or leave a stale lock in a repo this process no longer watches.
-    await removeSessionLock(ctx.sessionDir, recorder.sessionId).catch(() => {})
+      //
+      // `finally`, not a plain sequence: a failing fsync must still reach the
+      // caller, and it must not be the reason a stale lock outlives the
+      // process that held it. Those are two different promises and a
+      // two-statement sequence breaks one of them whichever order it picks.
+      await removeSessionLock(ctx.sessionDir, recorder.sessionId).catch(() => {})
+    }
   }
 
   return { app, recorder, pollLoop, url, stop, ctx }
