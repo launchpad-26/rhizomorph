@@ -75,7 +75,8 @@ stops the whole process while it runs, which is what makes this urgent rather th
    rebuilt on a frame where none of its inputs changed, or while the cached path returns arrays that
    are not byte-equal to a fresh build.
 6. Every claim above is a counting law that fails when broken. **Not met while** any of the five is
-   defended by a reported measurement rather than an assertion — the defect prd-24 exists to clean up.
+   defended by a reported measurement rather than an assertion — the defect prd-24 named before it
+   retired as superseded (2026-08-24).
 
 ## Non-goals
 
@@ -168,10 +169,12 @@ The per-event `appendFile` becomes one held descriptor for the writer's life. Or
 `tail` chain's, `sync()` keeps awaiting it, and the bytes are unchanged — one `write` per event
 either way. It is 4.1× for no semantic movement.
 
-**What it must not break, and who owns it.** The live constraint is **prd17 ruling 1** — "a final
-`session.closed`" — and prd-17 is still in flight. It is cited *inside the file this ruling edits*
-(`session-log-writer.ts:61`) and in `session-recorder.ts:90`, both naming the serialised `tail`
-chain as what makes it structural. That chain is untouched here. Three existing laws pin the rest and
+**What it must not break, and who owns it.** The live constraint is **prd17 ruling 1**, which makes
+`session.closed` an event family — "a session's end is an event, not an absence" — and prd-17 is
+still in flight (partially shipped). The phrase "a final `session.closed`" is the *code's* gloss on
+that ruling, not the ruling's own title, and it appears in both files this ruling's neighbourhood
+touches: `session-log-writer.ts:61` and `session-recorder.ts:90`, each naming the serialised `tail`
+chain as what makes the ordering structural. That chain is untouched here. Three existing laws pin the rest and
 are the acceptance criteria: appends land in issue order even when nobody awaits them
 (`session-log-writer.test.ts:46`), `sync()` leaves every issued append on disk (`:68`), and a write
 failure still reaches the caller that issued it (`:89`).
@@ -246,7 +249,7 @@ Both destroy or withhold operator data; neither is an agent's call.
 plus one law per ruling: parses per lane-index request, `open` calls per event, spawns per tick, the
 buffer's ceiling, tessellations per frame for a settled lane. **Counts, never wall-clock** — a timing
 assertion measures the box, which is why this repo reports times and asserts counts, and it is the
-`prd-24` defect to do otherwise. Additive, claims no production file, and every later wave proves
+defect prd-24 named to do otherwise. Additive, claims no production file, and every later wave proves
 itself against it.
 
 **Wave 2 — Parallel, fenced apart:** the lane-index parse cache and its concurrent per-session reads
