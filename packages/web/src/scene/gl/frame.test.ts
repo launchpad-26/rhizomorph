@@ -1,8 +1,15 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Point } from '../geometry.js'
-import { ribbonMark, type ContourMark, type Mark, type TextMark } from '../marks/index.js'
+import {
+  ribbonMark,
+  type ContourMark,
+  type Mark,
+  type RibbonMark,
+  type TextMark,
+} from '../marks/index.js'
 import { ICE_200, ICE_1000, TISSUE_900, ink } from '../palette.js'
 import { PINCH_EPSILON } from '../ribbon.js'
+import { Batch } from './batch.js'
 import { buildFrame, dashRuns, veiled, veilOf, type VeilLayer } from './frame.js'
 import { noiseTile } from './programs.js'
 
@@ -191,6 +198,141 @@ describe('a ribbon, zipped', () => {
       PANEL,
     )
     expect(frame.runs.map((run) => run.kind)).toEqual(['stencil'])
+  })
+})
+
+describe('the per-mark tessellation cache (prd-44 ruling 5)', () => {
+  function persistMark(laneId: string): RibbonMark {
+    return ribbonMark({
+      role: 'persist',
+      laneId,
+      alarm: false,
+      path: Array.from({ length: 20 }, (_unused, i) => ({ x: i * 6, y: 80 })),
+      widthRoot: 1.4,
+      widthTip: 0.6,
+      paint: ink(ICE_200, 0.5),
+    })
+  }
+
+  it('writes vertices once, and none again for the same content on the next frame', () => {
+    const spy = vi.spyOn(Batch.prototype, 'vertex')
+    const first = buildFrame([persistMark('lane-cache-a')], PANEL)
+    const afterFirst = spy.mock.calls.length
+    expect(afterFirst).toBeGreaterThan(0)
+
+    // A FRESH mark object, same values — exactly what `sceneMarks` hands
+    // `buildFrame` every frame for a lane whose `dissolve` has pinned at 1.
+    const second = buildFrame([persistMark('lane-cache-a')], PANEL)
+    expect(spy.mock.calls.length).toBe(afterFirst)
+
+    // And the byte-equal contract the issue names: a cache hit reproduces
+    // exactly what a fresh build produced, run structure included.
+    expect(Array.from(second.vertices.pos.slice(0, second.vertices.n * 2))).toEqual(
+      Array.from(first.vertices.pos.slice(0, first.vertices.n * 2)),
+    )
+    expect(second.runs).toEqual(first.runs)
+    expect(second.drawCalls).toBe(first.drawCalls)
+    spy.mockRestore()
+  })
+
+  it('changed content is a real miss — this is not a cache that lies', () => {
+    const spy = vi.spyOn(Batch.prototype, 'vertex')
+    buildFrame([persistMark('lane-cache-b')], PANEL)
+    const afterFirst = spy.mock.calls.length
+    const moved = ribbonMark({
+      role: 'persist',
+      laneId: 'lane-cache-b',
+      alarm: false,
+      path: Array.from({ length: 20 }, (_unused, i) => ({ x: i * 6, y: 84 })), // one input moved
+      widthRoot: 1.4,
+      widthTip: 0.6,
+      paint: ink(ICE_200, 0.5),
+    })
+    buildFrame([moved], PANEL)
+    expect(spy.mock.calls.length).toBeGreaterThan(afterFirst)
+    spy.mockRestore()
+  })
+
+  it('a lane scattered across passes is still recognised beside a live neighbour that keeps moving', () => {
+    // `sceneMarks` never hands one lane's marks to `buildFrame` contiguously
+    // (thread, off-fence, light, node and label each visit every lane in
+    // turn), so this is the case that actually matters: the settled lane's
+    // two marks land with a changing live mark in between, and each must
+    // still be recognised on its own.
+    const live = (x: number): Mark => ({
+      role: 'thread',
+      laneId: 'lane-cache-live',
+      alarm: false,
+      kind: 'stroke',
+      points: [
+        { x, y: 0 },
+        { x: x + 10, y: 0 },
+      ],
+      width: 2,
+      ink: ink(ICE_200, 1),
+    })
+    const settledNode: Mark = {
+      role: 'node',
+      laneId: 'lane-cache-c',
+      alarm: false,
+      kind: 'arc',
+      at: { x: 40, y: 80 },
+      radius: 3,
+      from: 0,
+      to: Math.PI * 2,
+      width: 1,
+      ink: ink(ICE_200, 1),
+    }
+
+    // Baseline: what the live mark alone costs, so the two-lane frame's delta
+    // can be attributed exactly.
+    const liveSpy = vi.spyOn(Batch.prototype, 'vertex')
+    buildFrame([live(0)], PANEL)
+    const liveAloneCalls = liveSpy.mock.calls.length
+    liveSpy.mockRestore()
+
+    const spy = vi.spyOn(Batch.prototype, 'vertex')
+    buildFrame([persistMark('lane-cache-c'), live(0), settledNode], PANEL)
+    const afterFirst = spy.mock.calls.length
+
+    buildFrame([persistMark('lane-cache-c'), live(1), { ...settledNode }], PANEL)
+    const secondCallCalls = spy.mock.calls.length - afterFirst
+    // The live mark's own cost, and NOTHING from either settled mark.
+    expect(secondCallCalls).toBe(liveAloneCalls)
+    spy.mockRestore()
+  })
+
+  it('a camera change cannot invalidate a world mark — nothing here ever reads panel.camera', () => {
+    const spy = vi.spyOn(Batch.prototype, 'vertex')
+    buildFrame([persistMark('lane-cache-d')], PANEL)
+    const afterFirst = spy.mock.calls.length
+    buildFrame([persistMark('lane-cache-d')], { ...PANEL, camera: { k: 2.4, x: 30, y: -10 } })
+    expect(spy.mock.calls.length).toBe(afterFirst)
+    spy.mockRestore()
+  })
+
+  it('a lane leaving the settled state is a guaranteed miss, not a stale hit', () => {
+    // A re-dispatched lane arrives with a different ROLE ('thread' instead of
+    // 'persist') for the same laneId — a slot `buildFrame` has never filled,
+    // so there is nothing stale to serve even before content is compared.
+    const spy = vi.spyOn(Batch.prototype, 'vertex')
+    buildFrame([persistMark('lane-cache-e')], PANEL)
+    const afterFirst = spy.mock.calls.length
+    const revived: Mark = {
+      role: 'thread',
+      laneId: 'lane-cache-e',
+      alarm: false,
+      kind: 'stroke',
+      points: [
+        { x: 0, y: 0 },
+        { x: 30, y: 0 },
+      ],
+      width: 2,
+      ink: ink(ICE_200, 1),
+    }
+    buildFrame([revived], PANEL)
+    expect(spy.mock.calls.length).toBeGreaterThan(afterFirst)
+    spy.mockRestore()
   })
 })
 
