@@ -133,6 +133,37 @@ buried in a regex — a tolerance nobody can enumerate is how prd-39's class sur
 Every step after `Test` in `ci.yml` carries `if: always()`. This discharges prd-24's residual 2;
 prd-25's leg design already prices it in and benefits directly.
 
+> **Amendment note — `always()` was falsified in practice, 2026-08-25 (wave 1, #43, PR #68).**
+> The ruling's *intent* stands unchanged and is what wave 1 delivered: a leg that goes red still
+> produces the evidence of its remaining gates, rather than four silent `skipped`s. Its
+> *mechanism* did not survive review and is superseded.
+>
+> `if: always()` runs a step regardless of **which** earlier step failed, and two of the four
+> steps behind `Test` cannot produce meaningful evidence when **Build** is the thing that failed.
+> Measured on the branch, with no `packages/*/dist`: the packaging guard only ever filters for
+> *unexpected* files, so it reported `Packaging guard passed — 4 files, all allowlisted` at exit
+> 0; and the boot smoke reported green because `packages/server/bin/rhizomorph.mjs` falls back to
+> running TypeScript source when `dist/cli/index.js` is absent — so the step that exists to prove
+> *the built artefact* boots never touched a build product. A Build-red leg would have read
+> Build ❌ · Test skipped · Typecheck ✅ · Lint ✅ · Packaging ✅ · Boot smoke ✅: four green
+> checks on a leg that built nothing.
+>
+> That is this PRD's own defect class — a check printing a verdict it did not earn — reintroduced
+> by the ruling written to abolish it. `skipped` was the honest answer for those two steps, and
+> `always()` replaced an honest silence with an unearned green.
+>
+> **The mechanism is therefore: gate by outcome, not by `always()`.** `Build` carries `id: build`;
+> `Typecheck` and `Lint` carry `if: "!cancelled()"` (neither needs `dist`); the packaging guard
+> and the boot smoke carry `if: "!cancelled() && steps.build.outcome == 'success'"`. `!cancelled()`
+> additionally restores cancellation semantics that `always()` overrides, so a cancelled run no
+> longer burns the boot smoke's 60 s of wait loops.
+>
+> Recorded here rather than as a new ruling because the verdict — *a red leg still produces the
+> evidence of its remaining gates* — is unchanged, and every existing citation to ruling 4 still
+> means what it meant. Only the sentence naming `if: always()` is superseded. Found by the
+> independent Opus pass during verification of PR #68; neither the lane nor the orchestrator's
+> two rounds caught it.
+
 ## Sequencing (waves, each gated as ever)
 
 `scripts/gate.sh` is this PRD's centre. `packages/contract/` and the read-side contract policy
