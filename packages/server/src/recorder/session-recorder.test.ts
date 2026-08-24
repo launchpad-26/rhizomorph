@@ -346,11 +346,16 @@ describe('SessionRecorder — foldSoFar() over the golden-era corpus (prd40 ruli
     const { eraCorpusEntry } = await import(corpusModulePath)
     const { foldEraRecording } = await import('@rhizomorph/core/src/eras/fold.js')
     const { events } = foldEraRecording(eraCorpusEntry('era-1').recordingText)
+    // F5: every assertion below holds vacuously against an empty corpus — an
+    // era that stopped shipping events would leave this law green and blind.
+    // era-1 carries 100 events across 15 event types as of this commit.
+    expect(events.length).toBeGreaterThan(0)
 
     for (const event of events) {
       await recorder.record(event)
     }
 
+    expect(recorder.foldSoFar()).not.toEqual(initialSessionState()) // the corpus DID fold
     expect(recorder.foldSoFar()).toEqual(reduceAll(events))
     expect(recorder.foldSoFar()).toEqual(reduceAll(recorder.eventsSoFar()))
   })
