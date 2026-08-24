@@ -100,22 +100,25 @@ export default function CollisionsPanel() {
             <div className="mt-2">
               <table className="w-full min-w-max border-collapse text-left text-inst">
                 {/*
-                  * NOT sticky any more (review of #65). These two `<th>`s
-                  * carried `sticky top-0 z-(--z-sticky)`, which worked while
-                  * this panel owned a scrollport — the `flex-1 overflow-auto`
-                  * wrapper removed one screen up. With that wrapper gone the
-                  * nearest scrolling ancestor is the DOCUMENT, so `top-0`
-                  * pinned the header row to the viewport's top edge, where the
-                  * shell's own sticky dock (`--z-header`, 20) sits opaque over
-                  * it at a higher rung. The result was the worst of both: the
-                  * header row detached from its table AND was invisible behind
-                  * the dock, so a scrolled collision matrix showed no column
-                  * headings at all. A plain header that scrolls with its own
-                  * table is what the other three dock panels now do.
+                  * STICKY AGAIN, offset below the dock (review of #65, option
+                  * B — the operator's own call). `top-0` used to pin these two
+                  * `<th>`s to the viewport's top edge once the panel lost its
+                  * own scrollport (the `flex-1 overflow-auto` wrapper removed
+                  * one screen up) — landing them underneath the shell's opaque
+                  * sticky dock, which sits at the higher `--z-header` rung on
+                  * purpose. `top-(--dock-h)` is the actual fix: it stops the
+                  * header row exactly where the dock ends, so `z-(--z-sticky)`
+                  * (10, below the dock's 20) now means what it always meant —
+                  * "in front of the table, behind the chrome" — rather than
+                  * fighting the dock for the same pixels. `--dock-h` is
+                  * measured live in `Shell.tsx` because the dock's height is
+                  * dynamic: the attention strip and the replay banner swap in
+                  * and out. `sticky-scrollport-law.test.ts` accepts this shape
+                  * as the second lawful answer, alongside owning a scrollport.
                   */}
                 <thead>
                   <tr>
-                    <th className="min-w-[14rem] bg-(--surface-panel) px-2 py-1.5 font-medium text-(--ink-dim)">
+                    <th className="sticky top-(--dock-h) z-(--z-sticky) min-w-[14rem] bg-(--surface-panel) px-2 py-1.5 font-medium text-(--ink-dim)">
                       File
                     </th>
                     {columns.map((branch) => (
@@ -123,7 +126,7 @@ export default function CollisionsPanel() {
                         key={branch}
                         scope="col"
                         title={branch}
-                        className="min-w-14 truncate bg-(--surface-panel) px-2 py-1.5 text-center font-medium text-(--ink-dim)"
+                        className="sticky top-(--dock-h) z-(--z-sticky) min-w-14 truncate bg-(--surface-panel) px-2 py-1.5 text-center font-medium text-(--ink-dim)"
                       >
                         <OpenBranchLink branch={branch} />
                       </th>
