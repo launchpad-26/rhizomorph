@@ -151,6 +151,20 @@ explicit exception — and its reasoning was not touched. The first two amendmen
 were **not** retrofitted into records of their own: back-dating two ADRs to tidy
 a convention would be exactly the rewrite this section forbids.
 
+**A falsified consequence gets a dated note in place; a changed decision still
+gets a new ADR** *(ruled 2026-08-24)*. The distinction is the whole point. A
+record's **Decision** and its **Considered Options** are history and never move —
+that is the append-only rule above. But a record's **Consequences** are claims
+about the tree, and the tree changes underneath them: five records here spent
+weeks asserting open holes that had been closed, ADR-0008 among them, which is
+the security document a reader consults to learn what is *not* protected. Those
+were corrected by appending a `> **Amendment — <what> (<date>)**` blockquote
+directly under the falsified consequence, saying what closed it and citing the
+code or law that proves it, leaving the original text intact above. This is not a
+licence to revise reasoning: if the *decision* would change, that is a new ADR
+with the next free number, exactly as the paragraph above requires. Records
+amended this way so far: 0001, 0002, 0007, 0008, 0011, 0019.
+
 ## Writing an honest one
 
 Named anti-patterns worth knowing, from [Zimmermann's guidance][ozimmer-create]:

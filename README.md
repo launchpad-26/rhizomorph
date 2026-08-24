@@ -80,18 +80,23 @@ package to fetch. Once one is published, that single command will fetch and
 run it with nothing installed permanently, no clone required — the same
 code the clone path above runs today, just fewer steps to get there.
 
-The plan, not a date: prd15's "true, full-featured system agnosticism" round
-(any OS, any terminal, any agent CLI) supersedes the earlier clone-first
-ruling and puts publishing back on the map — but deliberately as its **last**
-wave, never its first, so agnosticism lands and gets exercised before a
-stranger's `npm install` is the front door. prd8's packaging machinery
-(tarball-proven `files` allowlist, tag-gated release workflow, no secrets)
-already exists and stays dormant until that wave. The one remaining
-prerequisite is an operator decision, not a build task: whether going public
-means rewriting this repo's history or cutting a fresh tree, a choice #177
-named and left open rather than resolved — the audit that raised it found
-unscrubbed identifiers in captured OTel fixtures, and a scrub commit fixes
-the tree, not the history it's layered on. No wave here promises a date.
+The plan, not a date: publishing stays deliberately **last**, so the
+instrument lands and gets exercised before a stranger's `npm install` is the
+front door. prd15's agnosticism round put publishing back on the map — that
+umbrella retired as superseded on 2026-08-24
+([`docs/prds/done/prd-15-anywhere-instrument.md`](docs/prds/done/prd-15-anywhere-instrument.md)),
+and the delivery thread it named is now **prd-34, the doorstep**
+([`docs/prds/prd-34-the-doorstep.md`](docs/prds/prd-34-the-doorstep.md)),
+reclassified the same day as release readiness: signing and an update feed
+are deliberately deferred by its ruling 9, and a publish waits on a release
+someone actually plans. prd8's packaging machinery (tarball-proven `files`
+allowlist, tag-gated release workflow, no secrets) already exists and stays
+dormant until then. The history question that used to gate this — whether
+going public meant rewriting this repo's history or cutting a fresh tree, a
+choice #177 named and left open — was settled by events rather than by a
+ruling: this repo was re-uploaded to a fresh tree on 2026-08-21, so the
+fresh-tree branch of that decision is simply the one we are standing on. No
+wave here promises a date.
 
 ## Trust
 
