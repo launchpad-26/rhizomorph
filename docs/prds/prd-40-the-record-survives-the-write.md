@@ -262,6 +262,53 @@ subscriber, not only through the snapshot.
 `eventsSoFar()` were counted but not audited one by one. If any of them folds per call the way
 `/api/meta` does, it is the same issue with a different route name.
 
+### Re-sequenced 2026-08-25 — waves 3 to 6
+
+The three waves above are kept as written: waves 1 and 2 ran exactly as planned and landed
+(#3 in #67, #4 in #79), and wave 3's original text is the record of what was expected. What
+follows is what the wave actually is, and why it split.
+
+**One file did it.** `recorder/session-recorder.ts` turned out to be claimed by three issues at
+once, and `AGENTS.md` forbids bundling across a live fence — two issues claiming one path is a
+rebase conflict already scheduled. So they run in consecutive waves, ordered by the Timeline and
+Priority already on them rather than by preference.
+
+- **Wave 3 — parallel, fenced apart.** `#5` /api/meta answers from the maintained fold
+  (`api/meta.ts`) · `#81` architecture.md says what a replay may now contain
+  (`docs/architecture.md`). Both consume wave 1; they share no file.
+- **Wave 4.** `#26` a dropped append speaks in the degrade voice — ruling 2's other half, and
+  success 2. Now/High, so it takes the contested file first.
+- **Wave 5.** `#69` `foldSoFar()` cannot be corrupted by the caller that reads it.
+- **Wave 6.** `#80` a fsync failure cannot leave a line after `session.closed`. Last of the three,
+  because it is the only one still gated on an operator ruling and would otherwise hold up two
+  issues that need none.
+
+**Why wave 3 lost the degrade-voice half.** `#26` was authored above as wave 3, fenced to
+`server/poll-loop.ts`. Writing its plan showed it unbuildable there. Its DoD requires the degrade
+`collector.error` to be emitted *whether or not its own append succeeds* — success 1's named
+exception — and after wave 2 there is no way to do that from the poll loop: `record()` appends
+before it publishes and so publishes nothing when the append fails, which is precisely the
+disk-full case the alarm exists for, and the recorder's emitter is private. Publish-without-append
+has to be added on the durability boundary itself, which is `session-recorder.ts`.
+
+**Two dependencies this PRD's own tooling could not see, recorded so the next PRD expects them.**
+`scripts/fence-lint.sh` compares fences **as declared**, and both of these are real couplings it
+passed clean over:
+
+- **A widening that has not happened yet is invisible.** `#26` declared `poll-loop.ts` alone, so
+  its collision with `#69` and `#80` existed only in the plan, not in the fences. The lint that
+  exists to catch a bad fence before anyone is dispatched cannot catch a fence that is about to
+  change.
+- **A shared type is not a shared path.** `#5` and `#69` share no file, but `#69` may change what
+  `foldSoFar()` returns and `#5` consumes it — so the assembled wave breaks while each lane is
+  green alone. Resolved by binding `#5` to treat the return as read-only unconditionally, which
+  makes every shape `#69` can reach safe and removes the dependency without ordering the wave.
+
+**A ruling was found stranded, not missing.** `#26`'s DoD rests on success 1's named exception,
+whose commit had been pushed to `prd39-paper` the day after that branch's PR merged and never
+landed. On `main` the exception did not exist, so the issue would have had a lane knowingly break
+a live success criterion. Landed in #86, along with a prd-41 pointer stranded beside it.
+
 ## Open questions
 
 - **Does a duplicate on replay break any existing consumer?** **Answered 2026-08-25, with the
