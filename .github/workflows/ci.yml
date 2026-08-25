@@ -58,18 +58,27 @@ jobs:
         run: npm ci
 
       - name: Build
+        id: build
         run: npm run build
 
       - name: Test
         run: npm test
 
       - name: Typecheck
+        if: "!cancelled()"
         run: npm run typecheck
 
       - name: Lint
+        if: "!cancelled()"
         run: npm run lint
 
+      # Gated on Build's own outcome, not always(): the packaging guard only
+      # flags UNEXPECTED files and passes vacuously over an empty dist/, and
+      # the boot smoke's bin falls back to running TS source when dist is
+      # absent (packages/server/bin/rhizomorph.mjs) — so on a Build-red leg
+      # always() would report both green having verified nothing built.
       - name: Packaging guard — npm pack ships only the allowlist
+        if: "!cancelled() && steps.build.outcome == 'success'"
         run: |
           set -e
           node <<'NODE_EOF'
@@ -95,6 +104,7 @@ jobs:
           NODE_EOF
 
       - name: Boot smoke — start server, hit /api/meta and /, shut down
+        if: "!cancelled() && steps.build.outcome == 'success'"
         run: |
           set -e
 
