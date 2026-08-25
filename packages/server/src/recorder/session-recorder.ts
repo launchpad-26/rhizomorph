@@ -116,12 +116,22 @@ export class SessionRecorder {
 
   async record(event: RhizomorphEvent): Promise<void> {
     while (this.sealed !== null) await this.sealed
+    // prd40 ruling 1 (ADR-0029): nothing publishes until the append resolves.
+    // SessionLogWriter serialises appends through its `tail` chain, so awaiting
+    // here keeps `buffer` in the log's own order even when two callers race.
+    const writer = this.writer
+    await writer.append(event)
+    // The first suspension point this method has ever had. A rotation can close
+    // this session and openSession() the next one while we are parked on it;
+    // publishing then would push a closed session's event into the new
+    // session's buffer, fold and subscribers. The event is durable in the file
+    // it was appended to — it is the recorder's current session that moved on.
+    if (this.writer !== writer) return
     this.buffer.push(event)
     this.advanceFold(event)
     // A throwing subscriber here just rejects this call's promise — unlike
     // closeWith, record() holds no seal that would otherwise stay stuck.
     this.emitter.emit('event', event)
-    await this.writer.append(event)
   }
 
   /**
@@ -138,18 +148,43 @@ export class SessionRecorder {
     this.sealed = new Promise<void>((resolve) => {
       this.releaseSeal = resolve
     })
-    this.buffer.push(event)
-    this.advanceFold(event)
+    // The seal is still taken FIRST, so prd17 ruling 1's structural guarantee is
+    // untouched — a collector poll landing in the same tick still cannot slip in
+    // behind the final line. Only the publishing moves (prd40 ruling 1).
     try {
-      this.emitter.emit('event', event)
       await this.writer.append(event)
       await this.writer.sync()
     } catch (error) {
+      // The close did NOT happen, so the seal it took must not outlive it —
+      // otherwise every later `record` waits on a session nobody will reopen.
       const release = this.releaseSeal
       this.sealed = null
       this.releaseSeal = null
       release?.()
       throw error
+    }
+    // Past here the session IS closed on disk, and two rules follow.
+    //
+    // The seal STAYS. Releasing it would let a later `record` append behind
+    // `session.closed`, which is the guarantee prd17 ruling 1 makes structural.
+    // Only `openSession` releases a seal the close earned.
+    //
+    // And nothing below may reject. `rotate.ts` reaches `removeSessionLock`
+    // and `openSession` only once this resolves (`rotate.ts:149`, `:168`), so
+    // rejecting here would strand that seal with nothing alive to release it:
+    // every later `record` parks forever on the wait above, `runTick` never
+    // returns, and the poll loop stops silently and permanently.
+    this.buffer.push(event)
+    this.advanceFold(event)
+    try {
+      this.emitter.emit('event', event)
+    } catch (error) {
+      // A subscriber's bug is not the closer's failure. Reported, never
+      // propagated — the same shape as the poll loop's `recordOrDegrade`
+      // (#239): the reporting path is never the crash path.
+      console.error(
+        `[rhizomorph] a subscriber threw on session.closed: ${error instanceof Error ? error.message : String(error)}`,
+      )
     }
   }
 

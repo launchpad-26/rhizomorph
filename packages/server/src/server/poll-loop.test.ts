@@ -771,3 +771,137 @@ describe('the poll loop, rebuildable (prd20 ruling 5, retarget spike Q1/gap a+b)
     expect(messages).toEqual(['saw 0'])
   })
 })
+
+/** A recorder that rejects the Nth `record` call (1-based) and records the rest. */
+function createRecorderFailingOn(n: number): { recorder: SessionRecorder; events: RhizomorphEvent[] } {
+  const events: RhizomorphEvent[] = []
+  let calls = 0
+  const recorder = {
+    record: async (event: RhizomorphEvent) => {
+      calls += 1
+      if (calls === n) throw new Error('ENOSPC: no space left on device')
+      events.push(event)
+    },
+  } as unknown as SessionRecorder
+  return { recorder, events }
+}
+
+/** Emits three events derived from its snapshot, so an un-advanced snapshot re-derives the same batch. */
+function batchCollector(name = 'batch'): AnyCollector {
+  return {
+    name,
+    initialSnapshot: () => ({ polls: 0 }),
+    poll: (prev: { polls: number }, ctx: CollectorContext) => ({
+      nextSnapshot: { polls: prev.polls + 1 },
+      events: [0, 1, 2].map((index) =>
+        ctx.emit('collector.error', { collector: name, message: `poll ${prev.polls} event ${index}` }),
+      ),
+    }),
+  }
+}
+
+const messagesOf = (events: readonly RhizomorphEvent[]) => collectorErrors(events).map((event) => event.payload.message)
+
+describe('the poll loop advances its snapshot only once the batch is on disk (prd40 ruling 1)', () => {
+  it('re-derives the WHOLE batch when the second event of three fails, appending the first twice', async () => {
+    // Call 1 is event 0 (lands), call 2 is event 1 (rejects), call 3 is the
+    // degrade `collector.error` the catch reports.
+    const { recorder, events } = createRecorderFailingOn(2)
+    const pollLoop = createPollLoop({
+      repoPath: '/tmp/repo',
+      collectors: [batchCollector()],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+    })
+
+    await pollLoop.tick()
+    await pollLoop.tick()
+
+    // The second poll was handed the SAME snapshot, so it re-derived poll 0's
+    // batch — including the event whose append had already resolved.
+    expect(messagesOf(events).filter((message) => message === 'poll 0 event 0')).toHaveLength(2)
+    expect(messagesOf(events)).toEqual([
+      'poll 0 event 0',
+      'ENOSPC: no space left on device',
+      'poll 0 event 0',
+      'poll 0 event 1',
+      'poll 0 event 2',
+    ])
+  })
+
+  it('does not advance the snapshot when the only event fails, and re-emits it next tick', async () => {
+    const { recorder, events } = createRecorderFailingOn(1)
+    const pollLoop = createPollLoop({
+      repoPath: '/tmp/repo',
+      collectors: [countingCollector()],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+    })
+
+    await pollLoop.tick()
+    await pollLoop.tick()
+
+    // 'saw 0' twice would mean the snapshot never advanced at all; once, after
+    // the degrade line, is the event being re-derived exactly as intended.
+    expect(messagesOf(events)).toEqual(['ENOSPC: no space left on device', 'saw 0'])
+  })
+
+  it('does not persist the snapshot for a batch that failed', async () => {
+    const { recorder } = createRecorderFailingOn(2)
+    const store = createFakeStore()
+    const pollLoop = createPollLoop({
+      repoPath: '/tmp/repo',
+      collectors: [batchCollector()],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+      snapshotStore: store,
+    })
+
+    await pollLoop.tick()
+
+    expect(store.saves).toEqual([])
+  })
+
+  it('still reports a rejected append through the existing degrade path, and keeps ticking', async () => {
+    const { recorder, events } = createRecorderFailingOn(1)
+    const pollLoop = createPollLoop({
+      repoPath: '/tmp/repo',
+      collectors: [countingCollector()],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+    })
+
+    await pollLoop.tick()
+
+    const degraded = collectorErrors(events).filter((event) => event.payload.collector === 'counter')
+    expect(degraded.map((event) => event.payload.message)).toEqual(['ENOSPC: no space left on device'])
+    // The loop survived it: a later tick still polls.
+    await expect(pollLoop.tick()).resolves.toBeUndefined()
+  })
+
+  it('leaves the clean path exactly as it was: the snapshot advances once per tick and persists once', async () => {
+    const { recorder, events } = createFakeRecorder()
+    const store = createFakeStore()
+    const pollLoop = createPollLoop({
+      repoPath: '/tmp/repo',
+      collectors: [countingCollector()],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+      snapshotStore: store,
+    })
+
+    await pollLoop.tick()
+    await pollLoop.tick()
+
+    expect(messagesOf(events)).toEqual(['saw 0', 'saw 1'])
+    expect(store.saves).toEqual([
+      { name: 'counter', snapshot: { polls: 1 } },
+      { name: 'counter', snapshot: { polls: 2 } },
+    ])
+  })
+})
