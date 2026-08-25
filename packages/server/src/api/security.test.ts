@@ -246,6 +246,19 @@ describe('requireCapabilityToken with allowCookie (prd-29 ruling 4, #60 — the 
     })
     expect(response.statusCode).toBe(401)
   })
+
+  it('a malformed percent-encoding in the cookie value is a clean 401, not a 500 (review of #93)', async () => {
+    const app = makeReadApp('the-right-token')
+    const response = await app.inject({
+      method: 'GET',
+      url: '/read',
+      // `%` with no following hex pair — decodeURIComponent throws on this;
+      // the gate must treat it as "no cookie" rather than let the throw
+      // escape as an unhandled 500, which is what it did before this fix.
+      headers: { cookie: `${CAPABILITY_COOKIE_NAME}=%` },
+    })
+    expect(response.statusCode).toBe(401)
+  })
 })
 
 describe('buildCapabilityCookie', () => {

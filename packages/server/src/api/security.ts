@@ -101,6 +101,15 @@ export function buildCapabilityCookie(token: string): string {
  * header. This app registers no cookie-parsing plugin — this is the one
  * place that understands the wire format, matching
  * {@link buildCapabilityCookie}.
+ *
+ * A malformed percent-encoding (`%` with no following hex pair) makes
+ * `decodeURIComponent` throw `URIError`, uncaught — review of #93 found this
+ * turns any request carrying such a cookie into a 500 rather than the clean
+ * 401 every other bad credential gets. Not a bypass (the gate still refuses,
+ * just noisily), but a caller cannot forge that shape by accident, and one
+ * who can forge it deliberately gets a stack trace where a status code would
+ * do — an unnecessary information leak this gate exists to not have. Caught
+ * here and treated as "no cookie", the same as any other unparseable one.
  */
 function readCapabilityCookie(cookieHeader: string | undefined): string | undefined {
   if (cookieHeader === undefined) return undefined
@@ -108,7 +117,11 @@ function readCapabilityCookie(cookieHeader: string | undefined): string | undefi
     const eq = part.indexOf('=')
     if (eq === -1) continue
     if (part.slice(0, eq).trim() !== CAPABILITY_COOKIE_NAME) continue
-    return decodeURIComponent(part.slice(eq + 1).trim())
+    try {
+      return decodeURIComponent(part.slice(eq + 1).trim())
+    } catch {
+      return undefined
+    }
   }
   return undefined
 }
