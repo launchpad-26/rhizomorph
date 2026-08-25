@@ -22,6 +22,7 @@ import { RESUME_WINDOW_MS, sessionFilePath } from '../log/session-log.js'
 import { buildApp } from '../server/build-app.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { recordSessionBootMeta } from './meta.js'
+import { capabilityHeaders } from './test-support.js'
 
 describe('GET /api/meta', () => {
   let repoPath: string
@@ -600,7 +601,7 @@ describe('GET /api/meta', () => {
         )
 
         const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
-        const response = await app.inject({ method: 'GET', url: '/api/meta' })
+        const response = await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })
 
         expect(response.statusCode).toBe(200)
         // NOT a snapshot: the expected value is recomputed here from
@@ -625,12 +626,12 @@ describe('GET /api/meta', () => {
         // that call is not on the request path this law speaks about.
         const rebuild = vi.spyOn(core, 'reduceAll')
         try {
-          expect((await app.inject({ method: 'GET', url: '/api/meta' })).statusCode).toBe(200)
+          expect((await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).statusCode).toBe(200)
           expect(rebuild).not.toHaveBeenCalled()
 
           await recordActivity(recorder, 5, 55, 21_000)
 
-          expect((await app.inject({ method: 'GET', url: '/api/meta' })).statusCode).toBe(200)
+          expect((await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).statusCode).toBe(200)
           // Two sizes, because a law at one size cannot tell "constant" from
           // "small": a request that re-folded would be caught at 5 events too,
           // but only the second reading proves the cost did not grow with the
@@ -658,9 +659,9 @@ describe('GET /api/meta', () => {
         await recordActivity(recorder, 0, 3, 22_100)
         const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
-        const first = (await app.inject({ method: 'GET', url: '/api/meta' })).json()
-        const second = (await app.inject({ method: 'GET', url: '/api/meta' })).json()
-        const third = (await app.inject({ method: 'GET', url: '/api/meta' })).json()
+        const first = (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()
+        const second = (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()
+        const third = (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()
 
         // Nothing is recorded between the three, so idempotence is the whole
         // claim — and it is the shape a shared, maintained fold gets wrong.
@@ -685,7 +686,7 @@ describe('GET /api/meta', () => {
         await recordActivity(recorder, 0, 4, 23_100)
         const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
-        expect((await app.inject({ method: 'GET', url: '/api/meta' })).statusCode).toBe(200)
+        expect((await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).statusCode).toBe(200)
 
         // This lane's half of the wave-3 contract with #69: the route is handed
         // the recorder's LIVE object, so proving it comes back untouched is
@@ -703,7 +704,7 @@ describe('GET /api/meta', () => {
         const recorder = new SessionRecorder('24000', sessionFilePath(sessionDir, '24000'))
         const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
-        const response = await app.inject({ method: 'GET', url: '/api/meta' })
+        const response = await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })
 
         expect(response.statusCode).toBe(200)
         expect(response.json()).toEqual(metaBodyFromRefold(recorder, repoPath, 'repo'))
