@@ -26,6 +26,7 @@ import { defaultDataRoot, sessionDirFor } from '../log/paths.js'
 import { decideSessionBoot, formatBootDuration } from '../log/session-log.js'
 import { exec as realExec } from '../server/exec.js'
 import { DEFAULT_PORT, parseFlags, type FlagSpec } from './args.js'
+import { capabilityAwareFetch } from './rotate.js'
 import type { RunCliOptions } from './types.js'
 
 /**
@@ -349,13 +350,29 @@ function isRhizomorphMeta(body: unknown): body is RhizomorphMeta {
   )
 }
 
-/** Whatever is on `port` is a rhizomorph only if it answers `/api/meta` with that exact shape — anything else (a stray dev server, a typo'd port) stays a FAIL. */
+/**
+ * Whatever is on `port` is a rhizomorph only if it answers `/api/meta` with
+ * that exact shape — anything else (a stray dev server, a typo'd port) stays
+ * a FAIL.
+ *
+ * `/api/meta` is a `gated-read` (prd-29 ruling 7, #59), so this speculative
+ * probe goes through {@link capabilityAwareFetch} — the same shared scrape
+ * `rhizomorph env` uses — rather than a bare, tokenless request that would
+ * now just 401. This probe is inherently speculative (the port might not be
+ * a rhizomorph at all, or a rhizomorph with no built dashboard to hand a
+ * token out through), so EVERY failure along that path — the GET / scrape
+ * itself throwing, a non-2xx, a body that isn't JSON, a body that isn't
+ * rhizomorph-shaped — still collapses onto the same honest `null` the
+ * try/catch below always returned: "not our own rhizomorph, port genuinely
+ * busy". Nothing about adding the extra scrape request changes that contract.
+ */
 async function probeRhizomorphMeta(
   port: number,
   fetchImpl: typeof globalThis.fetch,
 ): Promise<RhizomorphMeta | null> {
   try {
-    const response = await fetchImpl(`http://127.0.0.1:${port}/api/meta`)
+    const rhizomorphFetch = capabilityAwareFetch(port, { fetch: fetchImpl })
+    const response = await rhizomorphFetch(`http://127.0.0.1:${port}/api/meta`)
     if (!response.ok) return null
     const body: unknown = await response.json()
     return isRhizomorphMeta(body) ? body : null

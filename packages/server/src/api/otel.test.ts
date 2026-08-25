@@ -9,6 +9,7 @@ import { sessionFilePath } from '../log/session-log.js'
 import { buildApp } from '../server/build-app.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { FAULT_THROTTLE_MS, INSTANCE_ATTRIBUTE, registerOtelRoutes } from './otel.js'
+import { capabilityHeaders } from './test-support.js'
 
 /**
  * Injected-request integration test for the OTLP/HTTP receiver: real Fastify
@@ -149,7 +150,7 @@ describe('OTLP/HTTP receiver routes', () => {
     expect(errors[0]?.payload).toMatchObject({ collector: 'otel' })
 
     // the server itself is unharmed — an unrelated route still answers normally
-    const meta = await app.inject({ method: 'GET', url: '/api/meta' })
+    const meta = await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })
     expect(meta.statusCode).toBe(200)
   })
 

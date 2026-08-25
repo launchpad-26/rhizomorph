@@ -92,9 +92,9 @@ describe('the route-class law (prd-23 ruling 5)', () => {
     // quietly emptied, must not both agree and pass anyway. This repo has
     // had two laws walk vacuously before.
     // 23 -> 25: the lane index's two reads (prd-31 ruling 5, #556) —
-    // `/api/lane-index` and `/api/lane-index/:handle`. prd-29 ruling 7 (#58)
-    // reclassifies four existing rows to `gated-read` and adds none, so the
-    // count is unchanged.
+    // `/api/lane-index` and `/api/lane-index/:handle`. prd-29 ruling 7 (#58,
+    // #59) reclassifies six existing rows to `gated-read` and adds none, so
+    // the count is unchanged.
     expect(routes.length).toBe(25)
     expect(ROUTE_CLASSES.length).toBe(25)
 
@@ -139,19 +139,19 @@ describe('the route-class law (prd-23 ruling 5)', () => {
 
     // Every `gated-*` row's real route holds the capability gate, and every
     // plain `read`/`ungated-mutation` holds none. Deleting a `preHandler` from
-    // any of the seventeen gated routes turns this red — that is the law biting.
+    // any of the nineteen gated routes turns this red — that is the law biting.
     expect(gatePresenceViolations(routes, ROUTE_CLASSES)).toEqual([])
 
     // A count pinned independently, so the walk cannot pass vacuously by
     // matching zero gated routes: six gated mutations + seven gated reads
-    // (prd-29 wave 1) + four gated reads (prd-29 wave 1b, ruling 7, #58). If
-    // this number and the walk above disagree with the table, they cannot
-    // both pass.
+    // (prd-29 wave 1) + four gated reads (prd-29 wave 1b, ruling 7, #58) +
+    // two gated reads (prd-29 wave 2a, ruling 7, #59). If this number and the
+    // walk above disagree with the table, they cannot both pass.
     const gatedFound = routes.filter((route) => {
       const entry = classify(route, ROUTE_CLASSES)
       return entry !== undefined && isGated(entry) && route.hasCapabilityGate
     })
-    expect(gatedFound.length).toBe(17)
+    expect(gatedFound.length).toBe(19)
 
     await app.close()
   })

@@ -1,8 +1,9 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runCli, type CliHandle } from './index.js'
+import { capabilityAwareFetch } from './rotate.js'
 import { fetchInstanceId, metaUrl, otlpEndpoint, renderTelemetryEnv } from './telemetry-env.js'
 
 /** A `fetch` that answers one `/api/meta` body, without a socket. */
@@ -187,8 +188,16 @@ describe('fetchInstanceId', () => {
  * server on an ephemeral port and reads it back through the real CLI path — no
  * stubbed fetch, nothing to drift out of sync with `/api/meta`.
  */
+/**
+ * AMENDED for #59: `/api/meta` is a `gated-read` now, and the token is handed
+ * out only through the served dashboard page (ADR-0012) — same reason
+ * `runCli rotate subcommand`/`runCli env subcommand` in `index.test.ts` give
+ * their booted servers a real `webDistDir`. Without one there is no page to
+ * scrape a token off.
+ */
 describe('rhizomorph env against a live server', () => {
   let dataRoot: string
+  let webDistDir: string
   let server: CliHandle | undefined
 
   class FakeExit extends Error {
@@ -203,11 +212,18 @@ describe('rhizomorph env against a live server', () => {
 
   beforeEach(async () => {
     dataRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-env-test-'))
+    webDistDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-env-test-web-'))
+    await writeFile(
+      path.join(webDistDir, 'index.html'),
+      '<!doctype html>\n<html lang="en"><head><title>the Rhizomorph</title></head><body><div id="root"></div></body></html>\n',
+      'utf8',
+    )
   })
 
   afterEach(async () => {
     await server?.stop()
     await rm(dataRoot, { recursive: true, force: true })
+    await rm(webDistDir, { recursive: true, force: true })
   })
 
   async function boot(): Promise<{ port: number; instance: string }> {
@@ -215,6 +231,7 @@ describe('rhizomorph env against a live server', () => {
       dataRoot,
       collectors: [],
       log: { log: () => {}, warn: () => {} },
+      webDistDir,
     })
     const port = Number(new URL(server.url).port)
     return { port, instance: server.recorder.sessionId }
@@ -223,7 +240,7 @@ describe('rhizomorph env against a live server', () => {
   it('carries the live server\'s instance id into OTEL_RESOURCE_ATTRIBUTES', async () => {
     const { port, instance } = await boot()
 
-    expect(await fetchInstanceId(port)).toBe(instance)
+    expect(await fetchInstanceId(port, { fetch: capabilityAwareFetch(port) })).toBe(instance)
 
     const log = { log: vi.fn(), warn: vi.fn() }
     const thrown = await runCli(['env', 'my-lane', '--port', String(port)], {

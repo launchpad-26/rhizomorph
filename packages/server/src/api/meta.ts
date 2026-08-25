@@ -20,6 +20,7 @@ import { JUDGE_CAPABILITIES } from '../collectors/judge/index.js'
 import { RESUME_WINDOW_MS, type SessionBootReason } from '../log/session-log.js'
 import type { SessionRecorder } from '../server/recorder.js'
 import type { ServerContext } from '../server/context.js'
+import { requireCapabilityToken } from './security.js'
 
 /**
  * The boot facts `/api/meta` carries in addition to `startedAt` — #181 (the
@@ -233,7 +234,7 @@ function buildConnection(folded: SessionState): MetaConnection {
 }
 
 export function registerMetaRoute(app: FastifyInstance, ctx: ServerContext): void {
-  app.get('/api/meta', async () => {
+  app.get('/api/meta', { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') }, async () => {
     const bootMeta = bootMetaByRecorder.get(ctx.recorder) ?? fallbackBootMeta()
     const ladder = buildLadderManifest(ctx.recorder)
     return {

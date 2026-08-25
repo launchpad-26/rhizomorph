@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { selectConnection, type CollectorState, type SourceFlow } from '@rhizomorph/core'
 import { useFleet } from '../fleet/index.js'
 import { formatTokens } from '../lib/format.js'
+import { capabilityRead } from '../recordings/capabilityRead.js'
 import { CONNECTION_DOT_CLASS, CONNECTION_LABEL } from './ConnectionBadge.js'
 import { useMode, useReplay } from './ModeContext.js'
 import { useStream } from './StreamContext.js'
@@ -111,10 +112,16 @@ function parseBootFacts(body: unknown): SessionBootFacts | null {
   return null
 }
 
+/**
+ * `/api/meta` is a `gated-read` (prd-29 ruling 7, #59), so the default here
+ * goes through the shared `capabilityRead` — the one module in the app
+ * allowed to attach the capability header (`replay/mutating-calls-law.test.ts`'s
+ * `READ_MODULES`) — rather than this file growing a second header-construction
+ * site. Only the DEFAULT changes: the injectable `fetchImpl` param tests
+ * supply is untouched.
+ */
 function defaultMetaFetch(): MetaFetchLike | null {
-  return typeof globalThis.fetch === 'function'
-    ? ((input: string) => globalThis.fetch(input)) as MetaFetchLike
-    : null
+  return typeof globalThis.fetch === 'function' ? (capabilityRead as MetaFetchLike) : null
 }
 
 /**
