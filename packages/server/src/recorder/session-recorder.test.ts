@@ -1,10 +1,14 @@
+import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createEvent, createEventFactory, initialSessionState, reduceAll } from '@rhizomorph/core'
+import type { RhizomorphEvent } from '@rhizomorph/core'
 import * as core from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { sessionFilePath } from '../log/session-log.js'
+import { writeSessionLock } from '../log/session-lock.js'
+import { rotateSession } from './rotate.js'
 import { SessionLogWriter } from './session-log-writer.js'
 import { SessionRecorder } from './session-recorder.js'
 
@@ -47,25 +51,195 @@ describe('SessionRecorder#closeWith', () => {
     ).resolves.toBeUndefined()
   })
 
-  it('releases the seal instead of hanging forever when a subscriber throws', async () => {
+  it('a subscriber throwing after a durable close neither fails the close nor reopens the log', async () => {
     const closeEvent = createEvent(
       'session.closed',
       { sessionId: FIRST, reason: 'rotated', eventCount: 1 },
       { id: `session-closed-${FIRST}`, ts: 1000 },
     )
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => {})
     const unsubscribe = recorder.subscribe(() => {
       throw new Error('subscriber boom')
     })
 
-    await expect(recorder.closeWith(closeEvent)).rejects.toThrow('subscriber boom')
-    expect(recorder.isSealed).toBe(false)
+    // The close DID happen, so it must not reject: `rotate.ts` reaches
+    // `removeSessionLock` and `openSession` only when this resolves, and a
+    // rejection here would strand the seal with nothing alive to release it.
+    await expect(recorder.closeWith(closeEvent)).resolves.toBeUndefined()
+    expect(reported).toHaveBeenCalledWith(expect.stringContaining('subscriber boom'))
+    // And the seal STAYS: releasing it would let the record() below append
+    // behind `session.closed`, which prd17 ruling 1 makes structural.
+    expect(recorder.isSealed).toBe(true)
     unsubscribe()
 
-    // A record() call after the throwing close must resolve promptly, not
-    // hang forever on a seal nobody released.
+    let settled = false
+    const queued = recorder
+      .record(createEvent('collector.error', { collector: 'git', message: 'boom' }, { id: 'evt-2', ts: 1001 }))
+      .then(() => {
+        settled = true
+      })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(settled).toBe(false)
+
+    const SECOND = '2000'
+    recorder.openSession(SECOND, sessionFilePath(dir, SECOND))
+    await queued
+    expect(settled).toBe(true)
+  })
+
+  it('a rejected closing append advances neither the buffer nor the fold', async () => {
+    const closeEvent = createEvent(
+      'session.closed',
+      { sessionId: FIRST, reason: 'rotated', eventCount: 1 },
+      { id: `session-closed-${FIRST}`, ts: 1000 },
+    )
+    vi.spyOn(SessionLogWriter.prototype, 'append').mockRejectedValueOnce(new Error('ENOSPC: no space left on device'))
+
+    await expect(recorder.closeWith(closeEvent)).rejects.toThrow('ENOSPC')
+    expect(recorder.eventsSoFar()).toEqual([])
+    expect(recorder.foldSoFar()).toEqual(initialSessionState())
+  })
+
+  it('puts the close event on disk before any subscriber is told about it', async () => {
+    const closeEvent = createEvent(
+      'session.closed',
+      { sessionId: FIRST, reason: 'rotated', eventCount: 1 },
+      { id: `session-closed-${FIRST}`, ts: 1000 },
+    )
+    let onDiskWhenNotified = ''
+    const unsubscribe = recorder.subscribe(() => {
+      onDiskWhenNotified = readFileSync(sessionFilePath(dir, FIRST), 'utf8')
+    })
+
+    await recorder.closeWith(closeEvent)
+    unsubscribe()
+
+    expect(onDiskWhenNotified).toContain(`session-closed-${FIRST}`)
+  })
+
+  it('leaves the whole rotation able to finish when a subscriber throws', async () => {
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await recorder.record(createEvent('collector.error', { collector: 'git', message: 'x' }, { id: 'e1', ts: 1 }))
+    await writeSessionLock(dir, FIRST, process.pid, 1000)
+    recorder.subscribe((event) => {
+      if (event.type === 'session.closed') throw new Error('subscriber boom')
+    })
+
+    // The real rotation, not a hand-driven recorder: closeCurrentSession →
+    // removeSessionLock → openNextSession. `openSession` is the ONLY thing that
+    // can release a seal the close earned, and it lives in the half that never
+    // runs if closeWith rejects — so a rejection here strands the seal with
+    // nothing alive to release it, every later record() parks forever on the
+    // seal wait, `runTick` never returns and the poll loop stops silently.
     await expect(
-      recorder.record(createEvent('collector.error', { collector: 'git', message: 'boom' }, { id: 'evt-2', ts: 1001 })),
+      rotateSession({
+        sessionDir: dir,
+        repoPath: '/repo',
+        repoName: 'repo',
+        recorder,
+        now: () => 5000,
+        pid: 1,
+        claudeProjectsRoot: path.join(dir, 'nope'),
+      }),
+    ).resolves.toBeDefined()
+
+    expect(reported).toHaveBeenCalledWith(expect.stringContaining('subscriber boom'))
+    expect(recorder.isSealed).toBe(false)
+    await expect(
+      recorder.record(createEvent('collector.error', { collector: 'git', message: 'after' }, { id: 'e2', ts: 2 })),
     ).resolves.toBeUndefined()
+  })
+})
+
+describe('SessionRecorder#record — the append precedes every publish (prd40 ruling 1)', () => {
+  let dir: string
+  let recorder: SessionRecorder
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-recorder-test-'))
+    recorder = new SessionRecorder(FIRST, sessionFilePath(dir, FIRST))
+  })
+
+  afterEach(async () => {
+    vi.restoreAllMocks()
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  const anEvent = (id: string, message: string) =>
+    createEvent('collector.error', { collector: 'git', message }, { id, ts: 1000 })
+
+  it('publishes nothing when the append is rejected, with a live subscriber attached', async () => {
+    const seen: RhizomorphEvent[] = []
+    const unsubscribe = recorder.subscribe((event) => {
+      seen.push(event)
+    })
+    vi.spyOn(SessionLogWriter.prototype, 'append').mockRejectedValueOnce(new Error('ENOSPC: no space left on device'))
+
+    await expect(recorder.record(anEvent('evt-1', 'boom'))).rejects.toThrow('ENOSPC')
+    unsubscribe()
+
+    // All three publishes, not two: the subscriber, the buffer, and the fold.
+    expect(seen).toEqual([])
+    expect(recorder.eventsSoFar()).toEqual([])
+    expect(recorder.foldSoFar()).toEqual(initialSessionState())
+  })
+
+  it('publishes to the buffer, the fold and the subscriber once the append resolves', async () => {
+    const seen: RhizomorphEvent[] = []
+    const unsubscribe = recorder.subscribe((event) => {
+      seen.push(event)
+    })
+    const event = anEvent('evt-1', 'boom')
+
+    await recorder.record(event)
+    unsubscribe()
+
+    expect(seen).toEqual([event])
+    expect(recorder.eventsSoFar()).toEqual([event])
+    expect(recorder.foldSoFar()).toEqual(reduceAll([event]))
+  })
+
+  it("keeps the buffer in the log's own order when two callers race", async () => {
+    const a = anEvent('evt-a', 'a')
+    const b = anEvent('evt-b', 'b')
+
+    // Both issued before either is awaited: the writer's `tail` chain is what
+    // makes the resolution order the call order, and therefore makes the
+    // buffer agree with the file. A non-FIFO writer would break both at once.
+    await Promise.all([recorder.record(a), recorder.record(b)])
+
+    expect(recorder.eventsSoFar().map((event) => event.id)).toEqual(['evt-a', 'evt-b'])
+    const lines = readFileSync(sessionFilePath(dir, FIRST), 'utf8').trimEnd().split('\n')
+    expect(lines.map((line) => JSON.parse(line).id)).toEqual(['evt-a', 'evt-b'])
+  })
+
+  it('does not publish into the next session when a rotation lands mid-append', async () => {
+    let releaseAppend: () => void = () => {}
+    vi.spyOn(SessionLogWriter.prototype, 'append').mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseAppend = resolve
+        }),
+    )
+    const seen: RhizomorphEvent[] = []
+    const unsubscribe = recorder.subscribe((event) => {
+      seen.push(event)
+    })
+
+    const pending = recorder.record(anEvent('evt-1', 'boom'))
+    // The rotation closes this session and opens the next one while record()
+    // is parked on its append — the suspension point this issue introduced.
+    const SECOND = '2000'
+    recorder.openSession(SECOND, sessionFilePath(dir, SECOND))
+    releaseAppend()
+    await pending
+    unsubscribe()
+
+    // The event is durable in the file it was appended to. What it must not do
+    // is contaminate the session that has since opened.
+    expect(recorder.eventsSoFar()).toEqual([])
+    expect(recorder.foldSoFar()).toEqual(initialSessionState())
+    expect(seen).toEqual([])
   })
 })
 

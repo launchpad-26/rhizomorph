@@ -213,10 +213,16 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
           })
 
         const result = await raceBudget(pollPromise)
-        snapshots.set(collector.name, result.nextSnapshot)
+        // prd40 ruling 1 (ADR-0029): the snapshot advances only once every event
+        // in this batch is on disk. A rejected append therefore leaves
+        // `previous` in place and the next tick re-derives the WHOLE batch —
+        // including the events whose appends already resolved, which are
+        // appended twice. ADR-0029 rules that duplicate accepted; losing the
+        // event is not.
         for (const event of result.events) {
           await recorder.record(event)
         }
+        snapshots.set(collector.name, result.nextSnapshot)
         // Reference check: a collector that handed its snapshot straight back
         // (nothing new, or an error branch) has nothing to write.
         if (result.nextSnapshot !== previous) await persist(collector, result.nextSnapshot)

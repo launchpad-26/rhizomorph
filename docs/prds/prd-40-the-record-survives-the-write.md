@@ -161,6 +161,53 @@ reading `foldSoFar()` from inside `emitter.emit` sees exactly the events `events
 (`session-recorder.ts:96-98`). Reordering push against `advanceFold`, or separating either from
 the emit, breaks a law wave 1 landed. Move the block, not the statements.
 
+**Amended 2026-08-25, third — `closeWith`'s `catch` is NOT reused as-is.** The paragraph above
+says the existing `catch` that releases the seal "is reused as-is". Once the append moves first
+that sentence is a defect, and it collides with **prd17 ruling 1**:
+
+- Today the subscriber throws *before* the append, so the close genuinely did not happen and
+  releasing the seal is right.
+- Append-first, the subscriber throws *after* a durable close. The same `catch` would release the
+  seal on a session that is closed on disk, and a later `record()` would append a line behind
+  `session.closed` — the thing prd17 ruling 1 makes structural.
+
+**prd17 ruling 1 wins, and a durable close does not fail.** Three rules, and the third exists
+because the first two alone were a regression:
+
+1. A failed append or sync releases the seal and rejects. The close did not happen, so the seal it
+   took must not outlive it.
+2. A durable close **holds** its seal. Releasing it would let a later `record()` append behind
+   `session.closed`. Only `openSession` releases a seal the close earned.
+3. Once the close is durable, **nothing below it may reject** — a throwing subscriber is reported,
+   never propagated.
+
+**Rule 3 was missed on the first pass and found in review of the wave-2 PR.** `rotate.ts` reaches
+`removeSessionLock` (`:149`) and `openSession` (`:168`) only once `closeWith` resolves. With rules
+1 and 2 alone, a subscriber throwing after a durable close rejected `closeWith`, so `openSession`
+never ran — and rule 2 had just made `openSession` the *only* thing that can release that seal.
+The recorder was left sealed with nothing alive to release it: every later `record()` parks
+forever on the seal wait, `runTick` never returns, `inFlightTick` never clears, and the poll loop
+stops silently and permanently. Reproduced through the real `rotateSession`, and confirmed as a
+**regression** — on the pre-wave-2 code the same probe self-heals.
+
+A subscriber's bug is not the closer's failure. `record()`'s own comment already draws that
+asymmetry, and the poll loop's `recordOrDegrade` (#239) already establishes the shape: the
+reporting path is never the crash path.
+
+**With rule 3, this strengthens the law rather than weakening it**, which `CONTRIBUTING.md`
+requires — and without rule 3 it did not, which is the honest record of what review caught. The
+law at `session-recorder.test.ts:50` existed so the recorder never hangs on a seal nobody
+released. Rules 2 and 3 together keep that guarantee *and* add the durable-close hold the old law
+did not have. Rules 1 and 2 alone kept the hold and lost the guarantee.
+
+**Amended 2026-08-25, fourth — a publish is bound to the session that issued the append.**
+`await writer.append(event)` is the first suspension point `record()` has ever had. A rotation can
+run `closeWith` (`rotate.ts:134`) and then `openSession` (`rotate.ts:168`) while a poll-loop
+`record()` is parked on it; on resume it would push a closed session's event into the *new*
+session's buffer, fold and subscribers. `record()` therefore captures its writer before awaiting
+and publishes nothing if the recorder has moved on. The event stays durable in the file it was
+appended to — the session it belongs to.
+
 ## Ruling 2 — the fold the server answers from is maintained, never rebuilt
 
 The recorder keeps a running `SessionState` beside its buffer: updated in `record()` via the

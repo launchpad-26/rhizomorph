@@ -285,6 +285,23 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **An event on screen is an event on disk (prd-40 wave 2, #4).** The recorder published
+  every event — to the live buffer, to the maintained fold, and to every subscriber —
+  *before* awaiting its append, and the poll loop advanced its collector snapshot before
+  the recorder had finished writing. A full disk or a permissions change therefore lost the
+  event permanently: it rendered live, never reached the log, and the next tick diffed
+  against an advanced snapshot so it was never re-derived. Nothing publishes now until the
+  append resolves, at all three publishing sites and in the poll loop.
+
+  Two consequences worth knowing. A rejected append leaves the snapshot un-advanced, so the
+  next tick re-derives the **whole batch** — including events whose appends already
+  resolved, which are appended twice. That duplicate is accepted deliberately
+  ([ADR-0029](docs/adr/0029-a-recording-may-repeat-a-fact.md)): an over-reporting record is
+  recoverable, a silently lost event is not. And a subscriber that throws after a *durable*
+  close no longer reopens the log — the seal is released only when the close did not happen, and
+  such a subscriber is reported rather than failing the close, so a rotation always reaches the
+  next session.
+
 - **A resumed session's open dirty-status incident now actually closes (#536).**
   `worktree.dirtyStatusFailedSince` (#429) is rebuilt by the fold from the event log, but
   its close was voiced only from the git collector's own in-memory failure counter — a
