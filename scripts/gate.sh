@@ -170,6 +170,22 @@ if [ "$LOAD" != "0" ]; then
   [ "$TCOUNT" = "0" ] && fail "timing pass matches ZERO files — a renamed/moved timing test fell out of the gate (the #209 trap: it would still run, silently, under 4x load); restore its '// @gate-timing' marker or '.bench.test.ts' name"
 
   COUNT_FILE="$root/.swarm/timing-count"
+  # A RISE is not the mirror image of a DROP. A dropped timing test is a
+  # silent loss of coverage, so it stays a hard fail() below (#42's line,
+  # untouched). A risen count is routine — landing a genuine new timing test
+  # raises it correctly — and #48 measured what hard-failing every rise would
+  # buy: a check annoying enough to get suppressed or have its ratchet file
+  # deleted within a week, which is worse than the gap it closes. So a rise
+  # is never a fail(): it is a REPORT, printed next to the write below so it
+  # is never silently absorbed into the new floor unseen. RISE_TOLERANCE is
+  # declared data (prd-45 ruling 3: tolerances are data, not a condition
+  # folded into a regex) — a human changes the VALUE by editing this one
+  # line without re-deriving the comparison below, and without breaking test
+  # collection in gate-honesty-law.test.ts. Three fixtures there still
+  # hardcode a delta of 1 and assume a tolerance of 0, though, so changing
+  # this value means updating those fixtures too (tracked separately).
+  RISE_TOLERANCE=0
+  RISE_NOTE=""
   if [ -f "$COUNT_FILE" ]; then
     TIMINGCOUNT_LOG=$(mktemp "/tmp/gate-timingcount-$H.XXXXXX") || fail "cannot create a scratch log for reading $COUNT_FILE"
     PREV=$(cat "$COUNT_FILE" 2>"$TIMINGCOUNT_LOG")
@@ -183,6 +199,22 @@ if [ "$LOAD" != "0" ]; then
     case "$PREV" in
       ('' | *[!0-9]*) fail "$COUNT_FILE contains '$PREV', not a whole number — a corrupt ratchet must not be silently trusted as 0; a human clears or fixes it" ;;
     esac
+    # All-digit still isn't safe: bash arithmetic below (:$((TCOUNT - PREV)))
+    # reads a leading zero as an OCTAL prefix, not decimal — '08' is not even
+    # valid octal (errors out, and the rise it hid is never reported, floor
+    # written anyway), and '010' is valid octal 8, so a genuine hold (PREV=10)
+    # would misreport as a rise from 8. #42 hardened the ONE arithmetic
+    # consumer of $PREV (the `-lt` comparison, unaffected — [ ] does decimal);
+    # this is the SECOND one (#48), and gets the same "do not silently trust
+    # it" treatment rather than a normalising rewrite. Deliberately kept
+    # ABOVE the drop check below rather than moved after it: `[ -lt ]` does
+    # read a leading zero as decimal, so reordering would "work", but it
+    # would make this guard's safety depend on landing below a check it can
+    # just as easily sit above — the guard holds regardless of order, and
+    # keeping it here needs no such dependency.
+    case "$PREV" in
+      (0[0-9]*) fail "$COUNT_FILE contains '$PREV', a non-canonical leading-zero number — bash arithmetic (not the '-lt' comparison below, which reads it correctly as decimal) would treat it as octal. This guard fires BEFORE the drop check below can, so a hand-written value here can be hiding a real drop: before touching $COUNT_FILE, compare $TCOUNT (the current timing-set count, above) against the DECIMAL number '$PREV' was meant to hold — if $TCOUNT is lower, that is a genuine drop, and clearing this file (rather than correcting it) would silently absorb the drop into a fresh floor instead of reporting it. A human corrects the VALUE (writes the intended decimal number to $COUNT_FILE); clearing it is only safe once that comparison is done." ;;
+    esac
     # An all-digit but oversized value (e.g. 20 digits) passes the case guard
     # above and then breaks the comparison itself: bash's `[ -lt ]` errors
     # "integer expected" at exit >1, and `&&` never reaches fail() on a
@@ -193,6 +225,10 @@ if [ "$LOAD" != "0" ]; then
     CMP_RC=$?
     [ "$CMP_RC" -gt 1 ] && fail "cannot compare timing counts — $COUNT_FILE contains '$PREV', which is too large to compare against TCOUNT=$TCOUNT; a human clears or fixes it"
     [ "$CMP_RC" -eq 0 ] && fail "timing pass matches $TCOUNT file(s), fewer than the $PREV last recorded — a timing test silently fell out (if this is deliberate, a human clears $COUNT_FILE)"
+    # CMP_RC is 1 here — both 0 and >1 fail() above — so TCOUNT >= PREV always.
+    [ "$((TCOUNT - PREV))" -gt "$RISE_TOLERANCE" ] && RISE_NOTE=" ROSE from $PREV to $TCOUNT — confirm the new file(s) belong in the timing set rather than an accidental marker match (#48); this becomes the new floor below"
+  else
+    RISE_NOTE=" no prior floor found — this landing ESTABLISHES it at $TCOUNT (first run, or a human cleared $COUNT_FILE; the file is .gitignore'd and per-machine, #48)"
   fi
   echo "  timing set (${TCOUNT}): ${TIMING_FILES[*]}"
 
@@ -220,7 +256,14 @@ if [ "$LOAD" != "0" ]; then
   # suite, so the split is exact and nothing goes unmeasured.
   if ( cd "$W" && npx vitest run --maxWorkers=1 "${TIMING_SHORT[@]}" >/tmp/g-$H-timing.log 2>&1 ); then
     echo "  timing tests (serial, alone): green"
-    mkdir -p "$root/.swarm" && printf '%s\n' "$TCOUNT" >"$COUNT_FILE"
+    # RISE_NOTE claims a consequence of this write ("becomes the new floor" /
+    # "ESTABLISHES it") — a claim this line is not entitled to make unless the
+    # write actually landed. mkdir -p failing, or printf hitting a read-only
+    # $COUNT_FILE, used to fall through silently: the fragment still exited 0
+    # and RISE_NOTE still printed, a verdict about a floor that never moved.
+    mkdir -p "$root/.swarm" && printf '%s\n' "$TCOUNT" >"$COUNT_FILE" \
+      || fail "cannot write the timing-count floor at $COUNT_FILE — the ratchet did not advance; a human fixes its permissions"
+    [ -n "$RISE_NOTE" ] && echo "  timing-count ratchet:$RISE_NOTE"
   else
     grep -aE '×' /tmp/g-$H-timing.log | head -3 | sed 's/^/    /'
     fail "timing tests red when run ALONE — this one is real (budget regression, not contention)"

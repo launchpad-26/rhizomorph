@@ -491,7 +491,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
      * round 1's self-enrollment (the earlier KNOWN GAP needle) meant this
      * law is no longer excluded from gate.sh's own timing set — and the
      * timing set is precisely what gate.sh's load gate runs OUTSIDE the 4x
-     * concurrent batches (:207-209 exclude it; :210 runs everything else 4x
+     * concurrent batches (:240-243 exclude it; :245 runs everything else 4x
      * concurrently). So this file's tests now run 4-at-once under load, and
      * four concurrent unlink/symlink dances on ONE global name are a race:
      * EXECUTED, four concurrent runs read 3 of 4 red on the exact test
@@ -627,7 +627,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     })
   })
 
-  describe(':174 timing-count ratchet — a corrupt or oversized count holds, it does not coerce to 0 or silently proceed', () => {
+  describe(':190 timing-count ratchet — a corrupt or oversized count holds, it does not coerce to 0 or silently proceed', () => {
     const NEW_BLOCK = sliceLines('TIMINGCOUNT_LOG=$(mktemp "/tmp/gate-timingcount-$H.XXXXXX")', 'a timing test silently fell out (if this is deliberate, a human clears $COUNT_FILE)')
 
     it('the old silent coercion ( PREV=0 on empty/non-numeric ) is gone from the file', () => {
@@ -724,7 +724,311 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     })
   })
 
-  describe(':250 lane manifest prune — a malformed or unwritable lanes.json holds, it does not print the success line', () => {
+  /**
+   * #48 — a rise in the timing-set count used to be invisible: only a DROP
+   * (`:227`, unchanged above) ever reached fail(), and any count, including
+   * a risen one, was written to the floor unconditionally (`:264`). #42's
+   * own commit then enrolled ITSELF this way (its new law's tolerance needle
+   * spelled the marker text as prose — see the `KNOWN GAP` entry above),
+   * caught only by an external review seat. This law extracts and runs the
+   * REAL rise-handling gate.sh now carries, not a re-typed stand-in.
+   *
+   * A rise is deliberately NOT a fail(): #42's own near-miss shows a
+   * legitimate addition can raise the count, and hard-failing every rise is
+   * the kind of check that gets suppressed within a week (the issue's own
+   * words). So the fix REPORTS a rise — distinguishing it from a steady
+   * count — right next to the write that turns it into the new floor
+   * (`:266`), rather than failing the landing outright. RISE_TOLERANCE is
+   * asserted to be a named, declared variable (ruling 3), not a magic number
+   * folded into the comparison it feeds.
+   */
+  describe(':187-232 timing-count rise — a RISE is reported (never silently absorbed into the floor), distinct from a HOLD, and a DROP still fails', () => {
+    const RATCHET_BLOCK = sliceLines('RISE_TOLERANCE=', "the file is .gitignore'd and per-machine, #48)", 1)
+    const REPORT_LINE = extractLine('timing-count ratchet:$RISE_NOTE')
+    const DISCOVERY_AND_COUNT_BLOCK = sliceLines('TIMING_FILES=()', 'TCOUNT=${#TIMING_FILES[@]}')
+
+    it('the tolerance is a named, declared variable — not a magic number folded into the -gt condition it feeds', () => {
+      // Anchored on the ASSIGNMENT, not a pinned value: a verification pass
+      // found `toContain('RISE_TOLERANCE=0')` reddened at COLLECTION the
+      // moment a human raised the tolerance past 0, with a failure naming
+      // neither the tolerance nor the variable. 'RISE_TOLERANCE=' no longer
+      // breaks collection when the value changes (still matches exactly one
+      // line — the comment above it says "RISE_TOLERANCE is", no `=`; the
+      // comparison below reads `"$RISE_TOLERANCE"`, no `=` either). That is
+      // ALL this fixes: three fixtures a few tests below (the plain rise,
+      // and both near-miss reproductions) still hardcode a delta of 1 and
+      // assume a tolerance of 0, so raising RISE_TOLERANCE still turns them
+      // red — at RUNTIME now, with a real assertion diff, rather than at
+      // collection with an opaque "found 0" error. Updating those fixtures
+      // for a non-zero tolerance is tracked separately, not done here.
+      expect(SOURCE).toContain('RISE_TOLERANCE=')
+      expect(RATCHET_BLOCK).toContain('"$RISE_TOLERANCE"')
+    })
+
+    it('EXECUTED — a genuine DROP still fails, unchanged: the rise logic added here does not touch #42\'s shrink check', () => {
+      const dir = scratchDir('rise-drop')
+      writeFileSync(join(dir, 'timing-count'), '10\n')
+      const script = preludeScript(0, `TCOUNT=3\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + RATCHET_BLOCK + '\necho DONE\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('fewer than the 10 last recorded')
+    })
+
+    it('EXECUTED — a count that HOLDS STEADY sets no rise note and does not fail', () => {
+      const dir = scratchDir('rise-steady')
+      writeFileSync(join(dir, 'timing-count'), '5\n')
+      const script = preludeScript(0, `TCOUNT=5\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + RATCHET_BLOCK + '\necho "RISE_NOTE=[$RISE_NOTE]"\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('RISE_NOTE=[]')
+    })
+
+    it('EXECUTED — a count that RISES is distinguished from a hold: RISE_NOTE names old and new counts, and the gate does not fail', () => {
+      const dir = scratchDir('rise-up')
+      writeFileSync(join(dir, 'timing-count'), '5\n')
+      const script = preludeScript(0, `TCOUNT=7\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + RATCHET_BLOCK + '\necho "RISE_NOTE=[$RISE_NOTE]"\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('ROSE from 5 to 7')
+    })
+
+    it('EXECUTED — a FIRST RUN (no prior timing-count file) is reported as establishing the floor, not silently adopted', () => {
+      const dir = scratchDir('rise-first')
+      mkdirSync(dir, { recursive: true })
+      const script = preludeScript(0, `TCOUNT=6\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + RATCHET_BLOCK + '\necho "RISE_NOTE=[$RISE_NOTE]"\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('ESTABLISHES it at 6')
+    })
+
+    /**
+     * #42 hardened the ONE arithmetic consumer of $PREV that existed before
+     * this issue — `[ "$TCOUNT" -lt "$PREV" ]` (the `test` builtin, which
+     * reads a leading zero as plain decimal; EXECUTED below, unaffected).
+     * `:187-232`'s rise check adds a SECOND consumer, `$((TCOUNT - PREV))`
+     * (bash arithmetic expansion), which reads a leading zero as an OCTAL
+     * prefix — a different rule, and the case guard above only rejected
+     * non-digit corruption, not this. A verification pass found the case
+     * guard alone lets a leading-zero PREV straight through to that second
+     * consumer, with a failure mode `-lt` itself never has: '08' is not
+     * even valid octal (bash errors "value too great for base" and the
+     * REAL rise it hides is silently absorbed — no report, no fail()), and
+     * '010' IS valid octal (8), so an honest hold at 10 misreports as a
+     * rise from 8. The new leading-zero case arm (:216) holds on both
+     * before the arithmetic ever runs.
+     */
+    it('EXECUTED — the OLD (case-guard-only) arithmetic silently ABSORBS a real rise spelled with a leading zero (08 -> 9)', () => {
+      const dir = scratchDir('rise-octal-old-absorb')
+      writeFileSync(join(dir, 'timing-count'), '08\n')
+      const OLD_BLOCK =
+        'exec 2>&1\n' + // merge stderr into the captured stdout, so the arithmetic error below is visible to the assertion
+        'PREV=$(cat "$COUNT_FILE")\n' +
+        "case \"$PREV\" in ('' | *[!0-9]*) fail \"not a whole number\" ;; esac\n" +
+        '[ "$TCOUNT" -lt "$PREV" ]\n' +
+        'CMP_RC=$?\n' +
+        '[ "$CMP_RC" -gt 1 ] && fail "cannot compare"\n' +
+        '[ "$CMP_RC" -eq 0 ] && fail "shrink"\n' +
+        'RISE_NOTE=""\n' +
+        '[ "$((TCOUNT - PREV))" -gt "$RISE_TOLERANCE" ] && RISE_NOTE=" ROSE from $PREV to $TCOUNT"\n' +
+        'echo "VERDICT: RISE_NOTE=[$RISE_NOTE]"\n'
+      const script = preludeScript(0, `TCOUNT=9\nRISE_TOLERANCE=0\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + OLD_BLOCK
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('value too great for base')
+      expect(res.stdout).toContain('VERDICT: RISE_NOTE=[]')
+    })
+
+    it("EXECUTED — the OLD (case-guard-only) arithmetic FALSELY reports a rise on an honest hold spelled with a leading zero (010 == 10)", () => {
+      const dir = scratchDir('rise-octal-old-false')
+      writeFileSync(join(dir, 'timing-count'), '010\n')
+      const OLD_BLOCK =
+        'PREV=$(cat "$COUNT_FILE")\n' +
+        "case \"$PREV\" in ('' | *[!0-9]*) fail \"not a whole number\" ;; esac\n" +
+        '[ "$TCOUNT" -lt "$PREV" ]\n' +
+        'CMP_RC=$?\n' +
+        '[ "$CMP_RC" -gt 1 ] && fail "cannot compare"\n' +
+        '[ "$CMP_RC" -eq 0 ] && fail "shrink"\n' +
+        'RISE_NOTE=""\n' +
+        '[ "$((TCOUNT - PREV))" -gt "$RISE_TOLERANCE" ] && RISE_NOTE=" ROSE from $PREV to $TCOUNT"\n' +
+        'echo "VERDICT: RISE_NOTE=[$RISE_NOTE]"\n'
+      const script = preludeScript(0, `TCOUNT=10\nRISE_TOLERANCE=0\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + OLD_BLOCK
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('VERDICT: RISE_NOTE=[ ROSE from 010 to 10]')
+    })
+
+    it("EXECUTED — the NEW (real, extracted) ratchet HOLDS on the absorbed-rise spelling (08), before the arithmetic ever runs", () => {
+      const dir = scratchDir('rise-octal-new-absorb')
+      writeFileSync(join(dir, 'timing-count'), '08\n')
+      const script = preludeScript(0, `TCOUNT=9\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + RATCHET_BLOCK + '\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('non-canonical leading-zero')
+    })
+
+    it("EXECUTED — the NEW (real, extracted) ratchet HOLDS on the false-rise spelling (010), rather than misreporting a rise", () => {
+      const dir = scratchDir('rise-octal-new-false')
+      writeFileSync(join(dir, 'timing-count'), '010\n')
+      const script = preludeScript(0, `TCOUNT=10\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + RATCHET_BLOCK + '\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('non-canonical leading-zero')
+    })
+
+    it('EXECUTED — the NEW ratchet still reports a CANONICAL rise correctly (8 -> 9, no leading zero) — the guard does not overreach', () => {
+      const dir = scratchDir('rise-octal-new-canonical')
+      writeFileSync(join(dir, 'timing-count'), '8\n')
+      const script = preludeScript(0, `TCOUNT=9\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + RATCHET_BLOCK + '\necho "RISE_NOTE=[$RISE_NOTE]"\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('ROSE from 8 to 9')
+    })
+
+    it("EXECUTED — bash's `test` builtin (the comparison #42 hardened) reads a leading zero as DECIMAL, unlike arithmetic expansion — the two consumers disagree", () => {
+      const res = runFragment(`#!/bin/bash\nset -uo pipefail\n[ 9 -lt 08 ]\necho "rc=$?"\n`, scratchDir('octal-test-builtin-probe'))
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('rc=1') // 9 is NOT less than 8 (decimal) — test builtin agrees with decimal, unlike $(( ))
+    })
+
+    it('EXECUTED — the report line (reused verbatim from gate.sh) prints only when a note is actually set', () => {
+      const res1 = runFragment(preludeScript(0, 'RISE_NOTE=""\n') + REPORT_LINE + '\necho DONE\n', scratchDir('report-empty'))
+      expect(res1.status).toBe(0)
+      expect(res1.stdout).not.toContain('ratchet:')
+      expect(res1.stdout).toContain('DONE')
+
+      const res2 = runFragment(preludeScript(0, 'RISE_NOTE=" ROSE from 5 to 7"\n') + REPORT_LINE + '\necho DONE\n', scratchDir('report-set'))
+      expect(res2.status).toBe(0)
+      expect(res2.stdout).toContain('timing-count ratchet: ROSE from 5 to 7')
+    })
+
+    /**
+     * The write and the claim about it used to be two separate statements
+     * with no dependency between them: `:264` writes $COUNT_FILE and never
+     * checks its own exit status; the report line right after it (`:266`,
+     * printing RISE_NOTE's "becomes the new floor" / "ESTABLISHES it") ran
+     * regardless. A verification pass (chmod 444 on the floor file) showed
+     * the exact failure this shape produces: the write silently no-ops
+     * (permission denied on stderr only), the floor stays at its old value,
+     * and the SAME claim prints anyway — a verdict the gate did not earn,
+     * prd-45's own thesis. The fix ties the report to the write with `||
+     * fail()`, the same shape the sibling `:293 lane manifest prune` describe
+     * below already holds `scripts/gate.sh` to.
+     */
+    const WRITE_BLOCK = sliceLines('mkdir -p "$root/.swarm" && printf', 'timing-count ratchet:$RISE_NOTE')
+
+    it('EXECUTED — a WRITABLE floor: the write lands and the claimed report follows it', () => {
+      const dir = scratchDir('write-ok')
+      const script = preludeScript(0, `root=${dir}\nTCOUNT=7\nCOUNT_FILE=${join(dir, '.swarm', 'timing-count')}\nRISE_NOTE=" ROSE from 5 to 7"\n`) + WRITE_BLOCK + '\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('timing-count ratchet: ROSE from 5 to 7')
+      expect(readFileSync(join(dir, '.swarm', 'timing-count'), 'utf8')).toBe('7\n')
+    })
+
+    it('EXECUTED — a READ-ONLY floor HOLDS: fail() fires, the floor does not advance, and the unearned claim is never printed', () => {
+      const dir = scratchDir('write-readonly')
+      mkdirSync(join(dir, '.swarm'), { recursive: true })
+      const countFile = join(dir, '.swarm', 'timing-count')
+      writeFileSync(countFile, '5\n')
+      chmodSync(countFile, 0o444)
+      const script = preludeScript(0, `root=${dir}\nTCOUNT=7\nCOUNT_FILE=${countFile}\nRISE_NOTE=" ROSE from 5 to 7"\n`) + WRITE_BLOCK + '\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('cannot write the timing-count floor')
+      expect(res.stdout + res.stderr).toContain('HOLDING')
+      expect(res.stdout).not.toContain('ratchet:')
+      expect(readFileSync(countFile, 'utf8')).toBe('5\n')
+    })
+
+    it('EXECUTED — the OLD (unchecked) write silently prints the same claim on the same read-only floor — the exact defect this fix removes', () => {
+      const dir = scratchDir('write-readonly-old')
+      mkdirSync(join(dir, '.swarm'), { recursive: true })
+      const countFile = join(dir, '.swarm', 'timing-count')
+      writeFileSync(countFile, '5\n')
+      chmodSync(countFile, 0o444)
+      const OLD_BLOCK = 'mkdir -p "$root/.swarm" && printf \'%s\\n\' "$TCOUNT" >"$COUNT_FILE"\n' + '[ -n "$RISE_NOTE" ] && echo "  timing-count ratchet:$RISE_NOTE"\n'
+      const script = preludeScript(0, `root=${dir}\nTCOUNT=7\nCOUNT_FILE=${countFile}\nRISE_NOTE=" ROSE from 5 to 7"\n`) + OLD_BLOCK
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('timing-count ratchet: ROSE from 5 to 7')
+      expect(readFileSync(countFile, 'utf8')).toBe('5\n')
+    })
+
+    /**
+     * The wave-1 near-miss, reproduced rather than described: two genuine
+     * timing files carry the real marker, and a third carries the marker
+     * text only as PROSE (explaining that it does NOT opt in) — exactly the
+     * shape #42's own tolerance needle had. gate.sh's REAL discovery block
+     * (`grep -rlF`, fixed-string) does not know the difference and enrolls
+     * it anyway, so TCOUNT rises from an honest 2 to 3.
+     */
+    // Assembled, never written as one contiguous literal: this file lives
+    // under `packages/server/src`, so the timing-opt-in marker written out
+    // whole here would enrol THIS law in the timing set the same way #42's
+    // tolerance needle did (see the KNOWN GAP entry above) — the earlier
+    // "does NOT enroll this law file" test catches exactly that regression.
+    const MARKER = '// @gate-' + 'timing'
+
+    function waveOneNearMissFixture(): string {
+      const dir = scratchDir('rise-repro')
+      mkdirSync(join(dir, 'packages', 'fake', 'src'), { recursive: true })
+      writeFileSync(join(dir, 'packages', 'fake', 'src', 'a.test.ts'), `${MARKER}\nit("a", () => {})\n`)
+      writeFileSync(join(dir, 'packages', 'fake', 'src', 'b.test.ts'), `${MARKER}\nit("b", () => {})\n`)
+      writeFileSync(join(dir, 'packages', 'fake', 'src', 'c.test.ts'), `// this fixture does not carry the '${MARKER}' marker\nit('c', () => {})\n`)
+      return dir
+    }
+
+    it('EXECUTED — the OLD (drop-only) ratchet silently absorbs the wave-1 near-miss: TCOUNT rises to 3 and nothing is reported', () => {
+      const dir = waveOneNearMissFixture()
+      writeFileSync(join(dir, 'timing-count'), '2\n')
+      const OLD_BLOCK = 'PREV=$(cat "$COUNT_FILE")\n' + '[ "$TCOUNT" -lt "$PREV" ] && fail "shrink"\n' + 'echo "VERDICT: TCOUNT=$TCOUNT PREV=$PREV"\n'
+      const script = preludeScript(0, `W=${dir}\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + DISCOVERY_AND_COUNT_BLOCK + '\n' + OLD_BLOCK
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('VERDICT: TCOUNT=3 PREV=2')
+      expect(res.stdout).not.toContain('ROSE')
+    })
+
+    it('EXECUTED — the NEW (real, extracted) ratchet catches the same near-miss: TCOUNT still rises to 3, but it is now named and reported', () => {
+      const dir = waveOneNearMissFixture()
+      writeFileSync(join(dir, 'timing-count'), '2\n')
+      const script = preludeScript(0, `W=${dir}\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + DISCOVERY_AND_COUNT_BLOCK + '\n' + RATCHET_BLOCK + '\necho "RISE_NOTE=[$RISE_NOTE]"\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('ROSE from 2 to 3')
+    })
+
+    /**
+     * A DIFFERENT spelling of the same accident: the set is DERIVED two
+     * ways (marker comment OR `.bench.test.ts` name, :154), and the prose
+     * near-miss above only exercises the marker path. A file picking up the
+     * `.bench.test.ts` suffix by an ordinary rename or copy-paste — with no
+     * marker anywhere in it — enrolls exactly the same way, through
+     * `find … -name '*.bench.test.ts'` rather than `grep -rlF`. The ratchet
+     * itself does not know or care which of the two discovery halves
+     * produced the rise, so this proves the fix is not accidentally
+     * marker-path-specific.
+     */
+    function benchFilenameNearMissFixture(): string {
+      const dir = scratchDir('rise-repro-bench')
+      mkdirSync(join(dir, 'packages', 'fake', 'src'), { recursive: true })
+      writeFileSync(join(dir, 'packages', 'fake', 'src', 'a.test.ts'), `${MARKER}\nit("a", () => {})\n`)
+      writeFileSync(join(dir, 'packages', 'fake', 'src', 'b.test.ts'), `${MARKER}\nit("b", () => {})\n`)
+      writeFileSync(join(dir, 'packages', 'fake', 'src', 'reduce.bench.test.ts'), "it('not actually a benchmark, just misnamed', () => {})\n")
+      return dir
+    }
+
+    it("EXECUTED — a bare RENAME into '*.bench.test.ts' (no marker at all) rises and reports the same way as the marker/prose near-miss", () => {
+      const dir = benchFilenameNearMissFixture()
+      writeFileSync(join(dir, 'timing-count'), '2\n')
+      const script = preludeScript(0, `W=${dir}\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + DISCOVERY_AND_COUNT_BLOCK + '\n' + RATCHET_BLOCK + '\necho "RISE_NOTE=[$RISE_NOTE]"\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('ROSE from 2 to 3')
+    })
+  })
+
+  describe(':293 lane manifest prune — a malformed or unwritable lanes.json holds, it does not print the success line', () => {
     const NEW_BLOCK = sliceLines('if [ -f "$root/.swarm/lanes.json" ]; then', 'fail "lane manifest prune failed', 2)
 
     it('the fix removes the try/catch{} that swallowed both JSON.parse and writeFileSync failures', () => {
@@ -811,7 +1115,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     })
   })
 
-  describe(':244 branch containment (ruling 2) — the postcondition proves the commit is IN main, not that a ref is gone', () => {
+  describe(':287 branch containment (ruling 2) — the postcondition proves the commit is IN main, not that a ref is gone', () => {
     const LANE_SHA_LINE = extractLine('LANE_SHA=$(git -C "$W" rev-parse HEAD)')
     const CONTAINMENT_LINE = extractLine('git merge-base --is-ancestor "$LANE_SHA" main || fail')
 
@@ -877,7 +1181,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     })
 
     /**
-     * A verification pass found that :244 checked HEAD, not main — and that
+     * A verification pass found that :287 checked HEAD, not main — and that
      * this describe block could not have caught it, because every fixture
      * above runs with $root checked out ON main, encoding the very premise
      * the defect depended on. This fixture instead parks $root on a branch
