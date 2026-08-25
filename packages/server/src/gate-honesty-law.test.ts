@@ -151,56 +151,133 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
   })
 
   /**
-   * Ruling 3: tolerances are DECLARED DATA, not exceptions buried in a
-   * regex. This sweep covers exactly THREE idioms — `|| true`, a bare
-   * `|| echo`, and a stderr-to-/dev/null redirect — and every CODE line
-   * containing one of those three (comments excluded; this file's own doc
-   * comments quote these idioms as prose, matching `no-personal-paths-law`'s
-   * pattern of excluding its own rigged examples from its general sweep)
-   * must be accounted for by an entry here.
+   * Ruling 1 (prd-46 #70) — the sweep is REPLACED by a STRUCTURAL predicate
+   * over the script's shape, not a hand-maintained list of spellings. The
+   * reference form: a `$(...)` assignment whose exit status is never read
+   * before a verdict prints — either on the SAME line (`) || fail ...`,
+   * `) || exit N` with N != 0, or a `|| { ... }` rescue block that itself
+   * calls `fail`/a nonzero `exit`), or on the NEXT line (a bare
+   * `SOMETHING=$?` capture). `isCheckedProducer` below (via
+   * `findUncheckedProducers`) classifies a line by this SHAPE, not by
+   * scanning for known-bad substrings, so a NEW guard written with a
+   * spelling nobody has thought of yet still reddens this law — Success 1
+   * of prd-46.
    *
-   * This is NOT a claim of completeness over every way a shell line can
-   * swallow a failure. EXECUTED: `|| :`, `2>&-`, `>/dev/null 2>&1`,
-   * `|| exit 0`, `; true`, a `set +e`/`set -e` pair, `if cmd; then :; fi`,
-   * a backgrounded `cmd &`, and `|| { :; }` all pass this sweep silently —
-   * `|| :` in particular is four characters from `|| true` with identical
-   * semantics. Catching the general shape needs a structural rule (does a
-   * `$(...)` assignment's very next line check its status?), not a longer
-   * string list; that redesign is prd-46 #70's filed subject, not this
-   * law's. What this sweep buys is narrower and still real: the three
-   * idioms enumerated below cannot recur UNDECLARED in this file without
-   * turning it red.
+   * Six evasions measured during #68's verification passed the OLD
+   * three-idiom sweep silently: `|| :`, `2> /dev/null`, `&>/dev/null`,
+   * `||true`, a bare `RES=$(cmd | tail -1)`, and
+   * `cmd || { echo "(could not check)"; }`. A SEVENTH was live in the file
+   * the old sweep governed: gate.sh's own `n=$(git log ... | wc -l)` (fixed
+   * a few lines above, in the `:82 commit-count producer` describe block
+   * below). All seven, plus four more spellings beyond them, are proven
+   * caught by the RIGGED_LINES fixtures in the 'ruling 2' describe block
+   * further down — using the real predicate function, not a restatement of
+   * it (the OLD non-vacuity control's own defect, per the issue this
+   * closes).
    *
-   * The first version of this law swept only `|| true` and `|| echo` and
-   * missed `2>/dev/null` entirely: it appeared 7 times in gate.sh, 5 of
-   * them undeclared — including the timing-file discovery's own producer
-   * (see the KNOWN GAP entry below), the same producer-swallowed-by-a-
-   * process-substitution shape the NUL guard itself needed fixing for.
-   * This law exists to hold the line on that shape, and it was live in the
-   * file it governs while the law read green. An idiom with zero coverage
-   * is worse than a regex that misses an edge case: it is "a tolerance
-   * nobody can enumerate" (the issue's own words) by construction, and a
-   * TENTH guard added later with `2>/dev/null` on its producer would have
-   * passed in silence.
+   * SCOPE, stated rather than silently assumed: this predicate targets
+   * `VAR=$(...)` assignments specifically — the shape ruling 1's reference
+   * form names, and the shape :82's own bug had. A bare, unassigned
+   * pipeline used only to print (gate.sh's own
+   * `workmux merge "$H" | grep ...` at its merge step) or a backgrounded
+   * `cmd &` are structurally DIFFERENT shapes this predicate does not parse
+   * for — the former already has an adjacent, independent, RC-checked
+   * verdict (the `:287 branch containment` postcondition a few lines below
+   * it) that does not depend on its own exit status at all, and no live
+   * instance of the latter exists in this file. Widening the predicate to
+   * parse arbitrary pipelines risked flagging exactly that print-only line,
+   * which is honest by construction and already documented in gate.sh
+   * itself; narrowing to the reference form's own shape avoids inventing a
+   * new false positive to chase a hypothetical one. Proven, not just
+   * asserted, in the 'predicate is honest about its own remaining scope
+   * limit' test below.
    *
-   * A DECLARED entry is not a claim that the line is safe — it is a claim
-   * that a human looked at it and can say why. `KNOWN GAP` marks the one
-   * entry here that is NOT safe: :166-167's producer failure is real,
-   * named in #42's own commit body as a ninth instance of the class this
-   * issue fixes, and deliberately left for prd-45's stated successor
-   * (ruling 1: "a fix that closes the enumerated set and not the class
-   * earns this PRD a successor"). Declaring it here does not close it —
-   * it means the NEXT unenumerated occurrence still reddens this law,
-   * which is the property that matters.
+   * MEASURED FALSE-POSITIVE RATE (EXECUTED, run against every real
+   * `VAR=$(...)` line in scripts/gate.sh — prd-46's own open question):
+   * 16 such assignments exist. 2 are flagged as structurally unchecked —
+   * :23 (`W=$(workmux path ...)`, already declared before this issue) and
+   * the `dirty=` line a few lines below :82's fix (newly declared here,
+   * with a reason: its only fallible input, $STATUS_OUT, is already
+   * RC-checked two lines above it, and grep's own "no match" exit is the
+   * ORDINARY outcome on a clean landing — the exact masking bug the
+   * `:74 fence regex` fix below exists to avoid, so checking it the same
+   * way :82 was fixed would misfire on the common case). 0 of the 16 are
+   * undeclared — the predicate does not convict a single honest line on
+   * this file. The remaining 12 pass structurally on their own merits: :17
+   * (`|| exit 2`, written before `fail` is even defined), 9 same-line
+   * `|| fail` forms (one of them a `|| { ...; fail ...; }` rescue block),
+   * and 3 next-line `_RC=$?` forms (:74/:77's `DIFF_RC`/`GREP_RC`, :100's
+   * `STATUS_RC`, :212's `CAT_RC`, plus :96's own new `N_RC`).
+   *
+   * The tolerance table stays DATA, not a rule folded into the sweep: an
+   * entry here is an exemption FROM the structural predicate, not (as the
+   * old sweep had it) a member of the set the predicate matches. The two
+   * dated KNOWN GAP entries are untouched by this issue and remain
+   * declared, not fixed, exactly as before.
    */
+  function matchDollarParenAssignment(line: string): { varName: string; tail: string } | null {
+    const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)=\$\(/)
+    if (!m) return null
+    const openIdx = m[0].length - 1
+    let depth = 0
+    let close = -1
+    for (let i = openIdx; i < line.length; i++) {
+      if (line[i] === '(') depth++
+      else if (line[i] === ')') {
+        depth--
+        if (depth === 0) {
+          close = i
+          break
+        }
+      }
+    }
+    if (close === -1) return null
+    return { varName: m[1]!, tail: line.slice(close + 1) }
+  }
+
+  /** Does the text AFTER the $(...)'s closing paren, on the SAME line, terminate the script on failure — `|| fail`, `|| exit N` (N != 0), or a `|| { ... }` block calling either? `exit 0` is deliberately NOT terminal-safe: it swallows a failure into a fake overall SUCCESS rather than an honest abort. */
+  function tailChecksStatus(tail: string): boolean {
+    const t = tail.trim()
+    if (!t.startsWith('||')) return false
+    const rhs = t.slice(2).trim()
+    if (/^fail\b/.test(rhs)) return true
+    const exitMatch = rhs.match(/^exit\s+(\d+)\b/)
+    if (exitMatch && exitMatch[1] !== '0') return true
+    if (rhs.startsWith('{')) {
+      if (/\bfail\b/.test(rhs)) return true
+      const blockExit = rhs.match(/\bexit\s+(\d+)\b/)
+      if (blockExit && blockExit[1] !== '0') return true
+    }
+    return false
+  }
+
+  /** Does the very NEXT source line capture the assignment's own `$?` (the `DIFF_RC=$?` / `STATUS_RC=$?` shape)? Deliberately not anchored to the SAME variable name — gate.sh names these after what they check (`GREP_RC` for a `viol=` assignment), not after the assigned variable. */
+  function nextLineCapturesRC(nextLine: string | undefined): boolean {
+    if (nextLine === undefined) return false
+    return /^\s*[A-Za-z_][A-Za-z0-9_]*=\$\?\s*$/.test(nextLine)
+  }
+
+  /** The structural predicate itself (ruling 1): every `VAR=$(...)` line whose exit status is checked neither on the same line nor on the next. */
+  function findUncheckedProducers(scriptLines: readonly string[]): { index: number; line: string }[] {
+    const out: { index: number; line: string }[] = []
+    scriptLines.forEach((line, i) => {
+      if (line.trim().startsWith('#')) return
+      const m = matchDollarParenAssignment(line)
+      if (!m) return
+      if (tailChecksStatus(m.tail)) return
+      if (nextLineCapturesRC(scriptLines[i + 1])) return
+      out.push({ index: i, line })
+    })
+    return out
+  }
+
   const DECLARED_TOLERANCES = [
-    { idiom: '|| true', needle: 'checkout -- package-lock.json 2>/dev/null || true', count: 2, reason: 'clean(): best-effort lockfile checkout; nothing to clean is not a check failure' },
-    { idiom: '|| echo', needle: 'workmux rebase "$H" >/dev/null 2>&1 || echo', count: 1, reason: "workmux's exit code is not the check — ancestry is asserted separately right after" },
-    { idiom: '|| echo', needle: 'git push origin main 2>&1 | tail -1 || echo', count: 1, reason: 'push_or_warn(): the one documented non-fatal check in the file (prd-39 ruling 1)' },
-    { idiom: '2>/dev/null', needle: 'workmux path "$H" 2>/dev/null | tail -1', count: 1, reason: 'resolves $W; the very next line ([ -d "${W:-}" ] on :24) checks the result and falls back to a constructed path — the verdict is the existence check, not this redirect' },
-    { idiom: '2>/dev/null', needle: 'checkout -- package-lock.json 2>/dev/null || true', count: 2, reason: 'the same two clean() lines declared above under `|| true` — they carry both idioms on one line' },
-    { idiom: '2>/dev/null', needle: 'rev-parse --abbrev-ref HEAD 2>/dev/null) || fail', count: 1, reason: "stderr text is discarded, but the command's own exit code is still routed through fail() via ||" },
-    { idiom: '2>/dev/null', needle: 'merge-base --is-ancestor main HEAD 2>/dev/null || fail', count: 1, reason: 'same — stderr discarded, exit code still routed through fail()' },
+    { needle: 'checkout -- package-lock.json 2>/dev/null || true', count: 2, reason: 'clean(): best-effort lockfile checkout; nothing to clean is not a check failure' },
+    { needle: 'workmux rebase "$H" >/dev/null 2>&1 || echo', count: 1, reason: "workmux's exit code is not the check — ancestry is asserted separately right after" },
+    { needle: 'git push origin main 2>&1 | tail -1 || echo', count: 1, reason: 'push_or_warn(): the one documented non-fatal check in the file (prd-39 ruling 1)' },
+    { needle: 'workmux path "$H" 2>/dev/null | tail -1', count: 1, reason: 'resolves $W; the very next line ([ -d "${W:-}" ] on :24) checks the result and falls back to a constructed path — the verdict is the existence check, not this redirect. Structural predicate: an UNCHECKED $(...) assignment, exempted here rather than by spelling.' },
+    { needle: 'rev-parse --abbrev-ref HEAD 2>/dev/null) || fail', count: 1, reason: "stderr text is discarded, but the command's own exit code is still routed through fail() via || — structurally CHECKED, kept here for the historical record only." },
+    { needle: 'merge-base --is-ancestor main HEAD 2>/dev/null || fail', count: 1, reason: 'same — stderr discarded, exit code still routed through fail(); not a $(...) assignment at all, so out of the structural predicate\'s scope regardless.' },
     {
       // This needle deliberately avoids gate.sh's timing-opt-in marker
       // comment text as a contiguous substring. An earlier version of this
@@ -212,16 +289,19 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       // origin/main -> 7 on this branch, this file the seventh). Anchoring
       // on a marker-free substring of the SAME source line keeps the
       // entry's identity without re-triggering the defect it describes.
-      idiom: '2>/dev/null',
       needle: "include='*.test.tsx' packages 2>/dev/null",
       count: 1,
       reason:
-        "KNOWN GAP, dated 2026-08-25, not fixed by #42 — this producer's own exit status is never checked before its output feeds the process substitution at :166-167 (the same producer-swallowed-by-a-process-substitution shape the NUL guard itself needed fixing for). Named in #42's commit body as a real ninth instance, deliberately deferred to prd-45's stated successor rather than fixed under this issue's fence.",
+        "KNOWN GAP, dated 2026-08-25, not fixed by #42 or #70 — this producer's own exit status is never checked before its output feeds the process substitution a few lines below (the same producer-swallowed-by-a-process-substitution shape the NUL guard itself needed fixing for). Out of the structural predicate's scope too: it is a process substitution feeding a `while read` loop, not a `VAR=$(...)` assignment. Named in #42's commit body as a real ninth instance; #70 folds gate.sh:82 and the sweep redesign into one issue but leaves THIS one declared, per the issue's own text ('the two dated KNOWN GAP entries stay as they are').",
     },
-    { idiom: '2>/dev/null', needle: "find packages -name '*.bench.test.ts' 2>/dev/null", count: 1, reason: 'the second half of the same undeclared producer pair above; same deferral' },
+    { needle: "find packages -name '*.bench.test.ts' 2>/dev/null", count: 1, reason: 'the second half of the same undeclared producer pair above; same deferral' },
+    {
+      needle: "printf '%s' \"$STATUS_OUT\" | grep -v package-lock.json | wc -l",
+      count: 1,
+      reason:
+        "#82's SIBLING (prd-46 #70 ruling 3), declared rather than fixed: the only fallible input, $STATUS_OUT, is already RC-checked two lines above; grep -v's own \"no match\" exit (1) is the ORDINARY result on a clean landing (nothing besides package-lock.json changed), so a `-ne 0` guard here would misfire on the common case — the exact masking bug the `:74 fence regex` fix exists to avoid — and a `-gt 1` guard (grep's OWN 'invalid' signal) would never fire at all, since the pattern is a fixed literal, never user-supplied, and cannot itself be invalid. See the matching comment in scripts/gate.sh.",
+    },
   ] as const
-
-  const DECLARED_IDIOMS = ['|| true', '|| echo', '2>/dev/null'] as const
 
   function codeLines(): string[] {
     return LINES.filter((l) => !l.trim().startsWith('#'))
@@ -234,37 +314,103 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     }
   })
 
-  it.each(DECLARED_IDIOMS)('no OTHER code line swallows a failure via "%s" — every occurrence is one of the entries declared above', (idiom) => {
-    const allLines = codeLines().filter((l) => l.includes(idiom))
-    const declaredForIdiom = DECLARED_TOLERANCES.filter((t) => t.idiom === idiom)
-    const undeclared = allLines.filter((line) => !declaredForIdiom.some((t) => line.includes(t.needle)))
-    expect(undeclared, `undeclared "${idiom}" occurrence(s) in ${GATE_PATH} — a new one must be added to DECLARED_TOLERANCES with a reason, not silently allowed`).toEqual([])
+  it('ruling 1 — no undeclared $(...) assignment in scripts/gate.sh leaves its exit status unread before a verdict prints', () => {
+    const unchecked = findUncheckedProducers(LINES)
+    const undeclared = unchecked.filter((u) => !DECLARED_TOLERANCES.some((t) => u.line.includes(t.needle)))
+    expect(undeclared.map((u) => `${u.index + 1}: ${u.line.trim()}`), 'undeclared unchecked producer(s) in scripts/gate.sh — fix the shape (see the :82 commit-count fix below) or add a DECLARED_TOLERANCES entry with a reason').toEqual([])
   })
 
-  it('the idiom sweep itself is not vacuous — a line rigged with each idiom is actually caught', () => {
-    for (const idiom of DECLARED_IDIOMS) {
-      const declaredForIdiom = DECLARED_TOLERANCES.filter((t) => t.idiom === idiom)
-      const rigged = `some_new_guard_command ${idiom}`
-      expect(declaredForIdiom.some((t) => rigged.includes(t.needle))).toBe(false)
-    }
+  it('EXECUTED — the measured false-positive rate on the real file, pinned: 2 of 16 $(...) assignments flagged, both declared, 0 undeclared', () => {
+    const allAssignmentLines = codeLines().filter((l) => matchDollarParenAssignment(l))
+    const unchecked = findUncheckedProducers(LINES)
+    const undeclared = unchecked.filter((u) => !DECLARED_TOLERANCES.some((t) => u.line.includes(t.needle)))
+    expect(allAssignmentLines.length, 'total $(...) assignments in scripts/gate.sh drifted — the doc comment above cites this count').toBe(16)
+    expect(unchecked.length, 'flagged (structurally unchecked) count drifted — the doc comment above cites this count').toBe(2)
+    expect(undeclared.length).toBe(0)
   })
 
-  /**
-   * This sweep's doc comment above says, in words, that coverage stops at
-   * three idioms. This test says the same thing in a way that cannot rot
-   * silently: if `DECLARED_IDIOMS` is ever widened, or one of these
-   * examples is genuinely swept some other way, this test starts failing
-   * and forces the comment to be looked at again — rather than the comment
-   * quietly becoming aspirational the way the ORIGINAL "every idiom" claim
-   * did.
-   */
-  it('EXECUTED — the sweep is INTENTIONALLY narrow: equally-real failure-swallowing idioms pass it silently (the general fix is prd-46 #70, not this law)', () => {
-    const uncoveredIdioms = ['|| :', '2>&-', '>/dev/null 2>&1', '|| exit 0', '; true', 'cmd &']
-    for (const idiom of uncoveredIdioms) {
-      const rigged = `some_new_guard_command ${idiom}`
-      const caught = DECLARED_IDIOMS.some((known) => rigged.includes(known))
-      expect(caught, `"${idiom}" was unexpectedly caught by a declared idiom substring — narrow the uncoveredIdioms list or update the doc comment`).toBe(false)
-    }
+  describe("ruling 2 — the structural predicate's own controls run the REAL predicate, not a restatement of it", () => {
+    /**
+     * Ruling 2's own target, named in the issue: the OLD non-vacuity
+     * control asserted a rigged STRING failed to match a declared NEEDLE
+     * and never ran the sweep at all. Every case below calls
+     * `findUncheckedProducers`, the actual predicate defined above, against
+     * real (synthetic) script text — first in isolation, then planted into
+     * a COPY of gate.sh's real lines, the way #68's verification did.
+     */
+    const RIGGED_LINES: { label: string; lines: string[] }[] = [
+      { label: '|| : — four characters from || true, identical semantics', lines: ['SOME_NEW_CHECK=$(some_new_check) || :', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: '2> /dev/null — spaced stderr redirect, no status check at all', lines: ['SOME_NEW_CHECK=$(some_new_check 2> /dev/null)', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: '&>/dev/null — both streams redirected, no status check', lines: ['SOME_NEW_CHECK=$(some_new_check &>/dev/null)', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: '||true — no space', lines: ['SOME_NEW_CHECK=$(some_new_check) ||true', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: 'RES=$(cmd | tail -1) — a bare pipeline assignment, no check', lines: ['SOME_NEW_CHECK=$(some_new_check | tail -1)', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: 'cmd || { echo "(could not check)"; } — rescue block with no fail/exit', lines: ['SOME_NEW_CHECK=$(some_new_check) || { echo "  (could not check)"; }', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: 'BEYOND THE SIX — 2>&- (closes stderr, no status check)', lines: ['SOME_NEW_CHECK=$(some_new_check 2>&-)', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: 'BEYOND THE SIX — >/dev/null 2>&1 (redirect-combo spelling)', lines: ['SOME_NEW_CHECK=$(some_new_check >/dev/null 2>&1)', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: 'BEYOND THE SIX — || exit 0 (aborts the WHOLE gate with a fake SUCCESS, not an honest hold)', lines: ['SOME_NEW_CHECK=$(some_new_check) || exit 0', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: 'BEYOND THE SIX — ; true (sequential, not ||, so the assignment status is simply discarded)', lines: ['SOME_NEW_CHECK=$(some_new_check) ; true', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: 'BEYOND THE SIX — no check anywhere near it, an unrelated line intervenes before the verdict', lines: ['SOME_NEW_CHECK=$(some_new_check)', 'echo "checked"', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+    ]
+
+    it.each(RIGGED_LINES)('EXECUTED — the real predicate FIRES on: $label', ({ lines }) => {
+      const found = findUncheckedProducers(lines)
+      expect(found.length).toBe(1)
+      expect(found[0]!.line).toBe(lines[0])
+    })
+
+    it("EXECUTED — planting each rigged line into a COPY of gate.sh's real text (after the NUL check, as #68's verification did) still fires — the predicate sees the whole file, not just isolated snippets", () => {
+      const anchor = uniqueLineIndex('no NUL bytes (text files; binary assets exempt)')
+      for (const { lines, label } of RIGGED_LINES) {
+        const planted = [...LINES.slice(0, anchor + 1), ...lines, ...LINES.slice(anchor + 1)]
+        const found = findUncheckedProducers(planted)
+        const plantedHit = found.find((f) => f.line === lines[0])
+        expect(plantedHit, `${label} was not flagged once planted into the real file`).toBeDefined()
+      }
+    })
+
+    const HONEST_LINES: { label: string; lines: string[] }[] = [
+      { label: 'same-line || fail', lines: ['SOME_NEW_CHECK=$(some_new_check) || fail "problem"'] },
+      { label: 'same-line || exit N (N != 0) — the form :17 uses, before fail() is even defined', lines: ['SOME_NEW_CHECK=$(some_new_check) || exit 2'] },
+      { label: 'same-line || { ...; fail ...; } rescue block — the form :57 uses', lines: ['SOME_NEW_CHECK=$(some_new_check) || { cleanup; fail "problem"; }'] },
+      { label: 'next-line _RC=$? capture — the form :74/:77 and :100 use', lines: ['SOME_NEW_CHECK=$(some_new_check)', 'SOME_NEW_CHECK_RC=$?', '[ "$SOME_NEW_CHECK_RC" -ne 0 ] && fail "problem"'] },
+    ]
+
+    it.each(HONEST_LINES)('EXECUTED — the real predicate stays SILENT on an honest form: $label', ({ lines }) => {
+      expect(findUncheckedProducers(lines)).toEqual([])
+    })
+
+    it('EXECUTED — the predicate tells apart || exit 2 (honest abort) from || exit 0 (fake success) — same verb, opposite honesty', () => {
+      expect(findUncheckedProducers(['X=$(cmd) || exit 2'])).toEqual([])
+      expect(findUncheckedProducers(['X=$(cmd) || exit 0'])).toHaveLength(1)
+    })
+
+    it("EXECUTED — not vacuous: silent against the REAL, current scripts/gate.sh once declared exemptions are subtracted, but it DOES find the two declared exemptions first — proving it walked the file rather than short-circuiting to an empty result", () => {
+      const unchecked = findUncheckedProducers(LINES)
+      const undeclared = unchecked.filter((u) => !DECLARED_TOLERANCES.some((t) => u.line.includes(t.needle)))
+      expect(undeclared).toEqual([])
+      expect(unchecked.length).toBeGreaterThan(0)
+    })
+
+    /**
+     * Scope, proven rather than asserted (see the doc comment above the
+     * predicate). A bare backgrounded command carries no `$(...)`
+     * assignment for the predicate to even see, and a plain unassigned
+     * pipeline (gate.sh's own `workmux merge "$H" | grep ...` at its merge
+     * step) is likewise outside the `VAR=$(...)` shape ruling 1 names. This
+     * differs from the OLD sweep's uncovered list in the respect that
+     * matters: every OTHER evasion that list named (`|| :`, `2>&-`,
+     * `>/dev/null 2>&1`, `|| exit 0`, `; true`) is now CAUGHT — see
+     * RIGGED_LINES above — because each still occurs inside a `$(...)`
+     * assignment. Only the shape that isn't an assignment survives, and
+     * gate.sh's one live instance of it already has an independent,
+     * RC-checked verdict a few lines later (proven by the
+     * `:287 branch containment` describe block further down).
+     */
+    it('EXECUTED — the predicate is honest about its own remaining scope limit: a backgrounded command and a bare unassigned pipeline carry no $(...) assignment, so neither is parsed', () => {
+      expect(findUncheckedProducers(['some_new_check &'])).toEqual([])
+      expect(findUncheckedProducers(['some_new_check | grep pattern'])).toEqual([])
+      expect(SOURCE).toContain('workmux merge "$H" 2>&1 | grep')
+    })
   })
 
   /**
@@ -288,6 +434,71 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     // that are supposed to be in the set), so an empty result here would not
     // prove exclusion, it would prove the extraction itself is broken.
     expect(files.length).toBeGreaterThan(0)
+  })
+
+  describe(':82 commit-count producer — a git-log/wc pipeline failure holds, it does not print "no commits" as if a worker forgot to commit', () => {
+    const NEW_BLOCK = sliceLines('n=$(git -C "$W" log --oneline main..HEAD | wc -l)', 'no commits on the branch (a worker may have left work uncommitted — check git status in the worktree)')
+
+    it("the fix reads the pipeline's own exit status (N_RC) before trusting $n", () => {
+      expect(NEW_BLOCK).toContain('N_RC=$?')
+      expect(NEW_BLOCK).toContain('git log/wc -l failed')
+    })
+
+    function corruptRepo(): string {
+      const dir = scratchDir('commitcount')
+      initRepo(dir)
+      writeFileSync(join(dir, 'a.txt'), 'a\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'init')
+      execFileSync('mv', [join(dir, '.git', 'HEAD'), join(dir, '.git', 'HEAD.bak')])
+      return dir
+    }
+
+    it('EXECUTED — the OLD form reports "no commits on the branch" (the WRONG reason) when the producer itself fails', () => {
+      const dir = corruptRepo()
+      const OLD_BLOCK = 'n=$(git -C "$W" log --oneline main..HEAD | wc -l)\n' + '[ "$n" -eq 0 ] && fail "no commits on the branch (a worker may have left work uncommitted — check git status in the worktree)"\n' + 'echo "VERDICT: n=$n commits, no fail"\n'
+      const script = preludeScript(0, 'W=.\n') + `cd "$W"\n` + OLD_BLOCK
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('no commits on the branch')
+    })
+
+    it('EXECUTED — the NEW (real, extracted) form HOLDS on the same corrupted repo, naming the ACTUAL rc rather than blaming an uncommitted worker', () => {
+      const dir = corruptRepo()
+      const script = preludeScript(0, 'W=.\n') + `cd "$W"\n` + NEW_BLOCK + '\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('git log/wc -l failed')
+      expect(res.stdout + res.stderr).not.toContain('a worker may have left work uncommitted')
+    })
+
+    it('EXECUTED — the NEW form still holds (unchanged) on a GENUINE zero-commit branch — not vacuously silent on the fault it was written for', () => {
+      const dir = scratchDir('commitcount-zero')
+      initRepo(dir)
+      writeFileSync(join(dir, 'a.txt'), 'a\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'init')
+      const script = preludeScript(0, 'W=.\n') + `cd "$W"\n` + NEW_BLOCK + '\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('a worker may have left work uncommitted')
+    })
+
+    it('EXECUTED — the NEW form is silent on a branch with real commits ahead of main', () => {
+      const dir = scratchDir('commitcount-ok')
+      initRepo(dir)
+      writeFileSync(join(dir, 'a.txt'), 'a\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'init')
+      git(dir, 'checkout', '-q', '-b', 'feature')
+      writeFileSync(join(dir, 'b.txt'), 'b\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'feature commit')
+      const script = preludeScript(0, 'W=.\n') + `cd "$W"\n` + NEW_BLOCK + '\necho DONE\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('DONE')
+    })
   })
 
   describe(':74 fence regex — an invalid FENCE holds, it does not print "fence OK"', () => {
