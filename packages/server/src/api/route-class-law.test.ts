@@ -145,13 +145,14 @@ describe('the route-class law (prd-23 ruling 5)', () => {
     // A count pinned independently, so the walk cannot pass vacuously by
     // matching zero gated routes: six gated mutations + seven gated reads
     // (prd-29 wave 1) + four gated reads (prd-29 wave 1b, ruling 7, #58) +
-    // two gated reads (prd-29 wave 2a, ruling 7, #59). If this number and the
+    // two gated reads (prd-29 wave 2a, ruling 7, #59) + one gated read
+    // (prd-29 wave 2b, ruling 4, #60 — `/api/stream`). If this number and the
     // walk above disagree with the table, they cannot both pass.
     const gatedFound = routes.filter((route) => {
       const entry = classify(route, ROUTE_CLASSES)
       return entry !== undefined && isGated(entry) && route.hasCapabilityGate
     })
-    expect(gatedFound.length).toBe(19)
+    expect(gatedFound.length).toBe(20)
 
     await app.close()
   })

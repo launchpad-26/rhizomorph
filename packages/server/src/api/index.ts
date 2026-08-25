@@ -114,13 +114,14 @@ export const ROUTE_CLASSES: readonly RouteClassification[] = [
   { method: 'POST', url: '/v1/traces', routeClass: 'ungated-mutation' },
   { method: 'POST', url: '/', routeClass: 'ungated-mutation' },
 
-  // Gated reads (13) — prd-29 wave 1's keystone (ruling 1 / ADR-0024) plus
+  // Gated reads (14) — prd-29 wave 1's keystone (ruling 1 / ADR-0024) plus
   // wave 1b's four late arrivals (ruling 7, #58) plus wave 2a's two more
   // (ruling 7, #59): the reads that postdated the PRD's route math, and then
-  // `/api/meta`/`/api/doctor` themselves. Each carries
-  // `requireCapabilityToken` as a route-local `preHandler`, exactly as the
-  // gated mutations do; the gate-presence law (ADR-0024) fails the build if
-  // any of these rows loses its gate.
+  // `/api/meta`/`/api/doctor` themselves — plus wave 2b's stream (ruling 4,
+  // #60) at the end of this block. Each carries `requireCapabilityToken` as
+  // a route-local `preHandler`, exactly as the gated mutations do; the
+  // gate-presence law (ADR-0024) fails the build if any of these rows loses
+  // its gate.
   { method: 'GET', url: '/api/sessions', routeClass: 'gated-read' },
   { method: 'GET', url: '/api/sessions/:id/events', routeClass: 'gated-read' },
   { method: 'GET', url: '/api/lanes', routeClass: 'gated-read' },
@@ -140,11 +141,16 @@ export const ROUTE_CLASSES: readonly RouteClassification[] = [
   // `recordings/capabilityRead.ts`) rather than these routes staying open.
   { method: 'GET', url: '/api/meta', routeClass: 'gated-read' },
   { method: 'GET', url: '/api/doctor', routeClass: 'gated-read' },
+  // prd-29 wave 2b (ruling 4, #60): the one gated-read whose `preHandler`
+  // accepts the HttpOnly capability cookie as an alternate credential,
+  // because `EventSource` cannot set a header at all — see
+  // `requireCapabilityToken`'s `allowCookie` option in `api/security.ts` and
+  // the cookie `server/static.ts` sets beside the capability meta tag.
+  { method: 'GET', url: '/api/stream', routeClass: 'gated-read' },
 
-  // Tokenless reads (1, plus the static catch-all below). `/api/stream` gates
-  // separately (issue #60, not this one), so it stays `read` for now.
-  { method: 'GET', url: '/api/stream', routeClass: 'read' },
-
+  // Tokenless reads (0, plus the static catch-all below) — every `/api` read
+  // is now gated; `GET /*` is the one read that stays `read` forever.
+  //
   // The static dashboard / SPA-fallback catch-all `server/static.ts` (or its
   // missing-build placeholder) registers directly on `buildApp`'s instance,
   // outside `registerApiRoutes` — still a real registered route the law

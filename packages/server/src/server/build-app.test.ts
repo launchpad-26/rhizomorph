@@ -129,7 +129,12 @@ describe('buildApp integration', () => {
     const app = makeApp()
     await app.ready()
 
-    const response = await app.inject({ method: 'GET', url: '/api/stream', payloadAsStream: true })
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/stream',
+      headers: capabilityHeaders(app),
+      payloadAsStream: true,
+    })
     expect(response.statusCode).toBe(200)
     expect(response.headers['content-type']).toContain('text/event-stream')
 
