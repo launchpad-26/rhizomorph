@@ -175,7 +175,7 @@ was written to close, reintroduced as a policy.
 
 **E lost because it is not available inside ADR-0004's contract.** `PollResult` is
 `{nextSnapshot, events}` — one snapshot per batch — and the loop stores it
-opaquely as `unknown` (`poll-loop.ts:101`). Only a collector could construct "the
+opaquely as `unknown` (`poll-loop.ts:100`). Only a collector could construct "the
 snapshot as of event *k*", so all six would have to change, and the contract with
 them.
 
