@@ -1,6 +1,13 @@
 import Fastify from 'fastify'
 import { describe, expect, it } from 'vitest'
-import { CAPABILITY_GATE, CAPABILITY_TOKEN_HEADER, generateCapabilityToken, requireCapabilityToken } from './security.js'
+import {
+  buildCapabilityCookie,
+  CAPABILITY_COOKIE_NAME,
+  CAPABILITY_GATE,
+  CAPABILITY_TOKEN_HEADER,
+  generateCapabilityToken,
+  requireCapabilityToken,
+} from './security.js'
 
 /**
  * THE CAPABILITY TOKEN — in isolation, against a throwaway Fastify app
@@ -133,5 +140,124 @@ describe('requireCapabilityToken', () => {
     // check distinguishes the capability gate from any other preHandler.
     const notAGate = (async () => {}) as unknown as { [CAPABILITY_GATE]?: unknown }
     expect(notAGate[CAPABILITY_GATE]).toBeUndefined()
+  })
+
+  it('THE LAW: the default gate — the one every gated-mutation call site uses — never honours the cookie, even when the cookie carries the exact right token and no header is present at all (prd-29 ruling 4)', async () => {
+    // No `allowCookie` passed here — this is exactly what
+    // `requireCapabilityToken(ctx.capabilityToken ?? '')` spells at every
+    // `/api/label`, `/api/rotate`, `/api/lab/launch`, `/api/concierge/clone`
+    // and `/api/concierge/launch` call site. An ambient credential on a
+    // mutation is CSRF re-invented — this asserts the refusal directly
+    // against the gate itself, rather than trusting that no call site ever
+    // opts in by accident.
+    const app = makeApp('the-right-token')
+    const response = await app.inject({
+      method: 'POST',
+      url: '/mutate',
+      headers: { cookie: `${CAPABILITY_COOKIE_NAME}=the-right-token` },
+    })
+    expect(response.statusCode).toBe(401)
+  })
+
+  it('the gate still brands itself with CAPABILITY_GATE when allowCookie is set — the route-class law keeps seeing it', () => {
+    const gate = requireCapabilityToken('some-token', { allowCookie: true }) as unknown as {
+      [CAPABILITY_GATE]?: unknown
+    }
+    expect(gate[CAPABILITY_GATE]).toBe(true)
+  })
+})
+
+describe('requireCapabilityToken with allowCookie (prd-29 ruling 4, #60 — the stream cannot set a header)', () => {
+  function makeReadApp(expectedToken: string) {
+    const app = Fastify()
+    app.get('/read', { preHandler: requireCapabilityToken(expectedToken, { allowCookie: true }) }, async () => ({
+      ok: true,
+    }))
+    return app
+  }
+
+  it('lets a request bearing only the right cookie through — no header at all', async () => {
+    const app = makeReadApp('the-right-token')
+    const response = await app.inject({
+      method: 'GET',
+      url: '/read',
+      headers: { cookie: `${CAPABILITY_COOKIE_NAME}=the-right-token` },
+    })
+    expect(response.statusCode).toBe(200)
+  })
+
+  it('still lets the header through on its own, exactly as before — allowCookie adds a channel, it does not remove one', async () => {
+    const app = makeReadApp('the-right-token')
+    const response = await app.inject({
+      method: 'GET',
+      url: '/read',
+      headers: { [CAPABILITY_TOKEN_HEADER]: 'the-right-token' },
+    })
+    expect(response.statusCode).toBe(200)
+  })
+
+  it('refuses a wrong cookie value, even one of the same length', async () => {
+    const app = makeReadApp('right-token')
+    const wrong = 'aaaaaaaaaaa'
+    expect(wrong.length).toBe('right-token'.length)
+    const response = await app.inject({
+      method: 'GET',
+      url: '/read',
+      headers: { cookie: `${CAPABILITY_COOKIE_NAME}=${wrong}` },
+    })
+    expect(response.statusCode).toBe(401)
+  })
+
+  it('refuses when neither header nor cookie is present', async () => {
+    const app = makeReadApp('the-right-token')
+    const response = await app.inject({ method: 'GET', url: '/read' })
+    expect(response.statusCode).toBe(401)
+  })
+
+  it('picks the right cookie out of several — the cookie header can carry more than one', async () => {
+    const app = makeReadApp('the-right-token')
+    const response = await app.inject({
+      method: 'GET',
+      url: '/read',
+      headers: { cookie: `other=1; ${CAPABILITY_COOKIE_NAME}=the-right-token; another=2` },
+    })
+    expect(response.statusCode).toBe(200)
+  })
+
+  it('a present but WRONG header is refused even when a valid cookie also rides along — the header takes priority, it is never given a fallback to a cookie that would silently paper over it', async () => {
+    const app = makeReadApp('the-right-token')
+    const response = await app.inject({
+      method: 'GET',
+      url: '/read',
+      headers: {
+        [CAPABILITY_TOKEN_HEADER]: 'wrong-token',
+        cookie: `${CAPABILITY_COOKIE_NAME}=the-right-token`,
+      },
+    })
+    expect(response.statusCode).toBe(401)
+  })
+
+  it('an UNCONFIGURED server refuses a cookie-bearing request too, same as the header path', async () => {
+    const app = makeReadApp('')
+    const response = await app.inject({
+      method: 'GET',
+      url: '/read',
+      headers: { cookie: `${CAPABILITY_COOKIE_NAME}=anything` },
+    })
+    expect(response.statusCode).toBe(401)
+  })
+})
+
+describe('buildCapabilityCookie', () => {
+  it('sets the token under CAPABILITY_COOKIE_NAME, HttpOnly, SameSite=Strict', () => {
+    const cookie = buildCapabilityCookie('abc123')
+    expect(cookie).toContain(`${CAPABILITY_COOKIE_NAME}=abc123`)
+    expect(cookie).toContain('HttpOnly')
+    expect(cookie).toContain('SameSite=Strict')
+  })
+
+  it('never sets Secure — this server is reached over plain HTTP on loopback, and a Secure cookie would silently never be sent', () => {
+    const cookie = buildCapabilityCookie('abc123')
+    expect(cookie).not.toMatch(/;\s*Secure/i)
   })
 })

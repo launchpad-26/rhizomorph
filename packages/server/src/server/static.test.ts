@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { CAPABILITY_COOKIE_NAME } from '../api/security.js'
 import { capabilityHeaders } from '../api/test-support.js'
 import { sessionFilePath } from '../log/session-log.js'
 import { buildApp } from './build-app.js'
@@ -94,6 +95,36 @@ describe('registerStaticRoute — the SPA fallback', () => {
     const response = await app.inject({ method: 'GET', url: '/assets/app.js' })
 
     expect(response.body).not.toContain('rhizomorph-capability')
+  })
+
+  // prd-29 ruling 4 (#60): the cookie `GET /api/stream` reads as its
+  // alternate credential, set on the SAME response as the meta-tag stamp
+  // above — proven against a real `registerStaticRoute` response, not just
+  // `buildCapabilityCookie`'s own string shape (`api/security.test.ts`
+  // covers that half).
+  it('sets the capability cookie beside the meta tag at the root — HttpOnly, SameSite=Strict (prd-29 ruling 4)', async () => {
+    const app = makeApp()
+    const response = await app.inject({ method: 'GET', url: '/' })
+
+    const setCookie = response.headers['set-cookie']
+    expect(setCookie).toBeDefined()
+    expect(setCookie).toContain(`${CAPABILITY_COOKIE_NAME}=${TEST_TOKEN}`)
+    expect(setCookie).toContain('HttpOnly')
+    expect(setCookie).toContain('SameSite=Strict')
+  })
+
+  it('sets the capability cookie on the SPA-fallback index.html too, not only the literal root', async () => {
+    const app = makeApp()
+    const response = await app.inject({ method: 'GET', url: '/lane/42-otel-receiver' })
+
+    expect(response.headers['set-cookie']).toContain(`${CAPABILITY_COOKIE_NAME}=${TEST_TOKEN}`)
+  })
+
+  it('never sets the capability cookie on a non-HTML asset', async () => {
+    const app = makeApp()
+    const response = await app.inject({ method: 'GET', url: '/assets/app.js' })
+
+    expect(response.headers['set-cookie']).toBeUndefined()
   })
 
   it('refuses a caller-supplied token that is not the 64-hex-character shape, rather than interpolating it unescaped', async () => {

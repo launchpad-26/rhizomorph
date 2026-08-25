@@ -1,6 +1,7 @@
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
+import { buildCapabilityCookie } from '../api/security.js'
 import { isPathContained } from '../log/transcript-attribution.js'
 import { canonicalize } from '../paths/containment.js'
 
@@ -108,6 +109,9 @@ function injectCapabilityMeta(html: string, capabilityToken: string): string {
  * Every response that is `index.html` — whether requested directly or
  * reached via the SPA fallback — is read and stamped with the capability
  * token rather than streamed verbatim; every other file streams unmodified.
+ * The same response also sets the capability as an HttpOnly, SameSite=Strict
+ * cookie (prd-29 ruling 4) — the credential `GET /api/stream` reads instead
+ * of a header, since `EventSource` cannot set one.
  */
 export function registerStaticRoute(app: FastifyInstance, distDir: string, capabilityToken: string): void {
   const root = path.resolve(distDir)
@@ -173,7 +177,12 @@ export function registerStaticRoute(app: FastifyInstance, distDir: string, capab
     if (path.extname(filePath) === '.html') {
       reply.header('Content-Security-Policy', CONTENT_SECURITY_POLICY)
       const html = readFileSync(filePath, 'utf8')
-      return reply.send(injectCapabilityMeta(html, capabilityToken))
+      // `injectCapabilityMeta` validates the token's shape and throws before
+      // interpolating anything unescaped — running it first means the
+      // Set-Cookie below never fires on a malformed token either.
+      const stamped = injectCapabilityMeta(html, capabilityToken)
+      reply.header('Set-Cookie', buildCapabilityCookie(capabilityToken))
+      return reply.send(stamped)
     }
 
     return reply.send(createReadStream(filePath))
