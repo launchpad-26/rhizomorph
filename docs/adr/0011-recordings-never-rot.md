@@ -1,6 +1,6 @@
 # 0011. Recordings never rot: lenient parse, a reserved `upcast()`, and a golden era corpus
 
-- **Status:** accepted
+- **Status:** accepted — amended by [ADR-0029](0029-a-recording-may-repeat-a-fact.md) (a recording may repeat a fact; no read-side dedupe)
 - **Date:** 2026-08-06
 
 ## Context and Problem Statement
