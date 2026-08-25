@@ -8,11 +8,31 @@ import { snapshotDirFor } from '../log/paths.js'
 import { readSessionEvents, RESUME_WINDOW_MS, sessionFilePath } from '../log/session-log.js'
 import { readSessionLock, writeSessionLock } from '../log/session-lock.js'
 import { writeSessionLabel } from '../log/label.js'
+import { beginRetargetBoundary } from '../recorder/rotate.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { buildApp } from '../server/build-app.js'
 import { createPollLoop } from '../server/poll-loop.js'
 import { recordSessionBootMeta } from './meta.js'
+// Type-only, and only reachable from a TEST file: `retarget-law.test.ts`'s
+// "exactly one file imports the retarget route directly" clause (prd-20
+// ruling 1 / ADR-0014 grant 3) forbids any PRODUCTION file but
+// `api/index.ts` from importing `api/retarget.ts` at all — its static check
+// does not distinguish `import type` from a value import, so `api/rotate.ts`
+// itself may never import this, even for a type. Test files are explicitly
+// exempted from that clause (`isTest` in `retarget-law.test.ts`), which is
+// what makes THIS file the legal place to hold the ONE compiler-bound copy:
+// `SHARED_RETARGET_IN_FLIGHT_CODE` below fails `npm run typecheck` the
+// instant that union member is ever renamed in `api/retarget.ts`.
+// `api/rotate.ts`'s own bare `'retarget-in-flight'` literal is NOT compiler-
+// bound to this — the compiler never sees that file's string at all. It is
+// bound only by the runtime assertion below, which compares the route's
+// actual 409 response against this constant: a drift of that production
+// literal fails this test, not typecheck. Two mechanisms, one per drift
+// direction, not one compiler binding covering both.
+import type { RetargetRefusalCode } from './retarget.js'
 import { CAPABILITY_TOKEN_HEADER } from './security.js'
+
+const SHARED_RETARGET_IN_FLIGHT_CODE = 'retarget-in-flight' satisfies RetargetRefusalCode
 
 /**
  * `POST /api/rotate` — a mutating route (prd16 ruling 2), end to end through
@@ -234,6 +254,55 @@ describe('POST /api/rotate', () => {
     expect((await readSessionEvents(sessionFilePath(sessionDir, FIRST))).map((e) => e.type)).toEqual([
       'session.started',
     ])
+  })
+
+  /**
+   * #49 (prd-42 ruling 5). `rotateSession` and `retargetSession` share one
+   * in-flight guard (`recorder/rotate.ts`, #14) so the two never race the
+   * same recorder — but before this issue, a rotation asked while a retarget
+   * held that guard COALESCED onto it: this route's `await rotateSession(...)`
+   * awaited the SAME pending promise the retarget's boundary holds, so it
+   * would eventually resolve to the retarget's OWN `Rotation` at status 200 —
+   * an `opened` session in a repo other than this route's own `ctx.repoPath`,
+   * reported as this caller's own boundary. `beginRetargetBoundary` is the
+   * same primitive `api/retarget.ts` reserves the guard with before its own
+   * (slow) validation, so holding it open here — deliberately never
+   * resolved — stands in for a real in-flight retarget without needing a
+   * second repo on disk to retarget into: pre-fix this request hangs on the
+   * retarget's boundary until the test's own timeout; post-fix it refuses
+   * with 409 the instant it arrives, never touching that promise at all.
+   */
+  it("refuses with 409 while a retarget is in flight — never the retarget's boundary (#49, prd-42 ruling 5)", async () => {
+    const app = makeApp()
+    const boundary = beginRetargetBoundary(recorder)
+    expect(boundary).not.toBeNull() // sanity: the guard really is free before this test claims it
+
+    const response = await app.inject({ method: 'POST', url: '/api/rotate', headers: authorised(app) })
+
+    expect(response.statusCode).toBe(409)
+    const body = response.json() as { code?: string; error?: string; closed?: unknown; opened?: unknown }
+    // Compared against the shared, compiler-checked constant above — not a
+    // second hardcoded `'retarget-in-flight'` — so this assertion moves with
+    // `api/retarget.ts`'s own union rather than independently agreeing with
+    // it by coincidence.
+    expect(body.code).toBe(SHARED_RETARGET_IN_FLIGHT_CODE)
+    // The defect this test reproduces: a 200 carrying the retarget's own boundary.
+    expect(body.closed).toBeUndefined()
+    expect(body.opened).toBeUndefined()
+    expect(body.error).not.toContain('retargeted')
+
+    // Nothing happened to THIS repo's session: same session, same lock, no
+    // close line — the guard is still the retarget's to release, untouched.
+    expect(recorder.sessionId).toBe(FIRST)
+    expect(await readSessionLock(sessionDir, FIRST)).not.toBeNull()
+    expect((await readSessionEvents(sessionFilePath(sessionDir, FIRST))).map((e) => e.type)).toEqual([
+      'session.started',
+    ])
+
+    // Release the reservation so this test leaves nothing pending — its own
+    // recorder is never touched again, but an unsettled promise would still
+    // be a leaked handle past the test's end.
+    boundary?.reject(new Error('test cleanup: abandoning the reserved boundary'))
   })
 })
 
