@@ -170,6 +170,61 @@ export async function fetchCapabilityToken(
 }
 
 /**
+ * THE SHARED SCRAPE HELPER (prd-29 ruling 7, #59) — every other CLI command
+ * that needs to reach a gated route (`rhizomorph env`'s instance-id read,
+ * `rhizomorph doctor`'s own-server probe) goes through this rather than each
+ * re-deriving {@link fetchCapabilityToken}'s GET-`/`-then-scrape dance, the
+ * seam this module already had for `rotate`. Same in-band channel, same
+ * reasoning: see this module's own doc for why a file on disk was rejected.
+ *
+ * Returns a drop-in `fetch` that attaches {@link CAPABILITY_TOKEN_HEADER} to
+ * every request made through it — the caller passes it straight to whatever
+ * seam already accepts an injectable `fetch` (`fetchInstanceId`'s `options.fetch`,
+ * `probeRhizomorphMeta`'s `fetchImpl`) with no other change needed at the call
+ * site.
+ *
+ * **What it costs, stated plainly (matching this module's own "what it costs"
+ * for rotation).** The token is fetched at most ONCE per returned function —
+ * the first call through it triggers `fetchCapabilityToken`'s one extra
+ * loopback `GET /`, and every subsequent call through that SAME returned
+ * function reuses the resolved token, paying nothing further. That is a real
+ * saving for a command that makes several requests through one
+ * `capabilityAwareFetch(port)` call (there is none of those yet, but the seam
+ * is built for it); it buys nothing across separate CLI invocations or
+ * separate calls to `capabilityAwareFetch` — each of those re-pays the one
+ * extra request, by design, since nothing survives process exit and this
+ * command holds no file to remember a token in (see this module's own "why
+ * not a file on disk"). A failed token fetch is not cached: the next call
+ * through the same returned function retries the scrape rather than replaying
+ * the same rejection for the function's whole lifetime, so a server that
+ * comes up mid-command still recovers.
+ */
+export function capabilityAwareFetch(
+  port: number,
+  options: RequestRotationOptions = {},
+): typeof globalThis.fetch {
+  const fetchImpl = options.fetch ?? globalThis.fetch
+  let tokenPromise: Promise<string> | null = null
+
+  const rhizomorphFetch: typeof globalThis.fetch = async (input, init) => {
+    if (tokenPromise === null) {
+      tokenPromise = fetchCapabilityToken(port, options).catch((err: unknown) => {
+        // Don't poison every future call through this function with one
+        // transient failure — the next attempt gets its own fresh scrape.
+        tokenPromise = null
+        throw err
+      })
+    }
+    const token = await tokenPromise
+    const headers = new Headers(init?.headers)
+    headers.set(CAPABILITY_TOKEN_HEADER, token)
+    return fetchImpl(input, { ...init, headers })
+  }
+
+  return rhizomorphFetch
+}
+
+/**
  * Asks the Rhizomorph on `port` to close its session and open a fresh one.
  * Throws with a message that names what to do instead — never a stack trace —
  * when nothing is listening, when the server has no token to hand out, when

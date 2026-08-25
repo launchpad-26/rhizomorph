@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { capabilityHeaders } from '../api/test-support.js'
 import { sessionFilePath } from '../log/session-log.js'
 import { buildApp } from './build-app.js'
 import { SessionRecorder } from './recorder.js'
@@ -268,7 +269,7 @@ describe('buildApp — the SPA fallback never shadows a real route', () => {
 
   it('a real API route still answers as itself, not the app shell', async () => {
     const app = makeApp()
-    const response = await app.inject({ method: 'GET', url: '/api/meta' })
+    const response = await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })
 
     expect(response.statusCode).toBe(200)
     expect(response.headers['content-type']).toContain('application/json')

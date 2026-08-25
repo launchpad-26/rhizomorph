@@ -10,17 +10,22 @@ import { capabilityHeaders } from './test-support.js'
 
 /**
  * prd-29 wave 1 (#442, ruling 1 / ADR-0024) plus wave 1b's four late arrivals
- * (ruling 7, #58 — the reads that postdated the PRD's route math): eleven
- * SPA-only reads that answer only the capability token's holder. This walks
- * all eleven against the real `buildApp`, so "Done when: all eleven answer
- * 401 to a bare request and pass with the header" is one law, not eleven
- * scattered assertions — and it fails the moment any one route loses its gate.
+ * (ruling 7, #58) plus wave 2a's two more (ruling 7, #59 — `/api/meta` and
+ * `/api/doctor` themselves, held back from wave 1 so no consumer outside the
+ * SPA broke mid-milestone): thirteen SPA-only reads that answer only the
+ * capability token's holder. This walks all thirteen against the real
+ * `buildApp`, so "Done when: all thirteen answer 401 to a bare request and
+ * pass with the header" is one law, not thirteen scattered assertions — and
+ * it fails the moment any one route loses its gate.
  *
  * `discoverRepos` (behind `/api/concierge/repos`) is left REAL here, not
  * mocked: this law only proves the gate opens and closes, never the shape of
  * what it returns, and a real scan of whatever `~/.claude/projects` and the
  * conventional roots hold on the machine running this suite always answers
- * 200 either way.
+ * 200 either way. `/api/doctor` similarly runs its real (if mocked-`exec`-free)
+ * checks rather than a stub — it may take a moment to compute, same as
+ * `/api/concierge/repos`, and that is fine: this law is about the gate, not
+ * the latency.
  */
 const GATED_READS: ReadonlyArray<{ method: 'GET'; url: string }> = [
   { method: 'GET', url: '/api/sessions' },
@@ -34,9 +39,11 @@ const GATED_READS: ReadonlyArray<{ method: 'GET'; url: string }> = [
   { method: 'GET', url: '/api/lane-index/main' },
   { method: 'GET', url: '/api/session-preview/1000' },
   { method: 'GET', url: '/api/concierge/repos' },
+  { method: 'GET', url: '/api/meta' },
+  { method: 'GET', url: '/api/doctor' },
 ]
 
-describe('the eleven gated reads answer only the token holder (prd-29 waves 1 and 1b)', () => {
+describe('the thirteen gated reads answer only the token holder (prd-29 waves 1, 1b and 2a)', () => {
   let dir: string
 
   beforeEach(async () => {
@@ -56,7 +63,7 @@ describe('the eleven gated reads answer only the token holder (prd-29 waves 1 an
     return [...token].map((c) => (c === '0' ? '1' : '0')).join('')
   }
 
-  it('refuses a bare request — 401 for every one of the eleven, before the handler runs', async () => {
+  it('refuses a bare request — 401 for every one of the thirteen, before the handler runs', async () => {
     const app = makeApp()
     for (const route of GATED_READS) {
       const response = await app.inject(route)
@@ -77,7 +84,7 @@ describe('the eleven gated reads answer only the token holder (prd-29 waves 1 an
     await app.close()
   })
 
-  it('passes the gate with the real header — no 401 for any of the eleven', async () => {
+  it('passes the gate with the real header — no 401 for any of the thirteen', async () => {
     const app = makeApp()
     for (const route of GATED_READS) {
       const response = await app.inject({ ...route, headers: capabilityHeaders(app) })
@@ -95,6 +102,8 @@ describe('the eleven gated reads answer only the token holder (prd-29 waves 1 an
       '/api/lab/experiments',
       '/api/lane-index',
       '/api/concierge/repos',
+      '/api/meta',
+      '/api/doctor',
     ]
     for (const url of urls) {
       const response = await app.inject({ method: 'GET', url, headers: capabilityHeaders(app) })

@@ -38,7 +38,7 @@ describe('buildApp integration', () => {
 
   it('GET /api/meta reports repo and session info', async () => {
     const app = makeApp()
-    const response = await app.inject({ method: 'GET', url: '/api/meta' })
+    const response = await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })
     expect(response.statusCode).toBe(200)
     expect(response.json()).toEqual({
       repoPath: '/repo',
@@ -253,14 +253,14 @@ describe('buildApp: the context is never copied, so a later mutation is visible 
     const ctx = { repoPath: '/repo/old', repoName: 'old', sessionDir: dir, recorder }
     const app = buildApp(ctx)
 
-    const before = await app.inject({ method: 'GET', url: '/api/meta' })
+    const before = await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })
     expect(before.json()).toMatchObject({ repoPath: '/repo/old', repoName: 'old' })
 
     // The retarget mutation itself — no re-registration, no new buildApp call.
     ctx.repoPath = '/repo/new'
     ctx.repoName = 'new'
 
-    const after = await app.inject({ method: 'GET', url: '/api/meta' })
+    const after = await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })
     expect(after.json()).toMatchObject({ repoPath: '/repo/new', repoName: 'new' })
   })
 

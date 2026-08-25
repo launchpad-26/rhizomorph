@@ -143,20 +143,23 @@ mutation is, with a gate-presence law that fails the build the day a row loses
 its gate. `read` therefore now means specifically a *tokenless* read.
 
 **Where the boundary actually stands** — as opposed to where it is ruled to
-stand — is worth stating plainly, because the two differ today. Seven reads are
-gated: `/api/sessions`, `/api/sessions/:id/events`, `/api/lanes`,
-`/api/transcript/:lane`, and the laboratory's `/api/lab/checkpoints`,
-`/api/lab/experiments`, `/api/lab/estimate`. Seven are still tokenless, and
-three of those — `/api/meta`, `/api/doctor` and `/api/stream` — are **ruled to
-gate and not yet gated**, deferred to prd-29's wave 2 so that no consumer
-outside the SPA breaks mid-milestone. `GET /*` stays tokenless *forever*
+stand — is worth stating plainly, because the two differ today. Thirteen reads
+are gated: `/api/sessions`, `/api/sessions/:id/events`, `/api/lanes`,
+`/api/transcript/:lane`, the laboratory's `/api/lab/checkpoints`,
+`/api/lab/experiments`, `/api/lab/estimate`, the four reads that postdated the
+route arithmetic — `/api/lane-index`, `/api/lane-index/:handle`,
+`/api/session-preview/:sessionId`, `/api/concierge/repos` (prd-29 ruling 7,
+#58) — and, as of wave 2a, `/api/meta` and `/api/doctor` (prd-29 ruling 7,
+#59). One is still tokenless: `/api/stream` is **ruled to gate and not yet
+gated**, deferred to a later wave (issue #60) so that no consumer outside the
+SPA breaks mid-milestone. `GET /*` stays tokenless *forever*
 (prd-29 ruling 1): it is the bootstrap the browser's first paint and
 `rhizomorph rotate`'s scrape both read the in-band token from (ADR-0012), so
 gating it could not stop a local process and would break the delivery the token
-itself depends on. Ruled 2026-08-24 and not yet in code: the late reads gate
-too, which leaves `GET /*` alone outside the gate once they do. Read the
-table's own `routeClass` values for the state of the boundary, never this
-paragraph's tense.
+itself depends on. `/api/stream` is the one read still ruled to gate and not
+yet in code, which leaves `GET /*` and `/api/stream` outside the gate until it
+lands. Read the table's own `routeClass` values for the state of the boundary,
+never this paragraph's tense.
 
 ### Lane manifest (prd3 ruling 19)
 

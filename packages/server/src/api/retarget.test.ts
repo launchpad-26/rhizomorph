@@ -15,6 +15,7 @@ import type { PollLoop, PollLoopResetOptions } from '../server/poll-loop.js'
 import { SessionRecorder } from '../server/recorder.js'
 import * as retargetValidationModule from '../server/retarget-validation.js'
 import { CAPABILITY_TOKEN_HEADER } from './security.js'
+import { capabilityHeaders } from './test-support.js'
 
 /**
  * `POST /api/retarget` (#389) — the route prd20 ruling 5's four halves
@@ -179,7 +180,7 @@ describe('POST /api/retarget', () => {
     const app = buildApp(ctx)
     await post(app, { path: adopted })
 
-    const meta = (await app.inject({ method: 'GET', url: '/api/meta' })).json()
+    const meta = (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()
     expect(meta).toMatchObject({ repoPath: adopted, repoName: 'adopted', sessionId: String(CLOCK) })
     // …and the provenance bar is told the honest word. Recording this as
     // `rotated` would say the predecessor is the previous log in THIS repo's
@@ -249,7 +250,9 @@ describe('POST /api/retarget', () => {
       expect(ctx.repoPath).toBe(watched)
       expect(recorder.sessionId).toBe('1000')
       expect(loopLog).toEqual([])
-      expect((await app.inject({ method: 'GET', url: '/api/meta' })).json()).toMatchObject({ repoPath: watched })
+      expect(
+        (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json(),
+      ).toMatchObject({ repoPath: watched })
       // …and the lock is still ours, so the recording cannot be taken either.
       expect((await decideSessionBoot(sessionDirFor(watched, dataRoot), CLOCK)).reason).toBe('writer-alive')
     }

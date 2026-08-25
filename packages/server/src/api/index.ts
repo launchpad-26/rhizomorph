@@ -114,12 +114,13 @@ export const ROUTE_CLASSES: readonly RouteClassification[] = [
   { method: 'POST', url: '/v1/traces', routeClass: 'ungated-mutation' },
   { method: 'POST', url: '/', routeClass: 'ungated-mutation' },
 
-  // Gated reads (11) — prd-29 wave 1's keystone (ruling 1 / ADR-0024) plus
-  // wave 1b's four late arrivals (ruling 7, #58): the reads that postdated
-  // the PRD's route math. Each carries `requireCapabilityToken` as a
-  // route-local `preHandler`, exactly as the gated mutations do; the
-  // gate-presence law (ADR-0024) fails the build if any of these rows loses
-  // its gate.
+  // Gated reads (13) — prd-29 wave 1's keystone (ruling 1 / ADR-0024) plus
+  // wave 1b's four late arrivals (ruling 7, #58) plus wave 2a's two more
+  // (ruling 7, #59): the reads that postdated the PRD's route math, and then
+  // `/api/meta`/`/api/doctor` themselves. Each carries
+  // `requireCapabilityToken` as a route-local `preHandler`, exactly as the
+  // gated mutations do; the gate-presence law (ADR-0024) fails the build if
+  // any of these rows loses its gate.
   { method: 'GET', url: '/api/sessions', routeClass: 'gated-read' },
   { method: 'GET', url: '/api/sessions/:id/events', routeClass: 'gated-read' },
   { method: 'GET', url: '/api/lanes', routeClass: 'gated-read' },
@@ -132,13 +133,17 @@ export const ROUTE_CLASSES: readonly RouteClassification[] = [
   { method: 'GET', url: '/api/lane-index/:handle', routeClass: 'gated-read' },
   { method: 'GET', url: '/api/session-preview/:sessionId', routeClass: 'gated-read' },
   { method: 'GET', url: '/api/concierge/repos', routeClass: 'gated-read' },
+  // prd-29 wave 2a (ruling 7, #59): the credential stays in-band and the CLI
+  // scrapes rather than stores — `rhizomorph env`/`rhizomorph doctor` and the
+  // dashboard's own boot-facts poll all reach these through the shared
+  // scrape/read helpers (`cli/rotate.ts`'s `capabilityAwareFetch`,
+  // `recordings/capabilityRead.ts`) rather than these routes staying open.
+  { method: 'GET', url: '/api/meta', routeClass: 'gated-read' },
+  { method: 'GET', url: '/api/doctor', routeClass: 'gated-read' },
 
-  // Tokenless reads (3, plus the static catch-all below). `/api/meta`,
-  // `/api/doctor` and `/api/stream` gate in wave 2 (prd-29 sequencing) so no
-  // consumer outside the SPA breaks mid-milestone.
-  { method: 'GET', url: '/api/meta', routeClass: 'read' },
+  // Tokenless reads (1, plus the static catch-all below). `/api/stream` gates
+  // separately (issue #60, not this one), so it stays `read` for now.
   { method: 'GET', url: '/api/stream', routeClass: 'read' },
-  { method: 'GET', url: '/api/doctor', routeClass: 'read' },
 
   // The static dashboard / SPA-fallback catch-all `server/static.ts` (or its
   // missing-build placeholder) registers directly on `buildApp`'s instance,

@@ -14,6 +14,7 @@ import {
 } from '../cli/doctor.js'
 import type { ServerContext } from '../server/context.js'
 import { exec as realExec, withTimeout } from '../server/exec.js'
+import { requireCapabilityToken } from './security.js'
 
 /**
  * The seams `runServerDoctor` needs, mirroring the CLI's own `DoctorOptions`
@@ -219,8 +220,14 @@ export function createRouteDoctorProbe(
 }
 
 /**
- * Read-only `GET /api/doctor` (prd-19 ruling 5): no body, no token (GET-only
- * under the #216 posture), no writes — every check it calls is one of
+ * Read-only `GET /api/doctor` (prd-19 ruling 5): no body, no writes, and —
+ * since prd-29 ruling 7 (#59) — gated by the capability token like every
+ * other `gated-read`, `requireCapabilityToken` as a route-local `preHandler`.
+ * It used to be exempted from that gate under the #216 GET-only posture
+ * (unauthenticated GETs were considered safe because they could not mutate
+ * anything); prd-29 wave 2 closes that exemption for this route and
+ * `/api/meta` both, so an unauthenticated local process can no longer read
+ * the repo/version/lane facts this route serves. Every check it calls is one of
  * `cli/doctor.ts`'s own read-only seams (filesystem facts, an injected
  * `exec`), and this route additionally bounds what an unauthenticated caller
  * can force: a per-exec timeout and a single-flight/short-TTL cache over the
@@ -255,7 +262,7 @@ export function registerDoctorRoute(app: FastifyInstance, ctx: ServerContext): v
   let proberRepoPath = ctx.repoPath
   let probe = createRouteDoctorProbe(proberRepoPath, { replay: ctx.readOnly === true })
 
-  app.get('/api/doctor', async () => {
+  app.get('/api/doctor', { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') }, async () => {
     if (ctx.repoPath !== proberRepoPath) {
       proberRepoPath = ctx.repoPath
       probe = createRouteDoctorProbe(proberRepoPath, { replay: ctx.readOnly === true })
