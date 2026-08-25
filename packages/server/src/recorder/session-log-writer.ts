@@ -64,11 +64,19 @@ export interface SessionLogWriterOptions {
  *
  * The file descriptor is held across appends rather than opened and closed
  * per event (prd44 ruling 2: 4.1x on 5,000 events, no change to the bytes
- * written or their order). `sync()` is where it is released — `closeWith`
- * already calls `sync()`, and rotation's `openSession` replaces this object
- * wholesale rather than reusing it, so releasing anywhere else would either
- * leak across a rotation or reach into `session-recorder.ts`, which is
- * prd-40 #3's live fence. An append issued after a `sync()` reopens one.
+ * written or their order). `sync()` is where it is released on success —
+ * `closeWith` already calls `sync()`, and rotation's `openSession` replaces
+ * this object wholesale rather than reusing it, so releasing anywhere else
+ * would either leak across a rotation or reach into `session-recorder.ts`,
+ * which is prd-40 #3's live fence. An append issued after a `sync()`
+ * reopens one.
+ *
+ * A failed write also releases it (prd44 #46): the free-standing
+ * `appendFile` this class replaced opened, wrote and closed its own
+ * descriptor whether or not the write succeeded, so holding one open past a
+ * rejected write would be a regression from that behaviour — a wedged
+ * handle sitting on a filesystem error until some later append happens to
+ * succeed and reach `sync()`. The next append after a failure opens fresh.
  */
 export class SessionLogWriter {
   readonly filePath: string
@@ -91,7 +99,18 @@ export class SessionLogWriter {
     const written = this.tail.then(async () => {
       await this.ready
       const handle = await this.ensureHandle()
-      await handle.appendFile(`${JSON.stringify(event)}\n`, 'utf8')
+      try {
+        await handle.appendFile(`${JSON.stringify(event)}\n`, 'utf8')
+      } catch (err) {
+        // A failed write leaves the descriptor's state undefined — hold
+        // onto it and the next append reuses a handle whose last operation
+        // errored. Release it here so the next `ensureHandle()` opens
+        // fresh; the original error still propagates to this append's own
+        // caller (prd44 #46 — releasing the handle must not swallow it).
+        this.handle = null
+        await handle.close().catch(() => {})
+        throw err
+      }
     })
     // One failed append must not poison every later one: the chain continues
     // from a settled promise, while `written` still rejects for its own caller.
@@ -124,11 +143,12 @@ export class SessionLogWriter {
 
   /**
    * Opens the held descriptor if none is currently open — true on the very
-   * first append, and true again on any append after a `sync()` released
-   * it. Not folded into `prepare()`: `prepare()`'s guards (symlink/mkdir/
-   * chmod/dropping a crash's partial line) run exactly once per instance,
-   * but a reopen after `sync()` still needs its own symlink check — nothing
-   * upstream re-runs it for a handle opened well after `prepare()` settled.
+   * first append, true again on any append after a `sync()` released it,
+   * and true again after a failed append released it (prd44 #46). Not
+   * folded into `prepare()`: `prepare()`'s guards (symlink/mkdir/chmod/
+   * dropping a crash's partial line) run exactly once per instance, but a
+   * reopen still needs its own symlink check — nothing upstream re-runs it
+   * for a handle opened well after `prepare()` settled.
    */
   private async ensureHandle(): Promise<FileHandle> {
     if (!this.handle) {
