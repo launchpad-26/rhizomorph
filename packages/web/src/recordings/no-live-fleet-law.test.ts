@@ -43,6 +43,25 @@ import { describe, expect, it } from 'vitest'
  * deliberately not a completeness bound — it does not say how many files
  * there should be, only that there must be more than zero — so it cannot
  * rot the way the rejected `>= 13` did, and is not a reintroduction of it.
+ *
+ * **The recursive branch is exercised, not just provably correct** (#76). At
+ * #44's landing, `recordings/` had zero subdirectories, so
+ * `walkSourceFiles`'s `statSync(...).isDirectory()` branch was never taken by
+ * the committed suite — the walk could regress to a flat `readdirSync` and
+ * nothing here would notice. #76 was filed to make that decision explicit
+ * rather than leave it implicit, and the decision taken is: commit a fixture.
+ * `recursion-fixture/walked-marker.ts` is a real, nested, deliberately
+ * innocuous source file — see its own file doc for why it matches none of
+ * `FORBIDDEN_PATTERNS`, and for the honest caveat that deleting it does not
+ * turn anything red, it only lets the recursive branch quietly go dark
+ * again. EXECUTED on the committed tree (issue #76): suite green with the
+ * fixture and the recursion intact; red — the equality test names the
+ * missing nested file — with the fixture present and the recursion in
+ * `walkSourceFiles` disabled. The counter-argument (a fixture directory is
+ * itself something future readers must not delete) was weighed and rejected
+ * here in favour of matching the `lab/` law's own history: an unexercised
+ * recursive branch is exactly the shape that hid `lab/branching/geometry.ts`
+ * from its old flat walk for as long as the tree stayed shallow.
  */
 
 const RECORDINGS_DIR = path.dirname(fileURLToPath(import.meta.url))
