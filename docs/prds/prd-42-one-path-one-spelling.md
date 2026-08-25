@@ -301,6 +301,45 @@ moves or re-authorises the round-trip law living in a file `#47` claims.
 Sweep-shaped work comes last by the corpus's own rule, and this is sweep-shaped
 even though it is small.
 
+## Amendment — waves 8 and 9, the three issues verification left behind (grooming, 2026-08-26)
+
+Wave 4's verification filed three issues against territory this PRD already owns, and none
+carried a wave. Unsequenced, each of them collided with something. Derived, not counted by eye —
+`scripts/fence-lint.sh 47 49 51 52 53 87 91 92` reports **15** overlaps across this PRD's
+eight open issues, and **6** of those set `#87`, `#91` or `#92` against a wave-4-to-7
+issue. (An earlier draft of this paragraph said 13 and 3; both were read off a truncated
+`head -20` of the lint's output and both were wrong, which is the whole argument for
+deriving a count with a command rather than typing it.) They are sequenced here rather than left to whoever
+dispatches next.
+
+**Wave 8 — dispatchable now, beside the live wave 4.** `prd42 w8: the rotation-entry law
+sees every door` (`#87`, `recorder/namespace-law.test.ts`). `ROTATION_ENTRY_RE` enumerates
+rotation's entry points by name and misses `beginRetargetBoundary` and `performRetarget`,
+which is what `api/retarget.ts` actually imports — so a production file could drive a full
+close/open without tripping the law that says rotation is reachable only from an explicit
+operator command. Wave 4's branch neither creates nor widens it; charging a pre-existing gap
+to a branch that did not cause it is how a fence gets widened for reasons nobody agreed to.
+
+It is a wave of one **and it does not wait**, which is the unusual part. Its fence is a
+single file, and PR #94 — wave 4, in review as this is written — touches `api/rotate.ts`,
+`api/rotate.test.ts`, `recorder/rotate.ts`, `recorder/rotate.test.ts`, `server/static.ts`
+and `server/static.test.ts`. Disjoint, verified by inspection of the PR's own file list, so
+wave 4 is not a live fence for `#87` and the two can run at once.
+
+**Wave 9 — after wave 4 lands, two issues, one PR.** Parallel, fenced apart:
+`prd42 w9: the shared refusal code is one compiler-bound fact` (`#91`, `api/retarget.ts` +
+`api/rotate.ts` + its test) · `prd42 w9: the in-flight test hook is enforced by the law`
+(`#92`, `recorder/rotate.ts` + its test + `recorder/namespace-law.test.ts`).
+`scripts/fence-lint.sh 91 92` PASSED with zero overlaps, 2026-08-26.
+
+Both **must** follow wave 4: each claims a file PR #94 is actively amending, which is a live
+fence, and the working agreement forbids bundling across one. `#92` additionally follows
+`#87` — both edit `recorder/namespace-law.test.ts`, so they are a stack and wave 8 goes
+first.
+
+Nothing above renumbers a ruling or an earlier wave. Waves 5–7 keep their order and their
+open question; these two are appended because the work arrived after they were written.
+
 **Waves 5, 6 and 7 are each a single issue, and that is a cost, not a
 preference.** Three waves means three PRs and three payments of the ~21 h queue
 toll for three small changes. They cannot be bundled as they stand: every
