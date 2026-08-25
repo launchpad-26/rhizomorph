@@ -10,6 +10,7 @@ import {
 } from '@rhizomorph/core'
 import { truncateForVoice, voiceSkips, type ParseSkip } from '../parse-skip.js'
 import { resolveWorktreePath } from '../worktree.js'
+import { runBounded, type FanoutOutcome } from '../../server/concurrency.js'
 import { parseListTable, parseStatusTable, type ParsedStatusRow } from './parse.js'
 
 /**
@@ -77,6 +78,20 @@ export interface WorkmuxSnapshot {
 /** True only when the binary itself could not be run — not for a non-zero exit with real output. */
 function isMissingBinary(result: ExecResult): boolean {
   return result.failed && result.errorMessage !== undefined
+}
+
+/**
+ * `Exec` never rejects (`server/exec.ts`) — a failed command is a normal
+ * `ExecResult` with `failed: true`, not a thrown value. An `ok: false`
+ * outcome here would mean that contract broke, so it's rethrown rather than
+ * folded into the collector's own degrade paths. The `undefined` case is
+ * `noUncheckedIndexedAccess` being honest about array destructuring, not a
+ * real possibility: `runBounded` always returns one outcome per task given.
+ */
+function unwrapExecOutcome(outcome: FanoutOutcome<ExecResult> | undefined): ExecResult {
+  if (outcome === undefined) throw new Error('runBounded returned fewer outcomes than tasks given')
+  if (outcome.ok) return outcome.value
+  throw outcome.reason
 }
 
 /**
@@ -288,9 +303,16 @@ async function readTextFallback(
 }
 
 /**
- * Shells to `workmux status --json` and `workmux list --json`. `branch` is
- * read directly off the `status` row (#455) — it no longer depends on any
- * join. The `list` side is joined on absolute path (`status.workdir` ↔
+ * Shells to `workmux status --json` and `workmux list --json`. Neither reads
+ * the other's output, so the two run as one bounded fan-out (`runBounded`,
+ * prd-44 ruling 3) instead of back to back — both subprocesses are in flight
+ * together every poll, `list` included, even on a poll where `status` turns
+ * out missing/failed. The `status` outcome is still what gates the
+ * missing-binary early return below, and `list`'s outcome is not read until
+ * its original call site further down — the fan-out changes when the two
+ * processes start, not the order their results are consulted in (#34).
+ * `branch` is read directly off the `status` row (#455) — it no longer
+ * depends on any join. The `list` side is joined on absolute path (`status.workdir` ↔
  * `list.path` — issue #383: the table form's only shared key was a directory
  * basename, which collides whenever two worktrees share a basename under
  * different parents, and was already broken for the main worktree, whose
@@ -354,7 +376,17 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
         return { nextSnapshot: prevSnapshot, events: [] }
       }
 
-      const statusResult = await context.exec('workmux', ['status', '--json'])
+      // prd-44 ruling 3: `status` and `list` read independent state, so both
+      // subprocesses are issued together via the bounded fan-out rather than
+      // one after the other. `listOutcome` is deliberately left unread here —
+      // the missing-binary/failure gates just below decide from `statusResult`
+      // alone, and `list`'s own result isn't consulted until its original call
+      // site further down (#34).
+      const [statusOutcome, listOutcome] = await runBounded<ExecResult>([
+        () => context.exec('workmux', ['status', '--json']),
+        () => context.exec('workmux', ['list', '--json']),
+      ])
+      const statusResult = unwrapExecOutcome(statusOutcome)
       if (isMissingBinary(statusResult)) {
         return {
           nextSnapshot: {
@@ -512,7 +544,11 @@ export function createWorkmuxCollector(): Collector<WorkmuxSnapshot> {
         }
       }
 
-      const listResult = await context.exec('workmux', ['list', '--json'])
+      // `list` was already kicked off alongside `status` above — this is
+      // where its result is first consulted, same call-site as the old
+      // serial `await`, just reading an already-settled outcome instead of
+      // issuing the call now.
+      const listResult = unwrapExecOutcome(listOutcome)
       const { rows: listRows, skipped: listSkipped } = isMissingBinary(listResult) || listResult.failed
         ? { rows: [], skipped: [] }
         : parseListJson(listResult.stdout)
