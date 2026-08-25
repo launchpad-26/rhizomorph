@@ -19,4 +19,4 @@ OBS_MAIN=$(dirname "$(git rev-parse --git-common-dir)") \
   && eval "$OBS_ENV" \
   || echo "!! no rhizomorph env (server down on 127.0.0.1:4321, or main checkout unbuilt) — this lane runs UNINSTRUMENTED" >&2
 
-exec claude --model "$MODEL" --dangerously-skip-permissions "$@"
+exec claude --model "$MODEL" "$@"
