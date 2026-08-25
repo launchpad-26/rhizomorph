@@ -67,10 +67,10 @@ export function registerApiRoutes(app: FastifyInstance, ctx: ServerContext): voi
 /**
  * The four route classes: prd-23 ruling 5's three, plus `gated-read`
  * (prd-29 ruling 1 / ADR-0024) — a read that answers only the capability
- * token's holder. `read` now means specifically a TOKENLESS read: today only
- * `GET /*`, the bootstrap the in-band token delivery (ADR-0012) depends on,
- * and the reads prd-29 defers to wave 2 (`/api/meta`, `/api/doctor`,
- * `/api/stream`).
+ * token's holder. `read` now means specifically a TOKENLESS read, and since
+ * prd-29's wave 2b closed (rulings 4 and 7, #59/#60) there is exactly one
+ * left: `GET /*`, the bootstrap the in-band token delivery (ADR-0012)
+ * depends on.
  */
 export type RouteClass = 'gated-mutation' | 'ungated-mutation' | 'gated-read' | 'read'
 

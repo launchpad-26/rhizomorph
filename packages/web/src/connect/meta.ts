@@ -359,8 +359,8 @@ export function doctorCheck(reading: DoctorReading, id: string): DoctorFact | nu
 
 /**
  * `/api/session-preview/:sessionId` and `/api/concierge/repos` are
- * `gated-read`s (prd-29 ruling 7, #58); `/api/meta` and `/api/doctor` gate in
- * wave 2 and ignore the header today. All four share this one default, so
+ * `gated-read`s (prd-29 ruling 7, #58), and `/api/meta` and `/api/doctor`
+ * joined them in wave 2a (ruling 7, #59). All four share this one default, so
  * every read in this file goes through the shared `capabilityRead` rather
  * than growing a second token path — an injected `fetchImpl` (tests)
  * bypasses it.
