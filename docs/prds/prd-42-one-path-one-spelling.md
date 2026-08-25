@@ -318,3 +318,59 @@ citations in this document's own Status line and Evidence — `#217`, `#228`,
 `#243`, `#299`, `#401`, `#649` — which resolve to nothing in this repository
 (highest real issue: `#64`). They are references to a previous incarnation of
 the tracker and are filed separately rather than silently rewritten here.
+
+## Amendment — wave 8, the three issues verification left behind (grooming, 2026-08-26)
+
+Wave 4's verification filed `#87`, `#91` and `#92` against territory this PRD
+already owns, and none carried a wave. Unsequenced, each collided with
+something. Derived, not counted by eye:
+
+```
+$ scripts/fence-lint.sh 47 49 51 52 53 87 91 92 | grep -c '^  OVERLAP'
+13
+```
+
+**13** overlaps across this PRD's eight open issues, **6** of which set one of
+the three against a wave-4-to-7 issue. Both figures are measured **against the
+issue bodies as they stood on 2026-08-26**, and that qualifier is the point: an
+earlier draft of this amendment recorded 15, which was also true when it was
+measured. The difference is two phantom overlaps — `#87` was leaking a claim on
+`api/rotate.test.ts` out of its prose, and de-backticking that at dispatch
+removed its collisions with `#49` and `#91`. **A count derived from a mutable
+tracker is not self-validating; it needs the conditions it was taken under.**
+
+**Wave 8 — one wave, two issues, one PR, after wave 4 lands.** Parallel, fenced
+apart: `prd42 w8: the rotation-entry law sees and enforces every door` (`#87`,
+`recorder/namespace-law.test.ts` + `recorder/rotate.ts` + its test) ·
+`prd42 w8: the shared refusal code is one compiler-bound fact` (`#91`, `api/*`).
+
+```
+$ scripts/fence-lint.sh 91 92
+fence lint PASSED
+```
+
+**`#87` and `#92` are one issue, not two.** They both edit
+`recorder/namespace-law.test.ts`, which makes them a stack, and the wave
+contract admits a stack in a wave only as a single issue. `#87`'s fence was a
+strict subset of `#92`'s, so the merged fence is exactly `#92`'s three paths and
+the lint above is the standing proof. Both issues had already said as much in
+their own words — `#92`: *"Best done with #87, whose fix subsumes the
+enforcement half of this one."* `#87` derives the guarded set from the module's
+exports, which covers `reserveInFlightForTest` by construction the moment wave 4
+lands it. `#92` is closed as superseded rather than sequenced behind.
+
+**Both must follow wave 4.** Each claims a file PR #94 is actively amending,
+which is a live fence, and the working agreement forbids bundling across one.
+
+**An earlier draft of this amendment made `#87` a wave of one that ran
+immediately**, on the grounds that its single fenced file is disjoint from PR
+#94's six. The disjointness was true and is not the reason it was withdrawn: a
+one-issue wave pays the queue's fixed per-PR toll — ~21 h median, 81% of cycle
+time — for a fraction of a wave, and "it could start sooner" is not a reason
+that survives the working agreement. The operator ruled it held on 2026-08-26.
+Recorded rather than quietly deleted, because the fence reasoning was sound and
+the scheduling conclusion drawn from it was not; a later reader tempted by the
+same argument should see how it went.
+
+Nothing above renumbers a ruling or an earlier wave. Waves 5–7 keep their order
+and their open question, and wave 8 is a number nothing else has used.
