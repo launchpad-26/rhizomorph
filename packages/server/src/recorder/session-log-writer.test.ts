@@ -15,6 +15,13 @@ import { SessionLogWriter } from './session-log-writer.js'
  */
 const handleCounts = vi.hoisted(() => ({ opens: 0, closes: 0 }))
 
+/**
+ * Lets a single test force the *next* write on the *next*-opened handle to
+ * reject, standing in for a real mid-append failure like ENOSPC, without a
+ * wall clock or a real full disk (issue #46's evidence probe shape).
+ */
+const writeControl = vi.hoisted(() => ({ rejectNextWrite: false }))
+
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof FsPromisesModule>()
   return {
@@ -27,6 +34,14 @@ vi.mock('node:fs/promises', async (importOriginal) => {
         handleCounts.closes += 1
         return originalClose()
       }
+      const originalAppendFile = handle.appendFile.bind(handle)
+      handle.appendFile = (async (...appendArgs: Parameters<typeof handle.appendFile>) => {
+        if (writeControl.rejectNextWrite) {
+          writeControl.rejectNextWrite = false
+          throw new Error('ENOSPC: no space left on device, write')
+        }
+        return originalAppendFile(...appendArgs)
+      }) as typeof handle.appendFile
       return handle
     }) as typeof actual.open,
   }
@@ -127,6 +142,7 @@ describe('SessionLogWriter', () => {
     beforeEach(() => {
       handleCounts.opens = 0
       handleCounts.closes = 0
+      writeControl.rejectNextWrite = false
     })
 
     it('opens the file once no matter how many events are appended before the first sync()', async () => {
@@ -168,6 +184,32 @@ describe('SessionLogWriter', () => {
         .map((line) => (JSON.parse(line) as { id: string }).id)
       expect(ids).toEqual(['evt-1', 'evt-2'])
       expect(handleCounts.opens).toBe(2)
+    })
+
+    it('releases the descriptor when a write fails, so the next append opens a fresh one (#46)', async () => {
+      const filePath = path.join(dir, 'session-1.jsonl')
+      const writer = new SessionLogWriter(filePath)
+
+      // Simulate ENOSPC mid-write on the handle `ensureHandle()` just opened.
+      writeControl.rejectNextWrite = true
+      await expect(writer.append(errorEvent('evt-1', 1))).rejects.toThrow(/ENOSPC/)
+
+      // The failed write's handle must not be left open behind it.
+      expect(handleCounts.opens).toBe(1)
+      expect(handleCounts.closes).toBe(1)
+
+      // The next append must not reuse that wedged handle — it opens fresh.
+      await writer.append(errorEvent('evt-2', 2))
+      expect(handleCounts.opens).toBe(2)
+
+      await writer.sync()
+      expect(handleCounts.closes).toBe(2)
+
+      const ids = (await readFile(filePath, 'utf8'))
+        .trimEnd()
+        .split('\n')
+        .map((line) => (JSON.parse(line) as { id: string }).id)
+      expect(ids).toEqual(['evt-2'])
     })
   })
 
