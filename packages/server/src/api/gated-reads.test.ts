@@ -9,11 +9,18 @@ import { CAPABILITY_TOKEN_HEADER } from './security.js'
 import { capabilityHeaders } from './test-support.js'
 
 /**
- * prd-29 wave 1 (#442, ruling 1 / ADR-0024): the seven SPA-only reads answer
- * only the capability token's holder. This walks all seven against the real
- * `buildApp`, so "Done when: all seven answer 401 to a bare request and pass
- * with the header" is one law, not seven scattered assertions — and it fails
- * the moment any one route loses its gate.
+ * prd-29 wave 1 (#442, ruling 1 / ADR-0024) plus wave 1b's four late arrivals
+ * (ruling 7, #58 — the reads that postdated the PRD's route math): eleven
+ * SPA-only reads that answer only the capability token's holder. This walks
+ * all eleven against the real `buildApp`, so "Done when: all eleven answer
+ * 401 to a bare request and pass with the header" is one law, not eleven
+ * scattered assertions — and it fails the moment any one route loses its gate.
+ *
+ * `discoverRepos` (behind `/api/concierge/repos`) is left REAL here, not
+ * mocked: this law only proves the gate opens and closes, never the shape of
+ * what it returns, and a real scan of whatever `~/.claude/projects` and the
+ * conventional roots hold on the machine running this suite always answers
+ * 200 either way.
  */
 const GATED_READS: ReadonlyArray<{ method: 'GET'; url: string }> = [
   { method: 'GET', url: '/api/sessions' },
@@ -23,9 +30,13 @@ const GATED_READS: ReadonlyArray<{ method: 'GET'; url: string }> = [
   { method: 'GET', url: '/api/lab/checkpoints' },
   { method: 'GET', url: '/api/lab/experiments' },
   { method: 'GET', url: '/api/lab/estimate?lane=main&arms=1' },
+  { method: 'GET', url: '/api/lane-index' },
+  { method: 'GET', url: '/api/lane-index/main' },
+  { method: 'GET', url: '/api/session-preview/1000' },
+  { method: 'GET', url: '/api/concierge/repos' },
 ]
 
-describe('the seven gated reads answer only the token holder (prd-29 wave 1)', () => {
+describe('the eleven gated reads answer only the token holder (prd-29 waves 1 and 1b)', () => {
   let dir: string
 
   beforeEach(async () => {
@@ -45,7 +56,7 @@ describe('the seven gated reads answer only the token holder (prd-29 wave 1)', (
     return [...token].map((c) => (c === '0' ? '1' : '0')).join('')
   }
 
-  it('refuses a bare request — 401 for every one of the seven, before the handler runs', async () => {
+  it('refuses a bare request — 401 for every one of the eleven, before the handler runs', async () => {
     const app = makeApp()
     for (const route of GATED_READS) {
       const response = await app.inject(route)
@@ -66,7 +77,7 @@ describe('the seven gated reads answer only the token holder (prd-29 wave 1)', (
     await app.close()
   })
 
-  it('passes the gate with the real header — no 401 for any of the seven', async () => {
+  it('passes the gate with the real header — no 401 for any of the eleven', async () => {
     const app = makeApp()
     for (const route of GATED_READS) {
       const response = await app.inject({ ...route, headers: capabilityHeaders(app) })
@@ -77,7 +88,15 @@ describe('the seven gated reads answer only the token holder (prd-29 wave 1)', (
 
   it('the plain reads answer 200 with the header — the gate opens, it does not merely stop refusing', async () => {
     const app = makeApp()
-    for (const url of ['/api/sessions', '/api/lanes', '/api/lab/checkpoints', '/api/lab/experiments']) {
+    const urls = [
+      '/api/sessions',
+      '/api/lanes',
+      '/api/lab/checkpoints',
+      '/api/lab/experiments',
+      '/api/lane-index',
+      '/api/concierge/repos',
+    ]
+    for (const url of urls) {
       const response = await app.inject({ method: 'GET', url, headers: capabilityHeaders(app) })
       expect(response.statusCode, `${url} did not answer 200 with the header`).toBe(200)
     }
