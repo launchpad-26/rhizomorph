@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { findLaneInIndex, readLaneIndex, type LaneIndex, type LaneIndexEntry } from '../log/lane-index.js'
 import type { ServerContext } from '../server/context.js'
+import { requireCapabilityToken } from './security.js'
 
 /**
  * THE LANE INDEX ROUTES (prd-31 ruling 5 · #556) — the read that makes
@@ -59,15 +60,19 @@ export function registerLaneIndexRoutes(app: FastifyInstance, ctx: ServerContext
       liveEvents: ctx.recorder.eventsSoFar(),
     })
 
-  app.get('/api/lane-index', async () => read())
+  app.get('/api/lane-index', { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') }, async () => read())
 
-  app.get<{ Params: { handle: string } }>('/api/lane-index/:handle', async (request, reply) => {
-    const index = await read()
-    const lane = findLaneInIndex(index, request.params.handle)
-    if (lane === null) {
-      return reply.code(404).send({ error: unknownLaneReason(request.params.handle, index) })
-    }
-    const body: LaneIndexEntryResponse = { lane, unreadableSessionIds: index.unreadableSessionIds }
-    return body
-  })
+  app.get<{ Params: { handle: string } }>(
+    '/api/lane-index/:handle',
+    { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') },
+    async (request, reply) => {
+      const index = await read()
+      const lane = findLaneInIndex(index, request.params.handle)
+      if (lane === null) {
+        return reply.code(404).send({ error: unknownLaneReason(request.params.handle, index) })
+      }
+      const body: LaneIndexEntryResponse = { lane, unreadableSessionIds: index.unreadableSessionIds }
+      return body
+    },
+  )
 }

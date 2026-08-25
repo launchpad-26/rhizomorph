@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FetchLike } from '../fleet/manifest.js'
+import { capabilityRead } from '../recordings/capabilityRead.js'
 
 /**
  * THE LANE INDEX, client side (prd-31 ruling 5 · #556) — what makes
@@ -222,10 +223,13 @@ export function laneIndexUrl(handle: string): string {
   return `${LANE_INDEX_URL}/${encodeURIComponent(handle)}`
 }
 
+/**
+ * `/api/lane-index/:handle` is a `gated-read` (prd-29 ruling 7, #58), so the
+ * default routes through the shared `capabilityRead`, which carries the
+ * capability token; an injected `fetchImpl` (tests) bypasses it.
+ */
 function defaultFetch(): FetchLike | null {
-  return typeof globalThis.fetch === 'function'
-    ? ((input: string) => globalThis.fetch(input)) as FetchLike
-    : null
+  return typeof globalThis.fetch === 'function' ? (capabilityRead as FetchLike) : null
 }
 
 /** WHAT is missing → WHY → what to run (law 12), for the two ways the index itself fails. */

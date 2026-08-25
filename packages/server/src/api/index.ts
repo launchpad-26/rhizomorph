@@ -114,10 +114,12 @@ export const ROUTE_CLASSES: readonly RouteClassification[] = [
   { method: 'POST', url: '/v1/traces', routeClass: 'ungated-mutation' },
   { method: 'POST', url: '/', routeClass: 'ungated-mutation' },
 
-  // Gated reads (7) — prd-29 wave 1's keystone (ruling 1 / ADR-0024). Each
-  // carries `requireCapabilityToken` as a route-local `preHandler`, exactly
-  // as the gated mutations do; the gate-presence law (ADR-0024) fails the
-  // build if any of these rows loses its gate.
+  // Gated reads (11) — prd-29 wave 1's keystone (ruling 1 / ADR-0024) plus
+  // wave 1b's four late arrivals (ruling 7, #58): the reads that postdated
+  // the PRD's route math. Each carries `requireCapabilityToken` as a
+  // route-local `preHandler`, exactly as the gated mutations do; the
+  // gate-presence law (ADR-0024) fails the build if any of these rows loses
+  // its gate.
   { method: 'GET', url: '/api/sessions', routeClass: 'gated-read' },
   { method: 'GET', url: '/api/sessions/:id/events', routeClass: 'gated-read' },
   { method: 'GET', url: '/api/lanes', routeClass: 'gated-read' },
@@ -125,18 +127,18 @@ export const ROUTE_CLASSES: readonly RouteClassification[] = [
   { method: 'GET', url: '/api/lab/checkpoints', routeClass: 'gated-read' },
   { method: 'GET', url: '/api/lab/experiments', routeClass: 'gated-read' },
   { method: 'GET', url: '/api/lab/estimate', routeClass: 'gated-read' },
+  // prd-31 ruling 5's durability read — the log's own history, never a worktree's.
+  { method: 'GET', url: '/api/lane-index', routeClass: 'gated-read' },
+  { method: 'GET', url: '/api/lane-index/:handle', routeClass: 'gated-read' },
+  { method: 'GET', url: '/api/session-preview/:sessionId', routeClass: 'gated-read' },
+  { method: 'GET', url: '/api/concierge/repos', routeClass: 'gated-read' },
 
-  // Tokenless reads (7, plus the static catch-all below). `/api/meta`,
+  // Tokenless reads (3, plus the static catch-all below). `/api/meta`,
   // `/api/doctor` and `/api/stream` gate in wave 2 (prd-29 sequencing) so no
-  // consumer outside the SPA breaks mid-milestone; the rest stay `read`.
+  // consumer outside the SPA breaks mid-milestone.
   { method: 'GET', url: '/api/meta', routeClass: 'read' },
   { method: 'GET', url: '/api/stream', routeClass: 'read' },
-  // prd-31 ruling 5's durability read — the log's own history, never a worktree's.
-  { method: 'GET', url: '/api/lane-index', routeClass: 'read' },
-  { method: 'GET', url: '/api/lane-index/:handle', routeClass: 'read' },
-  { method: 'GET', url: '/api/session-preview/:sessionId', routeClass: 'read' },
   { method: 'GET', url: '/api/doctor', routeClass: 'read' },
-  { method: 'GET', url: '/api/concierge/repos', routeClass: 'read' },
 
   // The static dashboard / SPA-fallback catch-all `server/static.ts` (or its
   // missing-build placeholder) registers directly on `buildApp`'s instance,

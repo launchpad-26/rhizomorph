@@ -24,6 +24,7 @@ import {
   registerConciergeLaunchRoute,
 } from './concierge.js'
 import { CAPABILITY_TOKEN_HEADER } from './security.js'
+import { capabilityHeaders, TEST_CAPABILITY_TOKEN } from './test-support.js'
 
 /**
  * `registerConciergeReposRoute` calls `discoverRepos()` with no arguments,
@@ -151,11 +152,15 @@ describe('GET /api/concierge/repos', () => {
 
   function makeApp(overrides: { readOnly?: boolean } = {}) {
     const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
-    return buildApp({ repoPath, repoName: 'repo', sessionDir, recorder, ...overrides })
+    return buildApp({ repoPath, repoName: 'repo', sessionDir, recorder, capabilityToken: TEST_CAPABILITY_TOKEN, ...overrides })
   }
 
   it('serves exactly what discoverRepos returns, wrapped as available: true', async () => {
-    const response = await makeApp().inject({ method: 'GET', url: '/api/concierge/repos' })
+    const response = await makeApp().inject({
+      method: 'GET',
+      url: '/api/concierge/repos',
+      headers: capabilityHeaders(TEST_CAPABILITY_TOKEN),
+    })
 
     expect(response.statusCode).toBe(200)
     expect(response.json()).toEqual({ available: true, ...FIXTURE_RESULT })
@@ -163,7 +168,11 @@ describe('GET /api/concierge/repos', () => {
 
   describe('a replay server (ctx.readOnly) — the not-applicable posture, not label.ts\'s refusal', () => {
     it('never calls discoverRepos at all, and answers available: false instead', async () => {
-      const response = await makeApp({ readOnly: true }).inject({ method: 'GET', url: '/api/concierge/repos' })
+      const response = await makeApp({ readOnly: true }).inject({
+        method: 'GET',
+        url: '/api/concierge/repos',
+        headers: capabilityHeaders(TEST_CAPABILITY_TOKEN),
+      })
 
       expect(response.statusCode).toBe(200)
       expect(response.json()).toEqual({ available: false, reason: expect.stringContaining('replaying') })
@@ -171,7 +180,11 @@ describe('GET /api/concierge/repos', () => {
     })
 
     it('a live (non-replay) server always calls discoverRepos', async () => {
-      await makeApp({ readOnly: false }).inject({ method: 'GET', url: '/api/concierge/repos' })
+      await makeApp({ readOnly: false }).inject({
+        method: 'GET',
+        url: '/api/concierge/repos',
+        headers: capabilityHeaders(TEST_CAPABILITY_TOKEN),
+      })
       expect(discoverReposMock).toHaveBeenCalledTimes(1)
     })
   })
@@ -181,8 +194,15 @@ describe('GET /api/concierge/repos', () => {
     expect(response.statusCode).toBe(404)
   })
 
-  it('needs no capability token — the read-only half of the hand', async () => {
-    const response = await makeApp().inject({ method: 'GET', url: '/api/concierge/repos' })
+  it('needs the capability token — a gated read, like the rest of wave 1 (prd-29 ruling 7, #58)', async () => {
+    const bare = await makeApp().inject({ method: 'GET', url: '/api/concierge/repos' })
+    expect(bare.statusCode).toBe(401)
+
+    const response = await makeApp().inject({
+      method: 'GET',
+      url: '/api/concierge/repos',
+      headers: capabilityHeaders(TEST_CAPABILITY_TOKEN),
+    })
     expect(response.statusCode).toBe(200)
   })
 
@@ -191,7 +211,7 @@ describe('GET /api/concierge/repos', () => {
       const response = await makeApp().inject({
         method: 'GET',
         url: '/api/concierge/repos',
-        headers: { host: '127.0.0.1:4321' },
+        headers: { host: '127.0.0.1:4321', ...capabilityHeaders(TEST_CAPABILITY_TOKEN) },
       })
       expect(response.statusCode).toBe(200)
     })
