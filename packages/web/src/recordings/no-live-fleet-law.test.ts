@@ -28,10 +28,12 @@ import { describe, expect, it } from 'vitest'
  * `realSourceFileNames()` — Node's own recursive `readdirSync` (no code
  * shared with the hand-rolled `walkSourceFiles` recursion below it), so the
  * expectation moves with the tree rather than with whoever last ran the
- * test. `recordings/` has zero subdirectories today, so that gap is latent
- * here, not live — but it is the exact shape that let
+ * test. `recordings/` had zero subdirectories when #44 landed, so that gap
+ * was latent here, not live — but it is the exact shape that let
  * `lab/branching/geometry.ts` import `../../scene/palette.js` unseen before
- * that audit. `walkSourceFiles` below reuses the recursive shape
+ * that audit. (#76 has since committed a nested fixture, so the recursive
+ * branch is exercised by the committed tree — see the #76 paragraph below.)
+ * `walkSourceFiles` below reuses the recursive shape
  * `lab/no-live-fleet-law.test.ts` proved out rather than writing a third
  * walker for this package.
  *
