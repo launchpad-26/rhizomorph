@@ -74,6 +74,15 @@ function defaultSessionEvents(repoPath: string): RhizomorphEvent[] {
 }
 
 /**
+ * The harness's own live recorder's session id — fixed, so a read contract
+ * test that needs to address THIS instance (e.g. an OTLP export's own
+ * `instance` resource attribute, `api/otel.ts`'s `INSTANCE_ATTRIBUTE`) can
+ * name it without hardcoding a magic literal that only this file actually
+ * owns.
+ */
+export const HARNESS_LIVE_SESSION_ID = '2000'
+
+/**
  * Boots the real app over real temp dirs, loads the REALLY-SERVED page into
  * the jsdom document (so `readCapabilityToken` reads what `static.ts` really
  * stamped — never a hand-made meta tag), and returns the inject-backed fetch.
@@ -83,15 +92,6 @@ function defaultSessionEvents(repoPath: string): RhizomorphEvent[] {
  * leave every refusal test passing vacuously on the client's own
  * missing-token throw — the exact vacuity `label-seam.test.ts` documented.
  */
-/**
- * The harness's own live recorder's session id — fixed, so a read contract
- * test that needs to address THIS instance (e.g. an OTLP export's own
- * `instance` resource attribute, `api/otel.ts`'s `INSTANCE_ATTRIBUTE`) can
- * name it without hardcoding a magic literal that only this file actually
- * owns.
- */
-export const HARNESS_LIVE_SESSION_ID = '2000'
-
 export async function buildContractHarness(
   options: { events?: (repoPath: string) => RhizomorphEvent[] } = {},
 ): Promise<ContractHarness> {

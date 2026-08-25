@@ -154,8 +154,12 @@ const EXPECTED_READS: ReadonlyArray<{
  * named rather than silently dropped): it is cookie-authenticated (ruling 4 /
  * #60) because `EventSource` cannot send a header at all, so there is no
  * `capabilityRead` caller and no fetch-shaped client this harness could drive
- * through a response-based refusal assertion. It is proven by its own
- * dedicated non-contract test (`stream.test.ts`), not by this law.
+ * through a response-based refusal assertion. Its refusal is proven instead by
+ * `server/src/api/gated-reads.test.ts` — the bare-request loop it sits in, plus
+ * a dedicated wrong-cookie 401 ('GET /api/stream refuses a wrong cookie value,
+ * with no header competing') — not by this law, and not by `stream.test.ts`,
+ * which covers the OPEN stream's replay/resume behaviour and asserts no 401 at
+ * all (corrected in review of #90).
  */
 const DELIBERATELY_EXCLUDED_GATED_READS: ReadonlySet<string> = new Set(['/api/stream'])
 
@@ -176,13 +180,41 @@ const DELIBERATELY_EXCLUDED_GATED_READS: ReadonlySet<string> = new Set(['/api/st
  * simpler shape than `routesIn` needs: `ROUTE_CLASSES` rows carry no `file:`
  * expression for the parser to dodge, only literals.
  */
-const GATED_READ_LITERAL = /\{ method: '[A-Z]+', url: '([^']+)', routeClass: 'gated-read' \}/g
+const GATED_READ_LITERAL = /\{\s*method:\s*'[A-Z]+',\s*url:\s*'([^']+)',\s*routeClass:\s*'gated-read',?\s*\}/g
+
+/**
+ * THE PARSER'S OWN TRIPWIRE (review of #90). {@link GATED_READ_LITERAL} has to
+ * match THREE coupled fields, because `routeClass` is what it filters on —
+ * unlike the write side's `ROUTE_LITERAL` above, which needs only the one
+ * distinctive `route:` field and is therefore immune to how the row is laid
+ * out. A three-field matcher is shape-dependent by construction, and a
+ * shape-dependent matcher that MISSES a row fails open: the row vanishes from
+ * the parse, `declaredGatedReadRoutes()` still equals `EXPECTED_READS`, and a
+ * gated-read route with no contract test sails through green — the exact
+ * closed-world hole this law exists to close.
+ *
+ * So the row count is cross-checked against a single-field, whitespace-tolerant
+ * count of the `routeClass` token itself. Any row the full matcher cannot read
+ * — hand-wrapped across lines, reordered fields, re-spaced — now fails LOUDLY
+ * here instead of silently shrinking the closed world.
+ *
+ * Verified by mutation: a 15th `gated-read` row added in a wrapped multi-line
+ * shape passed all 8 of this describe's tests before this guard existed.
+ */
+const GATED_READ_CLASS_TOKEN = /routeClass:\s*'gated-read'/g
 
 function gatedReadRoutesIn(text: string): string[] {
-  return [...text.matchAll(GATED_READ_LITERAL)]
+  const routes = [...text.matchAll(GATED_READ_LITERAL)]
     .map((m) => m[1])
     .filter((r): r is string => r !== undefined)
-    .sort()
+  const declared = [...text.matchAll(GATED_READ_CLASS_TOKEN)].length
+  if (routes.length !== declared) {
+    throw new Error(
+      `the gated-read parser read ${routes.length} row(s) but the source declares ${declared} — ` +
+        'a row\'s shape changed and this law would otherwise have silently stopped covering it',
+    )
+  }
+  return routes.sort()
 }
 
 /** Every `gated-read` row `ROUTE_CLASSES` declares, minus the one this law deliberately does not cover — see {@link DELIBERATELY_EXCLUDED_GATED_READS}. */
@@ -368,5 +400,32 @@ describe('every gated-read route has a contract test (prd-29 w3, #61) — the re
       "]"
 
     expect(gatedReadRoutesIn(sample)).toEqual(['/api/lanes', '/api/sessions'])
+  })
+
+  it('a gated-read row the matcher cannot read fails loudly rather than shrinking the closed world', () => {
+    // Relaxing the matcher to tolerate whitespace (above) buys the WRAPPED
+    // shape, but a three-field matcher stays order-dependent by construction:
+    // `url` written before `method` is still unreadable to it. Without the
+    // tripwire this parse returns [] and every check downstream still agrees
+    // with itself, covering one route fewer in silence.
+    const reordered =
+      'export const ROUTE_CLASSES: readonly RouteClassification[] = [\n' +
+      "  { url: '/api/reordered', method: 'GET', routeClass: 'gated-read' },\n" +
+      ']'
+
+    expect(() => gatedReadRoutesIn(reordered)).toThrow(/read 0 row\(s\) but the source declares 1/)
+  })
+
+  it('the relaxed matcher reads a row wrapped across lines — the shape a long url would take', () => {
+    const wrapped =
+      'export const ROUTE_CLASSES: readonly RouteClassification[] = [\n' +
+      '  {\n' +
+      "    method: 'GET',\n" +
+      "    url: '/api/some/route/long/enough/to/have/been/wrapped',\n" +
+      "    routeClass: 'gated-read',\n" +
+      '  },\n' +
+      ']'
+
+    expect(gatedReadRoutesIn(wrapped)).toEqual(['/api/some/route/long/enough/to/have/been/wrapped'])
   })
 })
