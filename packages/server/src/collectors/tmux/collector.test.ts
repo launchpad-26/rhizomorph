@@ -3,6 +3,7 @@ import { createEvent } from '@rhizomorph/core'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { hashPaneContent } from './capture.js'
 import { tmuxCollector } from './collector.js'
+import { COLLECTOR_FANOUT_LIMIT } from '../../server/concurrency.js'
 
 interface PaneFixture {
   paneId: string
@@ -534,5 +535,145 @@ describe('tmuxCollector', () => {
     // Two calls total for the same path proves the failure was retried, not
     // served from a stale cache.
     expect(shell.gitCalls).toEqual(['/worktrees/flaky', '/worktrees/flaky'])
+  })
+
+  it('carries the previous content hash forward when capture-pane fails, and emits no activity event (regression, prd44 w2)', async () => {
+    const paneA: PaneFixture = {
+      paneId: '%1',
+      sessionName: 'obs',
+      windowIndex: 0,
+      windowName: 'wm-a',
+      currentPath: '/worktrees/a',
+      currentCommand: 'claude',
+      title: '',
+    }
+    shell.listPanesOutput = listPanesLine(paneA)
+    shell.worktreeByPath.set('/worktrees/a', '/worktrees/a')
+    shell.captureByPane.set('%1', success('hello'))
+
+    const first = await tmuxCollector.poll(tmuxCollector.initialSnapshot(), makeContext(shell.exec))
+    const firstHash = first.nextSnapshot.panes['%1']?.contentHash
+    expect(firstHash).toBe(hashPaneContent('hello'))
+
+    shell.captureByPane.set('%1', { stdout: '', stderr: 'lost pane', code: 1, failed: true })
+    const second = await tmuxCollector.poll(first.nextSnapshot, makeContext(shell.exec))
+
+    expect(second.nextSnapshot.panes['%1']?.contentHash).toBe(firstHash)
+    expect(second.events.some((e) => e.type === 'pane.activity')).toBe(false)
+    expect(second.events.some((e) => e.type === 'pane.closed')).toBe(false)
+  })
+
+  it('resolves a worktree path shared by several panes in the same poll exactly once, not once per pane (prd44 w2)', async () => {
+    const shared = (paneId: string, windowIndex: number): PaneFixture => ({
+      paneId,
+      sessionName: 'obs',
+      windowIndex,
+      windowName: `wm-${paneId}`,
+      currentPath: '/worktrees/shared',
+      currentCommand: 'claude',
+      title: '',
+    })
+    const panes = [shared('%1', 0), shared('%2', 1), shared('%3', 2)]
+    shell.listPanesOutput = panes.map(listPanesLine).join('\n')
+    shell.worktreeByPath.set('/worktrees/shared', '/worktrees/shared')
+    for (const p of panes) shell.captureByPane.set(p.paneId, success(`content-${p.paneId}`))
+
+    const result = await tmuxCollector.poll(tmuxCollector.initialSnapshot(), makeContext(shell.exec))
+
+    // Concurrency must not turn one lookup into N: three panes, one path,
+    // exactly one `git rev-parse` call.
+    expect(shell.gitCalls).toEqual(['/worktrees/shared'])
+    expect(result.nextSnapshot.panes['%1']?.worktreePath).toBe('/worktrees/shared')
+    expect(result.nextSnapshot.panes['%2']?.worktreePath).toBe('/worktrees/shared')
+    expect(result.nextSnapshot.panes['%3']?.worktreePath).toBe('/worktrees/shared')
+  })
+
+  it('keeps list-panes order in nextPanes and its events even when captures settle out of order (prd44 w2)', async () => {
+    const paneA: PaneFixture = {
+      paneId: '%1',
+      sessionName: 'obs',
+      windowIndex: 0,
+      windowName: 'wm-a',
+      currentPath: '/worktrees/a',
+      currentCommand: 'claude',
+      title: '',
+    }
+    const paneB: PaneFixture = { ...paneA, paneId: '%2', currentPath: '/worktrees/b' }
+    shell.listPanesOutput = [listPanesLine(paneA), listPanesLine(paneB)].join('\n')
+    shell.worktreeByPath.set('/worktrees/a', '/worktrees/a')
+    shell.worktreeByPath.set('/worktrees/b', '/worktrees/b')
+
+    const captureFinishOrder: string[] = []
+    // %1 (listed first) yields a few extra microtask turns before resolving,
+    // so %2 (listed second) settles first — proving the collector's output
+    // order is `list-panes` order, not completion order.
+    const outOfOrderExec: Exec = async (command, args) => {
+      if (command === 'tmux' && args[0] === 'capture-pane') {
+        const paneId = args.at(-1) ?? ''
+        if (paneId === '%1') {
+          await Promise.resolve()
+          await Promise.resolve()
+          await Promise.resolve()
+        }
+        captureFinishOrder.push(paneId)
+        return success(paneId === '%1' ? 'hello' : 'world')
+      }
+      return shell.exec(command, args)
+    }
+
+    const result = await tmuxCollector.poll(tmuxCollector.initialSnapshot(), makeContext(outOfOrderExec))
+
+    expect(captureFinishOrder).toEqual(['%2', '%1'])
+    expect(Object.keys(result.nextSnapshot.panes)).toEqual(['%1', '%2'])
+    const discoveredIds = result.events
+      .filter((e) => e.type === 'pane.discovered')
+      .map((e) => (e.payload as { paneId: string }).paneId)
+    expect(discoveredIds).toEqual(['%1', '%2'])
+    const activityIds = result.events
+      .filter((e) => e.type === 'pane.activity')
+      .map((e) => (e.payload as { paneId: string }).paneId)
+    expect(activityIds).toEqual(['%1', '%2'])
+  })
+
+  it('runs capture-pane at most COLLECTOR_FANOUT_LIMIT panes concurrently (prd44 w2)', async () => {
+    const PANE_COUNT = COLLECTOR_FANOUT_LIMIT * 2 + 2
+    const panes = Array.from({ length: PANE_COUNT }, (_, i) => {
+      const paneId = `%${i + 1}`
+      return {
+        paneId,
+        sessionName: 'obs',
+        windowIndex: i,
+        windowName: `wm-${i}`,
+        currentPath: `/worktrees/${i}`,
+        currentCommand: 'claude',
+        title: '',
+      } satisfies PaneFixture
+    })
+    shell.listPanesOutput = panes.map(listPanesLine).join('\n')
+    for (const p of panes) shell.worktreeByPath.set(p.currentPath, p.currentPath)
+
+    let inFlight = 0
+    let maxInFlight = 0
+    const gatedExec: Exec = async (command, args) => {
+      if (command === 'tmux' && args[0] === 'capture-pane') {
+        inFlight += 1
+        maxInFlight = Math.max(maxInFlight, inFlight)
+        // Yield twice so every worker that can start this round actually
+        // does, before any of them finish — otherwise a single-microtask
+        // resolve could let the pool drain faster than it fills and the
+        // ceiling would never be observed.
+        await Promise.resolve()
+        await Promise.resolve()
+        const result = await shell.exec(command, args)
+        inFlight -= 1
+        return result
+      }
+      return shell.exec(command, args)
+    }
+
+    const result = await tmuxCollector.poll(tmuxCollector.initialSnapshot(), makeContext(gatedExec))
+
+    expect(Object.keys(result.nextSnapshot.panes)).toHaveLength(PANE_COUNT)
+    expect(maxInFlight).toBe(COLLECTOR_FANOUT_LIMIT)
   })
 })
