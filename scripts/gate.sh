@@ -84,11 +84,32 @@ echo "  fence OK: $(printf '%s' "$DIFF_FILES" | tr '\n' ' ')"
 # count in an eight-char field ("       0"), and command substitution strips
 # only the trailing newline — compared as text on macOS, the stranded-work
 # check fired on every clean tree and the empty-branch check never (#416).
+#
+# The producer's own exit status is read before the verdict below trusts $n
+# (prd-46 #70): pipefail (set at :13) makes this pipeline's status the git
+# log failure, not wc -l's own success, when main..HEAD cannot even be
+# computed — e.g. with .git/HEAD removed, `git log` reports "fatal: not a
+# git repository", pipeline rc 128, n=0, and the OLD code (no RC check) held
+# with "no commits on the branch (a worker may have left work uncommitted)"
+# — a fault it did not earn. This was #70's headline evidence: the law
+# reading green over exactly this line.
 n=$(git -C "$W" log --oneline main..HEAD | wc -l)
+N_RC=$?
+[ "$N_RC" -ne 0 ] && fail "git log/wc -l failed (rc=$N_RC) — cannot count commits on the branch"
 [ "$n" -eq 0 ] && fail "no commits on the branch (a worker may have left work uncommitted — check git status in the worktree)"
 STATUS_OUT=$(git -C "$W" status --porcelain)
 STATUS_RC=$?
 [ "$STATUS_RC" -ne 0 ] && fail "git status failed in $W (rc=$STATUS_RC) — cannot verify the worktree is clean"
+# SIBLING of the same shape (a $(...) pipeline whose own exit status feeds no
+# check), deliberately DECLARED rather than fixed the way :87 above was
+# (prd-46 #70 ruling 3): grep -v's "no match" exit (1) is the ORDINARY
+# outcome on every clean landing (nothing besides package-lock.json
+# changed), so a `-ne 0` guard here would misfire on the common case — the
+# same masking bug the fence fix at :74-80 exists to avoid — and `-gt 1`
+# would never fire at all, since the pattern is a fixed literal, never a
+# user-supplied regex, and cannot itself be invalid. $STATUS_OUT, the only
+# fallible input, is already RC-checked two lines up. Declared in
+# gate-honesty-law.test.ts's DECLARED_TOLERANCES, not given a matching guard.
 dirty=$(printf '%s' "$STATUS_OUT" | grep -v package-lock.json | wc -l)
 [ "$dirty" -ne 0 ] && { printf '%s\n' "$STATUS_OUT" | head -5; fail "uncommitted work stranded in the worktree"; }
 echo "  commits: $n, worktree clean"
