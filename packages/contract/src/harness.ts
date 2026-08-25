@@ -83,6 +83,15 @@ function defaultSessionEvents(repoPath: string): RhizomorphEvent[] {
  * leave every refusal test passing vacuously on the client's own
  * missing-token throw — the exact vacuity `label-seam.test.ts` documented.
  */
+/**
+ * The harness's own live recorder's session id — fixed, so a read contract
+ * test that needs to address THIS instance (e.g. an OTLP export's own
+ * `instance` resource attribute, `api/otel.ts`'s `INSTANCE_ATTRIBUTE`) can
+ * name it without hardcoding a magic literal that only this file actually
+ * owns.
+ */
+export const HARNESS_LIVE_SESSION_ID = '2000'
+
 export async function buildContractHarness(
   options: { events?: (repoPath: string) => RhizomorphEvent[] } = {},
 ): Promise<ContractHarness> {
@@ -95,7 +104,7 @@ export async function buildContractHarness(
   const events = (options.events ?? defaultSessionEvents)(repoPath)
   await writeFile(path.join(sessionDir, sessionFileName(1000)), eventsToJsonl(events), 'utf8')
 
-  const recorder = new SessionRecorder('2000', path.join(sessionDir, sessionFileName(2000)))
+  const recorder = new SessionRecorder(HARNESS_LIVE_SESSION_ID, path.join(sessionDir, sessionFileName(2000)))
   const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder, now: () => 9999, webDistDir: distDir })
 
   const served = await app.inject({ method: 'GET', url: '/' })
@@ -146,4 +155,40 @@ export function stripCapabilityToken(): void {
 /** Replace the stamped token with a same-shaped wrong value — exercises the gate's comparison, not the shape check. */
 export function tamperCapabilityToken(): void {
   document.querySelector('meta[name="rhizomorph-capability"]')?.setAttribute('content', '0'.repeat(64))
+}
+
+/**
+ * THE READ AXIS'S OWN SUBSTITUTION POINT (prd-29 w3, #61).
+ *
+ * Every read seam's default `fetchImpl` is `capabilityRead`
+ * (`recordings/capabilityRead.ts`) — it reads the token off the REAL served
+ * page itself and calls `globalThis.fetch` directly, so it takes no
+ * `fetchImpl` parameter a contract test could hand `h.fetch` to (unlike the
+ * mutating five, which build their own header and take a transport
+ * parameter). `capabilityRead.test.ts` stubs `globalThis.fetch` for the exact
+ * same reason; this is that same technique, wired to the REAL server via
+ * `h.fetch` instead of a `vi.fn` mock, so a read contract test can call a
+ * client function with NO `fetchImpl` argument at all and still exercise the
+ * real `capabilityRead` reading the real page against the real gate.
+ *
+ * Call in `beforeEach` (after `buildContractHarness()`), and always call the
+ * returned restorer in `afterEach` — leaving `globalThis.fetch` patched past
+ * one test would leak into whichever test runs next in the same file.
+ */
+export function routeGlobalFetchThroughHarness(injectedFetch: InjectedFetch): () => void {
+  const previous = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const method = init?.method ?? 'GET'
+    const headers =
+      init?.headers === undefined ? undefined : Object.fromEntries(new Headers(init.headers).entries())
+    const result = await injectedFetch(String(input), headers === undefined ? { method } : { method, headers })
+    return {
+      ok: result.ok,
+      status: result.status,
+      json: result.json,
+    } as unknown as Response
+  }) as typeof fetch
+  return () => {
+    globalThis.fetch = previous
+  }
 }
