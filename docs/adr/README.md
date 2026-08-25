@@ -229,6 +229,7 @@ have carried no information.
 | [0026](0026-the-shell-is-driven-by-playwright-not-certified-by-hand.md) | The desktop shell is driven by Playwright for visual certification, not certified by hand | 2026-08-21 | accepted |
 | [0027](0027-the-served-page-declares-its-own-security-policy.md) | The served page declares its own security policy | 2026-08-21 | accepted |
 | [0028](0028-bounded-lru-cache-for-parsed-session-logs.md) | A bounded, single-flight, mtime+size-validated cache for parsed session logs | 2026-08-24 | accepted |
+| [0029](0029-a-recording-may-repeat-a-fact.md) | A recording may repeat a fact: at-least-once on the poll path, no read-side dedupe — amends [0011](0011-recordings-never-rot.md) | 2026-08-25 | accepted |
 
 Records 0001–0011 were reconstructed on 2026-08-06 and say so in their Context.
 One, **ADR-0003**, has an inverted evidence shape worth knowing about: the

@@ -3,6 +3,10 @@
 > **Status:** **BLESSED** — Ciaran Slow, 2026-08-22, in session. Milestone `prd40`. Drafted the same day from the reconciled audit
 > at `03df141` (findings 5 and 7 — untracked artefact, `.gitignore`d; the sha is the anchor). Ruling 1 needs an **ADR** before its code — it changes what a replay may
 > contain, which is ADR-0011's territory, not this PRD's.
+>
+> **That ADR landed 2026-08-25:** [ADR-0029, "A recording may repeat a fact"](../adr/0029-a-recording-may-repeat-a-fact.md),
+> accepted, amending ADR-0011. Wave 2 is dispatchable. See the amendment inside ruling 1 — the ADR's
+> evidence corrected the *mechanism* this PRD named, though not its conclusion.
 
 ## Problem
 
@@ -22,14 +26,14 @@ published figures put it above half a second on a long session.
 
 - **The snapshot advances before the append is awaited.** `server/poll-loop.ts:216-218` — the
   snapshot assignment precedes the recorder call, so a rejected append cannot un-advance it.
-- **The recorder's append is the only durability boundary.** `recorder/session-recorder.ts:80-84`
+- **The recorder's append is the only durability boundary.** `recorder/session-recorder.ts:117-125`
   — nothing above it retries, and nothing below it knows the event was dropped.
 - **No test drives an append failure behind an emitting collector.** The recorder's own seal
-  tests cover a throwing append and a throwing subscriber (`session-recorder.ts:104-108`); the
+  tests cover a throwing append and a throwing subscriber (`session-recorder.ts:147-153`); the
   poll-loop's do not induce one.
 - **`/api/meta` folds the whole buffer per request.** `api/meta.ts:238` calls
   `buildLadderManifest`, which reaches `reduceAll(eventsSoFar())`; the buffer is emptied only by
-  `openSession` (`session-recorder.ts:139`).
+  `openSession` (`session-recorder.ts:166`).
 - **The route is ungated and polled.** `api/index.ts:132` classifies it `read`, so it carries no
   `preHandler`, and its call sites grew 9→16 between audits.
 - **The cost is the repo's own measurement, not an estimate.** 113.5 ms at 25k events, 535.3 ms
@@ -50,6 +54,10 @@ published figures put it above half a second on a long session.
    O(events in the session) rather than O(1) in the work the request itself adds.
 4. The replay contract says what a replay may now contain. **Not met while** at-least-once
    delivery ships without an ADR naming duplicate-on-replay as accepted or excluded.
+   **Met 2026-08-25** — [ADR-0029](../adr/0029-a-recording-may-repeat-a-fact.md) names it
+   accepted: a recording may contain the same fact twice, and a reader must not treat that as
+   corruption. At-least-once on the poll path, at-most-once on the other eleven
+   `recorder.record` sites, and no read-side dedupe.
 
 ## Non-goals
 
@@ -77,7 +85,7 @@ is true now.
   it; it is not reimplemented.
 - The spend cursor (`core/src/selectors/spend-cursor.ts`) — the repo's existing worked example of
   a maintained incremental fold with a prime-once cost, including its cache-key discipline.
-- `closeWith`'s seal release at `session-recorder.ts:104-108` — the recorder already unwinds its
+- `closeWith`'s seal release at `session-recorder.ts:147-153` — the recorder already unwinds its
   *seal* correctly when an append throws, and that unwind is reused untouched. It is only the seal
   that is right: the publish ordering around it is part of the defect, so the gap is **both above
   the recorder and inside it**. An earlier draft of this line claimed the gap was above it only;
@@ -90,10 +98,10 @@ is true now.
 **Publishing happens after the append resolves, at every site that publishes.** There are three,
 and all three are in scope:
 
-- `record()` (`session-recorder.ts:78-84`) awaits `writer.append(event)` **before** `buffer.push`
+- `record()` (`session-recorder.ts:117-125`) awaits `writer.append(event)` **before** `buffer.push`
   and before `emitter.emit('event', …)`. Today it does both first, so a rejected append has
   already handed the event to every subscriber and to `eventsSoFar()`.
-- `closeWith()` (`:97-111`) does the same, in the order seal → append → `sync` → push → emit. The
+- `closeWith()` (`:136-154`) does the same, in the order seal → append → `sync` → push → emit. The
   seal is still taken *first*, so prd17 ruling 1's structural guarantee is untouched — a
   collector poll landing in the same tick still cannot slip in behind the final line. Only the
   publish moves; the existing `catch` that releases the seal and rethrows is reused as-is.
@@ -113,6 +121,45 @@ re-derived event can be appended twice if the first append partially succeeded, 
 **at-least-once** rather than exactly-once. That is a change to what a recording may contain, and
 ADR-0011 is where it is recorded. The ADR may instead rule that duplicates are unacceptable and
 require a dedupe on the read side — in which case this ruling is amended, not deleted.
+
+**Amended 2026-08-25.** The ADR this ruling waited on is
+[ADR-0029](../adr/0029-a-recording-may-repeat-a-fact.md), accepted, amending ADR-0011. It ruled
+duplicates **accepted**, so the ruling above stands unchanged in what it requires. Its evidence
+did, however, falsify the *mechanism* named in the paragraph above, and the original wording is
+kept because a lane reading it would otherwise build against a case that cannot happen:
+
+- **"If the first append partially succeeded" is not the generator, and cannot be.** The writer
+  strips a trailing partial line only when resuming (`recorder/session-log-writer.ts:157`), so
+  mid-session a retry is `O_APPEND`ed onto the half-written bytes and glues into one malformed
+  line. Both events are lost and counted unreadable — not duplicated.
+- **The real generator is batch granularity, and it needs no partial write.** `poll-loop.ts:216-219`
+  advances one snapshot per *batch*, then appends the batch in a loop. A clean rejection on event
+  *k* leaves events 1..*k*-1 fully appended with the snapshot un-advanced, so the next tick
+  re-derives and re-appends **all** of them. Duplicates are therefore routine on any append
+  failure and arrive in runs, not singly — commoner and cleaner than this ruling assumed.
+
+The conclusion is unmoved: replay becomes at-least-once, and that is accepted. Only the sentence
+explaining *how* a duplicate arises was wrong.
+
+**Amended 2026-08-25, second — each publisher publishes three times, not twice.** This ruling
+enumerates `buffer.push` and `emitter.emit`. Wave 1 (#3, PR #67, merged 2026-08-24) put a third
+publish between them: `advanceFold()`, which folds the event into the maintained `SessionState`
+that ruling 2 exposes as `foldSoFar()`. Both publishers now read
+push → `advanceFold` → `emit` → `append`:
+
+- `record()` — push `:119`, `advanceFold` `:120`, emit `:123`, append `:124`
+- `closeWith()` — push `:141`, `advanceFold` `:142`, emit `:144`, append `:145`
+
+So the append must be awaited before **all three**, not two. Success 1 already requires this in
+words — *"or leaves the fold ahead of the file after a rejected append"* — but this ruling's site
+list predates wave 1 and never named it, and a lane building the two it names would leave the
+fold ahead of the file: exactly the half-fix this ruling exists to forbid, in the surface wave 1
+was written to create.
+
+**The three move together and keep their order.** #3's mid-emit invariant pins that a subscriber
+reading `foldSoFar()` from inside `emitter.emit` sees exactly the events `eventsSoFar()` shows it
+(`session-recorder.ts:96-98`). Reordering push against `advanceFold`, or separating either from
+the emit, breaks a law wave 1 landed. Move the block, not the statements.
 
 ## Ruling 2 — the fold the server answers from is maintained, never rebuilt
 
@@ -136,7 +183,9 @@ wave 2 and every later reader consume it.
 
 **Wave 2 — after the ADR, not before.** `prd40 w2: an event reaches the log before it reaches a
 subscriber` (ruling 1). Gated on the ADR that ruling 1 names. Dispatching it earlier builds a
-delivery guarantee nobody has ruled on. **One issue, one fence, both files:**
+delivery guarantee nobody has ruled on. **Gate lifted 2026-08-25** —
+[ADR-0029](../adr/0029-a-recording-may-repeat-a-fact.md) is accepted and #4 is dispatchable.
+**One issue, one fence, both files:**
 `recorder/session-recorder.ts` *and* `server/poll-loop.ts`. Splitting the recorder half from the
 poll-loop half into two issues would let one land without the other, which is precisely the
 half-fix ruling 1 exists to prevent — and its test must drive an append failure through a live
@@ -152,9 +201,18 @@ subscriber, not only through the snapshot.
 
 ## Open questions
 
-- **Does a duplicate on replay break any existing consumer?** The golden-era corpus folds
-  byte-identically today; nobody has checked whether it would survive a repeated line. The ADR
-  ruling 1 names should answer it with the corpus, not by argument. Open, not ruled.
+- **Does a duplicate on replay break any existing consumer?** **Answered 2026-08-25, with the
+  corpus.** No test breaks; meaning does. Duplicating each of era-1's 100 lines in turn and
+  re-folding through the corpus law's own `foldEraRecording` + `canonicalStateJson` — with the
+  untouched recording folding byte-identically to its committed snapshot as a control — changes
+  the fold beyond envelope bookkeeping in **79 of 100** lines, across 7 of the 15 families
+  present. Six accumulate; one corrupts, a repeated `agent.status` writing `previousStatus` to
+  the *current* status (`reduce.ts:631`). One duplicated `llm.usage` moves `selectSessionSpend`
+  from $0.7042407 to $0.7585227. Nothing goes red: the corpus is a committed fixture, so it is
+  the measuring instrument here and a poor alarm. [ADR-0029](../adr/0029-a-recording-may-repeat-a-fact.md)
+  accepts that cost — an over-reporting record is recoverable, a silently lost event is not — and
+  records what it rejected, including a content-hash dedupe that would delete a genuine event at
+  1-in-100 on this same corpus. **Fixing the seven non-idempotent arms is not scoped by this PRD.**
 - **Should `foldSoFar()` be the only reader, with `eventsSoFar()` narrowed to the exporter?**
   It would make ruling 2 structural rather than conventional, but it touches every current
   caller. Open, not ruled.
