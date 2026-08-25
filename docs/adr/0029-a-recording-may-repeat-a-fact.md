@@ -130,7 +130,8 @@ distinct fact. Three limits go with it.
 *First, the guarantee is per-path and must be stated that way.* The recording is
 at-least-once on the poll path and at-most-once on the other eleven
 `recorder.record` sites. Any later sentence of the form "every event on the
-stream is on disk" also needs prd-40 success 1's named carve-out (`8ba34e3`): the
+stream is on disk" also needs prd-40 success 1's named carve-out ("One named
+exception, and no other", `docs/prds/prd-40-the-record-survives-the-write.md`): the
 degrade `collector.error` reporting an append failure may be emitted without
 having been appended.
 
