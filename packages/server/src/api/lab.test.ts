@@ -490,9 +490,9 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
    * still run once the queue reaches its turn, spending real money nobody was
    * watching for — the exact failure prd41 ruling 2 exists to close.
    */
-  it('a caller that gave up never reaches exec, even after the holder it waited on finally clears', async () => {
-    vi.useFakeTimers()
-    try {
+  it(
+    'a caller that gave up never reaches exec, even after the holder it waited on finally clears',
+    async () => {
       const checkpointId = await seedCheckpoint('lane-wedged-noop', () => 1_000_000)
 
       // `first` and `second` each get their OWN exec/counter — `first`
@@ -516,30 +516,46 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
         return OK
       }
 
-      // A small, real lock ceiling (100ms) — far below the 5000ms per-exec
-      // `withTimeout` ceiling #8 wires into this same call chain (`fork.ts`'s
-      // `FORK_EXEC_TIMEOUT_MS`). A 30s ceiling here would let that unrelated,
-      // shorter, per-exec timeout fire first once fake time is advanced past
-      // it, unwinding `first`'s hang on its own and confounding what this test
-      // means to isolate: `withLabCliLock`'s OWN ceiling, not the exec-level one.
       const first = launchExperiment(
         { lane: 'lane-wedged-noop', checkpointId, arms: [{ model: 'opus' }] },
         { repoPath: repoDir, exec: firstExec, dataRoot, claudeProjectsRoot, now: () => 2_000_000, lockCeilingMs: 100 },
       )
-      // Let `first` actually reach its first exec call (and hang there,
-      // holding the lock) before `second` is constructed.
-      for (let i = 0; i < 50 && firstExecCalls === 0; i++) {
-        await vi.advanceTimersByTimeAsync(0)
+
+      // Real, generously-bounded wait — NOT fake-timer ticks — for `first` to
+      // actually reach its first exec call and hang there. Getting there
+      // involves real subprocess/filesystem work (checkpoint resolution, git
+      // worktree add) whose duration varies with machine load; a fixed
+      // fake-timer tick count is not a reliable proxy for "enough real time
+      // has passed" and was measured flaky under CI load (#10's own PR CI).
+      const reachedExecDeadline = Date.now() + 10_000
+      while (firstExecCalls === 0 && Date.now() < reachedExecDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 5))
       }
       expect(firstExecCalls).toBeGreaterThan(0)
 
-      const second = launchExperiment(
-        { lane: 'lane-wedged-noop', checkpointId, arms: [{ model: 'sonnet' }] },
-        { repoPath: repoDir, exec: secondExec, dataRoot, claudeProjectsRoot, now: () => 2_000_000, lockCeilingMs: 100 },
-      )
-      const assertion = expect(second).rejects.toThrow(LabCliLockCeilingError)
-      await vi.advanceTimersByTimeAsync(100)
-      await assertion
+      // Fake timers are scoped tightly to JUST the ceiling race below — a
+      // fast, deterministic 100ms of simulated time with no real I/O
+      // dependency — so a hang here can't leak fake timers into later tests
+      // in this file the way the unscoped version once did.
+      vi.useFakeTimers()
+      try {
+        // A small, real lock ceiling (100ms) — far below the 5000ms per-exec
+        // `withTimeout` ceiling #8 wires into this same call chain
+        // (`fork.ts`'s `FORK_EXEC_TIMEOUT_MS`). A 30s ceiling here would let
+        // that unrelated, shorter, per-exec timeout fire first once fake time
+        // is advanced past it, unwinding `first`'s hang on its own and
+        // confounding what this test means to isolate: `withLabCliLock`'s
+        // OWN ceiling, not the exec-level one.
+        const second = launchExperiment(
+          { lane: 'lane-wedged-noop', checkpointId, arms: [{ model: 'sonnet' }] },
+          { repoPath: repoDir, exec: secondExec, dataRoot, claudeProjectsRoot, now: () => 2_000_000, lockCeilingMs: 100 },
+        )
+        const assertion = expect(second).rejects.toThrow(LabCliLockCeilingError)
+        await vi.advanceTimersByTimeAsync(100)
+        await assertion
+      } finally {
+        vi.useRealTimers()
+      }
 
       // `second` gave up without ever reaching its own exec.
       expect(secondExecCalls).toBe(0)
@@ -548,18 +564,21 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
       // a caller that already gave up must not run now that its turn has
       // actually arrived, which is exactly what a missing `gaveUp` guard in
       // `withLabCliLock` would let happen. `first` itself may keep calling
-      // its own exec freely now — irrelevant to what this checks.
+      // its own exec freely now — irrelevant to what this checks. Real,
+      // generously-bounded wait again, for the same reason as above.
       releaseFirst()
       await first.catch(() => {})
-      for (let i = 0; i < 50; i++) {
-        await vi.advanceTimersByTimeAsync(0)
-      }
+      // A short real delay for anything chained behind `first`'s own
+      // settlement (the queue's `.then` reassignment) to actually run —
+      // not a fixed multi-second sleep, since `first` has already settled
+      // by this point and nothing further here depends on real subprocess
+      // I/O.
+      await new Promise((resolve) => setTimeout(resolve, 200))
 
       expect(secondExecCalls).toBe(0)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
+    },
+    20_000,
+  )
 
   /**
    * The same scenario, over the actual route this ceiling protects — a real
