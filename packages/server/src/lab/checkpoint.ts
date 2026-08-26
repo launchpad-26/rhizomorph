@@ -7,7 +7,7 @@ import { createEvent, createIdFactory } from '@rhizomorph/core'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
 import { defaultDataRoot, sessionDirFor, sessionFileName } from '../log/paths.js'
 import { findResumableSession, RESUME_WINDOW_MS } from '../log/session-log.js'
-import { exec as realExec } from '../server/exec.js'
+import { exec as realExec, withTimeout } from '../server/exec.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { runGit } from './git.js'
 
@@ -24,6 +24,9 @@ import { runGit } from './git.js'
  */
 
 export type CapturedBy = 'dispatch' | 'gate' | 'operator'
+
+/** Per-exec ceiling for every subprocess this module spawns — same value as `ROUTE_EXEC_TIMEOUT_MS` / `RETARGET_EXEC_TIMEOUT_MS`. A hung git call must not hang `captureCheckpoint` itself. */
+export const CHECKPOINT_EXEC_TIMEOUT_MS = 5000
 
 export interface CaptureCheckpointOptions {
   lane: string
@@ -54,7 +57,7 @@ export interface CaptureCheckpointResult {
  * only ever describes a capture that just ran.
  */
 export async function captureCheckpoint(options: CaptureCheckpointOptions): Promise<CaptureCheckpointResult> {
-  const exec = options.exec ?? realExec
+  const exec = withTimeout(options.exec ?? realExec, CHECKPOINT_EXEC_TIMEOUT_MS)
   const now = options.now ?? Date.now
   const worktreePath = path.resolve(options.worktreePath)
   const checkpointId = options.checkpointId ?? randomUUID()

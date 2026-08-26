@@ -512,6 +512,37 @@ describe('dispatchFork', () => {
     ).rejects.toThrow(/workmux add .* failed: branch exists/)
   })
 
+  it('an injected never-settling workmux launch rejects with a timeout rather than hanging (#8)', async () => {
+    await capture()
+
+    // The shape a real `exec` produces once its native timeout kills the
+    // child (`failed: true`, `code: null`, no stderr — see
+    // `describeExecFailure`, `server/exec.ts`), settling ONLY once
+    // `options.timeoutMs` is set. Left unbounded this would hang forever,
+    // exactly like a stuck `workmux add`; if `dispatchFork` did not route it
+    // through `withTimeout`, this test would hang until its own timeout.
+    const neverSettlingWorkmux: Exec = (command, args, options) => {
+      if (command !== 'workmux') return realExec(command, args, options)
+      if (options?.timeoutMs === undefined) return new Promise(() => {})
+      return Promise.resolve({ stdout: '', stderr: '', code: null, failed: true })
+    }
+
+    await expect(
+      dispatchFork({
+        parentLane: 'parent-lane',
+        parentWorktreePath: repoDir,
+        arms: 1,
+        forkId: uniqueId('fork'),
+        launch: true,
+        dataRoot,
+        claudeProjectsRoot,
+        install: false,
+        now: () => 1_000_100,
+        exec: neverSettlingWorkmux,
+      }),
+    ).rejects.toThrow(/workmux add .* failed/)
+  }, 2000)
+
   it('refuses a non-positive arm count', async () => {
     await capture()
     await expect(

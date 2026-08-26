@@ -5,7 +5,7 @@ import type { EventOf, Exec, PayloadOf } from '@rhizomorph/core'
 import { createEvent, createIdFactory } from '@rhizomorph/core'
 import { defaultDataRoot, sessionDirFor, sessionFileName } from '../log/paths.js'
 import { findResumableSession, listSessions, readSessionEvents, RESUME_WINDOW_MS } from '../log/session-log.js'
-import { exec as realExec } from '../server/exec.js'
+import { exec as realExec, withTimeout } from '../server/exec.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { armWorktreePath } from './paths.js'
 import {
@@ -102,6 +102,9 @@ export interface DispatchForkResult {
 
 /** prd12 ruling 4: three arms is the floor at which a comparison may say anything at all. */
 export const DEFAULT_ARMS = 3
+
+/** Per-exec ceiling for every subprocess this module spawns — same value as `ROUTE_EXEC_TIMEOUT_MS` / `RETARGET_EXEC_TIMEOUT_MS`. A hung git call or a hung `workmux add` must not hang `dispatchFork` itself. */
+export const FORK_EXEC_TIMEOUT_MS = 5000
 
 /**
  * THE MODEL GRAMMAR (#234's second defect), this side of the seam.
@@ -253,7 +256,7 @@ export async function findCheckpoint(
 // --- dispatch --------------------------------------------------------------------
 
 export async function dispatchFork(options: DispatchForkOptions): Promise<DispatchForkResult> {
-  const exec = options.exec ?? realExec
+  const exec = withTimeout(options.exec ?? realExec, FORK_EXEC_TIMEOUT_MS)
   const now = options.now ?? Date.now
   const dataRoot = options.dataRoot ?? defaultDataRoot()
   const parentWorktreePath = path.resolve(options.parentWorktreePath)

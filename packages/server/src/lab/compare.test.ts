@@ -99,6 +99,22 @@ function execWithVerify(verdicts: Record<string, ExecResult>): Exec {
   }
 }
 
+/**
+ * Real git, a verify command that never settles unless `options.timeoutMs`
+ * is set — the shape a real `exec` produces once its native timeout kills
+ * the child (`failed: true`, `code: null`, no stderr — see
+ * `describeExecFailure`, `server/exec.ts`). Left unbounded this would hang
+ * forever, exactly like a stuck gate command; if `compareFork` did not route
+ * it through `withTimeout`, this test would hang until its own timeout.
+ */
+function neverSettlingUnlessBoundedVerify(command: string): Exec {
+  return (cmd, args, options) => {
+    if (cmd !== command) return realExec(cmd, args, options)
+    if (options?.timeoutMs === undefined) return new Promise(() => {})
+    return Promise.resolve({ stdout: '', stderr: '', code: null, failed: true })
+  }
+}
+
 describe('compareFork', () => {
   it('reports one row per arm, in arm order, with the treatment the log recorded', async () => {
     const forkId = await forkWith(3)
@@ -210,6 +226,23 @@ describe('compareFork', () => {
     expect(three.rankable).toBe(true)
     expect(MIN_ARMS_TO_RANK).toBe(3)
   })
+
+  it('an injected never-settling verify command makes compareFork report a timeout rather than hang (#8)', async () => {
+    const forkId = await forkWith(3)
+
+    const comparison = await compareFork({
+      forkId,
+      parentWorktreePath: repoDir,
+      dataRoot,
+      verifyCommand: 'fake-gate --ci',
+      exec: neverSettlingUnlessBoundedVerify('fake-gate'),
+    })
+
+    for (const arm of comparison.arms) {
+      expect(arm.verified).toBe('fail')
+      expect(arm.verifiedDetail).toBe('exit null')
+    }
+  }, 2000)
 })
 
 // --- the table (prd12 rulings 4 and 6) ---------------------------------------------
