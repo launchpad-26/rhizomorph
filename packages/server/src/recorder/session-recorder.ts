@@ -17,6 +17,31 @@ export interface SessionRecorderOptions {
 }
 
 /**
+ * Freezes `value` and everything reachable from it, stopping at anything
+ * already frozen.
+ *
+ * That short-circuit is what makes this affordable rather than a per-event
+ * walk of the whole state: `reduce` copies only the spine it changed and
+ * shares every untouched subtree, and those subtrees were frozen when they
+ * were created. So each event freezes roughly what it allocated.
+ *
+ * Sound because `SessionState` is plain objects, arrays and `Record`s — no
+ * `Map`, `Set` or `Date`, which `Object.freeze` would not protect. That is a
+ * property #179 deliberately maintains: the fold's own lookup tables live in
+ * `UsageIndex` *beside* the reducer, never in the state slice
+ * (`core/src/state.ts:426`, pinned by `state.test.ts`).
+ */
+function deepFreeze<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value
+  if (Object.isFrozen(value)) return value
+  Object.freeze(value)
+  for (const key of Object.keys(value as object)) {
+    deepFreeze((value as Record<string, unknown>)[key])
+  }
+  return value
+}
+
+/**
  * Bridges collector output to both the persisted JSONL log and live SSE
  * subscribers, and holds the session-so-far buffer new subscribers replay
  * before switching to the live tail. One recorder per running *process* —
@@ -40,8 +65,13 @@ export class SessionRecorder {
    * rebuilt per read (prd40 ruling 2). Kept exactly in step with `buffer`:
    * every push into it is followed, in the same synchronous step, by an
    * `advanceFold` call — see `record`, `closeWith` and `openSession`.
+   *
+   * Definitely assigned: the constructor assigns it through {@link setFold},
+   * which is the only writer (#69). `tsc`'s definite-assignment analysis does
+   * not follow a method call, so the alternative to this assertion would be an
+   * initializer whose whole job is to be overwritten one line later.
    */
-  private foldState: SessionState
+  private foldState!: SessionState
   /**
    * True when {@link advanceFold} could not keep `foldState` in step with an
    * event that DID land in `buffer` — see its own comment. `foldSoFar` checks
@@ -65,7 +95,7 @@ export class SessionRecorder {
     this.currentFilePath = filePath
     const resuming = options.resumeFrom !== undefined
     if (options.resumeFrom) this.buffer.push(...options.resumeFrom)
-    this.foldState = reduceAll(this.buffer)
+    this.setFold(reduceAll(this.buffer))
     this.writer = new SessionLogWriter(filePath, { resuming })
     // Many concurrent SSE clients each subscribe once; the default cap of 10 is easy to hit honestly.
     this.emitter.setMaxListeners(0)
@@ -108,10 +138,19 @@ export class SessionRecorder {
    */
   private advanceFold(event: RhizomorphEvent): void {
     try {
-      this.foldState = reduce(this.foldState, event)
+      this.setFold(reduce(this.foldState, event))
     } catch {
       this.foldDesynced = true
     }
+  }
+
+  /**
+   * The ONLY assignment to {@link foldState}. Every fold this recorder hands
+   * out is frozen (prd40 #69, ADR-0031), and routing every path through here is
+   * what makes that structural rather than four remembered call sites.
+   */
+  private setFold(next: SessionState): void {
+    this.foldState = deepFreeze(next)
   }
 
   async record(event: RhizomorphEvent): Promise<void> {
@@ -257,7 +296,7 @@ export class SessionRecorder {
     this.currentFilePath = filePath
     this.writer = new SessionLogWriter(filePath)
     this.buffer = []
-    this.foldState = initialSessionState()
+    this.setFold(initialSessionState())
     this.foldDesynced = false
     const release = this.releaseSeal
     this.sealed = null
@@ -281,15 +320,24 @@ export class SessionRecorder {
    * prd-40's open question on whether `eventsSoFar()` should eventually
    * narrow to the exporter only; that is not decided here.
    *
-   * Returned by reference, not copied — `SessionState` is treated as
-   * read-only by the same convention every other reader of `reduceAll(...)`
-   * already relies on (e.g. `api/meta.ts`, `cli/run.ts`); copying it here
-   * would both invent a new discipline and defeat the O(1) cost this method
-   * exists to provide.
+   * Returned by reference, not copied — copying here would both defeat the
+   * O(1) cost this method exists to provide and break the identity law that
+   * makes "no re-fold on any route" hold however a caller reaches it.
+   *
+   * Read-only is **enforced, not conventional** (#69, ADR-0031). Unlike
+   * `reduceAll(...)`, which hands every caller a private fold, this hands out
+   * the recorder's ONLY one, and `foldDesynced` is raised only when `reduce`
+   * throws — never when a caller writes. So a caller's mutation would be
+   * silent, permanent for the session, and unrepairable. Every fold is
+   * therefore deep-frozen on assignment ({@link setFold}), and a caller's
+   * write throws instead of corrupting.
+   *
+   * What that does NOT cover: a caller who casts the freeze away. It closes
+   * the silent-corruption failure mode, not every route to it.
    */
   foldSoFar(): SessionState {
     if (this.foldDesynced) {
-      this.foldState = reduceAll(this.buffer)
+      this.setFold(reduceAll(this.buffer))
       this.foldDesynced = false
     }
     return this.foldState

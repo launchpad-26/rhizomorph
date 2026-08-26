@@ -231,6 +231,7 @@ have carried no information.
 | [0028](0028-bounded-lru-cache-for-parsed-session-logs.md) | A bounded, single-flight, mtime+size-validated cache for parsed session logs | 2026-08-24 | accepted |
 | [0029](0029-a-recording-may-repeat-a-fact.md) | A recording may repeat a fact: at-least-once on the poll path, no read-side dedupe — amends [0011](0011-recordings-never-rot.md) | 2026-08-25 | accepted |
 | [0030](0030-the-alarm-may-outrun-the-record.md) | The alarm may outrun the record: the degrade `collector.error` is emitted whether or not its own append lands | 2026-08-26 | accepted |
+| [0031](0031-the-recorder-hands-out-a-frozen-fold.md) | The recorder hands out a frozen fold: deep-frozen on assignment, return type unchanged | 2026-08-26 | accepted |
 
 Records 0001–0011 were reconstructed on 2026-08-06 and say so in their Context.
 One, **ADR-0003**, has an inverted evidence shape worth knowing about: the

@@ -559,6 +559,184 @@ describe('SessionRecorder — maintained fold (prd40 ruling 2)', () => {
   })
 })
 
+describe('SessionRecorder — the fold handed out is frozen (#69, ADR-0031)', () => {
+  let dir: string
+  let recorder: SessionRecorder
+  let f: ReturnType<typeof createEventFactory>
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-recorder-freeze-test-'))
+    recorder = new SessionRecorder(FIRST, sessionFilePath(dir, FIRST))
+    f = createEventFactory()
+  })
+
+  afterEach(async () => {
+    vi.restoreAllMocks()
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('a caller cannot corrupt the fold with a top-level write — it throws, and the fold stays correct', async () => {
+    // The defect this issue closes. `reduceAll()` hands every caller a PRIVATE
+    // fold, so a mutation there corrupts only that caller. `foldSoFar()` hands
+    // out the recorder's ONLY fold, and `foldDesynced` is raised only when
+    // `reduce` throws — never when a caller writes. So without the freeze the
+    // corruption is silent and permanent for the life of the session.
+    await recorder.record(f.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true }))
+    const folded = recorder.foldSoFar()
+
+    // Test files are ESM and therefore strict mode: the write throws rather
+    // than failing silently, which is what makes this assertable at all.
+    expect(() => {
+      folded.eventCount = 999
+    }).toThrow(TypeError)
+
+    // And the fold the recorder still answers with is the correct one.
+    expect(recorder.foldSoFar().eventCount).not.toBe(999)
+    expect(recorder.foldSoFar()).toEqual(reduceAll(recorder.eventsSoFar()))
+  })
+
+  it('a caller cannot corrupt the fold with a NESTED write either — the walk is deep', async () => {
+    // The sibling of the law above, and the reason the freeze recurses. This is
+    // exactly the mutation a `Readonly<SessionState>` return type would have
+    // let through: shallow readonly stops `folded.branches = {}` and says
+    // nothing about `folded.branches.main.head`.
+    await recorder.record(f.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true }))
+    await recorder.record(f.branchUpdated({ branch: 'main', head: 'a'.repeat(40) }))
+
+    const branch = recorder.foldSoFar().branches.main
+    if (!branch) throw new Error('the fixture must create a branch for this law to mean anything')
+    expect(branch.head).toBe('a'.repeat(40))
+
+    expect(() => {
+      branch.head = 'd'.repeat(40)
+    }).toThrow(TypeError)
+
+    expect(recorder.foldSoFar().branches.main?.head).toBe('a'.repeat(40))
+    expect(recorder.foldSoFar()).toEqual(reduceAll(recorder.eventsSoFar()))
+  })
+
+  it('the freeze did NOT become a copy — reads still return the same object', async () => {
+    // The constraint that rules copy-on-read out. #3's identity law is what
+    // makes "no re-fold on any route" hold however a caller reaches the fold;
+    // a defensive copy would satisfy immutability and destroy it, and would
+    // reintroduce the per-read cost growing with session length that prd-40
+    // ruling 2 removed.
+    await recorder.record(f.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true }))
+    const first = recorder.foldSoFar()
+    expect(recorder.foldSoFar()).toBe(first)
+    expect(recorder.foldSoFar()).toBe(first)
+  })
+
+  it('EVERY path that sets the fold yields a frozen one — constructor, record, self-heal, openSession', async () => {
+    // The sibling-case law. There are four assignment sites, and a fix applied
+    // to three of them is a silently mutable fold on the fourth path. They all
+    // route through the one private setter; this is what proves it.
+
+    // 1. the constructor, before any event.
+    expect(Object.isFrozen(recorder.foldSoFar())).toBe(true)
+
+    // 2. advanceFold, via record().
+    await recorder.record(f.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true }))
+    expect(Object.isFrozen(recorder.foldSoFar())).toBe(true)
+
+    // 3. the self-heal rebuild inside foldSoFar().
+    const spy = vi.spyOn(core, 'reduce').mockImplementationOnce(() => {
+      throw new Error('reduce boom')
+    })
+    await recorder.record(f.branchUpdated({ branch: 'main', head: 'b'.repeat(40) }))
+    spy.mockRestore()
+    expect(Object.isFrozen(recorder.foldSoFar())).toBe(true)
+
+    // 4. openSession's reset.
+    const SECOND = '2000'
+    await recorder.closeWith(f.sessionClosed({ sessionId: FIRST, reason: 'rotated', eventCount: 2 }))
+    recorder.openSession(SECOND, sessionFilePath(dir, SECOND))
+    expect(Object.isFrozen(recorder.foldSoFar())).toBe(true)
+  })
+
+  it('a resumed constructor freezes too — the fold rebuilt from resumeFrom is not a mutable one', async () => {
+    const resumeFrom = [
+      f.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true }),
+      f.branchUpdated({ branch: 'main', head: 'b'.repeat(40) }),
+    ]
+    const resumed = new SessionRecorder(FIRST, sessionFilePath(dir, FIRST), { resumeFrom })
+    expect(Object.isFrozen(resumed.foldSoFar())).toBe(true)
+    expect(resumed.foldSoFar()).toEqual(reduceAll(resumeFrom))
+  })
+
+  it('the self-heal still heals, and heals FROZEN — the rebuilt fold is not a mutable one', async () => {
+    // The existing self-heal law (above) proves the rebuild is correct. This
+    // one proves the rebuild went through the setter: leaving that one
+    // assignment un-routed gives a fold that is correct, mutable and silent.
+    await recorder.record(f.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true }))
+    const spy = vi.spyOn(core, 'reduce').mockImplementationOnce(() => {
+      throw new Error('reduce boom')
+    })
+    await recorder.record(f.branchUpdated({ branch: 'main', head: 'c'.repeat(40) }))
+    spy.mockRestore()
+
+    const healed = recorder.foldSoFar()
+    expect(recorder.eventsSoFar()).toHaveLength(2)
+    expect(healed).toEqual(reduceAll(recorder.eventsSoFar()))
+    expect(Object.isFrozen(healed)).toBe(true)
+    expect(() => {
+      healed.eventCount = 999
+    }).toThrow(TypeError)
+  })
+
+  it('freezing is bounded by what each event allocated, not by session length', async () => {
+    // The reason this needs no dev/test gate. `reduce` copies only the spine it
+    // changed and shares every untouched subtree, and those subtrees were
+    // frozen when they were created — so the `Object.isFrozen` short-circuit
+    // means each event freezes roughly what it allocated.
+    //
+    // Two sizes, because one size cannot tell "bounded" from "small" — the same
+    // shape as #3's spy law. No exact number is asserted: the claim is that the
+    // per-event cost does not GROW with the session, and an exact count would
+    // be a brittle restatement of today's reducer internals.
+    const freeze = vi.spyOn(Object, 'freeze')
+    let n = 0
+    const grow = async (count: number): Promise<void> => {
+      for (let i = 0; i < count; i += 1) {
+        n += 1
+        await recorder.record(
+          f.worktreeDiscovered({ path: `/repo/rhizomorph-wt/w${n}`, branch: `w${n}`, isMain: false }),
+        )
+      }
+    }
+
+    await grow(1) // warm up: the first event allocates the whole spine once.
+
+    const beforeSmall = freeze.mock.calls.length
+    await grow(5)
+    const perEventSmall = (freeze.mock.calls.length - beforeSmall) / 5
+
+    await grow(60) // a session an order of magnitude longer
+
+    const beforeLarge = freeze.mock.calls.length
+    await grow(5)
+    const perEventLarge = (freeze.mock.calls.length - beforeLarge) / 5
+
+    // Not vacuous: the freeze is doing real work at both sizes.
+    expect(perEventSmall).toBeGreaterThan(0)
+    expect(perEventLarge).toBeLessThanOrEqual(perEventSmall)
+  })
+
+  it('repetition: three records in a row keep the fold correct, frozen and identical across reads', async () => {
+    for (const event of [
+      f.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true }),
+      f.branchUpdated({ branch: 'main', head: 'a'.repeat(40) }),
+      f.worktreeDiscovered({ path: '/repo/rhizomorph-wt/feature', branch: 'feature', isMain: false }),
+    ]) {
+      await recorder.record(event)
+      const fold = recorder.foldSoFar()
+      expect(fold).toEqual(reduceAll(recorder.eventsSoFar()))
+      expect(Object.isFrozen(fold)).toBe(true)
+      expect(recorder.foldSoFar()).toBe(fold)
+    }
+  })
+})
+
 describe('SessionRecorder — foldSoFar() spy law (prd40 ruling 2)', () => {
   let dir: string
   let recorder: SessionRecorder
