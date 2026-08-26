@@ -224,6 +224,91 @@ session's buffer, fold and subscribers. `record()` therefore captures its writer
 and publishes nothing if the recorder has moved on. The event stays durable in the file it was
 appended to — the session it belongs to.
 
+**Amended 2026-08-26, fifth — a session is closed when its line is appended, not when it is
+synced.** Operator ruling, taken on #80 before that issue was dispatched. Rule 1 above says "a
+failed append **or sync** releases the seal", and that wording is the defect: an append that
+resolves has already put `session.closed` into the file, so a sync that fails afterwards releases
+a seal on a session that is closed on disk — and a later `record()` appends behind the close line.
+Confirmed pre-existing on `main` by two reviewers with a probe that rejects `sync` once, and
+invisible downstream, because `verifyRecord` computes the chain over the body as given.
+
+**Rule 1 splits in two:**
+
+1a. A failed **append** releases the seal and rejects. The close did not happen — nothing reached
+    the file — so the seal it took must not outlive it. Unchanged.
+
+1b. A failed **sync after a successful append does not release the seal.** The close *did* happen:
+    the line is in the file, and prd17 ruling 1's guarantee that it is the last line is now owed.
+    `closeWith` still rejects, so the failure is reported rather than swallowed — losing durability
+    is a fact the operator must learn — but the seal it earned stays, and only `openSession`
+    releases it.
+
+**What made this a fork, and why it is not one.** Holding the seal on a failed sync appears to
+wedge the recorder: `rotate.ts` reaches `openSession` (`:168`) only once `closeWith` resolves, so a
+rejected close would leave the seal held with nothing alive to release it — the hang rule 3 was
+added to prevent. That is real, and it is a property of the **caller**, not of this rule. The seal
+is only unreleasable because reopening is conditional on a successful close.
+
+**So reopening becomes unconditional.** `rotate.ts` opens the next session whether `closeWith`
+resolves or rejects. A session that could not be synced still ends, a fresh one still starts, the
+sync failure still reaches the operator, and no line ever lands behind `session.closed`. Rule 3 is
+untouched — a durable close still may not reject below the append — and the law at
+`session-recorder.test.ts:50` keeps the guarantee it was written for.
+
+**Two alternatives, and why they lost.** *Leave it as written* — the record can be silently
+corrupted and nothing downstream detects it, which is the failure shape ADR-0011 abolished for the
+silent skip. *Release the seal and record that the close was unsynced* — honest, but it does not
+actually prevent a line landing after `session.closed`; it only annotates a file that has already
+broken prd17 ruling 1.
+
+**Fence consequence, recorded before the change.** #80 was fenced to `session-recorder.ts` and its
+test. Rule 1b's cost lands in `rotate.ts`, so that issue widens to
+`packages/server/src/recorder/rotate.ts` and `rotate.test.ts`. Note prd-42's #49 touched that file
+on 2026-08-26 (`9406974`); #80 rebases onto it rather than racing it.
+
+**What "unconditional" costs, ruled 2026-08-26 in review of the amendment.** Raised by
+@gabriel-canaan: the sentence above dissolves one fork and opens three smaller ones, and a ruling
+that leaves those to a lane has not finished the job it names for itself. `rotateSession`
+(`rotate.ts:261-262`) is `closeCurrentSession` then `openNextSession`, and the second takes the
+first's `ClosedSession` — which a throwing close never returns. So all three are ruled here.
+
+1b-i. **`closeCurrentSession` returns rather than throws.** It absorbs the recorder's rejection and
+   returns a `ClosedSession` that carries the sync failure. **Nothing has to be reconstructed:**
+   `sessionId`, `filePath`, `closedAt` and `eventCount` are all captured at `rotate.ts:120-123`,
+   before the first `await`, so the descriptor is fully determined before the failure point.
+   `nextSessionStart(closed.sessionId, …)` therefore still guarantees a strictly greater id.
+   **Rule 1b is untouched by this** — `SessionRecorder.closeWith` still rejects, and reporting the
+   lost durability is still its job. The absorption is at the rotation layer, which is the layer
+   that owns what happens next.
+
+1b-ii. **`removeSessionLock` still runs** (`rotate.ts:149`). The lock guards a *live* session, and
+   the session is not live: its close line is on disk, which is what 1b establishes. Skipping it
+   would leave an orphan lock beside the new session's for no gain. Recorded because the blast
+   radius was measured rather than assumed — locks are per-session files and go stale after
+   `LOCK_STALE_MS`, so the wrong answer here is untidy and self-healing rather than dangerous,
+   which is exactly the kind of question a lane would otherwise decide silently.
+
+1b-iii. **`/api/rotate` answers 200, with the lost durability stated in the body.** Under 1b a
+   rotation can partly succeed: the old session closed, the new one open, durability gone. An error
+   status would say nothing happened, which is false, and would invite a retry that rotates a second
+   time — a worse outcome than the one being reported. 409 is spoken for by `RotationRefusedError`
+   and is not reused. The route reports the fact; it does not refuse.
+
+**In scope for #80, and out of it.** In scope: `closeCurrentSession`'s return shape, the
+unconditional call to `openNextSession`, the lock's placement, and the field `/api/rotate` reports.
+Out of scope: `RotationRefusedError` and the 409 path, `LOCK_STALE_MS`, and any change to what
+`closeWith` itself promises beyond 1a/1b above. A law drives **append resolves, sync rejects** —
+neither existing seal law covers it, and a test that only rejects `append` would pass while this
+stayed broken.
+
+**The `eventCount` question is ruled with it.** `closeCurrentSession` reads
+`recorder.eventsSoFar().length + 1` (`rotate.ts:124`), which can undercount a `record()` whose
+append is in flight but whose buffer push has not happened. Under 1b the close line's authority
+begins at its own append, so the count it carries is what was known at that moment and no more.
+**The count is a claim about the buffer, not a census of the file** — say so where it is written,
+and let `verifyRecord` remain the thing that counts lines. It is in #80's scope to state, not to
+re-engineer.
+
 ## Ruling 2 — the fold the server answers from is maintained, never rebuilt
 
 The recorder keeps a running `SessionState` beside its buffer: updated in `record()` via the

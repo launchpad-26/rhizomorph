@@ -3,6 +3,30 @@ import { initialSessionState, reduce, reduceAll } from '@rhizomorph/core'
 import type { EventOf, RhizomorphEvent, SessionState } from '@rhizomorph/core'
 import { SessionLogWriter } from './session-log-writer.js'
 
+/**
+ * The close line reached the file but `sync()` did not confirm it — prd-40
+ * ruling 1, rule 1b (#80). The session IS closed: a session is closed the
+ * instant its `session.closed` line is appended, and durability is a separate,
+ * later property. Its seal is therefore held, and only `openSession` releases
+ * it.
+ *
+ * Distinct **by type**, not by message, because `closeCurrentSession` has to
+ * tell this apart from every other close failure — which means rule 1a, the
+ * close did not happen at all — and an error message is not an API.
+ */
+export class CloseNotDurableError extends Error {
+  constructor(
+    readonly sessionId: string,
+    override readonly cause: unknown,
+  ) {
+    super(
+      `session ${sessionId} was closed but not synced: ${cause instanceof Error ? cause.message : String(cause)}. ` +
+        'The `session.closed` line is in the file and the session is sealed; durability is what was lost.',
+    )
+    this.name = 'CloseNotDurableError'
+  }
+}
+
 export interface SessionRecorderOptions {
   /**
    * Events already in the session file, written by the process that started
@@ -14,6 +38,31 @@ export interface SessionRecorderOptions {
    * Present-but-empty still means resuming; absent means a new session.
    */
   resumeFrom?: readonly RhizomorphEvent[]
+}
+
+/**
+ * Freezes `value` and everything reachable from it, stopping at anything
+ * already frozen.
+ *
+ * That short-circuit is what makes this affordable rather than a per-event
+ * walk of the whole state: `reduce` copies only the spine it changed and
+ * shares every untouched subtree, and those subtrees were frozen when they
+ * were created. So each event freezes roughly what it allocated.
+ *
+ * Sound because `SessionState` is plain objects, arrays and `Record`s — no
+ * `Map`, `Set` or `Date`, which `Object.freeze` would not protect. That is a
+ * property #179 deliberately maintains: the fold's own lookup tables live in
+ * `UsageIndex` *beside* the reducer, never in the state slice
+ * (`core/src/state.ts:426`, pinned by `state.test.ts`).
+ */
+function deepFreeze<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value
+  if (Object.isFrozen(value)) return value
+  Object.freeze(value)
+  for (const key of Object.keys(value as object)) {
+    deepFreeze((value as Record<string, unknown>)[key])
+  }
+  return value
 }
 
 /**
@@ -40,8 +89,13 @@ export class SessionRecorder {
    * rebuilt per read (prd40 ruling 2). Kept exactly in step with `buffer`:
    * every push into it is followed, in the same synchronous step, by an
    * `advanceFold` call — see `record`, `closeWith` and `openSession`.
+   *
+   * Definitely assigned: the constructor assigns it through {@link setFold},
+   * which is the only writer (#69). `tsc`'s definite-assignment analysis does
+   * not follow a method call, so the alternative to this assertion would be an
+   * initializer whose whole job is to be overwritten one line later.
    */
-  private foldState: SessionState
+  private foldState!: SessionState
   /**
    * True when {@link advanceFold} could not keep `foldState` in step with an
    * event that DID land in `buffer` — see its own comment. `foldSoFar` checks
@@ -65,7 +119,7 @@ export class SessionRecorder {
     this.currentFilePath = filePath
     const resuming = options.resumeFrom !== undefined
     if (options.resumeFrom) this.buffer.push(...options.resumeFrom)
-    this.foldState = reduceAll(this.buffer)
+    this.setFold(reduceAll(this.buffer))
     this.writer = new SessionLogWriter(filePath, { resuming })
     // Many concurrent SSE clients each subscribe once; the default cap of 10 is easy to hit honestly.
     this.emitter.setMaxListeners(0)
@@ -108,10 +162,19 @@ export class SessionRecorder {
    */
   private advanceFold(event: RhizomorphEvent): void {
     try {
-      this.foldState = reduce(this.foldState, event)
+      this.setFold(reduce(this.foldState, event))
     } catch {
       this.foldDesynced = true
     }
+  }
+
+  /**
+   * The ONLY assignment to {@link foldState}. Every fold this recorder hands
+   * out is frozen (prd40 #69, ADR-0031), and routing every path through here is
+   * what makes that structural rather than four remembered call sites.
+   */
+  private setFold(next: SessionState): void {
+    this.foldState = deepFreeze(next)
   }
 
   async record(event: RhizomorphEvent): Promise<void> {
@@ -200,6 +263,16 @@ export class SessionRecorder {
    * collector poll landing in the same tick cannot slip in behind it.
    *
    * Returns once the closed log is flushed and fsynced (prd17 ruling 3.5).
+   *
+   * **Two ways to reject, and they mean opposite things** (prd40 ruling 1's
+   * fifth amendment, #80):
+   *
+   * - the **append** failed — rule 1a. Nothing reached the file, the close did
+   *   not happen, and the seal is released before the original error is
+   *   rethrown.
+   * - the **sync** failed after the append resolved — rule 1b. The close DID
+   *   happen; the line is in the file. The seal is HELD, and the rejection is
+   *   a {@link CloseNotDurableError} so the caller can tell the two apart.
    */
   async closeWith(event: EventOf<'session.closed'>): Promise<void> {
     while (this.sealed !== null) await this.sealed
@@ -209,29 +282,60 @@ export class SessionRecorder {
     // The seal is still taken FIRST, so prd17 ruling 1's structural guarantee is
     // untouched — a collector poll landing in the same tick still cannot slip in
     // behind the final line. Only the publishing moves (prd40 ruling 1).
+    //
+    // The append and the sync are caught SEPARATELY (prd40 ruling 1's fifth
+    // amendment, #80). One `try` around both cannot tell which failed, and the
+    // two failures are opposite facts: a failed append means the close never
+    // happened, a failed sync means it happened and is merely not durable.
     try {
       await this.writer.append(event)
-      await this.writer.sync()
     } catch (error) {
-      // The close did NOT happen, so the seal it took must not outlive it —
-      // otherwise every later `record` waits on a session nobody will reopen.
+      // RULE 1a — the close did NOT happen. Nothing reached the file, so the
+      // seal it took must not outlive it; otherwise every later `record` waits
+      // on a session nobody will reopen.
       const release = this.releaseSeal
       this.sealed = null
       this.releaseSeal = null
       release?.()
       throw error
     }
-    // Past here the session IS closed on disk, and two rules follow.
+    // Past this line `session.closed` IS in the file, so the session is closed
+    // — durability is a separate, later property. RULE 1b: the seal STAYS
+    // whatever happens below, because prd17 ruling 1's "it is the last line" is
+    // now owed and only `openSession` releases a seal the close earned.
+    try {
+      await this.writer.sync()
+    } catch (error) {
+      // RULE 1b — the close happened but is not durable. Reject, so the lost
+      // durability reaches the operator rather than being swallowed; and hold
+      // the seal, so nothing appends behind `session.closed`.
+      //
+      // This does NOT wedge the recorder. The seal would be unreleasable only
+      // if reopening were conditional on a successful close, and since #80 it
+      // is not: `closeCurrentSession` absorbs this rejection (rule 1b-i) and
+      // `openNextSession` runs regardless, releasing the seal.
+      //
+      // Nothing is published on this path — no buffer push, no `advanceFold`,
+      // no emit. That leaves the fold BEHIND the file rather than ahead of it,
+      // which is the side success 1 permits ("leaves the fold ahead of the file
+      // after a rejected append" is what it forbids), and it is what the code
+      // already did when append and sync shared a catch. The fifth amendment
+      // moves the seal, not the publishing.
+      throw new CloseNotDurableError(this.currentSessionId, error)
+    }
+    // Past here the session IS closed on disk AND durable, and two rules follow.
     //
     // The seal STAYS. Releasing it would let a later `record` append behind
     // `session.closed`, which is the guarantee prd17 ruling 1 makes structural.
     // Only `openSession` releases a seal the close earned.
     //
-    // And nothing below may reject. `rotate.ts` reaches `removeSessionLock`
-    // and `openSession` only once this resolves (`rotate.ts:149`, `:168`), so
-    // rejecting here would strand that seal with nothing alive to release it:
-    // every later `record` parks forever on the wait above, `runTick` never
-    // returns, and the poll loop stops silently and permanently.
+    // And nothing below may reject (rule 3, untouched by #80). The ONE
+    // rejection `closeCurrentSession` absorbs is {@link CloseNotDurableError}
+    // above; every other one still propagates, and `rotate.ts` then reaches
+    // neither `removeSessionLock` nor `openSession`. So rejecting here would
+    // strand that seal with nothing alive to release it: every later `record`
+    // parks forever on the wait above, `runTick` never returns, and the poll
+    // loop stops silently and permanently.
     this.buffer.push(event)
     this.advanceFold(event)
     try {
@@ -257,7 +361,7 @@ export class SessionRecorder {
     this.currentFilePath = filePath
     this.writer = new SessionLogWriter(filePath)
     this.buffer = []
-    this.foldState = initialSessionState()
+    this.setFold(initialSessionState())
     this.foldDesynced = false
     const release = this.releaseSeal
     this.sealed = null
@@ -281,15 +385,24 @@ export class SessionRecorder {
    * prd-40's open question on whether `eventsSoFar()` should eventually
    * narrow to the exporter only; that is not decided here.
    *
-   * Returned by reference, not copied — `SessionState` is treated as
-   * read-only by the same convention every other reader of `reduceAll(...)`
-   * already relies on (e.g. `api/meta.ts`, `cli/run.ts`); copying it here
-   * would both invent a new discipline and defeat the O(1) cost this method
-   * exists to provide.
+   * Returned by reference, not copied — copying here would both defeat the
+   * O(1) cost this method exists to provide and break the identity law that
+   * makes "no re-fold on any route" hold however a caller reaches it.
+   *
+   * Read-only is **enforced, not conventional** (#69, ADR-0031). Unlike
+   * `reduceAll(...)`, which hands every caller a private fold, this hands out
+   * the recorder's ONLY one, and `foldDesynced` is raised only when `reduce`
+   * throws — never when a caller writes. So a caller's mutation would be
+   * silent, permanent for the session, and unrepairable. Every fold is
+   * therefore deep-frozen on assignment ({@link setFold}), and a caller's
+   * write throws instead of corrupting.
+   *
+   * What that does NOT cover: a caller who casts the freeze away. It closes
+   * the silent-corruption failure mode, not every route to it.
    */
   foldSoFar(): SessionState {
     if (this.foldDesynced) {
-      this.foldState = reduceAll(this.buffer)
+      this.setFold(reduceAll(this.buffer))
       this.foldDesynced = false
     }
     return this.foldState

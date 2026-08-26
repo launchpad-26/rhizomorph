@@ -4,15 +4,28 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { RhizomorphEvent } from '@rhizomorph/core'
 import * as core from '@rhizomorph/core'
-import { createEvent, createEventFactory, initialSessionState, reduceAll } from '@rhizomorph/core'
+import { createEvent, createEventFactory, EVENT_TYPES, initialSessionState, reduceAll } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { writeSessionLock } from '../log/session-lock.js'
 import { sessionFilePath } from '../log/session-log.js'
 import { rotateSession } from './rotate.js'
 import { SessionLogWriter } from './session-log-writer.js'
-import { SessionRecorder } from './session-recorder.js'
+import { CloseNotDurableError, SessionRecorder } from './session-recorder.js'
 
 const FIRST = '1000'
+
+/**
+ * Every line of a log, in order, by type. The WHOLE sequence — never
+ * `lines.at(-1)`: "`session.closed` is the last line" is a claim about the
+ * file, and a last-line check passes on a file that ended two lines early
+ * (`a6dddfd`, review of #105).
+ */
+function lineTypes(filePath: string): string[] {
+  return readFileSync(filePath, 'utf8')
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => String((JSON.parse(line) as { type: string }).type))
+}
 
 /** Structural fallback: the fold is a fresh object per event, so identity cannot be the check mid-emit. */
 function deepEqualFold(r: SessionRecorder): boolean {
@@ -49,6 +62,59 @@ describe('SessionRecorder#closeWith', () => {
     await expect(
       recorder.record(createEvent('collector.error', { collector: 'git', message: 'boom' }, { id: 'evt-2', ts: 1001 })),
     ).resolves.toBeUndefined()
+  })
+
+  /**
+   * THE #80 LAW — prd40 ruling 1's fifth amendment, rule 1b.
+   *
+   * A session is closed the instant its `session.closed` line is appended;
+   * durability is a separate, later property. So a `sync()` that fails AFTER a
+   * successful append must NOT release the seal — the line is in the file, and
+   * prd17 ruling 1's "it is the last line" is now owed.
+   *
+   * It mocks `sync`, deliberately, and that is the whole point. The seal law
+   * above mocks `append`, and #4's durable-close law throws from a subscriber;
+   * neither can see this. A variant of THIS test that rejected `append`
+   * instead was run against the unfixed code and passed — vacuously, because
+   * a failed append leaves no `session.closed` for anything to land behind.
+   */
+  it('holds the seal when the append lands but the fsync fails — nothing may follow `session.closed`', async () => {
+    await recorder.record(
+      createEvent('collector.error', { collector: 'git', message: 'before' }, { id: 'evt-1', ts: 999 }),
+    )
+    const closeEvent = createEvent(
+      'session.closed',
+      { sessionId: FIRST, reason: 'rotated', eventCount: 2 },
+      { id: `session-closed-${FIRST}`, ts: 1000 },
+    )
+    vi.spyOn(SessionLogWriter.prototype, 'sync').mockRejectedValueOnce(new Error('EIO: i/o error, fsync'))
+
+    // It rejects — losing durability is a fact the operator must learn — and it
+    // rejects with a TYPE, because `closeCurrentSession` has to tell 1b from 1a
+    // and a message is not an API.
+    await expect(recorder.closeWith(closeEvent)).rejects.toBeInstanceOf(CloseNotDurableError)
+    expect(recorder.isSealed).toBe(true)
+
+    // The defect, closed: a later `record()` must not reach the file. It parks
+    // on the seal instead — which is safe precisely because reopening is now
+    // unconditional (`closeCurrentSession` absorbs this rejection).
+    let settled = false
+    const queued = recorder
+      .record(createEvent('collector.error', { collector: 'git', message: 'after' }, { id: 'evt-3', ts: 1001 }))
+      .then(() => {
+        settled = true
+      })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(settled).toBe(false)
+
+    expect(lineTypes(sessionFilePath(dir, FIRST))).toEqual(['collector.error', 'session.closed'])
+
+    const SECOND = '2000'
+    recorder.openSession(SECOND, sessionFilePath(dir, SECOND))
+    await queued
+    // And it landed in the NEW session, not behind the closed log's last line.
+    expect(lineTypes(sessionFilePath(dir, FIRST))).toEqual(['collector.error', 'session.closed'])
+    expect(lineTypes(sessionFilePath(dir, SECOND))).toEqual(['collector.error'])
   })
 
   it('a subscriber throwing after a durable close neither fails the close nor reopens the log', async () => {
@@ -556,6 +622,256 @@ describe('SessionRecorder — maintained fold (prd40 ruling 2)', () => {
     const after = f.worktreeDiscovered({ path: '/repo/rhizomorph-wt/x', branch: 'x', isMain: false })
     await recorder.record(after)
     expect(recorder.foldSoFar()).toEqual(reduceAll(recorder.eventsSoFar()))
+  })
+})
+
+describe('SessionRecorder — the fold handed out is frozen (#69, ADR-0031)', () => {
+  let dir: string
+  let recorder: SessionRecorder
+  let f: ReturnType<typeof createEventFactory>
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-recorder-freeze-test-'))
+    recorder = new SessionRecorder(FIRST, sessionFilePath(dir, FIRST))
+    f = createEventFactory()
+  })
+
+  afterEach(async () => {
+    vi.restoreAllMocks()
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('a caller cannot corrupt the fold with a top-level write — it throws, and the fold stays correct', async () => {
+    // The defect this issue closes. `reduceAll()` hands every caller a PRIVATE
+    // fold, so a mutation there corrupts only that caller. `foldSoFar()` hands
+    // out the recorder's ONLY fold, and `foldDesynced` is raised only when
+    // `reduce` throws — never when a caller writes. So without the freeze the
+    // corruption is silent and permanent for the life of the session.
+    await recorder.record(f.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true }))
+    const folded = recorder.foldSoFar()
+
+    // Test files are ESM and therefore strict mode: the write throws rather
+    // than failing silently, which is what makes this assertable at all.
+    expect(() => {
+      folded.eventCount = 999
+    }).toThrow(TypeError)
+
+    // And the fold the recorder still answers with is the correct one.
+    expect(recorder.foldSoFar().eventCount).not.toBe(999)
+    expect(recorder.foldSoFar()).toEqual(reduceAll(recorder.eventsSoFar()))
+  })
+
+  it('a caller cannot corrupt the fold with a NESTED write either — the walk is deep', async () => {
+    // The sibling of the law above, and the reason the freeze recurses. This is
+    // exactly the mutation a `Readonly<SessionState>` return type would have
+    // let through: shallow readonly stops `folded.branches = {}` and says
+    // nothing about `folded.branches.main.head`.
+    await recorder.record(f.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true }))
+    await recorder.record(f.branchUpdated({ branch: 'main', head: 'a'.repeat(40) }))
+
+    const branch = recorder.foldSoFar().branches.main
+    if (!branch) throw new Error('the fixture must create a branch for this law to mean anything')
+    expect(branch.head).toBe('a'.repeat(40))
+
+    expect(() => {
+      branch.head = 'd'.repeat(40)
+    }).toThrow(TypeError)
+
+    expect(recorder.foldSoFar().branches.main?.head).toBe('a'.repeat(40))
+    expect(recorder.foldSoFar()).toEqual(reduceAll(recorder.eventsSoFar()))
+  })
+
+  it('the freeze did NOT become a copy — reads still return the same object', async () => {
+    // The constraint that rules copy-on-read out. #3's identity law is what
+    // makes "no re-fold on any route" hold however a caller reaches the fold;
+    // a defensive copy would satisfy immutability and destroy it, and would
+    // reintroduce the per-read cost growing with session length that prd-40
+    // ruling 2 removed.
+    await recorder.record(f.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true }))
+    const first = recorder.foldSoFar()
+    expect(recorder.foldSoFar()).toBe(first)
+    expect(recorder.foldSoFar()).toBe(first)
+  })
+
+  it('EVERY path that sets the fold yields a frozen one — constructor, record, self-heal, openSession', async () => {
+    // The sibling-case law. There are four assignment sites, and a fix applied
+    // to three of them is a silently mutable fold on the fourth path. They all
+    // route through the one private setter; this is what proves it.
+
+    // 1. the constructor, before any event.
+    expect(Object.isFrozen(recorder.foldSoFar())).toBe(true)
+
+    // 2. advanceFold, via record().
+    await recorder.record(f.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true }))
+    expect(Object.isFrozen(recorder.foldSoFar())).toBe(true)
+
+    // 3. the self-heal rebuild inside foldSoFar().
+    const spy = vi.spyOn(core, 'reduce').mockImplementationOnce(() => {
+      throw new Error('reduce boom')
+    })
+    await recorder.record(f.branchUpdated({ branch: 'main', head: 'b'.repeat(40) }))
+    spy.mockRestore()
+    expect(Object.isFrozen(recorder.foldSoFar())).toBe(true)
+
+    // 4. openSession's reset.
+    const SECOND = '2000'
+    await recorder.closeWith(f.sessionClosed({ sessionId: FIRST, reason: 'rotated', eventCount: 2 }))
+    recorder.openSession(SECOND, sessionFilePath(dir, SECOND))
+    expect(Object.isFrozen(recorder.foldSoFar())).toBe(true)
+  })
+
+  it('a resumed constructor freezes too — the fold rebuilt from resumeFrom is not a mutable one', async () => {
+    const resumeFrom = [
+      f.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true }),
+      f.branchUpdated({ branch: 'main', head: 'b'.repeat(40) }),
+    ]
+    const resumed = new SessionRecorder(FIRST, sessionFilePath(dir, FIRST), { resumeFrom })
+    expect(Object.isFrozen(resumed.foldSoFar())).toBe(true)
+    expect(resumed.foldSoFar()).toEqual(reduceAll(resumeFrom))
+  })
+
+  it('the self-heal still heals, and heals FROZEN — the rebuilt fold is not a mutable one', async () => {
+    // The existing self-heal law (above) proves the rebuild is correct. This
+    // one proves the rebuild went through the setter: leaving that one
+    // assignment un-routed gives a fold that is correct, mutable and silent.
+    await recorder.record(f.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true }))
+    const spy = vi.spyOn(core, 'reduce').mockImplementationOnce(() => {
+      throw new Error('reduce boom')
+    })
+    await recorder.record(f.branchUpdated({ branch: 'main', head: 'c'.repeat(40) }))
+    spy.mockRestore()
+
+    const healed = recorder.foldSoFar()
+    expect(recorder.eventsSoFar()).toHaveLength(2)
+    expect(healed).toEqual(reduceAll(recorder.eventsSoFar()))
+    expect(Object.isFrozen(healed)).toBe(true)
+    expect(() => {
+      healed.eventCount = 999
+    }).toThrow(TypeError)
+  })
+
+  it('freezing is bounded by what each event allocated, not by session length', async () => {
+    // The reason this needs no dev/test gate. `reduce` copies only the spine it
+    // changed and shares every untouched subtree, and those subtrees were
+    // frozen when they were created — so the `Object.isFrozen` short-circuit
+    // means each event freezes roughly what it allocated.
+    //
+    // Two sizes, because one size cannot tell "bounded" from "small" — the same
+    // shape as #3's spy law. No exact number is asserted: the claim is that the
+    // per-event cost does not GROW with the session, and an exact count would
+    // be a brittle restatement of today's reducer internals.
+    const freeze = vi.spyOn(Object, 'freeze')
+    let n = 0
+    const grow = async (count: number): Promise<void> => {
+      for (let i = 0; i < count; i += 1) {
+        n += 1
+        await recorder.record(
+          f.worktreeDiscovered({ path: `/repo/rhizomorph-wt/w${n}`, branch: `w${n}`, isMain: false }),
+        )
+      }
+    }
+
+    await grow(1) // warm up: the first event allocates the whole spine once.
+
+    const beforeSmall = freeze.mock.calls.length
+    await grow(5)
+    const perEventSmall = (freeze.mock.calls.length - beforeSmall) / 5
+
+    await grow(60) // a session an order of magnitude longer
+
+    const beforeLarge = freeze.mock.calls.length
+    await grow(5)
+    const perEventLarge = (freeze.mock.calls.length - beforeLarge) / 5
+
+    // Not vacuous: the freeze is doing real work at both sizes.
+    expect(perEventSmall).toBeGreaterThan(0)
+    expect(perEventLarge).toBeLessThanOrEqual(perEventSmall)
+  })
+
+  it('no reducer arm mutates its frozen input — every event type in the union, not just the corpus', async () => {
+    // The freeze makes the fold the INPUT to the next `reduce()`, so ADR-0002's
+    // purity contract stops being a convention and becomes load-bearing. An arm
+    // that writes to its input now throws — and `advanceFold` CATCHES that,
+    // raising `foldDesynced`. So the failure is not a crash: it is a silent,
+    // permanent fallback to a full `reduceAll` on every read, which is exactly
+    // the per-read cost prd40 ruling 2 exists to remove.
+    //
+    // The corpus law below discharges this for era-1, which carries 15 of the
+    // union's types — `eras.test.ts` pins the 13 it does not reach, among them
+    // every `collector.*`, `fork.*`, `judge.finding` and `telemetry.refused`.
+    // Their arms are clean today (verified), but nothing held them there.
+    //
+    // Anchored on EVENT_TYPES rather than a count, so a 29th event type fails
+    // this law until someone folds it here — the guard is scoped by what the
+    // union IS, not by how many members it had the day it was written.
+    const events = [
+      f.sessionStarted(),
+      f.collectorError(),
+      f.collectorDisabled(),
+      f.collectorDegraded(),
+      f.collectorRecovered(),
+      f.worktreeDiscovered(),
+      f.worktreeRemoved(),
+      f.worktreeDirty(),
+      f.worktreeDirtyStatusFailed(),
+      f.worktreeDirtyStatusRecovered(),
+      f.branchUpdated(),
+      f.branchRemoved(),
+      f.commitLanded(),
+      f.paneDiscovered(),
+      f.paneClosed(),
+      f.paneActivity(),
+      f.agentStatus(),
+      f.agentRemoved(),
+      f.llmUsage(),
+      f.llmCost(),
+      f.toolActivity(),
+      f.agentActiveTime(),
+      f.traceSpan(),
+      f.forkCheckpoint(),
+      f.forkDispatched(),
+      f.judgeFinding(),
+      f.make('telemetry.refused', { instance: 'other', expectedInstance: 'fixture-instance', count: 1 }),
+      f.sessionClosed(),
+    ]
+    // Exhaustive by construction, and it stays that way.
+    expect([...new Set(events.map((event) => event.type))].sort()).toEqual([...EVENT_TYPES].sort())
+
+    // `foldSoFar` reaches `reduceAll` ONLY to self-heal a desync, and `record`
+    // never reaches it at all — so a single call here means an arm threw on its
+    // frozen input. Counting `core.reduce` instead would NOT work: `reduceAll`
+    // calls `reduce` through a module-local binding a namespace spy never sees.
+    const healed = vi.spyOn(core, 'reduceAll')
+    for (const event of events) {
+      await recorder.record(event)
+      recorder.foldSoFar()
+      // Checked after EVERY event, and carrying the type: the self-heal repairs
+      // the ANSWER, so a trailing equality assertion cannot see that it fired,
+      // and a bare count would not say which arm did it.
+      expect({ after: event.type, selfHeals: healed.mock.calls.length }).toEqual({
+        after: event.type,
+        selfHeals: 0,
+      })
+    }
+    healed.mockRestore() // this law's own reduceAll calls must not be counted
+
+    expect(recorder.eventsSoFar()).toHaveLength(events.length)
+    expect(recorder.foldSoFar()).toEqual(reduceAll(recorder.eventsSoFar()))
+    expect(Object.isFrozen(recorder.foldSoFar())).toBe(true)
+  })
+
+  it('repetition: three records in a row keep the fold correct, frozen and identical across reads', async () => {
+    for (const event of [
+      f.worktreeDiscovered({ path: '/repo/rhizomorph', branch: 'main', isMain: true }),
+      f.branchUpdated({ branch: 'main', head: 'a'.repeat(40) }),
+      f.worktreeDiscovered({ path: '/repo/rhizomorph-wt/feature', branch: 'feature', isMain: false }),
+    ]) {
+      await recorder.record(event)
+      const fold = recorder.foldSoFar()
+      expect(fold).toEqual(reduceAll(recorder.eventsSoFar()))
+      expect(Object.isFrozen(fold)).toBe(true)
+      expect(recorder.foldSoFar()).toBe(fold)
+    }
   })
 })
 
