@@ -31,12 +31,13 @@
  * `claude -p` session started from a directory whose name contains a space
  * produced a slug in which the space had become a dash — so Claude Code's
  * own slugger maps it, `concierge/repos.ts`'s reverse walk already assumed
- * it (`entry.replace(/[._ ]/g, '-')`), and this function was the one side
- * that disagreed. For any repo whose path contained a space, every
- * transcript was invisible, indistinguishable from an agent that never
- * started — prd-42 ruling 1's own round-trip law
- * (`worktree-slug.test.ts`) is what proves the two sides now agree on the
- * space specifically, not on every character this function still misses.
+ * it (its class read `entry.replace(/[._ ]/g, '-')` then; #47 widened it to
+ * `/[._:\\ ]/g`), and this function was the one side that disagreed. For any
+ * repo whose path contained a space, every transcript was invisible,
+ * indistinguishable from an agent that never started — prd-42 ruling 1's own
+ * round-trip law (`concierge/repos.test.ts`, moved there by #47) is what
+ * proves the two sides now agree on the space specifically, not on every
+ * character this function still misses.
  *
  * **`\` and `:` are the Windows half, and they are evidenced rather than
  * assumed** (ledger #11). `research/2026-08-14-cross-host-resume.md` §"Both
