@@ -192,8 +192,14 @@ export class SessionRecorder {
     if (this.writer !== writer) return
     this.buffer.push(event)
     this.advanceFold(event)
-    // A throwing subscriber here just rejects this call's promise — unlike
-    // closeWith, record() holds no seal that would otherwise stay stuck.
+    // A throwing subscriber no longer rejects this call (#106). It used to, and
+    // that was not harmless: `poll-loop.ts:223` calls `record` inside the try
+    // whose catch builds a `collector.error`, with the snapshot advance behind
+    // it — so a buggy dashboard manufactured a false error naming a healthy
+    // collector AND left the snapshot un-advanced, re-appending the whole batch
+    // next tick. `subscribe` isolates every listener, so this emit cannot throw
+    // and all three publish paths now agree: a subscriber's bug is not the
+    // publisher's failure.
     this.emitter.emit('event', event)
   }
 
@@ -242,16 +248,11 @@ export class SessionRecorder {
     // `buffer` nor `foldState`, whatever the writer did in the meantime: a
     // rotation racing the alarm is not a reason to silence it, and since
     // nothing entered the buffer or the fold it cannot pollute the new session.
-    try {
-      this.emitter.emit('event', event)
-    } catch (error) {
-      // Unlike `record`, a throwing subscriber must not reject here — a buggy
-      // dashboard would then be the thing that silences the disk-full warning.
-      // Same shape as `closeWith` below: reported, never propagated.
-      console.error(
-        `[rhizomorph] a subscriber threw on the degrade alarm: ${error instanceof Error ? error.message : String(error)}`,
-      )
-    }
+    // The guard moved to `subscribe` (#106), which isolates every listener at
+    // registration: this emit cannot throw, and — the part the per-site guard
+    // could never buy — a buggy dashboard is no longer what silences the
+    // disk-full alarm for every dashboard behind it (ADR-0030).
+    this.emitter.emit('event', event)
     return { appended }
   }
 
@@ -338,16 +339,11 @@ export class SessionRecorder {
     // loop stops silently and permanently.
     this.buffer.push(event)
     this.advanceFold(event)
-    try {
-      this.emitter.emit('event', event)
-    } catch (error) {
-      // A subscriber's bug is not the closer's failure. Reported, never
-      // propagated — the same shape as the poll loop's `recordOrDegrade`
-      // (#239): the reporting path is never the crash path.
-      console.error(
-        `[rhizomorph] a subscriber threw on session.closed: ${error instanceof Error ? error.message : String(error)}`,
-      )
-    }
+    // The guard moved to `subscribe` (#106), which isolates every listener at
+    // registration: this emit cannot throw, so rule 3 still holds — nothing
+    // below a durable close rejects, `rotate.ts` still reaches `openSession`,
+    // and the seal is never stranded.
+    this.emitter.emit('event', event)
   }
 
   /**
@@ -415,7 +411,28 @@ export class SessionRecorder {
 
   /** Subscribes to events recorded from this point on. Returns an unsubscribe function. */
   subscribe(listener: (event: RhizomorphEvent) => void): () => void {
-    this.emitter.on('event', listener)
-    return () => this.emitter.off('event', listener)
+    // prd40 #106: Node's `emit` abandons the listener list at the FIRST throw, so
+    // an unguarded listener silences every subscriber registered after it — for
+    // every event, on all three publish paths. Each listener is therefore isolated
+    // at registration: its throw is reported and goes no further, and the emit
+    // itself can no longer fail. `api/stream.ts` gives one of these per SSE
+    // client, and `setMaxListeners(0)` above says how many that can be.
+    //
+    // A subscriber's bug is not the publisher's failure — the asymmetry
+    // `closeWith` already drew and `recordOrDegrade` (#239) established.
+    const guarded = (event: RhizomorphEvent): void => {
+      try {
+        listener(event)
+      } catch (error) {
+        console.error(
+          `[rhizomorph] a subscriber threw on ${event.type}: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+    }
+    this.emitter.on('event', guarded)
+    // Closes over `guarded`, NOT `listener`: `off` matches by reference, so
+    // unsubscribing the caller's own function would silently remove nothing and
+    // leak a listener per SSE client. Pinned by the unsubscribe law (#106).
+    return () => this.emitter.off('event', guarded)
   }
 }
