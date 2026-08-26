@@ -395,8 +395,11 @@ describe('SessionRecorder#recordAlarm — the one named exception (prd40 success
     // The exemption is about publishing, never about writing behind a closed
     // log — prd17 ruling 1's structural guarantee is not one of the clauses
     // ADR-0030 carves out.
+    // The whole file, not its last line: indexing would need a bounds check to
+    // typecheck, and asserting the entire sequence is the stronger claim anyway
+    // — it says the alarm is not in this log AT ALL, not merely not last.
     const closed = readFileSync(sessionFilePath(dir, FIRST), 'utf8').trimEnd().split('\n')
-    expect(JSON.parse(closed[closed.length - 1]).type).toBe('session.closed')
+    expect(closed.map((line) => JSON.parse(line).type)).toEqual(['session.closed'])
 
     const SECOND = '2000'
     recorder.openSession(SECOND, sessionFilePath(dir, SECOND))
