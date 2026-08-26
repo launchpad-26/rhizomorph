@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, statSync } from 'node:fs'
-import { chmod, mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises'
 import { platform, tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { worktreePathToProjectSlug } from '../collectors/sessionlog/worktree-slug.js'
 import {
   type DiscoveryFs,
   type SubdirectoryListing,
@@ -217,6 +218,80 @@ describe('reverseProjectSlug', () => {
     const reason = (result as { reason: string }).reason
     expect(reason).toContain('permission denied')
     expect(reason).not.toContain('no directory under')
+  })
+})
+
+/**
+ * prd-42 ruling 1's round-trip law: for a generated set of paths including
+ * spaces, dots, underscores, colons and backslashes, encoding through
+ * `worktreePathToProjectSlug` then walking back through `reverseProjectSlug`
+ * must return the original path.
+ *
+ * Lives here, not in `collectors/sessionlog/worktree-slug.test.ts` (#47,
+ * absorbing #52): `concierge/namespace-law.test.ts` clause 1's "no file in
+ * either package reaches the concierge module" sweep skips every file
+ * `isInConcierge` already covers — a test living in this directory needs no
+ * computed specifier, no cast and no hand-copied return type to reach
+ * `reverseProjectSlug`, unlike the version of this law that used to live
+ * outside the module. `reverseProjectSlug` above is the real, typed import.
+ *
+ * The colon case used to assert an HONEST REFUSAL here (`path: null`) rather
+ * than a round trip, because `reverseProjectSlug`'s re-encode only covered
+ * `.`, `_` and a space. #47 widened it to also cover `:` and `\`, so the
+ * colon and backslash segments below now assert the round trip every other
+ * segment already does — proven, not asserted: reverting the walk's class to
+ * `/[._ ]/g` reddens exactly the colon and backslash pairs in this matrix
+ * (measured while writing this test), so a class narrowed back down is
+ * caught here, not silently passed as a fluke pairing.
+ */
+describe("worktreePathToProjectSlug round-trips through reverseProjectSlug", () => {
+  it('resolves every generated path back to itself, including one with a literal space, colon and backslash', async () => {
+    // `os.tmpdir()` is a symlink on macOS (`/var` -> `/private/var`) and is
+    // not on Linux — encoding the raw path and walking back to the canonical
+    // one would pass on ubuntu and fail only on the macOS CI leg. Resolved
+    // once, up front, so every generated case is built beneath the canonical
+    // root and the round trip is symmetric on every platform.
+    const tmpRoot = await mkdtemp(path.join(tmpdir(), 'worktree-slug-law-'))
+    const root = await realpath(tmpRoot)
+
+    try {
+      const ROUND_TRIP_SEGMENTS = [
+        'plain-word',
+        'dotted.segment',
+        'under_score',
+        'a space here',
+        'a:colon here',
+        'a\\backslash here',
+      ]
+
+      // Every ordered pair of distinct segments — each mapped character is
+      // exercised both leading and following another — plus one path
+      // carrying all six together, so the round trip also holds when every
+      // one of them appears in the same slug at once.
+      const roundTripPaths: string[][] = []
+      for (const first of ROUND_TRIP_SEGMENTS) {
+        for (const second of ROUND_TRIP_SEGMENTS) {
+          if (first !== second) roundTripPaths.push([first, second])
+        }
+      }
+      roundTripPaths.push(ROUND_TRIP_SEGMENTS)
+
+      expect(roundTripPaths.some((segments) => segments.some((segment) => segment.includes(' ')))).toBe(true)
+      expect(roundTripPaths.some((segments) => segments.some((segment) => segment.includes(':')))).toBe(true)
+      expect(roundTripPaths.some((segments) => segments.some((segment) => segment.includes('\\')))).toBe(true)
+
+      for (const segments of roundTripPaths) {
+        const target = path.join(root, ...segments)
+        await mkdir(target, { recursive: true })
+
+        const slug = worktreePathToProjectSlug(target)
+        const result = await reverseProjectSlug(slug)
+
+        expect(result, `round trip broke for ${target} (slug ${slug})`).toEqual({ path: target })
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })
 
