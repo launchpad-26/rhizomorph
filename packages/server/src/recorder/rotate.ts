@@ -197,36 +197,75 @@ export function nextSessionStart(closedSessionId: string, nowMs: number): number
  * AND `retargetSession` (#14), because the guarantee is "never two
  * close/open pairs racing the same recorder", and that has to be true whether
  * both sides are rotations, both are retargets, or one of each. What differs
- * is what the SECOND caller gets, and that stays per-function rather than
- * becoming a flag on the map:
+ * is what the SECOND caller gets, and — since #49 — that depends on what
+ * KIND of boundary is already running, which is why the map's value carries
+ * a `kind` alongside the promise rather than the promise alone:
  *
- * - `rotateSession` COALESCES — two operators (or a click and a
- *   `rhizomorph rotate` in the same second) asking at once is ONE boundary,
- *   not two, so the second caller awaits the first's answer instead of
- *   closing a session that is a millisecond old. That is a considered
- *   decision (its own doc, above) and #14 does not change it.
- * - `retargetSession` REFUSES. Coalescing would hand the second caller the
- *   FIRST caller's destination — asked to move to B, told "moved to A",
- *   status 200 — which is exactly the queued-retarget failure mode the PRD
- *   rejects. So a retarget that finds this map already occupied (by a
- *   rotation or another retarget) throws {@link RetargetInFlightError}
- *   instead of returning the entry.
+ * - Second caller is a rotation, first is a rotation: COALESCES — two
+ *   operators (or a click and a `rhizomorph rotate` in the same second)
+ *   asking at once is ONE boundary, not two, so the second caller awaits the
+ *   first's answer instead of closing a session that is a millisecond old.
+ *   That is a considered decision (its own doc, above) and neither #14 nor
+ *   #49 changes it.
+ * - Second caller is a retarget, first is anything: REFUSES. Coalescing
+ *   would hand the second caller the FIRST caller's destination — asked to
+ *   move to B, told "moved to A", status 200 — which is exactly the
+ *   queued-retarget failure mode the PRD rejects. A retarget that finds this
+ *   map already occupied (by a rotation or another retarget) throws
+ *   {@link RetargetInFlightError} instead of returning the entry.
+ * - Second caller is a rotation, first is anything OTHER than a rotation:
+ *   REFUSES (#49, prd-42 ruling 5). Handing a rotation caller a `Rotation`
+ *   whose `closed.reason` is `'retargeted'` and whose `opened` session is a
+ *   different repo than the one it asked to rotate is the same input class
+ *   #14 already refused in the other direction — the rotation's own
+ *   coalescing rationale above is an argument about two ROTATIONS sharing a
+ *   boundary, and it does not carry to a boundary that is anything else.
+ *   Deliberately spelled `kind !== 'rotation'` rather than `kind ===
+ *   'retarget'`: the two are equivalent for the only two kinds that exist
+ *   today, but the review that reopened #49 showed the equality form is
+ *   fail-OPEN — a third kind added to this map later (nobody has written
+ *   one; the map has always had exactly two callers) would silently coalesce
+ *   past a check that only recognised the kinds it was written against. The
+ *   inequality form refuses anything it does not specifically know is safe,
+ *   which is the same posture `RetargetInFlightError` below already takes.
+ *   Rejects with {@link RotationRefusedError} — a rejection, not a
+ *   synchronous throw, matching `retargetSession`'s own error shape (both
+ *   doors into this guard now fail the same way for `Promise.all` and
+ *   `.catch` callers alike).
  */
-const inFlight = new WeakMap<SessionRecorder, Promise<Rotation>>()
+interface InFlightBoundary {
+  kind: 'rotation' | 'retarget'
+  promise: Promise<Rotation>
+}
+const inFlight = new WeakMap<SessionRecorder, InFlightBoundary>()
+
+/** Rejects {@link rotateSession}'s promise in place of coalescing onto a boundary that is not itself a rotation — see the map doc above. */
+export class RotationRefusedError extends Error {}
 
 /** Close, then open. See this module's own doc for why that order is the law. */
 export function rotateSession(options: RotateSessionOptions): Promise<Rotation> {
   const running = inFlight.get(options.recorder)
-  if (running) return running
+  if (running) {
+    if (running.kind !== 'rotation') {
+      return Promise.reject(
+        new RotationRefusedError(
+          `a ${running.kind} is already in flight for this recorder — refusing rather than coalescing, ` +
+            'since a boundary that is not itself a rotation may close into a repo (or state) this rotation never asked about',
+        ),
+      )
+    }
+    return running.promise
+  }
 
   const rotation = (async () => {
     const closed = await closeCurrentSession(options)
     const opened = await openNextSession(options, closed)
     return { closed, opened }
   })()
-  inFlight.set(options.recorder, rotation)
+  const boundary: InFlightBoundary = { kind: 'rotation', promise: rotation }
+  inFlight.set(options.recorder, boundary)
   return rotation.finally(() => {
-    if (inFlight.get(options.recorder) === rotation) inFlight.delete(options.recorder)
+    if (inFlight.get(options.recorder) === boundary) inFlight.delete(options.recorder)
   })
 }
 
@@ -282,7 +321,7 @@ export interface RetargetSessionOptions {
 export class RetargetInFlightError extends Error {}
 
 export interface RetargetBoundary {
-  /** The close/open actually happened — settle with its real result, releasing the guard and, if `rotateSession` coalesced onto it, handing that caller the SAME `Rotation` this one got. */
+  /** The close/open actually happened — settle with its real result, releasing the guard. */
   resolve(rotation: Rotation): void
   /** The boundary is being abandoned without ever running the close/open (a refusal upstream of it, or an unexpected failure) — releases the guard just the same, but as a rejection. */
   reject(err: unknown): void
@@ -296,11 +335,11 @@ export interface RetargetBoundary {
  * (no loop stop, no validation, no snapshot) rather than discovering the
  * collision only after doing all of that.
  *
- * The reservation is a `Promise<Rotation>` in `inFlight` the instant this
- * returns, so a `rotateSession` racing this retarget coalesces onto it
- * exactly as it would onto a running rotation, from the very first instant —
- * it never observes a window where the retarget is "reserved but not really
- * running yet".
+ * The reservation is tagged `kind: 'retarget'` in `inFlight` the instant this
+ * returns, so a `rotateSession` racing this retarget sees that tag — and, per
+ * #49/prd-42 ruling 5, REFUSES rather than coalescing — from the very first
+ * instant. It never observes a window where the retarget is "reserved but not
+ * really running yet".
  */
 export function beginRetargetBoundary(recorder: SessionRecorder): RetargetBoundary | null {
   if (inFlight.has(recorder)) return null
@@ -314,10 +353,11 @@ export function beginRetargetBoundary(recorder: SessionRecorder): RetargetBounda
   // Nobody may ever coalesce onto a boundary that is refused before it does
   // any work — this reference must not turn that into an unhandled rejection.
   pending.catch(() => {})
-  inFlight.set(recorder, pending)
+  const boundary: InFlightBoundary = { kind: 'retarget', promise: pending }
+  inFlight.set(recorder, boundary)
 
   const release = () => {
-    if (inFlight.get(recorder) === pending) inFlight.delete(recorder)
+    if (inFlight.get(recorder) === boundary) inFlight.delete(recorder)
   }
   return {
     resolve: (rotation) => {
@@ -376,5 +416,25 @@ export async function retargetSession(options: RetargetSessionOptions): Promise<
   } catch (err) {
     boundary.reject(err)
     throw err
+  }
+}
+
+/**
+ * Test-only: reserves this recorder's `inFlight` slot under an arbitrary
+ * `kind`, bypassing the two kinds any real caller can ever produce
+ * (`'rotation'` via {@link rotateSession}, `'retarget'` via
+ * {@link beginRetargetBoundary}). Exists so `rotateSession`'s guard can be
+ * proven fail-closed against a kind NOBODY has written yet, rather than
+ * trusting that property until a real third caller shows up and either
+ * confirms or breaks it — precisely the gap the equality-vs-inequality
+ * distinction in this module's own doc comment above exists to close.
+ * The reserved promise never settles on its own; the returned release
+ * function is how a test lets it go. No production code may import this.
+ */
+export function reserveInFlightForTest(recorder: SessionRecorder, kind: string): () => void {
+  const boundary: InFlightBoundary = { kind: kind as InFlightBoundary['kind'], promise: new Promise<Rotation>(() => {}) }
+  inFlight.set(recorder, boundary)
+  return () => {
+    if (inFlight.get(recorder) === boundary) inFlight.delete(recorder)
   }
 }
