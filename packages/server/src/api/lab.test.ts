@@ -479,6 +479,89 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
   })
 
   /**
+   * The other half of "refuse, never queue" (prd41 ruling 2): a caller that
+   * gave up must never reach `exec` at all once its own turn arrives, even
+   * after the holder it was waiting on eventually clears. The test above only
+   * asserts `second`'s own promise rejects — that rejection is guaranteed by
+   * `Promise.race` regardless of whether `withLabCliLock` still runs `fn` for
+   * `second` afterward. This counts real invocations of the underlying `exec`
+   * instead, which is what would actually change if `withLabCliLock`'s
+   * `gaveUp` guard were removed: a refused caller's own `runLabCliOnce` would
+   * still run once the queue reaches its turn, spending real money nobody was
+   * watching for — the exact failure prd41 ruling 2 exists to close.
+   */
+  it('a caller that gave up never reaches exec, even after the holder it waited on finally clears', async () => {
+    vi.useFakeTimers()
+    try {
+      const checkpointId = await seedCheckpoint('lane-wedged-noop', () => 1_000_000)
+
+      // `first` and `second` each get their OWN exec/counter — `first`
+      // legitimately makes several exec calls once unblocked (git, npm,
+      // workmux, ...), so a single shared counter can't tell "first kept
+      // going" apart from "second ran too." Only `secondExecCalls` matters.
+      let firstExecCalls = 0
+      let releaseFirst = () => {}
+      const firstGate = new Promise<void>((resolve) => {
+        releaseFirst = resolve
+      })
+      const firstExec: Exec = async () => {
+        firstExecCalls += 1
+        await firstGate
+        return OK
+      }
+
+      let secondExecCalls = 0
+      const secondExec: Exec = async () => {
+        secondExecCalls += 1
+        return OK
+      }
+
+      // A small, real lock ceiling (100ms) — far below the 5000ms per-exec
+      // `withTimeout` ceiling #8 wires into this same call chain (`fork.ts`'s
+      // `FORK_EXEC_TIMEOUT_MS`). A 30s ceiling here would let that unrelated,
+      // shorter, per-exec timeout fire first once fake time is advanced past
+      // it, unwinding `first`'s hang on its own and confounding what this test
+      // means to isolate: `withLabCliLock`'s OWN ceiling, not the exec-level one.
+      const first = launchExperiment(
+        { lane: 'lane-wedged-noop', checkpointId, arms: [{ model: 'opus' }] },
+        { repoPath: repoDir, exec: firstExec, dataRoot, claudeProjectsRoot, now: () => 2_000_000, lockCeilingMs: 100 },
+      )
+      // Let `first` actually reach its first exec call (and hang there,
+      // holding the lock) before `second` is constructed.
+      for (let i = 0; i < 50 && firstExecCalls === 0; i++) {
+        await vi.advanceTimersByTimeAsync(0)
+      }
+      expect(firstExecCalls).toBeGreaterThan(0)
+
+      const second = launchExperiment(
+        { lane: 'lane-wedged-noop', checkpointId, arms: [{ model: 'sonnet' }] },
+        { repoPath: repoDir, exec: secondExec, dataRoot, claudeProjectsRoot, now: () => 2_000_000, lockCeilingMs: 100 },
+      )
+      const assertion = expect(second).rejects.toThrow(LabCliLockCeilingError)
+      await vi.advanceTimersByTimeAsync(100)
+      await assertion
+
+      // `second` gave up without ever reaching its own exec.
+      expect(secondExecCalls).toBe(0)
+
+      // Let `first` clear (and anything genuinely still queued behind it) —
+      // a caller that already gave up must not run now that its turn has
+      // actually arrived, which is exactly what a missing `gaveUp` guard in
+      // `withLabCliLock` would let happen. `first` itself may keep calling
+      // its own exec freely now — irrelevant to what this checks.
+      releaseFirst()
+      await first.catch(() => {})
+      for (let i = 0; i < 50; i++) {
+        await vi.advanceTimersByTimeAsync(0)
+      }
+
+      expect(secondExecCalls).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  /**
    * The same scenario, over the actual route this ceiling protects — a real
    * `POST /api/lab/launch` must 503 rather than hang. The route has no seam
    * to inject a hung `exec` of its own, so the occupying call reaches the lab
