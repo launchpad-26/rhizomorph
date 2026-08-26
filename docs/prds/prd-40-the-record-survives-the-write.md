@@ -266,6 +266,41 @@ test. Rule 1b's cost lands in `rotate.ts`, so that issue widens to
 `packages/server/src/recorder/rotate.ts` and `rotate.test.ts`. Note prd-42's #49 touched that file
 on 2026-08-26 (`9406974`); #80 rebases onto it rather than racing it.
 
+**What "unconditional" costs, ruled 2026-08-26 in review of the amendment.** Raised by
+@gabriel-canaan: the sentence above dissolves one fork and opens three smaller ones, and a ruling
+that leaves those to a lane has not finished the job it names for itself. `rotateSession`
+(`rotate.ts:261-262`) is `closeCurrentSession` then `openNextSession`, and the second takes the
+first's `ClosedSession` — which a throwing close never returns. So all three are ruled here.
+
+1b-i. **`closeCurrentSession` returns rather than throws.** It absorbs the recorder's rejection and
+   returns a `ClosedSession` that carries the sync failure. **Nothing has to be reconstructed:**
+   `sessionId`, `filePath`, `closedAt` and `eventCount` are all captured at `rotate.ts:120-123`,
+   before the first `await`, so the descriptor is fully determined before the failure point.
+   `nextSessionStart(closed.sessionId, …)` therefore still guarantees a strictly greater id.
+   **Rule 1b is untouched by this** — `SessionRecorder.closeWith` still rejects, and reporting the
+   lost durability is still its job. The absorption is at the rotation layer, which is the layer
+   that owns what happens next.
+
+1b-ii. **`removeSessionLock` still runs** (`rotate.ts:149`). The lock guards a *live* session, and
+   the session is not live: its close line is on disk, which is what 1b establishes. Skipping it
+   would leave an orphan lock beside the new session's for no gain. Recorded because the blast
+   radius was measured rather than assumed — locks are per-session files and go stale after
+   `LOCK_STALE_MS`, so the wrong answer here is untidy and self-healing rather than dangerous,
+   which is exactly the kind of question a lane would otherwise decide silently.
+
+1b-iii. **`/api/rotate` answers 200, with the lost durability stated in the body.** Under 1b a
+   rotation can partly succeed: the old session closed, the new one open, durability gone. An error
+   status would say nothing happened, which is false, and would invite a retry that rotates a second
+   time — a worse outcome than the one being reported. 409 is spoken for by `RotationRefusedError`
+   and is not reused. The route reports the fact; it does not refuse.
+
+**In scope for #80, and out of it.** In scope: `closeCurrentSession`'s return shape, the
+unconditional call to `openNextSession`, the lock's placement, and the field `/api/rotate` reports.
+Out of scope: `RotationRefusedError` and the 409 path, `LOCK_STALE_MS`, and any change to what
+`closeWith` itself promises beyond 1a/1b above. A law drives **append resolves, sync rejects** —
+neither existing seal law covers it, and a test that only rejects `append` would pass while this
+stayed broken.
+
 **The `eventCount` question is ruled with it.** `closeCurrentSession` reads
 `recorder.eventsSoFar().length + 1` (`rotate.ts:124`), which can undercount a `record()` whose
 append is in flight but whose buffer push has not happened. Under 1b the close line's authority
