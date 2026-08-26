@@ -112,8 +112,18 @@ const SHELL_OPTS = (() => {
   // from a second match. EXECUTED: adding a comment mentioning the literal
   // to gate.sh took the whole file out at COLLECTION ("found 2", 0 tests
   // run), which is the coupling shape prd-45 was written about.
-  const matches = LINES.filter((l) => !l.trim().startsWith('#') && /^\s*set\s+-/.test(l))
-  if (matches.length !== 1) throw new Error(`expected exactly one \`set -...\` option line in ${GATE_PATH}, found ${matches.length}`)
+  // `set +...` as well as `set -...`, and this is the whole point rather
+  // than tidiness. A prelude replays ONE line, so it models the option
+  // state at :13 and nowhere else. A `set +o pipefail` added later in the
+  // file is a different line, leaves this selector's answer unchanged, and
+  // every fixture would keep running WITH pipefail while the real gate ran
+  // without it. EXECUTED: with `set +o pipefail` inserted on its own line
+  // immediately above the :96 producer, this law reported 104 passed while
+  // the real block produced "no commits on the branch" over a corrupted
+  // repo — the exact verdict #70 exists to abolish, with the law green.
+  // Matching both signs turns that into a loud failure that names the lines.
+  const matches = LINES.filter((l) => !l.trim().startsWith('#') && /^\s*set\s+[-+]/.test(l))
+  if (matches.length !== 1) throw new Error(`expected exactly one \`set\` option line in ${GATE_PATH}, found ${matches.length}: ${JSON.stringify(matches)} — a prelude can replay only one, so a second one means the fixtures no longer model the shell the real guards run under`)
   const opts = matches[0]!
   // The :96 guard is dead without pipefail, so an option line that has lost
   // it must fail here and say why, not quietly run every fixture unguarded.
@@ -666,12 +676,33 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
      * fixture passed identically under `set -o pipefail` and `set +o
      * pipefail`, so it could not fail for the reason it names.
      */
+    /**
+     * The EXTERNAL commands the dirty-count block runs. `printf` is
+     * deliberately absent: bash resolves it as a BUILTIN before consulting
+     * PATH, so it can be neither provided nor removed by this helper.
+     * Listing it would make `pathWithout('printf')` a silent no-op — the
+     * pipeline would still run, the test would still pass, and it would
+     * pass for a reason it did not name, which is the defect class this
+     * whole block exists to repair. Naming only what PATH can actually
+     * control keeps the helper's claim true.
+     */
+    const DIRTY_BLOCK_EXTERNALS = ['grep', 'wc', 'head'] as const
+
     function pathWithout(...missing: string[]): string {
+      for (const m of missing) {
+        if (!DIRTY_BLOCK_EXTERNALS.includes(m as (typeof DIRTY_BLOCK_EXTERNALS)[number])) {
+          throw new Error(`pathWithout(${JSON.stringify(m)}): not an external command of the dirty-count block (${DIRTY_BLOCK_EXTERNALS.join(', ')}) — removing it from PATH would be a no-op and the test would pass for the wrong reason`)
+        }
+      }
       const bin = scratchDir('dirtybin')
-      for (const tool of ['grep', 'wc', 'printf', 'head']) {
+      for (const tool of DIRTY_BLOCK_EXTERNALS) {
         if (missing.includes(tool)) continue
-        const real = execFileSync('bash', ['-c', `command -v ${tool} || true`], { encoding: 'utf8' }).trim()
-        if (real) symlinkSync(real, join(bin, tool))
+        // `type -P` answers a PATH lookup only: a path, or nothing. `command -v`
+        // answers "printf" for a builtin, and linking that name would create a
+        // self-referential symlink — the helper breaking a tool it claims to hold.
+        const real = execFileSync('bash', ['-c', `type -P ${tool} || true`], { encoding: 'utf8' }).trim()
+        if (!real.startsWith('/')) throw new Error(`pathWithout: cannot resolve ${tool} to a real binary (got ${JSON.stringify(real)})`)
+        symlinkSync(real, join(bin, tool))
       }
       return bin
     }
