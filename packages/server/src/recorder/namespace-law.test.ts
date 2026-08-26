@@ -165,9 +165,31 @@ const WRITE_CALL_RE =
 const SPECIFIER_RE = /(?:\bfrom\s*|\brequire\s*\(\s*|\bimport\s*\(\s*|\bimport\s+)(['"`])([^'"`]*)\1/g
 
 /**
- * The byte ranges of `import type …from '…'` and `export type …from '…'`
- * statements. TypeScript ERASES these: no runtime edge exists, so a file whose
- * only reference to rotation is a type cannot invoke it.
+ * Whether every specifier in a named clause is an INLINE `type` specifier, so
+ * the whole statement erases. `{ type A, type B as C }` does; `{ type A, run }`
+ * does not — one value specifier keeps the statement's runtime edge.
+ */
+function clauseIsEntirelyTypeSpecifiers(clause: string): boolean {
+  const specifiers = clause
+    .split(',')
+    .map((specifier) => specifier.trim())
+    .filter((specifier) => specifier.length > 0)
+  return specifiers.length > 0 && specifiers.every((specifier) => /^type\b/.test(specifier))
+}
+
+/**
+ * The byte ranges of every ERASED module statement — `import type …from '…'`
+ * and `export type …from '…'`, and their inline twins `import { type A } …` /
+ * `export { type A } …` whose every specifier is tagged `type`. TypeScript
+ * erases all four: no runtime edge exists, so a file whose only reference to
+ * rotation is a type cannot invoke it.
+ *
+ * The inline form is covered because it is this repo's dominant spelling — 234
+ * files use it, and `biome.json`'s `preset: none` enables no `useImportType`
+ * rule to force the separated one. Guarding only the separated form was a
+ * half-fix of exactly the shape the `as` guard above already had to close
+ * twice: one spelling of an erased import handled, its sibling left to trip
+ * the law against a file that provably cannot call anything.
  *
  * Position ranges rather than a specifier blacklist, deliberately: a file may
  * import the same module BOTH ways —
@@ -182,6 +204,14 @@ function typeOnlyImportRanges(code: string): Array<readonly [number, number]> {
   const ranges: Array<readonly [number, number]> = []
   for (const match of code.matchAll(/\b(?:import|export)\s+type\b[^'"`]*?\bfrom\s*(['"`])[^'"`]*\1/g)) {
     if (match.index !== undefined) ranges.push([match.index, match.index + match[0].length] as const)
+  }
+  // The inline twin: `import { type A } from '…'`. `\s*\{` cannot match
+  // `import X, {` or `import type {`, so a default binding still keeps its
+  // value edge and the separated form is not double-counted.
+  for (const match of code.matchAll(/\b(?:import|export)\s*\{([^}]*)\}\s*from\s*(['"`])[^'"`]*\2/g)) {
+    if (match.index === undefined) continue
+    if (!clauseIsEntirelyTypeSpecifiers(match[1] ?? '')) continue
+    ranges.push([match.index, match.index + match[0].length] as const)
   }
   return ranges
 }
@@ -859,7 +889,7 @@ describe('the recorder namespace law (prd16 ruling 2)', () => {
       }
     })
 
-    it('EXECUTED: a type-only import reaches nothing at runtime and is not a caller, while a value import of the same module still is', async () => {
+    it('EXECUTED: an erased import reaches nothing at runtime and is not a caller, in either spelling, while a value import of the same module still is', async () => {
       // TypeScript erases `import type`. Counting it made the law name a file
       // that provably cannot invoke anything. The third fixture is the one that
       // matters: a file importing the SAME module both ways must stay caught,
@@ -887,6 +917,27 @@ describe('the recorder namespace law (prd16 ruling 2)', () => {
           path.join(fixtureRoot, 'type-only-multiline.ts'),
           "import type {\n  Boundary,\n} from './recorder/rotate.js'\n\nexport const c: Boundary | undefined = undefined\n",
         )
+        // Erased, INLINE spelling — this repo's dominant one, and the sibling
+        // of the separated form above. Guarded only on the separated side, the
+        // law named this file a rotation caller.
+        await writeFile(
+          path.join(fixtureRoot, 'type-only-inline.ts'),
+          "import { type Boundary } from './recorder/rotate.js'\n\nexport const e: Boundary | undefined = undefined\n",
+        )
+        // Erased, inline, multi-specifier and aliased.
+        await writeFile(
+          path.join(fixtureRoot, 'type-only-inline-multi.ts'),
+          "import {\n  type Boundary,\n  type Boundary as B2,\n} from './recorder/rotate.js'\n\nexport const f: B2 | undefined = undefined\n",
+        )
+        // CAUGHT: one inline VALUE specifier beside an inline type one keeps
+        // the edge — the control that stops the guard above from erasing a
+        // mixed clause wholesale.
+        const inlineMixed = path.join(fixtureRoot, 'inline-mixed.ts')
+        await writeFile(
+          inlineMixed,
+          "import { type Boundary, realDoor } from './recorder/rotate.js'\n\n" +
+            'export const g: Boundary | undefined = undefined\nvoid realDoor\n',
+        )
         // CAUGHT: same module, both ways. The value edge must survive.
         const mixed = path.join(fixtureRoot, 'mixed.ts')
         await writeFile(
@@ -904,7 +955,9 @@ describe('the recorder namespace law (prd16 ruling 2)', () => {
           allowedCallers: new Set(),
         })
 
-        expect(violations).toEqual([path.relative(REPO_ROOT, mixed)])
+        expect(violations.slice().sort()).toEqual(
+          [path.relative(REPO_ROOT, inlineMixed), path.relative(REPO_ROOT, mixed)].sort(),
+        )
       } finally {
         await rm(fixtureRoot, { recursive: true, force: true })
       }
