@@ -293,13 +293,34 @@ exists neither direction of the fix is knowable. It cannot join wave 6 either �
 it claims `worktree-slug.test.ts` and `concierge/repos.test.ts`, which wave 6
 also needs.
 
+> **SUPERSEDED (2026-08-27).** Restated by the waves 5-and-6 reconciliation
+> below, which is where wave 5 is now declared: same issue, `#47`, but carrying
+> `#52`'s absorbed work, and no longer blocked on the probe — that answer landed.
+> The reasoning here stands and is why the absorption was necessary; only the
+> scope of wave 5 moved.
+
 **Wave 6 — the law's escape hatch.** `#52`. After wave 5, not beside it: it
 moves or re-authorises the round-trip law living in a file `#47` claims.
+
+> **SUPERSEDED (2026-08-27).** `#52` was closed as superseded and absorbed into
+> `#47` by the waves 5-and-6 reconciliation below; wave 6 is now `#53`. The
+> paragraph stays because its reasoning — that this work and wave 5 contend for
+> the same file — is what forced the absorption, and because deleting it would
+> break any citation to it. Read the wave map at the end of this document for
+> the current assignment.
 
 **Wave 7 — the tidy-ups, last.** `#53`. It touches `recorder/rotate.ts`,
 `server/static.ts` and `worktree-slug.test.ts` — three other issues' territory.
 Sweep-shaped work comes last by the corpus's own rule, and this is sweep-shaped
 even though it is small.
+
+> **SUPERSEDED (2026-08-27).** `#53` moved to **wave 6** in the reconciliation
+> below, and wave 7 is now `#120`. The sweep-comes-last reasoning here is intact
+> and still governs `#53`; only its wave number changed. This paragraph is the
+> one that actually misled a reader: on 2026-08-26 an agent read it, saw the
+> tracker say `w6`, and "corrected" the TRACKER to match this stale half of the
+> document — the edit was reverted, but the document held two live answers and
+> nothing could tell them apart. That is what the marker is for.
 
 **Waves 5, 6 and 7 are each a single issue, and that is a cost, not a
 preference.** Three waves means three PRs and three payments of the ~21 h queue
@@ -452,3 +473,94 @@ vagueness, and there was nothing here to catch.
 Nothing above renumbers a ruling. Wave 7 becomes wave 6 because the wave it
 followed no longer exists; no wave that has been dispatched or landed is
 touched, and waves 1–4 and 8 keep their numbers.
+
+## Amendment — the wave map, stated once (bookkeeping, 2026-08-27)
+
+**This declares no new decision.** Every assignment below was already made — by
+the waves 4–7 amendment, by the waves 5-and-6 reconciliation, by the wave-8
+grooming, and by filing `#120`. What was missing was one place that says what
+they add up to, and the absence had a measurable cost.
+
+**The drift.** Sequencing is append-only, which is right: ruling and wave
+citations must keep resolving, so a superseded paragraph is marked rather than
+deleted. But nothing marked them. This document declared **wave 6 twice** (`:296`
+`#52`, and `:415` `#53`) and **wave 7 twice** (`:299` `#53`, and now `#120`), with
+every paragraph reading as current. Derived, not counted by eye:
+
+```
+$ grep -oE '\*\*Wave [0-9]+' docs/prds/prd-42-one-path-one-spelling.md | sort -u
+  waves 0 1 2 3 4 5 6 7 8        # with 5 and 6 each declared twice
+$ gh issue list --milestone prd42 --state all --json title \
+    -q '.[].title' | grep -oE 'w[0-9]+' | sort -u
+  w1 w2 w3 w4 w5 w6 w7 w8        # w7 appears only because #120 now exists
+```
+
+Run before `#120` was filed, that second command returned `w1 w2 w3 w4 w5 w6 w8`
+— wave 7 declared by this document and claimed by nothing. That was the drift.
+The commands are given rather than their output alone because the output is a
+function of a mutable tracker: a count quoted without the conditions it was taken
+under is not self-validating, which this PRD has already had to record twice.
+
+**What it cost.** On 2026-08-26 an agent read the wave-7 paragraph, saw `#53`
+titled `w6` on the tracker, and edited the *tracker* to match the *stale* half of
+this document. The edit was reverted within the hour by the session that had done
+the reconciliation. Nobody was careless: the document contained two live answers
+and offered no way to tell which was current.
+
+### Wave 7 — the reverse walk fails closed over the real grammar
+
+**Wave 7 — fail closed over the real slug grammar.** `#120`. After wave 6, not
+beside it: it rewrites `concierge/repos.ts` and five of its doc passages, and
+wave 6 is sweep-shaped work across files wave 5 has just moved. This is the
+declaration for wave 7; the earlier paragraph naming `#53` is superseded above.
+
+### The wave map, as of 2026-08-27
+
+There is deliberately **no wave 0** here. prd-42 books its operator act — the
+colon-and-backslash probe — *inside* wave 4 rather than as a separate wave, which
+is why the grep above starts at 1. prd-39 and prd-46 use a wave 0 for the same
+kind of act; this PRD did not, and that is a difference in bookkeeping rather
+than in substance.
+
+| wave | issue | state | declared by |
+|---|---|---|---|
+| 1 | `#11` | merged | original Sequencing |
+| 2 | `#12` `#13` `#14` | merged (PR #54) | original Sequencing |
+| 3 | `#15` `#45` | merged (PR #56) | original Sequencing |
+| 4 | `#49` `#51` | merged (PR #94) | waves 4–7 amendment |
+| **5** | **`#47`** (absorbed `#52`) | built, PR #121 | waves 5-and-6 reconciliation |
+| **6** | **`#53`** | backlog — re-groom after wave 5 lands, which moves the law it claims | waves 5-and-6 reconciliation |
+| **7** | **`#120`** | backlog — the reverse walk fails closed over the real slug grammar | this amendment |
+| 8 | `#87` `#91` | built, PR #117 | wave-8 amendment |
+
+`#52` and `#92` are closed as superseded, into `#47` and `#87` respectively.
+Neither holds a wave.
+
+### Why `#120` is wave 7 and not a successor PRD
+
+It is this PRD's own thesis in the characters this PRD did not check — the third
+time that sentence has been written here, after the space and then the colon and
+backslash. The territory is unchanged, so a new PRD would fragment it. It sits
+after wave 6 because it rewrites `concierge/repos.ts` and five of its doc
+passages, and wave 6 is sweep-shaped work across files wave 5 has just moved.
+
+Wave 7 also has a second half that is **not** yet an issue: the encoder needs the
+same grammar, plus the 200-character cap and base36 hash suffix the real slugger
+applies past it. Widening the walk without the encoder makes the repo's own
+encoder-minted slugs stop reversing — harmless today, since nothing composes
+encoder→walk and `reverseProjectSlug` has exactly one caller, but the two sides
+should agree by decision rather than by accident. `#120`'s fence deliberately
+excludes `worktree-slug.ts` for that reason.
+
+### What stops the next drift
+
+`prd-reconcile.sh` (operator tooling, not in this repo) reads this document
+against the tracker in both directions and reports a wave declared twice, a wave
+no issue claims, and an issue whose wave this document never declares. It found
+all three here. Run it after any amendment that moves a wave.
+
+**Unfiled work implied, described not numbered:** the encoder half of wave 7,
+above; and the six issue citations in this document's Status line and Evidence
+(`#217`, `#228`, `#243`, `#299`, `#401`, `#649`) which resolve to nothing in this
+repository and are still not rewritten, because they are references to a previous
+incarnation of the tracker rather than errors in this text.
