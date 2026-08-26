@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 import { rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -460,10 +461,12 @@ export class LabCliLockCeilingError extends Error {}
 /**
  * Every concurrent request that reaches the laboratory serialises through
  * here — one `runCli(['lab', ...])` in flight at a time, process-wide. Two
- * reasons: `runLabCliOnce` below temporarily replaces `process.stderr.write`
- * to capture the CLI's own error text, which is only safe with nothing else
- * mid-flight; and `dispatchFork` itself runs real `git worktree add` against
- * the SAME parent repo per arm, which is safer serialised than raced.
+ * reasons: `runLabCliOnce` below installs and later restores the single
+ * process-wide `process.stderr.write` function pointer around each call —
+ * `stderrCaptureScope` (see below) scopes what gets CAPTURED to this call's
+ * own writes, but two overlapping installs would still step on each other's
+ * restore; and `dispatchFork` itself runs real `git worktree add` against the
+ * SAME parent repo per arm, which is safer serialised than raced.
  */
 let labCliQueue: Promise<unknown> = Promise.resolve()
 /** What `labCliQueue`'s current holder is doing — the diagnostic a ceiling refusal names. */
@@ -537,6 +540,21 @@ export interface LabCliRunOptions {
 }
 
 /**
+ * Bounds stderr capture to exactly the async continuation of one
+ * `runLabCliOnce` call, not the process as a whole. A bare
+ * `process.stderr.write = capture` used to swallow ANY write that happened to
+ * land during the call's (potentially multi-second — real `git`/`workmux`
+ * work) await window, `console.error` from a totally unrelated request or
+ * background loop included — that write never reached the operator's real
+ * stderr and never should have been eligible for `failed.error` either. A
+ * write made inside `stderrCaptureScope.run(...)` (this call's own `runCli`
+ * invocation, and only that) is captured; a write from any other async
+ * context — one this call never entered — falls straight through to the
+ * real stream, exactly as if nothing here were patched at all.
+ */
+const stderrCaptureScope = new AsyncLocalStorage<string[]>()
+
+/**
  * Runs one `rhizomorph lab <argv>` in-process via `runCli` — the same
  * explicit-invocation surface a human typing the command gets, never a
  * direct import of `server/src/lab/*` (see the file doc, and
@@ -544,7 +562,10 @@ export interface LabCliRunOptions {
  * rather than passed through: every lab subcommand's error path writes
  * there directly rather than through the injected `log`, and the launch
  * route needs that text to explain a failed arm honestly instead of just
- * reporting a bare non-zero exit.
+ * reporting a bare non-zero exit. The capture itself is scoped by
+ * `stderrCaptureScope` (see above) to this call's own `runCli` invocation, so
+ * only THIS call's own writes are diverted — everything else still reaches
+ * real stderr immediately, #239's loud degrade reporting included.
  */
 async function runLabCliOnce(argv: readonly string[], options: LabCliRunOptions): Promise<LabCliInvocation> {
   const stdoutLines: string[] = []
@@ -555,8 +576,12 @@ async function runLabCliOnce(argv: readonly string[], options: LabCliRunOptions)
 
   const stderrChunks: string[] = []
   const originalStderrWrite = process.stderr.write.bind(process.stderr)
-  process.stderr.write = ((chunk: string | Uint8Array) => {
-    stderrChunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'))
+  process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+    const scoped = stderrCaptureScope.getStore()
+    if (scoped === undefined) {
+      return (originalStderrWrite as unknown as (...args: unknown[]) => boolean)(chunk, ...rest)
+    }
+    scoped.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'))
     return true
   }) as typeof process.stderr.write
 
@@ -568,14 +593,16 @@ async function runLabCliOnce(argv: readonly string[], options: LabCliRunOptions)
 
   try {
     const { runCli } = await import('../cli/index.js')
-    await runCli(['lab', ...argv], {
-      ...(options.exec === undefined ? {} : { exec: options.exec }),
-      ...(options.dataRoot === undefined ? {} : { dataRoot: options.dataRoot }),
-      ...(options.claudeProjectsRoot === undefined ? {} : { claudeProjectsRoot: options.claudeProjectsRoot }),
-      ...(options.now === undefined ? {} : { now: options.now }),
-      log,
-      exit,
-    })
+    await stderrCaptureScope.run(stderrChunks, () =>
+      runCli(['lab', ...argv], {
+        ...(options.exec === undefined ? {} : { exec: options.exec }),
+        ...(options.dataRoot === undefined ? {} : { dataRoot: options.dataRoot }),
+        ...(options.claudeProjectsRoot === undefined ? {} : { claudeProjectsRoot: options.claudeProjectsRoot }),
+        ...(options.now === undefined ? {} : { now: options.now }),
+        log,
+        exit,
+      }),
+    )
   } catch (err) {
     if (!(err instanceof LabCliExit)) throw err
   } finally {
