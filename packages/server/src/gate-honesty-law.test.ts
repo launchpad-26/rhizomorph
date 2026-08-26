@@ -260,6 +260,9 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     return { varName: m[1]!, tail: line.slice(close + 1) }
   }
 
+  /** The largest literal bash will accept for `exit`; beyond it bash prints "numeric argument required" and exits 2 — itself an honest abort. */
+  const BASH_EXIT_MAX = 9223372036854775807n
+
   /**
    * Is `exit <n>` an honest abort, or a fake success wearing a nonzero
    * number? The shell truncates an exit status to its low 8 bits, so
@@ -268,9 +271,21 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    * Testing `n !== '0'` accepted them, so the test asserting the predicate
    * "tells apart || exit 2 from || exit 0" was making a claim it did not
    * meet for every other multiple of 256.
+   *
+   * BigInt, not Number, and the bound is not decoration. `\d+` admits a
+   * literal of any length, and IEEE754 rounds: `Number('9007199254740993')`
+   * becomes ...992, so a Number-based rule called an honest `exit` (bash
+   * status 1) a fake success. Rounding the other way is worse — bash exits
+   * 0 on `exit 9007199254741248`, a genuine fake success that any
+   * safe-integer shortcut waves through. Only exact decimal arithmetic plus
+   * bash's own accepted range agrees with the shell at every input; the
+   * test below asserts that agreement against bash rather than against a
+   * re-typed table.
    */
   function isHonestAbortStatus(digits: string): boolean {
-    return Number(digits) % 256 !== 0
+    const n = BigInt(digits)
+    if (n > BASH_EXIT_MAX) return true
+    return n % 256n !== 0n
   }
 
   /** Does the text AFTER the $(...)'s closing paren, on the SAME line, terminate the script on failure — `|| fail`, `|| exit N` (N != 0), or a `|| { ... }` block calling either? `exit 0` is deliberately NOT terminal-safe: it swallows a failure into a fake overall SUCCESS rather than an honest abort. */
@@ -447,6 +462,32 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(control.status).toBe(2)
       expect(findUncheckedProducers(['X=$(cmd) || exit 255'])).toEqual([])
       expect(findUncheckedProducers(['X=$(cmd) || exit 257'])).toEqual([])
+    })
+
+    /**
+     * The strongest form available here: rather than re-typing which
+     * literals wrap, ASK BASH for each one and require the predicate to
+     * agree. A re-typed expectation could encode the same wrong model the
+     * code has — which is exactly how the Number()-based first attempt at
+     * this rule passed its own tests while disagreeing with the shell.
+     */
+    it('EXECUTED — for every exit literal, the predicate agrees with what bash actually does', () => {
+      const literals = ['0', '1', '2', '3', '255', '256', '257', '512', '768', '010', '0256', '0777', '1280', '65536', '9007199254740992', '9007199254740993', '9007199254741248', '9223372036854775807', '9223372036854775808', '18446744073709551616', '99999999999999999999']
+      const disagreements: string[] = []
+      for (const lit of literals) {
+        const bashStatus = spawnSync('bash', ['-c', `exit ${lit}`], { encoding: 'utf8' }).status
+        // An abort is honest iff the shell it produces is actually nonzero.
+        const bashIsHonest = bashStatus !== 0
+        const predicateSaysHonest = findUncheckedProducers([`X=$(cmd) || exit ${lit}`]).length === 0
+        if (bashIsHonest !== predicateSaysHonest) disagreements.push(`exit ${lit}: bash status ${bashStatus} (${bashIsHonest ? 'honest' : 'fake success'}) but the predicate says ${predicateSaysHonest ? 'honest' : 'fake success'}`)
+        // The rescue-block path must reach the same verdict as the same-line path.
+        const blockSaysHonest = findUncheckedProducers([`X=$(cmd) || { cleanup; exit ${lit}; }`]).length === 0
+        if (blockSaysHonest !== predicateSaysHonest) disagreements.push(`exit ${lit}: same-line and rescue-block paths disagree`)
+      }
+      expect(disagreements, 'the predicate must classify an exit literal the way bash does').toEqual([])
+      // CONTROL: the table must contain both verdicts, or agreement is vacuous.
+      expect(literals.some((l) => spawnSync('bash', ['-c', `exit ${l}`]).status === 0)).toBe(true)
+      expect(literals.some((l) => spawnSync('bash', ['-c', `exit ${l}`]).status !== 0)).toBe(true)
     })
 
     /**
