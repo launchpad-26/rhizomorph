@@ -345,19 +345,22 @@ apart: `prd42 w8: the rotation-entry law sees and enforces every door` (`#87`,
 `prd42 w8: the shared refusal code is one compiler-bound fact` (`#91`, `api/*`).
 
 ```
-$ scripts/fence-lint.sh 91 92
+$ scripts/fence-lint.sh 87 91
 fence lint PASSED
 ```
 
 **`#87` and `#92` are one issue, not two.** They both edit
 `recorder/namespace-law.test.ts`, which makes them a stack, and the wave
 contract admits a stack in a wave only as a single issue. `#87`'s fence was a
-strict subset of `#92`'s, so the merged fence is exactly `#92`'s three paths and
-the lint above is the standing proof. Both issues had already said as much in
-their own words — `#92`: *"Best done with #87, whose fix subsumes the
-enforcement half of this one."* `#87` derives the guarded set from the module's
-exports, which covers `reserveInFlightForTest` by construction the moment wave 4
-lands it. `#92` is closed as superseded rather than sequenced behind.
+strict subset of `#92`'s, so the merged fence is exactly `#92`'s three paths.
+The lint above is over `#87` and `#91` — the two issues that will actually
+dispatch — rather than over the closed `#92` whose fence they now share, so it
+keeps proving the wave disjoint if either fence moves again. Both issues had
+already said as much in their own words — `#92`: *"Best done with #87, whose
+fix subsumes the enforcement half of this one."* `#87` derives the guarded set
+from the module's exports, which covers `reserveInFlightForTest` by construction
+the moment wave 4 lands it. `#92` is closed as superseded rather than sequenced
+behind.
 
 **Both must follow wave 4.** Each claims a file PR #94 is actively amending,
 which is a live fence, and the working agreement forbids bundling across one.
