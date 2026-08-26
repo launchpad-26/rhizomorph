@@ -398,8 +398,17 @@ function namesFromExportClause(clause: string): string[] {
  * Every value door `rotate.ts` publishes, derived from two texts rather than
  * typed by hand:
  *
- *  - `rotate.ts`'s own value-export declarations — `function`, `class`,
- *    `const`, `let`, `var` — and any LOCAL `export { a, b as c }` clause.
+ *  - `rotate.ts`'s own value-export declarations — `function`, `function*`,
+ *    `class`, `const`, `let`, `var` — and any LOCAL `export { a, b as c }`
+ *    clause.
+ *
+ *    The `function` branch is split from the rest rather than sharing one
+ *    trailing `\s+`: a generator writes its `*` between the keyword and the
+ *    name, so `function\s+` alone derives no door at all from
+ *    `export function* gen()`. The lazier repair — one `function\s*\*?\s*`
+ *    branch — would also derive `foo` from the non-declaration text
+ *    `export functionfoo`, so the starred form gets its own alternative and
+ *    the bare form keeps its mandatory space.
  *  - the barrel's `export { … } from './rotate.js'` block, because
  *    `recorder/index.ts:21-32` is where rotation is actually PUBLISHED: an
  *    alias minted there (`export { performRetarget as retargetNow }`) is a
@@ -430,7 +439,7 @@ function rotationEntryPoints(rotateSource: string, barrelSource: string): string
   const names = new Set<string>()
 
   for (const match of rotateSource.matchAll(
-    /\bexport\s+(?:default\s+)?(?:async\s+)?(?:function|class|const|let|var)\s+([\w$]+)/g,
+    /\bexport\s+(?:default\s+)?(?:async\s+)?(?:function\s*\*\s*|function\s+|(?:class|const|let|var)\s+)([\w$]+)/g,
   )) {
     const name = match[1]
     if (name) names.add(name)
@@ -691,6 +700,14 @@ describe('the recorder namespace law (prd16 ruling 2)', () => {
       const syntheticRotate = [
         'export function fnDoor() {}',
         'export async function asyncDoor() {}',
+        // A generator writes its `*` where the space would be, so a lone
+        // `function\s+` derived nothing from any of these three.
+        'export function* genDoor() {}',
+        'export function *spacedGenDoor() {}',
+        'export async function* asyncGenDoor() {}',
+        // CONTROL: declared, not exported — not a door. The exact-set
+        // assertion below is what asserts its absence.
+        'function* notExportedGen() {}',
         'export class ClassDoor {}',
         'export const constDoor = () => {}',
         'export var varDoor = 1',
@@ -711,6 +728,9 @@ describe('the recorder namespace law (prd16 ruling 2)', () => {
         new Set([
           'fnDoor',
           'asyncDoor',
+          'genDoor',
+          'spacedGenDoor',
+          'asyncGenDoor',
           'ClassDoor',
           'constDoor',
           'varDoor',
@@ -783,6 +803,46 @@ describe('the recorder namespace law (prd16 ruling 2)', () => {
 
         const offender = path.join(fixtureRoot, 'sneaky-collector.ts')
         await writeFile(offender, "import { sideDoor } from './recorder/rotate.js'\n\nvoid sideDoor()\n")
+        // CONTROL: an ordinary file with nothing to do with rotation.
+        const control = path.join(fixtureRoot, 'innocent.ts')
+        await writeFile(control, 'export const nothing = 1\n')
+
+        const violations = rotationViolationsFor({
+          searchRoot: fixtureRoot,
+          recorderDir,
+          rotateFile,
+          entryRe,
+          allowedCallers: new Set(),
+        })
+
+        expect(violations).toEqual([path.relative(REPO_ROOT, offender)])
+      } finally {
+        await rm(fixtureRoot, { recursive: true, force: true })
+      }
+    })
+
+    it('EXECUTED: a door declared `export function*` turns the law red, and an ordinary import stays green', async () => {
+      // The sibling of the `export let` law above, on the other side of the
+      // same regex. `function\s+` cannot reach a generator's name — the `*`
+      // sits where the space would be — so `export function* streamDoor()`
+      // derived NO door and the law went quiet about a real one. `rotate.ts`
+      // publishes no generator today; this pins the FORM, so the first one to
+      // be added is covered on the day it lands rather than the day someone
+      // notices. Same reason the `export let` case above is pinned.
+      const syntheticRotate = 'export function* streamDoor() {}\n'
+      const entryRe = new RegExp(
+        `\\b(?:${rotationEntryPoints(syntheticRotate, '').map(escapeForAlternation).join('|')})\\b`,
+      )
+
+      const fixtureRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-generator-door-fixture-'))
+      try {
+        const recorderDir = path.join(fixtureRoot, 'recorder')
+        const rotateFile = path.join(recorderDir, 'rotate.ts')
+        await mkdir(recorderDir, { recursive: true })
+        await writeFile(rotateFile, syntheticRotate)
+
+        const offender = path.join(fixtureRoot, 'sneaky-streamer.ts')
+        await writeFile(offender, "import { streamDoor } from './recorder/rotate.js'\n\nvoid streamDoor()\n")
         // CONTROL: an ordinary file with nothing to do with rotation.
         const control = path.join(fixtureRoot, 'innocent.ts')
         await writeFile(control, 'export const nothing = 1\n')
