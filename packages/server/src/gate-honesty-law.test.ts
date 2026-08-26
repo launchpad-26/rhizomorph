@@ -85,8 +85,29 @@ function sliceLines(startNeedle: string, endNeedle: string, extra = 0): string {
 /** `fail()` and the `MERGED` flag, extracted whole — every fixture reuses the REAL implementation rather than a re-typed stand-in, per the issue's "REUSED, never reimplemented". */
 const FAIL_BLOCK = sliceLines('fail()  { echo "GATE FAILED: $1"', 'exit 1; }')
 
+/**
+ * The shell options every fixture runs under, EXTRACTED from the real
+ * script rather than re-typed. Not tidiness: `pipefail` is what makes the
+ * :96 commit-count guard mean anything — `git log` fails at rc 128 while
+ * `wc -l` succeeds, so without it the assignment's status is wc's 0 and
+ * the guard is dead. A re-typed `set -uo pipefail` here keeps every
+ * fixture green after gate.sh loses the option, which is the
+ * duplicate-tests-itself defect this file's own header (:20-26) forbids.
+ *
+ * EXECUTED, with the literal re-typed: changing gate.sh:13 to `set -u`
+ * left the suite 94/94 GREEN and restored #70's original wrong verdict
+ * ("no commits on the branch") over a corrupted repo. Derived, the same
+ * mutation fails loudly, naming the missing line.
+ *
+ * Note what this couples: rewording gate.sh:13 in a way that changes shell
+ * semantics now changes what every fixture runs under. That is the
+ * intended direction — the fixtures track the real script — but it is a
+ * real coupling and belongs in .swarm/coupling.txt (prd46 w5, #72).
+ */
+const SHELL_OPTS = extractLine('set -uo pipefail')
+
 function preludeScript(mergedValue: 0 | 1, extraAssignments: string): string {
-  return `#!/bin/bash\nset -uo pipefail\nH=t42\nMERGED=${mergedValue}\n${FAIL_BLOCK}\n${extraAssignments}\n`
+  return `#!/bin/bash\n${SHELL_OPTS}\nH=t42\nMERGED=${mergedValue}\n${FAIL_BLOCK}\n${extraAssignments}\n`
 }
 
 interface FragmentResult {
