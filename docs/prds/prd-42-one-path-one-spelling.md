@@ -384,3 +384,71 @@ same argument should see how it went.
 
 Nothing above renumbers a ruling or an earlier wave. Waves 5–7 keep their order
 and their open question, and wave 8 is a number nothing else has used.
+
+## Amendment — waves 5 and 6 reconciled, three issues become two (grooming, 2026-08-26)
+
+Sequencing above left waves 5, 6 and 7 as one issue each and said plainly that
+this was **"a cost, not a preference"**, naming the way out: *"The lawful way to
+collapse them is to reconcile their fences — most plausibly by deciding, once,
+where the round-trip law lives, which is the question `#52` exists to answer.
+That reconciliation is worth doing before wave 5 is dispatched."* Wave 5's
+blocker is now discharged — `#47`'s probe is answered — so the reconciliation
+came due, and this is it.
+
+**`#47` and `#52` are one issue, not two.** They do not merely share a file;
+they contradict each other. `#47` must edit the round-trip law **in place** to
+invert its colon assertion, and `#52` exists to **move that same law** out of
+`collectors/sessionlog/worktree-slug.test.ts`. Sequenced apart, whichever landed
+second would rewrite the other's work.
+
+Merged, they are one coherent change: move the law to `concierge/repos.test.ts`,
+fix the reverse walk's class, and write the colon/backslash round trip in its
+new home. `#52`'s own "cheaper lawful route" is what makes this clean rather
+than convenient — clause 1 of the concierge namespace law **skips that directory
+outright**, so a law living there needs no computed specifier, no `any` cast and
+no hand-copied `ReverseProjectSlugResult`. That copied type is the same defect
+this PRD is named for, one layer up. `#52` is closed as superseded.
+
+**Wave 5 — one issue.** `prd42 w5: a colon and a backslash round-trip, and the
+law reaches the concierge without a dodge` (`#47`).
+
+**Wave 6 — one issue, sequential.** `prd42 w6: four tidy-ups left by wave 2`
+(`#53`, formerly wave 7). It still claims
+`collectors/sessionlog/worktree-slug.test.ts`, so it cannot be wave 5's peer —
+and it should not be. It is sweep-shaped work across five files in four
+directories, and this corpus puts sweeps last because bundling one with a
+substantive change is what makes a large PR unreviewable. The split that remains
+is a judgement, where the one it replaces was a fence accident.
+
+Net: three PRs become two. The queue's fixed per-PR toll is paid twice instead
+of three times, and the remaining boundary is one somebody chose.
+
+**One correction carried out of `#52`, and then corrected again.** An earlier
+revision of this amendment said `#52`'s fence claimed `.swarm/coupling.txt`,
+which is gitignored working state a lane cannot commit, and that the entry was
+therefore booked on `#47` as an operator act.
+
+**That was false, and an independent verify pass caught it before this landed.**
+The file is tracked: `.gitignore` excludes the directory with a star-glob and
+then negates that one file, with a comment explaining that the bare directory
+form would make the negation silently inert. `git check-ignore` exits 1,
+`git ls-files` lists it, and it carries commit history. A lane can commit it.
+
+So `#52`'s fence was right and needed no carve-out. `#47` claims the path
+ordinarily, and the entry lands in the same commit as the change that forces
+it — which is better than the carve-out was, because `#47` moves the round-trip
+law into `concierge/repos.test.ts`, the exact coupling the entry describes.
+Booking it as an operator act would have stripped the entry's only enforcement
+off the very wave that creates the coupling.
+
+The withdrawn claim is recorded rather than deleted for the reason `#72` gives,
+having made and retracted the identical error the same day: *"a lane physically
+cannot commit this" is the kind of claim that gets believed without checking.*
+It was believed twice in one session, by the same author, and propagated into a
+document, two issue bodies and a close comment before anyone ran
+`git check-ignore`. The lint was never at fault — it checks overlap and
+vagueness, and there was nothing here to catch.
+
+Nothing above renumbers a ruling. Wave 7 becomes wave 6 because the wave it
+followed no longer exists; no wave that has been dispatched or landed is
+touched, and waves 1–4 and 8 keep their numbers.
