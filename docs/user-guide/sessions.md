@@ -12,7 +12,10 @@ your own explicit act*, never a collector, a lane, or a clock.
   session counts as over — default 4 hours (`14400000`ms); `--resume-window
   0` behaves exactly like `--fresh`.
 - The **default** resumes whatever session is still inside that window —
-  same file, same collector offsets, no duplicated history.
+  same file, same collector offsets, and no re-recording of the history it
+  already wrote. That is a property of resuming, not of the log: a recording
+  may still contain the same fact twice
+  ([ADR-0029](../adr/0029-a-recording-may-repeat-a-fact.md)).
 
 Every recorded session lives at
 `~/.local/share/rhizomorph/<repo-slug>/session-<id>.jsonl` — the exact path
