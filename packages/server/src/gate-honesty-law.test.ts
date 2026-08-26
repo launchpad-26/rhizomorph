@@ -169,7 +169,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    * `cmd || { echo "(could not check)"; }`. A SEVENTH was live in the file
    * the old sweep governed: gate.sh's own `n=$(git log ... | wc -l)` (fixed
    * a few lines above, in the `:82 commit-count producer` describe block
-   * below). All seven, plus four more spellings beyond them, are proven
+   * below). All seven, plus five more spellings beyond them, are proven
    * caught by the RIGGED_LINES fixtures in the 'ruling 2' describe block
    * further down — using the real predicate function, not a restatement of
    * it (the OLD non-vacuity control's own defect, per the issue this
@@ -194,20 +194,24 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    *
    * MEASURED FALSE-POSITIVE RATE (EXECUTED, run against every real
    * `VAR=$(...)` line in scripts/gate.sh — prd-46's own open question):
-   * 16 such assignments exist. 2 are flagged as structurally unchecked —
-   * :23 (`W=$(workmux path ...)`, already declared before this issue) and
-   * the `dirty=` line a few lines below :82's fix (newly declared here,
-   * with a reason: its only fallible input, $STATUS_OUT, is already
-   * RC-checked two lines above it, and grep's own "no match" exit is the
-   * ORDINARY outcome on a clean landing — the exact masking bug the
-   * `:74 fence regex` fix below exists to avoid, so checking it the same
-   * way :82 was fixed would misfire on the common case). 0 of the 16 are
-   * undeclared — the predicate does not convict a single honest line on
-   * this file. The remaining 12 pass structurally on their own merits: :17
-   * (`|| exit 2`, written before `fail` is even defined), 9 same-line
-   * `|| fail` forms (one of them a `|| { ...; fail ...; }` rescue block),
-   * and 3 next-line `_RC=$?` forms (:74/:77's `DIFF_RC`/`GREP_RC`, :100's
-   * `STATUS_RC`, :212's `CAT_RC`, plus :96's own new `N_RC`).
+   * 16 such assignments exist. Exactly 1 is flagged as structurally
+   * unchecked — :23 (`W=$(workmux path ...)`), declared before this issue
+   * and still declared, because the very next line's existence check is
+   * the verdict rather than the redirect. 0 of the 16 are undeclared: the
+   * predicate does not convict a single honest line on this file.
+   *
+   * The other 15 pass structurally on their own merits: 9 same-line forms
+   * (:17's `|| exit 2`, written before `fail` is even defined; 7 `|| fail`;
+   * 1 `|| { ...; fail ...; }` rescue block) and 6 next-line `_RC=$?`
+   * captures (:74/:77's `DIFF_RC`/`GREP_RC`, :100's `STATUS_RC`, :212's
+   * `CAT_RC`, :96's `N_RC` and the `DIRTY_RC` added beside it).
+   *
+   * These counts are PINNED below rather than left as prose. The revision
+   * that introduced this paragraph said "the remaining 12 ... 9 same-line
+   * ... and 3 next-line" and then named five captures in the same sentence
+   * — three numbers wrong, in a file whose subject is a claim nothing
+   * checks. Only 16 and the flagged count were pinned, so the pins guarded
+   * the numbers that were right and let the wrong ones rot.
    *
    * The tolerance table stays DATA, not a rule folded into the sweep: an
    * entry here is an exemption FROM the structural predicate, not (as the
@@ -295,12 +299,6 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
         "KNOWN GAP, dated 2026-08-25, not fixed by #42 or #70 — this producer's own exit status is never checked before its output feeds the process substitution a few lines below (the same producer-swallowed-by-a-process-substitution shape the NUL guard itself needed fixing for). Out of the structural predicate's scope too: it is a process substitution feeding a `while read` loop, not a `VAR=$(...)` assignment. Named in #42's commit body as a real ninth instance; #70 folds gate.sh:82 and the sweep redesign into one issue but leaves THIS one declared, per the issue's own text ('the two dated KNOWN GAP entries stay as they are').",
     },
     { needle: "find packages -name '*.bench.test.ts' 2>/dev/null", count: 1, reason: 'the second half of the same undeclared producer pair above; same deferral' },
-    {
-      needle: "printf '%s' \"$STATUS_OUT\" | grep -v package-lock.json | wc -l",
-      count: 1,
-      reason:
-        "#82's SIBLING (prd-46 #70 ruling 3), declared rather than fixed: the only fallible input, $STATUS_OUT, is already RC-checked two lines above; grep -v's own \"no match\" exit (1) is the ORDINARY result on a clean landing (nothing besides package-lock.json changed), so a `-ne 0` guard here would misfire on the common case — the exact masking bug the `:74 fence regex` fix exists to avoid — and a `-gt 1` guard (grep's OWN 'invalid' signal) would never fire at all, since the pattern is a fixed literal, never user-supplied, and cannot itself be invalid. See the matching comment in scripts/gate.sh.",
-    },
   ] as const
 
   function codeLines(): string[] {
@@ -320,13 +318,25 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     expect(undeclared.map((u) => `${u.index + 1}: ${u.line.trim()}`), 'undeclared unchecked producer(s) in scripts/gate.sh — fix the shape (see the :82 commit-count fix below) or add a DECLARED_TOLERANCES entry with a reason').toEqual([])
   })
 
-  it('EXECUTED — the measured false-positive rate on the real file, pinned: 2 of 16 $(...) assignments flagged, both declared, 0 undeclared', () => {
+  it('EXECUTED — the measured false-positive rate on the real file, pinned: 1 of 16 $(...) assignments flagged, it is declared, 0 undeclared', () => {
     const allAssignmentLines = codeLines().filter((l) => matchDollarParenAssignment(l))
     const unchecked = findUncheckedProducers(LINES)
     const undeclared = unchecked.filter((u) => !DECLARED_TOLERANCES.some((t) => u.line.includes(t.needle)))
     expect(allAssignmentLines.length, 'total $(...) assignments in scripts/gate.sh drifted — the doc comment above cites this count').toBe(16)
-    expect(unchecked.length, 'flagged (structurally unchecked) count drifted — the doc comment above cites this count').toBe(2)
+    expect(unchecked.length, 'flagged (structurally unchecked) count drifted — the doc comment above cites this count').toBe(1)
     expect(undeclared.length).toBe(0)
+
+    // The doc comment's OTHER numbers, pinned for the first time. The
+    // revision before this one got all three wrong precisely because only
+    // the totals were pinned.
+    const sameLine = allAssignmentLines.filter((l) => tailChecksStatus(matchDollarParenAssignment(l)!.tail))
+    const nextLine = allAssignmentLines.filter((l) => {
+      const i = LINES.indexOf(l)
+      return !tailChecksStatus(matchDollarParenAssignment(l)!.tail) && nextLineCapturesRC(LINES[i + 1])
+    })
+    expect(sameLine.length, 'same-line-checked count drifted — the doc comment above cites it').toBe(9)
+    expect(nextLine.length, 'next-line _RC=$? count drifted — the doc comment above cites it').toBe(6)
+    expect(sameLine.length + nextLine.length + unchecked.length).toBe(allAssignmentLines.length)
   })
 
   describe("ruling 2 — the structural predicate's own controls run the REAL predicate, not a restatement of it", () => {
@@ -498,6 +508,71 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       const res = runFragment(script, dir)
       expect(res.status).toBe(0)
       expect(res.stdout).toContain('DONE')
+    })
+  })
+
+  describe(':113 dirty-count producer — a pipeline that could not RUN holds, it does not certify the worktree clean', () => {
+    const NEW_BLOCK = sliceLines("dirty=$(printf '%s' \"$STATUS_OUT\" | grep -v package-lock.json | wc -l)", 'uncommitted work stranded in the worktree')
+
+    it("the fix reads the pipeline's own exit status (DIRTY_RC) before trusting $dirty", () => {
+      expect(NEW_BLOCK).toContain('DIRTY_RC=$?')
+      expect(NEW_BLOCK).toContain('the dirty-count pipeline failed')
+    })
+
+    /**
+     * The guard is `-gt 1`, and the four cases below are why. `-ne 0` would
+     * have held every clean landing, because grep -v exits 1 when it emits
+     * nothing — the ORDINARY clean-tree result, not a fault. That asymmetry
+     * is why the line was DECLARED rather than fixed for one revision; the
+     * declaration's second half ("-gt 1 would never fire, the pattern is a
+     * fixed literal") was false, and the grep-absent case below is the
+     * counter-example it missed.
+     */
+    function runDirty(statusOut: string, pathOverride?: string): FragmentResult {
+      const dir = scratchDir('dirtycount')
+      const pathLine = pathOverride === undefined ? '' : `export PATH=${JSON.stringify(pathOverride)}\n`
+      const script = preludeScript(0, `STATUS_OUT=${JSON.stringify(statusOut)}\n`) + pathLine + NEW_BLOCK + '\necho "  worktree clean"\n'
+      return runFragment(script, dir)
+    }
+
+    it("EXECUTED — a genuinely clean tree still passes: grep -v's no-match exit 1 is NOT treated as a fault", () => {
+      const res = runDirty('')
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('worktree clean')
+    })
+
+    it('EXECUTED — a tree dirty ONLY in package-lock.json still passes (the other ordinary exit-1 shape)', () => {
+      const res = runDirty(' M package-lock.json')
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('worktree clean')
+    })
+
+    it('EXECUTED — genuinely stranded work still HOLDS, exactly as before the fix', () => {
+      const res = runDirty(' M packages/server/src/thing.ts')
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('uncommitted work stranded')
+    })
+
+    /**
+     * The case the false declaration said could not happen. gate.sh rewrites
+     * PATH itself (:14), and git resolving while grep does not is enough:
+     * the pipeline reports 127, `dirty` is empty, and the OLD code printed
+     * the clean verdict over genuinely stranded work.
+     */
+    it('EXECUTED — with grep absent from PATH, stranded work is HELD rather than certified clean', () => {
+      const res = runDirty(' M packages/server/src/thing.ts', '/nonexistent-on-purpose')
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('the dirty-count pipeline failed')
+      expect(res.stdout).not.toContain('worktree clean')
+    })
+
+    it('EXECUTED — the OLD form certified that same stranded worktree CLEAN and exited 0', () => {
+      const dir = scratchDir('dirtycount-old')
+      const OLD_BLOCK = 'dirty=$(printf \'%s\' "$STATUS_OUT" | grep -v package-lock.json | wc -l)\n' + '[ "$dirty" -ne 0 ] && { printf \'%s\\n\' "$STATUS_OUT" | head -5; fail "uncommitted work stranded in the worktree"; }\n'
+      const script = preludeScript(0, 'STATUS_OUT=" M packages/server/src/thing.ts"\n') + 'export PATH="/nonexistent-on-purpose"\n' + OLD_BLOCK + 'echo "  worktree clean"\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('worktree clean')
     })
   })
 

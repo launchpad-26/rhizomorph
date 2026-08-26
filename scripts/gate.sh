@@ -100,17 +100,33 @@ N_RC=$?
 STATUS_OUT=$(git -C "$W" status --porcelain)
 STATUS_RC=$?
 [ "$STATUS_RC" -ne 0 ] && fail "git status failed in $W (rc=$STATUS_RC) — cannot verify the worktree is clean"
-# SIBLING of the same shape (a $(...) pipeline whose own exit status feeds no
-# check), deliberately DECLARED rather than fixed the way :87 above was
-# (prd-46 #70 ruling 3): grep -v's "no match" exit (1) is the ORDINARY
-# outcome on every clean landing (nothing besides package-lock.json
-# changed), so a `-ne 0` guard here would misfire on the common case — the
-# same masking bug the fence fix at :74-80 exists to avoid — and `-gt 1`
-# would never fire at all, since the pattern is a fixed literal, never a
-# user-supplied regex, and cannot itself be invalid. $STATUS_OUT, the only
-# fallible input, is already RC-checked two lines up. Declared in
-# gate-honesty-law.test.ts's DECLARED_TOLERANCES, not given a matching guard.
+# SIBLING of the same shape (a $(...) pipeline whose own exit status feeds
+# no check), FIXED here rather than declared — the :96 fix above is its
+# twin (prd-46 #70 ruling 3). The guard is `-gt 1`, not `-ne 0`, and the
+# asymmetry is the whole point:
+#
+#   -ne 0  would misfire on EVERY clean landing. EXECUTED: grep -v's "no
+#          match" exit (1) is the ORDINARY outcome both on a clean tree and
+#          when nothing besides package-lock.json changed — the same
+#          masking bug the fence fix at :74-80 exists to avoid.
+#   -gt 1  cannot fire on a legitimate landing: grep returns only 0 or 1
+#          when it RUNS, and wc -l returns 0. It fires when a stage does
+#          not run or dies — EXECUTED: rc 127 with grep absent from PATH
+#          (this script rewrites PATH itself at :14), and rc >=128 when a
+#          stage is signalled.
+#
+# An earlier revision of this comment declared the line instead, arguing
+# `-gt 1` "would never fire at all, since the pattern is a fixed literal
+# and cannot itself be invalid". Pattern validity is not the only route to
+# a >1 status, so that reason was false and the tolerance it justified was
+# a claim this file had not earned — the exact defect prd-46 exists to
+# abolish, sitting inside its own tolerance table. Recorded rather than
+# quietly deleted: the wrong reason is why the fix looked unnecessary.
+#
+# $STATUS_OUT, the other fallible input, is already RC-checked two lines up.
 dirty=$(printf '%s' "$STATUS_OUT" | grep -v package-lock.json | wc -l)
+DIRTY_RC=$?
+[ "$DIRTY_RC" -gt 1 ] && fail "the dirty-count pipeline failed (rc=$DIRTY_RC) — cannot verify the worktree is clean"
 [ "$dirty" -ne 0 ] && { printf '%s\n' "$STATUS_OUT" | head -5; fail "uncommitted work stranded in the worktree"; }
 echo "  commits: $n, worktree clean"
 
