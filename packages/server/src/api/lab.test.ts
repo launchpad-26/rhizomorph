@@ -7,7 +7,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Exec, ExecResult } from '@rhizomorph/core'
 import { createEventFactory, eventsToJsonl } from '@rhizomorph/core'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
 import { runCli } from '../cli/index.js'
 import { sessionFileName } from '../log/paths.js'
@@ -16,7 +16,10 @@ import { buildApp } from '../server/build-app.js'
 import { exec as realExec } from '../server/exec.js'
 import { SessionRecorder } from '../server/recorder.js'
 import {
+  LAB_CLI_LOCK_CEILING_MS,
+  LabCliLockCeilingError,
   LaunchValidationError,
+  MAX_ARMS,
   MODEL_GRAMMAR,
   estimateLaunchSpend,
   launchExperiment,
@@ -375,6 +378,152 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
     await expect(
       launchExperiment({ lane: 'x', checkpointId: 'x', arms: [{ model: 42 }] }, { repoPath: repoDir }),
     ).rejects.toThrow(/model/)
+  })
+
+  /**
+   * prd41 ruling 4 — the arm-count ceiling, at the entry point: refused
+   * before anything is dispatched. `exec` fails the test if anything is
+   * executed, the same proof `MODEL_GRAMMAR`'s refusal above already uses.
+   */
+  it(`refuses more than MAX_ARMS (${MAX_ARMS}) arms before touching the laboratory at all`, async () => {
+    const neverRuns: Exec = async (command, argv) => {
+      throw new Error(`nothing should have been executed, but got: ${command} ${argv.join(' ')}`)
+    }
+    const arms = Array.from({ length: MAX_ARMS + 1 }, () => ({}))
+
+    await expect(
+      launchExperiment({ lane: 'x', checkpointId: 'y', arms }, { repoPath: repoDir, exec: neverRuns }),
+    ).rejects.toThrow(new RegExp(`may not exceed ${MAX_ARMS}`))
+  })
+
+  /** The other side of the ceiling: exactly MAX_ARMS is not refused. */
+  it(`dispatches exactly MAX_ARMS (${MAX_ARMS}) arms — the ceiling itself is accepted`, async () => {
+    const checkpointId = await seedCheckpoint('lane-ceiling', () => 1_000_000)
+    const exec = execWithStubs((command) => (command === 'workmux' ? OK : null))
+    const arms = Array.from({ length: MAX_ARMS }, () => ({ model: 'opus' }))
+
+    const result = await launchExperiment(
+      { lane: 'lane-ceiling', checkpointId, arms },
+      { repoPath: repoDir, exec, dataRoot, claudeProjectsRoot, now: () => 2_000_000 },
+    )
+
+    expect(result.failed).toBeNull()
+    expect(result.arms).toHaveLength(MAX_ARMS)
+  })
+
+  /**
+   * `withLabCliLock`'s module-level queue outlives any one test — a genuinely
+   * never-settling `exec` would leave every LATER test in this file (and the
+   * route describe block below) queued forever behind it. This gate stays
+   * pending for exactly as long as the test needs it wedged, and is always
+   * released (and drained) before the test returns, so the lock is clear for
+   * whatever runs next.
+   */
+  function hangingExecGate(): { exec: Exec; release: () => void } {
+    let release = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const exec: Exec = async () => {
+      await gate
+      return OK
+    }
+    return { exec, release }
+  }
+
+  /**
+   * prd41 ruling 2 — the lock ceiling. A first launch's `exec` does not
+   * resolve, so `withLabCliLock` does not clear; a second launch queued
+   * behind it must refuse once it has waited past the ceiling, not hang
+   * forever. `lockCeilingMs` is a test seam (production takes the default);
+   * `vi.useFakeTimers` fires that ceiling deterministically, mirroring
+   * `poll-loop.test.ts`'s own watchdog tests rather than a real wait.
+   */
+  it('a second launch queued behind a wedged lock refuses with LabCliLockCeilingError, naming what it waited on, rather than hanging', async () => {
+    vi.useFakeTimers()
+    try {
+      const checkpointId = await seedCheckpoint('lane-wedged', () => 1_000_000)
+      const { exec: hangingExec, release } = hangingExecGate()
+
+      const first = launchExperiment(
+        { lane: 'lane-wedged', checkpointId, arms: [{ model: 'opus' }] },
+        { repoPath: repoDir, exec: hangingExec, dataRoot, claudeProjectsRoot, now: () => 2_000_000, lockCeilingMs: 30_000 },
+      )
+      // Let `first` actually take the lock (its own `withLabCliLock` call
+      // resolves an already-settled `previous` via a microtask) before
+      // `second` reads what it's waiting on — otherwise `second` can be
+      // constructed in the same tick, before `first` has claimed the label.
+      await Promise.resolve()
+      await Promise.resolve()
+
+      try {
+        const second = launchExperiment(
+          { lane: 'lane-wedged', checkpointId, arms: [{ model: 'sonnet' }] },
+          { repoPath: repoDir, exec: hangingExec, dataRoot, claudeProjectsRoot, now: () => 2_000_000, lockCeilingMs: 30_000 },
+        )
+        const assertion = expect(second).rejects.toThrow(LabCliLockCeilingError)
+        await vi.advanceTimersByTimeAsync(30_000)
+        await assertion
+
+        // Naming what it waited on: the first arm's own diagnostic label.
+        await expect(second).rejects.toThrow(/arm 1 for lane "lane-wedged"/)
+      } finally {
+        // Let the wedged call (and anything still queued behind it) actually
+        // finish, so the module-level lock is clear before the next test runs.
+        release()
+        await first.catch(() => {})
+      }
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  /**
+   * The same scenario, over the actual route this ceiling protects — a real
+   * `POST /api/lab/launch` must 503 rather than hang. The route has no seam
+   * to inject a hung `exec` of its own, so the occupying call reaches the lab
+   * CLI lock directly (it is process-wide, not per-request) — the same lock
+   * `registerLabRoutes` below serialises every launch through. The queued
+   * HTTP request never has its own `exec` reached at all: it gives up before
+   * its turn arrives, which is the whole point of "refuse, never queue."
+   */
+  it('a second POST /api/lab/launch 503s rather than hangs behind a wedged lock (prd41 ruling 2)', async () => {
+    vi.useFakeTimers()
+    const sessionDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-lab-lock-route-dir-'))
+    try {
+      const checkpointId = await seedCheckpoint('lane-wedged-route', () => 1_000_000)
+      const { exec: hangingExec, release } = hangingExecGate()
+
+      const occupying = launchExperiment(
+        { lane: 'lane-wedged-route', checkpointId, arms: [{ model: 'opus' }] },
+        { repoPath: repoDir, exec: hangingExec, dataRoot, claudeProjectsRoot, now: () => 2_000_000 },
+      )
+
+      try {
+        const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+        const app = buildApp({ repoPath: repoDir, repoName: 'repo', sessionDir, recorder })
+
+        const responsePromise = app.inject({
+          method: 'POST',
+          url: '/api/lab/launch',
+          headers: { [CAPABILITY_TOKEN_HEADER]: app.capabilityToken },
+          payload: { lane: 'lane-wedged-route', checkpointId, arms: [{ model: 'sonnet' }] },
+        })
+
+        await vi.advanceTimersByTimeAsync(LAB_CLI_LOCK_CEILING_MS)
+        const response = await responsePromise
+
+        expect(response.statusCode).toBe(503)
+        const { error } = response.json() as { error: string }
+        expect(error).toMatch(/arm 1 for lane "lane-wedged-route"/)
+      } finally {
+        release()
+        await occupying.catch(() => {})
+      }
+    } finally {
+      vi.useRealTimers()
+      await rm(sessionDir, { recursive: true, force: true })
+    }
   })
 
   /**
@@ -892,15 +1041,46 @@ describe("the lab launch path is reachable only from an explicit request (prd12 
 
   const LAUNCH_ENTRY_RE = /\blaunchExperiment\b/
 
-  it('api/lab.ts has no clock of its own — the launch route never fires without an incoming request', () => {
+  /**
+   * `setInterval`/`setImmediate` are the two primitives capable of firing on
+   * their own schedule, independent of any one request — a repeating timer or
+   * a reentrant microtask loop is what "a clock of its own" means here.
+   * `setTimeout` is checked separately, immediately below: prd41 ruling 2
+   * gave this file exactly one, and it is request-scoped (the lock ceiling),
+   * not a clock — pinning it that way is more precise than banning the
+   * primitive outright.
+   */
+  it('api/lab.ts has no clock of its own — no repeating or reentrant trigger fires without an incoming request', () => {
     const source = readFileSync(LAB_ROUTE_FILE, 'utf8')
-    expect(/\b(setInterval|setTimeout|setImmediate)\s*\(/.test(source)).toBe(false)
+    expect(/\b(setInterval|setImmediate)\s*\(/.test(source)).toBe(false)
   })
 
   it('that detector bites — a scheduled launch would be caught', () => {
-    expect(
-      /\b(setInterval|setTimeout|setImmediate)\s*\(/.test('setInterval(() => launchExperiment(x, y), 60_000)'),
-    ).toBe(true)
+    expect(/\b(setInterval|setImmediate)\s*\(/.test('setInterval(() => launchExperiment(x, y), 60_000)')).toBe(true)
+  })
+
+  /**
+   * prd41 ruling 2's lock ceiling is the one `setTimeout` this file has —
+   * pinned to exactly one, and proven request-scoped rather than a clock:
+   * its callback only rejects an already-outstanding promise
+   * (`withLabCliLock`'s `ceilingReached`), it never calls `launchExperiment`,
+   * `runLabCliOnce` or `runCli`, and nothing rearms it. A future `setTimeout`
+   * added anywhere else in this file reds this pin rather than silently
+   * widening what "no clock of its own" actually covers.
+   */
+  it("the lock ceiling's setTimeout is the only one in this file, and its callback never reaches the launch entry point or the CLI invoker", () => {
+    const source = readFileSync(LAB_ROUTE_FILE, 'utf8')
+    const calls = source.match(/\bsetTimeout\s*\(/g) ?? []
+    expect(calls).toHaveLength(1)
+
+    const start = source.indexOf('ceilingTimer = setTimeout(')
+    expect(start).toBeGreaterThan(-1)
+    const end = source.indexOf('}, ceilingMs)', start)
+    expect(end).toBeGreaterThan(start)
+    const callback = source.slice(start, end)
+
+    expect(LAUNCH_ENTRY_RE.test(callback)).toBe(false)
+    expect(/\brunLabCliOnce\b|\brunCli\s*\(/.test(callback)).toBe(false)
   })
 
   it('no collector and no poll loop names the launch entry point — stated by name, not left to the sweep', () => {

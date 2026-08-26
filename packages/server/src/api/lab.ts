@@ -355,6 +355,15 @@ function refuseFlagShaped(value: string, label: string, why: string): void {
   }
 }
 
+/**
+ * The most arms one launch request may dispatch — each arm forks a real
+ * worktree and, with `--launch`, a real spending agent lane (prd41 ruling 4:
+ * "a ceiling that spends money is declared"). The number itself is a
+ * design-note decision, not this file's own reasoning: see
+ * docs/design-notes/lab-launch-ceilings.md.
+ */
+export const MAX_ARMS = 8
+
 function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
   if (typeof body !== 'object' || body === null) {
     throw new LaunchValidationError('request body must be a JSON object')
@@ -389,6 +398,13 @@ function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
   refuseFlagShaped(checkpointId, '"checkpointId"', 'a checkpoint id names a captured moment')
   if (!Array.isArray(arms) || arms.length === 0) {
     throw new LaunchValidationError('"arms" must be a non-empty array — an experiment needs at least one arm')
+  }
+  // prd41 ruling 4: a ceiling that spends money is declared. See MAX_ARMS below —
+  // this is the same validation block ruling 4 says the ceiling belongs beside.
+  if (arms.length > MAX_ARMS) {
+    throw new LaunchValidationError(
+      `"arms" may not exceed ${MAX_ARMS} — received ${arms.length}, and each arm forks a live, spending agent lane`,
+    )
   }
 
   const parsedArms: LaunchArmInput[] = arms.map((arm, index) => {
@@ -427,6 +443,21 @@ function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
 }
 
 /**
+ * How long a launch will wait for another launch's `runCli` call to clear
+ * before refusing rather than joining the queue behind it (prd41 ruling 2:
+ * "refuse, never queue... a queued launch is money the operator did not
+ * watch being spent"). This bounds how long a NEW caller sits behind
+ * whatever is already running — it does not bound the in-flight call itself,
+ * which keeps the lock until it settles on its own; that is a separate,
+ * exec-level concern the other wave-2 issue gives the four lab modules. See
+ * docs/design-notes/lab-launch-ceilings.md for the number.
+ */
+export const LAB_CLI_LOCK_CEILING_MS = 30_000
+
+/** Thrown when a launch gives up waiting for the lab CLI lock. The route maps this to 503. */
+export class LabCliLockCeilingError extends Error {}
+
+/**
  * Every concurrent request that reaches the laboratory serialises through
  * here — one `runCli(['lab', ...])` in flight at a time, process-wide. Two
  * reasons: `runLabCliOnce` below temporarily replaces `process.stderr.write`
@@ -435,14 +466,56 @@ function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
  * the SAME parent repo per arm, which is safer serialised than raced.
  */
 let labCliQueue: Promise<unknown> = Promise.resolve()
+/** What `labCliQueue`'s current holder is doing — the diagnostic a ceiling refusal names. */
+let labCliQueueLabel: string | null = null
 
-function withLabCliLock<T>(fn: () => Promise<T>): Promise<T> {
-  const runAfterPrevious = labCliQueue.then(fn, fn)
-  labCliQueue = runAfterPrevious.then(
+/**
+ * A caller that must WAIT for the current holder races that wait against
+ * `ceilingMs`. If the holder has not cleared by then, this rejects with
+ * `LabCliLockCeilingError` naming what it waited on, and — the part that
+ * makes this a refusal rather than a slow queue — `fn` is never called for
+ * this caller: giving up must mean nothing is dispatched and no money is
+ * spent, not "dispatched late with nobody watching."
+ */
+function withLabCliLock<T>(label: string, fn: () => Promise<T>, ceilingMs: number = LAB_CLI_LOCK_CEILING_MS): Promise<T> {
+  const waitedOn = labCliQueueLabel
+  const previous = labCliQueue
+  let gaveUp = false
+  let ceilingTimer: ReturnType<typeof setTimeout>
+
+  const ceilingReached = new Promise<never>((_resolve, reject) => {
+    ceilingTimer = setTimeout(() => {
+      gaveUp = true
+      reject(
+        new LabCliLockCeilingError(
+          waitedOn === null
+            ? `the laboratory did not clear within ${ceilingMs}ms — refused rather than queued`
+            : `the laboratory is still running ${waitedOn} — waited ${ceilingMs}ms and refused rather than queued`,
+        ),
+      )
+    }, ceilingMs)
+  })
+
+  const settleThenRun = async (): Promise<T> => {
+    if (gaveUp) {
+      throw new LabCliLockCeilingError('gave up waiting for the lab CLI lock before this turn arrived')
+    }
+    clearTimeout(ceilingTimer)
+    labCliQueueLabel = label
+    try {
+      return await fn()
+    } finally {
+      labCliQueueLabel = null
+    }
+  }
+
+  const attempt = previous.then(settleThenRun, settleThenRun)
+  labCliQueue = attempt.then(
     () => undefined,
     () => undefined,
   )
-  return runAfterPrevious
+
+  return Promise.race([attempt, ceilingReached])
 }
 
 /** Thrown by the injected `exit` below to unwind `runCli` without touching the real process. */
@@ -555,6 +628,8 @@ export interface LaunchExperimentOptions {
   dataRoot?: string
   claudeProjectsRoot?: string
   now?: () => number
+  /** Overrides `LAB_CLI_LOCK_CEILING_MS` — a test seam; production takes the default. */
+  lockCeilingMs?: number
 }
 
 /**
@@ -612,13 +687,16 @@ export async function launchExperiment(body: unknown, options: LaunchExperimentO
       if (briefFile !== null) argv.push('--prompt-file', briefFile)
       argv.push('--', request.lane)
 
-      const invocation = await withLabCliLock(() =>
-        runLabCliOnce(argv, {
-          ...(options.exec === undefined ? {} : { exec: options.exec }),
-          ...(options.dataRoot === undefined ? {} : { dataRoot: options.dataRoot }),
-          ...(options.claudeProjectsRoot === undefined ? {} : { claudeProjectsRoot: options.claudeProjectsRoot }),
-          ...(options.now === undefined ? {} : { now: options.now }),
-        }),
+      const invocation = await withLabCliLock(
+        `arm ${armNumber} for lane "${request.lane}"`,
+        () =>
+          runLabCliOnce(argv, {
+            ...(options.exec === undefined ? {} : { exec: options.exec }),
+            ...(options.dataRoot === undefined ? {} : { dataRoot: options.dataRoot }),
+            ...(options.claudeProjectsRoot === undefined ? {} : { claudeProjectsRoot: options.claudeProjectsRoot }),
+            ...(options.now === undefined ? {} : { now: options.now }),
+          }),
+        options.lockCeilingMs,
       )
 
       if (invocation.exitCode !== 0) {
@@ -698,6 +776,9 @@ export function registerLabRoutes(app: FastifyInstance, ctx: ServerContext): voi
     } catch (err) {
       if (err instanceof LaunchValidationError) {
         return reply.code(400).send({ error: err.message })
+      }
+      if (err instanceof LabCliLockCeilingError) {
+        return reply.code(503).send({ error: err.message })
       }
       throw err
     }
