@@ -798,6 +798,73 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
     expect(result.failed?.arm).toBe(1)
     expect(result.failed?.error).toMatch(/no checkpoint "nope"/)
   })
+
+  /**
+   * #10: `runLabCliOnce` used to replace `process.stderr.write` for the whole
+   * duration of the CLI call, process-wide — so a `console.error` from
+   * anything else running concurrently (another request, a background loop,
+   * #239's degrade reporting) landed in the buffer this route builds
+   * `failed.error` from, and never reached the operator's real stderr at all.
+   * Stubs `workmux` to hang until this test writes an unrelated
+   * `console.error`, THEN fail — reproducing a slow fork with something else
+   * writing to stderr mid-flight. Both halves must hold: the outside write
+   * reaches the real stream, and it never leaks into this arm's own failure.
+   *
+   * Writes `process.stderr.write` directly rather than through
+   * `console.error` — vitest's own reporter intercepts `console.*` before it
+   * ever reaches `process.stderr.write`, which would make this assert nothing
+   * about the code under test either way; `console.error` (like every
+   * lab-subcommand error path in `cli/index.ts`) is itself just a caller of
+   * `process.stderr.write`, which is the actual seam this issue is about.
+   */
+  it('a console.error raised outside the lab during a stubbed slow fork reaches real stderr and is absent from failed.error', async () => {
+    const checkpointId = await seedCheckpoint('lane-outside-stderr', () => 1_000_000)
+
+    let markWorkmuxStarted: () => void = () => {}
+    const workmuxStarted = new Promise<void>((resolve) => {
+      markWorkmuxStarted = resolve
+    })
+    let releaseWorkmux: () => void = () => {}
+    const workmuxGate = new Promise<void>((resolve) => {
+      releaseWorkmux = resolve
+    })
+
+    const exec: Exec = async (command, args, execOptions) => {
+      if (command !== 'workmux') return realExec(command, args, execOptions)
+      markWorkmuxStarted()
+      await workmuxGate
+      return { stdout: '', stderr: 'workmux: tmux server not running', code: 1, failed: true }
+    }
+
+    const realWrites: string[] = []
+    const originalWrite = process.stderr.write.bind(process.stderr)
+    process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+      realWrites.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'))
+      return (originalWrite as unknown as (...args: unknown[]) => boolean)(chunk, ...rest)
+    }) as typeof process.stderr.write
+
+    try {
+      const launchPromise = launchExperiment(
+        { lane: 'lane-outside-stderr', checkpointId, arms: [{ model: 'opus' }] },
+        { repoPath: repoDir, exec, dataRoot, claudeProjectsRoot, now: () => 2_000_000 },
+      )
+
+      // Wait until the "fork" is genuinely mid-flight (blocked on workmux)
+      // before the outside write happens, and only then let it fail.
+      await workmuxStarted
+      process.stderr.write('OUTSIDE-STDERR-MARKER: an unrelated write during the slow fork\n')
+      releaseWorkmux()
+
+      const result = await launchPromise
+
+      expect(result.failed?.arm).toBe(1)
+      expect(result.failed?.error).toMatch(/tmux server not running/)
+      expect(result.failed?.error).not.toMatch(/OUTSIDE-STDERR-MARKER/)
+      expect(realWrites.some((chunk) => chunk.includes('OUTSIDE-STDERR-MARKER'))).toBe(true)
+    } finally {
+      process.stderr.write = originalWrite
+    }
+  })
 })
 
 describe('POST /api/lab/launch (route wiring — validation and the read-only refusal never touch the laboratory)', () => {
