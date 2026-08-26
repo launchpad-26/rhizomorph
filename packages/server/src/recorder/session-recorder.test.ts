@@ -2,12 +2,12 @@ import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { createEvent, createEventFactory, initialSessionState, reduceAll } from '@rhizomorph/core'
 import type { RhizomorphEvent } from '@rhizomorph/core'
 import * as core from '@rhizomorph/core'
+import { createEvent, createEventFactory, initialSessionState, reduceAll } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { sessionFilePath } from '../log/session-log.js'
 import { writeSessionLock } from '../log/session-lock.js'
+import { sessionFilePath } from '../log/session-log.js'
 import { rotateSession } from './rotate.js'
 import { SessionLogWriter } from './session-log-writer.js'
 import { SessionRecorder } from './session-recorder.js'
@@ -367,6 +367,101 @@ describe('SessionRecorder#recordAlarm — the one named exception (prd40 success
     // one, and a second, satisfied directive would mask the first going stale.)
     // @ts-expect-error — recordAlarm accepts EventOf<'collector.error'> only.
     await expect(recorder.recordAlarm(notAnAlarm)).resolves.toEqual({ appended: true })
+  })
+
+  // The three laws below pin `recordAlarm`s two concurrency guards. Both are
+  // copied from `record`, whose own guard has been held by a law since the
+  // suspension point was introduced ("does not publish into the next session
+  // when a rotation lands mid-append", above) — but the copies shipped
+  // unasserted: deleting BOTH left the whole suite green (6594 passed).
+  // `recordAlarm` is the one method allowed to publish without appending, so
+  // it is the last one whose rotation and seal behaviour should rest on
+  // reading the source.
+
+  it('parks in the sealed window rather than appending behind session.closed (prd17 ruling 1)', async () => {
+    await recorder.closeWith(
+      createEvent('session.closed', { sessionId: FIRST, reason: 'rotated', eventCount: 1 }, { id: 'session-closed-1000', ts: 1000 }),
+    )
+    let settled = false
+    const pending = recorder.recordAlarm(anAlarm('evt-1', 'boom')).then((result) => {
+      settled = true
+      return result
+    })
+    // Macrotask turn: the seal is a promise only `openSession` resolves, so no
+    // number of turns can let this through while the window is open.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(settled).toBe(false)
+    // The exemption is about publishing, never about writing behind a closed
+    // log — prd17 ruling 1's structural guarantee is not one of the clauses
+    // ADR-0030 carves out.
+    const closed = readFileSync(sessionFilePath(dir, FIRST), 'utf8').trimEnd().split('\n')
+    expect(JSON.parse(closed[closed.length - 1]).type).toBe('session.closed')
+
+    const SECOND = '2000'
+    recorder.openSession(SECOND, sessionFilePath(dir, SECOND))
+
+    await expect(pending).resolves.toEqual({ appended: true })
+    expect(readFileSync(sessionFilePath(dir, SECOND), 'utf8')).toContain('evt-1')
+  })
+
+  it('does not publish into the next session when a rotation lands mid-append', async () => {
+    let releaseAppend: () => void = () => {}
+    vi.spyOn(SessionLogWriter.prototype, 'append').mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseAppend = resolve
+        }),
+    )
+    const seen: RhizomorphEvent[] = []
+    const unsubscribe = recorder.subscribe((event) => {
+      seen.push(event)
+    })
+
+    const pending = recorder.recordAlarm(anAlarm('evt-1', 'boom'))
+    const SECOND = '2000'
+    recorder.openSession(SECOND, sessionFilePath(dir, SECOND))
+    releaseAppend()
+
+    await expect(pending).resolves.toEqual({ appended: true })
+    unsubscribe()
+
+    // Durable in the log it was appended to, and absent from the session that
+    // has since opened — buffer, fold AND subscribers, exactly as `record`.
+    expect(recorder.eventsSoFar()).toEqual([])
+    expect(recorder.foldSoFar()).toEqual(initialSessionState())
+    expect(seen).toEqual([])
+  })
+
+  it('still speaks when a rotation lands mid-append and the append failed', async () => {
+    // The asymmetry with the law above, and the reason the guard sits INSIDE
+    // `if (appended)` rather than above it: a rotation racing the alarm is not
+    // a reason to silence it. Nothing entered the buffer or the fold, so there
+    // is nothing to pollute the new session with.
+    let rejectAppend: (error: Error) => void = () => {}
+    vi.spyOn(SessionLogWriter.prototype, 'append').mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectAppend = reject
+        }),
+    )
+    const seen: RhizomorphEvent[] = []
+    const unsubscribe = recorder.subscribe((event) => {
+      seen.push(event)
+    })
+    const alarm = anAlarm('evt-1', 'boom')
+
+    const pending = recorder.recordAlarm(alarm)
+    const SECOND = '2000'
+    recorder.openSession(SECOND, sessionFilePath(dir, SECOND))
+    rejectAppend(new Error('ENOSPC: no space left on device'))
+
+    await expect(pending).resolves.toEqual({ appended: false })
+    unsubscribe()
+
+    expect(seen).toEqual([alarm])
+    expect(recorder.eventsSoFar()).toEqual([])
+    expect(recorder.foldSoFar()).toEqual(initialSessionState())
   })
 })
 
