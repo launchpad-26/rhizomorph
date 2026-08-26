@@ -1,5 +1,5 @@
 import type { AnyCollector, CollectorContext, EventOf, Exec, ExecResult, RhizomorphEvent } from '@rhizomorph/core'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { COLLECTOR_EXEC_TIMEOUT_MS, createPollLoop } from './poll-loop.js'
 import type { SessionRecorder } from './recorder.js'
 import type { LoadedSnapshot, SnapshotStore } from './snapshot-store.js'
@@ -10,15 +10,36 @@ function createFakeRecorder(): { recorder: SessionRecorder; events: RhizomorphEv
     record: async (event: RhizomorphEvent) => {
       events.push(event)
     },
+    recordAlarm: async (event: EventOf<'collector.error'>) => {
+      events.push(event)
+      return { appended: true }
+    },
   } as unknown as SessionRecorder
   return { recorder, events }
 }
 
-/** A recorder whose every `record` call rejects — simulates a disk-full or permission-denied append. */
+/**
+ * A recorder on a disk that cannot be written: every `record` rejects, and
+ * `recordAlarm` reports `{ appended: false }` — the alarm's own append failed
+ * too. Per ADR-0030 it still reaches subscribers, which is what `subscribe`
+ * here exists to let the tests observe.
+ */
 function createFailingRecorder(): SessionRecorder {
+  const listeners: ((event: RhizomorphEvent) => void)[] = []
   return {
     record: async () => {
       throw new Error('ENOSPC: no space left on device')
+    },
+    recordAlarm: async (event: EventOf<'collector.error'>) => {
+      for (const listener of listeners) listener(event)
+      return { appended: false }
+    },
+    subscribe: (listener: (event: RhizomorphEvent) => void) => {
+      listeners.push(listener)
+      return () => {
+        const at = listeners.indexOf(listener)
+        if (at >= 0) listeners.splice(at, 1)
+      }
     },
   } as unknown as SessionRecorder
 }
@@ -326,6 +347,148 @@ describe('the poll loop and snapshot persistence', () => {
     // The loop is still alive: a second tick runs rather than the process
     // having died on an unhandled rejection from the first one.
     await expect(pollLoop.tick()).resolves.toBeUndefined()
+  })
+})
+
+describe('the poll loop degrade voice (prd40 success 2)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('writes the operator a line naming the event and the collector when the alarm cannot be appended', async () => {
+    // P0. The fallback in `recordOrDegrade` had no assertion of any kind
+    // before this law: the two tests above drive it and assert only that the
+    // loop did not crash. Cover it before changing it — what the line SAYS is
+    // the operator's only handle on which collector went quiet.
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const recorder = createFailingRecorder()
+    const broken: AnyCollector = {
+      name: 'broken',
+      initialSnapshot: () => ({ polls: 0 }),
+      poll: () => {
+        throw new Error('broken blew up')
+      },
+    }
+
+    const pollLoop = createPollLoop({
+      repoPath: '/tmp/repo',
+      collectors: [broken],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+    })
+    await pollLoop.tick()
+
+    expect(reported).toHaveBeenCalledWith(
+      expect.stringContaining('[rhizomorph] failed to report collector.error for broken'),
+    )
+  })
+
+  it('reaches a live subscriber even when the alarms own append fails', async () => {
+    // P1, the decisive law: the disk-full case. `record` publishes nothing when
+    // its append fails (prd40 ruling 1), so before ADR-0030 this alarm reached
+    // nobody in exactly the case it exists for and the dashboard went on
+    // looking healthy. This test is unpassable through `record`.
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const recorder = createFailingRecorder()
+    const heard: RhizomorphEvent[] = []
+    recorder.subscribe((event) => {
+      heard.push(event)
+    })
+    const broken: AnyCollector = {
+      name: 'broken',
+      initialSnapshot: () => ({ polls: 0 }),
+      poll: () => {
+        throw new Error('broken blew up')
+      },
+    }
+
+    const pollLoop = createPollLoop({
+      repoPath: '/tmp/repo',
+      collectors: [broken],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+    })
+    await pollLoop.tick()
+
+    expect(collectorErrors(heard)).toHaveLength(1)
+    expect(collectorErrors(heard)[0]?.payload).toMatchObject({
+      collector: 'broken',
+      message: 'broken blew up',
+    })
+  })
+
+  it('still writes the operators line beside the emit — two channels, not one', async () => {
+    // P2. `api/lab.ts` replaces `process.stderr.write` process-wide for the
+    // duration of a lab fork (prd41 #10 owns that), so the emit cannot be the
+    // only channel either. Both fire, or the guarantee is half a guarantee.
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const recorder = createFailingRecorder()
+    const heard: RhizomorphEvent[] = []
+    recorder.subscribe((event) => {
+      heard.push(event)
+    })
+    const broken: AnyCollector = {
+      name: 'broken',
+      initialSnapshot: () => ({ polls: 0 }),
+      poll: () => {
+        throw new Error('broken blew up')
+      },
+    }
+
+    const pollLoop = createPollLoop({
+      repoPath: '/tmp/repo',
+      collectors: [broken],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+    })
+    await pollLoop.tick()
+
+    expect(heard).toHaveLength(1)
+    expect(reported).toHaveBeenCalledWith(
+      '[rhizomorph] failed to report collector.error for broken: the session log could not be written',
+    )
+  })
+
+  it('speaks in the same voice for a snapshot-save failure as for a collector failure', async () => {
+    // P3, the sibling case. `persist`'s degrade call and `runTick`'s are
+    // structurally identical, and a fix applied to one and not the other is
+    // the defect shape this repo keeps finding. The collector below emits
+    // nothing of its own, so `persist()`s catch is the only one in play.
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const recorder = createFailingRecorder()
+    const heard: RhizomorphEvent[] = []
+    recorder.subscribe((event) => {
+      heard.push(event)
+    })
+    const store = createFakeStore()
+    store.failSave = new Error('EACCES: permission denied')
+    const silent: AnyCollector = {
+      name: 'silent',
+      initialSnapshot: () => ({ polls: 0 }),
+      poll: (prev: { polls: number }) => ({
+        nextSnapshot: { polls: prev.polls + 1 },
+        events: [],
+      }),
+    }
+
+    const pollLoop = createPollLoop({
+      repoPath: '/tmp/repo',
+      collectors: [silent],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+      snapshotStore: store,
+    })
+    await pollLoop.tick()
+
+    expect(collectorErrors(heard)).toHaveLength(1)
+    expect(collectorErrors(heard)[0]?.payload).toMatchObject({
+      collector: 'silent',
+      message: 'snapshot save failed: EACCES: permission denied',
+    })
   })
 })
 
@@ -772,7 +935,12 @@ describe('the poll loop, rebuildable (prd20 ruling 5, retarget spike Q1/gap a+b)
   })
 })
 
-/** A recorder that rejects the Nth `record` call (1-based) and records the rest. */
+/**
+ * A recorder whose Nth append (1-based) rejects and whose others land. Both
+ * publishing paths append, so both share the count: `record` rejects on it,
+ * and `recordAlarm` — which never rejects (ADR-0030) — reports it as
+ * `{ appended: false }` and publishes nothing.
+ */
 function createRecorderFailingOn(n: number): { recorder: SessionRecorder; events: RhizomorphEvent[] } {
   const events: RhizomorphEvent[] = []
   let calls = 0
@@ -781,6 +949,12 @@ function createRecorderFailingOn(n: number): { recorder: SessionRecorder; events
       calls += 1
       if (calls === n) throw new Error('ENOSPC: no space left on device')
       events.push(event)
+    },
+    recordAlarm: async (event: EventOf<'collector.error'>) => {
+      calls += 1
+      if (calls === n) return { appended: false }
+      events.push(event)
+      return { appended: true }
     },
   } as unknown as SessionRecorder
   return { recorder, events }

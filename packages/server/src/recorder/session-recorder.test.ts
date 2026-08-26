@@ -2,12 +2,12 @@ import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { createEvent, createEventFactory, initialSessionState, reduceAll } from '@rhizomorph/core'
 import type { RhizomorphEvent } from '@rhizomorph/core'
 import * as core from '@rhizomorph/core'
+import { createEvent, createEventFactory, initialSessionState, reduceAll } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { sessionFilePath } from '../log/session-log.js'
 import { writeSessionLock } from '../log/session-lock.js'
+import { sessionFilePath } from '../log/session-log.js'
 import { rotateSession } from './rotate.js'
 import { SessionLogWriter } from './session-log-writer.js'
 import { SessionRecorder } from './session-recorder.js'
@@ -240,6 +240,231 @@ describe('SessionRecorder#record — the append precedes every publish (prd40 ru
     expect(recorder.eventsSoFar()).toEqual([])
     expect(recorder.foldSoFar()).toEqual(initialSessionState())
     expect(seen).toEqual([])
+  })
+})
+
+describe('SessionRecorder#recordAlarm — the one named exception (prd40 success 1, ADR-0030)', () => {
+  let dir: string
+  let recorder: SessionRecorder
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-recorder-alarm-test-'))
+    recorder = new SessionRecorder(FIRST, sessionFilePath(dir, FIRST))
+  })
+
+  afterEach(async () => {
+    vi.restoreAllMocks()
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  const anAlarm = (id: string, message: string) =>
+    createEvent('collector.error', { collector: 'git', message }, { id, ts: 1000 })
+
+  it('is record()s own path when the append succeeds — disk, buffer, fold and subscriber', async () => {
+    const seen: RhizomorphEvent[] = []
+    const unsubscribe = recorder.subscribe((event) => {
+      seen.push(event)
+    })
+    const alarm = anAlarm('evt-1', 'boom')
+
+    await expect(recorder.recordAlarm(alarm)).resolves.toEqual({ appended: true })
+    unsubscribe()
+
+    expect(readFileSync(sessionFilePath(dir, FIRST), 'utf8')).toContain('evt-1')
+    expect(recorder.eventsSoFar()).toEqual([alarm])
+    expect(recorder.foldSoFar()).toEqual(reduceAll([alarm]))
+    expect(seen).toEqual([alarm])
+  })
+
+  it('emits to subscribers on a rejected append, and advances neither buffer nor fold', async () => {
+    // The load-bearing law. The emit is the exemption prd-40 success 1 names by
+    // event type; the untouched buffer and fold are the half that is NOT
+    // exempted — "leaves the fold ahead of the file after a rejected append"
+    // is still forbidden, alarm or not.
+    const before = { events: recorder.eventsSoFar(), fold: recorder.foldSoFar() }
+    const seen: RhizomorphEvent[] = []
+    const unsubscribe = recorder.subscribe((event) => {
+      seen.push(event)
+    })
+    vi.spyOn(SessionLogWriter.prototype, 'append').mockRejectedValueOnce(new Error('ENOSPC: no space left on device'))
+    const alarm = anAlarm('evt-1', 'boom')
+
+    await expect(recorder.recordAlarm(alarm)).resolves.toEqual({ appended: false })
+    unsubscribe()
+
+    expect(seen).toEqual([alarm])
+    expect(recorder.eventsSoFar()).toEqual(before.events)
+    expect(recorder.foldSoFar()).toEqual(before.fold)
+    expect(recorder.eventsSoFar()).toEqual([])
+    expect(recorder.foldSoFar()).toEqual(initialSessionState())
+  })
+
+  it('never rejects, where record() on the same failure does', async () => {
+    vi.spyOn(SessionLogWriter.prototype, 'append').mockRejectedValue(new Error('ENOSPC: no space left on device'))
+
+    await expect(recorder.recordAlarm(anAlarm('evt-1', 'boom'))).resolves.toEqual({ appended: false })
+    // The contrast is the point: `record`'s own law (same failure, same file)
+    // still says the caller learns by rejection. Only the alarm is exempt.
+    await expect(recorder.record(anAlarm('evt-2', 'boom'))).rejects.toThrow('ENOSPC')
+  })
+
+  it('a throwing subscriber cannot silence the alarm', async () => {
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const seen: RhizomorphEvent[] = []
+    // Registered BEFORE the thrower: `EventEmitter.emit` abandons the listener
+    // list at the first throw, so this method's guard buys the CALLER's
+    // survival, not delivery to listeners queued behind a broken one. That
+    // limit is the same one `closeWith` has always had.
+    const unsubscribeGood = recorder.subscribe((event) => {
+      seen.push(event)
+    })
+    const unsubscribeBad = recorder.subscribe(() => {
+      throw new Error('subscriber boom')
+    })
+    vi.spyOn(SessionLogWriter.prototype, 'append').mockRejectedValueOnce(new Error('ENOSPC: no space left on device'))
+    const alarm = anAlarm('evt-1', 'boom')
+
+    await expect(recorder.recordAlarm(alarm)).resolves.toEqual({ appended: false })
+    unsubscribeGood()
+    unsubscribeBad()
+
+    expect(seen).toEqual([alarm])
+    expect(reported).toHaveBeenCalledWith(expect.stringContaining('subscriber boom'))
+  })
+
+  it('emits every repeat of a failing alarm, and the buffer and fold never grow', async () => {
+    const seen: RhizomorphEvent[] = []
+    const unsubscribe = recorder.subscribe((event) => {
+      seen.push(event)
+    })
+    vi.spyOn(SessionLogWriter.prototype, 'append').mockRejectedValue(new Error('ENOSPC: no space left on device'))
+
+    for (const id of ['evt-1', 'evt-2', 'evt-3']) {
+      await expect(recorder.recordAlarm(anAlarm(id, 'boom'))).resolves.toEqual({ appended: false })
+      // Checked after EVERY alarm, not once at the end: a fold that drifts on
+      // the second one is invisible to a single trailing assertion.
+      expect(recorder.eventsSoFar()).toHaveLength(0)
+      expect(recorder.foldSoFar()).toEqual(initialSessionState())
+    }
+    unsubscribe()
+
+    expect(seen.map((event) => event.id)).toEqual(['evt-1', 'evt-2', 'evt-3'])
+  })
+
+  it('cannot be reached by any event but collector.error — asserted by name, enforced by tsc', async () => {
+    const notAnAlarm = createEvent(
+      'worktree.discovered',
+      { path: '/repo/rhizomorph', branch: 'main', head: 'a'.repeat(40), isMain: true },
+      { id: 'evt-1', ts: 1000 },
+    )
+
+    // prd-40 success 1: the exemption is "asserted BY NAME in the law rather
+    // than inferred from a category, and no collector-derived event may carry
+    // it". The parameter type is what makes that structural — if the directive
+    // below ever reports as unused, the narrowing has been widened and the
+    // exemption is no longer asserted by name. (Prose here deliberately avoids
+    // spelling the directive out: tsc reads any comment line containing it as
+    // one, and a second, satisfied directive would mask the first going stale.)
+    // @ts-expect-error — recordAlarm accepts EventOf<'collector.error'> only.
+    await expect(recorder.recordAlarm(notAnAlarm)).resolves.toEqual({ appended: true })
+  })
+
+  // The three laws below pin `recordAlarm`s two concurrency guards. Both are
+  // copied from `record`, whose own guard has been held by a law since the
+  // suspension point was introduced ("does not publish into the next session
+  // when a rotation lands mid-append", above) — but the copies shipped
+  // unasserted: deleting BOTH left the whole suite green (6594 passed).
+  // `recordAlarm` is the one method allowed to publish without appending, so
+  // it is the last one whose rotation and seal behaviour should rest on
+  // reading the source.
+
+  it('parks in the sealed window rather than appending behind session.closed (prd17 ruling 1)', async () => {
+    await recorder.closeWith(
+      createEvent('session.closed', { sessionId: FIRST, reason: 'rotated', eventCount: 1 }, { id: 'session-closed-1000', ts: 1000 }),
+    )
+    let settled = false
+    const pending = recorder.recordAlarm(anAlarm('evt-1', 'boom')).then((result) => {
+      settled = true
+      return result
+    })
+    // Macrotask turn: the seal is a promise only `openSession` resolves, so no
+    // number of turns can let this through while the window is open.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(settled).toBe(false)
+    // The exemption is about publishing, never about writing behind a closed
+    // log — prd17 ruling 1's structural guarantee is not one of the clauses
+    // ADR-0030 carves out.
+    // The whole file, not its last line: indexing would need a bounds check to
+    // typecheck, and asserting the entire sequence is the stronger claim anyway
+    // — it says the alarm is not in this log AT ALL, not merely not last.
+    const closed = readFileSync(sessionFilePath(dir, FIRST), 'utf8').trimEnd().split('\n')
+    expect(closed.map((line) => JSON.parse(line).type)).toEqual(['session.closed'])
+
+    const SECOND = '2000'
+    recorder.openSession(SECOND, sessionFilePath(dir, SECOND))
+
+    await expect(pending).resolves.toEqual({ appended: true })
+    expect(readFileSync(sessionFilePath(dir, SECOND), 'utf8')).toContain('evt-1')
+  })
+
+  it('does not publish into the next session when a rotation lands mid-append', async () => {
+    let releaseAppend: () => void = () => {}
+    vi.spyOn(SessionLogWriter.prototype, 'append').mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseAppend = resolve
+        }),
+    )
+    const seen: RhizomorphEvent[] = []
+    const unsubscribe = recorder.subscribe((event) => {
+      seen.push(event)
+    })
+
+    const pending = recorder.recordAlarm(anAlarm('evt-1', 'boom'))
+    const SECOND = '2000'
+    recorder.openSession(SECOND, sessionFilePath(dir, SECOND))
+    releaseAppend()
+
+    await expect(pending).resolves.toEqual({ appended: true })
+    unsubscribe()
+
+    // Durable in the log it was appended to, and absent from the session that
+    // has since opened — buffer, fold AND subscribers, exactly as `record`.
+    expect(recorder.eventsSoFar()).toEqual([])
+    expect(recorder.foldSoFar()).toEqual(initialSessionState())
+    expect(seen).toEqual([])
+  })
+
+  it('still speaks when a rotation lands mid-append and the append failed', async () => {
+    // The asymmetry with the law above, and the reason the guard sits INSIDE
+    // `if (appended)` rather than above it: a rotation racing the alarm is not
+    // a reason to silence it. Nothing entered the buffer or the fold, so there
+    // is nothing to pollute the new session with.
+    let rejectAppend: (error: Error) => void = () => {}
+    vi.spyOn(SessionLogWriter.prototype, 'append').mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectAppend = reject
+        }),
+    )
+    const seen: RhizomorphEvent[] = []
+    const unsubscribe = recorder.subscribe((event) => {
+      seen.push(event)
+    })
+    const alarm = anAlarm('evt-1', 'boom')
+
+    const pending = recorder.recordAlarm(alarm)
+    const SECOND = '2000'
+    recorder.openSession(SECOND, sessionFilePath(dir, SECOND))
+    rejectAppend(new Error('ENOSPC: no space left on device'))
+
+    await expect(pending).resolves.toEqual({ appended: false })
+    unsubscribe()
+
+    expect(seen).toEqual([alarm])
+    expect(recorder.eventsSoFar()).toEqual([])
+    expect(recorder.foldSoFar()).toEqual(initialSessionState())
   })
 })
 

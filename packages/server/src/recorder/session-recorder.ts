@@ -135,6 +135,64 @@ export class SessionRecorder {
   }
 
   /**
+   * The degrade alarm's path, and the ONLY publish-without-append in this class.
+   *
+   * prd-40 success 1 requires an event to reach the log before it reaches a
+   * subscriber, and names exactly one exception: the degrade `collector.error`
+   * reporting an append failure "may be emitted without having been appended",
+   * because on a full disk the alarm's own append fails too and requiring it to
+   * land first silences the alarm in the one case it exists for. See
+   * [ADR-0030](../../../../docs/adr/0030-the-alarm-may-outrun-the-record.md).
+   *
+   * The exemption is for EMISSION ONLY. Success 1 still forbids leaving "the
+   * fold ahead of the file after a rejected append", and that clause is not
+   * exempted — so on a failed append this pushes nothing into `buffer` and
+   * advances no fold. `eventsSoFar()` and `foldSoFar()` stay honest with the
+   * file; only subscribers hear the alarm.
+   *
+   * Narrowed to `EventOf<'collector.error'>` on purpose: the exemption is "for
+   * this one event type on this one path ... asserted by name in the law rather
+   * than inferred from a category". The type is what makes that structural — no
+   * collector-derived event can reach this method at all.
+   *
+   * Never rejects. The reporting path is never the crash path (#239).
+   */
+  async recordAlarm(event: EventOf<'collector.error'>): Promise<{ appended: boolean }> {
+    while (this.sealed !== null) await this.sealed
+    const writer = this.writer
+    let appended = true
+    try {
+      await writer.append(event)
+    } catch {
+      appended = false
+    }
+    if (appended) {
+      // The same rotation check `record` makes at its own suspension point: a
+      // rotation that landed while we were parked means this event is durable
+      // in the log it was appended to, and must not contaminate the session
+      // that has since opened — buffer, fold or subscribers.
+      if (this.writer !== writer) return { appended: true }
+      this.buffer.push(event)
+      this.advanceFold(event)
+    }
+    // On a FAILED append we fall through to the emit having touched neither
+    // `buffer` nor `foldState`, whatever the writer did in the meantime: a
+    // rotation racing the alarm is not a reason to silence it, and since
+    // nothing entered the buffer or the fold it cannot pollute the new session.
+    try {
+      this.emitter.emit('event', event)
+    } catch (error) {
+      // Unlike `record`, a throwing subscriber must not reject here — a buggy
+      // dashboard would then be the thing that silences the disk-full warning.
+      // Same shape as `closeWith` below: reported, never propagated.
+      console.error(
+        `[rhizomorph] a subscriber threw on the degrade alarm: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+    return { appended }
+  }
+
+  /**
    * Appends `event` as this session's LAST line, then seals the session:
    * every later `record` waits for `openSession`. The seal is taken *before*
    * the append is awaited, which is what makes prd17 ruling 1's "a final

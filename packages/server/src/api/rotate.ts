@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { snapshotDirFor } from '../log/paths.js'
 import { RESUME_WINDOW_MS } from '../log/session-log.js'
-import { rotateSession } from '../recorder/index.js'
+import { type Rotation, RotationRefusedError, rotateSession } from '../recorder/rotate.js'
 import type { ServerContext } from '../server/context.js'
 import { createFileSnapshotStore } from '../server/snapshot-store.js'
 import { recordSessionBootMeta, sessionBootMetaFor } from './meta.js'
@@ -37,6 +37,13 @@ import { requireCapabilityToken } from './security.js'
  * process, reads it from the same page over its own loopback `GET /`
  * (`cli/rotate.ts`). Gating the route without them is exactly how #249
  * happened.
+ *
+ * **Refuses a retarget's boundary (#49, prd-42 ruling 5).** `rotateSession`
+ * shares its in-flight guard with `retargetSession` (#14); when this recorder
+ * is mid-retarget, `rotateSession` throws {@link RotationRefusedError} rather
+ * than coalescing this caller onto a `Rotation` that closes into a different
+ * repo than the one it asked to rotate. This route turns that into the same
+ * 409 `api/retarget.ts` already returns for its own in-flight collision.
  */
 export function registerRotateRoute(app: FastifyInstance, ctx: ServerContext): void {
   app.post('/api/rotate', { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') }, async (_request, reply) => {
@@ -47,13 +54,41 @@ export function registerRotateRoute(app: FastifyInstance, ctx: ServerContext): v
       })
     }
 
-    const rotation = await rotateSession({
-      sessionDir: ctx.sessionDir,
-      repoPath: ctx.repoPath,
-      repoName: ctx.repoName,
-      recorder: ctx.recorder,
-      ...(ctx.now === undefined ? {} : { now: ctx.now }),
-    })
+    let rotation: Rotation
+    try {
+      rotation = await rotateSession({
+        sessionDir: ctx.sessionDir,
+        repoPath: ctx.repoPath,
+        repoName: ctx.repoName,
+        recorder: ctx.recorder,
+        ...(ctx.now === undefined ? {} : { now: ctx.now }),
+      })
+    } catch (err) {
+      if (err instanceof RotationRefusedError) {
+        // Same refusal vocabulary `api/retarget.ts` already uses for its own
+        // in-flight collision (prd-42 ruling 5) — 409, not a second code.
+        // Deliberately a bare string, not an import of `RetargetRefusalCode`
+        // from `./retarget.js`: `retarget-law.test.ts`'s "exactly one file
+        // imports the retarget route directly" clause (prd-20 ruling 1 /
+        // ADR-0014 grant 3) forbids any production file but `api/index.ts`
+        // from doing that, and its static check does not distinguish
+        // `import type` from a value import.
+        //
+        // Two SEPARATE mechanisms cover the two ways this could drift, not
+        // one compiler binding: `api/rotate.test.ts`'s OWN copy,
+        // `SHARED_RETARGET_IN_FLIGHT_CODE`, is compiler-bound to
+        // `RetargetRefusalCode` — a rename of that union member fails
+        // `npm run typecheck` there. This literal, here, is bound only by
+        // that same test file's runtime assertion on the 409 response body —
+        // a drift of THIS string fails that test, not typecheck. The
+        // compiler never sees this line.
+        return reply.code(409).send({
+          code: 'retarget-in-flight',
+          error: err.message,
+        })
+      }
+      throw err
+    }
 
     // The session boundary just moved — every collector's warm snapshot must
     // reset (prd20 retarget spike, gap a): a collector only emits its

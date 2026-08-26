@@ -1,12 +1,28 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { createEvent } from '@rhizomorph/core'
-import { describe, expect, it } from 'vitest'
+import {
+  createEvent,
+  deriveRung,
+  honestCapabilities,
+  mergeCapabilities,
+  reduceAll,
+  selectConnection,
+  type AdapterCapabilities,
+} from '@rhizomorph/core'
+import * as core from '@rhizomorph/core'
+import { describe, expect, it, vi } from 'vitest'
+import { GIT_CAPABILITIES } from '../collectors/git/index.js'
+import { JUDGE_CAPABILITIES } from '../collectors/judge/index.js'
+import { PI_CAPABILITIES } from '../collectors/pi/index.js'
+import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
+import { TMUX_CAPABILITIES } from '../collectors/tmux/index.js'
+import { WORKMUX_CAPABILITIES } from '../collectors/workmux/index.js'
 import { RESUME_WINDOW_MS, sessionFilePath } from '../log/session-log.js'
 import { buildApp } from '../server/build-app.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { recordSessionBootMeta } from './meta.js'
+import { capabilityHeaders } from './test-support.js'
 
 describe('GET /api/meta', () => {
   let repoPath: string
@@ -537,7 +553,239 @@ describe('GET /api/meta', () => {
       }
     })
   })
+
+  /**
+   * prd-40 ruling 2 / success 3 (#5). `buildLadderManifest` used to run
+   * `reduceAll(recorder.eventsSoFar())` on every request — O(events in the
+   * session) on an ungated route the dashboard polls (113.5 ms at 25k events,
+   * 535.3 ms at 55k). It now reads the fold the recorder maintains (#3).
+   *
+   * **The route class is unchanged and is not re-asserted here.** `/api/meta`
+   * stays `read` in `api/index.ts`'s `ROUTE_CLASSES` table, and
+   * `api/route-class-law.test.ts`'s gate-presence law already walks the real
+   * app and fails if that row's registered route grows or loses a capability
+   * gate. A second copy of that law in this file would only be a copy.
+   */
+  describe('prd40 ruling 2 — the route answers from the maintained fold (#5)', () => {
+    it('law: the body is byte-identical to the one the per-request re-fold produced, for the same stream', async () => {
+      await setup()
+      try {
+        const recorder = new SessionRecorder('20000', sessionFilePath(sessionDir, '20000'))
+        // A collector-status event (the ladder's own input), an entity event
+        // that moves `connection`, a refusal (the refusals summary), and a
+        // plain activity event — so every fold-derived branch of the body is
+        // actually exercised rather than compared while empty.
+        await recorder.record(
+          createEvent(
+            'collector.disabled',
+            { collector: 'tmux', reason: 'tmux not found on PATH' },
+            { id: 'evt-1', ts: 20_000 },
+          ),
+        )
+        await recorder.record(
+          createEvent(
+            'worktree.discovered',
+            { path: repoPath, branch: 'main', head: 'sha-1', isMain: true },
+            { id: 'evt-2', ts: 20_100 },
+          ),
+        )
+        await recorder.record(
+          createEvent(
+            'telemetry.refused',
+            { instance: 'their-rhizomorph', expectedInstance: 'our-instance-id', count: 2 },
+            { id: 'evt-3', ts: 20_200 },
+          ),
+        )
+        await recorder.record(
+          createEvent('pane.activity', { paneId: '%1', contentHash: 'hash-a' }, { id: 'evt-4', ts: 20_300 }),
+        )
+
+        const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+        const response = await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })
+
+        expect(response.statusCode).toBe(200)
+        // NOT a snapshot: the expected value is recomputed here from
+        // `reduceAll(eventsSoFar())` through the same derivation the route
+        // runs, so the only thing that can differ between the two sides is
+        // the fold itself. A frozen fixture would pass whatever the fold did.
+        expect(response.json()).toEqual(metaBodyFromRefold(recorder, repoPath, 'repo'))
+      } finally {
+        await teardown()
+      }
+    })
+
+    it('law: fold work per request is O(1) in session length — reduceAll is never reached, at 5 events or at 55', async () => {
+      await setup()
+      try {
+        const recorder = new SessionRecorder('21000', sessionFilePath(sessionDir, '21000'))
+        await recordActivity(recorder, 0, 5, 21_000)
+        const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+        // Installed AFTER the recorder exists on purpose: `new SessionRecorder`
+        // folds its (possibly resumed) buffer once in its own constructor, and
+        // that call is not on the request path this law speaks about.
+        const rebuild = vi.spyOn(core, 'reduceAll')
+        try {
+          expect((await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).statusCode).toBe(200)
+          expect(rebuild).not.toHaveBeenCalled()
+
+          await recordActivity(recorder, 5, 55, 21_000)
+
+          expect((await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).statusCode).toBe(200)
+          // Two sizes, because a law at one size cannot tell "constant" from
+          // "small": a request that re-folded would be caught at 5 events too,
+          // but only the second reading proves the cost did not grow with the
+          // session between them.
+          expect(rebuild).not.toHaveBeenCalled()
+        } finally {
+          rebuild.mockRestore()
+        }
+      } finally {
+        await teardown()
+      }
+    })
+
+    it('three requests in a row give the same answer — a fold a reader mutated would drift on the second read', async () => {
+      await setup()
+      try {
+        const recorder = new SessionRecorder('22000', sessionFilePath(sessionDir, '22000'))
+        await recorder.record(
+          createEvent(
+            'worktree.discovered',
+            { path: repoPath, branch: 'main', head: 'sha-1', isMain: true },
+            { id: 'evt-1', ts: 22_000 },
+          ),
+        )
+        await recordActivity(recorder, 0, 3, 22_100)
+        const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+        const first = (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()
+        const second = (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()
+        const third = (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()
+
+        // Nothing is recorded between the three, so idempotence is the whole
+        // claim — and it is the shape a shared, maintained fold gets wrong.
+        expect(second).toEqual(first)
+        expect(third).toEqual(first)
+      } finally {
+        await teardown()
+      }
+    })
+
+    it('serving the fold does not corrupt it — the recorder still agrees with reduceAll afterwards (#69 contract)', async () => {
+      await setup()
+      try {
+        const recorder = new SessionRecorder('23000', sessionFilePath(sessionDir, '23000'))
+        await recorder.record(
+          createEvent(
+            'collector.disabled',
+            { collector: 'workmux', reason: 'workmux binary not found' },
+            { id: 'evt-1', ts: 23_000 },
+          ),
+        )
+        await recordActivity(recorder, 0, 4, 23_100)
+        const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+        expect((await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).statusCode).toBe(200)
+
+        // This lane's half of the wave-3 contract with #69: the route is handed
+        // the recorder's LIVE object, so proving it comes back untouched is
+        // what makes a `Readonly` return type or a dev-mode deep freeze safe on
+        // the other side.
+        expect(recorder.foldSoFar()).toEqual(reduceAll(recorder.eventsSoFar()))
+      } finally {
+        await teardown()
+      }
+    })
+
+    it('an empty session answers — the initial fold goes through the same path, no null assumption in the swap', async () => {
+      await setup()
+      try {
+        const recorder = new SessionRecorder('24000', sessionFilePath(sessionDir, '24000'))
+        const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+        const response = await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })
+
+        expect(response.statusCode).toBe(200)
+        expect(response.json()).toEqual(metaBodyFromRefold(recorder, repoPath, 'repo'))
+        expect((response.json() as Record<string, unknown>).eventCount).toBe(0)
+      } finally {
+        await teardown()
+      }
+    })
+  })
 })
+
+/** `count` `pane.activity` events, ids `evt-<i>`, so a law can grow a session cheaply. */
+async function recordActivity(recorder: SessionRecorder, from: number, to: number, baseTs: number): Promise<void> {
+  for (let i = from; i < to; i++) {
+    await recorder.record(
+      createEvent('pane.activity', { paneId: '%1', contentHash: `hash-${i}` }, { id: `evt-${i}`, ts: baseTs + i }),
+    )
+  }
+}
+
+const LADDER_COLLECTOR_NAMES_FOR_TEST = ['git', 'sessionlog', 'tmux', 'workmux', 'judge', 'pi'] as const
+
+const DECLARED_CAPABILITIES_FOR_TEST: Record<
+  (typeof LADDER_COLLECTOR_NAMES_FOR_TEST)[number],
+  AdapterCapabilities
+> = {
+  git: GIT_CAPABILITIES,
+  sessionlog: SESSIONLOG_CAPABILITIES,
+  tmux: TMUX_CAPABILITIES,
+  workmux: WORKMUX_CAPABILITIES,
+  judge: JUDGE_CAPABILITIES,
+  pi: PI_CAPABILITIES,
+}
+
+/**
+ * The whole `/api/meta` body as the OLD, per-request re-fold would have
+ * produced it: `reduceAll(recorder.eventsSoFar())` run here, then the same
+ * derivation `api/meta.ts` applies to its fold. Deliberately a re-derivation
+ * rather than a recorded fixture — a fixture would agree with any fold,
+ * including a wrong one, which is exactly the failure this law exists to
+ * catch. JSON round-tripped, so the comparison is against what the route
+ * actually serialises rather than against in-memory `undefined`s.
+ *
+ * The boot fields are the honest fallback (`fallbackBootMeta`), so callers
+ * must not have called `recordSessionBootMeta` for this recorder.
+ */
+function metaBodyFromRefold(recorder: SessionRecorder, repoPath: string, repoName: string): unknown {
+  const folded = reduceAll(recorder.eventsSoFar())
+  const capabilities: Record<string, AdapterCapabilities> = {}
+  for (const name of LADDER_COLLECTOR_NAMES_FOR_TEST) {
+    const collectorState = folded.collectors[name]
+    capabilities[name] = honestCapabilities({
+      capabilities: DECLARED_CAPABILITIES_FOR_TEST[name],
+      active: collectorState?.status !== 'disabled',
+      inactiveReason: collectorState?.disabledReason ?? undefined,
+    })
+  }
+  const latestRefusal = folded.refusals.records[folded.refusals.records.length - 1]
+  return JSON.parse(
+    JSON.stringify({
+      repoPath,
+      repoName,
+      sessionId: recorder.sessionId,
+      startedAt: Number(recorder.sessionId),
+      resumedCount: 0,
+      resumeWindowMs: RESUME_WINDOW_MS,
+      lastBootReason: 'first-run',
+      eventCount: folded.eventCount,
+      capabilities,
+      rung: deriveRung(mergeCapabilities(Object.values(capabilities))),
+      connection: {
+        ...selectConnection(folded),
+        refusals: {
+          count: folded.refusals.records.length,
+          instance: latestRefusal?.instance ?? null,
+          expectedInstance: latestRefusal?.expectedInstance ?? null,
+        },
+      },
+    }),
+  )
+}
 
 interface SourceFlowForTest {
   source: string

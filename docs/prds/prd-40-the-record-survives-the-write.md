@@ -46,8 +46,18 @@ published figures put it above half a second on a long session.
 1. An event that reaches a subscriber has reached the log. **Not met while** any path publishes an
    event — pushing it to the live buffer or emitting it to subscribers — before its append
    resolves, or advances collector state before its append resolves, or leaves the fold ahead of
-   the file after a rejected append. Both loci count: the recorder's own `record` /`closeWith`
+   the file after a rejected append. Both loci count: the recorder's own `record`/`closeWith`
    ordering *and* the poll loop's snapshot advance.
+
+   **One named exception, and no other.** The degrade `collector.error` that reports an append
+   failure may be emitted without having been appended. It is the alarm saying the log is
+   unwritable, so requiring it to reach the log first silences it in exactly the case it exists
+   for — on a full disk the alarm's own append fails too. This criterion is about not showing
+   collector data the record never received; an alarm is not that data. The exemption is for this
+   one event type on this one path, it is asserted **by name** in the law rather than inferred
+   from a category, and no collector-derived event may carry it. Ruling 1 restates it where the
+   ordering is specified, because an exception recorded only in a success criterion is an
+   exception nobody implementing the ruling will read.
 2. A dropped write is loud. **Not met while** an append failure produces no `collector.error`,
    no degrade voice, and no line the operator could find afterwards.
 3. `/api/meta` costs the same at hour six as at minute one. **Not met while** answering it is
@@ -108,6 +118,12 @@ and all three are in scope:
 - The poll loop (`server/poll-loop.ts:216-218`) awaits `recorder.record(event)` before
   `snapshots.set`. On rejection the snapshot is **not** advanced, the event is reported through
   the existing degrade path, and the next tick re-derives it.
+
+**The one exception, named here so it cannot spread.** The degrade `collector.error` reporting an
+append failure is emitted whether or not its own append succeeds — see success 1. The law asserts
+that exemption against that event type on that path, by name. Any other event emitted without a
+resolved append is a defect, and a law that exempts a *category* rather than a name has already
+lost the guarantee.
 
 The recorder is the durability boundary, so it is the recorder that must not publish early.
 Fixing the poll loop alone would satisfy the snapshot half of success 1 and leave the subscriber
@@ -245,6 +261,53 @@ subscriber, not only through the snapshot.
 **Unfiled work implied, described not numbered:** the other fifteen call sites reached by
 `eventsSoFar()` were counted but not audited one by one. If any of them folds per call the way
 `/api/meta` does, it is the same issue with a different route name.
+
+### Re-sequenced 2026-08-25 — waves 3 to 6
+
+The three waves above are kept as written: waves 1 and 2 ran exactly as planned and landed
+(#3 in #67, #4 in #79), and wave 3's original text is the record of what was expected. What
+follows is what the wave actually is, and why it split.
+
+**One file did it.** `recorder/session-recorder.ts` turned out to be claimed by three issues at
+once, and `AGENTS.md` forbids bundling across a live fence — two issues claiming one path is a
+rebase conflict already scheduled. So they run in consecutive waves, ordered by the Timeline and
+Priority already on them rather than by preference.
+
+- **Wave 3 — parallel, fenced apart.** `#5` /api/meta answers from the maintained fold
+  (`api/meta.ts`) · `#81` architecture.md says what a replay may now contain
+  (`docs/architecture.md`). Both consume wave 1; they share no file.
+- **Wave 4.** `#26` a dropped append speaks in the degrade voice — ruling 2's other half, and
+  success 2. Now/High, so it takes the contested file first.
+- **Wave 5.** `#69` `foldSoFar()` cannot be corrupted by the caller that reads it.
+- **Wave 6.** `#80` a fsync failure cannot leave a line after `session.closed`. Last of the three,
+  because it is the only one still gated on an operator ruling and would otherwise hold up two
+  issues that need none.
+
+**Why wave 3 lost the degrade-voice half.** `#26` was authored above as wave 3, fenced to
+`server/poll-loop.ts`. Writing its plan showed it unbuildable there. Its DoD requires the degrade
+`collector.error` to be emitted *whether or not its own append succeeds* — success 1's named
+exception — and after wave 2 there is no way to do that from the poll loop: `record()` appends
+before it publishes and so publishes nothing when the append fails, which is precisely the
+disk-full case the alarm exists for, and the recorder's emitter is private. Publish-without-append
+has to be added on the durability boundary itself, which is `session-recorder.ts`.
+
+**Two dependencies this PRD's own tooling could not see, recorded so the next PRD expects them.**
+`scripts/fence-lint.sh` compares fences **as declared**, and both of these are real couplings it
+passed clean over:
+
+- **A widening that has not happened yet is invisible.** `#26` declared `poll-loop.ts` alone, so
+  its collision with `#69` and `#80` existed only in the plan, not in the fences. The lint that
+  exists to catch a bad fence before anyone is dispatched cannot catch a fence that is about to
+  change.
+- **A shared type is not a shared path.** `#5` and `#69` share no file, but `#69` may change what
+  `foldSoFar()` returns and `#5` consumes it — so the assembled wave breaks while each lane is
+  green alone. Resolved by binding `#5` to treat the return as read-only unconditionally, which
+  makes every shape `#69` can reach safe and removes the dependency without ordering the wave.
+
+**A ruling was found stranded, not missing.** `#26`'s DoD rests on success 1's named exception,
+whose commit had been pushed to `prd39-paper` the day after that branch's PR merged and never
+landed. On `main` the exception did not exist, so the issue would have had a lane knowingly break
+a live success criterion. Landed in #86, along with a prd-41 pointer stranded beside it.
 
 ## Open questions
 

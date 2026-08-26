@@ -11,8 +11,10 @@ import {
   closeCurrentSession,
   nextSessionStart,
   openNextSession,
+  reserveInFlightForTest,
   RetargetInFlightError,
   retargetSession,
+  RotationRefusedError,
   rotateSession,
 } from './rotate.js'
 import { SessionRecorder } from './session-recorder.js'
@@ -463,10 +465,18 @@ describe('retargetSession (prd20 ruling 5)', () => {
       await rotation
     })
 
-    it('a rotation asked while a retarget is in flight COALESCES onto it — rotation keeps its own behaviour', async () => {
+    it('a rotation asked while a retarget is in flight REFUSES rather than being handed the retarget\'s boundary (#49, prd-42 ruling 5)', async () => {
       clock = 5000
-      const [retarget, rotation] = await Promise.all([
-        retargetSession(options()),
+      const retarget = retargetSession(options())
+
+      // rotateSession REJECTS (not a synchronous throw — see this module's
+      // own doc comment on why the two doors into this guard must agree on
+      // error shape) instead of coalescing. Coalescing would have handed the
+      // caller a `Rotation` whose `closed.reason` is `'retargeted'` and whose
+      // `opened` session is in a DIFFERENT repo than the one this call asked
+      // to rotate, at status 200 — a known hazard, not the desirable
+      // behaviour the old assertion here used to pin.
+      await expect(
         rotateSession({
           sessionDir: oldDir,
           repoPath: OLD_REPO_PATH,
@@ -475,11 +485,40 @@ describe('retargetSession (prd20 ruling 5)', () => {
           now: () => clock,
           pid: process.pid,
         }),
-      ])
+      ).rejects.toBeInstanceOf(RotationRefusedError)
 
-      expect(rotation).toEqual(retarget)
-      // One close, one open on the old side — the coalesced rotation never
-      // raced its own second close against the retarget's.
+      await retarget
+      // The retarget still ran, untouched by the refused rotation — one
+      // close, one open on the old side.
+      expect((await readdir(oldDir)).filter((n) => n.endsWith('.jsonl'))).toEqual([sessionFileName(Number(FIRST))])
+    })
+
+    it('refuses a rotation when the in-flight slot holds a THIRD kind nobody has written yet — fail-closed by default, not by name', async () => {
+      clock = 5000
+      // Neither `rotateSession` nor `retargetSession` can ever produce this
+      // kind — it stands in for a caller this map has never had, so this
+      // test would still catch a regression to `kind === 'retarget'` (which
+      // only refuses the ONE non-rotation kind it was written against) even
+      // though that regression would pass every other test in this file. The
+      // literal itself is arbitrary and unrelated to any real or previously
+      // proposed operation — what matters is that it is neither 'rotation'
+      // nor 'retarget'.
+      const release = reserveInFlightForTest(recorder, 'some-future-operation-kind')
+
+      await expect(
+        rotateSession({
+          sessionDir: oldDir,
+          repoPath: OLD_REPO_PATH,
+          repoName: 'old-watched',
+          recorder,
+          now: () => clock,
+          pid: process.pid,
+        }),
+      ).rejects.toBeInstanceOf(RotationRefusedError)
+
+      release()
+      // Nothing was touched: the reserved (fake) boundary never ran a
+      // close/open, and releasing it leaves the map free for the next test.
       expect((await readdir(oldDir)).filter((n) => n.endsWith('.jsonl'))).toEqual([sessionFileName(Number(FIRST))])
     })
   })

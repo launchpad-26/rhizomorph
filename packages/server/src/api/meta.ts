@@ -3,7 +3,6 @@ import {
   deriveRung,
   honestCapabilities,
   mergeCapabilities,
-  reduceAll,
   selectConnection,
   type AdapterCapabilities,
   type Connection,
@@ -150,11 +149,16 @@ export interface LadderManifest {
  * currently disabled — then an absent-with-reason override instead (the
  * law: "a disabled collector's signals read `absent` with a reason, never
  * silently `provided`"). `ctx.recorder` is already threaded through
- * `ServerContext` for the boot-facts fallback above, so reading its events
- * back here needs no new wiring outside this fence, exactly like that trick.
+ * `ServerContext` for the boot-facts fallback above, so reading the fold it
+ * maintains needs no new wiring outside this fence, exactly like that trick.
  */
 export function buildLadderManifest(recorder: SessionRecorder): LadderManifest {
-  const folded = reduceAll(recorder.eventsSoFar())
+  // prd40 ruling 2: the recorder maintains this fold (#3), so the route reads
+  // it rather than rebuilding it. `reduceAll(eventsSoFar())` was O(events in
+  // the session) on an ungated route the dashboard polls — 113.5 ms at 25k
+  // events, 535.3 ms at 55k, from the repo's own published figures. Read-only:
+  // this is the recorder's live object, not a copy (#69 owns that contract).
+  const folded = recorder.foldSoFar()
 
   const capabilities: Record<string, AdapterCapabilities> = {}
   for (const name of LADDER_COLLECTOR_NAMES) {
