@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync, chmodSync, mkdirSync, readFileSync, symlinkSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -260,6 +260,19 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     return { varName: m[1]!, tail: line.slice(close + 1) }
   }
 
+  /**
+   * Is `exit <n>` an honest abort, or a fake success wearing a nonzero
+   * number? The shell truncates an exit status to its low 8 bits, so
+   * `exit 256` and `exit 512` leave a status of 0 — indistinguishable from
+   * `exit 0`, which this predicate deliberately refuses to treat as safe.
+   * Testing `n !== '0'` accepted them, so the test asserting the predicate
+   * "tells apart || exit 2 from || exit 0" was making a claim it did not
+   * meet for every other multiple of 256.
+   */
+  function isHonestAbortStatus(digits: string): boolean {
+    return Number(digits) % 256 !== 0
+  }
+
   /** Does the text AFTER the $(...)'s closing paren, on the SAME line, terminate the script on failure — `|| fail`, `|| exit N` (N != 0), or a `|| { ... }` block calling either? `exit 0` is deliberately NOT terminal-safe: it swallows a failure into a fake overall SUCCESS rather than an honest abort. */
   function tailChecksStatus(tail: string): boolean {
     const t = tail.trim()
@@ -267,11 +280,11 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     const rhs = t.slice(2).trim()
     if (/^fail\b/.test(rhs)) return true
     const exitMatch = rhs.match(/^exit\s+(\d+)\b/)
-    if (exitMatch && exitMatch[1] !== '0') return true
+    if (exitMatch && isHonestAbortStatus(exitMatch[1]!)) return true
     if (rhs.startsWith('{')) {
       if (/\bfail\b/.test(rhs)) return true
       const blockExit = rhs.match(/\bexit\s+(\d+)\b/)
-      if (blockExit && blockExit[1] !== '0') return true
+      if (blockExit && isHonestAbortStatus(blockExit[1]!)) return true
     }
     return false
   }
@@ -413,6 +426,43 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     it('EXECUTED — the predicate tells apart || exit 2 (honest abort) from || exit 0 (fake success) — same verb, opposite honesty', () => {
       expect(findUncheckedProducers(['X=$(cmd) || exit 2'])).toEqual([])
       expect(findUncheckedProducers(['X=$(cmd) || exit 0'])).toHaveLength(1)
+    })
+
+    /**
+     * The sibling of the case above (ruling 3), and the reason `exit 0` on
+     * its own was not enough: the shell truncates an exit status to 8 bits,
+     * so a NONZERO literal can still leave a status of 0. bash's behaviour
+     * is asserted here too, so this stays a claim about the shell rather
+     * than about our own arithmetic.
+     */
+    it('EXECUTED — a nonzero exit LITERAL that wraps to status 0 is a fake success, not an honest abort', () => {
+      for (const wrapping of ['256', '512', '768']) {
+        const res = spawnSync('bash', ['-c', `X=$(false) || exit ${wrapping}; echo VERDICT`], { encoding: 'utf8' })
+        expect(res.status, `bash should truncate exit ${wrapping} to 0`).toBe(0)
+        expect(res.stdout, `exit ${wrapping} should still abort before the verdict`).not.toContain('VERDICT')
+        expect(findUncheckedProducers([`X=$(cmd) || exit ${wrapping}`]), `|| exit ${wrapping} leaves status 0 — as dishonest as || exit 0`).toHaveLength(1)
+      }
+      // CONTROLS: statuses that do NOT wrap are still honest aborts.
+      const control = spawnSync('bash', ['-c', 'X=$(false) || exit 2; echo VERDICT'], { encoding: 'utf8' })
+      expect(control.status).toBe(2)
+      expect(findUncheckedProducers(['X=$(cmd) || exit 255'])).toEqual([])
+      expect(findUncheckedProducers(['X=$(cmd) || exit 257'])).toEqual([])
+    })
+
+    /**
+     * The same class in spellings nobody used to FIND it — a leading zero,
+     * a larger multiple, and the rescue-BLOCK form, which reaches the wrap
+     * check by a second code path. A repair proven only against the input
+     * that exposed it has been narrowed by one, not closed.
+     */
+    it('EXECUTED — the wrap rule holds for spellings the finding did not use, including the rescue-block path', () => {
+      for (const wrapping of ['0256', '1280', '65536']) {
+        expect(findUncheckedProducers([`X=$(cmd) || exit ${wrapping}`]), `exit ${wrapping} wraps to 0`).toHaveLength(1)
+        expect(findUncheckedProducers([`X=$(cmd) || { cleanup; exit ${wrapping}; }`]), `block-form exit ${wrapping} wraps to 0`).toHaveLength(1)
+      }
+      // CONTROL on BOTH paths: a non-wrapping status stays honest either way.
+      expect(findUncheckedProducers(['X=$(cmd) || exit 3'])).toEqual([])
+      expect(findUncheckedProducers(['X=$(cmd) || { cleanup; exit 3; }'])).toEqual([])
     })
 
     it("EXECUTED — not vacuous: silent against the REAL, current scripts/gate.sh once declared exemptions are subtracted, but it DOES find the two declared exemptions first — proving it walked the file rather than short-circuiting to an empty result", () => {
