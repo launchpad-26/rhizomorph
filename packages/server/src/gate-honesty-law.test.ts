@@ -104,7 +104,22 @@ const FAIL_BLOCK = sliceLines('fail()  { echo "GATE FAILED: $1"', 'exit 1; }')
  * intended direction — the fixtures track the real script — but it is a
  * real coupling and belongs in .swarm/coupling.txt (prd46 w5, #72).
  */
-const SHELL_OPTS = extractLine('set -uo pipefail')
+const SHELL_OPTS = (() => {
+  // CODE lines only. `uniqueLineIndex` does not skip comments, and unlike
+  // this file's other anchors (`fail()  { echo "GATE FAILED: $1"`, the
+  // `n=$(git ...` producer) this needle is a phrase prose naturally
+  // contains — gate.sh:89 already writes "pipefail (set at :13)", one word
+  // from a second match. EXECUTED: adding a comment mentioning the literal
+  // to gate.sh took the whole file out at COLLECTION ("found 2", 0 tests
+  // run), which is the coupling shape prd-45 was written about.
+  const matches = LINES.filter((l) => !l.trim().startsWith('#') && /^\s*set\s+-/.test(l))
+  if (matches.length !== 1) throw new Error(`expected exactly one \`set -...\` option line in ${GATE_PATH}, found ${matches.length}`)
+  const opts = matches[0]!
+  // The :96 guard is dead without pipefail, so an option line that has lost
+  // it must fail here and say why, not quietly run every fixture unguarded.
+  if (!opts.includes('pipefail')) throw new Error(`${GATE_PATH}'s option line is ${JSON.stringify(opts)} — it no longer sets pipefail, and the :96 commit-count guard is meaningless without it (git log fails while wc -l succeeds)`)
+  return opts
+})()
 
 function preludeScript(mergedValue: 0 | 1, extraAssignments: string): string {
   return `#!/bin/bash\n${SHELL_OPTS}\nH=t42\nMERGED=${mergedValue}\n${FAIL_BLOCK}\n${extraAssignments}\n`
@@ -506,7 +521,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(findUncheckedProducers(['X=$(cmd) || { cleanup; exit 3; }'])).toEqual([])
     })
 
-    it("EXECUTED — not vacuous: silent against the REAL, current scripts/gate.sh once declared exemptions are subtracted, but it DOES find the two declared exemptions first — proving it walked the file rather than short-circuiting to an empty result", () => {
+    it("EXECUTED — not vacuous: silent against the REAL, current scripts/gate.sh once the declared exemption is subtracted, but it DOES find that exemption first — proving it walked the file rather than short-circuiting to an empty result", () => {
       const unchecked = findUncheckedProducers(LINES)
       const undeclared = unchecked.filter((u) => !DECLARED_TOLERANCES.some((t) => u.line.includes(t.needle)))
       expect(undeclared).toEqual([])
@@ -640,6 +655,27 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
      * fixed literal") was false, and the grep-absent case below is the
      * counter-example it missed.
      */
+    /**
+     * A PATH holding every tool the block needs EXCEPT the named ones.
+     *
+     * Removing the WHOLE PATH would be the easy version, and it does not
+     * test what this block claims. `wc -l` is the RIGHTMOST stage, so if it
+     * is missing too its 127 becomes the pipeline's status with or without
+     * `pipefail` — and `pipefail` is the entire reason a MIDDLE stage's
+     * failure is visible at all. EXECUTED: with the whole PATH blanked the
+     * fixture passed identically under `set -o pipefail` and `set +o
+     * pipefail`, so it could not fail for the reason it names.
+     */
+    function pathWithout(...missing: string[]): string {
+      const bin = scratchDir('dirtybin')
+      for (const tool of ['grep', 'wc', 'printf', 'head']) {
+        if (missing.includes(tool)) continue
+        const real = execFileSync('bash', ['-c', `command -v ${tool} || true`], { encoding: 'utf8' }).trim()
+        if (real) symlinkSync(real, join(bin, tool))
+      }
+      return bin
+    }
+
     function runDirty(statusOut: string, pathOverride?: string): FragmentResult {
       const dir = scratchDir('dirtycount')
       const pathLine = pathOverride === undefined ? '' : `export PATH=${JSON.stringify(pathOverride)}\n`
@@ -671,17 +707,26 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
      * the pipeline reports 127, `dirty` is empty, and the OLD code printed
      * the clean verdict over genuinely stranded work.
      */
-    it('EXECUTED — with grep absent from PATH, stranded work is HELD rather than certified clean', () => {
-      const res = runDirty(' M packages/server/src/thing.ts', '/nonexistent-on-purpose')
+    it('EXECUTED — with grep (a MIDDLE stage) absent while wc still resolves, stranded work is HELD rather than certified clean', () => {
+      const res = runDirty(' M packages/server/src/thing.ts', pathWithout('grep'))
       expect(res.status).toBe(1)
       expect(res.stdout + res.stderr).toContain('the dirty-count pipeline failed')
       expect(res.stdout).not.toContain('worktree clean')
     })
 
+    it('EXECUTED — CONTROL: the same scratch PATH with grep PRESENT behaves normally, so the fault above is the missing stage and not the harness', () => {
+      const stranded = runDirty(' M packages/server/src/thing.ts', pathWithout())
+      expect(stranded.status).toBe(1)
+      expect(stranded.stdout + stranded.stderr).toContain('uncommitted work stranded')
+      const clean = runDirty('', pathWithout())
+      expect(clean.status).toBe(0)
+      expect(clean.stdout).toContain('worktree clean')
+    })
+
     it('EXECUTED — the OLD form certified that same stranded worktree CLEAN and exited 0', () => {
       const dir = scratchDir('dirtycount-old')
       const OLD_BLOCK = 'dirty=$(printf \'%s\' "$STATUS_OUT" | grep -v package-lock.json | wc -l)\n' + '[ "$dirty" -ne 0 ] && { printf \'%s\\n\' "$STATUS_OUT" | head -5; fail "uncommitted work stranded in the worktree"; }\n'
-      const script = preludeScript(0, 'STATUS_OUT=" M packages/server/src/thing.ts"\n') + 'export PATH="/nonexistent-on-purpose"\n' + OLD_BLOCK + 'echo "  worktree clean"\n'
+      const script = preludeScript(0, 'STATUS_OUT=" M packages/server/src/thing.ts"\n') + `export PATH=${JSON.stringify(pathWithout('grep'))}\n` + OLD_BLOCK + 'echo "  worktree clean"\n'
       const res = runFragment(script, dir)
       expect(res.status).toBe(0)
       expect(res.stdout).toContain('worktree clean')
