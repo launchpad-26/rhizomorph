@@ -9,6 +9,7 @@ import { exec as realExec } from '../server/exec.js'
 import { captureCheckpoint } from './checkpoint.js'
 import { armWorktreePath, labWorktreesRoot } from './paths.js'
 import {
+  RESTORE_EXEC_TIMEOUT_MS,
   restoreCheckpoint,
   restoreWorkspace,
   rewriteWorktreePaths,
@@ -371,7 +372,68 @@ describe('restoreWorkspace', () => {
     })
 
     expect(restored.installed).toBe(true)
-    expect(calls).toContainEqual(['npm', 'install', '--no-audit', '--no-fund'])
+    expect(calls).toContainEqual(['npm', 'install', '--no-audit', '--no-fund', '--ignore-scripts'])
+  })
+
+  /**
+   * prd41 ruling 2, and the sibling case the `--ignore-scripts` fix sits next
+   * to: `restoreWorkspace` spawns TWO children, and wrapping only the `npm
+   * install` would leave a `git worktree add` against a wedged network
+   * filesystem able to hang a restore forever. So this asserts the ceiling on
+   * every call, not on the one the ruling was written about — the same shape
+   * as `doctor.test.ts`'s `ROUTE_EXEC_TIMEOUT_MS` check and
+   * `poll-loop.test.ts`'s `COLLECTOR_EXEC_TIMEOUT_MS` one.
+   */
+  it('passes RESTORE_EXEC_TIMEOUT_MS to every exec call — the npm install AND the git worktree add (prd41 ruling 2)', async () => {
+    const checkpoint = await capture()
+    const forkWorktree = armWorktreePath(dataRoot, uniqueId('fork'), 1)
+    const seen: Array<{ command: string; timeoutMs: number | undefined }> = []
+
+    await restoreWorkspace({
+      parentWorktreePath: repoDir,
+      snapshotSha: checkpoint.snapshotSha,
+      forkWorktreePath: forkWorktree,
+      dataRoot,
+      install: true,
+      exec: async (command, args, options) => {
+        seen.push({ command, timeoutMs: options?.timeoutMs })
+        if (command === 'npm') return { stdout: '', stderr: '', code: 0, failed: false }
+        return realExec(command, args, options)
+      },
+    })
+
+    // Both children really were spawned, so the loop below cannot pass vacuously.
+    expect(seen.map((call) => call.command)).toEqual(expect.arrayContaining(['git', 'npm']))
+    for (const call of seen) {
+      expect(call.timeoutMs, `${call.command} was spawned with no ceiling`).toBe(RESTORE_EXEC_TIMEOUT_MS)
+    }
+  })
+
+  /**
+   * The failure a bounded exec is guaranteed to eventually produce. A child
+   * killed on the ceiling reports `code: null` with no stderr and no
+   * `errorMessage` (`server/exec.ts`'s contract), so a hand-rolled
+   * `stderr || errorMessage || exit ${code}` renders it as `exit null` — an
+   * operator sentence that names neither the timeout nor the fix.
+   */
+  it('names the timeout when the install is killed on the ceiling, rather than saying "exit null"', async () => {
+    const checkpoint = await capture()
+    const forkWorktree = armWorktreePath(dataRoot, uniqueId('fork'), 1)
+
+    await expect(
+      restoreWorkspace({
+        parentWorktreePath: repoDir,
+        snapshotSha: checkpoint.snapshotSha,
+        forkWorktreePath: forkWorktree,
+        dataRoot,
+        install: true,
+        exec: async (command, args, options) => {
+          // Exactly what `exec.ts` resolves for a `timeout` kill.
+          if (command === 'npm') return { stdout: '', stderr: '', code: null, failed: true }
+          return realExec(command, args, options)
+        },
+      }),
+    ).rejects.toThrow(/npm install failed in .*: killed with no exit code — the exec timeout/)
   })
 
   it('says so rather than pretending when there is nothing to install', async () => {
