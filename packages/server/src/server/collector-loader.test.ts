@@ -45,6 +45,12 @@ describe('a collector that throws on poll', () => {
       record: async (event: unknown) => {
         events.push(event)
       },
+      // The degrade path goes through `recordAlarm` since ADR-0030, and the
+      // broken collector below drives it. A writable disk, so it appends.
+      recordAlarm: async (event: unknown) => {
+        events.push(event)
+        return { appended: true }
+      },
     } as unknown as SessionRecorder
 
     const healthy = makeCollector('healthy')
