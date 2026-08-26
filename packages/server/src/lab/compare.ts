@@ -4,7 +4,7 @@ import { reduceAll } from '@rhizomorph/core'
 import type { ForkDispatchRecord } from '@rhizomorph/core'
 import { defaultDataRoot, sessionDirFor } from '../log/paths.js'
 import { listSessions, readSessionEvents } from '../log/session-log.js'
-import { exec as realExec } from '../server/exec.js'
+import { exec as realExec, withTimeout } from '../server/exec.js'
 import { runGit } from './git.js'
 
 /**
@@ -31,6 +31,9 @@ export const DEFAULT_VERIFY_COMMAND = 'npm test'
 
 /** prd12 ruling 4's floor. Below this the surface shows runs, never conclusions. */
 export const MIN_ARMS_TO_RANK = 3
+
+/** Per-exec ceiling for every subprocess this module spawns — same value as `ROUTE_EXEC_TIMEOUT_MS` / `RETARGET_EXEC_TIMEOUT_MS`. A hung verify command or a hung git call must not hang `compareFork` itself. */
+export const COMPARE_EXEC_TIMEOUT_MS = 5000
 
 export type VerifiedOutcome = 'pass' | 'fail' | 'not-run'
 
@@ -76,7 +79,7 @@ export interface CompareForkOptions {
 }
 
 export async function compareFork(options: CompareForkOptions): Promise<ForkComparison> {
-  const exec = options.exec ?? realExec
+  const exec = withTimeout(options.exec ?? realExec, COMPARE_EXEC_TIMEOUT_MS)
   const dataRoot = options.dataRoot ?? defaultDataRoot()
   const verifyCommand = options.verifyCommand ?? DEFAULT_VERIFY_COMMAND
 
