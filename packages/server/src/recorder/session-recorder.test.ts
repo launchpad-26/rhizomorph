@@ -10,9 +10,22 @@ import { writeSessionLock } from '../log/session-lock.js'
 import { sessionFilePath } from '../log/session-log.js'
 import { rotateSession } from './rotate.js'
 import { SessionLogWriter } from './session-log-writer.js'
-import { SessionRecorder } from './session-recorder.js'
+import { CloseNotDurableError, SessionRecorder } from './session-recorder.js'
 
 const FIRST = '1000'
+
+/**
+ * Every line of a log, in order, by type. The WHOLE sequence — never
+ * `lines.at(-1)`: "`session.closed` is the last line" is a claim about the
+ * file, and a last-line check passes on a file that ended two lines early
+ * (`a6dddfd`, review of #105).
+ */
+function lineTypes(filePath: string): string[] {
+  return readFileSync(filePath, 'utf8')
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => String((JSON.parse(line) as { type: string }).type))
+}
 
 /** Structural fallback: the fold is a fresh object per event, so identity cannot be the check mid-emit. */
 function deepEqualFold(r: SessionRecorder): boolean {
@@ -49,6 +62,59 @@ describe('SessionRecorder#closeWith', () => {
     await expect(
       recorder.record(createEvent('collector.error', { collector: 'git', message: 'boom' }, { id: 'evt-2', ts: 1001 })),
     ).resolves.toBeUndefined()
+  })
+
+  /**
+   * THE #80 LAW — prd40 ruling 1's fifth amendment, rule 1b.
+   *
+   * A session is closed the instant its `session.closed` line is appended;
+   * durability is a separate, later property. So a `sync()` that fails AFTER a
+   * successful append must NOT release the seal — the line is in the file, and
+   * prd17 ruling 1's "it is the last line" is now owed.
+   *
+   * It mocks `sync`, deliberately, and that is the whole point. The seal law
+   * above mocks `append`, and #4's durable-close law throws from a subscriber;
+   * neither can see this. A variant of THIS test that rejected `append`
+   * instead was run against the unfixed code and passed — vacuously, because
+   * a failed append leaves no `session.closed` for anything to land behind.
+   */
+  it('holds the seal when the append lands but the fsync fails — nothing may follow `session.closed`', async () => {
+    await recorder.record(
+      createEvent('collector.error', { collector: 'git', message: 'before' }, { id: 'evt-1', ts: 999 }),
+    )
+    const closeEvent = createEvent(
+      'session.closed',
+      { sessionId: FIRST, reason: 'rotated', eventCount: 2 },
+      { id: `session-closed-${FIRST}`, ts: 1000 },
+    )
+    vi.spyOn(SessionLogWriter.prototype, 'sync').mockRejectedValueOnce(new Error('EIO: i/o error, fsync'))
+
+    // It rejects — losing durability is a fact the operator must learn — and it
+    // rejects with a TYPE, because `closeCurrentSession` has to tell 1b from 1a
+    // and a message is not an API.
+    await expect(recorder.closeWith(closeEvent)).rejects.toBeInstanceOf(CloseNotDurableError)
+    expect(recorder.isSealed).toBe(true)
+
+    // The defect, closed: a later `record()` must not reach the file. It parks
+    // on the seal instead — which is safe precisely because reopening is now
+    // unconditional (`closeCurrentSession` absorbs this rejection).
+    let settled = false
+    const queued = recorder
+      .record(createEvent('collector.error', { collector: 'git', message: 'after' }, { id: 'evt-3', ts: 1001 }))
+      .then(() => {
+        settled = true
+      })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(settled).toBe(false)
+
+    expect(lineTypes(sessionFilePath(dir, FIRST))).toEqual(['collector.error', 'session.closed'])
+
+    const SECOND = '2000'
+    recorder.openSession(SECOND, sessionFilePath(dir, SECOND))
+    await queued
+    // And it landed in the NEW session, not behind the closed log's last line.
+    expect(lineTypes(sessionFilePath(dir, FIRST))).toEqual(['collector.error', 'session.closed'])
+    expect(lineTypes(sessionFilePath(dir, SECOND))).toEqual(['collector.error'])
   })
 
   it('a subscriber throwing after a durable close neither fails the close nor reopens the log', async () => {

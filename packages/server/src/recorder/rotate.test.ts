@@ -11,12 +11,14 @@ import {
   closeCurrentSession,
   nextSessionStart,
   openNextSession,
+  performRetarget,
   reserveInFlightForTest,
   RetargetInFlightError,
   retargetSession,
   RotationRefusedError,
   rotateSession,
 } from './rotate.js'
+import { SessionLogWriter } from './session-log-writer.js'
 import { SessionRecorder } from './session-recorder.js'
 
 function isRejected(result: PromiseSettledResult<unknown>): result is PromiseRejectedResult {
@@ -39,6 +41,18 @@ const REPO_PATH = '/repo/watched'
 function errorEvent(id: string, ts: number, message = 'boom') {
   return createEvent('collector.error', { collector: 'git', message }, { id, ts })
 }
+
+/**
+ * Every line of a log, in order, by type — the WHOLE sequence, never
+ * `.at(-1)`. "`session.closed` is the last line" is a claim about the file, and
+ * a last-line check passes on a file that ended two lines early (`a6dddfd`).
+ */
+async function typesIn(filePath: string): Promise<string[]> {
+  return (await readSessionEvents(filePath)).map((event) => event.type)
+}
+
+/** The fsync failure #80 is about: the append already landed, the flush did not. */
+const FSYNC_FAILED = 'EIO: i/o error, fsync'
 
 describe('rotateSession', () => {
   let dir: string
@@ -89,6 +103,10 @@ describe('rotateSession', () => {
       filePath: sessionFilePath(dir, FIRST),
       eventCount: 3,
       closedAt: 5000,
+      // The ordinary case, stated exactly (#80): a rotation whose fsync
+      // succeeded reports `synced: true` and carries NO `syncError`. `toEqual`
+      // rather than `toMatchObject` is what makes that second half assertable.
+      synced: true,
     })
     expect(rotation.opened).toEqual({
       sessionId: '5000',
@@ -222,6 +240,93 @@ describe('rotateSession', () => {
       expect(raw.trimEnd().split('\n')).toHaveLength(3)
       expect(raw.endsWith('\n')).toBe(true)
     })
+  })
+
+  /**
+   * PRD-40 RULING 1'S FIFTH AMENDMENT (#80). A session is closed the instant
+   * its `session.closed` line is appended — durability is a separate, later
+   * property. Rule 1b holds the recorder's seal on a failed fsync, and these
+   * are the caller-side consequences the amendment ruled with it: the close
+   * half absorbs that one rejection (1b-i), still drops the lock (1b-ii), and
+   * the boundary as a whole completes rather than wedging.
+   */
+  describe('a fsync that fails after the close line lands (prd40 ruling 1, rule 1b)', () => {
+    it('closeCurrentSession returns `synced: false` rather than throwing, and still drops the lock', async () => {
+      clock = 5000
+      const sync = vi.spyOn(SessionLogWriter.prototype, 'sync').mockRejectedValueOnce(new Error(FSYNC_FAILED))
+      try {
+        // 1b-i: it RETURNS. Nothing had to be reconstructed — `sessionId`,
+        // `filePath`, `closedAt` and `eventCount` are all captured before the
+        // first `await`, so the descriptor is complete before the failure point.
+        const closed = await closeCurrentSession(options())
+        expect(closed).toMatchObject({
+          sessionId: FIRST,
+          filePath: sessionFilePath(dir, FIRST),
+          closedAt: 5000,
+          synced: false,
+        })
+        expect(closed.syncError).toContain('EIO')
+
+        // The close really happened — that is what rule 1b rests on.
+        expect(await typesIn(closed.filePath)).toEqual(['session.started', 'collector.error', 'session.closed'])
+        // …and the recorder is still sealed, because only `openSession` may
+        // release a seal the close earned.
+        expect(recorder.isSealed).toBe(true)
+
+        // 1b-ii: the lock guards a LIVE session, and this one is not live.
+        expect(await locksIn(dir)).toEqual([])
+        expect(await readSessionLock(dir, FIRST)).toBeNull()
+      } finally {
+        sync.mockRestore()
+      }
+    })
+
+    it('still throws when the closing APPEND fails — that is rule 1a, and the close did not happen', async () => {
+      clock = 5000
+      const append = vi
+        .spyOn(SessionLogWriter.prototype, 'append')
+        .mockRejectedValueOnce(new Error('ENOSPC: no space left on device'))
+      try {
+        // Absorbing EVERY close error would hide the case where nothing
+        // reached the file at all. Only `CloseNotDurableError` is absorbed.
+        await expect(closeCurrentSession(options())).rejects.toThrow('ENOSPC')
+        // The recorder released its own seal (rule 1a), and the session is
+        // still live: no close line, and its lock is untouched.
+        expect(recorder.isSealed).toBe(false)
+        expect(await typesIn(sessionFilePath(dir, FIRST))).toEqual(['session.started', 'collector.error'])
+        expect(await readSessionLock(dir, FIRST)).not.toBeNull()
+      } finally {
+        append.mockRestore()
+      }
+    })
+
+    it('the whole rotation completes — the wedge #80 named is gone', async () => {
+      clock = 5000
+      const sync = vi.spyOn(SessionLogWriter.prototype, 'sync').mockRejectedValueOnce(new Error(FSYNC_FAILED))
+      try {
+        // Before #80 this promise never settled: the seal was held with
+        // nothing alive to release it. The explicit timeout is the point — a
+        // regression must fail this test, not stall the suite.
+        const rotation = await rotateSession(options())
+
+        expect(rotation.closed.synced).toBe(false)
+        expect(rotation.closed.syncError).toContain('EIO')
+        expect(rotation.opened.sessionId).toBe('5000')
+        // `openSession` released the seal, so the recorder records again.
+        expect(recorder.isSealed).toBe(false)
+        expect(recorder.sessionId).toBe('5000')
+
+        const before = await typesIn(sessionFilePath(dir, FIRST))
+        await expect(recorder.record(errorEvent('evt-after', 6000, 'after'))).resolves.toBeUndefined()
+        // The defect, at the level the operator actually meets it: the closed
+        // log is byte-for-byte what it was, and the event went to the new one.
+        expect(await typesIn(sessionFilePath(dir, FIRST))).toEqual(before)
+        expect(before).toEqual(['session.started', 'collector.error', 'session.closed'])
+        expect(await typesIn(sessionFilePath(dir, '5000'))).toEqual(['session.started', 'collector.error'])
+      } finally {
+        sync.mockRestore()
+      }
+    }, 5000)
   })
 
   describe('the sealed window', () => {
@@ -407,6 +512,38 @@ describe('retargetSession (prd20 ruling 5)', () => {
     )
     expect(await readSessionLock(newDir, recorder.sessionId)).not.toBeNull()
   })
+
+  /**
+   * THE SIBLING CASE for #80. `performRetarget` is `closeCurrentSession` then
+   * `openNextSession` — structurally identical to `rotateSession`, a different
+   * entry point. Neither function needed editing for rule 1b: once the close
+   * half stops throwing on a sync failure, the open half runs on its own. But
+   * "correct by construction" is a claim, and a fix proven only through
+   * `rotateSession` leaves this door wedging with nothing going red.
+   */
+  it('performRetarget completes through a failed fsync too — the sibling of the rotation wedge', async () => {
+    clock = 5000
+    const sync = vi.spyOn(SessionLogWriter.prototype, 'sync').mockRejectedValueOnce(new Error(FSYNC_FAILED))
+    try {
+      const rotation = await performRetarget(options())
+
+      expect(rotation.closed.synced).toBe(false)
+      expect(rotation.closed.syncError).toContain('EIO')
+      // The new session is open in the NEW repo's directory, seal released.
+      expect(rotation.opened.filePath).toBe(sessionFilePath(newDir, '5000'))
+      expect(recorder.isSealed).toBe(false)
+      expect(recorder.sessionId).toBe('5000')
+
+      // And nothing lands behind the old log's `session.closed`.
+      const before = await typesIn(sessionFilePath(oldDir, FIRST))
+      expect(before).toEqual(['session.started', 'session.closed'])
+      await expect(recorder.record(errorEvent('evt-after', 6000, 'after'))).resolves.toBeUndefined()
+      expect(await typesIn(sessionFilePath(oldDir, FIRST))).toEqual(before)
+      expect(await typesIn(sessionFilePath(newDir, '5000'))).toEqual(['session.started', 'collector.error'])
+    } finally {
+      sync.mockRestore()
+    }
+  }, 5000)
 
   /**
    * The sibling case: `closeCurrentSession`/`openNextSession` grew optional

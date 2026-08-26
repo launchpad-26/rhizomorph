@@ -3,6 +3,30 @@ import { initialSessionState, reduce, reduceAll } from '@rhizomorph/core'
 import type { EventOf, RhizomorphEvent, SessionState } from '@rhizomorph/core'
 import { SessionLogWriter } from './session-log-writer.js'
 
+/**
+ * The close line reached the file but `sync()` did not confirm it — prd-40
+ * ruling 1, rule 1b (#80). The session IS closed: a session is closed the
+ * instant its `session.closed` line is appended, and durability is a separate,
+ * later property. Its seal is therefore held, and only `openSession` releases
+ * it.
+ *
+ * Distinct **by type**, not by message, because `closeCurrentSession` has to
+ * tell this apart from every other close failure — which means rule 1a, the
+ * close did not happen at all — and an error message is not an API.
+ */
+export class CloseNotDurableError extends Error {
+  constructor(
+    readonly sessionId: string,
+    override readonly cause: unknown,
+  ) {
+    super(
+      `session ${sessionId} was closed but not synced: ${cause instanceof Error ? cause.message : String(cause)}. ` +
+        'The `session.closed` line is in the file and the session is sealed; durability is what was lost.',
+    )
+    this.name = 'CloseNotDurableError'
+  }
+}
+
 export interface SessionRecorderOptions {
   /**
    * Events already in the session file, written by the process that started
@@ -239,6 +263,16 @@ export class SessionRecorder {
    * collector poll landing in the same tick cannot slip in behind it.
    *
    * Returns once the closed log is flushed and fsynced (prd17 ruling 3.5).
+   *
+   * **Two ways to reject, and they mean opposite things** (prd40 ruling 1's
+   * fifth amendment, #80):
+   *
+   * - the **append** failed — rule 1a. Nothing reached the file, the close did
+   *   not happen, and the seal is released before the original error is
+   *   rethrown.
+   * - the **sync** failed after the append resolved — rule 1b. The close DID
+   *   happen; the line is in the file. The seal is HELD, and the rejection is
+   *   a {@link CloseNotDurableError} so the caller can tell the two apart.
    */
   async closeWith(event: EventOf<'session.closed'>): Promise<void> {
     while (this.sealed !== null) await this.sealed
@@ -248,29 +282,60 @@ export class SessionRecorder {
     // The seal is still taken FIRST, so prd17 ruling 1's structural guarantee is
     // untouched — a collector poll landing in the same tick still cannot slip in
     // behind the final line. Only the publishing moves (prd40 ruling 1).
+    //
+    // The append and the sync are caught SEPARATELY (prd40 ruling 1's fifth
+    // amendment, #80). One `try` around both cannot tell which failed, and the
+    // two failures are opposite facts: a failed append means the close never
+    // happened, a failed sync means it happened and is merely not durable.
     try {
       await this.writer.append(event)
-      await this.writer.sync()
     } catch (error) {
-      // The close did NOT happen, so the seal it took must not outlive it —
-      // otherwise every later `record` waits on a session nobody will reopen.
+      // RULE 1a — the close did NOT happen. Nothing reached the file, so the
+      // seal it took must not outlive it; otherwise every later `record` waits
+      // on a session nobody will reopen.
       const release = this.releaseSeal
       this.sealed = null
       this.releaseSeal = null
       release?.()
       throw error
     }
-    // Past here the session IS closed on disk, and two rules follow.
+    // Past this line `session.closed` IS in the file, so the session is closed
+    // — durability is a separate, later property. RULE 1b: the seal STAYS
+    // whatever happens below, because prd17 ruling 1's "it is the last line" is
+    // now owed and only `openSession` releases a seal the close earned.
+    try {
+      await this.writer.sync()
+    } catch (error) {
+      // RULE 1b — the close happened but is not durable. Reject, so the lost
+      // durability reaches the operator rather than being swallowed; and hold
+      // the seal, so nothing appends behind `session.closed`.
+      //
+      // This does NOT wedge the recorder. The seal would be unreleasable only
+      // if reopening were conditional on a successful close, and since #80 it
+      // is not: `closeCurrentSession` absorbs this rejection (rule 1b-i) and
+      // `openNextSession` runs regardless, releasing the seal.
+      //
+      // Nothing is published on this path — no buffer push, no `advanceFold`,
+      // no emit. That leaves the fold BEHIND the file rather than ahead of it,
+      // which is the side success 1 permits ("leaves the fold ahead of the file
+      // after a rejected append" is what it forbids), and it is what the code
+      // already did when append and sync shared a catch. The fifth amendment
+      // moves the seal, not the publishing.
+      throw new CloseNotDurableError(this.currentSessionId, error)
+    }
+    // Past here the session IS closed on disk AND durable, and two rules follow.
     //
     // The seal STAYS. Releasing it would let a later `record` append behind
     // `session.closed`, which is the guarantee prd17 ruling 1 makes structural.
     // Only `openSession` releases a seal the close earned.
     //
-    // And nothing below may reject. `rotate.ts` reaches `removeSessionLock`
-    // and `openSession` only once this resolves (`rotate.ts:149`, `:168`), so
-    // rejecting here would strand that seal with nothing alive to release it:
-    // every later `record` parks forever on the wait above, `runTick` never
-    // returns, and the poll loop stops silently and permanently.
+    // And nothing below may reject (rule 3, untouched by #80). The ONE
+    // rejection `closeCurrentSession` absorbs is {@link CloseNotDurableError}
+    // above; every other one still propagates, and `rotate.ts` then reaches
+    // neither `removeSessionLock` nor `openSession`. So rejecting here would
+    // strand that seal with nothing alive to release it: every later `record`
+    // parks forever on the wait above, `runTick` never returns, and the poll
+    // loop stops silently and permanently.
     this.buffer.push(event)
     this.advanceFold(event)
     try {
