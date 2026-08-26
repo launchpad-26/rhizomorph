@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { RhizomorphEvent } from '@rhizomorph/core'
 import * as core from '@rhizomorph/core'
-import { createEvent, createEventFactory, initialSessionState, reduceAll } from '@rhizomorph/core'
+import { createEvent, createEventFactory, EVENT_TYPES, initialSessionState, reduceAll } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { writeSessionLock } from '../log/session-lock.js'
 import { sessionFilePath } from '../log/session-log.js'
@@ -720,6 +720,78 @@ describe('SessionRecorder — the fold handed out is frozen (#69, ADR-0031)', ()
     // Not vacuous: the freeze is doing real work at both sizes.
     expect(perEventSmall).toBeGreaterThan(0)
     expect(perEventLarge).toBeLessThanOrEqual(perEventSmall)
+  })
+
+  it('no reducer arm mutates its frozen input — every event type in the union, not just the corpus', async () => {
+    // The freeze makes the fold the INPUT to the next `reduce()`, so ADR-0002's
+    // purity contract stops being a convention and becomes load-bearing. An arm
+    // that writes to its input now throws — and `advanceFold` CATCHES that,
+    // raising `foldDesynced`. So the failure is not a crash: it is a silent,
+    // permanent fallback to a full `reduceAll` on every read, which is exactly
+    // the per-read cost prd40 ruling 2 exists to remove.
+    //
+    // The corpus law below discharges this for era-1, which carries 15 of the
+    // union's types — `eras.test.ts` pins the 13 it does not reach, among them
+    // every `collector.*`, `fork.*`, `judge.finding` and `telemetry.refused`.
+    // Their arms are clean today (verified), but nothing held them there.
+    //
+    // Anchored on EVENT_TYPES rather than a count, so a 29th event type fails
+    // this law until someone folds it here — the guard is scoped by what the
+    // union IS, not by how many members it had the day it was written.
+    const events = [
+      f.sessionStarted(),
+      f.collectorError(),
+      f.collectorDisabled(),
+      f.collectorDegraded(),
+      f.collectorRecovered(),
+      f.worktreeDiscovered(),
+      f.worktreeRemoved(),
+      f.worktreeDirty(),
+      f.worktreeDirtyStatusFailed(),
+      f.worktreeDirtyStatusRecovered(),
+      f.branchUpdated(),
+      f.branchRemoved(),
+      f.commitLanded(),
+      f.paneDiscovered(),
+      f.paneClosed(),
+      f.paneActivity(),
+      f.agentStatus(),
+      f.agentRemoved(),
+      f.llmUsage(),
+      f.llmCost(),
+      f.toolActivity(),
+      f.agentActiveTime(),
+      f.traceSpan(),
+      f.forkCheckpoint(),
+      f.forkDispatched(),
+      f.judgeFinding(),
+      f.make('telemetry.refused', { instance: 'other', expectedInstance: 'fixture-instance', count: 1 }),
+      f.sessionClosed(),
+    ]
+    // Exhaustive by construction, and it stays that way.
+    expect([...new Set(events.map((event) => event.type))].sort()).toEqual([...EVENT_TYPES].sort())
+
+    // `foldSoFar` reaches `reduceAll` ONLY to self-heal a desync, and `record`
+    // never reaches it at all — so a single call here means an arm threw on its
+    // frozen input. Counting `core.reduce` instead would NOT work: `reduceAll`
+    // calls `reduce` through a module-local binding a namespace spy never sees.
+    const healed = vi.spyOn(core, 'reduceAll')
+    for (const event of events) {
+      await recorder.record(event)
+      recorder.foldSoFar()
+      // Checked after EVERY event, and carrying the type: the self-heal repairs
+      // the ANSWER, so a trailing equality assertion cannot see that it fired,
+      // and a bare count would not say which arm did it.
+      expect({ after: event.type, selfHeals: healed.mock.calls.length }).toEqual({
+        after: event.type,
+        selfHeals: 0,
+      })
+    }
+    healed.mockRestore() // this law's own reduceAll calls must not be counted
+
+    expect(recorder.eventsSoFar()).toHaveLength(events.length)
+    expect(recorder.foldSoFar()).toEqual(reduceAll(recorder.eventsSoFar()))
+    expect(Object.isFrozen(recorder.foldSoFar())).toBe(true)
   })
 
   it('repetition: three records in a row keep the fold correct, frozen and identical across reads', async () => {
