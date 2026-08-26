@@ -3,7 +3,7 @@ import { createEvent, type SessionCloseReason, type SessionLink } from '@rhizomo
 import { defaultClaudeProjectsRoot, repoSlug, sessionFileName } from '../log/paths.js'
 import { removeSessionLock, writeSessionLock } from '../log/session-lock.js'
 import { captureSessionTranscripts } from '../log/transcript-capture.js'
-import type { SessionRecorder } from './session-recorder.js'
+import { CloseNotDurableError, type SessionRecorder } from './session-recorder.js'
 
 /**
  * ROTATION — the recorder's hand (prd16 ruling 2), the observer's third and
@@ -62,6 +62,10 @@ export interface ClosedSession {
   /** Events in the closed log, counting its `session.closed` line. */
   eventCount: number
   closedAt: number
+  /** False when the close line reached the file but `sync()` did not confirm it (prd-40 ruling 1, 1b). */
+  synced: boolean
+  /** Present only when `synced` is false: what the sync failure said. */
+  syncError?: string
 }
 
 export interface OpenedSession {
@@ -113,6 +117,15 @@ export type OpenSessionOptions = Pick<
  * `captureSessionTranscripts` itself never throws for an individual lane it
  * could not find; it records that lane's gap in the manifest and moves on, so
  * one vanished transcript never blocks the operator's rotation.
+ *
+ * **A failed fsync does not fail the close** (prd-40 ruling 1, rule 1b-i, #80).
+ * A session is closed the instant its `session.closed` line is appended; if the
+ * following `sync()` fails, the close still happened and this returns a
+ * `ClosedSession` with `synced: false` and the failure in `syncError` rather
+ * than throwing. That is what makes reopening unconditional — the recorder
+ * holds the seal it earned on that path, and only `openNextSession` releases
+ * it, so a throw here would wedge every later `record()` forever. Every other
+ * close failure is rule 1a, means the close did not happen, and still throws.
  */
 export async function closeCurrentSession(options: CloseSessionOptions): Promise<ClosedSession> {
   const { sessionDir, recorder } = options
@@ -120,7 +133,15 @@ export async function closeCurrentSession(options: CloseSessionOptions): Promise
   const sessionId = recorder.sessionId
   const filePath = recorder.filePath
   const closedAt = now()
-  // +1 for the close event itself: the number a reader of the finished file counts.
+  // +1 for the close event itself.
+  //
+  // **A claim about the buffer at the moment of append, not a census of the
+  // file** (prd-40 ruling 1's fifth amendment, #80). A `record()` whose append
+  // is already in flight has not pushed to the buffer yet, though its line is
+  // ahead of the close line on the writer's FIFO tail — so this can undercount
+  // the finished file. Under rule 1b the close line's authority begins at its
+  // own append, so what it carries is what was known at that moment and no
+  // more. `verifyRecord` remains the thing that counts lines.
   const eventCount = recorder.eventsSoFar().length + 1
 
   await captureSessionTranscripts({
@@ -131,24 +152,45 @@ export async function closeCurrentSession(options: CloseSessionOptions): Promise
     now: closedAt,
   })
 
-  await recorder.closeWith(
-    createEvent(
-      'session.closed',
-      {
-        sessionId,
-        reason: options.reason ?? 'rotated',
-        eventCount,
-        ...(options.successor ? { successor: options.successor } : {}),
-      },
-      // Derived from the closed session's own id rather than a counter, so it
-      // is unique in the log without depending on which id factory a caller
-      // happens to hold, and legible in the file (`session-closed-1000`).
-      { id: `session-closed-${sessionId}`, ts: closedAt },
-    ),
-  )
+  let synced = true
+  let syncError: string | undefined
+  try {
+    await recorder.closeWith(
+      createEvent(
+        'session.closed',
+        {
+          sessionId,
+          reason: options.reason ?? 'rotated',
+          eventCount,
+          ...(options.successor ? { successor: options.successor } : {}),
+        },
+        // Derived from the closed session's own id rather than a counter, so it
+        // is unique in the log without depending on which id factory a caller
+        // happens to hold, and legible in the file (`session-closed-1000`).
+        { id: `session-closed-${sessionId}`, ts: closedAt },
+      ),
+    )
+  } catch (error) {
+    // RULE 1b-i — a close that happened but was not synced is still a close, so
+    // this returns rather than throws and carries the failure in its result.
+    // That is what makes reopening unconditional: `rotateSession` and
+    // `performRetarget` both reach `openNextSession` on their own, and it is
+    // `openSession` that releases the seal rule 1b held.
+    //
+    // Any OTHER failure is rule 1a — the close did not happen, nothing is in
+    // the file, and the recorder already released its own seal. That still
+    // throws, which is what keeps rule 3's law honest: a subscriber throwing
+    // after a durable close must still reject all the way out of here.
+    if (!(error instanceof CloseNotDurableError)) throw error
+    synced = false
+    syncError = error.cause instanceof Error ? error.cause.message : String(error.cause)
+  }
+  // RULE 1b-ii — still runs on the unsynced path. The lock guards a LIVE
+  // session, and this one is not live: its close line is on disk. Skipping it
+  // would leave an orphan lock beside the new session's, for no gain.
   await removeSessionLock(sessionDir, sessionId)
 
-  return { sessionId, filePath, eventCount, closedAt }
+  return { sessionId, filePath, eventCount, closedAt, synced, ...(syncError === undefined ? {} : { syncError }) }
 }
 
 /**

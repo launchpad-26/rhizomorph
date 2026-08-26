@@ -3,12 +3,13 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { AnyCollector, CollectorContext } from '@rhizomorph/core'
 import { createEvent } from '@rhizomorph/core'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { snapshotDirFor } from '../log/paths.js'
 import { readSessionEvents, RESUME_WINDOW_MS, sessionFilePath } from '../log/session-log.js'
 import { readSessionLock, writeSessionLock } from '../log/session-lock.js'
 import { writeSessionLabel } from '../log/label.js'
 import { beginRetargetBoundary } from '../recorder/rotate.js'
+import { SessionLogWriter } from '../recorder/session-log-writer.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { buildApp } from '../server/build-app.js'
 import { createPollLoop } from '../server/poll-loop.js'
@@ -155,6 +156,10 @@ describe('POST /api/rotate', () => {
         filePath: sessionFilePath(sessionDir, FIRST),
         eventCount: 2,
         closedAt: ROTATE_AT,
+        // #80: durability is reported, not assumed. The happy path says so
+        // explicitly and carries no `syncError` — `toEqual`, not
+        // `toMatchObject`, is what asserts the absence.
+        synced: true,
       },
       opened: {
         sessionId: String(ROTATE_AT),
@@ -166,6 +171,41 @@ describe('POST /api/rotate', () => {
     expect((await readSessionEvents(sessionFilePath(sessionDir, FIRST))).at(-1)?.type).toBe('session.closed')
     expect(await readSessionLock(sessionDir, FIRST)).toBeNull()
     expect(await readSessionLock(sessionDir, String(ROTATE_AT))).not.toBeNull()
+  })
+
+  /**
+   * PRD-40 RULING 1, 1b-iii (#80). Under rule 1b a rotation can partly
+   * succeed: the old session closed, the new one open, durability gone. An
+   * error status would say nothing happened, which is false, and would invite
+   * a retry that rotates a SECOND time — a worse outcome than the one being
+   * reported. So the route answers 200 and states the fact in the body. 409
+   * stays `RotationRefusedError`'s, asserted by its own law below.
+   *
+   * `api/rotate.ts` is deliberately NOT edited for this: it already returns
+   * `rotation.closed` whole, so the new field reaches the body by
+   * construction. This law is what stops someone narrowing that return later.
+   */
+  it('answers 200, not an error, when the close line landed but the fsync failed (1b-iii)', async () => {
+    const app = makeApp()
+    const sync = vi.spyOn(SessionLogWriter.prototype, 'sync').mockRejectedValueOnce(new Error('EIO: i/o error, fsync'))
+    try {
+      const response = await app.inject({ method: 'POST', url: '/api/rotate', headers: authorised(app) })
+
+      expect(response.statusCode).toBe(200)
+      const body = response.json() as { closed: { synced: boolean; syncError?: string }; opened: { sessionId: string } }
+      expect(body.closed.synced).toBe(false)
+      expect(body.closed.syncError).toContain('EIO')
+      // The rotation genuinely happened — which is the whole reason this is
+      // not a 4xx or a 5xx.
+      expect(body.opened.sessionId).toBe(String(ROTATE_AT))
+      expect(recorder.sessionId).toBe(String(ROTATE_AT))
+      expect((await readSessionEvents(sessionFilePath(sessionDir, FIRST))).map((e) => e.type)).toEqual([
+        'session.started',
+        'session.closed',
+      ])
+    } finally {
+      sync.mockRestore()
+    }
   })
 
   it('never rotates on a GET — the boundary takes a POST, so no link or prefetch can cross it', async () => {
