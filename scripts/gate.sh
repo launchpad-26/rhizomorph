@@ -84,12 +84,49 @@ echo "  fence OK: $(printf '%s' "$DIFF_FILES" | tr '\n' ' ')"
 # count in an eight-char field ("       0"), and command substitution strips
 # only the trailing newline — compared as text on macOS, the stranded-work
 # check fired on every clean tree and the empty-branch check never (#416).
+#
+# The producer's own exit status is read before the verdict below trusts $n
+# (prd-46 #70): pipefail (set at :13) makes this pipeline's status the git
+# log failure, not wc -l's own success, when main..HEAD cannot even be
+# computed — e.g. with .git/HEAD removed, `git log` reports "fatal: not a
+# git repository", pipeline rc 128, n=0, and the OLD code (no RC check) held
+# with "no commits on the branch (a worker may have left work uncommitted)"
+# — a fault it did not earn. This was #70's headline evidence: the law
+# reading green over exactly this line.
 n=$(git -C "$W" log --oneline main..HEAD | wc -l)
+N_RC=$?
+[ "$N_RC" -ne 0 ] && fail "git log/wc -l failed (rc=$N_RC) — cannot count commits on the branch"
 [ "$n" -eq 0 ] && fail "no commits on the branch (a worker may have left work uncommitted — check git status in the worktree)"
 STATUS_OUT=$(git -C "$W" status --porcelain)
 STATUS_RC=$?
 [ "$STATUS_RC" -ne 0 ] && fail "git status failed in $W (rc=$STATUS_RC) — cannot verify the worktree is clean"
+# SIBLING of the same shape (a $(...) pipeline whose own exit status feeds
+# no check), FIXED here rather than declared — the :96 fix above is its
+# twin (prd-46 #70 ruling 3). The guard is `-gt 1`, not `-ne 0`, and the
+# asymmetry is the whole point:
+#
+#   -ne 0  would misfire on EVERY clean landing. EXECUTED: grep -v's "no
+#          match" exit (1) is the ORDINARY outcome both on a clean tree and
+#          when nothing besides package-lock.json changed — the same
+#          masking bug the fence fix at :74-80 exists to avoid.
+#   -gt 1  cannot fire on a legitimate landing: grep returns only 0 or 1
+#          when it RUNS, and wc -l returns 0. It fires when a stage does
+#          not run or dies — EXECUTED: rc 127 with grep absent from PATH
+#          (this script rewrites PATH itself at :14), and rc >=128 when a
+#          stage is signalled.
+#
+# An earlier revision of this comment declared the line instead, arguing
+# `-gt 1` "would never fire at all, since the pattern is a fixed literal
+# and cannot itself be invalid". Pattern validity is not the only route to
+# a >1 status, so that reason was false and the tolerance it justified was
+# a claim this file had not earned — the exact defect prd-46 exists to
+# abolish, sitting inside its own tolerance table. Recorded rather than
+# quietly deleted: the wrong reason is why the fix looked unnecessary.
+#
+# $STATUS_OUT, the other fallible input, is already RC-checked two lines up.
 dirty=$(printf '%s' "$STATUS_OUT" | grep -v package-lock.json | wc -l)
+DIRTY_RC=$?
+[ "$DIRTY_RC" -gt 1 ] && fail "the dirty-count pipeline failed (rc=$DIRTY_RC) — cannot verify the worktree is clean"
 [ "$dirty" -ne 0 ] && { printf '%s\n' "$STATUS_OUT" | head -5; fail "uncommitted work stranded in the worktree"; }
 echo "  commits: $n, worktree clean"
 
