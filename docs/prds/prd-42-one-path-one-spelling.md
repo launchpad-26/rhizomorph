@@ -330,14 +330,21 @@ $ scripts/fence-lint.sh 47 49 51 52 53 87 91 92 | grep -c '^  OVERLAP'
 13
 ```
 
-**13** overlaps across this PRD's eight open issues, **6** of which set one of
-the three against a wave-4-to-7 issue. Both figures are measured **against the
-issue bodies as they stood on 2026-08-26**, and that qualifier is the point: an
-earlier draft of this amendment recorded 15, which was also true when it was
-measured. The difference is two phantom overlaps — `#87` was leaking a claim on
-`api/rotate.test.ts` out of its prose, and de-backticking that at dispatch
-removed its collisions with `#49` and `#91`. **A count derived from a mutable
-tracker is not self-validating; it needs the conditions it was taken under.**
+**13** overlaps across this PRD's eight then-open issues, **6** of which set one
+of the three against a wave-4-to-7 issue. Both figures are measured **before the
+merge recorded below**, while `#87` still fenced one file rather than `#92`'s
+three. Re-run the same command after that merge and the answers are **18** and
+**9**: absorbing `#92`'s fence gave `#87` `recorder/rotate.ts` and its test,
+which collide with `#49` two ways, `#53` one and `#92` two. Nothing moved; the
+fence did.
+
+That is the second time this count has moved under this paragraph. An earlier
+draft recorded 15, which was also true when it was measured — `#87` was leaking
+a claim on `api/rotate.test.ts` out of its prose, and de-backticking that at
+dispatch removed its collisions with `#49` and `#91`. **A count derived from a
+mutable tracker is not self-validating; it needs the conditions it was taken
+under** — and a date is not one of them, because the tracker changed twice on
+2026-08-26, the second time by this amendment's own hand.
 
 **Wave 8 — one wave, two issues, one PR, after wave 4 lands.** Parallel, fenced
 apart: `prd42 w8: the rotation-entry law sees and enforces every door` (`#87`,
