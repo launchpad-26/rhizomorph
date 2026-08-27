@@ -1107,12 +1107,22 @@ describe('the settled-ribbon tessellation cache, counted (#32, prd-44 ruling 5)'
   const FRAMES = 4
 
   /** {@link fleetSized}, with ids this file's other suites can never collide
-   * with — see the header. */
-  function lawFleet(total: number): Fleet {
+   * with — see the header.
+   *
+   * `ns` is per-ARM, not merely per-file, and the reason is the header's own
+   * reason carried one level in: the arms below are siblings sharing one
+   * module-global cache, and the second warms every slot the first needs COLD.
+   * Sharing one namespace made the first arm's cold-frame count depend on
+   * declaration order — green under vitest's default source order, red the
+   * moment anything reorders them (measured: under `--sequence.shuffle
+   * --sequence.seed=3` the first arm reads 1 miss where it asserts 600). A
+   * cache that outlives the file has to be namespaced against everything that
+   * can reach it, and that includes the test beside this one. */
+  function lawFleet(total: number, ns: string): Fleet {
     const base = fleetSized(total)
     return {
       ...base,
-      lanes: base.lanes.map((lane, i) => ({ ...lane, id: `law-${i}`, handles: [`law-${i}`] })),
+      lanes: base.lanes.map((lane, i) => ({ ...lane, id: `${ns}-${i}`, handles: [`${ns}-${i}`] })),
     }
   }
 
@@ -1142,7 +1152,7 @@ describe('the settled-ribbon tessellation cache, counted (#32, prd-44 ruling 5)'
   }
 
   it('tessellates each settled ribbon once and never again while the field is still', () => {
-    const fleet = lawFleet(LIVING + RETIRED)
+    const fleet = lawFleet(LIVING + RETIRED, 'law-still')
     const retire = settledBeyond(fleet, LIVING)
     const vertices = new Batch()
 
@@ -1186,7 +1196,7 @@ describe('the settled-ribbon tessellation cache, counted (#32, prd-44 ruling 5)'
   }, BENCH_TIMEOUT_MS)
 
   it('one settled ribbon whose paint moved is one miss — the counter is live, not asleep', () => {
-    const fleet = lawFleet(LIVING + RETIRED)
+    const fleet = lawFleet(LIVING + RETIRED, 'law-moved')
     const retire = settledBeyond(fleet, LIVING)
     const vertices = new Batch()
 
