@@ -65,20 +65,45 @@ rm -f "$GITDIR_LOG"
 # and HEAD == main all have main as an ancestor.
 git -C "$W" merge-base --is-ancestor main HEAD 2>/dev/null || fail "branch $BRANCH is not on top of main (the rebase did not take) — rebase it, then re-run"
 
-# The producer (git diff) and the consumer's normal exit (grep -vE) are two
+# The producer (git diff) and the consumer's normal exit (grep) are two
 # different facts and are checked separately. `|| true` cannot simply be
 # deleted: grep -v exits 1 on the ordinary "everything matched the fence, no
 # violations" path, so treating any nonzero as failure would hold every clean
 # landing. Only a producer failure, or grep itself erroring (an invalid
 # regex — FENCE='[' exits 2, not 1), holds.
-DIFF_FILES=$(git -C "$W" diff main...HEAD --name-only)
-DIFF_RC=$?
-[ "$DIFF_RC" -ne 0 ] && fail "git diff main...HEAD failed (rc=$DIFF_RC) — cannot audit the fence"
-viol=$(printf '%s' "$DIFF_FILES" | grep -vE "$FENCE")
+#
+# -z / read -r -d '', not --name-only line-delimited: git quotes a non-ASCII
+# name by default ("caf\303\251.ts"), so a line-based read compares an
+# escaped literal against FENCE instead of the bytes on disk, and an in-fence
+# file with such a name is reported as a violation (prd-46 #71). This is the
+# same defect the NUL-byte guard below already fixed at its own producer —
+# reusing that shape here rather than inventing a third. The file listing is
+# written to a real file, not a pipe or process substitution, so the
+# producer's own exit status is captured directly.
+#
+# The regex is validated separately from the per-file matching below: it is
+# checked ONCE, against empty input, so its rc means only "does this pattern
+# compile" and is never conflated with "did this filename match" (which is
+# always 0 or 1 once the pattern is known-valid).
+printf '' | grep -E "$FENCE" >/dev/null 2>&1
 GREP_RC=$?
 [ "$GREP_RC" -gt 1 ] && fail "fence regex '$FENCE' is invalid (grep rc=$GREP_RC) — cannot audit the fence"
-[ -n "$viol" ] && { echo "  outside fence:"; echo "$viol" | sed 's/^/    /'; fail "fence violated (widen it deliberately, with the diff as justification, or send it back)"; }
-echo "  fence OK: $(printf '%s' "$DIFF_FILES" | tr '\n' ' ')"
+
+FENCE_LIST=$(mktemp "/tmp/gate-fence-list-$H.XXXXXX") || fail "cannot create a scratch file for the fence file listing"
+git -C "$W" diff -z main...HEAD --name-only >"$FENCE_LIST"
+DIFF_RC=$?
+[ "$DIFF_RC" -ne 0 ] && { rm -f "$FENCE_LIST"; fail "git diff main...HEAD failed (rc=$DIFF_RC) — cannot audit the fence"; }
+
+DIFF_FILES=()
+viol=()
+while IFS= read -r -d '' f; do
+  DIFF_FILES+=("$f")
+  printf '%s' "$f" | grep -qE "$FENCE" || viol+=("$f")
+done <"$FENCE_LIST"
+rm -f "$FENCE_LIST"
+
+[ "${#viol[@]}" -gt 0 ] && { echo "  outside fence:"; printf '    %s\n' "${viol[@]}"; fail "fence violated (widen it deliberately, with the diff as justification, or send it back)"; }
+echo "  fence OK: ${DIFF_FILES[*]}"
 
 # These two compare ARITHMETICALLY, not as text: BSD wc -l right-aligns its
 # count in an eight-char field ("       0"), and command substitution strips
