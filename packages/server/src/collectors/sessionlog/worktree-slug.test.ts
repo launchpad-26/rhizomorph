@@ -22,7 +22,7 @@ describe('worktreePathToProjectSlug', () => {
     ).toBe('-home-operator-worktrees-challenge--worktrees-34-sessionlog-collector')
   })
 
-  it('replaces every slash and underscore, nothing else', () => {
+  it('replaces every slash and underscore', () => {
     expect(worktreePathToProjectSlug('/a/b_c/d')).toBe('-a-b-c-d')
   })
 
@@ -36,7 +36,7 @@ describe('worktreePathToProjectSlug', () => {
     expect(worktreePathToProjectSlug('/home/jane.doe/project')).toBe('-home-jane-doe-project')
   })
 
-  it('replaces every slash, underscore and dot, nothing else', () => {
+  it('replaces every slash, underscore and dot', () => {
     expect(worktreePathToProjectSlug('/a/b_c.d/e')).toBe('-a-b-c-d-e')
   })
 
@@ -66,19 +66,42 @@ describe('worktreePathToProjectSlug', () => {
    * pinned expectation is the one the ruling names as moving in the same
    * commit as the fix, so it stays a fact about the encoding rather than a
    * stale copy of it (AGENTS.md's #649 lesson).
-   *
-   * The tilde staying UNMAPPED here is NOT a claim that this is correct — it
-   * is punctuation, same as everything else in Claude Code's real transform
-   * (`/[^a-zA-Z0-9]/g`, per this function's own doc comment). It is a KNOWN,
-   * DELIBERATE divergence, pinned so a reader does not mistake the absence
-   * of a test failure for evidence the tilde is handled: closing it is out
-   * of this issue's fence, and #47 is where the colon/backslash slice of the
-   * same broader gap is tracked. (A dash is a wash either way: the real
-   * transform replaces `-` with `-`, so its presence here proves nothing
-   * about which side is more correct.)
    */
-  it('pins the tilde as UNMAPPED — a known divergence from the real slugger (#47), not a correctness claim', () => {
-    expect(worktreePathToProjectSlug('/home/j~ane/my project-1')).toBe('-home-j~ane-my-project-1')
+  it('maps a literal space, and leaves an existing dash alone, so a spaced path still resolves', () => {
+    expect(worktreePathToProjectSlug('/home/operator/my project-1')).toBe('-home-operator-my-project-1')
+  })
+
+  /**
+   * #124: the class widened from six hand-picked characters to the real
+   * transform's own (`/[^a-zA-Z0-9]/g`, per this function's doc comment) — so
+   * punctuation the old class left untouched, like a tilde, an at-sign or a
+   * parenthesis, now maps the same as `/`, `_` and `.` always did. This is
+   * the exact probe pairing the doc comment cites
+   * (`/tmp/slugprobe3/a+b~c(d),e'f@g` → `-tmp-slugprobe3-a-b-c-d--e-f-g`),
+   * not a constructed example, so a class narrowed back toward the old six
+   * reddens here rather than surviving as a silent regression.
+   */
+  it('maps every non-alphanumeric character, not just the old six — the real Claude Code grammar', () => {
+    expect(worktreePathToProjectSlug('/tmp/slugprobe3/a+b~c(d),e\'f@g')).toBe(
+      '-tmp-slugprobe3-a-b-c-d--e-f-g',
+    )
+  })
+
+  /**
+   * The hyphen itself is a wash — the real transform maps `-` to `-`, so no
+   * change to its handling can redden that alone, and the old name for this
+   * test said as much. What it DOES pin is that the transform is
+   * per-character: each foldable character becomes its own dash, so `--`
+   * survives as `--` rather than collapsing under the plausible
+   * `/[^a-zA-Z0-9]+/g`. That property is not pinned here alone — the
+   * sibling-worktree and Windows-slug cases above carry it too, on real
+   * captured paths — so this is a local guard beside the hyphen, not the only
+   * one. Renamed for the invariant rather than for the wash, per the repo's
+   * own "what mutation would this survive?" standard (#124 review).
+   */
+  it('folds one dash per character, so an existing dash is neither dropped nor collapsed', () => {
+    expect(worktreePathToProjectSlug('/a-b/c')).toBe('-a-b-c')
+    expect(worktreePathToProjectSlug('/a--b/c')).toBe('-a--b-c')
   })
 })
 
