@@ -1121,9 +1121,24 @@ describe('the settled-ribbon tessellation cache, counted (#32, prd-44 ruling 5)'
     return new Map(fleet.lanes.slice(livingCount).map((lane) => [lane.id, at]))
   }
 
-  /** Exactly the population `gl/frame.ts`'s `isSettledRibbon` admits. */
-  function isSettledRibbon(mark: Mark): boolean {
+  /** Exactly the population `gl/frame.ts`'s `isSettledRibbon` admits. Narrowing
+   * rather than `boolean`, so {@link settledByRole} can read the role back out
+   * without re-asserting it. */
+  function isSettledRibbon(mark: Mark): mark is Mark & { role: 'persist' | 'persist-mark' } {
     return mark.kind === 'ribbon' && (mark.role === 'persist' || mark.role === 'persist-mark')
+  }
+
+  /** The settled population split by role, because one aggregate floor cannot
+   * see a role leave. See the assertion in the first arm for what that costs. */
+  function settledByRole(marks: readonly Mark[]): { persist: number; persistMark: number } {
+    let persist = 0
+    let persistMark = 0
+    for (const mark of marks) {
+      if (!isSettledRibbon(mark)) continue
+      if (mark.role === 'persist') persist += 1
+      else persistMark += 1
+    }
+    return { persist, persistMark }
   }
 
   it('tessellates each settled ribbon once and never again while the field is still', () => {
@@ -1138,8 +1153,18 @@ describe('the settled-ribbon tessellation cache, counted (#32, prd-44 ruling 5)'
 
     const cold = marksFor(NOW)
     const settledCount = cold.filter(isSettledRibbon).length
-    // The population must be non-empty for anything below to mean anything —
-    // 200 retired lanes draw a strand plus a tail/seal each.
+    // The population must be non-empty for anything below to mean anything, and
+    // it must carry BOTH settled roles. One aggregate floor cannot say that:
+    // each retired lane draws one `persist` strand and TWO `persist-mark` marks
+    // (measured 200 + 400 = 600 over 200 lanes), so `settledCount > RETIRED`
+    // still reads true at 400 when the `persist` role stops arriving at all —
+    // the law would then count a two-thirds field and report success, which is
+    // the exact vacuity the second arm exists to prevent, arriving by the other
+    // door. Each floor is derived from RETIRED, never from the 600 observed
+    // here; what they catch is a role VANISHING, not a role thinning.
+    const byRole = settledByRole(cold)
+    expect(byRole.persist).toBeGreaterThanOrEqual(RETIRED)
+    expect(byRole.persistMark).toBeGreaterThanOrEqual(RETIRED)
     expect(settledCount).toBeGreaterThan(RETIRED)
 
     const before = settledRibbonCacheCounts()
