@@ -159,3 +159,36 @@ ADRs, which are this programme's *output*, not its tail.
 - **Does the cohort's six-week window want wave 4 at all**, or does the programme pause after
   wave 3 with the build PRD written for whoever comes next? A scope call, the leads'. Open, not
   ruled.
+
+## Amendment — the preliminary spikes ran ahead (2026-08-28, landed with this branch)
+
+Seven of the eight spikes were executed the same day this PRD was drafted, on one box, by a
+read-only lane fleet; the notes land beside this document
+(`docs/research/2026-08-28-shared-record-s*.md`) and the synthesis —
+**the proposed system architecture** — at
+`docs/research/2026-08-28-shared-record-architecture.md`. The team may accept it, re-cut it, or
+refute any line with a better number. Success criteria, assessed against it:
+
+1. **Met for what ran** — every executed spike is a committed, graded note with falsifier
+   verdicts. 2. **QUALIFIED** — losslessness held through shipper death, replay and repair with
+   an identical chain digest end-to-end, but the accept-fast 202 lost one batch on server death:
+   the build requirement is ack-after-durable-journal, and its chaos re-run is a named remaining
+   wave. 3. **Met** — by measurement: Postgres server-side with mandatory rollup projections;
+   no local database (the shipped parse cache beats every engine tested). 4. **Executed, one
+   ruling open** — zero prompt text on the wire; re-serialize-before-shipping is the veil's
+   load-bearing clause; whether git author.email is a fact or a word remains the leads'.
+   5. **Partial** — membership check and key design proven live; the OAuth app stays the named
+   operator act. 6. **Nearer** — the brief's §10 is narrowed: engine and local-store questions
+   are answered; author.email, org-precedence detail, hosting, and the S9 projection remain.
+
+**The waves are re-cut to what remains.** Wave 1 → the corpus on the two remaining machines.
+Wave 2 → the executed spikes' named gaps: concurrent multi-actor shippers, the ack-after-journal
+re-run of chaos row (c), Windows-native local-store behaviour, the pending-invite membership
+state. Wave 3 → discharged in preliminary form; its residue (the author.email ruling, the rollup
+projection) transfers to the build PRD. Wave 4 → unchanged: the real VPS, and the archive
+tombstone that makes pruned-reads-as-pruned unconditional (S7's discovered caveat).
+
+**Unfiled work implied grew two defects, to be filed on blessing:** the shipped `mergeRecords`
+dedup key `(actor.instance, event.id)` drops real events because ids repeat across session
+resumes (executed, S2); and `docs/record-format.md`'s id-uniqueness sentence describes a
+property the real ledger does not have.
