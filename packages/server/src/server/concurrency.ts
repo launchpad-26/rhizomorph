@@ -24,6 +24,50 @@
  * }
  * ```
  *
+ * **Why that loop iterates `.entries()` instead of indexing, which is not
+ * style.** `noUncheckedIndexedAccess` is on (`tsconfig.base.json`), so
+ * `outcomes[index]` has type `FanoutOutcome<T> | undefined`. That `undefined`
+ * is unreachable — property 1 above guarantees one outcome per task at the
+ * task's own index — but the guarantee is a comment and the compiler cannot
+ * read it, so every indexing consumer has to write *something* for a case that
+ * cannot happen. `outcomes.entries()` yields `[number, FanoutOutcome<T>]` with
+ * no union at all, which is why the example is written that way.
+ *
+ * Two things it does not solve, both of which cost a lane a detour:
+ *
+ * - **The input at that index is still `| undefined`.** Iterating the outcomes
+ *   fixes the outcome, not the parallel array beside it: `worktrees[index]`
+ *   above, or `pathsToResolve[index]` in `collectors/tmux/collector.ts`, needs
+ *   its own check. Iterating the *input* and indexing the outcomes has the
+ *   mirror problem, which is why that file uses both shapes in one `poll()`.
+ * - **A fixed-arity destructure cannot use `.entries()` at all.**
+ *   `const [statusOutcome, listOutcome] = await runBounded([...])` gives BOTH
+ *   bindings `| undefined`, and there is no iteration to hide behind. That is
+ *   the case that forced the first of the three helpers below.
+ *
+ * **The three answers already in this repo, and the one difference that
+ * matters.** All three consumers arrived here in the same wave and each solved
+ * the same compiler behaviour differently — the note exists because #34, #35
+ * and #36 each independently recommended writing it down:
+ *
+ * - `collectors/workmux/collector.ts`'s `unwrapExecOutcome` — **throws**
+ *   (`runBounded returned fewer outcomes than tasks given`), and rethrows an
+ *   `ok: false` reason too, because for that collector an `Exec` that rejected
+ *   means `server/exec.ts`'s own contract broke.
+ * - `collectors/git/git-collector.ts`'s `execResultOf` and `aheadBehindOf` —
+ *   **synthesize a failed result** and let the collector's ordinary degrade
+ *   path report it.
+ * - `collectors/tmux/collector.ts` — **no helper**: `.entries()` for the phase
+ *   that can use it, and `outcome?.ok` with an inline fallback for the one
+ *   indexed lookup that cannot.
+ *
+ * So on the same impossible input, workmux **dies** and git **degrades**. That
+ * is the choice a fourth consumer is making, and it should make it on purpose:
+ * throw when a violated contract should stop the whole collector, synthesize
+ * when one entity's result should fail while the rest of the tick continues.
+ * Pick one of the three and say which; a fifth idiom is the thing this note
+ * exists to prevent.
+ *
  * **This module has no timeout and no cancellation story, on purpose.**
  * `withTimeout` (`server/exec.ts`) is already the one exec ceiling, wired at
  * `poll-loop.ts:91`; a bounded exec is guaranteed to settle, so this file
