@@ -377,10 +377,12 @@ describe('SessionRecorder#recordAlarm — the one named exception (prd40 success
   it('a throwing subscriber cannot silence the alarm', async () => {
     const reported = vi.spyOn(console, 'error').mockImplementation(() => {})
     const seen: RhizomorphEvent[] = []
-    // Registered BEFORE the thrower: `EventEmitter.emit` abandons the listener
-    // list at the first throw, so this method's guard buys the CALLER's
-    // survival, not delivery to listeners queued behind a broken one. That
-    // limit is the same one `closeWith` has always had.
+    // Registered BEFORE the thrower, which is all this law ever claimed: it
+    // pins the CALLER's survival. It used to be all that was available —
+    // `EventEmitter.emit` abandons the listener list at the first throw — but
+    // #106 moved the guard to `subscribe` and closed that hole, so delivery to
+    // listeners queued BEHIND a broken one is now its own law at the foot of
+    // this file. Assertions here are unchanged; only this note is.
     const unsubscribeGood = recorder.subscribe((event) => {
       seen.push(event)
     })
@@ -1076,5 +1078,171 @@ describe('SessionRecorder — foldSoFar() over the golden-era corpus (prd40 ruli
     expect(recorder.foldSoFar()).not.toEqual(initialSessionState()) // the corpus DID fold
     expect(recorder.foldSoFar()).toEqual(reduceAll(events))
     expect(recorder.foldSoFar()).toEqual(reduceAll(recorder.eventsSoFar()))
+  })
+})
+
+describe('SessionRecorder — a throwing subscriber cannot blind the others (#106)', () => {
+  let dir: string
+  let recorder: SessionRecorder
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-recorder-isolation-test-'))
+    recorder = new SessionRecorder(FIRST, sessionFilePath(dir, FIRST))
+  })
+
+  afterEach(async () => {
+    vi.restoreAllMocks()
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  const anError = (id: string) => createEvent('collector.error', { collector: 'git', message: 'boom' }, { id, ts: 1000 })
+  const aClose = () =>
+    createEvent(
+      'session.closed',
+      { sessionId: FIRST, reason: 'rotated', eventCount: 1 },
+      { id: `session-closed-${FIRST}`, ts: 1000 },
+    )
+
+  it('a subscriber registered AFTER a thrower still receives the event', async () => {
+    // L1, and the registration ORDER is the whole law. `EventEmitter.emit`
+    // abandons the listener list at the FIRST throw, so only a survivor queued
+    // BEHIND the thrower can prove the isolation: register the survivor first
+    // and this test passes against the unfixed recorder, proving nothing.
+    // Do not "tidy" these two subscribe calls into the other order.
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const seen: RhizomorphEvent[] = []
+    recorder.subscribe(() => {
+      throw new Error('subscriber boom')
+    })
+    recorder.subscribe((event) => {
+      seen.push(event)
+    })
+    const event = anError('evt-1')
+
+    await recorder.record(event)
+
+    expect(seen).toEqual([event])
+    expect(reported).toHaveBeenCalledWith(expect.stringContaining('subscriber boom'))
+  })
+
+  // L2 — the sibling case. All three publish paths had this defect, in three
+  // different costumes: `record` unguarded, `recordAlarm` and `closeWith`
+  // guarded so the PUBLISHER survived while every listener behind the thrower
+  // was still dropped. One wrapper at `subscribe` reaches all three because the
+  // emitter is private and `subscribe` is its only registration path — and this
+  // table is what proves that rather than asserting it. A fix proven on one path
+  // and not its siblings is this repo's recurring defect shape.
+  const publishPaths: ReadonlyArray<{
+    readonly name: string
+    readonly publish: (r: SessionRecorder) => Promise<RhizomorphEvent>
+  }> = [
+    {
+      name: 'record',
+      publish: async (r) => {
+        const event = anError('evt-1')
+        await r.record(event)
+        return event
+      },
+    },
+    {
+      name: 'recordAlarm',
+      publish: async (r) => {
+        const event = anError('evt-1')
+        await r.recordAlarm(event)
+        return event
+      },
+    },
+    {
+      name: 'closeWith',
+      publish: async (r) => {
+        const event = aClose()
+        await r.closeWith(event)
+        return event
+      },
+    },
+  ]
+
+  it.each(publishPaths)('$name reaches a subscriber queued behind a thrower', async ({ publish }) => {
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const seen: RhizomorphEvent[] = []
+    recorder.subscribe(() => {
+      throw new Error('subscriber boom')
+    })
+    recorder.subscribe((event) => {
+      seen.push(event)
+    })
+
+    const event = await publish(recorder)
+
+    expect(seen).toEqual([event])
+    expect(reported).toHaveBeenCalledWith(expect.stringContaining('subscriber boom'))
+  })
+
+  it('reports EVERY subscriber that throws, not just the first', async () => {
+    // L3. Under the old single `try` around `emitter.emit`, at most one throw
+    // could ever be reported, because the emit stopped at it. Separate from L1
+    // on purpose: a wrapper that swallowed silently would keep L1 green while
+    // reintroducing exactly the silence ADR-0011 abolished.
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const seen: RhizomorphEvent[] = []
+    recorder.subscribe(() => {
+      throw new Error('subscriber boom one')
+    })
+    recorder.subscribe(() => {
+      throw new Error('subscriber boom two')
+    })
+    recorder.subscribe((event) => {
+      seen.push(event)
+    })
+    const event = anError('evt-1')
+
+    await recorder.record(event)
+
+    expect(seen).toEqual([event])
+    expect(reported).toHaveBeenCalledWith(expect.stringContaining('subscriber boom one'))
+    expect(reported).toHaveBeenCalledWith(expect.stringContaining('subscriber boom two'))
+    expect(reported).toHaveBeenCalledTimes(2)
+  })
+
+  it('record() resolves rather than rejecting when a subscriber throws', async () => {
+    // L4 pins the deliberate contract change (#106): `record` used to reject on
+    // a subscriber's throw. `poll-loop.ts:223` calls it inside the try whose
+    // catch builds a `collector.error`, with the snapshot advance behind it, so
+    // rejecting turned a buggy dashboard into a false error naming a healthy
+    // collector plus a re-appended batch. All three publish paths now agree.
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => {})
+    recorder.subscribe(() => {
+      throw new Error('subscriber boom')
+    })
+    const event = anError('evt-1')
+
+    await expect(recorder.record(event)).resolves.toBeUndefined()
+
+    expect(reported).toHaveBeenCalledWith(expect.stringContaining('subscriber boom'))
+    // And the publish itself completed — the throw stopped nothing at all.
+    expect(recorder.eventsSoFar()).toEqual([event])
+    expect(readFileSync(sessionFilePath(dir, FIRST), 'utf8')).toContain('evt-1')
+  })
+
+  it('unsubscribe still removes the right listener after that listener has thrown', async () => {
+    // L5 catches the trap in the fix: `off` matches by REFERENCE, so an
+    // unsubscribe closed over the caller's `listener` rather than the wrapper
+    // actually registered would silently remove nothing — and leak a listener
+    // per SSE client, forever, with every law above still green.
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => {})
+    let calls = 0
+    const unsubscribe = recorder.subscribe(() => {
+      calls++
+      throw new Error('subscriber boom')
+    })
+
+    await recorder.record(anError('evt-1'))
+    expect(calls).toBe(1)
+
+    unsubscribe()
+    await recorder.record(anError('evt-2'))
+
+    expect(calls).toBe(1)
+    expect(reported).toHaveBeenCalledTimes(1)
   })
 })
