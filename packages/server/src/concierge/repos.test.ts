@@ -367,6 +367,10 @@ describe("worktreePathToProjectSlug round-trips through reverseProjectSlug", () 
         'a space here',
         'a:colon here',
         'a\\backslash here',
+        'wide+punct~at@x',
+        "quote'comma,paren(x)",
+        'accentéhere',
+        'emoji\u{1F600}here',
       ]
 
       // Every ordered pair of distinct segments — each mapped character is
@@ -384,6 +388,12 @@ describe("worktreePathToProjectSlug round-trips through reverseProjectSlug", () 
       expect(roundTripPaths.some((segments) => segments.some((segment) => segment.includes(' ')))).toBe(true)
       expect(roundTripPaths.some((segments) => segments.some((segment) => segment.includes(':')))).toBe(true)
       expect(roundTripPaths.some((segments) => segments.some((segment) => segment.includes('\\')))).toBe(true)
+      // The characters #124 added to the forward class, and #120 to the walk:
+      // without these rows the law is green against EITHER side narrowed back
+      // to the pre-wave class, which is what made it unable to pin this wave.
+      expect(roundTripPaths.some((segments) => segments.some((segment) => segment.includes('+')))).toBe(true)
+      expect(roundTripPaths.some((segments) => segments.some((segment) => segment.includes('é')))).toBe(true)
+      expect(roundTripPaths.some((segments) => segments.some((segment) => segment.includes('\u{1F600}')))).toBe(true)
 
       for (const segments of roundTripPaths) {
         const target = path.join(root, ...segments)
