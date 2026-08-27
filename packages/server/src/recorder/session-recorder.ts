@@ -27,6 +27,47 @@ export class CloseNotDurableError extends Error {
   }
 }
 
+/**
+ * The in-memory window's ceiling: at most 75,000 events of the session being
+ * recorded stay in `eventsSoFar()`, oldest evicted first (prd-44 ruling 4).
+ *
+ * **The number is the operator's, and it is the client's number.** Wave 0's
+ * answer (2026-08-27, #37) is *the same bound the browser already sets on the
+ * same data* — `MAX_EVENTS` in `web/src/app/streamState.ts`. Ruling 4's whole
+ * complaint is that one side of the wire ruled and the other kept everything
+ * and said nothing; a different number here would leave that half-fixed, with
+ * `eventsWindowLabel`'s vocabulary meaning two things depending on which side
+ * you read. This repo's longest recording is 63,653 events over 43.5 h
+ * (`research/2026-08-16-concurrency-measurement.md`), so 75,000 is a ceiling
+ * against a session that runs away, not a working window that truncates a real
+ * day.
+ *
+ * **What is bounded, and what is deliberately not.** This trims the raw window
+ * only. The fold ({@link SessionRecorder.foldSoFar}) still sees every event the
+ * session ever recorded — `eventCount` included — so nothing that reads the
+ * fold can tell eviction happened, and `eventsSoFar().length <
+ * foldSoFar().eventCount` is exactly how a reader detects that it holds a
+ * partial window. That is the same pair, read the same way, as
+ * `eventsWindowLabel`: the vocabulary is reused rather than twinned.
+ */
+export const MAX_BUFFERED_EVENTS = 75_000
+
+/**
+ * How many evicted slots the backing array may carry before it is compacted.
+ *
+ * Eviction moves an index; it does not `splice`. A `splice(0, n)` per event
+ * past the bound would memmove 75,000 pointers — ~600 KB — on **every**
+ * subsequent event, which is the same per-event cost prd-44 ruling 2 just
+ * removed from the append path, reintroduced one file away. Advancing the
+ * window index is O(1), and the array is rebuilt once per 1,024 evictions
+ * instead: 75,000 pointer copies amortised over 1,024 events is ~73 per event,
+ * against a bound on the live array of
+ * `MAX_BUFFERED_EVENTS + COMPACT_AFTER_EVICTED` slots. Both halves — the window
+ * and the slots behind it — are pinned by laws, because a bound on only what
+ * the window hands out would hold while memory grew forever.
+ */
+export const COMPACT_AFTER_EVICTED = 1_024
+
 export interface SessionRecorderOptions {
   /**
    * Events already in the session file, written by the process that started
@@ -83,9 +124,29 @@ function deepFreeze<T>(value: T): T {
 export class SessionRecorder {
   private currentSessionId: string
   private currentFilePath: string
-  private buffer: RhizomorphEvent[] = []
   /**
-   * The fold of {@link buffer}, maintained incrementally rather than
+   * The session's events, of which the live window is everything from
+   * {@link windowStart} on. Slots before that index are evicted — unreachable,
+   * and reclaimed in one pass per {@link COMPACT_AFTER_EVICTED} of them.
+   *
+   * **Never read directly except where the whole array is provably the window**
+   * (the constructor, before anything is evicted). `eventsSoFar()` and the
+   * fold's repair path both start at `windowStart`; forgetting it is how a
+   * reader silently gets events that were meant to be gone.
+   */
+  private buffer: RhizomorphEvent[] = []
+  /** Index of the window's first live event in {@link buffer}. */
+  private windowStart = 0
+  /**
+   * How many events this session has dropped out of the window (prd-44 ruling
+   * 4). Zero for every session under {@link MAX_BUFFERED_EVENTS}, which is
+   * every session this repo has yet recorded — and the flag the fold's repair
+   * path reads to know whether {@link buffer} is still ground truth.
+   */
+  private evictedFromWindow = 0
+  /**
+   * The fold of every event recorded this session — NOT of {@link buffer},
+   * once eviction has begun. Maintained incrementally rather than
    * rebuilt per read (prd40 ruling 2). Kept exactly in step with `buffer`:
    * every push into it is followed, in the same synchronous step, by an
    * `advanceFold` call — see `record`, `closeWith` and `openSession`.
@@ -118,8 +179,15 @@ export class SessionRecorder {
     this.currentSessionId = sessionId
     this.currentFilePath = filePath
     const resuming = options.resumeFrom !== undefined
-    if (options.resumeFrom) this.buffer.push(...options.resumeFrom)
+    // Assigned, not `push(...resumeFrom)`: a spread is one argument per event,
+    // and V8 throws `RangeError: Maximum call stack size exceeded` somewhere
+    // around 100k arguments — on exactly the long resumed sessions this bound
+    // exists for. `buffer` is empty here, so the two were only ever equivalent.
+    if (options.resumeFrom) this.buffer = [...options.resumeFrom]
+    // The fold is taken over EVERY resumed event, before anything is evicted,
+    // so a resumed session's fold is complete even when its window cannot be.
     this.setFold(reduceAll(this.buffer))
+    this.trimWindow()
     this.writer = new SessionLogWriter(filePath, { resuming })
     // Many concurrent SSE clients each subscribe once; the default cap of 10 is easy to hit honestly.
     this.emitter.setMaxListeners(0)
@@ -143,6 +211,37 @@ export class SessionRecorder {
    */
   get isSealed(): boolean {
     return this.sealed !== null
+  }
+
+  /**
+   * Pushes one event into the window, evicting the oldest if that puts it over
+   * {@link MAX_BUFFERED_EVENTS}. The ONLY writer of {@link buffer}'s tail, so
+   * the bound cannot be missed by one publish path while holding on the other
+   * two — the shape of defect this repo keeps finding.
+   */
+  private appendToWindow(event: RhizomorphEvent): void {
+    this.buffer.push(event)
+    this.trimWindow()
+  }
+
+  /**
+   * Drops the oldest events until the window is within
+   * {@link MAX_BUFFERED_EVENTS}, oldest first — the client's own rule
+   * (`streamState.ts`: "capped at `MAX_EVENTS`, oldest evicted first").
+   *
+   * Eviction advances an index rather than splicing; see
+   * {@link COMPACT_AFTER_EVICTED} for the arithmetic, and note that compaction
+   * leaves the window's CONTENTS untouched — it only renumbers where it starts.
+   */
+  private trimWindow(): void {
+    const overflow = this.buffer.length - this.windowStart - MAX_BUFFERED_EVENTS
+    if (overflow <= 0) return
+    this.windowStart += overflow
+    this.evictedFromWindow += overflow
+    if (this.windowStart >= COMPACT_AFTER_EVICTED) {
+      this.buffer = this.buffer.slice(this.windowStart)
+      this.windowStart = 0
+    }
   }
 
   /**
@@ -190,7 +289,7 @@ export class SessionRecorder {
     // session's buffer, fold and subscribers. The event is durable in the file
     // it was appended to — it is the recorder's current session that moved on.
     if (this.writer !== writer) return
-    this.buffer.push(event)
+    this.appendToWindow(event)
     this.advanceFold(event)
     // A throwing subscriber no longer rejects this call (#106). It used to, and
     // that was not harmless: `poll-loop.ts:223` calls `record` inside the try
@@ -241,7 +340,7 @@ export class SessionRecorder {
       // in the log it was appended to, and must not contaminate the session
       // that has since opened — buffer, fold or subscribers.
       if (this.writer !== writer) return { appended: true }
-      this.buffer.push(event)
+      this.appendToWindow(event)
       this.advanceFold(event)
     }
     // On a FAILED append we fall through to the emit having touched neither
@@ -337,7 +436,7 @@ export class SessionRecorder {
     // strand that seal with nothing alive to release it: every later `record`
     // parks forever on the wait above, `runTick` never returns, and the poll
     // loop stops silently and permanently.
-    this.buffer.push(event)
+    this.appendToWindow(event)
     this.advanceFold(event)
     // The guard moved to `subscribe` (#106), which isolates every listener at
     // registration: this emit cannot throw, so rule 3 still holds — nothing
@@ -356,7 +455,12 @@ export class SessionRecorder {
     this.currentSessionId = sessionId
     this.currentFilePath = filePath
     this.writer = new SessionLogWriter(filePath)
+    // A rotation is not an eviction: the window is emptied outright and the
+    // eviction count goes back to zero, so the new session's fold is once again
+    // repairable from its own buffer.
     this.buffer = []
+    this.windowStart = 0
+    this.evictedFromWindow = 0
     this.setFold(initialSessionState())
     this.foldDesynced = false
     const release = this.releaseSeal
@@ -397,16 +501,55 @@ export class SessionRecorder {
    * the silent-corruption failure mode, not every route to it.
    */
   foldSoFar(): SessionState {
-    if (this.foldDesynced) {
+    // The repair rebuilds from `buffer`, which is ground truth ONLY while the
+    // window still holds the whole session (prd-44 ruling 4, #37). Past the
+    // first eviction it is a window, and rebuilding from it would produce a
+    // fold missing every evicted event — tens of thousands of them — where the
+    // incremental fold is missing only the one event `reduce` threw on. So the
+    // better of two imperfect answers is kept, and kept deliberately: this is
+    // not a case the repair can serve, not one it forgot.
+    if (this.foldDesynced && this.evictedFromWindow === 0) {
       this.setFold(reduceAll(this.buffer))
       this.foldDesynced = false
     }
     return this.foldState
   }
 
-  /** Every event recorded so far *this session*, in order. */
+  /**
+   * The session's events in order — **the last {@link MAX_BUFFERED_EVENTS} of
+   * them**, not necessarily all of them (prd-44 ruling 4, #37).
+   *
+   * A caller that needs to know whether it holds the whole session asks the
+   * same question the browser already asks of the same data: this array's
+   * length against `foldSoFar().eventCount`, which is never capped. Equal means
+   * whole; less means a partial window, and the reader must say so rather than
+   * let it pass as the session — `eventsWindowLabel`
+   * (`web/src/app/streamState.ts`) is the existing wording for that, and
+   * {@link evictedEventCount} is the same fact stated directly.
+   */
   eventsSoFar(): RhizomorphEvent[] {
-    return [...this.buffer]
+    return this.buffer.slice(this.windowStart)
+  }
+
+  /**
+   * How many events have been dropped from the window this session — 0 for
+   * every session under {@link MAX_BUFFERED_EVENTS}, and the direct form of the
+   * `eventsSoFar().length < foldSoFar().eventCount` test above.
+   */
+  get evictedEventCount(): number {
+    return this.evictedFromWindow
+  }
+
+  /**
+   * Test-only: how many array slots the window is actually holding, evicted
+   * ones included. The window's own bound says nothing about the memory behind
+   * it — an implementation that never reclaimed an evicted slot would pass
+   * every other law here while growing forever — so the compaction law reads
+   * this. Same role as `ParsedSessionLogCache.parseCount` (`log/lane-index.ts`):
+   * a number no production caller has any business reading.
+   */
+  bufferedSlotsForTests(): number {
+    return this.buffer.length
   }
 
   /** Subscribes to events recorded from this point on. Returns an unsubscribe function. */

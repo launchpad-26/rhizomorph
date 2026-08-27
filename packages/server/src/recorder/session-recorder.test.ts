@@ -10,7 +10,12 @@ import { writeSessionLock } from '../log/session-lock.js'
 import { sessionFilePath } from '../log/session-log.js'
 import { rotateSession } from './rotate.js'
 import { SessionLogWriter } from './session-log-writer.js'
-import { CloseNotDurableError, SessionRecorder } from './session-recorder.js'
+import {
+  CloseNotDurableError,
+  COMPACT_AFTER_EVICTED,
+  MAX_BUFFERED_EVENTS,
+  SessionRecorder,
+} from './session-recorder.js'
 
 const FIRST = '1000'
 
@@ -1244,5 +1249,190 @@ describe('SessionRecorder — a throwing subscriber cannot blind the others (#10
 
     expect(calls).toBe(1)
     expect(reported).toHaveBeenCalledTimes(1)
+  })
+})
+
+// prd-44 ruling 4 (#37): the server states its retention, as the client already
+// does. Every law here asserts a COUNT — events in the window, events dropped,
+// array slots held, `reduce`/`reduceAll` calls — and never a wall clock, which
+// is the defect prd-24 named. No law here is named `*.bench.test.ts` and none
+// carries a `@gate-timing` marker, so `scripts/gate.sh`'s 4x-load timing set
+// and its `.swarm/timing-count` ratchet are untouched.
+//
+// **They run at the REAL 75,000, not at an injected toy bound.** A configurable
+// ceiling tested only at 4 would never exercise the default it exists to
+// protect — the second-worst defect shape AGENTS.md names. Reaching the real
+// bound is affordable because `resumeFrom` seeds a whole session in one
+// constructor call (~130 ms for 76,025 events), and because the one law that
+// must drive `record()` itself mocks the writer's append: the bound is a memory
+// property, so paying 75,003 disk writes to observe it would buy nothing.
+describe('SessionRecorder — the window has a stated ceiling (prd-44 ruling 4, #37)', () => {
+  let dir: string
+
+  /**
+   * A distinguishable event whose fold is O(1). Type matters here in a way it
+   * does not elsewhere in this file: `worktree.discovered` accumulates a record
+   * per worktree, so folding 76,025 of them copies a growing map 76,025 times
+   * and takes minutes. `collector.error` folds into one collector entry plus an
+   * errors list capped at `MAX_ERRORS`, so a 76,025-event session folds in
+   * ~36 ms.
+   */
+  function err(i: number) {
+    return createEvent('collector.error', { collector: 'git', message: `boom ${i}` }, { id: `evt-${i}`, ts: 1000 + i })
+  }
+
+  /** `count` events, oldest first — `evt-0` .. `evt-(count-1)`. */
+  function session(count: number): RhizomorphEvent[] {
+    const events: RhizomorphEvent[] = []
+    for (let i = 0; i < count; i += 1) events.push(err(i))
+    return events
+  }
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-recorder-window-test-'))
+  })
+
+  afterEach(async () => {
+    vi.restoreAllMocks()
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('is the operator number, and it is the client own number', () => {
+    // Wave 0's answer, 2026-08-27: the same bound the browser sets on the same
+    // data (`MAX_EVENTS`, `web/src/app/streamState.ts`). Pinned here because it
+    // is a decision, not an implementation detail — a lane may not retune it.
+    //
+    // The stronger form of this law is a seam test on the WEB side importing
+    // both constants, the way `web/src/app/boot-reason-seam.test.ts` already
+    // reads `SESSION_BOOT_REASONS` from server source. That file is outside
+    // this issue's fence; see the PR.
+    expect(MAX_BUFFERED_EVENTS).toBe(75_000)
+  })
+
+  it('stops the window at the ceiling while the session own count keeps climbing', async () => {
+    const recorder = new SessionRecorder(FIRST, sessionFilePath(dir, FIRST), { resumeFrom: session(MAX_BUFFERED_EVENTS) })
+    expect(recorder.eventsSoFar()).toHaveLength(MAX_BUFFERED_EVENTS)
+    expect(recorder.evictedEventCount).toBe(0)
+
+    for (let i = 0; i < 3; i += 1) await recorder.record(err(MAX_BUFFERED_EVENTS + i))
+
+    // The window stopped rising; the session's own count did not. That pair is
+    // the whole ruling, and it is exactly the pair `eventsWindowLabel` reads.
+    expect(recorder.eventsSoFar()).toHaveLength(MAX_BUFFERED_EVENTS)
+    expect(recorder.foldSoFar().eventCount).toBe(MAX_BUFFERED_EVENTS + 3)
+    expect(recorder.evictedEventCount).toBe(3)
+  })
+
+  it('evicts oldest first, and leaves the window in the log own order', async () => {
+    const recorder = new SessionRecorder(FIRST, sessionFilePath(dir, FIRST), { resumeFrom: session(MAX_BUFFERED_EVENTS) })
+    for (let i = 0; i < 3; i += 1) await recorder.record(err(MAX_BUFFERED_EVENTS + i))
+
+    const window = recorder.eventsSoFar()
+    // The three oldest went, the three newest arrived, and nothing in between
+    // moved: a newest-first or unordered eviction fails on the first assertion,
+    // a window rebuilt from a set fails on the last.
+    expect(window[0]?.id).toBe('evt-3')
+    expect(window.at(-1)?.id).toBe(`evt-${MAX_BUFFERED_EVENTS + 2}`)
+    expect(window.map((event) => event.ts)).toEqual([...window].sort((a, b) => a.ts - b.ts).map((event) => event.ts))
+  })
+
+  it('never trims the fold — it stays the fold of every event, not of the window', () => {
+    const all = session(MAX_BUFFERED_EVENTS + 25)
+    const recorder = new SessionRecorder(FIRST, sessionFilePath(dir, FIRST), { resumeFrom: all })
+
+    expect(recorder.evictedEventCount).toBe(25)
+    // The fold is complete: every evicted event is still in it.
+    expect(JSON.stringify(recorder.foldSoFar())).toBe(JSON.stringify(reduceAll(all)))
+    // And the negative, which is what makes the positive mean something: past
+    // eviction the fold is NOT `reduceAll(eventsSoFar())`. This file's own
+    // `deepEqualFold` helper asserts exactly that equality, so its premise ends
+    // here — it holds for every session under the ceiling and no further.
+    expect(JSON.stringify(recorder.foldSoFar())).not.toBe(JSON.stringify(reduceAll(recorder.eventsSoFar())))
+  })
+
+  it('reclaims the slots behind the window rather than holding every event it evicted', () => {
+    const recorder = new SessionRecorder(FIRST, sessionFilePath(dir, FIRST), {
+      resumeFrom: session(MAX_BUFFERED_EVENTS + COMPACT_AFTER_EVICTED + 1),
+    })
+
+    expect(recorder.eventsSoFar()).toHaveLength(MAX_BUFFERED_EVENTS)
+    // The law the window's own length cannot carry: an implementation that
+    // evicted by advancing an index and never compacted would pass every other
+    // law here while holding all 76,025 events in memory forever.
+    expect(recorder.bufferedSlotsForTests()).toBeLessThanOrEqual(MAX_BUFFERED_EVENTS + COMPACT_AFTER_EVICTED)
+  })
+
+  it('empties the window outright on a rotation — a rotation is not an eviction', async () => {
+    const recorder = new SessionRecorder(FIRST, sessionFilePath(dir, FIRST), {
+      resumeFrom: session(MAX_BUFFERED_EVENTS + 5),
+    })
+    expect(recorder.evictedEventCount).toBe(5)
+
+    recorder.openSession('2000', sessionFilePath(dir, '2000'))
+
+    expect(recorder.eventsSoFar()).toEqual([])
+    expect(recorder.foldSoFar().eventCount).toBe(0)
+    // Not 5: the previous session's evictions are not this session's, and a
+    // count carried across the boundary would make the new session's fold
+    // permanently unrepairable for a reason that belongs to the old one.
+    expect(recorder.evictedEventCount).toBe(0)
+    expect(recorder.bufferedSlotsForTests()).toBe(0)
+
+    await recorder.record(err(1))
+    await recorder.record(err(2))
+    expect(recorder.eventsSoFar()).toHaveLength(2)
+    expect(recorder.evictedEventCount).toBe(0)
+  })
+
+  it('holds the ceiling in a session reached by rotation, not only in the first one', async () => {
+    const recorder = new SessionRecorder(FIRST, sessionFilePath(dir, FIRST), {
+      resumeFrom: session(MAX_BUFFERED_EVENTS + 5),
+    })
+    recorder.openSession('2000', sessionFilePath(dir, '2000'))
+
+    // Mocked purely to keep 75,003 disk writes out of a law about memory.
+    vi.spyOn(SessionLogWriter.prototype, 'append').mockResolvedValue(undefined)
+    for (let i = 0; i < MAX_BUFFERED_EVENTS + 3; i += 1) await recorder.record(err(i))
+
+    // The bound is a property of the recorder, not of the session it happened
+    // to be constructed with — an `openSession` that reset the window but not
+    // the machinery around it would fail here and nowhere else.
+    expect(recorder.eventsSoFar()).toHaveLength(MAX_BUFFERED_EVENTS)
+    expect(recorder.evictedEventCount).toBe(3)
+    expect(recorder.foldSoFar().eventCount).toBe(MAX_BUFFERED_EVENTS + 3)
+  })
+
+  it('does not repair the fold from a window that has already evicted, and still repairs one that has not', async () => {
+    const evicting = new SessionRecorder(FIRST, sessionFilePath(dir, FIRST), {
+      resumeFrom: session(MAX_BUFFERED_EVENTS + 5),
+    })
+    // One event's fold fails, so `foldDesynced` is raised over a window that is
+    // no longer the whole session.
+    vi.spyOn(core, 'reduce').mockImplementationOnce(() => {
+      throw new Error('a bug in the accelerator')
+    })
+    await evicting.record(err(MAX_BUFFERED_EVENTS + 5))
+
+    const rebuild = vi.spyOn(core, 'reduceAll')
+    evicting.foldSoFar()
+    evicting.foldSoFar()
+    // A rebuild from `buffer` here would drop all 6 evicted events; the
+    // incremental fold is behind by the ONE event `reduce` threw on. The better
+    // of two imperfect answers is kept, and no rebuild is attempted.
+    expect(rebuild).not.toHaveBeenCalled()
+    expect(evicting.foldSoFar().eventCount).toBe(MAX_BUFFERED_EVENTS + 5)
+    rebuild.mockRestore()
+
+    // The sibling, stated beside it: with nothing evicted, `buffer` IS ground
+    // truth and the repair still runs exactly as it did before this change.
+    const whole = new SessionRecorder('3000', sessionFilePath(dir, '3000'))
+    await whole.record(err(1))
+    vi.spyOn(core, 'reduce').mockImplementationOnce(() => {
+      throw new Error('a bug in the accelerator')
+    })
+    await whole.record(err(2))
+    const repair = vi.spyOn(core, 'reduceAll')
+    expect(whole.foldSoFar().eventCount).toBe(2)
+    expect(repair).toHaveBeenCalledTimes(1)
   })
 })
