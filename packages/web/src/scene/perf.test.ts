@@ -857,7 +857,7 @@ describe('the marks stage, by builder', () => {
  * | `8686f24^` — 2D calls into a stub |  1.638 ms         | 0.235 ms         |
  * | `8686f24` — #578, real tessellation | 12.543 ms       | 1.104 ms         |
  *
- * So 2.58 ms and 17–25 ms are not the same quantity measured twice, and the
+ * So 2.58 ms and 17.1–19.5 ms are not the same quantity measured twice, and the
  * *before* column (2.93 ms) is exactly as unreproducible as the after — which
  * is the tell the audit read as suspicious and could not place. Nothing
  * regressed here; a stage started measuring work it had never been able to
@@ -1224,7 +1224,6 @@ describe('the settled-ribbon tessellation cache, counted (#32, prd-44 ruling 5)'
     expect(after.hits - before.hits).toBe(settledCount - 1)
   }, BENCH_TIMEOUT_MS)
 })
-
 
 /**
  * THE MODEL FLOOR (#579, prd-33 wave 2) — `layoutScene` + `sceneMarks` alone,
