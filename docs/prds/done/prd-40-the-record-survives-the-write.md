@@ -1,6 +1,9 @@
 # prd-40 — the record survives the write: an event on screen is an event on disk
 
-> **Status:** **BLESSED** — Ciaran Slow, 2026-08-22, in session. Milestone `prd40`. Drafted the same day from the reconciled audit
+> **Status:** **SHIPPED** — 2026-08-27. Milestone `prd40` closed with all ten issues done; the
+> closeout, including the open question whose premise turned out to be false, is the last
+> section of this document.
+> Blessed by Ciaran Slow, 2026-08-22, in session. Drafted the same day from the reconciled audit
 > at `03df141` (findings 5 and 7 — untracked artefact, `.gitignore`d; the sha is the anchor). Ruling 1 needs an **ADR** before its code — it changes what a replay may
 > contain, which is ADR-0011's territory, not this PRD's.
 >
@@ -411,3 +414,128 @@ a live success criterion. Landed in #86, along with a prd-41 pointer stranded be
 - **Should `foldSoFar()` be the only reader, with `eventsSoFar()` narrowed to the exporter?**
   It would make ruling 2 structural rather than conventional, but it touches every current
   caller. Open, not ruled.
+
+---
+
+# Outcome — shipped 2026-08-27
+
+Ten issues, eleven pull requests, five days from blessing to close. Both rulings landed, all four
+success criteria are met, and the PRD produced **three ADRs** — one as a prerequisite it named for
+itself, two as consequences it did not.
+
+Written at `37d537f`, the merge that closed the milestone. Ruling numbers above are untouched; this
+is appended, as the standard requires.
+
+## The two rulings, as they landed
+
+| ruling | issues | landed | deviation from the mechanism this PRD named |
+|---|---|---|---|
+| 1 — the append is awaited before the event is anyone's | #4, #26, #80, #106 | PR #79, #105, #118, #125 (plus PR #77 for its prerequisite ADR and PR #116 for its fifth amendment) | **yes, and the PRD recorded it itself.** ADR-0029's evidence corrected the *mechanism* ruling 1 named while leaving its conclusion intact — the amendment inside the ruling says so. Three later corrections followed the same pattern: the degrade alarm had to move to the durability boundary (#26), close-versus-sync became two separate catches with opposite meanings (#80, the fifth amendment), and one subscriber's throw turned out to blind the others (#106). |
+| 2 — the fold the server answers from is maintained, never rebuilt | #3, #5, #69, #81 | PR #67, #98, #114 | none in shape. `foldSoFar()` landed as new additive surface exactly as planned, and the frozen-fold requirement (#69) was a hardening the ruling did not anticipate rather than a change to it. |
+
+Wave 3 bundled two issues into one PR (#98 carried #5 and #81). Waves 4 through 7 could not: three
+issues contended for `recorder/session-recorder.ts`, so they ran as consecutive single-issue PRs.
+See "what the plan got wrong" below — that is a collision between two rules, not a lapse in either.
+
+## The four success criteria, assessed
+
+1. **An event that reaches a subscriber has reached the log — met.** `record()` awaits its append
+   before it publishes, and the poll loop advances its collector snapshot only after every event in
+   the batch is on disk (`poll-loop.ts` says so in its own words). Both loci, as the criterion
+   demanded. The one named exception is exempt **by name and by type**:
+   `recordAlarm(event: EventOf<'collector.error'>)`, so no collector-derived event can reach the
+   carve-out at all — a compile-time property rather than a claim a caller can make.
+   **Still true after prd-44 ruling 4 bounded the in-memory window**, which a reader will wonder
+   about: the bound changes which events a *new subscriber replays*, not whether an event that
+   reaches a subscriber reached the log first, and the fold stays complete either way.
+2. **A dropped write is loud — met.** #26, and the alarm reaches subscribers even when its own
+   append cannot (ADR-0030). #106 then removed the way one broken dashboard could silence that
+   alarm for every dashboard behind it.
+3. **`/api/meta` costs the same at hour six as at minute one — met, and pinned by a count.** The
+   fold is maintained incrementally and `/api/meta` answers from it. The law asserts **zero extra
+   `reduce()` calls per `foldSoFar()` read, at two session sizes**
+   (`session-recorder.test.ts`), plus a reference-identity law that a re-fold cannot fake — the
+   spy alone was structurally blind to a rebuild through `reduceAll`, which the file records.
+4. **The replay contract says what a replay may now contain — met 2026-08-25**, before wave 2 was
+   allowed to dispatch. [ADR-0029](../adr/0029-a-recording-may-repeat-a-fact.md) names
+   duplicate-on-replay accepted. The criterion's own text above carries the date.
+
+## Three ADRs, and only one was planned
+
+- **[ADR-0029](../adr/0029-a-recording-may-repeat-a-fact.md)** — the prerequisite this PRD named
+  for itself and gated wave 2 behind (PR #77). Its evidence then corrected ruling 1's mechanism.
+- **[ADR-0030](../adr/0030-the-alarm-may-outrun-the-record.md)** — the alarm may outrun the record.
+  Success 1's named exception, promoted to an ADR once #26 showed it had to live on the durability
+  boundary rather than in the poll loop.
+- **[ADR-0031](../adr/0031-the-recorder-hands-out-a-frozen-fold.md)** — the recorder hands out a
+  frozen fold. Ruling 2 said the fold is maintained; it did not say the fold is handed out by
+  reference to sixteen callers, which is what made a caller's mutation silent, permanent for the
+  session, and unrepairable.
+
+Both consequential ADRs were reached from a wave's *build*, not from its plan. An ADR a PRD can
+name in advance is the exception here, not the rule.
+
+## The two open questions
+
+**1. Does a duplicate on replay break any existing consumer? — answered 2026-08-25**, with the
+corpus, and the answer is above in full: no test breaks, meaning does, in 79 of era-1's 100 lines.
+ADR-0029 accepts that cost and records the content-hash dedupe it rejected. Fixing the seven
+non-idempotent reducer arms was explicitly not scoped here and remains unowned.
+
+**2. Should `foldSoFar()` be the only reader, with `eventsSoFar()` narrowed to the exporter? —
+still unruled, and its premise is false.** Two things learned after this PRD stopped looking, both
+worth having before the question is asked again:
+
+- **There is no exporter caller to narrow to.** `cli/export-record.ts` and `cli/export-otlp.ts`
+  both read the recording back from **disk** via `readSessionEvents`, never from the recorder's
+  buffer. The question as phrased proposes narrowing a surface to the one consumer that does not
+  use it. (Found while auditing all fourteen call sites for prd-44 #37, and recorded on that issue
+  after this PRD had already named the question a prerequisite it was not.)
+- **`eventsSoFar()` is no longer the whole session.** prd-44 ruling 4 bounded it to the last
+  `MAX_BUFFERED_EVENTS`, so the interesting question has changed shape: it is no longer "who may
+  read the raw events" but "which readers can tolerate a window". Eleven call sites read it today;
+  two that could not — `rotate.ts`'s event count and `cli/run.ts`'s boot fold — were moved to
+  `foldSoFar()` by prd-44 #37, which is ruling 2's own recommendation arriving where it was needed.
+
+**Open, not ruled** — and whoever picks it up should re-ask it in prd-44's terms rather than these.
+
+## What the plan got wrong
+
+The re-sequencing above already records the three things this PRD found about itself, in its own
+voice and dated: one file claimed by three issues at once, `#26` authored into a wave its own plan
+proved unbuildable, and two dependencies `scripts/fence-lint.sh` structurally cannot see. Those
+stand. What only hindsight adds:
+
+- **The bundling rule lost to the fence rule, and neither was wrong.** The working agreement says
+  bundle, because the ~21 h toll is per-PR. `AGENTS.md` says never bundle across a live fence,
+  because two issues claiming one path is a rebase conflict already scheduled. Waves 4–7 were three
+  issues on `recorder/session-recorder.ts` plus one found later, so they paid the toll four times
+  on purpose. A PRD whose rulings converge on one file should expect that at grooming time and say
+  so, rather than let the two rules meet in the sequencing section.
+- **"Unfiled work implied" came true exactly, and was found by someone else's review.** The
+  Sequencing section says the other fifteen `eventsSoFar()` call sites "were counted but not
+  audited one by one. If any of them folds per call the way `/api/meta` does, it is the same issue
+  with a different route name." One did — `api/lab.ts` — and it surfaced during the review of #98,
+  became **#104**, and shipped under prd-44 rather than here. The prediction was right and cost a
+  milestone boundary anyway: **an extension clause that names a defect shape should come with a
+  search for every instance of it, at grooming time.** prd-44's closeout reached the same
+  conclusion independently, from its own ruling 1.
+- **The docs debt was created by the fence discipline working, and nobody planned for it.** #99 and
+  #100 exist because two waves *correctly* declined to open `docs/architecture.md` across a live
+  fence. That is the discipline behaving as designed, and its predictable cost is a docs pass at
+  the end — which sat as the last open work in the milestone for two days. A closing docs wave
+  belongs in the sequencing from the start, not as debt discovered when everything else is done.
+- **A ruling can be stranded on a merged branch.** #26's DoD rested on success 1's named exception,
+  whose commit had been pushed to `prd39-paper` after that branch's PR merged and never landed —
+  so on `main` the exception did not exist. Recovered in PR #86. The general form of this is now in
+  `AGENTS.md`'s Landing section (`50c8804`): a green gate on a branch whose base is not `main` has
+  landed nothing.
+
+## Residuals
+
+None open. Everything this PRD spawned has landed or has an owner elsewhere:
+
+- **#104** — the third parse-cache reader, prd-44's, shipped in PR #129.
+- **#106** — the subscriber-isolation gap #26's build found, shipped here in PR #125.
+- **The seven non-idempotent reducer arms** ADR-0029's corpus evidence exposed: explicitly out of
+  scope, still unowned, and the strongest candidate this PRD leaves behind.
