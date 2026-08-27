@@ -12,20 +12,22 @@ import { defaultClaudeProjectsRoot } from '../log/paths.js'
  * a "not yet known" list: a repo Claude already knows can also sit under a
  * common root and so appear in both — see `scanCommonRoots`'s own doc.
  *
- * `collectors/sessionlog/worktree-slug.ts` maps `/`, `_`, `.`, `\`, `:` and a
- * literal space to `-` (prd-42 ruling 1 closed its worst gap, the space; #47
- * closed the next two, the colon and the backslash — not its last: the real
- * Claude Code slugger maps every non-alphanumeric character, per #47 and the
- * evidence on that helper's own doc comment, and this module's own re-encode
- * below only ever covers five of them). This module does not rely on that
- * transform at all: `reverseProjectSlug` below walks the real filesystem one
- * directory hop at a time, matching each hop against actual directory
- * entries (encoded the same five ways Claude Code encodes them — `.`, `_`,
- * `:`, `\` and a space) rather than guessing which characters a `-` used to
- * be. That sidesteps the wider gap (every other non-alphanumeric character)
- * rather than fixing the forward helper, which this lane does not own — and
- * the divergence between the two encodings is real but not this lane's to
- * reconcile either, for the same reason.
+ * `collectors/sessionlog/worktree-slug.ts` maps the same class this module
+ * does as of prd-42 wave 7 (#124): EVERY non-alphanumeric character becomes
+ * `-` (verified against the shipped binary — see that helper's own doc
+ * comment, and #120). This module does not rely on that (or any other fixed)
+ * encoder transform at all: `reverseProjectSlug` below walks the real
+ * filesystem one directory hop at a time, matching each hop against actual
+ * directory entries (re-encoded with the SAME full grammar the real slugger
+ * uses — every non-alphanumeric character folds to `-`) rather than guessing
+ * which characters a `-` used to be. Encoding every real entry with the true
+ * grammar, rather than a narrower approximation of it, is what lets the walk
+ * fail CLOSED — an entry that would collide under the real encoder is
+ * detected as ambiguous here too, instead of silently matching a
+ * dash-named sibling it should not. The divergence this walk once had with
+ * `worktree-slug.ts`'s narrower encoder is closed rather than deferred:
+ * #124 widens that encoder to this same class in this wave, and the
+ * round-trip law in `repos.test.ts` is where the agreement is pinned.
  *
  * Every read goes through `node:fs/promises`, not the `Sync` family: a
  * `GET /api/concierge/repos` request runs this on the server's single event
@@ -169,20 +171,19 @@ const WINDOWS_DRIVE_SLUG_RE = /^[A-Za-z]--/
  * Reverses one `~/.claude/projects` slug back to the real path it names, by
  * walking the filesystem from `/` one path segment at a time and matching
  * the next stretch of the slug against actual directory entries — never by
- * guessing which of `/`, `_`, `.`, or a space a given `-` used to be.
+ * guessing which non-alphanumeric character a given `-` used to be.
  *
- * At each directory, every real subdirectory name is re-encoded the same way
- * Claude Code encodes a path segment (`.`, `_`, `:`, `\`, and a literal space
- * all become `-`; a literal `-` is left alone) and checked against the
- * *remaining* slug. Verified against this machine's own `~/.claude/projects`
- * during development — the space case (`ASK JO` → `ASK-JO`, `TailR
- * Nutrition` → `TailR-Nutrition`) is not in #243's own list, so it would
- * otherwise have surfaced as a run of honestly-unresolved slugs that were,
- * in fact, real and present. The colon and backslash cases are #47's: a real
- * Linux probe (`a b.c:d_e` → `-a-b-c-d-e`) and a real Windows-origin slug
- * (`C:\Users\operator\agenticlaunchpad` → `C--Users-operator-agenticlaunchpad`,
- * cited on `worktree-slug.ts`'s own doc comment) both show Claude Code maps
- * them the same way, so this walk now re-encodes them the same way too.
+ * At each directory, every real subdirectory name is re-encoded with the same
+ * full grammar the real Claude Code slugger uses (every non-alphanumeric
+ * character becomes `-`; alphanumerics are left alone) and checked against
+ * the *remaining* slug. This is deliberately the FULL grammar the shipped
+ * slugger uses — the class `worktree-slug.ts` also maps, since #124 (#120): a walk
+ * that only re-encoded `.`, `_`, `:`, `\` and a literal space would treat a
+ * real collision under the actual encoder (`a+b` and `a-b`, say) as no
+ * collision at all, and return a real but wrong sibling path silently
+ * instead of failing closed. Encoding with the real grammar means every
+ * character the shipped slugger folds to `-` is recognised as a fold here
+ * too, so a genuine ambiguity is reported as one rather than missed.
  *
  * Among entries that match, the LONGEST encoded form wins, so a directory
  * whose own name contains a literal `-` (`worktrees-challenge`) is preferred
@@ -234,7 +235,7 @@ export async function reverseProjectSlug(
     let bestEntries: string[] = []
     let bestEncodedLength = -1
     for (const entry of listing.entries) {
-      const encoded = entry.replace(/[._:\\ ]/g, '-')
+      const encoded = entry.replace(/[^a-zA-Z0-9]/g, '-')
       const isFinalSegment = remaining === encoded
       const isMidSegment = remaining.startsWith(`${encoded}-`)
       if (!isFinalSegment && !isMidSegment) continue
