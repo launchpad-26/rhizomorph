@@ -14,26 +14,8 @@ import { SessionRecorder } from '../server/recorder.js'
 import { buildApp } from '../server/build-app.js'
 import { createPollLoop } from '../server/poll-loop.js'
 import { recordSessionBootMeta } from './meta.js'
-// Type-only, and only reachable from a TEST file: `retarget-law.test.ts`'s
-// "exactly one file imports the retarget route directly" clause (prd-20
-// ruling 1 / ADR-0014 grant 3) forbids any PRODUCTION file but
-// `api/index.ts` from importing `api/retarget.ts` at all — its static check
-// does not distinguish `import type` from a value import, so `api/rotate.ts`
-// itself may never import this, even for a type. Test files are explicitly
-// exempted from that clause (`isTest` in `retarget-law.test.ts`), which is
-// what makes THIS file the legal place to hold the ONE compiler-bound copy:
-// `SHARED_RETARGET_IN_FLIGHT_CODE` below fails `npm run typecheck` the
-// instant that union member is ever renamed in `api/retarget.ts`.
-// `api/rotate.ts`'s own bare `'retarget-in-flight'` literal is NOT compiler-
-// bound to this — the compiler never sees that file's string at all. It is
-// bound only by the runtime assertion below, which compares the route's
-// actual 409 response against this constant: a drift of that production
-// literal fails this test, not typecheck. Two mechanisms, one per drift
-// direction, not one compiler binding covering both.
-import type { RetargetRefusalCode } from './retarget.js'
+import { RETARGET_IN_FLIGHT_CODE } from './refusals.js'
 import { CAPABILITY_TOKEN_HEADER } from './security.js'
-
-const SHARED_RETARGET_IN_FLIGHT_CODE = 'retarget-in-flight' satisfies RetargetRefusalCode
 
 /**
  * `POST /api/rotate` — a mutating route (prd16 ruling 2), end to end through
@@ -321,11 +303,11 @@ describe('POST /api/rotate', () => {
 
     expect(response.statusCode).toBe(409)
     const body = response.json() as { code?: string; error?: string; closed?: unknown; opened?: unknown }
-    // Compared against the shared, compiler-checked constant above — not a
-    // second hardcoded `'retarget-in-flight'` — so this assertion moves with
-    // `api/retarget.ts`'s own union rather than independently agreeing with
-    // it by coincidence.
-    expect(body.code).toBe(SHARED_RETARGET_IN_FLIGHT_CODE)
+    // Compared against the shared, compiler-checked constant imported from
+    // `refusals.ts` — not a second hardcoded `'retarget-in-flight'` — so this
+    // assertion moves with the union rather than independently agreeing with
+    // it by coincidence. `api/rotate.ts` imports the SAME value.
+    expect(body.code).toBe(RETARGET_IN_FLIGHT_CODE)
     // The defect this test reproduces: a 200 carrying the retarget's own boundary.
     expect(body.closed).toBeUndefined()
     expect(body.opened).toBeUndefined()

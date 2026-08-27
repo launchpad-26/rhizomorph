@@ -5,6 +5,7 @@ import { type Rotation, RotationRefusedError, rotateSession } from '../recorder/
 import type { ServerContext } from '../server/context.js'
 import { createFileSnapshotStore } from '../server/snapshot-store.js'
 import { recordSessionBootMeta, sessionBootMetaFor } from './meta.js'
+import { RETARGET_IN_FLIGHT_CODE } from './refusals.js'
 import { requireCapabilityToken } from './security.js'
 
 /**
@@ -67,23 +68,14 @@ export function registerRotateRoute(app: FastifyInstance, ctx: ServerContext): v
       if (err instanceof RotationRefusedError) {
         // Same refusal vocabulary `api/retarget.ts` already uses for its own
         // in-flight collision (prd-42 ruling 5) — 409, not a second code.
-        // Deliberately a bare string, not an import of `RetargetRefusalCode`
-        // from `./retarget.js`: `retarget-law.test.ts`'s "exactly one file
-        // imports the retarget route directly" clause (prd-20 ruling 1 /
-        // ADR-0014 grant 3) forbids any production file but `api/index.ts`
-        // from doing that, and its static check does not distinguish
-        // `import type` from a value import.
-        //
-        // Two SEPARATE mechanisms cover the two ways this could drift, not
-        // one compiler binding: `api/rotate.test.ts`'s OWN copy,
-        // `SHARED_RETARGET_IN_FLIGHT_CODE`, is compiler-bound to
-        // `RetargetRefusalCode` — a rename of that union member fails
-        // `npm run typecheck` there. This literal, here, is bound only by
-        // that same test file's runtime assertion on the 409 response body —
-        // a drift of THIS string fails that test, not typecheck. The
-        // compiler never sees this line.
+        // `RETARGET_IN_FLIGHT_CODE` is imported from `./refusals.js`, not
+        // `./retarget.js`: `retarget-law.test.ts`'s "exactly one file imports
+        // the retarget route directly" clause (prd-20 ruling 1 / ADR-0014
+        // grant 3) forbids any production file but `api/index.ts` from
+        // importing the route itself, but `refusals.ts` imports neither
+        // route, so both may import the one compiler-bound value freely (#91).
         return reply.code(409).send({
-          code: 'retarget-in-flight',
+          code: RETARGET_IN_FLIGHT_CODE,
           error: err.message,
         })
       }

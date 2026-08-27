@@ -10,6 +10,7 @@ import { describeTelemetryCost, lanesAtBoundary } from '../server/retarget-cost.
 import { validateRetargetTarget } from '../server/retarget-validation.js'
 import { createFileSnapshotStore } from '../server/snapshot-store.js'
 import { recordSessionBootMeta, sessionBootMetaFor } from './meta.js'
+import { RETARGET_IN_FLIGHT_CODE, type RetargetRefusalCode } from './refusals.js'
 import { requireCapabilityToken } from './security.js'
 
 /**
@@ -101,18 +102,6 @@ export function parseRetargetRequestBody(body: unknown): RetargetRequestBody {
 export const RETARGET_EXEC_TIMEOUT_MS = 5000
 
 /**
- * Which check refused. One code per distinguishable operator situation —
- * three of them are `validateRetargetTarget`'s own reasons, passed through
- * unchanged so the route never re-words a refusal the module below it owns.
- */
-export type RetargetRefusalCode =
-  | 'not-found'
-  | 'not-a-repo'
-  | 'writer-alive'
-  | 'already-watching'
-  | 'retarget-in-flight'
-
-/**
  * The data root the adopted repo's session directory is built under, derived
  * from the one being watched now.
  *
@@ -173,7 +162,7 @@ export function registerRetargetRoute(app: FastifyInstance, ctx: ServerContext):
       const boundary = beginRetargetBoundary(ctx.recorder)
       if (boundary === null) {
         return reply.code(409).send({
-          code: 'retarget-in-flight' satisfies RetargetRefusalCode,
+          code: RETARGET_IN_FLIGHT_CODE,
           error:
             'another retarget (or rotation) is already in flight for this recorder — refused rather than ' +
             'queued, so this request never risks writing a session into a repo the operator has already moved away from',

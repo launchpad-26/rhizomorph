@@ -157,12 +157,402 @@ const WRITE_CALL_RE =
   /\b(?:writeFile|appendFile|mkdir|mkdtemp|rmdir|unlink|rename|truncate|createWriteStream|copyFile|open|chmod|utimes)\s*\(/g
 
 /**
- * Reaching rotation, by the name of one of its entry points —
- * `retargetSession` (prd20 ruling 5) included: it is a third door into the
- * same two halves, and the law that only the declared route may knock is the
- * same law either way.
+ * Every module specifier a file's code references — `from '…'`, a bare
+ * `import '…'`, a dynamic `import('…')`, a `require('…')` — in single quotes,
+ * double quotes or backticks. Same regex as `api/retarget-law.test.ts:110`;
+ * reused for the same reason that file gives, not re-derived here.
  */
-const ROTATION_ENTRY_RE = /\b(?:rotateSession|retargetSession|closeCurrentSession|openNextSession)\b/
+const SPECIFIER_RE = /(?:\bfrom\s*|\brequire\s*\(\s*|\bimport\s*\(\s*|\bimport\s+)(['"`])([^'"`]*)\1/g
+
+/**
+ * Whether every specifier in a named clause is an INLINE `type` specifier, so
+ * the whole statement erases. `{ type A, type B as C }` does; `{ type A, run }`
+ * does not — one value specifier keeps the statement's runtime edge.
+ */
+function clauseIsEntirelyTypeSpecifiers(clause: string): boolean {
+  const specifiers = clause
+    .split(',')
+    .map((specifier) => specifier.trim())
+    .filter((specifier) => specifier.length > 0)
+  return specifiers.length > 0 && specifiers.every((specifier) => /^type\b/.test(specifier))
+}
+
+/**
+ * The byte ranges of every ERASED module statement — `import type …from '…'`
+ * and `export type …from '…'`, and their inline twins `import { type A } …` /
+ * `export { type A } …` whose every specifier is tagged `type`. TypeScript
+ * erases all four: no runtime edge exists, so a file whose only reference to
+ * rotation is a type cannot invoke it.
+ *
+ * The inline form is covered because it is this repo's dominant spelling — 234
+ * files use it, and `biome.json`'s `preset: none` enables no `useImportType`
+ * rule to force the separated one. Guarding only the separated form was a
+ * half-fix of exactly the shape the `as` guard above already had to close
+ * twice: one spelling of an erased import handled, its sibling left to trip
+ * the law against a file that provably cannot call anything.
+ *
+ * Position ranges rather than a specifier blacklist, deliberately: a file may
+ * import the same module BOTH ways —
+ * `import type { Rotation } from './x.js'` beside `import { doThing } from './x.js'`
+ * — and subtracting by specifier string would drop the real value edge along
+ * with the erased one.
+ *
+ * `[^'"`]*?` spans newlines so a multi-line `import type { A,\n B,\n }` is one
+ * range, and stops at the first quote so it cannot run past its own `from`.
+ */
+function typeOnlyImportRanges(code: string): Array<readonly [number, number]> {
+  const ranges: Array<readonly [number, number]> = []
+  for (const match of code.matchAll(/\b(?:import|export)\s+type\b[^'"`]*?\bfrom\s*(['"`])[^'"`]*\1/g)) {
+    if (match.index !== undefined) ranges.push([match.index, match.index + match[0].length] as const)
+  }
+  // The inline twin: `import { type A } from '…'`. `\s*\{` cannot match
+  // `import X, {` or `import type {`, so a default binding still keeps its
+  // value edge and the separated form is not double-counted.
+  for (const match of code.matchAll(/\b(?:import|export)\s*\{([^}]*)\}\s*from\s*(['"`])[^'"`]*\2/g)) {
+    if (match.index === undefined) continue
+    if (!clauseIsEntirelyTypeSpecifiers(match[1] ?? '')) continue
+    ranges.push([match.index, match.index + match[0].length] as const)
+  }
+  return ranges
+}
+
+/**
+ * Every specifier a file references for a VALUE — every `SPECIFIER_RE` match
+ * except those falling inside the type-only statements above.
+ *
+ * This replaced an unfiltered `importSpecifiers` helper, which became dead once
+ * the edge arm stopped counting erased imports; it is deleted rather than kept
+ * beside this one, so there is no unfiltered variant for a later edit to reach
+ * for by mistake. `SPECIFIER_RE` itself is untouched — it is asserted
+ * byte-identical to `api/retarget-law.test.ts`'s copy, and that premise is
+ * about the regex, not about who reads it.
+ *
+ * This is what an import EDGE must be built on. The arm that reads it exists to
+ * catch a caller that reaches rotation under a local name the sweep cannot
+ * guess; a type-only import reaches nothing at runtime, so counting it makes
+ * the law refuse a file that provably cannot call anything. Measured before
+ * this filter existed: a file whose entire content was
+ * `import type { Rotation } from '../recorder/rotate.js'` was named a rotation
+ * caller.
+ *
+ * The NAME arm remains text-level and still trips on a bare comment mentioning
+ * a door. That asymmetry is real and is not resolved here — but it errs in the
+ * direction of the arm that has always been a grep, whereas this arm claims to
+ * model reachability and so has to mean it.
+ */
+function valueImportSpecifiers(code: string): string[] {
+  const erased = typeOnlyImportRanges(code)
+  const out: string[] = []
+  for (const match of code.matchAll(SPECIFIER_RE)) {
+    const specifier = match[2]
+    if (specifier === undefined || specifier.length === 0) continue
+    const at = match.index
+    if (at !== undefined && erased.some(([start, end]) => at >= start && at < end)) continue
+    out.push(specifier)
+  }
+  return out
+}
+
+/**
+ * Resolves a relative specifier the way the build does: `.js` in source means
+ * the `.ts` beside it, a directory means its `index.ts`, an extensionless
+ * path is tried both ways. A non-relative specifier (a package import)
+ * resolves to nothing — never a match.
+ */
+function resolveRelativeSpecifier(fromFile: string, specifier: string): string | null {
+  if (!specifier.startsWith('.')) return null
+  const base = path.resolve(path.dirname(fromFile), specifier)
+  const candidates = [
+    base.replace(/\.js$/, '.ts'),
+    base.replace(/\.js$/, '.tsx'),
+    base,
+    `${base}.ts`,
+    `${base}.tsx`,
+    path.join(base, 'index.ts'),
+    path.join(base, 'index.tsx'),
+  ]
+  for (const candidate of candidates) {
+    try {
+      statSync(candidate)
+      return path.resolve(candidate)
+    } catch {
+      // not this candidate — try the next
+    }
+  }
+  return null
+}
+
+/** Every `export { … } from '…'` re-export clause in a barrel. */
+const BARREL_REEXPORT_RE = /export\s*\{([^}]*)\}\s*from\s*(['"`])([^'"`]*)\2/g
+
+/**
+ * Whether a module specifier points at rotation's module. Factored so the name
+ * derivation and the barrel-default edge below cannot drift apart: a
+ * re-derived copy of a resolver one screen from its original is exactly the
+ * divergence a review pass found in `resolveRelativeSpecifier`.
+ */
+function specifierTargetsRotate(specifier: string): boolean {
+  return path.basename(specifier).replace(/\.(?:js|ts)$/, '') === 'rotate'
+}
+
+/**
+ * Whether a barrel republishes rotation's own default export AS ITS OWN
+ * default — `export { default } from './rotate.js'`.
+ *
+ * Only the BARE form counts. `export { default as rotationDoor }` creates a
+ * NAMED export, which the name derivation already covers by deriving the
+ * alias; it is the bare form that leaves a reachable door with no name for any
+ * sweep to find.
+ */
+function barrelRepublishesRotationDefault(barrelSource: string): boolean {
+  for (const match of barrelSource.matchAll(BARREL_REEXPORT_RE)) {
+    if (!specifierTargetsRotate(match[3] ?? '')) continue
+    if ((match[1] ?? '').split(',').some((specifier) => specifier.trim() === 'default')) return true
+  }
+  return false
+}
+
+/**
+ * Specifiers a file imports a DEFAULT binding from — `import X from '…'` and
+ * `import X, { y } from '…'`.
+ *
+ * Deliberately NOT matched, each for a stated reason:
+ *  - `import type X from '…'` — erased, so no runtime edge. The negative
+ *    lookahead is what keeps this arm consistent with the value-only import
+ *    arm above; a type-aware edge beside a type-blind one would be a second
+ *    meaning of "reaches rotation", not a fix.
+ *  - `import { y } from '…'` — a named import binds no default, and the name
+ *    arm already sweeps for the names.
+ *  - `import * as ns from '…'` — `ns.default` IS reachable, and catching it
+ *    honestly needs member-access analysis rather than an import-shape regex.
+ *    DECLARED RESIDUAL, not an oversight: a namespace import of a barrel that
+ *    republishes rotation's default escapes both arms. Narrower than the gap
+ *    this edge closes, and it is written down rather than left for the next
+ *    reader to discover.
+ */
+const DEFAULT_IMPORT_RE =
+  /\bimport\s+(?!type\b)([\w$]+)(?:\s*,\s*(?:\{[^}]*\}|\*\s+as\s+[\w$]+))?\s*\bfrom\s*(['"`])([^'"`]*)\2/g
+
+function defaultImportSpecifiers(code: string): string[] {
+  const out: string[] = []
+  for (const match of code.matchAll(DEFAULT_IMPORT_RE)) {
+    const specifier = match[3]
+    if (specifier !== undefined && specifier.length > 0) out.push(specifier)
+  }
+  return out
+}
+
+/**
+ * The public-facing names an `export { a, b as c, type D }` clause creates —
+ * the post-`as` name when there is one, skipping any specifier tagged `type`.
+ */
+function namesFromExportClause(clause: string): string[] {
+  const names: string[] = []
+  for (const raw of clause.split(',')) {
+    const specifier = raw.trim()
+    if (!specifier || /^type\b/.test(specifier)) continue
+    // `export { default } from './rotate.js'` names no binding a caller can
+    // write. Deriving the literal `default` from it puts `\bdefault\b` into
+    // the door alternation, which matches the KEYWORD in ordinary source: a
+    // measured 49 unrelated files reported as rotation callers, while the file
+    // actually holding the default export goes unnamed. `default as x` is a
+    // different clause and still derives `x`, which is a real door name.
+    //
+    // Residual, deliberately not closed here: a door republished as a bare
+    // default REMAINS underived — it never was derived. Before this guard the
+    // clause produced the string `default`, but the offending importer writes
+    // `import X from '../recorder/index.js'` and contains no `default` token,
+    // so the name arm did not see it either; the 49 files were noise, not
+    // detection. This guard removes the noise and removes no coverage. Closing
+    // the residual needs a default-import-only barrel edge, which must also
+    // rule on what a namespace import and a chained re-export mean, and would
+    // land type-aware beside an import arm that is measurably type-blind.
+    // That is a ruling, not a bug fix, so it is filed rather than smuggled in.
+    if (specifier === 'default') continue
+    const asMatch = specifier.match(/^([\w$]+)\s+as\s+([\w$]+)$/)
+    if (asMatch) {
+      const alias = asMatch[2]
+      // The same rule as the bare check above, on the OTHER side of `as`.
+      // `export { rotateSession as default }` is legal — a reserved word is a
+      // valid module export name and an invalid local binding — so the alias
+      // can be `default`, and deriving it puts the KEYWORD back into the door
+      // alternation with exactly the effect the bare guard exists to prevent.
+      // Guarding one side only was a half-fix: a review pass on the first fix
+      // reproduced the identical 49-file failure through this side.
+      if (alias === 'default') continue
+      if (alias) {
+        names.push(alias)
+        continue
+      }
+    }
+    const bare = specifier.match(/^([\w$]+)$/)
+    if (bare) {
+      const name = bare[1]
+      if (name) names.push(name)
+    }
+  }
+  return names
+}
+
+/**
+ * Every value door `rotate.ts` publishes, derived from two texts rather than
+ * typed by hand:
+ *
+ *  - `rotate.ts`'s own value-export declarations — `function`, `function*`,
+ *    `class`, `const`, `let`, `var` — and any LOCAL `export { a, b as c }`
+ *    clause.
+ *
+ *    The `function` branch is split from the rest rather than sharing one
+ *    trailing `\s+`: a generator writes its `*` between the keyword and the
+ *    name, so `function\s+` alone derives no door at all from
+ *    `export function* gen()`. The lazier repair — one `function\s*\*?\s*`
+ *    branch — would also derive `foo` from the non-declaration text
+ *    `export functionfoo`, so the starred form gets its own alternative and
+ *    the bare form keeps its mandatory space.
+ *  - the barrel's `export { … } from './rotate.js'` block, because
+ *    `recorder/index.ts:21-32` is where rotation is actually PUBLISHED: an
+ *    alias minted there (`export { performRetarget as retargetNow }`) is a
+ *    real door under a name that never appears in `rotate.ts` at all.
+ *
+ * #87 is the second time a hand-typed enumeration lagged its own subject —
+ * `retargetSession` (prd20 ruling 5) was a hand-added third door, and
+ * `beginRetargetBoundary` / `performRetarget` (prd42 w2, #14) arrived as a
+ * fourth and fifth that nobody added to the list. Reading the names back off
+ * the module and its barrel removes the step that kept getting skipped,
+ * rather than asking someone to remember it harder.
+ *
+ * `type`-only specifiers are skipped in both — `export type { … }` never
+ * matches the brace pattern below (the word `type` sits between `export` and
+ * `{`), and a `type X` entry inside a mixed clause is filtered by
+ * `namesFromExportClause`.
+ *
+ * Still blind to one form: an unnamed `export default`. The caller mints
+ * that door's local name itself, so no name-derivation can ever enumerate
+ * it — `rotationViolationsFor` below closes that gap by import edge instead
+ * of by name.
+ *
+ * Takes TEXT rather than reading the files itself, so the derivation can be
+ * proven directly against synthetic source covering every form, not just
+ * asserted against whatever `rotate.ts` happens to contain today.
+ */
+function rotationEntryPoints(rotateSource: string, barrelSource: string): string[] {
+  const names = new Set<string>()
+
+  for (const match of rotateSource.matchAll(
+    /\bexport\s+(?:default\s+)?(?:async\s+)?(?:function\s*\*\s*|function\s+|(?:class|const|let|var)\s+)([\w$]+)/g,
+  )) {
+    const name = match[1]
+    if (name) names.add(name)
+  }
+  for (const match of rotateSource.matchAll(/export\s*\{([^}]*)\}(?!\s*from)/g)) {
+    for (const name of namesFromExportClause(match[1] ?? '')) names.add(name)
+  }
+
+  for (const match of barrelSource.matchAll(BARREL_REEXPORT_RE)) {
+    if (!specifierTargetsRotate(match[3] ?? '')) continue
+    for (const name of namesFromExportClause(match[1] ?? '')) names.add(name)
+  }
+
+  return [...names]
+}
+
+/**
+ * A derived name embedded in a regex alternation, escaped so it can only ever
+ * match itself literally. Without this, a `$` inside a name — legal in a JS
+ * identifier, not part of `\w` — is read by the regex engine as an
+ * end-of-string anchor: `rotate$Door` would never match the very name it came
+ * from. `[\w$]+` above is what stops the CAPTURE from truncating at the `$`;
+ * this is what stops the resulting ALTERNATION from breaking on it.
+ */
+function escapeForAlternation(name: string): string {
+  return name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+const ROTATE_SOURCE = codeOf(path.join(RECORDER_DIR, 'rotate.ts'))
+const BARREL_SOURCE = codeOf(path.join(RECORDER_DIR, 'index.ts'))
+
+const ROTATION_ENTRY_RE = new RegExp(
+  `\\b(?:${rotationEntryPoints(ROTATE_SOURCE, BARREL_SOURCE).map(escapeForAlternation).join('|')})\\b`,
+)
+
+interface RotationViolationsConfig {
+  searchRoot: string
+  recorderDir: string
+  rotateFile: string
+  entryRe: RegExp
+  allowedCallers: ReadonlySet<string>
+  /**
+   * The barrel that republishes rotation's exports, if there is one. Optional
+   * so the three synthetic fixtures that predate the barrel-default edge keep
+   * exercising the two original arms in isolation — a fixture that silently
+   * gained a third arm would stop testing what its name says.
+   */
+  barrelFile?: string
+}
+
+/**
+ * Every file outside `recorderDir` (barring `allowedCallers` and tests) that
+ * reaches rotation — either by NAME (`entryRe`) or by IMPORT EDGE: a
+ * specifier that resolves straight to `rotateFile`, regardless of which local
+ * name the importer gives it. The edge check is what a name-only law cannot
+ * be: an unnamed `export default` is invisible to `entryRe` by construction,
+ * but every caller of it still has to write the specifier to reach it.
+ *
+ * Parameterized on the module's location rather than closed over
+ * `RECORDER_DIR` so a synthetic fixture tree — its own fake `recorder/`, its
+ * own fake `rotate.ts` — can drive the exact same check the production law
+ * runs, not a look-alike of it.
+ */
+function rotationViolationsFor(config: RotationViolationsConfig): string[] {
+  const violations: string[] = []
+  const rotateTarget = path.resolve(config.rotateFile)
+
+  // The barrel-default arm is armed only when a barrel is given AND that barrel
+  // actually republishes rotation's default. Both conditions matter: with no
+  // bare-default clause there is no unnamed door to reach, so arming the arm
+  // would refuse every default import of an ordinary barrel for nothing.
+  const barrelTarget = config.barrelFile === undefined ? undefined : path.resolve(config.barrelFile)
+  const barrelCarriesRotationDefault =
+    barrelTarget === undefined ? false : barrelRepublishesRotationDefault(codeOf(barrelTarget))
+
+  for (const file of walkSourceFiles(config.searchRoot, [config.recorderDir])) {
+    if (isTest(file)) continue
+    if (config.allowedCallers.has(path.resolve(file))) continue
+
+    const code = readFileSync(file, 'utf8')
+    const reachesByName = config.entryRe.test(code)
+    const reachesByImport = valueImportSpecifiers(codeOf(file)).some(
+      (specifier) => resolveRelativeSpecifier(file, specifier) === rotateTarget,
+    )
+    // A door republished as a bare default has NO name, so `entryRe` cannot see
+    // it, and the specifier the caller writes points at the barrel rather than
+    // at `rotate.ts`, so the direct edge above cannot either. This arm is the
+    // only thing that closes that: a default import of a barrel that carries
+    // rotation's default reaches rotation, whatever the importer calls it.
+    const reachesByBarrelDefault =
+      barrelCarriesRotationDefault &&
+      barrelTarget !== undefined &&
+      defaultImportSpecifiers(codeOf(file)).some(
+        (specifier) => resolveRelativeSpecifier(file, specifier) === barrelTarget,
+      )
+    if (reachesByName || reachesByImport || reachesByBarrelDefault) {
+      violations.push(path.relative(REPO_ROOT, file))
+    }
+  }
+  return violations
+}
+
+/** The production check: the real tree, the real module, the real law. */
+function rotationViolations(searchRoot: string, allowedCallers: ReadonlySet<string>): string[] {
+  return rotationViolationsFor({
+    searchRoot,
+    recorderDir: RECORDER_DIR,
+    rotateFile: path.join(RECORDER_DIR, 'rotate.ts'),
+    entryRe: ROTATION_ENTRY_RE,
+    allowedCallers,
+    barrelFile: path.join(RECORDER_DIR, 'index.ts'),
+  })
+}
 
 describe('the recorder namespace law (prd16 ruling 2)', () => {
   describe('the module writes through exactly one file, and names nothing outside the data dir', () => {
@@ -233,20 +623,479 @@ describe('the recorder namespace law (prd16 ruling 2)', () => {
 
   describe('rotation is reachable only from an explicit operator command', () => {
     it('no source file outside the module reaches rotation, except the one declared route', () => {
-      const violations: string[] = []
-      for (const file of walkSourceFiles(SERVER_SRC, [RECORDER_DIR])) {
-        if (isTest(file)) continue
-        if (ALLOWED_ROTATION_CALLERS.has(path.resolve(file))) continue
-        if (ROTATION_ENTRY_RE.test(readFileSync(file, 'utf8'))) {
-          violations.push(path.relative(REPO_ROOT, file))
-        }
-      }
-      expect(violations).toEqual([])
+      expect(rotationViolations(SERVER_SRC, ALLOWED_ROTATION_CALLERS)).toEqual([])
     })
 
     it('the one allowed caller really does call it — the exception is not dead code', () => {
       for (const file of ALLOWED_ROTATION_CALLERS) {
         expect(ROTATION_ENTRY_RE.test(readFileSync(file, 'utf8'))).toBe(true)
+      }
+    })
+
+    it('the derived door list sees every current door, not a hand-listed four', () => {
+      const doors = rotationEntryPoints(ROTATE_SOURCE, BARREL_SOURCE)
+      for (const door of [
+        'rotateSession',
+        'closeCurrentSession',
+        'openNextSession',
+        'retargetSession',
+        'beginRetargetBoundary',
+        'performRetarget',
+        // The door #92 was absorbed into #87 to cover. Without this line the
+        // derivation could stop reaching it and nothing would go red: the
+        // guarded set is derived from `rotate.ts` alone, so a hook that moves
+        // to another `recorder/` file leaves this law silent. Pinning the name
+        // here does not un-derive the set — it asserts the derivation arrives.
+        'reserveInFlightForTest',
+        // The remaining three. A review pass measured that each could vanish
+        // from `rotate.ts` with the law staying green, so the exposure was
+        // identical on all four and the title said "every".
+        //
+        // Pinning ARRIVAL is not endorsing the door. `nextSessionStart` is pure
+        // arithmetic and the two error classes are catch-side, so the derivation
+        // being wider than "doors into rotation's two halves" is real and is
+        // parked in this commit's body. That is an argument about what the
+        // derivation SHOULD produce; this floor asserts only that it still
+        // produces what it produces today, which is what catches a silent drop.
+        'RotationRefusedError',
+        'RetargetInFlightError',
+        'nextSessionStart',
+      ]) {
+        expect(doors, `${door} missing from the derived door list`).toContain(door)
+      }
+    })
+
+    it('EXECUTED: a fixture importing performRetarget from outside the module turns the law red and names the file', async () => {
+      const fixtureRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-rotation-door-fixture-'))
+      try {
+        const offender = path.join(fixtureRoot, 'sneaky-collector.ts')
+        await writeFile(
+          offender,
+          [
+            "import { performRetarget } from '../recorder/rotate.js'",
+            '',
+            'export async function sneak(options: unknown) {',
+            '  return performRetarget(options as never)',
+            '}',
+            '',
+          ].join('\n'),
+        )
+        const innocent = path.join(fixtureRoot, 'innocent.ts')
+        await writeFile(innocent, "export const nothing = 1\n")
+
+        // The four-name enumeration this law shipped with (#87) would have
+        // missed this entirely — `performRetarget` was never in it. The
+        // derived list catches it, and names only the offending file.
+        expect(rotationViolations(fixtureRoot, new Set())).toEqual([path.relative(REPO_ROOT, offender)])
+      } finally {
+        await rm(fixtureRoot, { recursive: true, force: true })
+      }
+    })
+
+    it('the door-list derivation actually reads the forms it claims to — not a hand-typed floor', () => {
+      // If this function's body were replaced with a retyped array of the six
+      // real door names, every name below would be missing and this test
+      // would fail — unlike a `toContain` check against the real module,
+      // which a hand-typed floor can satisfy by accident.
+      const syntheticRotate = [
+        'export function fnDoor() {}',
+        'export async function asyncDoor() {}',
+        // A generator writes its `*` where the space would be, so a lone
+        // `function\s+` derived nothing from any of these three.
+        'export function* genDoor() {}',
+        'export function *spacedGenDoor() {}',
+        'export async function* asyncGenDoor() {}',
+        // CONTROL: declared, not exported — not a door. The exact-set
+        // assertion below is what asserts its absence.
+        'function* notExportedGen() {}',
+        'export class ClassDoor {}',
+        'export const constDoor = () => {}',
+        'export var varDoor = 1',
+        'export default function defaultDoorImpl() {}',
+        'let letDoorImpl',
+        'export { letDoorImpl as letDoor }',
+        'export { fnDoor as aliasedLocalDoor, type NotADoor }',
+        'export interface NotADoorType {}',
+        'export type NotAnotherDoor = string',
+      ].join('\n')
+
+      const syntheticBarrel = [
+        "export { performRetarget as retargetNow, type RetargetSessionOptions } from './rotate.js'",
+        "export { SessionRecorder } from './session-recorder.js'",
+      ].join('\n')
+
+      expect(new Set(rotationEntryPoints(syntheticRotate, syntheticBarrel))).toEqual(
+        new Set([
+          'fnDoor',
+          'asyncDoor',
+          'genDoor',
+          'spacedGenDoor',
+          'asyncGenDoor',
+          'ClassDoor',
+          'constDoor',
+          'varDoor',
+          'defaultDoorImpl',
+          'letDoor',
+          'aliasedLocalDoor',
+          'retargetNow',
+        ]),
+      )
+    })
+
+    it('a bare `default` republish derives no door, while `default as x` still derives x', () => {
+      // A bare default republish names no binding, so there is nothing for a
+      // caller to write and nothing to sweep for. Deriving the literal
+      // `default` put the KEYWORD into the alternation: measured 49 unrelated
+      // files reported as rotation callers, with the file actually holding the
+      // default export not among them. Both halves are pinned here because the
+      // fix is one `continue` and the failure it prevents is silent-by-volume.
+      const bare = rotationEntryPoints('export function realDoor() {}\n', "export { default } from './rotate.js'")
+      expect(bare).toContain('realDoor')
+      expect(bare).not.toContain('default')
+
+      const entryRe = new RegExp(`\\b(?:${bare.map(escapeForAlternation).join('|')})\\b`)
+      expect(entryRe.test('switch (x) { default: break }')).toBe(false)
+      expect(entryRe.test('someone calls realDoor() from outside')).toBe(true)
+
+      // The sibling clause is NOT skipped: an alias is a real, writable name.
+      const aliased = rotationEntryPoints(
+        'export function realDoor() {}\n',
+        "export { default as rotationDefaultDoor } from './rotate.js'",
+      )
+      expect(aliased).toContain('rotationDefaultDoor')
+
+      // And the same rule on the OTHER side of `as`. This clause is valid
+      // TypeScript and its alias is the keyword. Guarding only the bare form
+      // left it open. Both sides are pinned so neither can regress alone.
+      const aliasedToDefault = rotationEntryPoints(
+        'export function realDoor() {}\n',
+        "export { rotateSession as default } from './rotate.js'",
+      )
+      expect(aliasedToDefault).toContain('realDoor')
+      expect(aliasedToDefault).not.toContain('default')
+    })
+
+    it('a `$` inside a derived name is escaped, not read as a truncated end-of-string anchor', () => {
+      const doors = rotationEntryPoints('export function rotate$Door() {}\nexport function otherDoor() {}\n', '')
+      expect(doors).toContain('rotate$Door')
+
+      const entryRe = new RegExp(`\\b(?:${doors.map(escapeForAlternation).join('|')})\\b`)
+      expect(entryRe.test('someone calls rotate$Door() from outside')).toBe(true)
+      // The bug this guards against: an unescaped `$` turns "rotate$Door"
+      // into an alternative that can never match anything (an end-of-string
+      // assertion stranded mid-pattern), and a truncated capture of just
+      // "rotate" would instead over-match this ordinary sentence.
+      expect(entryRe.test('the wheel began to rotate slowly')).toBe(false)
+    })
+
+    it('EXECUTED: a door declared `export let` (not `const`) still turns the law red, and an ordinary import stays green', async () => {
+      const syntheticRotate = 'export let sideDoor = async () => {}\n'
+      const entryRe = new RegExp(
+        `\\b(?:${rotationEntryPoints(syntheticRotate, '').map(escapeForAlternation).join('|')})\\b`,
+      )
+
+      const fixtureRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-let-door-fixture-'))
+      try {
+        const recorderDir = path.join(fixtureRoot, 'recorder')
+        const rotateFile = path.join(recorderDir, 'rotate.ts')
+        await mkdir(recorderDir, { recursive: true })
+        await writeFile(rotateFile, syntheticRotate)
+
+        const offender = path.join(fixtureRoot, 'sneaky-collector.ts')
+        await writeFile(offender, "import { sideDoor } from './recorder/rotate.js'\n\nvoid sideDoor()\n")
+        // CONTROL: an ordinary file with nothing to do with rotation.
+        const control = path.join(fixtureRoot, 'innocent.ts')
+        await writeFile(control, 'export const nothing = 1\n')
+
+        const violations = rotationViolationsFor({
+          searchRoot: fixtureRoot,
+          recorderDir,
+          rotateFile,
+          entryRe,
+          allowedCallers: new Set(),
+        })
+
+        expect(violations).toEqual([path.relative(REPO_ROOT, offender)])
+      } finally {
+        await rm(fixtureRoot, { recursive: true, force: true })
+      }
+    })
+
+    it('EXECUTED: a door declared `export function*` turns the law red, and an ordinary import stays green', async () => {
+      // The sibling of the `export let` law above, on the other side of the
+      // same regex. `function\s+` cannot reach a generator's name — the `*`
+      // sits where the space would be — so `export function* streamDoor()`
+      // derived NO door and the law went quiet about a real one. `rotate.ts`
+      // publishes no generator today; this pins the FORM, so the first one to
+      // be added is covered on the day it lands rather than the day someone
+      // notices. Same reason the `export let` case above is pinned.
+      const syntheticRotate = 'export function* streamDoor() {}\n'
+      const entryRe = new RegExp(
+        `\\b(?:${rotationEntryPoints(syntheticRotate, '').map(escapeForAlternation).join('|')})\\b`,
+      )
+
+      const fixtureRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-generator-door-fixture-'))
+      try {
+        const recorderDir = path.join(fixtureRoot, 'recorder')
+        const rotateFile = path.join(recorderDir, 'rotate.ts')
+        await mkdir(recorderDir, { recursive: true })
+        await writeFile(rotateFile, syntheticRotate)
+
+        const offender = path.join(fixtureRoot, 'sneaky-streamer.ts')
+        await writeFile(offender, "import { streamDoor } from './recorder/rotate.js'\n\nvoid streamDoor()\n")
+        // CONTROL: an ordinary file with nothing to do with rotation.
+        const control = path.join(fixtureRoot, 'innocent.ts')
+        await writeFile(control, 'export const nothing = 1\n')
+
+        const violations = rotationViolationsFor({
+          searchRoot: fixtureRoot,
+          recorderDir,
+          rotateFile,
+          entryRe,
+          allowedCallers: new Set(),
+        })
+
+        expect(violations).toEqual([path.relative(REPO_ROOT, offender)])
+      } finally {
+        await rm(fixtureRoot, { recursive: true, force: true })
+      }
+    })
+
+    it('EXECUTED: a door republished as a BARE default is caught through the barrel, and names the importer', async () => {
+      // The gap this closes: an anonymous default has no name for the sweep to
+      // find, and the importer writes the BARREL's specifier, not `rotate.ts`'s,
+      // so neither original arm can see it. Before this arm existed the whole
+      // scenario passed silently — proven by the disarmed control below, which
+      // is the same offender against a barrel that does not carry the default.
+      const syntheticRotate = 'export default function anonymousDoor() {}\n'
+      const syntheticBarrel = "export { default } from './rotate.js'\n"
+      const entryRe = new RegExp(
+        `\\b(?:${rotationEntryPoints(syntheticRotate, syntheticBarrel).map(escapeForAlternation).join('|')})\\b`,
+      )
+
+      const fixtureRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-barrel-default-fixture-'))
+      try {
+        const recorderDir = path.join(fixtureRoot, 'recorder')
+        const rotateFile = path.join(recorderDir, 'rotate.ts')
+        const barrelFile = path.join(recorderDir, 'index.ts')
+        await mkdir(recorderDir, { recursive: true })
+        await writeFile(rotateFile, syntheticRotate)
+        await writeFile(barrelFile, syntheticBarrel)
+
+        const offender = path.join(fixtureRoot, 'sneaky-collector.ts')
+        await writeFile(offender, "import Whatever from './recorder/index.js'\n\nvoid Whatever()\n")
+        // CONTROL: a NAMED import of the same barrel binds no default.
+        await writeFile(
+          path.join(fixtureRoot, 'named-import.ts'),
+          "import { somethingElse } from './recorder/index.js'\n\nvoid somethingElse\n",
+        )
+        // CONTROL: an ordinary file with nothing to do with rotation.
+        await writeFile(path.join(fixtureRoot, 'innocent.ts'), 'export const nothing = 1\n')
+
+        const violations = rotationViolationsFor({
+          searchRoot: fixtureRoot,
+          recorderDir,
+          rotateFile,
+          entryRe,
+          allowedCallers: new Set(),
+          barrelFile,
+        })
+
+        // Exactly the guilty file. The failure this replaces named 49 innocent
+        // files and left this one out.
+        expect(violations).toEqual([path.relative(REPO_ROOT, offender)])
+      } finally {
+        await rm(fixtureRoot, { recursive: true, force: true })
+      }
+    })
+
+    it('EXECUTED: the barrel-default arm stays disarmed when the barrel does not carry rotation\'s default', async () => {
+      // Same offender SHAPE as above — a default import of the barrel — against
+      // a barrel that republishes a NAMED export instead. Nothing unnamed is
+      // reachable, so refusing here would be refusing an ordinary default
+      // import of an ordinary barrel.
+      const syntheticRotate = 'export function realDoor() {}\n'
+      const syntheticBarrel = "export { realDoor } from './rotate.js'\n"
+      const entryRe = new RegExp(
+        `\\b(?:${rotationEntryPoints(syntheticRotate, syntheticBarrel).map(escapeForAlternation).join('|')})\\b`,
+      )
+
+      const fixtureRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-barrel-disarmed-fixture-'))
+      try {
+        const recorderDir = path.join(fixtureRoot, 'recorder')
+        const rotateFile = path.join(recorderDir, 'rotate.ts')
+        const barrelFile = path.join(recorderDir, 'index.ts')
+        await mkdir(recorderDir, { recursive: true })
+        await writeFile(rotateFile, syntheticRotate)
+        await writeFile(barrelFile, syntheticBarrel)
+
+        await writeFile(
+          path.join(fixtureRoot, 'default-importer.ts'),
+          "import Whatever from './recorder/index.js'\n\nvoid Whatever\n",
+        )
+
+        const violations = rotationViolationsFor({
+          searchRoot: fixtureRoot,
+          recorderDir,
+          rotateFile,
+          entryRe,
+          allowedCallers: new Set(),
+          barrelFile,
+        })
+
+        expect(violations).toEqual([])
+      } finally {
+        await rm(fixtureRoot, { recursive: true, force: true })
+      }
+    })
+
+    it('EXECUTED: an erased import reaches nothing at runtime and is not a caller, in either spelling, while a value import of the same module still is', async () => {
+      // TypeScript erases `import type`. Counting it made the law name a file
+      // that provably cannot invoke anything. The third fixture is the one that
+      // matters: a file importing the SAME module both ways must stay caught,
+      // which a specifier blacklist would get wrong and a position range gets
+      // right.
+      const syntheticRotate = 'export function realDoor() {}\nexport interface Boundary { at: number }\n'
+      const entryRe = new RegExp(
+        `\\b(?:${rotationEntryPoints(syntheticRotate, '').map(escapeForAlternation).join('|')})\\b`,
+      )
+
+      const fixtureRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-type-only-fixture-'))
+      try {
+        const recorderDir = path.join(fixtureRoot, 'recorder')
+        const rotateFile = path.join(recorderDir, 'rotate.ts')
+        await mkdir(recorderDir, { recursive: true })
+        await writeFile(rotateFile, syntheticRotate)
+
+        // Erased: names no door, imports only a type.
+        await writeFile(
+          path.join(fixtureRoot, 'type-only.ts'),
+          "import type { Boundary } from './recorder/rotate.js'\n\nexport const b: Boundary | undefined = undefined\n",
+        )
+        // Erased, multi-line spelling.
+        await writeFile(
+          path.join(fixtureRoot, 'type-only-multiline.ts'),
+          "import type {\n  Boundary,\n} from './recorder/rotate.js'\n\nexport const c: Boundary | undefined = undefined\n",
+        )
+        // Erased, INLINE spelling — this repo's dominant one, and the sibling
+        // of the separated form above. Guarded only on the separated side, the
+        // law named this file a rotation caller.
+        await writeFile(
+          path.join(fixtureRoot, 'type-only-inline.ts'),
+          "import { type Boundary } from './recorder/rotate.js'\n\nexport const e: Boundary | undefined = undefined\n",
+        )
+        // Erased, inline, multi-specifier and aliased.
+        await writeFile(
+          path.join(fixtureRoot, 'type-only-inline-multi.ts'),
+          "import {\n  type Boundary,\n  type Boundary as B2,\n} from './recorder/rotate.js'\n\nexport const f: B2 | undefined = undefined\n",
+        )
+        // CAUGHT: one inline VALUE specifier beside an inline type one keeps
+        // the edge — the control that stops the guard above from erasing a
+        // mixed clause wholesale.
+        const inlineMixed = path.join(fixtureRoot, 'inline-mixed.ts')
+        await writeFile(
+          inlineMixed,
+          "import { type Boundary, realDoor } from './recorder/rotate.js'\n\n" +
+            'export const g: Boundary | undefined = undefined\nvoid realDoor\n',
+        )
+        // CAUGHT: same module, both ways. The value edge must survive.
+        const mixed = path.join(fixtureRoot, 'mixed.ts')
+        await writeFile(
+          mixed,
+          "import type { Boundary } from './recorder/rotate.js'\n" +
+            "import { realDoor } from './recorder/rotate.js'\n\n" +
+            'export const d: Boundary | undefined = undefined\nvoid realDoor\n',
+        )
+
+        const violations = rotationViolationsFor({
+          searchRoot: fixtureRoot,
+          recorderDir,
+          rotateFile,
+          entryRe,
+          allowedCallers: new Set(),
+        })
+
+        expect(violations.slice().sort()).toEqual(
+          [path.relative(REPO_ROOT, inlineMixed), path.relative(REPO_ROOT, mixed)].sort(),
+        )
+      } finally {
+        await rm(fixtureRoot, { recursive: true, force: true })
+      }
+    })
+
+    it('EXECUTED: a barrel alias of an existing door still turns the law red, under the alias name, and an ordinary import stays green', async () => {
+      const syntheticRotate = 'export async function realDoor() {}\n'
+      const syntheticBarrel = "export { realDoor as reserveTheBoundary } from './rotate.js'\n"
+      const entryRe = new RegExp(
+        `\\b(?:${rotationEntryPoints(syntheticRotate, syntheticBarrel).map(escapeForAlternation).join('|')})\\b`,
+      )
+
+      const fixtureRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-barrel-alias-fixture-'))
+      try {
+        const recorderDir = path.join(fixtureRoot, 'recorder')
+        const rotateFile = path.join(recorderDir, 'rotate.ts')
+        await mkdir(recorderDir, { recursive: true })
+        await writeFile(rotateFile, syntheticRotate)
+        await writeFile(path.join(recorderDir, 'index.ts'), syntheticBarrel)
+
+        const offender = path.join(fixtureRoot, 'sneaky-collector.ts')
+        await writeFile(
+          offender,
+          "import { reserveTheBoundary } from './recorder/index.js'\n\nvoid reserveTheBoundary()\n",
+        )
+        // CONTROL: an ordinary file with nothing to do with rotation.
+        const control = path.join(fixtureRoot, 'innocent.ts')
+        await writeFile(control, 'export const nothing = 1\n')
+
+        const violations = rotationViolationsFor({
+          searchRoot: fixtureRoot,
+          recorderDir,
+          rotateFile,
+          entryRe,
+          allowedCallers: new Set(),
+        })
+
+        expect(violations).toEqual([path.relative(REPO_ROOT, offender)])
+      } finally {
+        await rm(fixtureRoot, { recursive: true, force: true })
+      }
+    })
+
+    it('EXECUTED: an unnamed default export is caught by import edge, under any local name the caller chooses, and an ordinary import stays green', async () => {
+      const syntheticRotate = ['export async function realDoor() {}', 'export default class {}'].join('\n')
+      const entryRe = new RegExp(
+        `\\b(?:${rotationEntryPoints(syntheticRotate, '').map(escapeForAlternation).join('|')})\\b`,
+      )
+
+      const fixtureRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-default-export-fixture-'))
+      try {
+        const recorderDir = path.join(fixtureRoot, 'recorder')
+        const rotateFile = path.join(recorderDir, 'rotate.ts')
+        await mkdir(recorderDir, { recursive: true })
+        await writeFile(rotateFile, syntheticRotate)
+
+        const offender = path.join(fixtureRoot, 'sneaky-collector.ts')
+        await writeFile(offender, "import WhateverNameIWant from './recorder/rotate.js'\n\nnew WhateverNameIWant()\n")
+        // CONTROL: an ordinary file with nothing to do with rotation.
+        const control = path.join(fixtureRoot, 'innocent.ts')
+        await writeFile(control, 'export const nothing = 1\n')
+
+        // By name alone the offender is invisible — there is no name to
+        // derive from an anonymous default export. This is the gap the
+        // import-edge check exists to close.
+        expect(entryRe.test(readFileSync(offender, 'utf8'))).toBe(false)
+
+        const violations = rotationViolationsFor({
+          searchRoot: fixtureRoot,
+          recorderDir,
+          rotateFile,
+          entryRe,
+          allowedCallers: new Set(),
+        })
+
+        expect(violations).toEqual([path.relative(REPO_ROOT, offender)])
+      } finally {
+        await rm(fixtureRoot, { recursive: true, force: true })
       }
     })
 
