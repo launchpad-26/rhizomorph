@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync, chmodSync, mkdirSync, readFileSync, symlinkSync, unlinkSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, chmodSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -57,6 +57,23 @@ const GATE_PATH = 'scripts/gate.sh'
  */
 const SOURCE = readFileSync(join(REPO_ROOT, GATE_PATH), 'utf8')
 const LINES = SOURCE.split('\n')
+
+/**
+ * A handful of proofs below make a real file unwritable and assert the write
+ * fails. `chmod 0444` cannot do that for root — `CAP_DAC_OVERRIDE` ignores
+ * the permission bit — so a test that only chmods would go red under root
+ * for a reason it never claimed (#74). Where the write target can be freely
+ * relocated, the fix is structural (an ENOTDIR obstruction, which no
+ * privilege bypasses) and needs no root check at all. Where the target must
+ * already exist as a well-formed, readable file — as `lanes.json` must, for
+ * `[ -f ... ]` and `JSON.parse` to see it — no setup step available to an
+ * unprivileged test process holds against root either (a directory's write
+ * bit is the same CAP_DAC_OVERRIDE-bypassable check; `chattr +i` needs
+ * `CAP_LINUX_IMMUTABLE` against the filesystem's owning namespace, which a
+ * user namespace's mapped root does not have). That case skips itself under
+ * root instead, with the reason on the test.
+ */
+const RUNNING_AS_ROOT = process.getuid?.() === 0
 
 /** The one line containing `needle`. Throws if zero or more than one match — an ambiguous anchor is worse than a missing one. */
 function uniqueLineIndex(needle: string): number {
@@ -1464,6 +1481,15 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
      * prd-45's own thesis. The fix ties the report to the write with `||
      * fail()`, the same shape the sibling `:293 lane manifest prune` describe
      * below already holds `scripts/gate.sh` to.
+     *
+     * The two proofs below no longer make the floor unwritable with `chmod
+     * 0444` (#74): `CAP_DAC_OVERRIDE` lets root ignore that bit, so as root
+     * the write would silently succeed and both would go red for a reason
+     * neither claims. Instead a plain FILE sits where the floor's parent
+     * directory is expected, so the write fails with ENOTDIR — a structural
+     * impossibility no privilege level bypasses. Verified both ways: as the
+     * invoking user, and under `unshare -r` (mapped uid 0, on a machine with
+     * `kernel.apparmor_restrict_unprivileged_userns=0`) — exit 1 either way.
      */
     const WRITE_BLOCK = sliceLines('mkdir -p "$root/.swarm" && printf', 'timing-count ratchet:$RISE_NOTE')
 
@@ -1476,33 +1502,33 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(readFileSync(join(dir, '.swarm', 'timing-count'), 'utf8')).toBe('7\n')
     })
 
-    it('EXECUTED — a READ-ONLY floor HOLDS: fail() fires, the floor does not advance, and the unearned claim is never printed', () => {
+    it('EXECUTED — an UNWRITABLE floor HOLDS: fail() fires, the floor is never created, and the unearned claim is never printed', () => {
       const dir = scratchDir('write-readonly')
       mkdirSync(join(dir, '.swarm'), { recursive: true })
-      const countFile = join(dir, '.swarm', 'timing-count')
-      writeFileSync(countFile, '5\n')
-      chmodSync(countFile, 0o444)
+      const obstruction = join(dir, '.swarm', 'timing-count')
+      writeFileSync(obstruction, 'not a directory\n')
+      const countFile = join(obstruction, 'floor')
       const script = preludeScript(0, `root=${dir}\nTCOUNT=7\nCOUNT_FILE=${countFile}\nRISE_NOTE=" ROSE from 5 to 7"\n`) + WRITE_BLOCK + '\n'
       const res = runFragment(script, dir)
       expect(res.status).toBe(1)
       expect(res.stdout + res.stderr).toContain('cannot write the timing-count floor')
       expect(res.stdout + res.stderr).toContain('HOLDING')
       expect(res.stdout).not.toContain('ratchet:')
-      expect(readFileSync(countFile, 'utf8')).toBe('5\n')
+      expect(existsSync(countFile)).toBe(false)
     })
 
-    it('EXECUTED — the OLD (unchecked) write silently prints the same claim on the same read-only floor — the exact defect this fix removes', () => {
+    it('EXECUTED — the OLD (unchecked) write silently prints the same claim even though the floor was never created — the exact defect this fix removes', () => {
       const dir = scratchDir('write-readonly-old')
       mkdirSync(join(dir, '.swarm'), { recursive: true })
-      const countFile = join(dir, '.swarm', 'timing-count')
-      writeFileSync(countFile, '5\n')
-      chmodSync(countFile, 0o444)
+      const obstruction = join(dir, '.swarm', 'timing-count')
+      writeFileSync(obstruction, 'not a directory\n')
+      const countFile = join(obstruction, 'floor')
       const OLD_BLOCK = 'mkdir -p "$root/.swarm" && printf \'%s\\n\' "$TCOUNT" >"$COUNT_FILE"\n' + '[ -n "$RISE_NOTE" ] && echo "  timing-count ratchet:$RISE_NOTE"\n'
       const script = preludeScript(0, `root=${dir}\nTCOUNT=7\nCOUNT_FILE=${countFile}\nRISE_NOTE=" ROSE from 5 to 7"\n`) + OLD_BLOCK
       const res = runFragment(script, dir)
       expect(res.status).toBe(0)
       expect(res.stdout).toContain('timing-count ratchet: ROSE from 5 to 7')
-      expect(readFileSync(countFile, 'utf8')).toBe('5\n')
+      expect(existsSync(countFile)).toBe(false)
     })
 
     /**
@@ -1609,6 +1635,11 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(res.status).toBe(0)
       expect(res.stdout).toContain('lane manifest pruned')
 
+      // This chmod does not need the #74 fix: the OLD script's `catch {}`
+      // swallows a permission error the same as it swallows malformed JSON,
+      // so it prints "pruned" (exit 0) whether or not the write actually
+      // lands — the assertion below never checks the file's final content.
+      // Confirmed unaffected under `unshare -r`: this case does not flip.
       const unwritable = scratchDir('manifest-old-unwritable')
       mkdirSync(join(unwritable, '.swarm'), { recursive: true })
       const lanesFile = join(unwritable, '.swarm', 'lanes.json')
@@ -1630,7 +1661,17 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(res.stdout + res.stderr).toContain('lane manifest prune failed')
     })
 
-    it('EXECUTED — the NEW form HOLDS on an unwritable lanes.json', () => {
+    // Unlike the timing-count floor above, lanes.json cannot be made
+    // unwritable by an ENOTDIR obstruction: `[ -f ... ]` and `JSON.parse`
+    // both need it to exist as a well-formed, readable regular file, and no
+    // setup step open to an unprivileged test process holds a write off an
+    // *existing* file against `CAP_DAC_OVERRIDE` (a directory's write bit is
+    // the same bypassable check; `chattr +i` needs `CAP_LINUX_IMMUTABLE`
+    // against the filesystem's owning namespace, not a user namespace's
+    // mapped root — the setup itself would already fail as an unprivileged
+    // user, let alone hold against one). So this proof skips itself as root,
+    // per #74's done-when, rather than assert something false there.
+    it.skipIf(RUNNING_AS_ROOT)('EXECUTED — the NEW form HOLDS on an unwritable lanes.json (skipped as root: chmod 0444 does not hold against CAP_DAC_OVERRIDE, and no reachable setup here holds an already-existing file unwritable against it)', () => {
       const dir = scratchDir('manifest-new-unwritable')
       mkdirSync(join(dir, '.swarm'), { recursive: true })
       const lanesFile = join(dir, '.swarm', 'lanes.json')
