@@ -2,6 +2,7 @@ import path from 'node:path'
 import { createEvent, type SessionCloseReason, type SessionLink } from '@rhizomorph/core'
 import { defaultClaudeProjectsRoot, repoSlug, sessionFileName } from '../log/paths.js'
 import { removeSessionLock, writeSessionLock } from '../log/session-lock.js'
+import { readSessionEvents } from '../log/session-log.js'
 import { captureSessionTranscripts } from '../log/transcript-capture.js'
 import { CloseNotDurableError, type SessionRecorder } from './session-recorder.js'
 
@@ -153,6 +154,18 @@ export async function closeCurrentSession(options: CloseSessionOptions): Promise
 
   await captureSessionTranscripts({
     events: recorder.eventsSoFar(),
+    // The lane list must be every lane this SESSION named, not every lane
+    // still in the recorder's window (#133): prd-44 ruling 4 caps that window,
+    // so a lane whose attributing events have been evicted would be absent
+    // from the capture — permanently, since the capture is what the lane index
+    // reads once the log has been pruned. Read here rather than inside the
+    // capture so `log/transcript-capture.ts` gains no import of its own reader
+    // (`log/session-log.ts` already imports `log/lane-index.ts`, which imports
+    // the capture — one more edge would close that ring). The read is safe at
+    // this exact point: `session.closed` has not been appended yet and is not
+    // an attributed type anyway, and an unreadable log comes back `[]`, which
+    // the capture reads as "the read failed" rather than "no lanes".
+    recordedEvents: await readSessionEvents(filePath),
     sessionDir,
     sessionId,
     claudeProjectsRoot: options.claudeProjectsRoot ?? defaultClaudeProjectsRoot(),

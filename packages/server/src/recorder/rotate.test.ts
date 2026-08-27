@@ -716,6 +716,57 @@ describe('transcript capture on close (prd16 ruling 3)', () => {
     await writeFile(path.join(liveDir, `${CLAUDE_SESSION_ID}.jsonl`), lines.map((line) => `${line}\n`).join(''))
   }
 
+  /**
+   * #133: the lane list is the SESSION's, not the recorder's window. prd-44
+   * ruling 4 caps that window (`MAX_BUFFERED_EVENTS`, #37), so a lane whose
+   * attributing events have been evicted was absent from the manifest —
+   * permanently, since the capture is what the lane index reads once the log
+   * itself has been pruned (#38).
+   *
+   * **What this stands in for, said rather than implied.** Real eviction needs
+   * 75,001 events through this suite; the property that matters is *the log
+   * carries a lane the window does not*, so this appends the evicted lane's
+   * attributing event straight into the log behind the recorder's back. Same
+   * divergence, at the layer the fix reads from, for two lines instead of
+   * seventy-five thousand.
+   *
+   * It is also the law the module's own tests cannot carry: reverting
+   * `rotate.ts` to hand over `recorder.eventsSoFar()` leaves every law in
+   * `log/transcript-capture.test.ts` green, because the wiring is what this
+   * issue is about. That mutation is why this file is in the fence at all.
+   */
+  it('captures a lane the log names but the recorder window no longer holds', async () => {
+    const EVICTED_LANE = '519-migrate'
+    const EVICTED_WORKTREE = '/tmp/rhizomorph-rotate-fixture/519-migrate'
+    const EVICTED_SLUG = '-tmp-rhizomorph-rotate-fixture-519-migrate'
+    const EVICTED_CLAUDE_ID = 'sess-519'
+
+    // In the log, never in the window — the shape eviction leaves behind.
+    const f = createEventFactory({ idPrefix: 'evicted' })
+    const evicted = f.llmUsage(
+      { lane: EVICTED_LANE, branch: EVICTED_LANE, sessionId: EVICTED_CLAUDE_ID, worktreePath: EVICTED_WORKTREE },
+      { id: 'evt-000000', ts: Number(FIRST) - 1 },
+    )
+    await writeFile(sessionFilePath(dir, FIRST), `${JSON.stringify(evicted)}
+`, { flag: 'a' })
+    expect(recorder.eventsSoFar().some((event) => event.id === 'evt-000000')).toBe(false)
+
+    await writeLiveTranscript([JSON.stringify({ type: 'user', message: { role: 'user', content: 'hello' } })])
+    const evictedDir = path.join(claudeProjectsRoot, EVICTED_SLUG)
+    await mkdir(evictedDir, { recursive: true })
+    await writeFile(path.join(evictedDir, `${EVICTED_CLAUDE_ID}.jsonl`), '{"type":"user"}\n')
+
+    clock = 5000
+    await closeCurrentSession(options())
+
+    const manifest = await readTranscriptCaptureManifest(dir, FIRST)
+    expect(manifest?.lanes.map((entry) => entry.lane).sort()).toEqual([EVICTED_LANE, LANE].sort())
+    expect(manifest?.lanes.every((entry) => entry.captured)).toBe(true)
+    // And it says where the list came from, so a reader can tell a whole list
+    // from one the window happened to hold.
+    expect(manifest?.attributedFrom).toBe('recording')
+  })
+
   it('captures the lane transcript beside the closed log, and the manifest reports its size', async () => {
     await writeLiveTranscript([JSON.stringify({ type: 'user', message: { role: 'user', content: 'hello' } })])
     clock = 5000
