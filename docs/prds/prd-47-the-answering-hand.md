@@ -1,12 +1,12 @@
 # prd-47 — the answering hand: the picture answers the hand, not the model
 
-> **Status:** proposed — drafted 2026-08-28 by KelliherL from
-> `docs/review/2026-08-24-input-latency-audit.md` (six read-only lanes at `4140f6b`, re-verified
-> 2026-08-28 at `48c3476`; every cited line checked against current main). Consumes prd-44's
-> closeout lessons by name: **a ruling's stated mechanism is not a ruling** — every mechanism
-> below is marked *candidate* and loses to measurement without amendment — and every extension
-> clause comes with its grooming-time search done. Refuses prd-33's model stage, prd-44's shipped
-> territory, and `scripts/gate.sh` (prd-45/46's).
+> **Status:** **BLESSED** — ciaran-slow, 2026-08-28, in session. Milestone `prd47`. Drafted
+> 2026-08-28 by KelliherL from `docs/review/2026-08-24-input-latency-audit.md` (six read-only
+> lanes at `4140f6b`, re-verified 2026-08-28 at `48c3476`; every cited line checked against
+> current main). Consumes prd-44's closeout lessons by name: **a ruling's stated mechanism is
+> not a ruling** — every mechanism below is marked *candidate* and loses to measurement without
+> amendment — and every extension clause comes with its grooming-time search done. Refuses
+> prd-33's model stage, prd-44's shipped territory, and `scripts/gate.sh` (prd-45/46's).
 
 ## Problem
 
