@@ -382,6 +382,20 @@ export interface RetargetSessionOptions {
  */
 export class RetargetInFlightError extends Error {}
 
+/**
+ * The one wording for "a boundary is already held", shared by this module's
+ * own throw below and `api/retarget.ts`'s 409 body — previously spelled twice
+ * (#53), once per caller of {@link beginRetargetBoundary}. Exported from here
+ * rather than `api/refusals.ts` (which already unifies the retarget/rotate
+ * *code*, not this message): that file is reserved for the neutral refusal
+ * vocabulary shared across routes and is out of this issue's fence, while this
+ * module and `api/retarget.ts` already share an import edge.
+ */
+export const RETARGET_OR_ROTATION_IN_FLIGHT_MESSAGE =
+  'a rotation or retarget is already in flight for this recorder — refusing rather than coalescing or queuing, ' +
+  "since a second caller would either report the FIRST boundary's destination as its own result, or act on a " +
+  'target that is already stale by the time its own turn comes'
+
 export interface RetargetBoundary {
   /** The close/open actually happened — settle with its real result, releasing the guard. */
   resolve(rotation: Rotation): void
@@ -466,10 +480,7 @@ export async function performRetarget(options: RetargetSessionOptions): Promise<
 export async function retargetSession(options: RetargetSessionOptions): Promise<Rotation> {
   const boundary = beginRetargetBoundary(options.recorder)
   if (boundary === null) {
-    throw new RetargetInFlightError(
-      'a rotation or retarget is already in flight for this recorder — refusing rather than coalescing, ' +
-        'since coalescing would report the FIRST boundary\'s destination as this call\'s own result',
-    )
+    throw new RetargetInFlightError(RETARGET_OR_ROTATION_IN_FLIGHT_MESSAGE)
   }
   try {
     const rotation = await performRetarget(options)
