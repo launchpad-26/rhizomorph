@@ -241,13 +241,27 @@
   printed fault holds the landing and a runbook citing `gate.sh`'s behaviour rather than its
   line numbers (#1 and #2, landed together as PR #40). What that PR's verify pass found beyond
   them is prd45's, not a residual here.
-- **prd40–43 — current blessed programme** (`docs/prds/prd-40-the-record-survives-the-write.md`
-  through `docs/prds/prd-43-the-claim-is-a-test.md`): the record survives the write, the
-  laboratory is confined in fact, one path has one spelling, and a document's factual claim
-  fails the build when it goes false. These PRDs are fresh, blessed and actively represented by
-  the GitHub backlog. **Per-milestone issue counts are deliberately not restated here** — a
-  hand-maintained number in this file goes false the same day and reads as live state; the
-  board is the source, via `scripts/dev/issues.sh list` and the `prd40`–`prd43` milestones.
+- **prd40 — the record survives the write**
+  (`docs/prds/done/prd-40-the-record-survives-the-write.md`, shipped): an event on screen is an
+  event on disk. Two rulings — the append is awaited before the event is anyone's, and the fold
+  the server answers from is maintained rather than rebuilt. Its milestone closed 2026-08-27
+  with every issue done. It produced **three ADRs**, and only the first was one it could name in
+  advance: [0029](adr/0029-a-recording-may-repeat-a-fact.md) (the prerequisite it gated wave 2
+  behind, whose evidence then corrected ruling 1's own mechanism),
+  [0030](adr/0030-the-alarm-may-outrun-the-record.md) and
+  [0031](adr/0031-the-recorder-hands-out-a-frozen-fold.md), both reached from a wave's build
+  rather than its plan. **The closeout is the last section of the PRD itself** — the four
+  success criteria assessed against counting laws, what the plan got wrong, and the open
+  question whose premise turned out to be false: there is no exporter caller to narrow
+  `eventsSoFar()` to, because both exporters read the recording back from disk.
+- **prd41–43 — current blessed programme**
+  (`docs/prds/prd-41-the-laboratory-is-confined-in-fact.md` through
+  `docs/prds/prd-43-the-claim-is-a-test.md`): the laboratory is confined in fact, one path has
+  one spelling, and a document's factual claim fails the build when it goes false. These PRDs
+  are blessed and actively represented by the GitHub backlog. **Per-milestone issue counts are
+  deliberately not restated here** — a hand-maintained number in this file goes false the same
+  day and reads as live state; the board is the source, via `scripts/dev/issues.sh list` and the
+  `prd41`–`prd43` milestones.
 - **prd44 — the flat instrument** (`docs/prds/done/prd-44-the-flat-instrument.md`, shipped):
   what it costs to watch tracks the swarm, not the session's age. Five rulings — a finished
   recording is parsed once rather than once per request, the log is opened once per session
