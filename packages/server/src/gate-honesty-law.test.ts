@@ -257,17 +257,25 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    *
    * MEASURED FALSE-POSITIVE RATE (EXECUTED, run against every real
    * `VAR=$(...)` line in scripts/gate.sh — prd-46's own open question):
-   * 16 such assignments exist. Exactly 1 is flagged as structurally
+   * 15 such assignments exist. Exactly 1 is flagged as structurally
    * unchecked — :23 (`W=$(workmux path ...)`), declared before this issue
    * and still declared, because the very next line's existence check is
-   * the verdict rather than the redirect. 0 of the 16 are undeclared: the
+   * the verdict rather than the redirect. 0 of the 15 are undeclared: the
    * predicate does not convict a single honest line on this file.
    *
-   * The other 15 pass structurally on their own merits: 9 same-line forms
-   * (:17's `|| exit 2`, written before `fail` is even defined; 7 `|| fail`;
-   * 1 `|| { ...; fail ...; }` rescue block) and 6 next-line `_RC=$?`
-   * captures (:74/:77's `DIFF_RC`/`GREP_RC`, :100's `STATUS_RC`, :212's
-   * `CAT_RC`, :96's `N_RC` and the `DIRTY_RC` added beside it).
+   * The other 14 pass structurally on their own merits: 10 same-line forms
+   * (:17's `|| exit 2`, written before `fail` is even defined; 8 `|| fail`
+   * at :41 :56 :92 :178 :188 :252 :338 :362; 1 `|| { ...; fail ...; }`
+   * rescue block at :57) and 4 next-line `_RC=$?` captures (:121's `N_RC`,
+   * :125's `STATUS_RC`, :152's `DIRTY_RC`, :253's `CAT_RC`).
+   *
+   * These counts moved with #71, and the reason is structural rather than
+   * arithmetic: `DIFF_RC` and `GREP_RC` used to be next-line captures of
+   * `VAR=$(...)` producers. #71 replaced those producers with a redirect
+   * (`git diff -z ... >"$FENCE_LIST"`) and a pipeline (`printf '' | grep`),
+   * so both leave this predicate's population by construction rather than
+   * by becoming unchecked — their statuses are still read, one line later,
+   * exactly as before.
    *
    * These counts are PINNED below rather than left as prose. The revision
    * that introduced this paragraph said "the remaining 12 ... 9 same-line
@@ -467,11 +475,11 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     expect(undeclared.map((u) => `${u.index + 1}: ${u.line.trim()}`), 'undeclared unchecked producer(s) in scripts/gate.sh — fix the shape (see the :82 commit-count fix below) or add a DECLARED_TOLERANCES entry with a reason').toEqual([])
   })
 
-  it('EXECUTED — the measured false-positive rate on the real file, pinned: 1 of 16 $(...) assignments flagged, it is declared, 0 undeclared', () => {
+  it('EXECUTED — the measured false-positive rate on the real file, pinned: 1 of 15 $(...) assignments flagged, it is declared, 0 undeclared', () => {
     const allAssignmentLines = codeLines().filter((l) => matchDollarParenAssignment(l))
     const unchecked = findUncheckedProducers(LINES)
     const undeclared = unchecked.filter((u) => !DECLARED_TOLERANCES.some((t) => u.line.includes(t.needle)))
-    expect(allAssignmentLines.length, 'total $(...) assignments in scripts/gate.sh drifted — the doc comment above cites this count').toBe(16)
+    expect(allAssignmentLines.length, 'total $(...) assignments in scripts/gate.sh drifted — the doc comment above cites this count').toBe(15)
     expect(unchecked.length, 'flagged (structurally unchecked) count drifted — the doc comment above cites this count').toBe(1)
     expect(undeclared.length).toBe(0)
 
@@ -483,8 +491,8 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       const i = LINES.indexOf(l)
       return !tailChecksStatus(matchDollarParenAssignment(l)!.tail) && nextLineCapturesRC(LINES[i + 1])
     })
-    expect(sameLine.length, 'same-line-checked count drifted — the doc comment above cites it').toBe(9)
-    expect(nextLine.length, 'next-line _RC=$? count drifted — the doc comment above cites it').toBe(6)
+    expect(sameLine.length, 'same-line-checked count drifted — the doc comment above cites it').toBe(10)
+    expect(nextLine.length, 'next-line _RC=$? count drifted — the doc comment above cites it').toBe(4)
     expect(sameLine.length + nextLine.length + unchecked.length).toBe(allAssignmentLines.length)
   })
 
@@ -859,7 +867,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
   })
 
   describe(':74 fence regex — an invalid FENCE holds, it does not print "fence OK"', () => {
-    const NEW_BLOCK = sliceLines('DIFF_FILES=$(git -C "$W" diff main...HEAD --name-only)', 'fence OK: $(printf')
+    const NEW_BLOCK = sliceLines('printf \'\' | grep -E "$FENCE"', 'fence OK: ${DIFF_FILES[*]}')
 
     it('the old masking form ( grep -vE "$FENCE" || true ) is gone from the file', () => {
       expect(SOURCE).not.toContain('grep -vE "$FENCE" || true')
