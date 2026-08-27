@@ -173,6 +173,34 @@ function isOverlay(mark: Mark): boolean {
  */
 const settledRibbonCache = new Map<string, { digest: string; built: BuiltRibbon }>()
 
+/**
+ * HIT AND MISS, COUNTED — the law the wall-clock table could not carry.
+ *
+ * prd-44's after-table reports the cache's win in milliseconds, and a
+ * millisecond cannot say *why* it moved: the 2026-08-24 input-latency audit read
+ * the `persistent200` paint cell ~7x above the committed figure on a second box
+ * and could not distinguish "the cache never hits here" from "the table was
+ * measured under conditions the suite does not reproduce". Those are opposite
+ * defects with opposite fixes, and a timing is silent between them. A count is
+ * not: one warm frame over a settled field either tessellates nothing or it
+ * does, on any box, at any load, in any run shape.
+ *
+ * Deliberately a delta reader rather than an absolute: {@link settledRibbonCache}
+ * lives for the module's life and a vitest worker runs many files against it, so
+ * a law reads these before and after its own frames and asserts the difference.
+ * That is also what keeps the law honest if this file's miss path is ever
+ * refactored — the counter is incremented where the hit/miss decision is
+ * actually made, not inferred from a side effect of it.
+ */
+let settledRibbonHits = 0
+let settledRibbonMisses = 0
+
+/** {@link settledRibbonHits}/{@link settledRibbonMisses}, for a counting law.
+ * Read as a delta across the frames under test. */
+export function settledRibbonCacheCounts(): { hits: number; misses: number } {
+  return { hits: settledRibbonHits, misses: settledRibbonMisses }
+}
+
 /** One scratch batch, reused for every cache-miss tessellation this session —
  * never allocated per mark, per frame. `buildFrame` is called once per
  * animation frame from one thread; nothing here is reentrant. */
@@ -349,9 +377,13 @@ export function buildFrame(marks: readonly Mark[], panel: PanelView, into?: Batc
     const slotKey = `${prefix}|${ordinal}`
     const digest = digestRibbon(mark, additive)
     const known = settledRibbonCache.get(slotKey)
-    const built =
-      known !== undefined && known.digest === digest ? known.built : tessellateRibbon(mark, additive)
-    if (known === undefined || known.digest !== digest) {
+    let built: BuiltRibbon
+    if (known !== undefined && known.digest === digest) {
+      built = known.built
+      settledRibbonHits += 1
+    } else {
+      built = tessellateRibbon(mark, additive)
+      settledRibbonMisses += 1
       settledRibbonCache.set(slotKey, { digest, built })
     }
     spliceBuilt(vertices, runs, built)

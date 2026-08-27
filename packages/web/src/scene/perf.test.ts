@@ -2,7 +2,7 @@ import { reduceAll } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { buildFleet, fixtureHistory, fleet20Spec, manifestFor, type Fleet } from '../fleet/index.js'
 import { layoutScene } from './geometry.js'
-import { breathOf, motionMode, sceneMarks, type SceneFrame } from './marks/index.js'
+import { breathOf, motionMode, sceneMarks, type Mark, type SceneFrame } from './marks/index.js'
 import { ambientScreenMarks, ambientWorldMarks } from './marks/ambient.js'
 import { dissolveMarks } from './marks/dissolve.js'
 import { lightMarks } from './marks/light.js'
@@ -10,7 +10,7 @@ import { labelMarks, nodeMarks } from './marks/node.js'
 import { rootMarks } from './marks/root.js'
 import { loopingMarks, offFenceMarks, threadMarks } from './marks/thread.js'
 import { DISSOLUTION } from './motion.js'
-import { Batch, buildFrame } from './gl/index.js'
+import { Batch, buildFrame, settledRibbonCacheCounts } from './gl/index.js'
 import { DARK_PALETTE, ICE_050, ink, type Ink } from './palette.js'
 import { PulseField } from './pulses.js'
 import { RETURN, returnAt, type RetireState } from './retire.js'
@@ -837,6 +837,63 @@ describe('the marks stage, by builder', () => {
  * | persistent200  | 4.28 / 19.89 / 2.93     | 1.21 / 7.77 / 2.58    |
  * | hidden200      | 4.05 / 7.28 / 1.70      | 0.96 / 6.38 / 1.52    |
  *
+ * **THE PAINT COLUMN ABOVE IS NOT COMPARABLE TO A POST-`8686f24` READING, AND
+ * #32 IS A NET REGRESSION ON IT.** Both facts came out of one bisect, run
+ * 2026-08-28 on macOS in a throwaway worktree, each cell the suite's own
+ * `retired-field persistent200` line, endpoints re-measured minutes apart.
+ * `docs/review/2026-08-24-input-latency-audit.md`'s addendum reported this cell
+ * at ~7x its committed paint figure on a second box and named two candidate
+ * causes; it is neither of them.
+ *
+ * *One — the stage changed meaning.* These rows were written at `da9d10a`
+ * (2026-08-05), when the paint stage timed `paint({ ctx: draw.ctx, … })`: the
+ * canvas-2D painter issuing calls into this file's own recording stub, whose
+ * methods are empty bodies incrementing counters, because jsdom has no 2D
+ * context at all (ADR-0006). `8686f24` (#578) replaced that with `buildFrame`,
+ * which really does tessellate, under the same jsdom. Across that one commit:
+ *
+ * | commit                        | paint (persistent200) | paint (living30) |
+ * | ----------------------------- | --------------------- | ---------------- |
+ * | `8686f24^` — 2D calls into a stub |  1.638 ms         | 0.235 ms         |
+ * | `8686f24` — #578, real tessellation | 12.543 ms       | 1.104 ms         |
+ *
+ * So 2.58 ms and 17–25 ms are not the same quantity measured twice, and the
+ * *before* column (2.93 ms) is exactly as unreproducible as the after — which
+ * is the tell the audit read as suspicious and could not place. Nothing
+ * regressed here; a stage started measuring work it had never been able to
+ * reach.
+ *
+ * *Two — and this one is real.* Bisecting the 31 scene commits from `8686f24`
+ * to `48c3476` puts the whole of the remaining rise on **one commit, #32's own**
+ * (`f60e0af` → `b89ca23`), with the living-only ceiling flat across it:
+ *
+ * | commit                        | paint (persistent200) | paint (living30) |
+ * | ----------------------------- | --------------------- | ---------------- |
+ * | `c31d04b` (mid-range)         | 12.539 ms             | 1.095 ms         |
+ * | `d6bbf78` (#32's grandparent) | 13.297 ms             | 1.879 ms         |
+ * | `f60e0af` (#32's parent)      | 13.392 ms             | 1.904 ms         |
+ * | `b89ca23` (#32)               | **24.682 ms**         | 1.888 ms         |
+ *
+ * **The cache hits perfectly and is still a 1.84x regression.** The counting law
+ * below reads 600 settled ribbons tessellated on frame one and zero misses for
+ * every frame after, so this is not a cache that fails to warm — it is a cache
+ * whose key costs more than the work it saves. `digestRibbon` walks every point
+ * of every settled outline into a string every frame; at this size that is a few
+ * hundred points x 600 ribbons x 60 Hz. Two measurements at `b89ca23` isolate it:
+ * forcing `isSettledRibbon` to `false` (the pre-#32 path) returns paint to
+ * **13.312 ms**, and keying the slot on the `outline` array's own identity
+ * instead of its contents — which is what `geometry.ts`'s and `marks/thread.ts`'s
+ * sibling caches already do one stage up, and what makes them cheap — gives
+ * **10.309 ms**, a genuine 23% win over pre-#32 rather than an 84% loss.
+ *
+ * That last figure is a probe, not a proposal: identity-keying can only ever
+ * produce a false MISS (a fresh array degrades to the pre-#32 path), never a
+ * false hit, provided no builder mutates an outline in place — but three arms of
+ * `gl/frame.test.ts`'s cache suite hand `buildFrame` a freshly-built outline each
+ * frame and assert a hit, so they encode content-digest semantics and would have
+ * to be restated as the production invariant they stand in for. Filed rather than
+ * fixed here.
+ *
  * **Both conditions the issue set are met.** 200-retired, shown, is now 71.7%
  * of a 60 fps frame's budget — comfortably inside it, where it was 170.2%
  * (4.2–4.7× the living-only ceiling) before. Hidden is now within a run's own
@@ -1005,6 +1062,134 @@ describe('a long field of retired strands (#175, prd10 rulings 13-16)', () => {
     measureField(200)
   }, BENCH_TIMEOUT_MS)
 })
+
+/**
+ * THE COUNTING LAW UNDER THE TABLE ABOVE (#32, prd-44 ruling 5).
+ *
+ * Asked for by `docs/review/2026-08-24-input-latency-audit.md`'s addendum, which
+ * read the `persistent200` paint cell at ~7x the committed figure on a second
+ * box (17.1–19.5 ms against 2.58 ms) and could not tell, from a wall clock,
+ * which of two opposite defects it was looking at: the cache failing to hit
+ * under that box's run shape, or a table whose paint column never reproduced.
+ * Those have opposite fixes, and a millisecond is silent between them.
+ *
+ * A count is not silent, and it is valid under every condition the audit found
+ * the timings sensitive to — filtered vs. whole-suite, quiet vs. loaded, one box
+ * vs. another — because it counts DECISIONS rather than time: over a settled
+ * field held still, a hitting cache tessellates each settled ribbon exactly
+ * ONCE, on the frame it first sees it, and never again. That is the claim the
+ * after-table was reaching for and could not state.
+ *
+ * Note what this law does NOT say, and the bisect above is why it matters: a
+ * cache that hits is not a cache that pays. This one hits on every settled
+ * ribbon of every frame after the first and is still 1.84x slower than not
+ * having it, because its key is walked and its saving is not. The law answers
+ * "does the cache warm"; it deliberately does not answer "is the cache worth
+ * it", and nothing here should be read as the second.
+ *
+ * **Two arms, and the second is what stops the first from going vacuous.** A law
+ * that asserted only `misses === 0` would pass exactly as happily if
+ * `isSettledRibbon` stopped matching anything at all, or if `sceneMarks` stopped
+ * emitting `persist` roles — nothing would reach the cache, nothing would miss,
+ * and the law would report success over an empty population. So the negative arm
+ * moves one settled ribbon's paint and requires exactly one miss to appear: the
+ * counter is proven live on the same field, in the same run.
+ *
+ * Own lane-id prefix (`law-`), because {@link settledRibbonCache} outlives a
+ * single test file and every other suite here builds `lane-N` fleets — a slot
+ * this law expects to be cold could otherwise have been filled by a sibling
+ * `it()` minutes earlier, and the cold-frame count would be wrong for a reason
+ * that has nothing to do with the cache.
+ */
+describe('the settled-ribbon tessellation cache, counted (#32, prd-44 ruling 5)', () => {
+  const LIVING = 30
+  const RETIRED = 200
+  const FRAMES = 4
+
+  /** {@link fleetSized}, with ids this file's other suites can never collide
+   * with — see the header. */
+  function lawFleet(total: number): Fleet {
+    const base = fleetSized(total)
+    return {
+      ...base,
+      lanes: base.lanes.map((lane, i) => ({ ...lane, id: `law-${i}`, handles: [`law-${i}`] })),
+    }
+  }
+
+  function settledBeyond(fleet: Fleet, livingCount: number): ReadonlyMap<string, RetireState> {
+    const at = returnAt(RETURN.dissolvedMs)
+    return new Map(fleet.lanes.slice(livingCount).map((lane) => [lane.id, at]))
+  }
+
+  /** Exactly the population `gl/frame.ts`'s `isSettledRibbon` admits. */
+  function isSettledRibbon(mark: Mark): boolean {
+    return mark.kind === 'ribbon' && (mark.role === 'persist' || mark.role === 'persist-mark')
+  }
+
+  it('tessellates each settled ribbon once and never again while the field is still', () => {
+    const fleet = lawFleet(LIVING + RETIRED)
+    const retire = settledBeyond(fleet, LIVING)
+    const vertices = new Batch()
+
+    const marksFor = (now: number): readonly Mark[] => {
+      const geometry = layoutScene(fleet, { ...SIZE, now, retire, hideFinished: false })
+      return sceneMarks(frameFor(fleet, geometry, now))
+    }
+
+    const cold = marksFor(NOW)
+    const settledCount = cold.filter(isSettledRibbon).length
+    // The population must be non-empty for anything below to mean anything —
+    // 200 retired lanes draw a strand plus a tail/seal each.
+    expect(settledCount).toBeGreaterThan(RETIRED)
+
+    const before = settledRibbonCacheCounts()
+    buildFrame(cold, SIZE, vertices)
+    const afterCold = settledRibbonCacheCounts()
+    // Frame one: every settled ribbon is a slot this session has never filled.
+    expect(afterCold.misses - before.misses).toBe(settledCount)
+    expect(afterCold.hits - before.hits).toBe(0)
+
+    for (let i = 1; i < FRAMES; i += 1) {
+      // A FRESH mark array from a FRESH `now`, exactly as the frame loop hands
+      // one over — the paint is rebuilt every frame by construction, and a
+      // settled lane's geometry is what must not be.
+      buildFrame(marksFor(NOW + i * 16), SIZE, vertices)
+    }
+    const warm = settledRibbonCacheCounts()
+    expect(warm.misses - afterCold.misses).toBe(0)
+    expect(warm.hits - afterCold.hits).toBe(settledCount * (FRAMES - 1))
+  }, BENCH_TIMEOUT_MS)
+
+  it('one settled ribbon whose paint moved is one miss — the counter is live, not asleep', () => {
+    const fleet = lawFleet(LIVING + RETIRED)
+    const retire = settledBeyond(fleet, LIVING)
+    const vertices = new Batch()
+
+    const marksFor = (now: number): readonly Mark[] => {
+      const geometry = layoutScene(fleet, { ...SIZE, now, retire, hideFinished: false })
+      return sceneMarks(frameFor(fleet, geometry, now))
+    }
+
+    // Warm every slot first, so the only cold thing in the frame below is the
+    // one mark this arm deliberately changes.
+    buildFrame(marksFor(NOW), SIZE, vertices)
+
+    const next = marksFor(NOW + 16)
+    const settledCount = next.filter(isSettledRibbon).length
+    const at = next.findIndex(isSettledRibbon)
+    expect(at).toBeGreaterThanOrEqual(0)
+    const moved = next.map((mark, i) =>
+      i === at ? ({ ...mark, paint: ink(ICE_050, 0.1234) } as Mark) : mark,
+    )
+
+    const before = settledRibbonCacheCounts()
+    buildFrame(moved, SIZE, vertices)
+    const after = settledRibbonCacheCounts()
+    expect(after.misses - before.misses).toBe(1)
+    expect(after.hits - before.hits).toBe(settledCount - 1)
+  }, BENCH_TIMEOUT_MS)
+})
+
 
 /**
  * THE MODEL FLOOR (#579, prd-33 wave 2) — `layoutScene` + `sceneMarks` alone,
