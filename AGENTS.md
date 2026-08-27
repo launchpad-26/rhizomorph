@@ -338,6 +338,32 @@ So: the operator runs it. A lane never does, and never needs to — the three
 commands above are what a lane's work is gated on, and the operator's review is
 what everything else is gated on.
 
+### A green gate on a branch whose base is not `main` has landed nothing
+
+The gate merges into **local `main`** and pushes that. Point the same machinery
+at an integration branch and every check still passes, the branch still merges,
+the issues still close — and `origin/main` never hears about it.
+
+That is not hypothetical either. prd-44's waves 1 and 2 were built, reviewed and
+merged through four PRs whose base was a branch called `prd44`, which never had
+a PR of its own. Five commits sat there for two days while `main` moved 40
+commits past them; four issues were closed with comments that said, accurately,
+*"landed in PR #96, merged into prd44"*. Nothing was mis-recorded and nothing was
+lost — the milestone simply read as done while none of it was on `main`. It was
+recovered by cherry-picking all five onto current `main` (#128), which applied
+clean, but two days of queue had been paid for nothing.
+
+Two habits are enough to prevent it, and both are cheap:
+
+- **A PR's base is `main` unless you can name the PR that will merge its base.**
+  An integration branch is legitimate — it is how a bundle gets assembled — but
+  it is a stage, not a destination, and the PR that lands it is what makes it
+  one.
+- **Close an issue against a commit on `main`, not against a merge.** "Merged
+  into `<branch>`" is the honest wording for what happened, and it is also the
+  tell: if a closure comment cannot name `main`, the work is still in flight.
+  `git merge-base --is-ancestor <branch> origin/main` answers it in one command.
+
 The third argument is the one this section used not to name. `[load-batches]` is
 a batch count, and the script's own comment calls it **mandatory for anything
 touching tests** (`scripts/gate.sh:91`) — a suite green 8/8 quietly has failed
