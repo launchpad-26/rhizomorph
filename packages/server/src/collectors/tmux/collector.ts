@@ -1,8 +1,9 @@
-import type { AdapterCapabilities, Collector, CollectorContext, RhizomorphEvent, PollResult } from '@rhizomorph/core'
+import type { AdapterCapabilities, Collector, CollectorContext, ExecResult, RhizomorphEvent, PollResult } from '@rhizomorph/core'
 import { countLines, hashPaneContent } from './capture.js'
 import { LIST_PANES_FORMAT, parseListPanes } from './list-panes.js'
 import { resolveWorktreePath } from '../worktree.js'
 import { voiceSkips } from '../parse-skip.js'
+import { mapBounded } from '../../server/concurrency.js'
 
 const COLLECTOR_NAME = 'tmux'
 
@@ -150,17 +151,45 @@ export const tmuxCollector: Collector<TmuxSnapshot> = {
       for (const key of skipKeys) nextListPanesSkipVoiced[key] = true
     }
 
+    // Phase 1: resolve every currentPath not already memoised, at most once
+    // per *unique* path — deduped here, before the fan-out starts, so two
+    // panes sharing a path never race each other into two `git` calls.
+    const pathsToResolve: string[] = []
+    const seenPaths = new Set<string>()
     for (const entry of panes) {
-      let worktreePath = worktreeByPath[entry.currentPath]
-      if (worktreePath === undefined || worktreePath === null) {
-        worktreePath = await resolveWorktreePath(entry.currentPath, context.exec)
-        if (worktreePath !== null) {
-          worktreeByPath[entry.currentPath] = worktreePath
-        }
+      const cached = worktreeByPath[entry.currentPath]
+      if ((cached === undefined || cached === null) && !seenPaths.has(entry.currentPath)) {
+        seenPaths.add(entry.currentPath)
+        pathsToResolve.push(entry.currentPath)
       }
+    }
+    const resolveOutcomes = await mapBounded(pathsToResolve, (path) => resolveWorktreePath(path, context.exec))
+    for (const [index, outcome] of resolveOutcomes.entries()) {
+      const path = pathsToResolve[index]
+      if (path === undefined) continue
+      const resolved = outcome.ok ? outcome.value : null
+      if (resolved !== null) {
+        worktreeByPath[path] = resolved
+      }
+    }
 
+    // Phase 2: capture every pane concurrently. `mapBounded` returns outcomes
+    // at each task's own index, so `captureOutcomes[i]` is `panes[i]`'s
+    // regardless of finish order — the sequential loop below (unchanged in
+    // shape from before this issue) is what keeps `nextPanes` and the
+    // emitted events in `list-panes` order for a byte-identical replay.
+    const captureOutcomes = await mapBounded(panes, (entry) =>
+      context.exec('tmux', ['capture-pane', '-p', '-t', entry.paneId]),
+    )
+
+    for (const [index, entry] of panes.entries()) {
+      const worktreePath = worktreeByPath[entry.currentPath] ?? null
       const prevPane = prevSnapshot.panes[entry.paneId]
-      const captureResult = await context.exec('tmux', ['capture-pane', '-p', '-t', entry.paneId])
+
+      const outcome = captureOutcomes[index]
+      const captureResult: ExecResult = outcome?.ok
+        ? outcome.value
+        : { stdout: '', stderr: '', code: null, failed: true }
       const contentHash = captureResult.failed
         ? (prevPane?.contentHash ?? null)
         : hashPaneContent(captureResult.stdout)
