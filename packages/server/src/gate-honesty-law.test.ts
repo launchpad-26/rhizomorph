@@ -314,9 +314,9 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
   }
 
   /**
-   * The shell text of a rescue block with every quoted RUN removed, so a
-   * `fail`/`exit N` that is merely MENTIONED in a message is not mistaken
-   * for one that is CALLED.
+   * The shell text of a rescue block with every quoted RUN and any trailing
+   * COMMENT removed, so a `fail`/`exit N` that is merely MENTIONED — in a
+   * message or in a comment — is not mistaken for one that is CALLED.
    *
    * `tailChecksStatus`'s same-line branches anchor at the start of the
    * right-hand side (`/^fail\b/`, `/^exit\s+(\d+)\b/`), so no string can
@@ -332,14 +332,27 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    * first would let an apostrophe inside a double-quoted message open a
    * bogus run and swallow the rest of the line. A stripped run leaves a
    * space behind so `fail"x"` cannot be glued into a new token.
+   *
+   * A comment is the SIBLING of the quoted message and arrives at the same
+   * branch by the same route: `|| { echo no; }  # fail is handled elsewhere`
+   * was still credited with calling fail() after quoted runs alone were
+   * stripped (EXECUTED, review of #126). It is cut in the SAME scan rather
+   * than by a later `replace`, because whether a `#` opens a comment depends
+   * on quote state and on the character before it: bash starts a comment
+   * only at the start of a word, so `${LOG#/tmp/}` and `$#` are not
+   * comments, and neither is the `#` in `echo "x"# fail`, where the closing
+   * quote leaves a space in the OUTPUT that the original never had. Running
+   * the cut after the strip would read that manufactured space and eat a
+   * real call; running it inside the scan reads the source.
    */
-  function stripQuotedRuns(s: string): string {
+  function stripQuotedRunsAndComments(s: string): string {
     let out = ''
     let quote: "'" | '"' | null = null
     for (let i = 0; i < s.length; i++) {
       const c = s[i]!
       if (quote === null) {
-        if (c === "'" || c === '"') {
+        if (c === '#' && (i === 0 || /\s/.test(s[i - 1]!))) break
+        else if (c === "'" || c === '"') {
           quote = c
           out += ' '
         } else if (c === '\\') {
@@ -363,9 +376,10 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     const exitMatch = rhs.match(/^exit\s+(\d+)\b/)
     if (exitMatch && isHonestAbortStatus(exitMatch[1]!)) return true
     if (rhs.startsWith('{')) {
-      // Quoted runs stripped first: a block that merely NAMES failure in
-      // its message is not a block that calls fail(). See stripQuotedRuns.
-      const body = stripQuotedRuns(rhs)
+      // Quoted runs and any trailing comment stripped first: a block that
+      // merely NAMES failure — in its message or in a comment beside it —
+      // is not a block that calls fail(). See stripQuotedRunsAndComments.
+      const body = stripQuotedRunsAndComments(rhs)
       if (/\bfail\b/.test(body)) return true
       const blockExit = body.match(/\bexit\s+(\d+)\b/)
       if (blockExit && isHonestAbortStatus(blockExit[1]!)) return true
@@ -485,6 +499,13 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       { label: 'BEYOND THE SIX — rescue block whose MESSAGE says "fail" while calling neither fail nor exit', lines: ['SOME_NEW_CHECK=$(some_new_check) || { echo "  fail to check"; }', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
       { label: 'BEYOND THE SIX — rescue block whose MESSAGE says "exit 2" while calling neither', lines: ['SOME_NEW_CHECK=$(some_new_check) || { echo "  would exit 2 if this were fatal"; }', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
       { label: "BEYOND THE SIX — single-quoted message naming fail, with an apostrophe-bearing double-quoted message beside it", lines: ['SOME_NEW_CHECK=$(some_new_check) || { echo "don\'t panic"; echo \'soft fail\'; }', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      // The sibling of the three above (review of #126): stripping quoted
+      // runs alone left the same branch crediting a `fail`/`exit N` that a
+      // COMMENT merely names. All three of these were EXECUTED against the
+      // quotes-only predicate and went unflagged.
+      { label: 'BEYOND THE SIX — swallowing rescue block whose trailing COMMENT names fail', lines: ['SOME_NEW_CHECK=$(some_new_check) || { echo "  soft"; }  # fail is handled elsewhere', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: 'BEYOND THE SIX — swallowing rescue block whose trailing COMMENT names exit 2', lines: ['SOME_NEW_CHECK=$(some_new_check) || { echo "  soft"; }  # would exit 2 if this were fatal', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: 'BEYOND THE SIX — comment carrying a semicolon, so a segment-splitting cut would resurrect the token a whole-comment cut removes', lines: ['SOME_NEW_CHECK=$(some_new_check) || { echo "  soft"; }  # not fatal; fail comes later', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
     ]
 
     it.each(RIGGED_LINES)('EXECUTED — the real predicate FIRES on: $label', ({ lines }) => {
@@ -509,6 +530,9 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       { label: 'same-line || { ...; fail ...; } rescue block — the form :57 uses', lines: ['SOME_NEW_CHECK=$(some_new_check) || { cleanup; fail "problem"; }'] },
       { label: 'rescue block that CALLS fail after a quoted message mentioning neither — stripping quotes must not lose the real call', lines: ['SOME_NEW_CHECK=$(some_new_check) || { cat "$LOG"; rm -f "$LOG"; fail "cannot resolve it"; }'] },
       { label: 'rescue block that CALLS exit 2 after a quoted message — same, via the block exit path', lines: ['SOME_NEW_CHECK=$(some_new_check) || { echo "  giving up now"; exit 2; }'] },
+      { label: 'rescue block that CALLS fail and then EXPLAINS itself in a trailing comment — cutting the comment must not cut the call', lines: ['SOME_NEW_CHECK=$(some_new_check) || { echo "  context"; fail "cannot go on"; }  # non-obvious, see prd-46'] },
+      { label: 'rescue block whose ${VAR#pat} expansion contains a # that does NOT open a comment — bash starts one only at a word start', lines: ['SOME_NEW_CHECK=$(some_new_check) || { rm -f ${LOG#/tmp/}; fail "cannot go on"; }'] },
+      { label: 'rescue block where the # is glued to a closing quote (echo "x"# is one word, not a comment) and a real fail follows', lines: ['SOME_NEW_CHECK=$(some_new_check) || { echo "x"#y; fail "cannot go on"; }'] },
       { label: 'next-line _RC=$? capture — the form :74/:77 and :100 use', lines: ['SOME_NEW_CHECK=$(some_new_check)', 'SOME_NEW_CHECK_RC=$?', '[ "$SOME_NEW_CHECK_RC" -ne 0 ] && fail "problem"'] },
     ]
 
