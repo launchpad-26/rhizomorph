@@ -370,10 +370,13 @@ const REPLACEALL_SLASH_DASH_PATTERN = /\.replaceAll\(\s*(['"])\/\1\s*,\s*(['"])-
  *   (`/[^a-zA-Z0-9]/g`) is a known gap for this check outside a join — see
  *   the file doc comment.
  * - `concierge/repos.ts`'s reverse walk re-encodes a single directory ENTRY
- *   for comparison (`entry.replace(/[._ ]/g, '-')`) — a positive class, but
- *   one that never lists `/`, because it already operates on a path segment
- *   with no separator left in it. It is the sibling *reverse* direction
- *   this same file's doc comment calls out, not a second forward transform.
+ *   for comparison (`entry.replace(/[^a-zA-Z0-9]/g, '-')`, #120) — a NEGATED
+ *   class, same shape as the snapshot-store/log-paths bullet above, so it is
+ *   excluded outright the same way, before this check ever asks whether `/`
+ *   appears in it. It already operates on a path segment with no separator
+ *   left in it, so `/` could never appear there regardless. It is the
+ *   sibling *reverse* direction this same file's doc comment calls out, not
+ *   a second forward transform.
  *
  * A forward path-to-slug transform must fold `/` — that is the one
  * character no path-flattening scheme can skip — so a positive class (or the
@@ -627,8 +630,8 @@ describe('forward transform law: worktreePathToProjectSlug is the only path-to-s
       expect(findHandRolledForwardTransforms(rigged)).toEqual([])
     })
 
-    it('does NOT fire on the reverse walk re-encoding a bare entry name — no `/` in its class', () => {
-      const rigged = "const encoded = entry.replace(/[._ ]/g, '-')"
+    it('does NOT fire on the reverse walk re-encoding a bare entry name — a negated class, repos.ts\'s real post-#120 shape', () => {
+      const rigged = "const encoded = entry.replace(/[^a-zA-Z0-9]/g, '-')"
       expect(findHandRolledForwardTransforms(rigged)).toEqual([])
     })
 
@@ -653,9 +656,9 @@ describe('forward transform law: worktreePathToProjectSlug is the only path-to-s
 
     it('does NOT fire on a comment that merely quotes the defect shape as history — the trigger for MUST FIX 2', () => {
       const rigged = [
-        '// This class used to be missing the space:',
-        "//   worktreePath.replace(/[/_. ]/g, '-')",
-        "const encoded = entry.replace(/[._ ]/g, '-') // reverse-direction, no slash",
+        '// This walk used to re-encode with a five-character class:',
+        "//   entry.replace(/[._: ]/g, '-')",
+        "const encoded = entry.replace(/[^a-zA-Z0-9]/g, '-') // reverse-direction, negated class",
       ].join('\n')
       expect(findHandRolledForwardTransforms(rigged)).toEqual([])
     })

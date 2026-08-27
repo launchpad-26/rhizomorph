@@ -71,10 +71,10 @@ describe('reverseProjectSlug', () => {
   })
 
   it('resolves a slug through a DOTTED directory name — the #243 gap the forward transform misses', async () => {
-    // worktree-slug.ts's forward transform maps `/`, `_`, `.`, `\`, `:` and a
-    // literal space to `-` (prd-42 ruling 1 closed its worst gap, the space —
-    // not its last: see #47 and that helper's own doc comment for the wider,
-    // still-open divergence). This reverses by matching the real entry
+    // worktree-slug.ts's forward transform maps every non-alphanumeric
+    // character to `-` (prd-42 ruling 1 closed the space, #47 the colon and
+    // backslash, and #124 the rest — so both sides now share one class).
+    // This reverses by matching the real entry
     // `v2.0` (encoded `v2-0`) against the slug, so the dot never needs to be
     // guessed at — it is read off the filesystem instead.
     const fs = fixtureFs({
@@ -218,6 +218,111 @@ describe('reverseProjectSlug', () => {
     const reason = (result as { reason: string }).reason
     expect(reason).toContain('permission denied')
     expect(reason).not.toContain('no directory under')
+  })
+
+  /**
+   * #120: the walk's re-encode used to cover only five characters (`.`, `_`,
+   * `:`, `\` and a space), so any OTHER punctuation in a real directory entry
+   * was left untouched by the re-encode and never matched the slug at all —
+   * only the innocent dash-named sibling matched, and the walk returned it as
+   * a real but WRONG path, silently. Fixed by re-encoding with the real
+   * Claude Code grammar (`entry.replace(/[^a-zA-Z0-9]/g, '-')`, verified
+   * against the shipped 2.1.246 binary), which makes the walk fail CLOSED:
+   * a genuine collision is now reported as an honest ambiguity refusal
+   * instead of a silent wrong match.
+   *
+   * `aZb` is the control, run three ways below: alone, beside an unrelated
+   * dash-named sibling, and absent. None of the three involves a collision,
+   * so all three must behave exactly as they did before this fix — proving
+   * the fix closes the real gap without making the walk newly refuse
+   * ordinary, unambiguous slugs.
+   */
+  describe('the walk fails CLOSED over the real (every-non-alphanumeric) slug grammar', () => {
+    it('control: aZb alone resolves correctly', async () => {
+      const fs = fixtureFs({
+        '/': ['Users'],
+        '/Users': ['dev'],
+        '/Users/dev': ['aZb'],
+      })
+      expect(await reverseProjectSlug('-Users-dev-aZb', fs)).toEqual({
+        path: path.join('/', 'Users', 'dev', 'aZb'),
+      })
+    })
+
+    it('control: aZb beside an unrelated dash-named sibling still resolves correctly — a decoy sibling does not make the walk newly refuse it', async () => {
+      const fs = fixtureFs({
+        '/': ['Users'],
+        '/Users': ['dev'],
+        '/Users/dev': ['aZb', 'a-b'],
+      })
+      expect(await reverseProjectSlug('-Users-dev-aZb', fs)).toEqual({
+        path: path.join('/', 'Users', 'dev', 'aZb'),
+      })
+    })
+
+    it('control: aZb absent produces an honest refusal, never a silent match on the unrelated sibling', async () => {
+      const fs = fixtureFs({
+        '/': ['Users'],
+        '/Users': ['dev'],
+        '/Users/dev': ['a-b'],
+      })
+      const result = await reverseProjectSlug('-Users-dev-aZb', fs)
+      expect(result.path).toBeNull()
+    })
+
+    it.each(['+', '~', '@', ',', "'", '(', '!', '#', '%', '=', ';', 'é', '😀'])(
+      'collision probe %s: an entry beside its own dash-sibling fails CLOSED — an honest ambiguity refusal, never the silent wrong sibling',
+      async (ch) => {
+        const entry = `a${ch}b`
+        const encoded = entry.replace(/[^a-zA-Z0-9]/g, '-')
+        // The dash-sibling is the encoded form itself: it is unaffected by
+        // its own re-encode (dashes and alphanumerics pass through
+        // unchanged), so it is a genuinely distinct, innocent directory name
+        // that happens to collide with `entry` once both are re-encoded.
+        const sibling = encoded
+        const fs = fixtureFs({
+          '/': ['Users'],
+          '/Users': ['dev'],
+          '/Users/dev': [entry, sibling],
+        })
+
+        const result = await reverseProjectSlug(`-Users-dev-${encoded}`, fs)
+        expect(result.path, `expected an honest refusal for "${entry}" vs "${sibling}", not a silent match`).toBeNull()
+        const reason = (result as { reason: string }).reason
+        expect(reason).toContain('ambiguous')
+        expect(reason).toContain(entry)
+        expect(reason).toContain(sibling)
+      },
+    )
+
+    it('collision probe: two DIFFERENT non-dash attractors that fold to the same encoded form also collide, not only a dash sibling — a+b beside a:b, no a-b present', async () => {
+      // Pre-#47 this pair was an honest refusal (neither "+" nor ":" was in
+      // the walk's class); #47 made ":" an attractor on its own, turning this
+      // into a silent wrong match; this fix closes it by recognising both.
+      const fs = fixtureFs({
+        '/': ['Users'],
+        '/Users': ['dev'],
+        '/Users/dev': ['a+b', 'a:b'],
+      })
+      const result = await reverseProjectSlug('-Users-dev-a-b', fs)
+      expect(result.path).toBeNull()
+      const reason = (result as { reason: string }).reason
+      expect(reason).toContain('ambiguous')
+      expect(reason).toContain('a+b')
+      expect(reason).toContain('a:b')
+    })
+
+    it('collision probe: a~b beside a\\b also collides, not only a dash sibling', async () => {
+      const fs = fixtureFs({
+        '/': ['Users'],
+        '/Users': ['dev'],
+        '/Users/dev': ['a~b', 'a\\b'],
+      })
+      const result = await reverseProjectSlug('-Users-dev-a-b', fs)
+      expect(result.path).toBeNull()
+      const reason = (result as { reason: string }).reason
+      expect(reason).toContain('ambiguous')
+    })
   })
 })
 
