@@ -135,14 +135,21 @@ export async function closeCurrentSession(options: CloseSessionOptions): Promise
   const closedAt = now()
   // +1 for the close event itself.
   //
-  // **A claim about the buffer at the moment of append, not a census of the
+  // **A claim about the session at the moment of append, not a census of the
   // file** (prd-40 ruling 1's fifth amendment, #80). A `record()` whose append
-  // is already in flight has not pushed to the buffer yet, though its line is
-  // ahead of the close line on the writer's FIFO tail — so this can undercount
-  // the finished file. Under rule 1b the close line's authority begins at its
-  // own append, so what it carries is what was known at that moment and no
-  // more. `verifyRecord` remains the thing that counts lines.
-  const eventCount = recorder.eventsSoFar().length + 1
+  // is already in flight has not been folded yet, though its line is ahead of
+  // the close line on the writer's FIFO tail — so this can undercount the
+  // finished file. Under rule 1b the close line's authority begins at its own
+  // append, so what it carries is what was known at that moment and no more.
+  // `verifyRecord` remains the thing that counts lines.
+  //
+  // Read from the FOLD, not from `eventsSoFar().length` (prd-44 ruling 4, #37):
+  // the in-memory window is capped at `MAX_BUFFERED_EVENTS`, so past that a
+  // buffer census would write "75001" into the durable record of a session that
+  // recorded far more. `foldSoFar().eventCount` is never capped, and prd-40
+  // ruling 2 already asks every reader to answer from the maintained fold
+  // rather than re-derive from the buffer.
+  const eventCount = recorder.foldSoFar().eventCount + 1
 
   await captureSessionTranscripts({
     events: recorder.eventsSoFar(),
