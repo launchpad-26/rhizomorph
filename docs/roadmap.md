@@ -248,14 +248,20 @@
   the GitHub backlog. **Per-milestone issue counts are deliberately not restated here** — a
   hand-maintained number in this file goes false the same day and reads as live state; the
   board is the source, via `scripts/dev/issues.sh list` and the `prd40`–`prd43` milestones.
-- **prd44 — the flat instrument** (`docs/prds/prd-44-the-flat-instrument.md`, BLESSED
-  2026-08-24): what it costs to watch tracks the swarm, not the session's age. Five rulings —
-  a finished recording is parsed once rather than once per request, the log is opened once per
-  session rather than once per event, independent subprocesses start together without the log's
-  order becoming theirs to decide, the server states its retention as the client already does,
-  and a picture that cannot change is not rebuilt. Drafted the same day from
-  `docs/review/2026-08-24-performance.md`, a measured pass; consumes prd40's ordering and
-  refuses prd33's model stage.
+- **prd44 — the flat instrument** (`docs/prds/done/prd-44-the-flat-instrument.md`, shipped):
+  what it costs to watch tracks the swarm, not the session's age. Five rulings — a finished
+  recording is parsed once rather than once per request, the log is opened once per session
+  rather than once per event, independent subprocesses start together without the log's order
+  becoming theirs to decide, the server states its retention as the client already does, and a
+  picture that cannot change is not rebuilt. Drafted the same day it was blessed from
+  `docs/review/2026-08-24-performance.md`, a measured pass; consumed prd40's ordering and
+  refused prd33's model stage. Its milestone closed 2026-08-27 with every issue done. **The
+  closeout is the last section of the PRD itself** — the two wave-0 answers the operator gave,
+  the four open questions with what the code decided, the six success criteria assessed against
+  counting laws rather than measurements, and the two rulings whose stated *mechanism* lost to
+  measurement while the claim survived. What it left behind has owners rather than a residual
+  paragraph here: the honesty cost of bounding the server's window, the transcript capture a
+  bounded window can no longer complete, and a doc note ruling 3's three consumers each needed.
 - **prd45 — the earned verdict** (`docs/prds/prd-45-the-earned-verdict.md`, BLESSED
   2026-08-24): a check that could not run says so. Drafted from prd39's verify pass and from
   prd24's closing amendment, which retired to `done/` leaving two residuals with no owner.
