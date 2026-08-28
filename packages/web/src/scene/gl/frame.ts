@@ -315,29 +315,73 @@ function spliceBuilt(vertices: Batch, runs: Runs, built: BuiltRibbon): void {
 }
 
 /**
- * The content digest deciding hit vs. miss for {@link settledRibbonCache} —
- * the actual correctness guarantee; the slot identity in the cache key is only
- * a locality optimization. Lists exactly the fields `ribbon()`/`zip()`/
- * `paintAt()` read for a `RibbonMark` (verified against `frame.ts`'s own
- * `ribbon()` below): `outline`, `widthRoot`, `widthTip`, `paint`, and the
- * `additive` flag computed for it this frame. Not `mark.path` — `ribbon()`
- * never reads it, only `outline` (the already-offset polygons); not
- * `mark.dashed` — dashing is already baked into separate `outline` polygons by
- * the time a mark reaches here.
+ * A STABLE RING IS THE SAME OBJECT, SO IDENTITY IS THE KEY — not a walk over
+ * its points (#147).
  *
- * Deliberately not `JSON.stringify(mark)`: a settled ribbon's outline can carry
- * a few hundred points, and plain template joins over them are cheaper than
- * full JSON escaping for the same content.
+ * The first form of this digest joined every point of every outline ring into a
+ * string, every frame. It was correct and it was the whole regression: measured
+ * across `b89ca23` alone, `persistent200`'s paint stage went 13.392 -> 24.682 ms
+ * with the living-only ceiling flat, while the cache hit 600 of 600 — a key
+ * walked at a few hundred points x 600 ribbons x 60 Hz, bought with a saving
+ * smaller than the walk. Keying on identity instead: 10.309 ms, a real 23% under
+ * the pre-cache baseline rather than an 84% loss over it.
+ *
+ * **The guarantee is upstream and it is not new.** `ribbon.ts`'s `OUTLINE_CACHE`
+ * is a `WeakMap` on the SPINE array's identity (`ribbon.ts:170`): a settled lane
+ * whose spine `geometry.ts` hands back unchanged gets back the same
+ * `Point[][]` — the same ring objects — frame after frame. `marks/thread.ts`'s
+ * `PERSIST_RIBBON_CACHE` keys the same way, and `geometry.ts`'s
+ * `retiredSpineCacheFor` is what makes the spine stable in the first place. So
+ * this reuses the discipline its two siblings one stage up already run on,
+ * which is what #178 argued and what the content walk quietly stopped doing.
+ *
+ * **This can only ever produce a false MISS, never a false hit.** A ring rebuilt
+ * as a new array is a new id, so it misses and takes the full tessellation —
+ * correct, and exactly the pre-cache cost. For a false HIT the same array object
+ * would have to change its contents in place, and nothing builds an outline that
+ * way: `buildOutline` returns fresh arrays out of `map`/`flatMap`/`filter`
+ * (`ribbon.ts:194-217`), `regionMark` wraps a caller's ring without touching it
+ * (`marks/types.ts:538`), and no `push`/`splice`/`sort`/indexed write reaches
+ * any of them anywhere in `scene/` — checked, not assumed. If that ever changes,
+ * this key is the thing it breaks.
+ *
+ * Keyed on the member RINGS rather than the outer array, which costs one
+ * `WeakMap` hit per ring — a handful, not a few hundred — and is the form that
+ * keeps working for a mark whose outer array is rebuilt around stable rings.
+ * `regionMark` does exactly that (`outline: [spec.ring]`, a fresh literal every
+ * call); it only ever carries `role: 'rank-enclosure'` today, which
+ * {@link isSettledRibbon} does not admit, so nothing depends on it — but the
+ * outer-array form would have silently lost that population the day it did.
+ *
+ * Everything else in the key is unchanged and stays content-compared, because
+ * none of it is pinned by the spine: `widthRoot`, `widthTip`, the `additive`
+ * flag, and above all `paint` — `budget()` reads live salience even for a
+ * settled lane, so a spotlight or an alarm elsewhere in the fleet must still
+ * reach it. Not `mark.path` (`ribbon()` never reads it) and not `mark.dashed`
+ * (already baked into separate outline polygons by the time a mark arrives).
  */
+const ringIds = new WeakMap<readonly Point[], number>()
+let nextRingId = 0
+
+/** A stable id for one outline ring, minted on first sight and held only as
+ * long as the ring itself — the `WeakMap` is what bounds this. */
+function ringId(ring: readonly Point[]): number {
+  const known = ringIds.get(ring)
+  if (known !== undefined) return known
+  nextRingId += 1
+  ringIds.set(ring, nextRingId)
+  return nextRingId
+}
+
 function digestRibbon(mark: RibbonMark, additive: boolean): string {
   const pt = (p: Point): string => `${p.x},${p.y}`
-  const ring = (r: readonly Point[]): string => r.map(pt).join(';')
   const ink = (i: Ink): string => `${i.rgb[0]},${i.rgb[1]},${i.rgb[2]},${i.alpha}`
   const paintDigest = (p: Paint): string =>
     isLinear(p)
       ? `L${pt(p.from)}>${pt(p.to)}:${p.stops.map((s) => `${s.at}=${ink(s.ink)}`).join(',')}`
       : ink(p)
-  return `${mark.outline.map(ring).join('|')}|${mark.widthRoot}|${mark.widthTip}|${paintDigest(mark.paint)}|${additive}`
+  const shape = mark.outline.map(ringId).join(';')
+  return `${shape}|${mark.widthRoot}|${mark.widthTip}|${paintDigest(mark.paint)}|${additive}`
 }
 
 /**
