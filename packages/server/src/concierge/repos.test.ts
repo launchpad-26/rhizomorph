@@ -15,6 +15,12 @@ import {
   scanCommonRoots,
 } from './repos.js'
 
+// Hoisted here (was declared at the bottom of this file, after the round-trip
+// law below that now needs it) so every `describe` in this file can guard a
+// platform-illegal fixture on the same value, rather than each growing its
+// own `platform() !== 'win32'` spelling.
+const isPosix = platform() !== 'win32'
+
 /**
  * An in-memory `DiscoveryFs`. `tree[dir]` is the list of real (non-symlink)
  * subdirectory names directly inside `dir` — absent from the map means "this
@@ -348,9 +354,14 @@ describe('reverseProjectSlug', () => {
  * `/[._ ]/g` reddens exactly the colon and backslash pairs in this matrix
  * (measured while writing this test), so a class narrowed back down is
  * caught here, not silently passed as a fluke pairing.
+ *
+ * The colon and backslash segments are skipped on win32 (`isPosix`, above) —
+ * both are illegal in an NTFS filename, so the `mkdir` for either fails
+ * outright there, unrelated to anything this law actually tests. Asserted on
+ * every other platform, which is where #47 actually widened the walk's class.
  */
 describe("worktreePathToProjectSlug round-trips through reverseProjectSlug", () => {
-  it('resolves every generated path back to itself, including one with a literal space, colon and backslash', async () => {
+  it('resolves every generated path back to itself, including a literal space everywhere and — on POSIX — a colon and a backslash', async () => {
     // `os.tmpdir()` is a symlink on macOS (`/var` -> `/private/var`) and is
     // not on Linux — encoding the raw path and walking back to the canonical
     // one would pass on ubuntu and fail only on the macOS CI leg. Resolved
@@ -360,13 +371,22 @@ describe("worktreePathToProjectSlug round-trips through reverseProjectSlug", () 
     const root = await realpath(tmpRoot)
 
     try {
+      // The colon and backslash segments are illegal filename characters on
+      // Windows (a colon can never appear in an NTFS name; a backslash inside
+      // a segment is a path separator there) — the `mkdir` below fails
+      // outright for both. Every other segment here is legal on every
+      // platform this suite runs on. Skipped on win32 rather than deleted:
+      // deleting them would erase w5's evidence that the walk round-trips
+      // them at all (the whole reason they exist), and the non-vacuity floors
+      // just below are conditioned on `isPosix` for the same two characters
+      // so they never assert something false about what was actually
+      // generated on the platform running them.
       const ROUND_TRIP_SEGMENTS = [
         'plain-word',
         'dotted.segment',
         'under_score',
         'a space here',
-        'a:colon here',
-        'a\\backslash here',
+        ...(isPosix ? ['a:colon here', 'a\\backslash here'] : []),
         'wide+punct~at@x',
         "quote'comma,paren(x)",
         'accentéhere',
@@ -375,8 +395,8 @@ describe("worktreePathToProjectSlug round-trips through reverseProjectSlug", () 
 
       // Every ordered pair of distinct segments — each mapped character is
       // exercised both leading and following another — plus one path
-      // carrying all six together, so the round trip also holds when every
-      // one of them appears in the same slug at once.
+      // carrying every generated segment together, so the round trip also
+      // holds when all of them appear in the same slug at once.
       const roundTripPaths: string[][] = []
       for (const first of ROUND_TRIP_SEGMENTS) {
         for (const second of ROUND_TRIP_SEGMENTS) {
@@ -386,8 +406,13 @@ describe("worktreePathToProjectSlug round-trips through reverseProjectSlug", () 
       roundTripPaths.push(ROUND_TRIP_SEGMENTS)
 
       expect(roundTripPaths.some((segments) => segments.some((segment) => segment.includes(' ')))).toBe(true)
-      expect(roundTripPaths.some((segments) => segments.some((segment) => segment.includes(':')))).toBe(true)
-      expect(roundTripPaths.some((segments) => segments.some((segment) => segment.includes('\\')))).toBe(true)
+      // Colon and backslash are only ever generated on POSIX (see the skip
+      // above) — asserting these unconditionally on win32 would claim a
+      // segment was generated that never was.
+      if (isPosix) {
+        expect(roundTripPaths.some((segments) => segments.some((segment) => segment.includes(':')))).toBe(true)
+        expect(roundTripPaths.some((segments) => segments.some((segment) => segment.includes('\\')))).toBe(true)
+      }
       // The characters #124 added to the forward class, and #120 to the walk:
       // without these rows the law is green against EITHER side narrowed back
       // to the pre-wave class, which is what made it unable to pin this wave.
@@ -702,7 +727,6 @@ describe('discoverRepos', () => {
   })
 })
 
-const isPosix = platform() !== 'win32'
 const isRoot = isPosix && typeof process.getuid === 'function' && process.getuid() === 0
 
 /**

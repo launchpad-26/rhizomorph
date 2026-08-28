@@ -3,7 +3,11 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { repoSlug, sessionDirFor, snapshotDirFor } from '../log/paths.js'
 import { RESUME_WINDOW_MS } from '../log/session-log.js'
 import type { Rotation } from '../recorder/index.js'
-import { beginRetargetBoundary, performRetarget } from '../recorder/rotate.js'
+import {
+  beginRetargetBoundary,
+  performRetarget,
+  RETARGET_OR_ROTATION_IN_FLIGHT_MESSAGE,
+} from '../recorder/rotate.js'
 import type { ServerContext } from '../server/context.js'
 import { exec as realExec, withTimeout } from '../server/exec.js'
 import { describeTelemetryCost, lanesAtBoundary } from '../server/retarget-cost.js'
@@ -163,9 +167,7 @@ export function registerRetargetRoute(app: FastifyInstance, ctx: ServerContext):
       if (boundary === null) {
         return reply.code(409).send({
           code: RETARGET_IN_FLIGHT_CODE,
-          error:
-            'another retarget (or rotation) is already in flight for this recorder — refused rather than ' +
-            'queued, so this request never risks writing a session into a repo the operator has already moved away from',
+          error: RETARGET_OR_ROTATION_IN_FLIGHT_MESSAGE,
         })
       }
 

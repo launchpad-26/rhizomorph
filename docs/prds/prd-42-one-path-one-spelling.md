@@ -190,6 +190,11 @@ honest to say so here than to let the merged waves read as delivery:**
   cannot resolve. Ruling 1's round-trip law is green only because `#12`
   asserted an *honest refusal* for the colon case instead of a round trip —
   which makes the gap a tested fact rather than a closed one.
+
+  > **SUPERSEDED** by the wave-9-and-Success-1 amendment below (verification of
+  > wave 7, 2026-08-28): `#47` and `#124` closed the gap; encoder and walk are
+  > now byte-identical. Left in place, not deleted, so citations to this
+  > paragraph keep resolving.
 - **Success 3 is met in one direction only.** Its falsifier includes *"a
   retarget can interleave with a rotation"*. Two concurrent retargets now
   refuse (`#14`), but a **rotation** asked during a retarget is handed the
@@ -293,13 +298,31 @@ exists neither direction of the fix is knowable. It cannot join wave 6 either �
 it claims `worktree-slug.test.ts` and `concierge/repos.test.ts`, which wave 6
 also needs.
 
+> **SUPERSEDED** by "Amendment — waves 5 and 6 reconciled, three issues become
+> two" below (grooming,
+> 2026-08-26): `#47` and `#52` merge into one issue. Left in place, not
+> deleted, so citations to this paragraph keep resolving.
+
 **Wave 6 — the law's escape hatch.** `#52`. After wave 5, not beside it: it
 moves or re-authorises the round-trip law living in a file `#47` claims.
+
+> **SUPERSEDED** by "Amendment — waves 5 and 6 reconciled, three issues become
+> two" below (grooming,
+> 2026-08-26): `#52` is closed as superseded by `#47`, which absorbs its work.
+> Left in place, not deleted, so citations to this paragraph keep resolving.
 
 **Wave 7 — the tidy-ups, last.** `#53`. It touches `recorder/rotate.ts`,
 `server/static.ts` and `worktree-slug.test.ts` — three other issues' territory.
 Sweep-shaped work comes last by the corpus's own rule, and this is sweep-shaped
 even though it is small.
+
+> **SUPERSEDED** by "Amendment — waves 5 and 6 reconciled, three issues become
+> two" below (grooming, 2026-08-26): `#53` becomes wave 6 there, as that
+> amendment's own text records (*"formerly wave 7"*). The number 7 is since held
+> by a different, landed wave — `#120` and `#124`, merged as PR `#144` — so this
+> paragraph left unmarked reads as a live claim on a number that now means
+> something else. Left in place, not deleted, so citations to this paragraph
+> keep resolving.
 
 **Waves 5, 6 and 7 are each a single issue, and that is a cost, not a
 preference.** Three waves means three PRs and three payments of the ~21 h queue
@@ -452,3 +475,125 @@ vagueness, and there was nothing here to catch.
 Nothing above renumbers a ruling. Wave 7 becomes wave 6 because the wave it
 followed no longer exists; no wave that has been dispatched or landed is
 touched, and waves 1–4 and 8 keep their numbers.
+
+## Amendment — wave 9, and Success 1 closes (verification of wave 7, 2026-08-28)
+
+> **Blessed** — gabriel-canaan, 2026-08-28, in session. Ruling 7 and wave 9 only.
+> Rulings 1–6 and waves 1–8 are neither renumbered nor rewritten.
+
+**Success 1 is now met, and this supersedes the "not met" finding at :186-192.**
+That paragraph was true when written: encoder and walk disagreed on a colon and a
+backslash. `#47` closed those two and `#124` closed the rest — both sides are now
+byte-identical `/[^a-zA-Z0-9]/g`. The premise is no longer quoted but EXECUTED:
+`grep -ao` on the shipped ELF (version **2.1.247**, the version actually read at
+verification) returns
+
+```
+function B(e){return e.replace(/[^a-zA-Z0-9]/g,"-")}
+function J(e){let n=B(e);if(n.length<=v)return n;return`${n.slice(0,v)}-${tn(e)}`}
+function L(e){return g(k(),G(e))}          // G = override ?? J,  v = 200
+```
+
+CONTROL: the same grep with `[^a-zA-Z0-8]` returns 0 hits. `L` proves the project
+directory name is the **capped** slug, so the length cap `#124` leaves
+unimplemented is a real, named gap rather than a suspicion — and it fails in the
+safe direction, minting a slug that resolves to nothing rather than to something
+wrong (EXECUTED: a 245-character path yields a 245-character uncapped slug —
+the transform is one dash per character, so length passes through, where the
+shipped slugger writes `slice(0, 200)` plus a base36 hash).
+
+**Success 3 remains as amended by ruling 5.** Nothing here touches it.
+
+## Ruling 7 — an ambiguous slug is decided by evidence, and refused when there is none
+
+Where two or more real paths encode to one slug, the walk **reads the answer
+rather than guessing it**: the transcript under that slug records its own `cwd`
+(measured on `#142`'s filing, against a real session log: 940 of 1252 records
+carry a `cwd`, holding the absolute path). When that cwd is one of the
+candidates, it IS the answer. When it is absent, unreadable, or names none of
+them, the walk **refuses** with a reason naming every candidate.
+
+Why: `repos.ts:188-197` already states that a silent pick would be "a wrong answer
+with no sign it was ever in doubt, which is the one thing this module's whole
+contract refuses to do". That promise was kept for a **tie at the longest match**
+and not for candidates of different lengths, each leading somewhere real —
+EXECUTED, and reachable with no punctuation this PRD widened:
+
+```
+/repo/packages/web   ─┐
+                      ├─ both encode to  -repo-packages-web
+/repo/packages-web   ─┘        walk returns /repo/packages-web, silently
+```
+
+**This is pre-existing, not wave 7's doing** — proven by regressing the walk to
+its pre-`#120` five-character class, where the same shape answers silently too
+(`/repo/a.b/c` vs `/repo/a.b-c`). What `#120` widened is the set of characters
+able to REACH it, which is the "boundary moved, not only narrowed" shape this PRD
+already records for `#47`. `#120`'s done-when is therefore scoped to
+**same-segment** collisions, in the issue and in its commit body, rather than left
+as an unmet bullet.
+
+*Rejected alternative — keep preferring the longest.* It is the silent wrong
+answer the module's own contract disowns.
+
+*Rejected alternative — refuse without consulting the transcript.* Honest, but it
+hides a path that is knowable and charges the repo picker for a case the evidence
+settles. Refusal is the fallback, not the rule.
+
+Extent: the walk only. It licenses no change to the encoder, and none to
+`paths/containment.ts`, which this PRD consumes and never edits.
+
+### Sequencing amendment — wave 7, as it actually shipped
+
+**Wave 7 — the transform means one thing on both sides.** `#120` (the reverse
+walk fails closed over the real slug grammar) and `#124` (the forward transform
+mints the slug Claude Code actually mints), merged together as PR `#144`.
+
+This is recorded because the number was previously spoken for by `#53`'s
+paragraph above, which the waves-5-and-6 reconciliation had already renumbered to
+wave 6 without marking the paragraph. Until that marker was added the document
+declared wave 7 exactly once — accurately by count, and about the wrong issue, so
+the reconciler's duplicate check could not see it. The marker and this
+declaration are one edit: marking the stale paragraph alone would have left the
+wave that actually landed undeclared.
+
+### Sequencing amendment — wave 9
+
+**Wave 9 — parallel, fenced apart, after wave 7 lands.**
+
+- `prd42 w9: an ambiguous slug is decided by the transcript's own cwd, not by
+  guessing` (`#142`) — `concierge/repos.ts`, its test, a new
+  `concierge/slug-disambiguate.ts` and its test, `.swarm/coupling.txt`. The
+  transcript read lands in a new named file rather than importing across the
+  `log/` boundary; that widening is declared on the issue.
+- `prd42 w9: the forward-transform law sees the negated-class shape` (`#143`) —
+  `collectors/sessionlog/forward-transform-law.test.ts` only.
+
+```
+$ scripts/fence-lint.sh 142 143
+fence lint PASSED
+```
+
+**Both follow wave 7.** Each claims a file PR `#144` is amending — a live fence,
+and bundling across one is forbidden.
+
+`#143` carries a finding worth reading before anyone starts it: **the obvious
+one-line fix is a no-op.** Deleting the negated-class exclusions at
+`forward-transform-law.test.ts:393`/`:401` leaves the law green *and* leaves a
+verbatim copy of the canonical transform undetected, because the next guard
+(`!body.includes('/')`) filters negated classes one line later. Recorded because
+the wrong repair is cheap to try and looks exactly like a working one.
+
+### A third housekeeping correction the reconciler found
+
+`#92` sits in this milestone with no wave. It is closed as superseded by `#87`
+(whose fence absorbed it) and is not dispatchable work; said here so
+fence-lint's blind spot and the board's orphan check do not each report it as an
+open question. The waves-5-and-6 double declarations the reconciler also found
+are marked superseded in place above, at the paragraphs themselves, each
+citing the amendment that supersedes it by HEADING rather than by line number —
+a line citation in an append-only document is falsified by the next amendment
+that inserts above it, which is what happened to this one's first revision.
+
+Nothing above renumbers a ruling or an earlier wave. Wave 9 is a number nothing
+else has used.

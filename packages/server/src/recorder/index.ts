@@ -23,6 +23,7 @@ export {
   nextSessionStart,
   openNextSession,
   retargetSession,
+  RetargetInFlightError,
   rotateSession,
   type ClosedSession,
   type OpenedSession,
