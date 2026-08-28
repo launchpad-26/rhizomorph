@@ -879,6 +879,55 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(NEW_BLOCK).toContain('-gt 1')
     })
 
+    it('the fix reads a NUL-delimited listing via -z / read -r -d \'\', not line-delimited `read -r`', () => {
+      expect(NEW_BLOCK).toContain('diff -z main...HEAD --name-only')
+      expect(NEW_BLOCK).toContain("read -r -d ''")
+    })
+
+    /**
+     * The pair below is the half this describe was missing, and its absence was
+     * found by reverting #71 wholesale and watching this file stay green: the
+     * four tests above pin the rc separation and plain-ASCII paths, so both of
+     * #71's central edits could be undone without a single assertion moving.
+     * The NUL-guard describe below already carries both halves for the same
+     * shape — a text assertion AND a real café.ts fixture — and #71 reused that
+     * shape here deliberately (`gate.sh:79`). This makes the standard the same
+     * on both sides of the file.
+     */
+    function fixtureWithNonAsciiInFenceName(): string {
+      const dir = scratchDir('fence-nonascii')
+      initRepo(dir)
+      mkdirSync(join(dir, 'src', 'foo'), { recursive: true })
+      writeFileSync(join(dir, 'src', 'foo', 'plain.ts'), 'a\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'init')
+      git(dir, 'checkout', '-q', '-b', 'feature')
+      writeFileSync(join(dir, 'src', 'foo', 'caf\u00e9.ts'), 'b\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'add an IN-FENCE file with a non-ASCII name')
+      return dir
+    }
+
+    it('EXECUTED — the OLD (line-delimited) form convicts an IN-FENCE caf\u00e9.ts, because git quotes the name', () => {
+      const dir = fixtureWithNonAsciiInFenceName()
+      const OLD_BLOCK =
+        'viol=$(git diff main...HEAD --name-only | grep -vE "$FENCE" || true)\n' +
+        '[ -n "$viol" ] && { echo "VERDICT: fence violated"; fail "fence violated"; }\n' +
+        'echo "VERDICT: fence OK"\n'
+      const script = preludeScript(0, "FENCE='^src/foo/'\nW=.\n") + `cd "$W"\n` + OLD_BLOCK
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('fence violated')
+    })
+
+    it('EXECUTED — the NEW (real, extracted) form passes that same IN-FENCE caf\u00e9.ts', () => {
+      const dir = fixtureWithNonAsciiInFenceName()
+      const script = preludeScript(0, "FENCE='^src/foo/'\nW=.\n") + NEW_BLOCK + '\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('fence OK')
+    })
+
     function fixture(): string {
       const dir = scratchDir('fence')
       initRepo(dir)
