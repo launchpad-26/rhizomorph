@@ -14,6 +14,7 @@ import {
   reverseProjectSlug,
   scanCommonRoots,
 } from './repos.js'
+import type { TranscriptFileListing, TranscriptFileRead, TranscriptReadFs } from './slug-disambiguate.js'
 
 // Hoisted here (was declared at the bottom of this file, after the round-trip
 // law below that now needs it) so every `describe` in this file can guard a
@@ -55,6 +56,34 @@ function fixtureFs(
       return { readable: true, entries: tree[dir] ?? [] }
     },
   }
+}
+
+/**
+ * An in-memory `TranscriptReadFs` — mirrors `fixtureFs` above, but for the
+ * transcript-reading seam `reverseProjectSlug` only ever consults once it
+ * has found a genuine ambiguity (see `slug-disambiguate.ts`).
+ */
+function fixtureTranscriptFs(
+  files: Record<string, string[]>,
+  contents: Record<string, string> = {},
+): TranscriptReadFs {
+  return {
+    listTranscriptFiles: async (slugDir): Promise<TranscriptFileListing> => ({ readable: true, files: files[slugDir] ?? [] }),
+    readTranscriptFile: async (filePath): Promise<TranscriptFileRead> => ({ readable: true, content: contents[filePath] ?? '' }),
+  }
+}
+
+/**
+ * Passed to every pre-existing ambiguous-slug test below so the walk's
+ * refusal stays hermetic (no real `~/.claude/projects` read) rather than
+ * relying on the real machine's own project history happening not to
+ * collide with a fixture slug — the tie itself still refuses exactly as it
+ * did before this file's cwd-disambiguation existed, since there is no
+ * transcript here to settle it either way.
+ */
+const NO_TRANSCRIPT_EVIDENCE = {
+  claudeProjectsRoot: path.join('/', 'claude-projects-fixture-root'),
+  transcriptFs: fixtureTranscriptFs({}),
 }
 
 describe('reverseProjectSlug', () => {
@@ -156,7 +185,7 @@ describe('reverseProjectSlug', () => {
       '/Users/dev': ['foo-bar', 'foo.bar'],
     })
 
-    const result = await reverseProjectSlug('-Users-dev-foo-bar', fs)
+    const result = await reverseProjectSlug('-Users-dev-foo-bar', fs, NO_TRANSCRIPT_EVIDENCE)
     expect(result.path).toBeNull()
     const reason = (result as { reason: string }).reason
     expect(reason).toContain('ambiguous')
@@ -292,7 +321,7 @@ describe('reverseProjectSlug', () => {
           '/Users/dev': [entry, sibling],
         })
 
-        const result = await reverseProjectSlug(`-Users-dev-${encoded}`, fs)
+        const result = await reverseProjectSlug(`-Users-dev-${encoded}`, fs, NO_TRANSCRIPT_EVIDENCE)
         expect(result.path, `expected an honest refusal for "${entry}" vs "${sibling}", not a silent match`).toBeNull()
         const reason = (result as { reason: string }).reason
         expect(reason).toContain('ambiguous')
@@ -310,7 +339,7 @@ describe('reverseProjectSlug', () => {
         '/Users': ['dev'],
         '/Users/dev': ['a+b', 'a:b'],
       })
-      const result = await reverseProjectSlug('-Users-dev-a-b', fs)
+      const result = await reverseProjectSlug('-Users-dev-a-b', fs, NO_TRANSCRIPT_EVIDENCE)
       expect(result.path).toBeNull()
       const reason = (result as { reason: string }).reason
       expect(reason).toContain('ambiguous')
@@ -324,11 +353,159 @@ describe('reverseProjectSlug', () => {
         '/Users': ['dev'],
         '/Users/dev': ['a~b', 'a\\b'],
       })
-      const result = await reverseProjectSlug('-Users-dev-a-b', fs)
+      const result = await reverseProjectSlug('-Users-dev-a-b', fs, NO_TRANSCRIPT_EVIDENCE)
       expect(result.path).toBeNull()
       const reason = (result as { reason: string }).reason
       expect(reason).toContain('ambiguous')
     })
+  })
+})
+
+/**
+ * prd42 w9's ruling (#142, operator 2026-08-28): when the walk's tie-break
+ * finds MORE THAN ONE real directory a slug could have come from, it decides
+ * from the slug's own transcript rather than guessing. The monorepo shape
+ * from the issue itself — `/repo/packages/web` and `/repo/packages-web` both
+ * encode to `-repo-packages-web` — is EXECUTED here in both directions, with
+ * the wrong answer visibly different from the right one each time.
+ */
+describe('reverseProjectSlug — an ambiguous slug is decided by the transcript\'s own recorded cwd', () => {
+  const monorepoFs = fixtureFs({
+    '/': ['repo'],
+    '/repo': ['packages', 'packages-web'],
+    '/repo/packages': ['web'],
+    '/repo/packages/web': [],
+    '/repo/packages-web': [],
+  })
+  const claudeProjectsRoot = path.join('/', 'claude-projects')
+  const slug = '-repo-packages-web'
+  const slugDir = path.join(claudeProjectsRoot, slug)
+  const packagesWeb = path.join('/', 'repo', 'packages', 'web')
+  const packagesDashWeb = path.join('/', 'repo', 'packages-web')
+
+  it('resolves to /repo/packages/web when that is the transcript\'s recorded cwd', async () => {
+    const transcriptFs = fixtureTranscriptFs(
+      { [slugDir]: ['session1.jsonl'] },
+      { [path.join(slugDir, 'session1.jsonl')]: `${JSON.stringify({ type: 'user', cwd: packagesWeb })}\n` },
+    )
+
+    const result = await reverseProjectSlug(slug, monorepoFs, { claudeProjectsRoot, transcriptFs })
+    expect(result).toEqual({ path: packagesWeb })
+  })
+
+  it('resolves to /repo/packages-web when THAT is the transcript\'s recorded cwd — the wrong answer visibly different from the right one above', async () => {
+    const transcriptFs = fixtureTranscriptFs(
+      { [slugDir]: ['session1.jsonl'] },
+      { [path.join(slugDir, 'session1.jsonl')]: `${JSON.stringify({ type: 'user', cwd: packagesDashWeb })}\n` },
+    )
+
+    const result = await reverseProjectSlug(slug, monorepoFs, { claudeProjectsRoot, transcriptFs })
+    expect(result).toEqual({ path: packagesDashWeb })
+  })
+
+  it('refuses, naming both candidates, when no record in the transcript carries a cwd at all', async () => {
+    const transcriptFs = fixtureTranscriptFs(
+      { [slugDir]: ['session1.jsonl'] },
+      { [path.join(slugDir, 'session1.jsonl')]: `${JSON.stringify({ type: 'system' })}\n` },
+    )
+
+    const result = await reverseProjectSlug(slug, monorepoFs, { claudeProjectsRoot, transcriptFs })
+    expect(result.path).toBeNull()
+    const reason = (result as { reason: string }).reason
+    expect(reason).toContain('ambiguous')
+    expect(reason).toContain(packagesWeb)
+    expect(reason).toContain(packagesDashWeb)
+  })
+
+  it('refuses when the transcript file itself cannot be read', async () => {
+    const transcriptFs: TranscriptReadFs = {
+      listTranscriptFiles: async () => ({ readable: true, files: ['session1.jsonl'] }),
+      readTranscriptFile: async () => ({ readable: false, reason: 'EACCES: permission denied' }),
+    }
+
+    const result = await reverseProjectSlug(slug, monorepoFs, { claudeProjectsRoot, transcriptFs })
+    expect(result.path).toBeNull()
+    expect((result as { reason: string }).reason).toContain('permission denied')
+  })
+
+  it('refuses when the transcript is malformed (no line parses as JSON)', async () => {
+    const transcriptFs = fixtureTranscriptFs({ [slugDir]: ['session1.jsonl'] }, { [path.join(slugDir, 'session1.jsonl')]: 'not json\n' })
+
+    const result = await reverseProjectSlug(slug, monorepoFs, { claudeProjectsRoot, transcriptFs })
+    expect(result.path).toBeNull()
+    expect((result as { reason: string }).reason).toContain('malformed')
+  })
+
+  it('refuses when the recorded cwd names a real directory that is neither candidate', async () => {
+    const elsewhere = path.join('/', 'somewhere', 'else')
+    const fsWithElsewhere = fixtureFs({
+      '/': ['repo', 'somewhere'],
+      '/repo': ['packages', 'packages-web'],
+      '/repo/packages': ['web'],
+      '/repo/packages/web': [],
+      '/repo/packages-web': [],
+      '/somewhere': ['else'],
+      '/somewhere/else': [],
+    })
+    const transcriptFs = fixtureTranscriptFs(
+      { [slugDir]: ['session1.jsonl'] },
+      { [path.join(slugDir, 'session1.jsonl')]: `${JSON.stringify({ type: 'user', cwd: elsewhere })}\n` },
+    )
+
+    const result = await reverseProjectSlug(slug, fsWithElsewhere, { claudeProjectsRoot, transcriptFs })
+    expect(result.path).toBeNull()
+    const reason = (result as { reason: string }).reason
+    expect(reason).toContain(elsewhere)
+    expect(reason).toContain('names none of them')
+  })
+
+  it('refuses, distinctly, when the recorded cwd names a path that no longer exists on disk', async () => {
+    const gone = path.join('/', 'repo', 'renamed-away')
+    const transcriptFs = fixtureTranscriptFs(
+      { [slugDir]: ['session1.jsonl'] },
+      { [path.join(slugDir, 'session1.jsonl')]: `${JSON.stringify({ type: 'user', cwd: gone })}\n` },
+    )
+
+    const result = await reverseProjectSlug(slug, monorepoFs, { claudeProjectsRoot, transcriptFs })
+    expect(result.path).toBeNull()
+    const reason = (result as { reason: string }).reason
+    expect(reason).toContain(gone)
+    expect(reason).toContain('no longer exists on disk')
+  })
+
+  it('costs exactly one extra directory read to explore the losing branch, plus one transcript listing and one file read — EXECUTED', async () => {
+    let listSubdirectoryCalls = 0
+    const countingFs: DiscoveryFs = {
+      exists: monorepoFs.exists,
+      listSubdirectories: async (dir) => {
+        listSubdirectoryCalls += 1
+        return monorepoFs.listSubdirectories(dir)
+      },
+    }
+
+    let listTranscriptCalls = 0
+    let readTranscriptCalls = 0
+    const transcriptFs: TranscriptReadFs = {
+      listTranscriptFiles: async (dir) => {
+        listTranscriptCalls += 1
+        return { readable: true, files: ['session1.jsonl'] }
+      },
+      readTranscriptFile: async () => {
+        readTranscriptCalls += 1
+        return { readable: true, content: `${JSON.stringify({ type: 'user', cwd: packagesWeb })}\n` }
+      },
+    }
+
+    const result = await reverseProjectSlug(slug, countingFs, { claudeProjectsRoot, transcriptFs })
+
+    expect(result).toEqual({ path: packagesWeb })
+    // '/', '/repo', '/repo/packages' — one hop more than the 2 a
+    // non-ambiguous walk straight to /repo/packages-web would have cost
+    // (see this test file's own describe doc): the walk must open the
+    // losing branch to find out whether IT resolves too.
+    expect(listSubdirectoryCalls).toBe(3)
+    expect(listTranscriptCalls).toBe(1)
+    expect(readTranscriptCalls).toBe(1)
   })
 })
 
