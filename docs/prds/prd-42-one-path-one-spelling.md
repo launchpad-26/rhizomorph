@@ -316,6 +316,14 @@ moves or re-authorises the round-trip law living in a file `#47` claims.
 Sweep-shaped work comes last by the corpus's own rule, and this is sweep-shaped
 even though it is small.
 
+> **SUPERSEDED** by "Amendment — waves 5 and 6 reconciled, three issues become
+> two" below (grooming, 2026-08-26): `#53` becomes wave 6 there, as that
+> amendment's own text records (*"formerly wave 7"*). The number 7 is since held
+> by a different, landed wave — `#120` and `#124`, merged as PR `#144` — so this
+> paragraph left unmarked reads as a live claim on a number that now means
+> something else. Left in place, not deleted, so citations to this paragraph
+> keep resolving.
+
 **Waves 5, 6 and 7 are each a single issue, and that is a cost, not a
 preference.** Three waves means three PRs and three payments of the ~21 h queue
 toll for three small changes. They cannot be bundled as they stand: every
@@ -534,6 +542,20 @@ settles. Refusal is the fallback, not the rule.
 
 Extent: the walk only. It licenses no change to the encoder, and none to
 `paths/containment.ts`, which this PRD consumes and never edits.
+
+### Sequencing amendment — wave 7, as it actually shipped
+
+**Wave 7 — the transform means one thing on both sides.** `#120` (the reverse
+walk fails closed over the real slug grammar) and `#124` (the forward transform
+mints the slug Claude Code actually mints), merged together as PR `#144`.
+
+This is recorded because the number was previously spoken for by `#53`'s
+paragraph above, which the waves-5-and-6 reconciliation had already renumbered to
+wave 6 without marking the paragraph. Until that marker was added the document
+declared wave 7 exactly once — accurately by count, and about the wrong issue, so
+the reconciler's duplicate check could not see it. The marker and this
+declaration are one edit: marking the stale paragraph alone would have left the
+wave that actually landed undeclared.
 
 ### Sequencing amendment — wave 9
 
