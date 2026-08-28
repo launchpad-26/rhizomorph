@@ -361,7 +361,7 @@ describe('reverseProjectSlug', () => {
  * every other platform, which is where #47 actually widened the walk's class.
  */
 describe("worktreePathToProjectSlug round-trips through reverseProjectSlug", () => {
-  it('resolves every generated path back to itself, including one with a literal space, colon and backslash', async () => {
+  it('resolves every generated path back to itself, including a literal space everywhere and — on POSIX — a colon and a backslash', async () => {
     // `os.tmpdir()` is a symlink on macOS (`/var` -> `/private/var`) and is
     // not on Linux — encoding the raw path and walking back to the canonical
     // one would pass on ubuntu and fail only on the macOS CI leg. Resolved
