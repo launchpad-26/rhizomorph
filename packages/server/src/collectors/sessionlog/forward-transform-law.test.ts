@@ -707,6 +707,45 @@ describe('forward transform law: worktreePathToProjectSlug is the only path-to-s
       expect(hits.some((hit) => hit.includes(CANONICAL_NEGATED_CLASS))).toBe(true)
     })
 
+    /**
+     * The allowlist is an EXEMPTION, so it needs the same discipline the
+     * canonical path gets above: each entry must exist, be tracked, and carry
+     * exactly the number of occurrences its allowance was granted for.
+     *
+     * Without the count, an allowed file holds blanket immunity for ANY number
+     * of hits — review of #143 proved it (EXECUTED): appending a real hoisted
+     * forward transform to `repos.ts` left this law green, 35/35, while the
+     * same transform in a third file was caught with a usable message. And
+     * #45's original defect was a hand-rolled copy in a TEST file, which is
+     * exactly the kind of file the second entry exempts.
+     *
+     * Without the tracked check, an allowance can outlive the code that
+     * justified it: #143 blessed `repos.ts` on the strength of a specific line,
+     * and #142 — the very next commit in the same wave — rewrote that function.
+     * The justification survived by luck, and nothing was checking.
+     */
+    const CANONICAL_NEGATED_CLASS_EXPECTED_HITS: Record<string, number> = {
+      'packages/server/src/concierge/repos.ts': 1,
+      'packages/server/src/concierge/repos.test.ts': 2,
+    }
+
+    it('every allowlisted path is tracked, and carries exactly the occurrences its allowance was granted for', () => {
+      const tracked = new Set(trackedFiles())
+      expect(Object.keys(CANONICAL_NEGATED_CLASS_EXPECTED_HITS).sort()).toEqual(
+        [...CANONICAL_NEGATED_CLASS_ALLOWED_PATHS].sort(),
+      )
+      for (const [file, expected] of Object.entries(CANONICAL_NEGATED_CLASS_EXPECTED_HITS)) {
+        expect(tracked.has(file), `${file} is allowlisted but not tracked by git`).toBe(true)
+        const contents = readFileSync(`${REPO_ROOT}/${file}`, 'utf8')
+        const occurrences = contents.split(CANONICAL_NEGATED_CLASS).length - 1
+        expect(
+          occurrences,
+          `${file} carries ${occurrences} occurrence(s) of the canonical body, allowed for ${expected}. ` +
+            'A new one is either a second forward transform (fix it) or a deliberate addition (raise the count, in the same commit, with the reason).',
+        ).toBe(expected)
+      }
+    })
+
     it('does NOT fire on the real snapshot-store.ts / log/paths.ts files — the natural regression fixtures for this signature', () => {
       const snapshotStore = readFileSync(`${REPO_ROOT}/packages/server/src/server/snapshot-store.ts`, 'utf8')
       const logPaths = readFileSync(`${REPO_ROOT}/packages/server/src/log/paths.ts`, 'utf8')
