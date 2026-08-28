@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync, chmodSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 /**
@@ -265,9 +265,9 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    *
    * The other 14 pass structurally on their own merits: 10 same-line forms
    * (:17's `|| exit 2`, written before `fail` is even defined; 8 `|| fail`
-   * at :41 :56 :92 :178 :188 :252 :338 :362; 1 `|| { ...; fail ...; }`
-   * rescue block at :57) and 4 next-line `_RC=$?` captures (:121's `N_RC`,
-   * :125's `STATUS_RC`, :152's `DIRTY_RC`, :253's `CAT_RC`).
+   * at :41 :56 :102 :188 :198 :262 :348 :372; 1 `|| { ...; fail ...; }`
+   * rescue block at :57) and 4 next-line `_RC=$?` captures (:131's `N_RC`,
+   * :135's `STATUS_RC`, :162's `DIRTY_RC`, :263's `CAT_RC`).
    *
    * These counts moved with #71, and the reason is structural rather than
    * arithmetic: `DIFF_RC` and `GREP_RC` used to be next-line captures of
@@ -866,7 +866,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     })
   })
 
-  describe(':74 fence regex — an invalid FENCE holds, it does not print "fence OK"', () => {
+  describe(':98 fence audit — an invalid FENCE holds, and a hostile path is compared as bytes, not as text', () => {
     const NEW_BLOCK = sliceLines('printf \'\' | grep -E "$FENCE"', 'fence OK: ${DIFF_FILES[*]}')
 
     it('the old masking form ( grep -vE "$FENCE" || true ) is gone from the file', () => {
@@ -883,6 +883,63 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(NEW_BLOCK).toContain('diff -z main...HEAD --name-only')
       expect(NEW_BLOCK).toContain("read -r -d ''")
     })
+
+    /**
+     * The two pairs below close the two gaps the review of #155 EXECUTED against
+     * the merged shape of this block. Both follow the standard the café.ts pair
+     * one screen down already sets — a text assertion AND a real fixture — and
+     * each fixture is run through the SUPERSEDED form too, so it is shown to
+     * discriminate rather than merely to pass.
+     */
+
+    it('the fence match is whole-string (`[[ =~ ]]`), not the line-by-line `grep -qE` it replaced', () => {
+      expect(NEW_BLOCK).toContain('[[ $f =~ $FENCE ]]')
+      expect(NEW_BLOCK).not.toContain('grep -qE "$FENCE"')
+    })
+
+    /** An OUT-of-fence path whose name contains a newline, one line of which looks in-fence. */
+    function fixtureWithNewlineInName(): string {
+      const dir = scratchDir('fence-newline')
+      initRepo(dir)
+      mkdirSync(join(dir, 'src', 'foo'), { recursive: true })
+      writeFileSync(join(dir, 'src', 'foo', 'plain.ts'), 'a\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'init')
+      git(dir, 'checkout', '-q', '-b', 'feature')
+      const hostile = join(dir, 'evil/a\nsrc/foo/b.ts')
+      mkdirSync(dirname(hostile), { recursive: true })
+      writeFileSync(hostile, 'b\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'add an OUT-OF-FENCE file whose name contains a newline')
+      return dir
+    }
+
+    it('EXECUTED — the per-file `grep -qE` form ADMITS an out-of-fence name containing an in-fence-looking line', () => {
+      const dir = fixtureWithNewlineInName()
+      const GREP_BLOCK =
+        'viol=()\n' +
+        "while IFS= read -r -d '' f; do\n" +
+        '  printf \'%s\' "$f" | grep -qE "$FENCE" || viol+=("$f")\n' +
+        'done < <(git diff -z main...HEAD --name-only)\n' +
+        '[ "${#viol[@]}" -gt 0 ] && { echo "VERDICT: fence violated"; fail "fence violated"; }\n' +
+        'echo "VERDICT: fence OK"\n'
+      const script = preludeScript(0, "FENCE='^src/foo/'\nW=.\n") + `cd "$W"\n` + GREP_BLOCK
+      const res = runFragment(script, dir)
+      // grep matches LINE BY LINE, so the "src/foo/b.ts" line of the NAME matches
+      // the fence and the file is waved through — a fail-OPEN fence bypass.
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('VERDICT: fence OK')
+    })
+
+    it('EXECUTED — the real, extracted form HOLDS that same out-of-fence name', () => {
+      const dir = fixtureWithNewlineInName()
+      const script = preludeScript(0, "FENCE='^src/foo/'\nW=.\n") + NEW_BLOCK + '\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('fence violated')
+    })
+
+
 
     /**
      * The pair below is the half this describe was missing, and its absence was

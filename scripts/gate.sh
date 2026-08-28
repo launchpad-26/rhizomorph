@@ -85,6 +85,16 @@ git -C "$W" merge-base --is-ancestor main HEAD 2>/dev/null || fail "branch $BRAN
 # checked ONCE, against empty input, so its rc means only "does this pattern
 # compile" and is never conflated with "did this filename match" (which is
 # always 0 or 1 once the pattern is known-valid).
+#
+# Matching is `[[ =~ ]]`, not `grep -qE`: grep matches LINE BY LINE, so a name
+# containing a newline was admitted whenever ANY line of it matched FENCE —
+# `evil/a<NL>src/foo/b.ts` passed a fence of '^src/foo/'. EXECUTED: the
+# line-delimited form this replaces CONVICTED that file, so per-file grep was a
+# fail-OPEN reversal of the very guard #71 exists to harden. `[[ =~ ]]` matches
+# the whole string (no REG_NEWLINE), so `^` anchors at the name, not at a line.
+# Validation above stays on grep -E: both are POSIX ERE, and if they ever did
+# disagree the disagreement lands as rc 2 from [[ ]], which reads as no-match
+# and CONVICTS — a false hold, never a false pass.
 printf '' | grep -E "$FENCE" >/dev/null 2>&1
 GREP_RC=$?
 [ "$GREP_RC" -gt 1 ] && fail "fence regex '$FENCE' is invalid (grep rc=$GREP_RC) — cannot audit the fence"
@@ -98,7 +108,7 @@ DIFF_FILES=()
 viol=()
 while IFS= read -r -d '' f; do
   DIFF_FILES+=("$f")
-  printf '%s' "$f" | grep -qE "$FENCE" || viol+=("$f")
+  [[ $f =~ $FENCE ]] || viol+=("$f")
 done <"$FENCE_LIST"
 rm -f "$FENCE_LIST"
 
