@@ -113,7 +113,15 @@ done <"$FENCE_LIST"
 rm -f "$FENCE_LIST"
 
 [ "${#viol[@]}" -gt 0 ] && { echo "  outside fence:"; printf '    %s\n' "${viol[@]}"; fail "fence violated (widen it deliberately, with the diff as justification, or send it back)"; }
-echo "  fence OK: ${DIFF_FILES[*]}"
+# ${DIFF_FILES[*]-}, not ${DIFF_FILES[*]}: an empty array under `set -u` (:13)
+# is an unbound variable on bash < 4.4, and /bin/bash on macOS is 3.2. EXECUTED
+# there: a branch whose diff against main is empty aborted with a bare
+# "DIFF_FILES[*]: unbound variable", rc 1, WITHOUT passing through fail() — so
+# no "GATE FAILED" and no ">>> HOLDING" line, on the one code path the script
+# has a dedicated diagnosis for eighteen lines further down ("no commits on the
+# branch (a worker may have left work uncommitted)", :142). The old
+# line-delimited form printed "fence OK: " and reached it; this restores that.
+echo "  fence OK: ${DIFF_FILES[*]-}"
 
 # These two compare ARITHMETICALLY, not as text: BSD wc -l right-aligns its
 # count in an eight-char field ("       0"), and command substitution strips

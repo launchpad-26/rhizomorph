@@ -265,9 +265,9 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    *
    * The other 14 pass structurally on their own merits: 10 same-line forms
    * (:17's `|| exit 2`, written before `fail` is even defined; 8 `|| fail`
-   * at :41 :56 :102 :188 :198 :262 :348 :372; 1 `|| { ...; fail ...; }`
-   * rescue block at :57) and 4 next-line `_RC=$?` captures (:131's `N_RC`,
-   * :135's `STATUS_RC`, :162's `DIRTY_RC`, :263's `CAT_RC`).
+   * at :41 :56 :102 :196 :206 :270 :356 :380; 1 `|| { ...; fail ...; }`
+   * rescue block at :57) and 4 next-line `_RC=$?` captures (:139's `N_RC`,
+   * :143's `STATUS_RC`, :170's `DIRTY_RC`, :271's `CAT_RC`).
    *
    * These counts moved with #71, and the reason is structural rather than
    * arithmetic: `DIFF_RC` and `GREP_RC` used to be next-line captures of
@@ -867,7 +867,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
   })
 
   describe(':98 fence audit — an invalid FENCE holds, and a hostile path is compared as bytes, not as text', () => {
-    const NEW_BLOCK = sliceLines('printf \'\' | grep -E "$FENCE"', 'fence OK: ${DIFF_FILES[*]}')
+    const NEW_BLOCK = sliceLines('printf \'\' | grep -E "$FENCE"', 'fence OK: ${DIFF_FILES')
 
     it('the old masking form ( grep -vE "$FENCE" || true ) is gone from the file', () => {
       expect(SOURCE).not.toContain('grep -vE "$FENCE" || true')
@@ -939,6 +939,30 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(res.stdout + res.stderr).toContain('fence violated')
     })
 
+    it('the fence-OK line survives an empty array under `set -u` (bash < 4.4 — /bin/bash on macOS is 3.2)', () => {
+      // extractLine, not NEW_BLOCK: the block also carries the comment that
+      // explains this fix, and that comment quotes the literal — asserting over
+      // the whole block would pass with the CODE reverted. EXECUTED: it did.
+      expect(extractLine('echo "  fence OK: ${DIFF_FILES')).toContain('${DIFF_FILES[*]-}')
+    })
+
+    it('EXECUTED — a branch with an empty diff prints "fence OK" and exits 0, rather than aborting past fail()', () => {
+      const dir = scratchDir('fence-emptydiff')
+      initRepo(dir)
+      mkdirSync(join(dir, 'src', 'foo'), { recursive: true })
+      writeFileSync(join(dir, 'src', 'foo', 'plain.ts'), 'a\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'init')
+      git(dir, 'checkout', '-q', '-b', 'feature')
+      const script = preludeScript(0, "FENCE='^src/foo/'\nW=.\n") + NEW_BLOCK + '\n'
+      const res = runFragment(script, dir)
+      // Without the `-` default this aborts "DIFF_FILES[*]: unbound variable" on
+      // bash 3.2 WITHOUT reaching fail() — no "GATE FAILED", no ">>> HOLDING" —
+      // on the very path :142 has a dedicated diagnosis for.
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('fence OK')
+      expect(res.stderr).not.toContain('unbound variable')
+    })
 
 
     /**
