@@ -54,21 +54,65 @@ describe('findRecordedCwd', () => {
     expect(result.cwd).toBe(path.join('/', 'repo', 'packages', 'web'))
   })
 
-  it('takes the LAST cwd across all lines and all files, not the first — newest wins', async () => {
-    const file1 = path.join(SLUG_DIR, 'session1.jsonl')
-    const file2 = path.join(SLUG_DIR, 'session2.jsonl')
+  it('takes the LAST cwd WITHIN one file — the file is append-only, so line order is time order', async () => {
+    const file = path.join(SLUG_DIR, 'c9d4e5f6-0000-4000-8000-000000000000.jsonl')
     const fs = fixtureTranscriptFs(
-      { [SLUG_DIR]: ['session1.jsonl', 'session2.jsonl'] },
+      { [SLUG_DIR]: ['c9d4e5f6-0000-4000-8000-000000000000.jsonl'] },
       {
-        [file1]:
+        [file]:
           jsonLine({ type: 'user', cwd: path.join('/', 'repo', 'packages-web') }) +
-          jsonLine({ type: 'assistant', cwd: path.join('/', 'repo', 'packages-web') }),
-        [file2]: jsonLine({ type: 'user', cwd: path.join('/', 'repo', 'packages', 'web') }),
+          jsonLine({ type: 'assistant', cwd: path.join('/', 'repo', 'packages', 'web') }),
       },
     )
 
     const result = await findRecordedCwd(SLUG, ROOT, fs)
     expect(result.cwd).toBe(path.join('/', 'repo', 'packages', 'web'))
+  })
+
+  /**
+   * The revision before this one took the last cwd ACROSS files too, in
+   * name-sorted order, and called it "newest wins". Its fixture used
+   * `session1.jsonl` / `session2.jsonl` — names where sort order happens to
+   * agree with the claim — so it could not fail for the reason it named.
+   * Real transcripts are UUID-named, where sort order says nothing about
+   * recency: EXECUTED in review of #142, swapping ONLY the two filenames
+   * changed which real directory the walk returned. These two tests are the
+   * pair that makes that impossible to reintroduce — the first proves the
+   * per-file rule still holds, the second proves disagreement refuses.
+   */
+  it('REFUSES when two files disagree, naming both — sort order must not decide it', async () => {
+    const early = path.join(SLUG_DIR, '00000000-0000-4000-8000-000000000000.jsonl')
+    const late = path.join(SLUG_DIR, 'ffffffff-0000-4000-8000-000000000000.jsonl')
+    const fs = fixtureTranscriptFs(
+      { [SLUG_DIR]: ['00000000-0000-4000-8000-000000000000.jsonl', 'ffffffff-0000-4000-8000-000000000000.jsonl'] },
+      {
+        [early]: jsonLine({ type: 'user', cwd: path.join('/', 'repo', 'packages-web') }),
+        [late]: jsonLine({ type: 'user', cwd: path.join('/', 'repo', 'packages', 'web') }),
+      },
+    )
+
+    const result = await findRecordedCwd(SLUG, ROOT, fs)
+    expect(result.cwd).toBeNull()
+    expect(result.reason).toContain('disagree')
+    expect(result.reason).toContain(path.join('/', 'repo', 'packages-web'))
+    expect(result.reason).toContain(path.join('/', 'repo', 'packages', 'web'))
+  })
+
+  it('CONTROL — swapping ONLY the filenames changes nothing, because sort order no longer decides', async () => {
+    const build = (cwdForFirst: string, cwdForSecond: string) =>
+      fixtureTranscriptFs(
+        { [SLUG_DIR]: ['00000000-0000-4000-8000-000000000000.jsonl', 'ffffffff-0000-4000-8000-000000000000.jsonl'] },
+        {
+          [path.join(SLUG_DIR, '00000000-0000-4000-8000-000000000000.jsonl')]: jsonLine({ cwd: cwdForFirst }),
+          [path.join(SLUG_DIR, 'ffffffff-0000-4000-8000-000000000000.jsonl')]: jsonLine({ cwd: cwdForSecond }),
+        },
+      )
+    const a = path.join('/', 'repo', 'packages', 'web')
+    const b = path.join('/', 'repo', 'packages-web')
+    const oneWay = await findRecordedCwd(SLUG, ROOT, build(a, b))
+    const other = await findRecordedCwd(SLUG, ROOT, build(b, a))
+    expect(oneWay.cwd).toBeNull()
+    expect(other.cwd).toBeNull()
   })
 
   it('reports "no transcript recorded" when the slug directory does not exist, rather than a bare null', async () => {

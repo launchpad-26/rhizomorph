@@ -81,12 +81,16 @@ export interface RecordedCwdResult {
  * of every file is one JSON record, and most (not all — a real session log
  * measured 940 of 1252) carry a `cwd` field holding the absolute path Claude
  * Code was running in when it wrote that line. Files are read in
- * name-sorted order and, within and across them, the LAST line anywhere that
- * carries a `cwd` wins over an earlier one — the newest fact recorded about
- * the session's own location, not the first. A slug directory ordinarily
- * holds exactly one file (one session); it can hold more when a session was
- * resumed, and newest-wins is what keeps a stale first-session `cwd` from
- * outvoting a real later one.
+ * name-sorted order. WITHIN one file the last line carrying a `cwd` wins —
+ * the file is append-only, so line order is time order, and that keeps a
+ * stale early `cwd` from outvoting a later one after a session moved.
+ * ACROSS files there is no such ordering: real transcripts are UUID-named,
+ * so name-sort order says nothing about recency. So the per-file winners
+ * must AGREE; if two files record different directories the answer is a
+ * refusal naming both, not a guess. An earlier revision took the last cwd
+ * across files and returned a different real directory depending on which
+ * UUID sorted last (found in review of #142, reproduced by swapping only the
+ * filenames).
  *
  * Never throws: an unreadable directory, an unreadable file, a transcript
  * with no line that parses as JSON, and a transcript with no `cwd` field
@@ -107,7 +111,16 @@ export async function findRecordedCwd(
     return { cwd: null, reason: `no transcript recorded under ${slugDir} — no *.jsonl file to consult` }
   }
 
-  let latestCwd: string | null = null
+  // One winner PER FILE, then agreement ACROSS files. Within a single
+  // transcript the last `cwd` genuinely is the latest — the file is
+  // append-only, so line order is time order. ACROSS files it is not:
+  // `listTranscriptFiles` name-sorts, and real transcripts are UUID-named
+  // (`191b6ac9-….jsonl`), so "last in name order" is arbitrary with respect
+  // to recency. Taking the last cwd across files therefore returned a
+  // DIFFERENT real directory depending on which UUID happened to sort last —
+  // EXECUTED with the UUIDs swapped and nothing else changed, the answer
+  // flipped between the two candidates. Review of #142 found it.
+  const perFileCwd: string[] = []
   let anyFileReadable = false
   let anyLineParsed = false
   const unreadableFiles: string[] = []
@@ -121,6 +134,7 @@ export async function findRecordedCwd(
     }
     anyFileReadable = true
 
+    let fileCwd: string | null = null
     for (const rawLine of read.content.split('\n')) {
       const line = rawLine.trim()
       if (line.length === 0) continue
@@ -134,11 +148,26 @@ export async function findRecordedCwd(
       anyLineParsed = true
 
       const cwd = typeof value === 'object' && value !== null ? (value as Record<string, unknown>).cwd : undefined
-      if (typeof cwd === 'string' && cwd.length > 0) latestCwd = cwd
+      if (typeof cwd === 'string' && cwd.length > 0) fileCwd = cwd
     }
+    if (fileCwd !== null) perFileCwd.push(fileCwd)
   }
 
-  if (latestCwd !== null) return { cwd: latestCwd }
+  const distinct = [...new Set(perFileCwd)]
+  if (distinct.length === 1) return { cwd: distinct[0] as string }
+  if (distinct.length > 1) {
+    // Conflicting evidence is not evidence. The ruling says decide from what
+    // the transcript records and refuse when it cannot settle it; two
+    // sessions under one slug recording different directories is exactly
+    // "cannot settle it", and picking one would be the silent wrong answer
+    // this module's whole contract refuses.
+    return {
+      cwd: null,
+      reason:
+        `transcripts under ${slugDir} disagree about the session's cwd ` +
+        `(${distinct.map((c) => `"${c}"`).join(' and ')}) — refusing rather than picking one`,
+    }
+  }
   if (!anyFileReadable) {
     return { cwd: null, reason: `every transcript file under ${slugDir} was unreadable: ${unreadableFiles.join('; ')}` }
   }
