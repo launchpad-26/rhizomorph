@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { snapshotDirFor } from '../log/paths.js'
 import { RESUME_WINDOW_MS } from '../log/session-log.js'
-import { type Rotation, RotationRefusedError, rotateSession } from '../recorder/rotate.js'
+import { type Rotation, RotationRefusedError, rotateSession } from '../recorder/index.js'
 import type { ServerContext } from '../server/context.js'
 import { createFileSnapshotStore } from '../server/snapshot-store.js'
 import { recordSessionBootMeta, sessionBootMetaFor } from './meta.js'

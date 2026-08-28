@@ -309,6 +309,22 @@ export function rotateSession(options: RotateSessionOptions): Promise<Rotation> 
   const running = inFlight.get(options.recorder)
   if (running) {
     if (running.kind !== 'rotation') {
+      // Deliberately NOT built on `RETARGET_OR_ROTATION_IN_FLIGHT_MESSAGE`'s
+      // opening clause (#154, item 3), even though both read "___ is already
+      // in flight for this recorder — refusing rather than coalescing": the
+      // two call sites do not hold the same information. This one has
+      // `running.kind` in hand and names the actual occupant — today always
+      // `'retarget'`, since the branch above already ruled out `'rotation'`.
+      // `RETARGET_OR_ROTATION_IN_FLIGHT_MESSAGE`'s callers — this module's own
+      // `retargetSession` throw and `api/retarget.ts`'s 409 body — reach this
+      // point only AFTER `beginRetargetBoundary` has already returned `null`,
+      // which discards which kind held the slot; they can only speak
+      // generically ("a rotation or retarget"). Sharing the clause would mean
+      // either this message losing the specific kind it actually knows, or
+      // plumbing the discarded kind back out through `beginRetargetBoundary`
+      // for a one-word gain. The second clause differs for the same reason
+      // item 3 grants it: this is the rotation-refused-by-non-rotation
+      // direction (ruling 5), not the retarget-refused-by-anything direction.
       return Promise.reject(
         new RotationRefusedError(
           `a ${running.kind} is already in flight for this recorder — refusing rather than coalescing, ` +
