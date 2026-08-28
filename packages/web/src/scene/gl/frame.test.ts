@@ -199,12 +199,36 @@ describe('the settled-ribbon tessellation cache (prd-44 ruling 5)', () => {
   // Distinct laneIds from every other describe block in this file, so a slot
   // ordinal here can never collide with one from an earlier `it()` by
   // content-coincidence.
+  /**
+   * THE SPINE A SETTLED LANE IS HANDED, FRAME AFTER FRAME — the same array
+   * object, memoised here because that is the production invariant and not a
+   * convenience (#147).
+   *
+   * Once `dissolve` pins at 1, `geometry.ts`'s `retiredSpineCacheFor` hands
+   * every mark builder ONE cached `path` array for that lane, `thread.ts`'s
+   * `PERSIST_RIBBON_CACHE` keys its mark on that array's identity, and
+   * `ribbon.ts`'s `OUTLINE_CACHE` keys the outline on it in turn — so the
+   * outline's rings are the same objects every frame, which is exactly what
+   * `digestRibbon` now reads. A helper that minted a fresh spine per call would
+   * be exercising the one condition a settled lane never reaches, and the arms
+   * below would be asserting a hit that production gets for a reason the test
+   * had removed.
+   */
+  const spines = new Map<number, readonly Point[]>()
+  function settledSpine(y: number): readonly Point[] {
+    const known = spines.get(y)
+    if (known !== undefined) return known
+    const built = Array.from({ length: 20 }, (_unused, i) => ({ x: i * 6, y }))
+    spines.set(y, built)
+    return built
+  }
+
   function persistMark(laneId: string, y = 80): RibbonMark {
     return ribbonMark({
       ...base,
       role: 'persist',
       laneId,
-      path: Array.from({ length: 20 }, (_unused, i) => ({ x: i * 6, y })),
+      path: settledSpine(y),
       widthRoot: 1.4,
       widthTip: 0.6,
       paint: ink(ICE_200, 0.5),
@@ -230,12 +254,19 @@ describe('the settled-ribbon tessellation cache (prd-44 ruling 5)', () => {
   // `kind: 'ribbon'`, `role: 'thread'`. This is the population `isSettledRibbon`
   // must exclude — a `stroke` mark was never going to reach the ribbon-cache
   // code at all, so it cannot stand in for this case.
+  //
+  // It takes the SAME memoised spine a settled lane gets, deliberately. The
+  // gate is `role`, so this mark is the one thing standing between the cache
+  // and the population the first attempt's own measurement rejected — and it
+  // can only prove that if everything EXCEPT the role says "hit". Given a fresh
+  // spine it would miss on identity alone, and the arm below would pass with
+  // the gate loosened, which is the mutation it exists to fail (#147).
   function livingRibbon(laneId: string, y = 80): RibbonMark {
     return ribbonMark({
       ...base,
       role: 'thread',
       laneId,
-      path: Array.from({ length: 20 }, (_unused, i) => ({ x: i * 6, y })),
+      path: settledSpine(y),
       widthRoot: 1.4,
       widthTip: 0.6,
       paint: ink(ICE_200, 0.5),
@@ -269,6 +300,46 @@ describe('the settled-ribbon tessellation cache (prd-44 ruling 5)', () => {
     const afterFirst = spy.mock.calls.length
     buildFrame([persistMark('lane-cache-b', 84)], PANEL) // one input moved
     expect(spy.mock.calls.length).toBeGreaterThan(afterFirst)
+    spy.mockRestore()
+  })
+
+  it('a rebuilt outline is a MISS, never a false hit — the one direction the identity key is allowed to be wrong in', () => {
+    // The safety property the key rests on (#147). `digestRibbon` reads the
+    // outline's ring IDENTITIES, so a lane whose geometry is rebuilt as fresh
+    // arrays — byte-for-byte the same picture — does NOT hit. That is correct
+    // and it is the whole licence: a false miss costs exactly the pre-cache
+    // tessellation, while a false hit would serve last frame's triangles for
+    // this frame's shape. Identity can only ever fail in the safe direction,
+    // and this is the arm that says so out loud.
+    const spy = vi.spyOn(Batch.prototype, 'vertex')
+    const points = (): readonly Point[] =>
+      Array.from({ length: 20 }, (_unused, i) => ({ x: i * 6, y: 80 }))
+    const of = (path: readonly Point[]): RibbonMark =>
+      ribbonMark({
+        ...base,
+        role: 'persist',
+        laneId: 'lane-cache-rebuilt',
+        path,
+        widthRoot: 1.4,
+        widthTip: 0.6,
+        paint: ink(ICE_200, 0.5),
+      })
+
+    const first = buildFrame([of(points())], PANEL)
+    const afterFirst = spy.mock.calls.length
+    expect(afterFirst).toBeGreaterThan(0)
+
+    // A SEPARATE array of identical points — same picture, new objects.
+    const second = buildFrame([of(points())], PANEL)
+    expect(spy.mock.calls.length).toBeGreaterThan(afterFirst)
+
+    // …and the miss is a real tessellation, not a degraded one: the safe
+    // direction has to stay byte-correct or "false miss" is not the harmless
+    // thing this arm claims it is.
+    expect(Array.from(second.vertices.pos.slice(0, second.vertices.n * 2))).toEqual(
+      Array.from(first.vertices.pos.slice(0, first.vertices.n * 2)),
+    )
+    expect(second.runs).toEqual(first.runs)
     spy.mockRestore()
   })
 
