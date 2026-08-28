@@ -725,14 +725,31 @@ describe('forward transform law: worktreePathToProjectSlug is the only path-to-s
      * The justification survived by luck, and nothing was checking.
      */
     const CANONICAL_NEGATED_CLASS_EXPECTED_HITS: Record<string, number> = {
+      'packages/server/src/collectors/sessionlog/worktree-slug.ts': 1,
       'packages/server/src/concierge/repos.ts': 1,
       'packages/server/src/concierge/repos.test.ts': 1,
     }
 
-    it('every allowlisted path is tracked, and carries exactly the occurrences its allowance was granted for', () => {
+    /**
+     * The pin covers `CANONICAL_IMPLEMENTATION_PATH` too, not just the two
+     * allowlisted paths. That file is dropped from the sweep WHOLESALE by
+     * `scannableTrackedFiles`, so before this entry existed it held exactly
+     * the blanket file immunity the two commits above removed from the
+     * allowlist — the third instance of one shape, missed because it is
+     * exempted by a different mechanism.
+     *
+     * EXECUTED (review of this PR): appending a real hoisted
+     * `p.replace(/[^a-zA-Z0-9]/g, '-')` to `worktree-slug.ts` left this law
+     * green at 36/36, while the identical transform in `log/paths.ts` was
+     * caught by name. Its count is 1 and not 2 for the same reason
+     * `repos.test.ts`'s is: `:16` quotes Claude Code's own minified source in
+     * a doc comment as evidence, and `codeOf()` is what keeps that from being
+     * a fungible slot.
+     */
+    it('every exempted path is tracked, and carries exactly the occurrences its allowance was granted for', () => {
       const tracked = new Set(trackedFiles())
       expect(Object.keys(CANONICAL_NEGATED_CLASS_EXPECTED_HITS).sort()).toEqual(
-        [...CANONICAL_NEGATED_CLASS_ALLOWED_PATHS].sort(),
+        [...CANONICAL_NEGATED_CLASS_ALLOWED_PATHS, CANONICAL_IMPLEMENTATION_PATH].sort(),
       )
       for (const [file, expected] of Object.entries(CANONICAL_NEGATED_CLASS_EXPECTED_HITS)) {
         expect(tracked.has(file), `${file} is allowlisted but not tracked by git`).toBe(true)
