@@ -22,6 +22,63 @@ import type { TranscriptFileListing, TranscriptFileRead, TranscriptReadFs } from
 // own `platform() !== 'win32'` spelling.
 const isPosix = platform() !== 'win32'
 
+// A reserved device name is reserved case-insensitively and with any
+// extension (`CON`, `con`, `CON.txt` all match) — matched against the name up
+// to (not including) the first `.`, so an extension cannot launder it. Device
+// numbering starts at 1: `COM0` and `LPT0` are ordinary, unreserved names.
+const WIN32_RESERVED_DEVICE_NAME = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i
+
+/**
+ * (#153) The class of path segment `mkdir` fails on under Windows/NTFS,
+ * derived from the actual naming rule rather than enumerated per case, so
+ * that any future addition to a fixture segment list is covered by
+ * construction instead of needing to be remembered. Four rules, none of them
+ * a plain character set:
+ *
+ *  - an NTFS-illegal character, including `\` itself (a path separator, so
+ *    never legal *inside* a single segment);
+ *  - a control character (`0x00`-`0x1F`);
+ *  - a trailing dot or trailing space (NTFS silently strips both from the
+ *    name it actually stores, so the round trip this file tests would not
+ *    see back what it wrote);
+ *  - a reserved device name (`WIN32_RESERVED_DEVICE_NAME`, above) — a naming
+ *    rule, not a character set, and the reason a character-class derivation
+ *    alone would not close this class.
+ */
+function isWin32IllegalSegment(segment: string): boolean {
+  if (/[<>:"|?*\\]/.test(segment)) return true
+  if (/[\x00-\x1F]/.test(segment)) return true
+  if (segment.endsWith('.') || segment.endsWith(' ')) return true
+  return WIN32_RESERVED_DEVICE_NAME.test(segment.split('.')[0] ?? '')
+}
+
+/** The fixture segments the round-trip law generates paths from. */
+const ROUND_TRIP_SEGMENT_SOURCE = [
+  'plain-word',
+  'dotted.segment',
+  'under_score',
+  'a space here',
+  'a:colon here',
+  'a\\backslash here',
+  'wide+punct~at@x',
+  "quote'comma,paren(x)",
+  'accentéhere',
+  'emoji\u{1F600}here',
+] as const
+
+/**
+ * The segments the law generates on a given platform. Extracted from the law
+ * body so the win32 branch is reachable on Linux: as an inline
+ * `isPosix || !isWin32IllegalSegment(...)` filter, `isPosix` short-circuits on
+ * every platform CI runs, so the predicate was never called from the generator
+ * — and BOTH deleting it (`.filter(() => true)`) and INVERTING it left the law
+ * green. The rows above tested the rule; nothing tested that the generator used
+ * it. A pure function over a boolean and strings needs no Windows runner.
+ */
+function roundTripSegmentsFor(posix: boolean): string[] {
+  return ROUND_TRIP_SEGMENT_SOURCE.filter((segment) => posix || !isWin32IllegalSegment(segment))
+}
+
 /**
  * An in-memory `DiscoveryFs`. `tree[dir]` is the list of real (non-symlink)
  * subdirectory names directly inside `dir` — absent from the map means "this
@@ -532,10 +589,17 @@ describe('reverseProjectSlug — an ambiguous slug is decided by the transcript\
  * (measured while writing this test), so a class narrowed back down is
  * caught here, not silently passed as a fluke pairing.
  *
- * The colon and backslash segments are skipped on win32 (`isPosix`, above) —
- * both are illegal in an NTFS filename, so the `mkdir` for either fails
- * outright there, unrelated to anything this law actually tests. Asserted on
- * every other platform, which is where #47 actually widened the walk's class.
+ * The colon and backslash segments are skipped on win32 — both are illegal in
+ * an NTFS filename, so the `mkdir` for either fails outright there, unrelated
+ * to anything this law actually tests. Asserted on every other platform,
+ * which is where #47 actually widened the walk's class.
+ *
+ * (#153) That skip is derived from `isWin32IllegalSegment`, above, rather
+ * than from a hardcoded two-item list: a segment reaching `ROUND_TRIP_SEGMENTS`
+ * below is filtered by the actual rule, so a future addition outside today's
+ * two characters (another NTFS-illegal character, a trailing dot or space, a
+ * reserved device name, a control character) is covered by construction
+ * instead of needing its own carve-out remembered at the call site.
  */
 describe("worktreePathToProjectSlug round-trips through reverseProjectSlug", () => {
   it('resolves every generated path back to itself, including a literal space everywhere and — on POSIX — a colon and a backslash', async () => {
@@ -548,27 +612,20 @@ describe("worktreePathToProjectSlug round-trips through reverseProjectSlug", () 
     const root = await realpath(tmpRoot)
 
     try {
-      // The colon and backslash segments are illegal filename characters on
-      // Windows (a colon can never appear in an NTFS name; a backslash inside
-      // a segment is a path separator there) — the `mkdir` below fails
-      // outright for both. Every other segment here is legal on every
-      // platform this suite runs on. Skipped on win32 rather than deleted:
-      // deleting them would erase w5's evidence that the walk round-trips
-      // them at all (the whole reason they exist), and the non-vacuity floors
-      // just below are conditioned on `isPosix` for the same two characters
-      // so they never assert something false about what was actually
-      // generated on the platform running them.
-      const ROUND_TRIP_SEGMENTS = [
-        'plain-word',
-        'dotted.segment',
-        'under_score',
-        'a space here',
-        ...(isPosix ? ['a:colon here', 'a\\backslash here'] : []),
-        'wide+punct~at@x',
-        "quote'comma,paren(x)",
-        'accentéhere',
-        'emoji\u{1F600}here',
-      ]
+      // Every candidate segment is filtered through `isWin32IllegalSegment`
+      // (#153) rather than gated by a hardcoded list of today's two
+      // win32-illegal cases — a segment added to the list below in the
+      // future is covered by the same rule automatically, with nobody needing
+      // to remember to wrap it in a platform check. On POSIX the filter is a
+      // no-op (`isPosix ||` short-circuits before the predicate runs), so
+      // every segment here is generated there regardless of whether it would
+      // be win32-illegal. Skipped on win32 rather than deleted: deleting the
+      // colon and backslash cases would erase w5's evidence that the walk
+      // round-trips them at all (the whole reason they exist), and the
+      // non-vacuity floors just below are conditioned on `isPosix` for the
+      // same two segments so they never assert something false about what was
+      // actually generated on the platform running them.
+      const ROUND_TRIP_SEGMENTS = roundTripSegmentsFor(isPosix)
 
       // Every ordered pair of distinct segments — each mapped character is
       // exercised both leading and following another — plus one path
@@ -609,6 +666,102 @@ describe("worktreePathToProjectSlug round-trips through reverseProjectSlug", () 
     } finally {
       await rm(root, { recursive: true, force: true })
     }
+  })
+})
+
+/**
+ * (#153) `isWin32IllegalSegment` is a pure function over strings, so the
+ * class it derives is checked directly rather than only through the round
+ * trip's `mkdir` (which cannot fail on Linux for anything in this table, win32
+ * illegal or not — see the file-level note on why win32 itself is untestable
+ * here). Every production named in the issue gets its own row: the eight
+ * segments the round-trip law already treats as legal must accept, and every
+ * category of the reachable class must reject — including the two rows people
+ * get wrong twice, a reserved device name surviving an extension and a case
+ * change, and the pair that is deliberately NOT reserved (`COM0`, `LPT0`).
+ */
+describe('roundTripSegmentsFor — the generator actually consults the predicate', () => {
+  // EXECUTED on Linux, both branches. Without this the call site was untested
+  // on every platform CI runs: deleting the predicate from the filter, and
+  // inverting it, each left the round-trip law green.
+  it('on POSIX every fixture segment survives — nothing is skipped', () => {
+    expect(roundTripSegmentsFor(true)).toEqual([...ROUND_TRIP_SEGMENT_SOURCE])
+  })
+
+  it('on win32 exactly the win32-illegal segments are dropped, and nothing else is', () => {
+    const dropped = roundTripSegmentsFor(true).filter((s) => !roundTripSegmentsFor(false).includes(s))
+    // TWO assertions, and they are not the same claim — the fix re-review found
+    // the comment here asserting only the first.
+    //
+    // DERIVED: whatever the predicate rejects is what goes. Add
+    // `'a?query here'` to the source above and this line follows it with no
+    // edit — that is the property #153 exists to establish, and it holds.
+    expect(dropped).toEqual(ROUND_TRIP_SEGMENT_SOURCE.filter((s) => isWin32IllegalSegment(s)))
+    // NON-VACUITY PIN, and it DOES need editing when the list grows. Keep it:
+    // the derived assertion above is satisfiable by `[] === []`, so a predicate
+    // that rejected nothing would pass it. This literal is what makes that
+    // impossible. The cost is that adding a segment reddens this line — which
+    // is correct, not a defect, and is the trade the earlier comment hid by
+    // claiming the whole test needed no editing.
+    expect(dropped).toEqual(['a:colon here', 'a\\backslash here'])
+  })
+
+  it('CONTROL — the two branches genuinely differ, so neither assertion above is vacuous', () => {
+    expect(roundTripSegmentsFor(false).length).toBeLessThan(roundTripSegmentsFor(true).length)
+    expect(roundTripSegmentsFor(false).every((s) => !isWin32IllegalSegment(s))).toBe(true)
+  })
+})
+
+describe('isWin32IllegalSegment', () => {
+  it.each([
+    'plain-word',
+    'dotted.segment',
+    'under_score',
+    'a space here',
+    'wide+punct~at@x',
+    "quote'comma,paren(x)",
+    'accentéhere',
+    'emoji\u{1F600}here',
+    // The negative boundary of the control-character rule: Microsoft reserves
+    // integer 0 and 1-31 only, so DEL (0x7F) is an ordinary character. Without
+    // this row the range's UPPER edge is unpinned in the accepting direction.
+    'a\x7Fdel here',
+  ])('accepts %j — legal on every platform, including win32', (segment) => {
+    expect(isWin32IllegalSegment(segment)).toBe(false)
+  })
+
+  it.each<[string, string]>([
+    ['a:colon here', 'NTFS-illegal character: colon'],
+    ['a\\backslash here', 'NTFS-illegal character: backslash (path separator)'],
+    ['a<less here', 'NTFS-illegal character: less-than'],
+    ['a>greater here', 'NTFS-illegal character: greater-than'],
+    ['a"quote here', 'NTFS-illegal character: double quote'],
+    ['a|pipe here', 'NTFS-illegal character: pipe'],
+    ['a?query here', 'NTFS-illegal character: question mark'],
+    ['a*star here', 'NTFS-illegal character: asterisk'],
+    // 0x01 alone cannot pin `0x00-0x1F`: narrowing the source range to /\x01/
+    // left this whole group green (29 passed, rc 0) in the wave-10 reconcile.
+    // Both ends plus an interior value, and DEL as the negative boundary —
+    // Microsoft's rule is integer 0 and 1 through 31, so 0x7F is legal.
+    ['a\x00nul here', 'control character: NUL, bottom of the range'],
+    ['a\x01control here', 'control character: interior'],
+    ['a\x1Fus here', 'control character: 0x1F, top of the range'],
+    ['dotted.', 'trailing dot'],
+    ['trailing ', 'trailing space'],
+    ['CON', 'reserved device name'],
+    ['con', 'reserved device name, lowercase'],
+    ['CON.txt', 'reserved device name surviving an extension'],
+    ['NUL', 'reserved device name'],
+    ['COM1', 'reserved numbered device name, bottom of range'],
+    ['COM9', 'reserved numbered device name, top of range'],
+    ['LPT1', 'reserved numbered device name, bottom of range'],
+    ['LPT9', 'reserved numbered device name, top of range'],
+  ])('rejects %j (%s)', (segment) => {
+    expect(isWin32IllegalSegment(segment)).toBe(true)
+  })
+
+  it.each(['COM0', 'LPT0'])('accepts %j — device numbering starts at 1, not 0', (segment) => {
+    expect(isWin32IllegalSegment(segment)).toBe(false)
   })
 })
 
