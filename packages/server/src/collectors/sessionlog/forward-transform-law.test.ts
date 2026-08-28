@@ -726,7 +726,7 @@ describe('forward transform law: worktreePathToProjectSlug is the only path-to-s
      */
     const CANONICAL_NEGATED_CLASS_EXPECTED_HITS: Record<string, number> = {
       'packages/server/src/concierge/repos.ts': 1,
-      'packages/server/src/concierge/repos.test.ts': 2,
+      'packages/server/src/concierge/repos.test.ts': 1,
     }
 
     it('every allowlisted path is tracked, and carries exactly the occurrences its allowance was granted for', () => {
@@ -737,7 +737,16 @@ describe('forward transform law: worktreePathToProjectSlug is the only path-to-s
       for (const [file, expected] of Object.entries(CANONICAL_NEGATED_CLASS_EXPECTED_HITS)) {
         expect(tracked.has(file), `${file} is allowlisted but not tracked by git`).toBe(true)
         const contents = readFileSync(`${REPO_ROOT}/${file}`, 'utf8')
-        const occurrences = contents.split(CANONICAL_NEGATED_CLASS).length - 1
+        // codeOf(), not raw contents — the same reason check 3 uses it at :237.
+        // Counting comment text made the two slots FUNGIBLE: `repos.test.ts`
+        // carries one live line (:312) and one doc comment quoting the class
+        // (:264), so a file could delete the comment, add a real duplicate, and
+        // keep the count. EXECUTED in review: exactly that swap stayed green at
+        // 36/36. The inverse bit too — a pure documentation comment added to an
+        // allowlisted file tripped the pin, and following this message's own
+        // advice ("raise the count") would have bought the immunity the first
+        // mutation used. The false positive manufactured the false negative.
+        const occurrences = codeOf(contents).split(CANONICAL_NEGATED_CLASS).length - 1
         expect(
           occurrences,
           `${file} carries ${occurrences} occurrence(s) of the canonical body, allowed for ${expected}. ` +
