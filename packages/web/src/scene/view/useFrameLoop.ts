@@ -169,6 +169,10 @@ export function useFrameLoop(
     let height = 0
     let dpr = 1
     let stopped = false
+    /** The `SceneLatestState` the retained frame was built from. See
+     * {@link repaintFrame}'s gate — null until the first build, which is why a
+     * camera move before one falls through to a full draw. */
+    let builtFrom: SceneLatestState | null = null
     const pinned = latestRef.current.now !== undefined
 
     /**
@@ -360,6 +364,10 @@ export function useFrameLoop(
       // answers `null` for both) — see {@link lastPaintedFrame}.
       const camera = rig.cameraRef.current
       painted = { marks, camera, dpr, width, height }
+      // The exact state object this frame was built from — `repaintFrame`'s
+      // gate. Effect-local rather than on `painted`, because `painted` is the
+      // scene's public instrumentation seam and this is bookkeeping.
+      builtFrom = current
       // The clear colour follows the palette's own ground, so the picture and
       // the page share one floor in both themes (dark: byte-identical to the
       // old hardcoded BACKDROP). The blend mode follows the palette's carrier:
@@ -376,6 +384,74 @@ export function useFrameLoop(
         ground: ink(palette.ground, 1),
         lightBlend: palette.band.carrier === 'presence' ? 'cover' : 'add',
       })
+    }
+
+    /**
+     * A CAMERA CHANGE, ANSWERED WITHOUT A REBUILD (prd-47 ruling 1).
+     *
+     * Ruling 1 is ADDITIVE and this is the added half: the model stage stays on
+     * the rAF exactly as it was, so ambient motion keeps running through a drag
+     * — the picture says everything it said before, it merely answers the hand
+     * sooner. Before this, the `zoom` handler under a live clock set the camera
+     * ref and painted nothing, so a pan waited for the next rAF's full rebuild.
+     *
+     * Gated on INPUTS, never on a computed output (the same discipline ruling 2
+     * will need): the retained frame may be replayed under a new camera only
+     * while every OTHER thing that went into building it is unchanged.
+     *
+     * That set is larger than it first looks, and enumerating it was this
+     * issue's own defect. A frame is built from the whole `SceneLatestState` —
+     * the fleet, the selection, the hover, the quality, the pause, the reduced
+     * motion, the replay flag and the theme — plus the panel's device geometry.
+     * A gate naming four of those repainted a frame that predated a selection,
+     * and under a pinned clock (replay) nothing else redraws, so it stayed
+     * stale indefinitely: `SceneView.tsx`'s redraw effect keys on
+     * `[hideFinished, theme, motion]` alone, and there is no rAF to cover for
+     * it. So the gate takes the state's OWN IDENTITY instead of a list of its
+     * fields — `SceneView` mints a fresh object every render, so any render
+     * that could have changed anything invalidates, and no future field can be
+     * forgotten here.
+     *
+     * `dpr`, `width` and `height` stay named because they are NOT in that
+     * object: a resize arrives through the ResizeObserver, which changes them
+     * without re-rendering React.
+     *
+     * The conservatism is deliberate and one-directional. A render that changed
+     * nothing relevant costs a rebuild this frame — which is exactly the
+     * behaviour that shipped before this issue — while a repaint that should
+     * have been a rebuild paints a lie. Anything the gate refuses falls through
+     * to a full `drawFrame`, so the worst case here is never worse than `main`.
+     */
+    const repaintFrame = () => {
+      const current = latestRef.current
+      if (
+        painted === null ||
+        builtFrom !== current ||
+        painted.dpr !== dpr ||
+        painted.width !== width ||
+        painted.height !== height
+      ) {
+        drawFrame()
+        return
+      }
+      const camera = rig.cameraRef.current
+      // A gesture that ends where it started, a wheel the extent clamped: the
+      // camera did not move, so there is nothing to answer.
+      if (
+        camera.k === painted.camera.k &&
+        camera.x === painted.camera.x &&
+        camera.y === painted.camera.y
+      ) {
+        return
+      }
+      if (!painter.repaint({ width, height, camera, dpr })) {
+        drawFrame()
+        return
+      }
+      // The parity seam moves with the repaint, or it goes stale-and-green: the
+      // camera suite reads a frame's camera off this, and a repaint that left it
+      // behind would report the camera of the last BUILD forever.
+      painted = { ...painted, camera }
     }
 
     /** One frame of a zoom-to-fit, driven by the loop that is already running. */
@@ -404,7 +480,7 @@ export function useFrameLoop(
         if (bounds !== null) {
           setLost(!isContentVisible(rig.cameraRef.current, rig.viewportRef.current, bounds))
         }
-        redrawRef.current()
+        guard(repaintFrame)
       })
       .on('end', () => setPanning(false))
 
