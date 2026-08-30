@@ -481,7 +481,10 @@ touched, and waves 1–4 and 8 keep their numbers.
 > **Blessed** — gabriel-canaan, 2026-08-28, in session. Ruling 7 and wave 9 only.
 > Rulings 1–6 and waves 1–8 are neither renumbered nor rewritten.
 
-**Success 1 is now met, and this supersedes the "not met" finding at :186-192.**
+**Success 1 is now met, and this supersedes the "Success 1 is not met" finding
+in the residuals amendment above** (marked superseded there in place, by name,
+not by the line range this sentence used to cite — the same fragility wave 10
+names below).
 That paragraph was true when written: encoder and walk disagreed on a colon and a
 backslash. `#47` closed those two and `#124` closed the rest — both sides are now
 byte-identical `/[^a-zA-Z0-9]/g`. The premise is no longer quoted but EXECUTED:
@@ -574,12 +577,20 @@ $ scripts/fence-lint.sh 142 143
 fence lint PASSED
 ```
 
-**Both follow wave 7.** Each claims a file PR `#144` is amending — a live fence,
-and bundling across one is forbidden.
+**Both follow wave 7.** Each claims a file wave 7 changed —
+`concierge/repos.ts`/its test and `forward-transform-law.test.ts` — which is why
+they wait, though not for the reason first given here: this sentence originally
+called `#144` "a live fence", but `#144` had already merged (`9fa9583`) by the
+time it was written — that commit is an ancestor of this one. There was no live
+fence left to bundle across. The dependency is real but is a stack, not a fence
+collision: wave 9's issues are written against the code wave 7 landed, and
+cannot exist before it does. The conclusion was already right; only the stated
+reason was not.
 
 `#143` carries a finding worth reading before anyone starts it: **the obvious
 one-line fix is a no-op.** Deleting the negated-class exclusions at
-`forward-transform-law.test.ts:393`/`:401` leaves the law green *and* leaves a
+the two `startsWith('[^')` continues in `forward-transform-law.test.ts` leaves the
+law green *and* leaves a
 verbatim copy of the canonical transform undetected, because the next guard
 (`!body.includes('/')`) filters negated classes one line later. Recorded because
 the wrong repair is cheap to try and looks exactly like a working one.
@@ -597,3 +608,135 @@ that inserts above it, which is what happened to this one's first revision.
 
 Nothing above renumbers a ruling or an earlier wave. Wave 9 is a number nothing
 else has used.
+
+## Amendment — the self-citation convention states its own hazard, and wave 10 (grooming, 2026-08-28)
+
+The convention adopted just above — cite a superseded paragraph's replacement
+by heading, not by line, because a line citation in an append-only document is
+falsified by the next amendment that inserts above it — turned out to have two
+failure modes of its own, neither previously written down. `#152` found both,
+EXECUTED against the reconciler's own rule, and this amendment is the fix.
+
+**The pop is positional, not proximity-based.** The `doc_waves` awk in
+`scripts/dev/prd-reconcile.sh` keeps a stack: a line
+matching two literal asterisks, the word Wave, and a digit pushes a
+declaration; a line matching `> **SUPERSEDED` at column 0 pops whichever
+declaration currently sits on top of that stack — not the one nearest it on
+the page, not the one it is textually beside. Two consequences follow from
+that, and this document has now produced a live instance of each:
+
+- **A marker whose own quoted text reproduces a wave declaration's bold
+  markup is parsed as a second declaration, and — because the push rule ends
+  in `next` — never reaches the pop rule on that same line at all.** It
+  mis-declares and fails to supersede in one stroke. Today's three markers
+  above, superseding the renumbered wave-5, wave-6 and wave-7 paragraphs, are
+  safe only because the amendment heading they quote never bolds a wave
+  number — luck, not design, until this paragraph: **a `> **SUPERSEDED`
+  marker never reproduces the two-asterisks-Wave-digit shape in its quoted
+  text.** Where the superseding target is itself a wave declaration rather
+  than an Amendment-section heading, the marker names it by issue number and
+  prose — never by quoting the declaration's own heading verbatim.
+- **A marker placed beside superseded prose still pops — it pops whatever the
+  stack's top happens to be, which may be an unrelated wave several
+  declarations back.** Marking the "Waves 5, 6 and 7 are each a single issue"
+  paragraph above this way, tried during this issue's own investigation,
+  silently deleted wave 4 from the count: three declarations above it were
+  already marked, so the still-pending entry the new marker consumed belonged
+  to wave 4, not to anything the marker was written beside. Reverted
+  immediately; the finding is the point. **So: a column-0 `> **SUPERSEDED`
+  marker belongs immediately below a `**Wave N` declaration and nothing
+  else** — never beside prose, and never while an earlier, unrelated
+  declaration above it still has no marker of its own, since an unmarked
+  declaration is still on the stack and is what the next marker pops,
+  regardless of what it is written beside.
+
+**Indentation is the escape hatch from that rule, used deliberately once
+already.** The anchor `^> **SUPERSEDED` matches only at column 0. The marker
+nested inside the Success-1 bullet, in the residuals amendment above, is
+indented two spaces — and that bullet is prose, not a wave declaration, so
+the marker's only job is to read as superseded for a human; it has no wave to
+pop, and popping one by accident is exactly the failure just described.
+Indentation there guarantees that: an indented `> **SUPERSEDED` is invisible
+to the anchored awk by construction, so it is provably inert to the wave
+count. **The rule, stated once for both spellings: a marker sits at column 0
+only when it supersedes an actual `**Wave N` declaration, so the reconciler
+counts the pop; anywhere else — prose, a Success bullet, non-wave text — it
+is indented, so the reconciler cannot mistake it for one.** That Success-1
+marker is the one example on file; nothing else in this document supersedes
+non-wave content.
+
+EXECUTED and pinned as CONTROLS on `#152`, not reproduced here — a live
+fixture demonstrating the hazard, embedded in the one document the hazard
+threatens, would be the hazard: both failure shapes above, run through
+`scripts/dev/prd-reconcile.sh`'s exact `doc_waves` awk, still fail exactly as described;
+a marker written the new way — naming an Amendment heading rather than
+quoting it, at column 0 beside its own declaration, never beside prose —
+resolves every wave in the fixture exactly once.
+
+**Two corrections made in place, found while re-checking this document's own
+citations for the same fragility:**
+
+- The "Success 1 is now met" paragraph above cited the superseded finding by
+  a line range — the exact fragility this convention exists to end. It now
+  cites the finding by name instead.
+- The wave-9 sequencing amendment called PR `#144` "a live fence" as the
+  reason wave 9 waits. `#144` had already merged by the time that sentence
+  was written, so there was no live fence left to bundle across; the real
+  dependency is a stack, not a fence collision. Corrected in place — the
+  conclusion was already right, only the stated reason was not.
+
+**Verified, not re-fixed: the wave-7 references.** `#151` already resolved
+the mislabeling this issue was filed against — the tracker confirms it:
+`#120` and `#124` are titled `prd42 w7`, `#53` is `prd42 w6`, `#47` is
+`prd42 w5`, all matching this document's sequencing exactly. Every "wave 7"
+mention left in this document either names that real wave or quotes the
+historical mislabeling as a quote of record; none is a live, unresolved
+claim.
+
+### Sequencing amendment — wave 10
+
+**Wave 10 — parallel, fenced apart.** `prd42 w10: the PRD's self-citations
+survive the next amendment` (`#152` — this file) · `prd42 w10: the round-trip
+law's win32 skip derives from the real rule, not two characters` (`#153` —
+`concierge/repos.test.ts`) · `prd42 w10: the recorder barrel is complete, and
+drift is caught` (`#154` — `recorder/index.ts`, `recorder/rotate.ts`,
+`recorder/namespace-law.test.ts`, `api/rotate.ts`) · `prd42 w10: the
+reconciler is in the repo, so its verdict is checkable by anyone` (`#161` —
+adds `scripts/dev/prd-reconcile.sh`, new file).
+
+```
+$ scripts/fence-lint.sh 152 153 154 161
+fence lint PASSED
+```
+
+Nothing above renumbers a ruling or an earlier wave. Wave 10 is a number
+nothing else has used.
+
+### Sequencing amendment — wave 11
+
+**Wave 11 — parallel, fenced apart.** `prd42 w11: the barrel law's grammar
+covers the clause axis, not just the keyword axis` (`#174` —
+`recorder/namespace-law.test.ts`) · `prd42 w11: the reconciler refuses a
+misplaced marker and survives a large tracker read` (`#175` —
+`scripts/dev/prd-reconcile.sh`, adds `scripts/dev/prd-reconcile.test.sh`) ·
+`prd42 w11: the win32 segment rule matches the naming rules it cites` (`#176` —
+`concierge/repos.test.ts`).
+
+All three were found by wave 10's verification and are **residuals of wave 10's
+own fixes**, not new scope: #174 carries the clause-axis forms the barrel law
+still does not derive, #175 the reconciler hardening a verbatim adoption could
+not make, and #176 the superscript device names and the hand-maintained
+non-vacuity floors. Each wave-10 commit body names the issue that carries what
+it deferred, so the enumeration is recoverable rather than lost in a commit
+message.
+
+Declared here rather than left to grooming because the reconciler compares the
+waves this document declares against the waves the tracker claims from issue
+titles — filing three `w11` issues without declaring w11 reports `UNDECLARED
+WAVE 11` and exits 1. That is the same class of drift this section exists to
+catch, arriving from the tracker side rather than the document side, and it is
+worth saying plainly that it was introduced by wave 10's own follow-up filing
+and caught by the check itself.
+
+Wave 11 is a number nothing else has used. Nothing above renumbers a ruling or
+an earlier wave.
