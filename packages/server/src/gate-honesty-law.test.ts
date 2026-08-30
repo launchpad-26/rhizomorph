@@ -75,6 +75,22 @@ const LINES = SOURCE.split('\n')
  */
 const RUNNING_AS_ROOT = process.getuid?.() === 0
 
+/**
+ * `/bin/bash`'s major version — NOT the `bash` on PATH.
+ *
+ * `gate.sh`'s shebang is `#!/bin/bash`, so that interpreter is the one its
+ * guards actually run under, and it is the only one whose quirks can hold a
+ * landing. The two differ in practice: macOS ships 3.2.57 at `/bin/bash` while
+ * Homebrew puts 5.x first on PATH, which is exactly how a proof written for
+ * 3.2 comes to run under 5.x and pass without exercising anything.
+ */
+const SYSTEM_BASH_MAJOR = Number(
+  (spawnSync('/bin/bash', ['-c', 'echo "${BASH_VERSINFO[0]}"'], { encoding: 'utf8' }).stdout ?? '')
+    .trim(),
+)
+/** Empty-array expansion under `set -u` stopped being an error in bash 4.4. */
+const SYSTEM_BASH_GUARDS_EMPTY_ARRAYS = !Number.isNaN(SYSTEM_BASH_MAJOR) && SYSTEM_BASH_MAJOR >= 4
+
 /** The one line containing `needle`. Throws if zero or more than one match — an ambiguous anchor is worse than a missing one. */
 function uniqueLineIndex(needle: string): number {
   const matches: number[] = []
@@ -159,10 +175,10 @@ interface FragmentResult {
 }
 
 /** Runs an assembled bash script and returns its outcome without throwing — a fail()'s exit 1 is an expected result here, not a test-harness error. Syntax-checks first, so a broken extraction fails with a clear parse error instead of a confusing runtime one. */
-function runFragment(script: string, cwd: string): FragmentResult {
-  execFileSync('bash', ['-n'], { input: script, encoding: 'utf8' })
+function runFragment(script: string, cwd: string, shell = 'bash'): FragmentResult {
+  execFileSync(shell, ['-n'], { input: script, encoding: 'utf8' })
   try {
-    const stdout = execFileSync('bash', ['-c', script], { cwd, encoding: 'utf8' })
+    const stdout = execFileSync(shell, ['-c', script], { cwd, encoding: 'utf8' })
     return { status: 0, stdout, stderr: '' }
   } catch (err) {
     const e = err as { status?: number; stdout?: string; stderr?: string }
@@ -946,7 +962,9 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(extractLine('echo "  fence OK: ${DIFF_FILES')).toContain('${DIFF_FILES[*]-}')
     })
 
-    it('EXECUTED — a branch with an empty diff prints "fence OK" and exits 0, rather than aborting past fail()', () => {
+    it.skipIf(SYSTEM_BASH_GUARDS_EMPTY_ARRAYS)(
+      `EXECUTED — a branch with an empty diff prints "fence OK" and exits 0, rather than aborting past fail() (skipped: /bin/bash here is ${SYSTEM_BASH_MAJOR}.x, and empty-array expansion under \`set -u\` stopped being an error in 4.4, so this fragment cannot fail for the reason it claims — it is a proof only on bash < 4.4, which is what macOS ships)`,
+      () => {
       const dir = scratchDir('fence-emptydiff')
       initRepo(dir)
       mkdirSync(join(dir, 'src', 'foo'), { recursive: true })
@@ -955,7 +973,9 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       git(dir, 'commit', '-q', '-m', 'init')
       git(dir, 'checkout', '-q', '-b', 'feature')
       const script = preludeScript(0, "FENCE='^src/foo/'\nW=.\n") + NEW_BLOCK + '\n'
-      const res = runFragment(script, dir)
+      // `/bin/bash`, not PATH's bash: gate.sh's own shebang, and the only
+      // interpreter whose empty-array behaviour can hold a real landing.
+      const res = runFragment(script, dir, '/bin/bash')
       // Without the `-` default this aborts "DIFF_FILES[*]: unbound variable" on
       // bash 3.2 WITHOUT reaching fail() — no "GATE FAILED", no ">>> HOLDING" —
       // on the very path :142 has a dedicated diagnosis for.
