@@ -105,9 +105,12 @@ export interface ScenePainterOptions {
  * `layoutScene`/`sceneMarks` run only inside `drawFrame`. So `builds` unchanged
  * across a frame IS "no model stage ran".
  *
- * Read as a delta, the way `settledRibbonCacheCounts()` is (`gl/frame.ts`): this
- * module outlives a single test file and one vitest worker runs many against it,
- * so an absolute is a law that passes on whatever ran before it.
+ * Read as a delta, the way `settledRibbonCacheCounts()` is (`gl/frame.ts`).
+ * NOT because the counters outlive a test file — vitest's `isolate` defaults to
+ * true and `packages/web/vitest.config.ts` does not override it, so each file
+ * gets its own module registry and these start at zero — but because many laws
+ * run against them WITHIN one file, and an absolute is then a law that passes
+ * on whatever ran before it in the same file.
  */
 let builds = 0
 let repaints = 0

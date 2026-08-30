@@ -36,8 +36,9 @@ describe('the scene painter repaints without rebuilding (prd-47 ruling 1)', () =
     return createScenePainter(document.createElement('canvas'), document.createElement('canvas'))
   }
 
-  /** The counters outlive this file and one worker runs many against it, so
-   * every law below reads a DELTA. */
+  /** The counters live for one test FILE — vitest isolates the module registry
+   * per file — but every law below runs against them inside this one, so each
+   * reads a DELTA. */
   function since(before: { builds: number; repaints: number }) {
     const now = scenePaintCounts()
     return { builds: now.builds - before.builds, repaints: now.repaints - before.repaints }

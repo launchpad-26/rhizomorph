@@ -121,6 +121,40 @@ export function lastPaintedFrame(): PaintedFrame | null {
   return painted
 }
 
+/**
+ * WHETHER TWO SNAPSHOTS WOULD BUILD THE SAME FRAME — `repaintFrame`'s gate.
+ *
+ * Deliberately NOT a list of fields: enumerating them was this issue's own
+ * first defect. A gate naming `dpr`, `width`, `height` and `theme` — and not
+ * the selection, the hover, the quality, the pause, the reduced motion, the
+ * replay flag or the fleet — replayed a frame that predated a selection, and
+ * under a pinned clock nothing else redraws, so it stayed stale indefinitely.
+ * This reads the object's OWN keys, so a field added to `SceneLatestState`
+ * tomorrow is compared here without anyone remembering to come and add it.
+ *
+ * Reference identity was the second form, and it was too strong in the other
+ * direction. `SceneView` mints a fresh object literal every render, so *any*
+ * render invalidated a frame nothing had actually changed — including
+ * `setPanning(true)`, which commits at the start of every drag, so the first
+ * mousemove of every real drag missed the repaint path entirely. Shallow
+ * equality keeps the property that mattered (no field can be forgotten) and
+ * drops the one that cost.
+ *
+ * The four reference fields (`fleet`, `field`, `settle`, `retire`) compare by
+ * identity, which is the conservative direction: a rebuilt fleet invalidates
+ * whether or not it says anything new. What that does not catch is one of those
+ * four MUTATED IN PLACE with no render — safe today only because every mutation
+ * of the three registries happens in an effect (`scene/index.tsx`) that runs
+ * after the render which minted the state object holding them. A non-render
+ * mutation path added later would have to invalidate here itself.
+ */
+function sameSceneState(a: SceneLatestState, b: SceneLatestState): boolean {
+  if (a === b) return true
+  const keys = Object.keys(a) as (keyof SceneLatestState)[]
+  if (keys.length !== Object.keys(b).length) return false
+  return keys.every((key) => Object.hasOwn(b, key) && a[key] === b[key])
+}
+
 /** What the operator is told while the GPU is handing the context back. */
 export const CONTEXT_LOST_MESSAGE = 'the graphics context was lost — recovering'
 
@@ -173,6 +207,10 @@ export function useFrameLoop(
      * {@link repaintFrame}'s gate — null until the first build, which is why a
      * camera move before one falls through to a full draw. */
     let builtFrom: SceneLatestState | null = null
+    /** Whether a build is on the stack right now — `repaintFrame`'s reentrancy
+     * latch, and the reason a camera flight cannot recurse into one. See the
+     * note at the top of `repaintFrame`. */
+    let drawing = false
     const pinned = latestRef.current.now !== undefined
 
     /**
@@ -268,7 +306,37 @@ export function useFrameLoop(
     observer?.observe(host)
     guard(resize)
 
+    /**
+     * ONE BUILT FRAME — and the latch that keeps it the only paint of its tick.
+     *
+     * The latch is not bookkeeping. `buildAndPaint` steps a live flight before
+     * it paints, `stepFlight` moves the camera the only way anything in this
+     * scene may (`zoom.transform`, so d3's `__zoom` stays the source of truth),
+     * and that arrives straight back in the `zoom` handler — on this call's own
+     * stack. `repaintFrame` refuses while it is held, because there is nothing
+     * left to answer: the build already running reads `rig.cameraRef.current`
+     * AFTER `stepFlight` has moved it, so it paints the very camera the repaint
+     * would have.
+     *
+     * Without it, a flight tick submitted the frame twice — and, once any React
+     * commit had landed since the last build, recursed instead: `builtFrom` is
+     * assigned at the END of a build, so the gate saw a stale one and called
+     * back in here, before the assignment it needed was ever reached. That
+     * bottoms out in a `RangeError`, which `guard` turns into a permanent "the
+     * scene stopped drawing" — and the arming condition was ordinary, because
+     * `setPanning(false)` commits a render at the end of every drag. Drag, then
+     * press Fit, and the scene died.
+     */
     const drawFrame = () => {
+      drawing = true
+      try {
+        buildAndPaint()
+      } finally {
+        drawing = false
+      }
+    }
+
+    const buildAndPaint = () => {
       const current = latestRef.current
       /**
        * THE ANIMATION CLOCK — real wall time, and legitimately so in a replay
@@ -403,35 +471,35 @@ export function useFrameLoop(
      * issue's own defect. A frame is built from the whole `SceneLatestState` —
      * the fleet, the selection, the hover, the quality, the pause, the reduced
      * motion, the replay flag and the theme — plus the panel's device geometry.
-     * A gate naming four of those repainted a frame that predated a selection,
-     * and under a pinned clock (replay) nothing else redraws, so it stayed
-     * stale indefinitely: `SceneView.tsx`'s redraw effect keys on
-     * `[hideFinished, theme, motion]` alone, and there is no rAF to cover for
-     * it. So the gate takes the state's OWN IDENTITY instead of a list of its
-     * fields — `SceneView` mints a fresh object every render, so any render
-     * that could have changed anything invalidates, and no future field can be
-     * forgotten here.
+     * So the gate asks `sameSceneState` rather than naming fields, and the note
+     * on it is where that history lives.
      *
      * `dpr`, `width` and `height` stay named because they are NOT in that
      * object: a resize arrives through the ResizeObserver, which changes them
-     * without re-rendering React.
+     * without re-rendering React, and `resize()` does not redraw — so under a
+     * pinned clock a resize followed by a camera nudge would replay the
+     * old-size frame indefinitely without these three.
      *
-     * The conservatism is deliberate and one-directional. A render that changed
-     * nothing relevant costs a rebuild this frame — which is exactly the
-     * behaviour that shipped before this issue — while a repaint that should
-     * have been a rebuild paints a lie. Anything the gate refuses falls through
-     * to a full `drawFrame`, so the worst case here is never worse than `main`.
+     * The conservatism is one-directional: a repaint that should have been a
+     * rebuild paints a lie, while a refusal costs only what `main` cost — see
+     * `fallBackToBuild`, which is where "never worse than `main`" is actually
+     * enforced rather than asserted.
      */
     const repaintFrame = () => {
+      // The reentrancy latch — see `drawFrame`. A flight's own camera move
+      // arrives here on the running build's stack, and that build will paint
+      // the moved camera itself.
+      if (drawing) return
       const current = latestRef.current
       if (
         painted === null ||
-        builtFrom !== current ||
+        builtFrom === null ||
+        !sameSceneState(builtFrom, current) ||
         painted.dpr !== dpr ||
         painted.width !== width ||
         painted.height !== height
       ) {
-        drawFrame()
+        fallBackToBuild()
         return
       }
       const camera = rig.cameraRef.current
@@ -445,13 +513,38 @@ export function useFrameLoop(
         return
       }
       if (!painter.repaint({ width, height, camera, dpr })) {
-        drawFrame()
+        fallBackToBuild()
         return
       }
       // The parity seam moves with the repaint, or it goes stale-and-green: the
       // camera suite reads a frame's camera off this, and a repaint that left it
       // behind would report the camera of the last BUILD forever.
       painted = { ...painted, camera }
+    }
+
+    /**
+     * WHAT A REFUSED REPAINT COSTS — and why it is not a build under a loop.
+     *
+     * Under a running loop, nothing. The `zoom` handler has already written the
+     * new camera to `rig.cameraRef`, and the rAF that is about to run reads it
+     * there — which is precisely what `main` did for every camera move before
+     * this issue existed. So a refusal is exactly as fast as not having this
+     * path at all, which is the only form in which "never worse than `main`"
+     * is true rather than merely claimed.
+     *
+     * Building here instead was measurably worse than `main`, on the one event
+     * this issue exists to answer faster: `setPanning` commits a render at both
+     * ends of every drag, so the first mousemove of a real drag found the gate
+     * refusing and ran a full `layoutScene` + `sceneMarks` + `buildFrame`
+     * synchronously inside the input handler.
+     *
+     * A PINNED clock has no next frame — `redrawRef` is the only thing that
+     * draws under one — so there the build has to happen here or the picture
+     * never resolves. That is the replay case the gate was written for, and it
+     * is not an input-latency path: nothing is dropping a frame to answer it.
+     */
+    const fallBackToBuild = () => {
+      if (pinned) drawFrame()
     }
 
     /** One frame of a zoom-to-fit, driven by the loop that is already running. */
