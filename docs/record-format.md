@@ -248,9 +248,29 @@ replayable event stream:
 
 - **Refuse across repos.** Different `manifest.repoSlug` values is an honest
   error, never a best-effort guess at reconciling unrelated histories.
-- **Dedup by `(actor.instance, event.id)`.** An event id is only ever unique
-  within one actor's own log (two independent sessions can both mint
-  `evt-000001`), so the dedup key is the pair, not the id alone.
+- **Dedup by `(link.hash, actor.instance)` — the chain link, not the event.**
+  An event id identifies nothing on its own *and nothing in a pair either*: the
+  id counter is per-run and restarts when a session resumes, so one actor's own
+  log repeats `evt-000001` (fifteen times, in the ledger prd-48's shipper spike
+  measured). A chain link cannot collide that way, because its hash covers the
+  line's content **and** its position in the chain — two distinct events are two
+  distinct links even when every field matches, and the same event re-exported
+  from the same start is the same link.
+
+  This is a **correction**, not a restatement. Until #173 this section said the
+  key was `(actor.instance, event.id)` "because an event id is only ever unique
+  within one actor's own log". The first half was right and the parenthetical
+  was wrong, and a reader implementing the documented rule would have built a
+  merge that silently discarded real events — 74.5% of one measured ledger.
+
+  The cost of keying on the chain: two exports of the same actor that begin at
+  **different first events** are different chains from their genesis on, so
+  their overlap does not dedup. An export beginning mid-log is a different
+  artifact, and calling its events the same ones is precisely the guess the old
+  key was making.
+
+  Unknown lines (from a newer era this reader cannot fold) dedup by the same
+  rule. A link exists whether or not the line parses, so they need no exemption.
 - **Order per-actor append-only, cross-actor by timestamp with `actor.instance`
   as the tiebreak.** Concretely: repeatedly take whichever of the two
   streams' next unconsumed event has the earlier `ts` (comparing
