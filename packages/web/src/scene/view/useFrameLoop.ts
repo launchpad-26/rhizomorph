@@ -207,6 +207,15 @@ export function useFrameLoop(
      * {@link repaintFrame}'s gate — null until the first build, which is why a
      * camera move before one falls through to a full draw. */
     let builtFrom: SceneLatestState | null = null
+    /** The scene's two clocks at the last BUILD — the half of the skip gate
+     * that is not in `SceneLatestState`. See {@link canSkipBuild}. */
+    let builtClock = 0
+    let builtAsOf = 0
+    /** Whether anything was still growing in at the last BUILD. The grow-in
+     * runs on the REAL clock, which a pause does not freeze, so the tick where
+     * this flips false is the one tick whose retained frame is stale — see
+     * {@link canSkipBuild}. */
+    let builtSettling = false
     /** Whether a build is on the stack right now — `repaintFrame`'s reentrancy
      * latch, and the reason a camera flight cannot recurse into one. See the
      * note at the top of `repaintFrame`. */
@@ -367,6 +376,11 @@ export function useFrameLoop(
       const clock = pausedAtRef.current?.real ?? real
       const asOfClock = pausedAtRef.current?.asOf ?? asOfReal
 
+      if (canSkipBuild(current, real, clock, asOfClock)) {
+        skipBuild()
+        return
+      }
+
       stepFlight(real)
       current.field.step(clock)
 
@@ -436,6 +450,9 @@ export function useFrameLoop(
       // gate. Effect-local rather than on `painted`, because `painted` is the
       // scene's public instrumentation seam and this is bookkeeping.
       builtFrom = current
+      builtClock = clock
+      builtAsOf = asOfClock
+      builtSettling = current.settle.settling(real)
       // The clear colour follows the palette's own ground, so the picture and
       // the page share one floor in both themes (dark: byte-identical to the
       // old hardcoded BACKDROP). The blend mode follows the palette's carrier:
@@ -545,6 +562,96 @@ export function useFrameLoop(
      */
     const fallBackToBuild = () => {
       if (pinned) drawFrame()
+    }
+
+    /**
+     * WHETHER THE BUILD ITSELF CAN BE SKIPPED (prd-47 ruling 2) — the model
+     * stage's own gate, a sibling of `repaintFrame`'s rather than a
+     * replacement for it. Gated on INPUTS, never on a computed output: the
+     * PRD's rejected-alternatives section names the output form directly
+     * ("computing the display list to discover it is identical buys
+     * nothing").
+     *
+     * `buildAndPaint` reads exactly: `real` (through `stepFlight` and
+     * `settle.progress`), `clock` and `asOfClock` (through every other
+     * pause-frozen read), the whole `SceneLatestState`, the three device
+     * terms, and the camera — read only as `painted.camera` and the paint's
+     * uniform. The camera is deliberately absent below: ruling 1's premise is
+     * that the display list does not read it, so a camera move must not force
+     * a rebuild — it forces a SUBMIT, which `skipBuild` performs.
+     *
+     * `real` enters through exactly two doors, and each gets its own term
+     * rather than a `real` term of its own — a `real` term would mean a
+     * paused scene never skips, because pausing freezes `clock`, not `real`:
+     *
+     * - a live flight moves the camera every tick off `real`, so one in
+     *   flight must never be skipped past;
+     * - the grow-in keeps ITS real clock through a pause on purpose (a thread
+     *   caught half-grown is a picture of a topology that does not exist), so
+     *   a paused scene with a thread still growing genuinely differs frame to
+     *   frame — `settle.settling(real)` is exactly that "still growing" bit.
+     *
+     * `PulseField.step()` and `SettleRegistry.sizes()` are both mutated on
+     * every build this gate skips, and both are read-verified idempotent at a
+     * frozen clock (elapsed/`dt` is 0 the second time), so skipping the call
+     * leaves each in the state a build would have left it in — `pulses.ts` is
+     * off this fence and was read, not changed, to reach that. `L8` is the
+     * law that holds it rather than a comment asserting it.
+     *
+     * `geometryRef.current` and `rig.boundsRef.current` are deliberately left
+     * alone by a skip: they were written by the last BUILD, and a skip's
+     * whole claim is that nothing which would change them has moved. Hit
+     * testing and `isContentVisible` keep working through a paused scene
+     * exactly because of that.
+     */
+    const canSkipBuild = (
+      current: SceneLatestState,
+      real: number,
+      clock: number,
+      asOfClock: number,
+    ): boolean => {
+      if (painted === null || builtFrom === null) return false
+      if (clock !== builtClock || asOfClock !== builtAsOf) return false
+      if (!sameSceneState(builtFrom, current)) return false
+      if (painted.dpr !== dpr || painted.width !== width || painted.height !== height) return false
+      // A flight moves the camera every tick off the REAL clock, which a pause
+      // does not freeze. Skipping one strands the flight mid-path.
+      if (rig.flightRef.current !== null) return false
+      // The grow-in also keeps the real clock through a pause, on purpose: a
+      // thread caught half-grown is a picture of a topology that does not
+      // exist. Past settle it is constant, which is the case ruling 2 is for.
+      //
+      // BOTH terms, and the second is the one a jump-across-`SETTLE_MS` test
+      // cannot see. `settling(real)` alone stops skipping WHILE a thread grows
+      // and resumes the instant it stops — but the frame retained at that
+      // instant was built one tick EARLIER, at a growth just short of 1, and
+      // every tick after it then qualifies to skip. The thread would stay
+      // frozen a fraction short of grown for as long as the pause lasted,
+      // which is the exact failure keeping the grow-in on the real clock
+      // exists to prevent. Refusing while EITHER is true spends one catch-up
+      // build on the transition and skips from there.
+      if (current.settle.settling(real) || builtSettling) return false
+      return true
+    }
+
+    const skipBuild = () => {
+      const retained = painted
+      // `canSkipBuild`'s first line already established `painted !== null`.
+      if (retained === null) return
+      const camera = rig.cameraRef.current
+      // Skip the build, never the submit (ruling 2). `repaint` resubmits the
+      // retained Batch under the current camera — the same two submits `paint`
+      // makes after its build, one build fewer.
+      //
+      // `painter.repaint` returns false only when `painter.last === null`,
+      // which cannot be true here: `painted !== null` already implies a
+      // `paint()` has run and set both. Unreachable in practice; an early
+      // return rather than a recursive `buildAndPaint`, which would need a
+      // second reentrancy latch.
+      if (!painter.repaint({ width, height, camera, dpr })) return
+      // The parity seam moves with every submit, or it reports the camera of
+      // the last BUILD forever — `repaintFrame` carries the long form.
+      painted = { ...retained, camera }
     }
 
     /** One frame of a zoom-to-fit, driven by the loop that is already running. */

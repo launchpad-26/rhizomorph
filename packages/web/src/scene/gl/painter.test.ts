@@ -227,6 +227,131 @@ describe('the frame, submitted', () => {
   })
 })
 
+describe('a repaint re-sends nothing (prd-47 #178)', () => {
+  /** The submit's journal minus the upload. `walk` never touches a buffer
+   * binding — only `upload` does — so this is exactly "everything that decides
+   * the picture". */
+  const drawing = (gl: RecordingGl) =>
+    gl.calls.filter((call) => call.name !== 'bufferData' && call.name !== 'bindBuffer')
+
+  it('a repaint after a build sends zero bufferData, and still draws (L1)', () => {
+    const { gl, canvas, overlay } = mount()
+    const painter = createScenePainter(canvas, overlay)
+
+    gl.reset()
+    painter.paint(PAINT)
+    // One `bufferData` per attribute — the existing law at `:161` states the
+    // same number for a build, so the two agree on what a full upload costs.
+    expect(gl.of('bufferData')).toHaveLength(3)
+
+    gl.reset()
+    painter.repaint({ width: PAINT.width, height: PAINT.height, dpr: PAINT.dpr, camera: { k: 2, x: 40, y: -10 } })
+    expect(gl.of('bufferData')).toHaveLength(0)
+    expect(gl.of('drawArrays').length).toBeGreaterThan(0)
+  })
+
+  it('a real build after a repaint still uploads (L2)', () => {
+    // A one-shot L1 cannot see a cache that latches on the first frame and
+    // never uploads again — this continues past the repaint into a second
+    // build to prove the gate re-arms.
+    const { gl, canvas, overlay } = mount()
+    const painter = createScenePainter(canvas, overlay)
+
+    painter.paint(PAINT)
+    gl.reset()
+    painter.repaint({ width: PAINT.width, height: PAINT.height, dpr: PAINT.dpr, camera: { k: 2, x: 40, y: -10 } })
+    expect(gl.of('bufferData')).toHaveLength(0)
+
+    gl.reset()
+    painter.paint(PAINT)
+    expect(gl.of('bufferData')).toHaveLength(3)
+  })
+
+  it('draws the identical sequence whether or not the upload ran (L3)', () => {
+    // Same camera, twice: once as the build that uploads, once as a repaint
+    // that skips it. `upload` depends on nothing `walk` reads, so the two
+    // journals — upload calls excluded — must be the same calls in the same
+    // order with the same arguments. A gate that skipped more than the upload
+    // would show up here as a mismatch.
+    //
+    // Both painters get a throwaway warm-up paint first: `uploadNoise`
+    // (`programs.ts`) caches the grain tile on the resources it is handed, so
+    // an *uncached* first call and a *cached* second call differ in their own
+    // right (a `texImage2D`/`texParameteri` burst) — a fact about the grain
+    // cache, not about this one. Warming both painters identically removes
+    // that confound and leaves only what L3 is actually about.
+    const camera = { k: 1.7, x: 12, y: -6 }
+
+    const a = mount()
+    const painterA = createScenePainter(a.canvas, a.overlay)
+    painterA.paint(PAINT)
+    a.gl.reset()
+    painterA.paint({ ...PAINT, camera })
+    const journalA = drawing(a.gl)
+
+    const b = mount()
+    const painterB = createScenePainter(b.canvas, b.overlay)
+    painterB.paint(PAINT)
+    b.gl.reset()
+    painterB.repaint({ width: PAINT.width, height: PAINT.height, dpr: PAINT.dpr, camera })
+    const journalB = drawing(b.gl)
+
+    expect(journalB).toEqual(journalA)
+  })
+
+  it('two builds are two frame objects — the premise this cache rests on (L4)', () => {
+    // `frame.ts`'s contract: `buildFrame` returns a fresh object literal on
+    // every call. This cache gates on `frame === uploadedFrame`, so if a
+    // future `frame.ts` ever reused the frame object this law goes red here
+    // rather than the picture going silently wrong on a stranger's machine.
+    const { canvas, overlay } = mount()
+    const painter = createScenePainter(canvas, overlay)
+    expect(painter.paint(PAINT)).not.toBe(painter.paint(PAINT))
+  })
+
+  it('a context restore invalidates the cache (L5)', () => {
+    // Driven through the real events, as the existing recovery law does
+    // (`:93-117`), not by reaching inside. The new buffers `onRestored`
+    // creates are empty, so the retained frame — unchanged by the loss —
+    // must be re-uploaded into them rather than skipped as "already there".
+    const { gl, canvas, overlay } = mount()
+    const painter = createScenePainter(canvas, overlay)
+
+    painter.paint(PAINT)
+    canvas.dispatchEvent(new Event('webglcontextlost', { cancelable: true }))
+    canvas.dispatchEvent(new Event('webglcontextrestored'))
+
+    gl.reset()
+    const repainted = painter.repaint({
+      width: PAINT.width,
+      height: PAINT.height,
+      dpr: PAINT.dpr,
+      camera: { k: 1.3, x: 5, y: -2 },
+    })
+    expect(repainted).toBe(true)
+    expect(gl.of('bufferData')).toHaveLength(3)
+  })
+
+  it('three repaints in a row skip the upload every time (L6)', () => {
+    // A gate that skips once and then forgets would show up as a nonzero
+    // `bufferData` count on the second or third repaint.
+    const { gl, canvas, overlay } = mount()
+    const painter = createScenePainter(canvas, overlay)
+
+    painter.paint(PAINT)
+    gl.reset()
+    for (const camera of [
+      { k: 1.1, x: 2, y: 0 },
+      { k: 1.4, x: 10, y: -4 },
+      { k: 1.9, x: 22, y: -9 },
+    ]) {
+      painter.repaint({ width: PAINT.width, height: PAINT.height, dpr: PAINT.dpr, camera })
+      expect(gl.of('drawArrays').length).toBeGreaterThan(0)
+    }
+    expect(gl.of('bufferData')).toHaveLength(0)
+  })
+})
+
 describe('an environment with no GPU', () => {
   // The split this describe now records: jsdom (BOTH contexts null) stays
   // silent — the frame is built, nothing is drawn, and every unit test in the
