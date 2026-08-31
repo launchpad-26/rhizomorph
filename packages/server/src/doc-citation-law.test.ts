@@ -178,6 +178,15 @@ function globToRegExp(glob: string): RegExp {
 /** A cited path exists if the literal target exists, a directory glob's parent exists, a mid-filename glob matches a real sibling, a bare ADR-style prefix matches a real record, or the target is gitignored (a build artefact, not a tracked-tree claim). */
 function citationExists(cite: string): boolean {
   const stripped = stripCitationSuffix(cite)
+
+  // Filesystem first, `git check-ignore` second. Both orders answer identically — a path
+  // that exists and a path that is ignored each return true — but isIgnored spawns 1-2
+  // child processes PER CITATION, and it was being consulted for all ~450 citations in
+  // the main sweep plus ~700 more in the exclusion scan. Idle and alone that cost 2413 ms
+  // and 2074 ms against vitest's 5000 ms default; gate.sh's load-batches mode runs the
+  // suite four times concurrently, where that margin is not enough. Hoisting the cheap
+  // check drops those to 285 ms and 141 ms (review of #16).
+  if (existsSync(path.join(REPO_ROOT, stripped))) return true
   if (isIgnored(stripped)) return true
 
   if (stripped.includes('**')) {
