@@ -56,7 +56,7 @@ meaning from them — they are not part of this schema.
 
 | Field      | Type            | Meaning |
 |------------|-----------------|---------|
-| `instance` | non-empty string| The identity of the *process* that recorded this — stable for the life of one session, unique enough that two different actors' records for the same repo never collide on it. This codebase's own emitter uses its server session id (the same id `/api/meta` publishes, and the join key `mergeRecords` dedupes events on alongside each event's own id). |
+| `instance` | non-empty string| The identity of the *process* that recorded this — stable for the life of one session, unique enough that two different actors' records for the same repo never collide on it. This codebase's own emitter uses its server session id (the same id `/api/meta` publishes, and the actor half of the `(link.hash, actor.instance)` key `mergeRecords` dedupes on — see "Merging two actors' records" below; the event's own id is deliberately no part of it, #173). |
 | `handle`   | non-empty string| A human-readable display name for the actor. |
 | `declared` | boolean         | `true` when a human explicitly supplied `handle` (e.g. `rhizomorph export-record --handle alice`); `false` when it is just a default (this codebase's emitter defaults to the OS username) that nobody vouched for. A reader rendering actor identity should treat `declared: false` as "best guess," not a claim. |
 
