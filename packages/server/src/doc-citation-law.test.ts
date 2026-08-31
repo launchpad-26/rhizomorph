@@ -54,7 +54,7 @@ import { describe, expect, it } from 'vitest'
  * | bare, no backticks (`see docs/foo.md for…`)       | SKIPPED — every real citation in this corpus is backticked (verified by grep); a bare sweep would also catch markdown link TEXT (`[docs/architecture.md](architecture.md#anchor)`), which names the doc, not a claim about a repo-relative path |
  * | markdown link `[text](href)`                      | SKIPPED — hrefs in this corpus are relative to the linking file (`architecture.md#anchor`), never repo-rooted; the bracket TEXT is prose, not a citation, and is correctly left alone by requiring backticks |
  * | trailing punctuation (`` `foo.ts`. ``)             | N/A — punctuation after a *closing* backtick is outside the match; nothing to strip, unlike `no-personal-paths-law`'s bare-name sweep |
- * | line/anchor suffix (`` `foo.ts:111` ``, `` `foo.md#heading` ``) | HANDLED — `:` and `#` are IN the character class, so the span is extracted whole and the suffix stripped before the existence check. It was NOT handled when this table first claimed it was: the class excluded both, so a suffixed span failed to match at all and `stripCitationSuffix` was unreachable from the sweep — a broken `x.ts:42` was invisible while a broken `x.ts` was caught. ~100 `:NNN` citations exist across tracked docs, ~15 in in-scope files, so this is the corpus's most common form (review of #16) |
+ * | line/anchor suffix (`` `foo.ts:111` ``, `` `foo.md#heading` ``) | HANDLED — `:` and `#` are IN the character class, so the span is extracted whole and the suffix stripped before the existence check. It was NOT handled when this table first claimed it was: the class excluded both, so a suffixed span failed to match at all and `stripCitationSuffix` was unreachable from the sweep — a broken `x.ts:42` was invisible while a broken `x.ts` was caught. 234 `:NNN` occurrences exist across tracked markdown (215 distinct, 48 files) and ~12 in in-scope files — the earlier `~100` in this row was understated by more than half, so this is the corpus's most common form (review of #16) |
  * | line RANGE (`` `foo.ts:78-85` ``) | HANDLED — the sibling of the row above, and the reason widening the character class alone is not the fix: `/:\d+$/` matches a single number and stops, so admitting `:` without the range arm turns 7 real range citations into fresh violations. Stripped by `/:\d+(?:-\d+)?$/` (review of #16) |
  * | glob, directory-rooted (`` `packages/core/**` ``) | HANDLED — truncated at `**`, the parent directory must exist |
  * | glob, mid-filename (`` `docs/research/2026-08-02-obs-prd7-*.md` ``) | HANDLED — resolved against a real directory listing, not truncated like the directory glob above (a naive truncate-at-`*` would falsely redden this real, existing citation — caught by running the extractor against the tree before trusting it) |
@@ -177,7 +177,7 @@ function extractCitations(text: string): string[] {
  * it (re-review of #16).
  */
 function stripCitationSuffix(cite: string): string {
-  return cite.replace(/(?::\d+(?:-\d+)?|#[A-Za-z0-9_-]+)+$/, '')
+  return cite.replace(/(?::\d+(?:-\d+)?|#[A-Za-z0-9_.-]+)+$/, '')
 }
 
 function globToRegExp(glob: string): RegExp {
@@ -195,10 +195,20 @@ function citationExists(cite: string): boolean {
   // Filesystem first, `git check-ignore` second. Both orders answer identically — a path
   // that exists and a path that is ignored each return true — but isIgnored spawns 1-2
   // child processes PER CITATION, and it was being consulted for all ~450 citations in
-  // the main sweep plus ~700 more in the exclusion scan. Idle and alone that cost 2413 ms
-  // and 2074 ms against vitest's 5000 ms default; gate.sh's load-batches mode runs the
-  // suite four times concurrently, where that margin is not enough. Hoisting the cheap
-  // check drops those to 285 ms and 141 ms (review of #16).
+  // the main sweep plus ~700 more in the exclusion scan. Idle and alone, against vitest's
+  // 5000 ms default (measured per test BY NAME, not by sorting two durations and assuming
+  // the order — the earlier form of this comment did the latter and had both pairs
+  // swapped):
+  //
+  //     exclusion honesty   3156 ms -> ~380 ms
+  //     main sweep          2466 ms -> ~145 ms
+  //
+  // The exclusion scan is the slower one on BOTH sides, and post-fix it is slower by a
+  // wider ratio — it walks citations that mostly do NOT exist, so `existsSync` fails to
+  // short-circuit and each one still forks `git check-ignore`, while the main sweep's
+  // mostly do exist and short-circuit immediately. gate.sh's load-batches mode runs the
+  // suite four times concurrently, where a 3.1 s test under a 5 s timeout has no room
+  // (review of #16).
   if (existsSync(path.join(REPO_ROOT, stripped))) return true
   if (isIgnored(stripped)) return true
 
@@ -486,6 +496,15 @@ describe('doc citation law: a path cited from a document or a comment must exist
       'docs/architecture.md#some-heading:1',
       'docs/architecture.md:78-85#some-heading',
       'docs/architecture.md#some-heading:78-85',
+      // A `file:line:col` triple. The run-alternation strips both numeric groups; two
+      // sequential replaces took only the last, leaving `…md:150`. Zero instances today —
+      // this repo's house style is `file:line` — but it is the same class, and the class
+      // is what the fix is for.
+      'docs/architecture.md:150:12',
+      // An anchor containing a dot. `#[A-Za-z0-9_-]+` stopped at the `.` and stripped
+      // nothing, so the whole span survived to the existence check and reported a real
+      // file as broken.
+      'docs/architecture.md#v1.2',
     ]) {
       expect(stripCitationSuffix(cite), `${cite} must strip to the bare path`).toBe('docs/architecture.md')
       expect(citationExists(cite), `${cite} names a file that exists`).toBe(true)
