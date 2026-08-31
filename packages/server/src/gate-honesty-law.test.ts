@@ -2138,12 +2138,22 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
      * once `-F`'s substring match was fooled. This is the same "verdict
      * outruns what was established" shape the rest of this issue closes.
      */
-    it("EXECUTED — the PRUNED/NOOP protocol requires an EXACT match: a corrupted result containing \"PRUNED\" as a substring does not fail open", () => {
+    it("EXECUTED — the PRUNED/NOOP protocol requires an EXACT match on BOTH arms: a corrupted result containing \"PRUNED\" or \"NOOP\" as a substring does not fail open", () => {
       const oldProtocolLine = 'grep -qF PRUNED "$MANIFEST_OUT_LOG" && echo "  lane manifest pruned: $H"'
       const newProtocolLines = sliceLines('if grep -qxF PRUNED "$MANIFEST_OUT_LOG"; then', 'echo "  lane manifest pruned: $H"')
       expect(SOURCE).not.toContain(oldProtocolLine) // the substring-matching form is gone
       expect(NEW_BLOCK).toContain('grep -qxF PRUNED')
       expect(newProtocolLines).toContain('grep -qxF PRUNED')
+      // The NOOP arm is anchored too, and this is not symmetry for its own
+      // sake: the harness below is a RETYPED copy of the protocol, so the
+      // only thing tying it to the real file is an assertion like this one.
+      // Reviewed 2026-08-31 by MUTATION — rewriting gate.sh's NOOP arm to
+      // the substring form (`grep -qxF NOOP` -> `grep -qF NOOP`) left this
+      // whole file green at 137/137, because nothing read the real NOOP
+      // line and no fixture fed a NOOP-substring result through it. The
+      // PRUNED arm was already anchored, which is why the same mutation
+      // there DOES redden. Same defect, one arm quieter.
+      expect(NEW_BLOCK).toContain('grep -qxF NOOP')
 
       function protocolResultFor(content: string): FragmentResult {
         const dir = scratchDir('manifest-protocol')
@@ -2176,6 +2186,15 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(corrupted.status).toBe(1)
       expect(corrupted.stdout + corrupted.stderr).toContain('unrecognized result')
       expect(corrupted.stdout).not.toContain('lane manifest pruned:') // the false success line, specifically
+
+      // The sibling: a NOOP-substring corruption is the QUIET version of the
+      // same failure. It prints no false line, so it is easy to miss — the
+      // gate simply proceeds as though the manifest had been read and found
+      // to need nothing, which is a verdict it never established.
+      const corruptedNoop = protocolResultFor('NOT_NOOP')
+      expect(corruptedNoop.status).toBe(1)
+      expect(corruptedNoop.stdout + corruptedNoop.stderr).toContain('unrecognized result')
+      expect(corruptedNoop.stdout).not.toContain('DONE') // it must HOLD, not proceed silently
     })
 
     /**
