@@ -26,7 +26,11 @@ const isPosix = platform() !== 'win32'
 // extension (`CON`, `con`, `CON.txt` all match) — matched against the name up
 // to (not including) the first `.`, so an extension cannot launder it. Device
 // numbering starts at 1: `COM0` and `LPT0` are ordinary, unreserved names.
-const WIN32_RESERVED_DEVICE_NAME = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i
+// Windows also recognizes the 8-bit ISO/IEC 8859-1 superscript digits ¹, ², ³
+// as digits inside COM#/LPT# — `COM¹` is reserved in every directory exactly
+// like `COM1` (Microsoft's own example: `echo test > COM¹` fails to create a
+// file) — so the numbered alternation matches both spellings.
+const WIN32_RESERVED_DEVICE_NAME = /^(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])$/i
 
 /**
  * (#153) The class of path segment `mkdir` fails on under Windows/NTFS,
@@ -35,8 +39,15 @@ const WIN32_RESERVED_DEVICE_NAME = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i
  * construction instead of needing to be remembered. Four rules, none of them
  * a plain character set:
  *
- *  - an NTFS-illegal character, including `\` itself (a path separator, so
- *    never legal *inside* a single segment);
+ *  - an NTFS-illegal character. Microsoft's list has nine: the eight below,
+ *    plus `/`. `/` is deliberately absent from the class — it is a path
+ *    separator on every platform this predicate warns about, so
+ *    `path.join(root, ...segments)`, the only way a "segment" string reaches
+ *    this predicate, has already turned it into hierarchy before the string
+ *    arrives here; there is no single-segment case for it to catch. `\`
+ *    stays in the class for the opposite reason: it is *not* a separator on
+ *    POSIX, so a segment containing it survives `path.join` there intact and
+ *    still needs flagging for win32 portability;
  *  - a control character (`0x00`-`0x1F`);
  *  - a trailing dot or trailing space (NTFS silently strips both from the
  *    name it actually stores, so the round trip this file tests would not
@@ -639,6 +650,19 @@ describe("worktreePathToProjectSlug round-trips through reverseProjectSlug", () 
       }
       roundTripPaths.push(ROUND_TRIP_SEGMENTS)
 
+      // NON-VACUITY FLOORS, hand-maintained rather than derived from
+      // `isWin32IllegalSegment` — the same trade the DERIVED assertion in the
+      // `roundTripSegmentsFor` describe block below makes explicit for its own
+      // NON-VACUITY PIN: deriving "which character must still show up in a
+      // generated segment" from the predicate would make each floor here as
+      // hard to read as the predicate is precise to write. A segment added to
+      // `ROUND_TRIP_SEGMENT_SOURCE` above gets no floor of its own for free —
+      // one has to be added here by hand, guarded with `if (isPosix)` below
+      // if (and only if) the segment is win32-illegal. Getting that guard
+      // wrong fails CLOSED, not open: an unconditional floor asserting a
+      // win32-illegal character is present would go red on win32, because
+      // `roundTripSegmentsFor` has already filtered that segment out by the
+      // time this line runs.
       expect(roundTripPaths.some((segments) => segments.some((segment) => segment.includes(' ')))).toBe(true)
       // Colon and backslash are only ever generated on POSIX (see the skip
       // above) — asserting these unconditionally on win32 would claim a
@@ -756,6 +780,16 @@ describe('isWin32IllegalSegment', () => {
     ['COM9', 'reserved numbered device name, top of range'],
     ['LPT1', 'reserved numbered device name, bottom of range'],
     ['LPT9', 'reserved numbered device name, top of range'],
+    // Windows treats the ISO/IEC 8859-1 superscript digits as valid COM#/LPT#
+    // digits, reserving six more names an ASCII-only `[1-9]` would miss.
+    ['COM¹', 'reserved numbered device name, superscript one'],
+    ['COM²', 'reserved numbered device name, superscript two'],
+    ['COM³', 'reserved numbered device name, superscript three'],
+    ['LPT¹', 'reserved numbered device name, superscript one'],
+    ['LPT²', 'reserved numbered device name, superscript two'],
+    ['LPT³', 'reserved numbered device name, superscript three'],
+    ['COM¹.txt', 'reserved superscript device name surviving an extension'],
+    ['LPT³.txt', 'reserved superscript device name surviving an extension'],
   ])('rejects %j (%s)', (segment) => {
     expect(isWin32IllegalSegment(segment)).toBe(true)
   })
