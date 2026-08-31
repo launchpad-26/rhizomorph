@@ -313,12 +313,18 @@ describe('doc citation law: a path cited from a document or a comment must exist
   it('a file directly under docs/ is swept — the git-ls-files glob gotcha this law was almost shipped with', () => {
     // docs/architecture.md sits at depth 1, not under any subdirectory. `docs/**/*.md`
     // requires an extra path separator and misses it; `docs/*.md` does not, because git's
-    // default pathspec matching already lets a bare `*` cross `/`. If this list ever comes
-    // back without architecture.md, the sweep has silently narrowed again.
-    const swept = trackedFiles('docs/*.md')
-    expect(swept).toContain('docs/architecture.md')
-    expect(swept).toContain('docs/roadmap.md')
-    expect(swept.length).toBeGreaterThan(150)
+    // default pathspec matching already lets a bare `*` cross `/`.
+    //
+    // Asserted against `allCitations()` — the PRODUCTION sweep — not against a
+    // `trackedFiles` call this test makes itself. The earlier form re-derived the
+    // pattern independently, so it passed unchanged while the sweep at its own call
+    // site was narrowed to `docs/**/*.md`: every depth-1 doc dropped out, a real dead
+    // path in architecture.md went unseen, and this file stayed 14/14 green. A pin
+    // that re-derives what it is pinning is not a pin (review of #16).
+    const sweptFiles = new Set(allCitations().map(({ file }) => file))
+    expect(sweptFiles).toContain('docs/architecture.md')
+    expect(sweptFiles).toContain('docs/roadmap.md')
+    expect(trackedFiles('docs/*.md').length).toBeGreaterThan(150)
   })
 
   it('every excluded directory is still tracked and still trips the detector — the exclusion is doing real work, not vacuous', () => {
