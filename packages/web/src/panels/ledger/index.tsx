@@ -43,10 +43,19 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
   // (`streamState.ts`); every other panel reads it directly rather than
   // re-reducing `state.events` from zero.
   const session = state.session
-  const rows = useMemo(() => selectSpendByBranch(session), [session])
+  // #158 — each memo keys on the slices its selector actually reads, not on
+  // `session`, whose reference `core`'s `reduce` replaces on every event
+  // (`withEnvelope`). A `trace.span` no longer re-runs the spend scan, and a
+  // `tool.activity` — the plurality event type in a real session, per
+  // `perf.test.ts`'s census — no longer re-buckets the sparklines, because
+  // `withTelemetry` leaves `telemetry.usage`'s identity alone.
+  const rows = useMemo(
+    () => selectSpendByBranch(session),
+    [session.telemetry, session.branches, session.worktrees],
+  )
   const threadsByBranch = useMemo(
     () => new Map(rows.map((row) => [row.branch, selectThreadRowsForBranch(session, row)])),
-    [session, rows],
+    [rows, session.telemetry, session.branches, session.worktrees],
   )
   const fleet = useFleet()
   const { select } = useSelection()
@@ -54,8 +63,11 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
   // `state.traces`/`state.telemetry.usage`, read once for the whole table
   // rather than per row (the same shape `buildFleet.ts` already takes over
   // the identical arrays).
-  const usageByBranch = useMemo(() => usageEventsByBranch(session.telemetry.usage), [session])
-  const exemplarsByLane = useMemo(() => heaviestLlmRequestSpanByLane(session), [session])
+  const usageByBranch = useMemo(
+    () => usageEventsByBranch(session.telemetry.usage),
+    [session.telemetry.usage],
+  )
+  const exemplarsByLane = useMemo(() => heaviestLlmRequestSpanByLane(session), [session.traces])
 
   /** Branches with their sub-rows open — keyed by branch, so one lane's toggle never affects another's. */
   const [expandedBranches, setExpandedBranches] = useState<ReadonlySet<string>>(() => new Set())
