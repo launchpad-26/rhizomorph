@@ -568,6 +568,38 @@ function allNamesFromExportClause(clause: string): string[] {
  * rather than a comma split — the same call this file already makes for a
  * namespace default-import, in `defaultImportSpecifiers`'s own doc.
  */
+/**
+ * An identifier is a BINDING only where a declarator can actually end or
+ * continue: at the end of the declarator, or before `:` (a type annotation),
+ * `=` (an initialiser), or `?`/`!` (optional / definite-assignment). An
+ * unanchored `^([\w$]+)` accepted anything, and the depth walk above tracks
+ * `{[(` but not `<`, quotes or a regex literal — so every comma those hide
+ * split a declarator that is not one, and its first word was minted as an
+ * export name:
+ *
+ *   `export const x: Map<string, number> = new Map()`  ->  ["x", "number"]
+ *   `export const rec: Record<string, string> = {}`    ->  ["rec", "string"]
+ *   `export const s = 'a,b'`                           ->  ["s", "b"]
+ *
+ * EXECUTED at review of #183, against 9b94ba6 and its parent: the parent
+ * derived `["x"]` for all three (the alternation captured one identifier
+ * after the keyword and stopped), so this arrived WITH the declarator-list
+ * repair. It is the same failure the `const enum` arm two screens up was
+ * written for — a phantom name the completeness guard then demands a barrel
+ * republish, which is a red nobody can repair, since `number` is not a symbol
+ * `rotate.ts` can export. Latent rather than live: `rotate.ts`'s single
+ * `export const` today puts its `=` at end of line, and the capture feeding
+ * this function stops at the newline.
+ *
+ * Anchoring is the narrow half of the trade, and deliberately so: a
+ * declarator this rejects contributes NOTHING rather than a wrong name,
+ * which is the same call `declaratorListNames` already makes for a nested
+ * destructuring pattern. Tracking `<` as depth is the wider half and is
+ * wrong — `export const ok = a < b, also = 2` is a comparison, not a type
+ * argument, and no lexer-free rule tells them apart.
+ */
+const DECLARATOR_BINDING_RE = /^([\w$]+)\s*(?:[:=?!]|$)/
+
 function declaratorListNames(afterKeyword: string): string[] {
   const declarators: string[] = []
   let depth = 0
@@ -595,13 +627,13 @@ function declaratorListNames(afterKeyword: string): string[] {
         const trimmed = entry.trim()
         if (!trimmed || trimmed.startsWith('...')) continue
         const renamed = trimmed.match(/^[\w$]+\s*:\s*([\w$]+)/)
-        const bare = trimmed.match(/^([\w$]+)/)
+        const bare = trimmed.match(DECLARATOR_BINDING_RE)
         const name = renamed?.[1] ?? bare?.[1]
         if (name) names.push(name)
       }
       continue
     }
-    const bare = declarator.match(/^([\w$]+)/)
+    const bare = declarator.match(DECLARATOR_BINDING_RE)
     if (bare?.[1]) names.push(bare[1])
   }
   return names
@@ -1748,6 +1780,35 @@ describe('the recorder namespace law (prd16 ruling 2)', () => {
 
     it('CONTROL: a nested destructuring pattern derives nothing rather than a name nobody can import', () => {
       expect(rotateModuleExportNames('export const { a: { b } } = obj\n')).toEqual([])
+    })
+
+    it('a declarator-list split cannot mint a name out of a type argument, a string or a regex — exact, not toContain (#183 review)', () => {
+      // The depth walk splits on `,` at `{[(` depth 0, and `<`, quotes and a
+      // regex literal are none of those — so each of these used to yield the
+      // first word AFTER the hidden comma as a second export name. `toContain`
+      // is useless here for the same reason it was useless for the `const
+      // enum` backtrack: the bug IS the extra name. EXECUTED against 9b94ba6
+      // and its parent — parent `["x"]`, 9b94ba6 `["x","number"]`.
+      expect(rotateModuleExportNames('export const x: Map<string, number> = new Map()')).toEqual(['x'])
+      expect(rotateModuleExportNames('export const rec: Record<string, string> = {}')).toEqual(['rec'])
+      expect(rotateModuleExportNames("export const s = 'a,b'")).toEqual(['s'])
+      expect(rotateModuleExportNames('export const t = `a,b`')).toEqual(['t'])
+      expect(rotateModuleExportNames('export const r = /a,b/')).toEqual(['r'])
+      // The same hole one level in: a destructured entry's default value can
+      // hide a comma exactly as an initialiser can.
+      expect(rotateModuleExportNames("export const { a = 'x,y' } = obj")).toEqual(['a'])
+      // CONTROLS — the anchor must not cost a real binding. Every declarator
+      // ending, or continuing into `:`/`=`/`?`/`!`, still derives.
+      expect(new Set(rotateModuleExportNames('export const a = 1, b = 2'))).toEqual(new Set(['a', 'b']))
+      expect(new Set(rotateModuleExportNames('export declare let p: string, q: number'))).toEqual(
+        new Set(['p', 'q']),
+      )
+      expect(rotateModuleExportNames('export declare const ambient: string')).toEqual(['ambient'])
+      expect(rotateModuleExportNames('export let bare')).toEqual(['bare'])
+      expect(rotateModuleExportNames('export const definite!: number = 1')).toEqual(['definite'])
+      // A `<` that is a COMPARISON, not a type argument — the reason `<` is
+      // not tracked as depth. Both bindings are real and both must survive.
+      expect(new Set(rotateModuleExportNames('export const lt = a < b, also = 2'))).toEqual(new Set(['lt', 'also']))
     })
 
     it('EXECUTED: `declare class`/`declare function` still derive a name — an ambient export is still public surface, even though it is erased at runtime', () => {
