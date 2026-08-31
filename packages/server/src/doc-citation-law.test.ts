@@ -162,9 +162,22 @@ function extractCitations(text: string): string[] {
  * real range citations (`…/common.ts:78-85`) into fresh violations, because `/:\d+$/`
  * matches a single number and stops. Range is the sibling of line-ref, and the two
  * arrive together (review of #16).
+ *
+ * One alternation matching a RUN of suffix groups, not two sequential replaces. Two
+ * replaces are order-dependent and only strip the outermost: `x.md:1#anchor` had `:\d+$`
+ * fail (the anchor is last), then the anchor stripped, leaving `x.md:1` — which exists
+ * nowhere, so a valid citation became a FALSE VIOLATION. The mirrored spelling
+ * `x.md#anchor:1` resolved fine, so the defect was visible in one order only.
+ *
+ * That regression was introduced by widening the character class, and it is strictly
+ * worse than what it replaced: before the widening these spans did not match at all and
+ * were silently skipped; after it they matched and were mis-stripped. A false positive
+ * is louder than a false negative, and still wrong. Found by the fix re-review, which is
+ * the pass that exists because a repair has been read by only the person who asked for
+ * it (re-review of #16).
  */
 function stripCitationSuffix(cite: string): string {
-  return cite.replace(/:\d+(?:-\d+)?$/, '').replace(/#[A-Za-z0-9_-]+$/, '')
+  return cite.replace(/(?::\d+(?:-\d+)?|#[A-Za-z0-9_-]+)+$/, '')
 }
 
 function globToRegExp(glob: string): RegExp {
@@ -461,6 +474,25 @@ describe('doc citation law: a path cited from a document or a comment must exist
     expect(extracted.filter((c) => !citationExists(c))).toEqual([
       'packages/this-directory-does-not-exist/nothing.ts:1',
     ])
+  })
+
+  it('a COMPOUND suffix strips to the path in either order — the regression the widened class introduced', () => {
+    // `:1#anchor` and `#anchor:1` are the same claim about the same file. Two sequential
+    // replaces stripped only the outermost, so the first spelling resolved to `x.md:1`
+    // and reported a file that exists as broken, while its mirror resolved correctly.
+    // Both orders, both arms, and a repeated run (re-review of #16).
+    for (const cite of [
+      'docs/architecture.md:1#some-heading',
+      'docs/architecture.md#some-heading:1',
+      'docs/architecture.md:78-85#some-heading',
+      'docs/architecture.md#some-heading:78-85',
+    ]) {
+      expect(stripCitationSuffix(cite), `${cite} must strip to the bare path`).toBe('docs/architecture.md')
+      expect(citationExists(cite), `${cite} names a file that exists`).toBe(true)
+    }
+
+    // CONTROL: the suffix machinery must not invent existence for a path that is absent.
+    expect(citationExists('docs/this-file-does-not-exist.md:1#x')).toBe(false)
   })
 
   it('a bare ADR number resolves as a prefix match against the real record — the one live instance of this form', () => {
