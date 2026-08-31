@@ -54,7 +54,8 @@ import { describe, expect, it } from 'vitest'
  * | bare, no backticks (`see docs/foo.md for…`)       | SKIPPED — every real citation in this corpus is backticked (verified by grep); a bare sweep would also catch markdown link TEXT (`[docs/architecture.md](architecture.md#anchor)`), which names the doc, not a claim about a repo-relative path |
  * | markdown link `[text](href)`                      | SKIPPED — hrefs in this corpus are relative to the linking file (`architecture.md#anchor`), never repo-rooted; the bracket TEXT is prose, not a citation, and is correctly left alone by requiring backticks |
  * | trailing punctuation (`` `foo.ts`. ``)             | N/A — punctuation after a *closing* backtick is outside the match; nothing to strip, unlike `no-personal-paths-law`'s bare-name sweep |
- * | line/anchor suffix (`` `foo.ts:111` ``, `` `foo.md#heading` ``) | HANDLED — stripped before the existence check; `:111`-suffixed citations are common in this corpus (`AGENTS.md`, `docs/adr/`), `#heading` is not observed but stripped defensively |
+ * | line/anchor suffix (`` `foo.ts:111` ``, `` `foo.md#heading` ``) | HANDLED — `:` and `#` are IN the character class, so the span is extracted whole and the suffix stripped before the existence check. It was NOT handled when this table first claimed it was: the class excluded both, so a suffixed span failed to match at all and `stripCitationSuffix` was unreachable from the sweep — a broken `x.ts:42` was invisible while a broken `x.ts` was caught. ~100 `:NNN` citations exist across tracked docs, ~15 in in-scope files, so this is the corpus's most common form (review of #16) |
+ * | line RANGE (`` `foo.ts:78-85` ``) | HANDLED — the sibling of the row above, and the reason widening the character class alone is not the fix: `/:\d+$/` matches a single number and stops, so admitting `:` without the range arm turns 7 real range citations into fresh violations. Stripped by `/:\d+(?:-\d+)?$/` (review of #16) |
  * | glob, directory-rooted (`` `packages/core/**` ``) | HANDLED — truncated at `**`, the parent directory must exist |
  * | glob, mid-filename (`` `docs/research/2026-08-02-obs-prd7-*.md` ``) | HANDLED — resolved against a real directory listing, not truncated like the directory glob above (a naive truncate-at-`*` would falsely redden this real, existing citation — caught by running the extractor against the tree before trusting it) |
  * | bare directory/number, no filename (`` `docs/adr/0012` ``)   | HANDLED — the one live instance of this form; resolved as a prefix match against `docs/adr/`'s real listing, same convention `adr-log-law.test.ts` already codifies for ADR numbers |
@@ -147,15 +148,23 @@ function extractComments(source: string): string {
 }
 
 /** Every backtick-delimited `packages/`, `scripts/` or `docs/`-rooted path string in `text`. */
-const CITATION_RE = /`((?:packages|scripts|docs)\/[A-Za-z0-9_./*-]+)`/g
+const CITATION_RE = /`((?:packages|scripts|docs)\/[A-Za-z0-9_./*:#-]+)`/g
 
 function extractCitations(text: string): string[] {
   return [...text.matchAll(CITATION_RE)].map((m) => m[1]!)
 }
 
-/** Strips a trailing `:123` line ref or `#anchor` heading ref — not part of the path proper. */
+/**
+ * Strips a trailing `:123` line ref, a `:78-85` line RANGE, or an `#anchor` heading ref
+ * — none of them part of the path proper.
+ *
+ * The range arm is not decoration. Widening CITATION_RE to admit `:` without it turns 7
+ * real range citations (`…/common.ts:78-85`) into fresh violations, because `/:\d+$/`
+ * matches a single number and stops. Range is the sibling of line-ref, and the two
+ * arrive together (review of #16).
+ */
 function stripCitationSuffix(cite: string): string {
-  return cite.replace(/:\d+$/, '').replace(/#[A-Za-z0-9_-]+$/, '')
+  return cite.replace(/:\d+(?:-\d+)?$/, '').replace(/#[A-Za-z0-9_-]+$/, '')
 }
 
 function globToRegExp(glob: string): RegExp {
@@ -418,10 +427,31 @@ describe('doc citation law: a path cited from a document or a comment must exist
     expect(citationExists('docs/research/2026-08-02-obs-prd7-this-does-not-exist-*.md')).toBe(false)
   })
 
-  it('a line-ref or heading-anchor suffix is stripped before the existence check', () => {
-    expect(citationExists('packages/server/src/doc-citation-law.test.ts:1')).toBe(true)
-    expect(citationExists('packages/this-directory-does-not-exist/nothing.ts:1')).toBe(false)
-    expect(citationExists('docs/architecture.md#some-heading')).toBe(true)
+  it('a line-ref, line-range or heading-anchor suffix survives EXTRACTION and is then stripped', () => {
+    // Asserted end-to-end, through extractCitations. The earlier form called
+    // citationExists() directly with an already-suffixed string, which cannot fail for
+    // the reason its title claimed: CITATION_RE's character class excluded `:` and `#`,
+    // so the sweep never produced such a string and stripCitationSuffix was unreachable
+    // from it. A broken `x.ts:42` citation was invisible while a broken `x.ts` was
+    // caught — same defect, two spellings (review of #16).
+    const doc = [
+      'a line ref `packages/server/src/doc-citation-law.test.ts:1`',
+      'a line range `packages/server/src/doc-citation-law.test.ts:78-85`',
+      'an anchor `docs/architecture.md#some-heading`',
+      'a dead one `packages/this-directory-does-not-exist/nothing.ts:1`',
+    ].join('\n')
+
+    const extracted = extractCitations(doc)
+    expect(extracted).toEqual([
+      'packages/server/src/doc-citation-law.test.ts:1',
+      'packages/server/src/doc-citation-law.test.ts:78-85',
+      'docs/architecture.md#some-heading',
+      'packages/this-directory-does-not-exist/nothing.ts:1',
+    ])
+
+    expect(extracted.filter((c) => !citationExists(c))).toEqual([
+      'packages/this-directory-does-not-exist/nothing.ts:1',
+    ])
   })
 
   it('a bare ADR number resolves as a prefix match against the real record — the one live instance of this form', () => {
