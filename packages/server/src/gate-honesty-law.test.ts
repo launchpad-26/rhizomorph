@@ -272,11 +272,9 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    * above convicted exactly one SPELLING of that reference form
    * (`VAR=$(...)`, bare, single line). It was blind to a quoted wrap, an
    * `export`/`local`/`declare`/`typeset`/`readonly` prefix, the legacy
-   * backtick form, and the multi-line `$(` ... `)` shape — four producer
-   * spellings that run exactly the same command and leave exactly the same
-   * exit status unread, just written differently. Per the issue's method,
-   * the FULL production table comes before the widened predicate, so a
-   * reader can see which spellings were considered — a spelling nobody
+   * backtick form, and the multi-line `$(` ... `)` shape. Per the issue's
+   * method, the FULL production table comes before the widened predicate, so
+   * a reader can see which spellings were considered — a spelling nobody
    * listed is a spelling nobody reviewed:
    *
    * | # | spelling | example | convicted when unchecked? | verdict |
@@ -284,7 +282,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    * | 1 | bare `$(...)` | `VAR=$(cmd)` | yes | pre-existing (#70), unchanged |
    * | 2 | quoted `$(...)` | `VAR="$(cmd)"` | yes | WIDENED (#179) |
    * | 3 | quoted, substitution mixed with literal text | `VAR="prefix-$(cmd)-suffix"` | yes | WIDENED (#179) — same scanner as row 2; this is gate.sh:24's own shape (`W="$(dirname "$root")/$(basename "$root")__worktrees/$H"`), see row 11 |
-   * | 4 | keyword-prefixed | `export VAR=$(cmd)`, `local VAR=$(cmd)`, `declare VAR=$(cmd)`, `typeset VAR=$(cmd)`, `readonly VAR=$(cmd)` | yes | WIDENED (#179) — one optional-prefix branch covers all five keywords; not five alternation arms |
+   * | 4 | keyword-prefixed | `export VAR=$(cmd)`, `local VAR=$(cmd)`, `declare VAR=$(cmd)`, `typeset VAR=$(cmd)`, `readonly VAR=$(cmd)` | **ALWAYS — unconditionally, regardless of a `|| fail` tail or a next-line `_RC=$?`** | WIDENED (#179), REVISED after verification review: recognised, but never treated as checkable. Bash gives `$?` from the KEYWORD BUILTIN, not the substitution — `export V=$(false)` exits 0 even though `false` failed (EXECUTED, see the dedicated test below). A same-line `|| fail` or next-line `_RC=$?` on a keyword-prefixed producer therefore checks the WRONG thing and can never fire; treating it as "checked" (round 1 of this fix did) made the law WORSE than before — invisible became seen-and-excused. `hasKeywordPrefix` on each producer forces this row's population straight into `findUncheckedProducers` regardless of tail shape. |
    * | 5 | backtick | `` VAR=`cmd` `` | yes | WIDENED (#179) |
    * | 6 | quoted backtick | `` VAR="`cmd`" `` | yes | WIDENED (#179) — same scanner as row 2 |
    * | 7 | multi-line `$(...)` | `VAR=$(`⏎`  cmd`⏎`)` | yes | WIDENED (#179) — the paren-depth scan now crosses line boundaries, so a producer that closes several lines down is still found, and the lines in between are not re-scanned as fresh assignment starts |
@@ -296,6 +294,12 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    * | 13 | array assignment | `ARR=($(cmd))` | not parsed | N/A — an array literal (`VAR=(...)`) is a different shape from the scalar `VAR=$(...)` ruling 1 names; `=(` never matches the scanner's `=$(` / `` =` `` / `="` starts |
    * | 14 | unassigned pipeline / substitution used only as an argument | `some_cmd "$(risky)"`, `cmd \| grep x` | not parsed | pre-existing scope note, unaffected by #179 — see "predicate is honest about its own remaining scope limit" below |
    * | 15 | a literal paren inside a quoted string inside a NESTED `$(...)`, inside the assignment being scanned | `VAR=$(cmd "$(echo ')')")` | correctly parsed | HANDLED — the scanner tracks quote state and recurses into nested `$(...)`, so a paren that is only DATA inside a quoted string never perturbs the depth count (EXECUTED below) |
+   * | 16 | append assignment | `V+=$(cmd)` | yes | WIDENED (verification review) — `+=` is still plain assignment syntax, not a builtin call, so unlike row 4 its exit status DOES reflect the substitution's (EXECUTED, same dedicated test as row 4) |
+   * | 17 | a flag between a keyword and the variable | `declare -r V=$(cmd)` | ALWAYS (row 4's rule) | WIDENED (verification review) — the keyword-prefix consumer is a small loop over (keyword\|flag)\* tokens, not a fixed one-keyword regex, so a flag in between does not hide the keyword from `hasKeywordPrefix` |
+   * | 18 | stacked keywords | `export readonly V=$(cmd)` | ALWAYS (row 4's rule) | WIDENED (verification review) — same loop as row 17; `export` treats a second bare word as another export target, which is syntactically legal and still masks the substitution's status via `export`'s own exit code |
+   * | 19 | arithmetic expansion | `V=$((1+2))`, `V=$(( a > b ))` | no — not a producer | EXCLUDED (verification review) — `$((` is arithmetic, not command substitution: no external command runs, so there is no process exit status to check at all. The dispatch on `$` + `(` alone (rows 1-3's original shape) could not tell `$(` from `$((`; the third character is now checked before committing to the `$(...)` scanner. gate.sh uses `$((...))` three times today, none line-initial, which is the only reason this stayed silent |
+   * | 20 | a `#` comment inside a multi-line `$(...)` or backtick body | `VAR=$(`⏎`  cmd  # note`⏎`)` | correctly parsed | HANDLED (verification review) — an UNBALANCED apostrophe in the comment (`# don't`) used to open a phantom single-quoted string that swallowed the real closing `)`, vanishing the whole producer; a `)` in the comment used to close the substitution early, turning a checked producer's real tail into unrelated later text and convicting it falsely. The scanner now recognises a `#` at a word boundary (start-of-scan or after whitespace, the same convention `stripQuotedRunsAndComments` already uses) and skips to end of line before resuming depth/quote tracking |
+   * | 21 | `VAR=$(...)`-shaped TEXT inside a heredoc body | `cat <<'EOF'`⏎`X=$(cmd)`⏎`EOF` | no — not a producer | HANDLED (verification review) — heredoc body lines (quoted or unquoted delimiter, `<<`/`<<-`) are DATA being piped to a command, not executable assignments; a quoted delimiter's body cannot even expand `$(...)` if it somehow were code. Body lines between the opener and the matching terminator are excluded from producer-scanning entirely. `findHeredocStart` tracks quote state and comments itself (rather than reusing `stripQuotedRunsAndComments`, which DISCARDS quoted text and so cannot see a QUOTED delimiter) so a `<<EOF`-looking substring inside a message or comment (`echo "example: cmd <<EOF"`) is not mistaken for a real opener — that direction of mistake is the dangerous one, since it would hide every real producer between the false opener and wherever a same-named terminator line next happens to occur. Declared, not fully closed: two heredocs opened on the same line is not disambiguated further than "first one found, scanned greedily" — no such line exists in gate.sh today |
    *
    * MEASURED FALSE-POSITIVE RATE (EXECUTED, run against every real producer
    * of ANY spelling above in scripts/gate.sh — prd-46's own open question,
@@ -351,13 +355,36 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     return i === -1 ? -1 : i + 1
   }
 
-  /** Skips a `` `...` `` backtick-delimited (legacy) command substitution starting at `text[pos] === '`'`. A backslash escapes the next character, matching bash's own rule inside backticks. Returns the index just past the closing backtick, or -1 if unterminated. */
+  /** Is `text[i] === '#'` a shell COMMENT start — a word boundary (the scan's own start, or preceded by whitespace)? Mirrors `stripQuotedRunsAndComments`'s identical convention above, applied here so a `#` inside a multi-line `$(...)`/backtick body (row 20) is recognised the same way. */
+  function isCommentStart(text: string, i: number, scanStart: number): boolean {
+    return i === scanStart || /\s/.test(text[i - 1]!)
+  }
+
+  /** The index just past the end of the line containing `text[i]` — a `#` comment runs to end of line, never past it. */
+  function skipToEndOfLine(text: string, i: number): number {
+    const nl = text.indexOf('\n', i)
+    return nl === -1 ? text.length : nl + 1
+  }
+
+  /**
+   * Skips a `` `...` `` backtick-delimited (legacy) command substitution
+   * starting at `text[pos] === '`'`. A backslash escapes the next character,
+   * matching bash's own rule inside backticks. A `#` comment (row 20) is
+   * skipped to end of line BEFORE it can be mistaken for a stray backtick or
+   * have its own `` ` `` end the substitution early — the same bug row 20
+   * fixes for `$(...)`, in its sibling function. Returns the index just past
+   * the closing backtick, or -1 if unterminated.
+   */
   function skipBacktick(text: string, pos: number): number {
     let i = pos + 1
     while (i < text.length) {
       const c = text[i]
       if (c === '\\') {
         i += 2
+        continue
+      }
+      if (c === '#' && isCommentStart(text, i, pos + 1)) {
+        i = skipToEndOfLine(text, i)
         continue
       }
       if (c === '`') return i + 1
@@ -374,7 +401,13 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    * (`$(cmd "(")`) never miscounts the depth. This is also what makes a
    * MULTI-LINE `$(` ... `)` reachable (row 7): it walks the whole script
    * joined into one string, not one line at a time, so it crosses a `\n`
-   * exactly like every other character. Returns the index just past the
+   * exactly like every other character. A `#` comment (row 20) is skipped to
+   * end of line before its contents can be read as quotes or parens — an
+   * unbalanced apostrophe in a comment (`# don't`) used to open a phantom
+   * single-quoted string that swallowed the real closing `)` (vanishing the
+   * whole producer), and a `)` in a comment used to close the substitution
+   * early (falsely convicting a producer that really was checked, just
+   * further down than the fake close). Returns the index just past the
    * matching `)`, or -1 if unterminated.
    */
   function skipDollarParen(text: string, pos: number): number {
@@ -384,6 +417,10 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       const c = text[i]
       if (c === '\\') {
         i += 2
+        continue
+      }
+      if (c === '#' && isCommentStart(text, i, pos + 1)) {
+        i = skipToEndOfLine(text, i)
         continue
       }
       if (c === "'") {
@@ -461,39 +498,76 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     return { end: -1, hasSubstitution }
   }
 
-  /** Declaration keywords that may precede `VAR=` without changing whether the assignment is a command-substitution producer (row 4) — one optional-prefix branch, not five separate spellings. */
+  /** Declaration keywords that may precede `VAR=` — row 4. Every one of them is a BUILTIN COMMAND, not shell assignment syntax, and that distinction is the whole reason row 4 is treated specially below: bash reports the exit status of the BUILTIN, never of a `$(...)` embedded in its argument (EXECUTED, see the dedicated test near the bottom of this describe block). */
   const ASSIGNMENT_KEYWORDS = ['export', 'local', 'declare', 'typeset', 'readonly'] as const
-  const ASSIGNMENT_KEYWORD_PREFIX = new RegExp(`^\\s*(?:${ASSIGNMENT_KEYWORDS.join('|')})\\s+`)
+
+  /**
+   * Consumes a leading run of declaration keywords AND their flags from the
+   * start of `line` — a LOOP over (keyword|flag)* tokens, not a fixed
+   * one-keyword regex, so `declare -r V=...` (row 17, a flag BETWEEN the
+   * keyword and the variable) and `export readonly V=...` (row 18, stacked
+   * keywords — legal bash: `export` accepts any number of NAME or
+   * NAME=value arguments, so a second bare word is simply another export
+   * target) are both consumed by the SAME mechanism a verification review
+   * found the original fixed-prefix regex could not see at all. A bare flag
+   * with no keyword ever preceding it (`-r V=$(cmd)` on its own) is not
+   * valid bash to begin with — consuming it here is harmless because
+   * `hasKeyword` only turns true when an actual keyword token is seen, and
+   * the caller still requires what is left over to start with `VAR=`.
+   */
+  function consumeKeywordPrefix(line: string): { rest: string; hasKeyword: boolean } {
+    let rest = line.replace(/^\s*/, '')
+    let hasKeyword = false
+    for (;;) {
+      const m = rest.match(/^([A-Za-z_][A-Za-z0-9_]*|-[A-Za-z]+)\s+/)
+      if (!m) break
+      const token = m[1]!
+      const isKeyword = (ASSIGNMENT_KEYWORDS as readonly string[]).includes(token)
+      const isFlag = token.startsWith('-')
+      if (!isKeyword && !isFlag) break
+      if (isKeyword) hasKeyword = true
+      rest = rest.slice(m[0].length)
+    }
+    return { rest, hasKeyword }
+  }
 
   /**
    * Does `line` (the physical line at `lineStartOffset` inside `text`, the
    * whole script joined by `\n`) open a `VAR=` assignment — optionally
-   * keyword-prefixed — whose value is a command substitution of ANY
-   * spelling in the production table above? Returns the variable name and
-   * the absolute offset in `text` just past the value's closing delimiter,
-   * or `null` if this line does not open one. A single-quoted RHS (row 8), a
-   * plain quoted string with no substitution inside it (row 9), or a bare
-   * word with no `$(`/backtick/quote at all all return `null` — none of them
-   * ever runs a command.
+   * keyword/flag-prefixed, optionally `+=` (row 16, append) — whose value is
+   * a command substitution of ANY spelling in the production table above?
+   * Returns the variable name, whether a declaration keyword was seen
+   * anywhere in the prefix (`hasKeywordPrefix` — row 4's masking applies
+   * regardless of which token in a stacked/flagged prefix carried it), and
+   * the absolute offset in `text` just past the value's closing delimiter —
+   * or `null` if this line does not open a producer. A single-quoted RHS
+   * (row 8), a plain quoted string with no substitution inside it (row 9), a
+   * bare word with no `$(`/backtick/quote at all, and arithmetic expansion
+   * `$((...))` (row 19 — no external command runs) all return `null`.
    */
-  function matchProducerAt(text: string, lineStartOffset: number, line: string): { varName: string; endOffset: number } | null {
-    const kwMatch = line.match(ASSIGNMENT_KEYWORD_PREFIX)
-    const rest = kwMatch ? line.slice(kwMatch[0].length) : line.replace(/^\s*/, '')
-    const varMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_]*)=/)
+  function matchProducerAt(text: string, lineStartOffset: number, line: string): { varName: string; endOffset: number; hasKeywordPrefix: boolean } | null {
+    const { rest, hasKeyword } = consumeKeywordPrefix(line)
+    const varMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_]*)\+?=/)
     if (!varMatch) return null
     const rhsStart = lineStartOffset + (line.length - rest.length) + varMatch[0].length
     const c0 = text[rhsStart]
     if (c0 === '$' && text[rhsStart + 1] === '(') {
+      // `$((` is ARITHMETIC expansion (row 19), not command substitution —
+      // no process runs, so there is no exit status for this law to demand
+      // a check on. Checked here, before committing to skipDollarParen,
+      // which a verification review found dispatches on `$` + `(` alone and
+      // so could not tell the two apart.
+      if (text[rhsStart + 2] === '(') return null
       const end = skipDollarParen(text, rhsStart + 1)
-      return end === -1 ? null : { varName: varMatch[1]!, endOffset: end }
+      return end === -1 ? null : { varName: varMatch[1]!, endOffset: end, hasKeywordPrefix: hasKeyword }
     }
     if (c0 === '`') {
       const end = skipBacktick(text, rhsStart)
-      return end === -1 ? null : { varName: varMatch[1]!, endOffset: end }
+      return end === -1 ? null : { varName: varMatch[1]!, endOffset: end, hasKeywordPrefix: hasKeyword }
     }
     if (c0 === '"') {
       const { end, hasSubstitution } = skipDoubleQuoted(text, rhsStart)
-      return end === -1 || !hasSubstitution ? null : { varName: varMatch[1]!, endOffset: end }
+      return end === -1 || !hasSubstitution ? null : { varName: varMatch[1]!, endOffset: end, hasKeywordPrefix: hasKeyword }
     }
     return null
   }
@@ -633,22 +707,92 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
   }
 
   /**
+   * Finds a heredoc opener (`<<`, optionally `-` to strip leading tabs, an
+   * optional matching quote around the delimiter, then the delimiter word)
+   * in `line`, tracking quote state and comments ITSELF rather than reusing
+   * `stripQuotedRunsAndComments` — that helper DISCARDS quoted content
+   * entirely (it exists to feed `tailChecksStatus`'s spelling checks, which
+   * never need the text back), so it silently ate the delimiter of a
+   * QUOTED heredoc (`<<'EOF'`) and broke detection of exactly that form.
+   * This scanner keeps the delimiter text; it stops at an unquoted `#`
+   * (nothing real follows) and never fires while inside a `'...'`/`"..."`
+   * span, so a `<<EOF`-looking substring sitting inside a message
+   * (`echo "example: cmd <<EOF"`) is not mistaken for a real opener — that
+   * mistake is the dangerous direction, since it would hide every real
+   * producer between the false opener and wherever a same-named terminator
+   * line next happens to occur.
+   */
+  function findHeredocStart(line: string): { delimiter: string; stripLeadingTabs: boolean } | null {
+    let quote: "'" | '"' | null = null
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i]!
+      if (quote === null) {
+        if (c === '#' && (i === 0 || /\s/.test(line[i - 1]!))) return null
+        if (c === "'" || c === '"') {
+          quote = c
+          continue
+        }
+        if (c === '\\') {
+          i++
+          continue
+        }
+        if (c === '<' && line[i + 1] === '<') {
+          const m = line.slice(i).match(/^<<([-~]?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/)
+          if (m) return { delimiter: m[3]!, stripLeadingTabs: m[1] === '-' }
+        }
+      } else {
+        if (quote === '"' && c === '\\') i++
+        else if (c === quote) quote = null
+      }
+    }
+    return null
+  }
+
+  /**
+   * Which lines of `scriptLines` are heredoc BODY content (row 21) — DATA
+   * being piped to a command, never executable assignments, so
+   * `findAllProducers` must not scan them at all.
+   */
+  function computeHeredocBodyLines(scriptLines: readonly string[]): boolean[] {
+    const isBody = new Array<boolean>(scriptLines.length).fill(false)
+    let i = 0
+    while (i < scriptLines.length) {
+      const found = findHeredocStart(scriptLines[i]!)
+      if (!found) {
+        i++
+        continue
+      }
+      let j = i + 1
+      while (j < scriptLines.length) {
+        isBody[j] = true
+        const body = found.stripLeadingTabs ? scriptLines[j]!.replace(/^\t+/, '') : scriptLines[j]!
+        if (body === found.delimiter) break
+        j++
+      }
+      i = j + 1
+    }
+    return isBody
+  }
+
+  /**
    * Every producer (any spelling in the table above) in `scriptLines`,
    * paired with its TAIL — the text right after its closing delimiter, on
    * whichever physical line that delimiter falls on (the same line as the
-   * start for every spelling except row 7, the multi-line form). A producer
-   * that spans multiple lines advances the scan past its own close, so an
-   * intermediate or closing line is never re-scanned as a fresh assignment
-   * start.
+   * start for every spelling except row 7, the multi-line form) — and
+   * whether a declaration keyword prefixed it (row 4). A producer that spans
+   * multiple lines advances the scan past its own close, so an intermediate
+   * or closing line is never re-scanned as a fresh assignment start, and a
+   * heredoc body line (row 21) is skipped outright.
    */
-  function findAllProducers(scriptLines: readonly string[]): { index: number; line: string; tail: string; endLineIndex: number }[] {
+  function findAllProducers(scriptLines: readonly string[]): { index: number; line: string; tail: string; endLineIndex: number; hasKeywordPrefix: boolean }[] {
     const text = scriptLines.join('\n')
     const starts = lineStartOffsets(scriptLines)
-    const out: { index: number; line: string; tail: string; endLineIndex: number }[] = []
+    const heredocBody = computeHeredocBodyLines(scriptLines)
+    const out: { index: number; line: string; tail: string; endLineIndex: number; hasKeywordPrefix: boolean }[] = []
     let i = 0
     while (i < scriptLines.length) {
       const line = scriptLines[i]!
-      if (line.trim().startsWith('#')) {
+      if (line.trim().startsWith('#') || heredocBody[i]) {
         i++
         continue
       }
@@ -659,16 +803,25 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       }
       const endLineIndex = lineIndexForOffset(starts, m.endOffset - 1)
       const tail = scriptLines[endLineIndex]!.slice(m.endOffset - starts[endLineIndex]!)
-      out.push({ index: i, line, tail, endLineIndex })
+      out.push({ index: i, line, tail, endLineIndex, hasKeywordPrefix: m.hasKeywordPrefix })
       i = endLineIndex + 1
     }
     return out
   }
 
-  /** The structural predicate itself (ruling 1): every producer (any spelling in the table above) whose exit status is checked neither on its tail nor on the line right after its close. */
+  /**
+   * The structural predicate itself (ruling 1): every producer (any spelling
+   * in the table above) whose exit status is checked neither on its tail nor
+   * on the line right after its close — with row 4's rule applied FIRST and
+   * unconditionally: a keyword-prefixed producer's `$?` comes from the
+   * KEYWORD BUILTIN, never from the substitution, so no tail shape and no
+   * next-line capture can ever legitimately check it (EXECUTED, see the
+   * dedicated test below) — it is always reported unchecked, regardless of
+   * how safe the line looks to a human reader.
+   */
   function findUncheckedProducers(scriptLines: readonly string[]): { index: number; line: string }[] {
     return findAllProducers(scriptLines)
-      .filter((p) => !tailChecksStatus(p.tail) && !nextLineCapturesRC(scriptLines[p.endLineIndex + 1]))
+      .filter((p) => p.hasKeywordPrefix || (!tailChecksStatus(p.tail) && !nextLineCapturesRC(scriptLines[p.endLineIndex + 1])))
       .map((p) => ({ index: p.index, line: p.line }))
   }
 
@@ -736,8 +889,17 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     // The doc comment's OTHER numbers, pinned for the first time. The
     // revision before this one got all three wrong precisely because only
     // the totals were pinned.
-    const sameLine = allProducers.filter((p) => tailChecksStatus(p.tail))
-    const nextLine = allProducers.filter((p) => !tailChecksStatus(p.tail) && nextLineCapturesRC(LINES[p.endLineIndex + 1]))
+    //
+    // `!p.hasKeywordPrefix` on both buckets: a keyword-prefixed producer
+    // whose TAIL merely LOOKS like `|| fail` (or is followed by a `_RC=$?`
+    // capture) is never actually checked — see findUncheckedProducers — so
+    // counting it as "same-line" or "next-line" here would double-book it
+    // against `unchecked` below and break the invariant on the last line.
+    // No live instance changes today (gate.sh has no keyword-prefixed
+    // producer), but the filters must agree with the real classification
+    // rather than happen to agree by the accident of an empty case.
+    const sameLine = allProducers.filter((p) => !p.hasKeywordPrefix && tailChecksStatus(p.tail))
+    const nextLine = allProducers.filter((p) => !p.hasKeywordPrefix && !tailChecksStatus(p.tail) && nextLineCapturesRC(LINES[p.endLineIndex + 1]))
     expect(sameLine.length, 'same-line-checked count drifted — the doc comment above cites it').toBe(11)
     expect(nextLine.length, 'next-line _RC=$? count drifted — the doc comment above cites it').toBe(5)
     expect(sameLine.length + nextLine.length + unchecked.length).toBe(allProducers.length)
@@ -796,6 +958,31 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       // sits inside a quoted string inside a NESTED $(...), must not confuse
       // the depth count into closing early (or never).
       { label: "#179 — a literal ')' inside a quoted string inside a nested $(...) does not miscount the outer depth", lines: [`SOME_NEW_CHECK=$(some_new_check "$(echo ')')")`, '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      // Row 4, REVISED after verification review — the single most dishonest
+      // shape in the whole grammar: a same-line `|| fail` or next-line
+      // `_RC=$?` on a KEYWORD-PREFIXED producer reads $? from the KEYWORD
+      // BUILTIN, never from the substitution (EXECUTED against real bash, see
+      // the dedicated test below), so it can NEVER fire and must still
+      // convict — moved here from HONEST_LINES, where round 1 of this fix
+      // wrongly shipped them as "the real predicate stays SILENT on an
+      // honest form".
+      { label: '#179 — export-prefixed producer with a same-line || fail that CANNOT actually check it', lines: ['export SOME_NEW_CHECK=$(some_new_check) || fail "problem"'] },
+      { label: '#179 — export-prefixed producer with a next-line _RC=$? that CANNOT actually check it (captures export\'s own $?, always 0)', lines: ['export SOME_NEW_CHECK=$(some_new_check)', 'SOME_NEW_CHECK_RC=$?', '[ "$SOME_NEW_CHECK_RC" -ne 0 ] && fail "problem"'] },
+      { label: '#179 — local-prefixed producer with a same-line || fail that CANNOT actually check it', lines: ['local SOME_NEW_CHECK=$(some_new_check) || fail "problem"'] },
+      { label: '#179 — declare-prefixed producer with a same-line || fail that CANNOT actually check it', lines: ['declare SOME_NEW_CHECK=$(some_new_check) || fail "problem"'] },
+      { label: '#179 — typeset-prefixed producer with a same-line || fail that CANNOT actually check it', lines: ['typeset SOME_NEW_CHECK=$(some_new_check) || fail "problem"'] },
+      { label: '#179 — readonly-prefixed producer with a same-line || fail that CANNOT actually check it', lines: ['readonly SOME_NEW_CHECK=$(some_new_check) || fail "problem"'] },
+      // Rows 17 and 18 — a flag between the keyword and the variable, and
+      // stacked keywords — both consumed by the same (keyword|flag)* loop
+      // `consumeKeywordPrefix` runs, so both are recognised AND masked.
+      { label: '#179 row 17 — a flag between the keyword and the variable: declare -r VAR=$(cmd)', lines: ['declare -r SOME_NEW_CHECK=$(some_new_check)', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: '#179 row 17 — same, WITH a same-line || fail that still cannot check it', lines: ['declare -r SOME_NEW_CHECK=$(some_new_check) || fail "problem"'] },
+      { label: '#179 row 18 — stacked keywords: export readonly VAR=$(cmd)', lines: ['export readonly SOME_NEW_CHECK=$(some_new_check)', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: '#179 row 18 — same, WITH a same-line || fail that still cannot check it', lines: ['export readonly SOME_NEW_CHECK=$(some_new_check) || fail "problem"'] },
+      // Row 16 — append assignment. Unlike row 4, `+=` is plain assignment
+      // syntax (no builtin involved), so it is checkable exactly like bare
+      // `=` and belongs in RIGGED_LINES only when genuinely unchecked.
+      { label: '#179 row 16 — append assignment: VAR+=$(cmd), unchecked', lines: ['SOME_NEW_CHECK+=$(some_new_check)', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
     ]
 
     it.each(RIGGED_LINES)('EXECUTED — the real predicate FIRES on: $label', ({ lines }) => {
@@ -830,9 +1017,6 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       { label: '#179 — quoted $(...), checked same-line', lines: ['SOME_NEW_CHECK="$(some_new_check)" || fail "problem"'] },
       { label: '#179 — quoted $(...), checked next-line', lines: ['SOME_NEW_CHECK="$(some_new_check)"', 'SOME_NEW_CHECK_RC=$?', '[ "$SOME_NEW_CHECK_RC" -ne 0 ] && fail "problem"'] },
       { label: '#179 — quoted, mixed literal + substitution, checked same-line (gate.sh:24\'s own shape)', lines: ['SOME_NEW_CHECK="prefix-$(some_new_check)-suffix" || fail "problem"'] },
-      { label: '#179 — export-prefixed, checked same-line', lines: ['export SOME_NEW_CHECK=$(some_new_check) || fail "problem"'] },
-      { label: '#179 — export-prefixed, checked next-line', lines: ['export SOME_NEW_CHECK=$(some_new_check)', 'SOME_NEW_CHECK_RC=$?', '[ "$SOME_NEW_CHECK_RC" -ne 0 ] && fail "problem"'] },
-      { label: '#179 — local-prefixed, checked same-line', lines: ['local SOME_NEW_CHECK=$(some_new_check) || fail "problem"'] },
       { label: "#179 — backtick, checked same-line", lines: ['SOME_NEW_CHECK=`some_new_check` || fail "problem"'] },
       { label: "#179 — backtick, checked next-line", lines: ['SOME_NEW_CHECK=`some_new_check`', 'SOME_NEW_CHECK_RC=$?', '[ "$SOME_NEW_CHECK_RC" -ne 0 ] && fail "problem"'] },
       { label: '#179 — quoted backtick, checked same-line', lines: ['SOME_NEW_CHECK="`some_new_check`" || fail "problem"'] },
@@ -846,10 +1030,82 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       { label: 'row 9 — a quoted string with no substitution inside is not a producer', lines: ['SOME_NEW_CHECK="just text"'] },
       { label: 'row 10 — an escaped \\$( inside a quoted string is not a producer (the backslash suppresses expansion)', lines: ['SOME_NEW_CHECK="literal \\$(not a command)"'] },
       { label: 'row 9, live in gate.sh — export PATH="$HOME/.local/bin:$PATH" (:14) is a plain quoted string, not a producer', lines: ['export PATH="$HOME/.local/bin:$PATH"'] },
+      // Row 16 — append assignment, checked both ways (no keyword involved,
+      // so unlike row 4 this genuinely IS checkable).
+      { label: '#179 row 16 — append assignment, checked same-line', lines: ['SOME_NEW_CHECK+=$(some_new_check) || fail "problem"'] },
+      { label: '#179 row 16 — append assignment, checked next-line', lines: ['SOME_NEW_CHECK+=$(some_new_check)', 'SOME_NEW_CHECK_RC=$?', '[ "$SOME_NEW_CHECK_RC" -ne 0 ] && fail "problem"'] },
     ]
 
     it.each(HONEST_LINES)('EXECUTED — the real predicate stays SILENT on an honest form: $label', ({ lines }) => {
       expect(findUncheckedProducers(lines)).toEqual([])
+    })
+
+    /**
+     * Row 4's whole justification, asserted against bash itself rather than
+     * against this file's own model of it — a verification review found the
+     * distinction and verified it exactly this way. `export`, `local`,
+     * `declare`, `typeset` and `readonly` are all BUILTIN COMMANDS: writing
+     * `KEYWORD V=$(cmd)` hands the assignment to that builtin as an
+     * argument, and the exit status of the whole simple command becomes the
+     * BUILTIN's own — `export` succeeds (name is valid) regardless of
+     * whether `cmd` failed. A bare `V=$(cmd)` has no command name at all, so
+     * bash's assignment-expansion rule applies instead: the exit status IS
+     * the substitution's. Round 1 of this fix treated all keyword-prefixed
+     * forms as checkable, which is what made three HONEST_LINES fixtures
+     * (now moved to RIGGED_LINES) wrong.
+     */
+    it("EXECUTED — bash reports a keyword-prefixed assignment's OWN exit status, never the substitution's — every ASSIGNMENT_KEYWORDS entry, both `|| echo` and `_RC=$?` shapes", () => {
+      const bareGuard = spawnSync('bash', ['-c', 'V=$(false) || echo GUARD_RAN'], { encoding: 'utf8' })
+      expect(bareGuard.stdout, 'CONTROL: the bare form must still let the guard run, or this test proves nothing').toContain('GUARD_RAN')
+      const bareRc = spawnSync('bash', ['-c', 'V=$(false); echo "RC=$?"'], { encoding: 'utf8' })
+      expect(bareRc.stdout, "CONTROL: the bare form must report the substitution's own nonzero status").toContain('RC=1')
+
+      for (const kw of ASSIGNMENT_KEYWORDS) {
+        // `local` is only legal inside a function.
+        const guardScript = kw === 'local' ? 'f() { local V=$(false) || echo GUARD_RAN; }; f' : `${kw} V=$(false) || echo GUARD_RAN`
+        const guardRes = spawnSync('bash', ['-c', guardScript], { encoding: 'utf8' })
+        expect(guardRes.stdout, `${kw} V=$(false) || echo GUARD_RAN must print NOTHING — ${kw}'s own exit status (0) masks false's`).not.toContain('GUARD_RAN')
+
+        const rcScript = kw === 'local' ? 'f() { local V=$(false); echo "RC=$?"; }; f' : `${kw} V=$(false); echo "RC=$?"`
+        const rcRes = spawnSync('bash', ['-c', rcScript], { encoding: 'utf8' })
+        expect(rcRes.stdout, `${kw} V=$(false) must leave $?=0, not false's 1`).toContain('RC=0')
+      }
+    })
+
+    /** Row 19 — arithmetic expansion never runs a command, so it is never a producer, and the boundary with an ordinary $(...) is exact rather than over-broad. */
+    it('EXECUTED — #179 row 19: arithmetic expansion $((...)) is never treated as a producer', () => {
+      expect(findUncheckedProducers(['SOME_NEW_CHECK=$((1+2))'])).toEqual([])
+      expect(findUncheckedProducers(['SOME_NEW_CHECK=$(( (1+2) * (3-1) ))'])).toEqual([])
+      // CONTROL: the third-character check must not swallow an ORDINARY
+      // command substitution — the boundary is exact, not over-broad.
+      expect(findUncheckedProducers(['SOME_NEW_CHECK=$(some_new_check)'])).toHaveLength(1)
+    })
+
+    /** Row 20 — a `#` comment inside a multi-line $(...) used to either vanish the producer (an apostrophe) or falsely convict it (a paren), depending on what the comment happened to contain. */
+    it('EXECUTED — #179 row 20: a comment inside a multi-line $(...) neither vanishes an unchecked producer nor falsely convicts a checked one', () => {
+      const vanishing = findUncheckedProducers(['SOME_NEW_CHECK=$(', "  some_new_check  # don't lose this line", ')'])
+      expect(vanishing, 'an unbalanced apostrophe in the comment used to open a phantom single-quoted string that ate the real closing )').toHaveLength(1)
+      expect(vanishing[0]!.line).toBe('SOME_NEW_CHECK=$(')
+
+      const falseConviction = findUncheckedProducers(['SOME_NEW_CHECK=$(', '  some_new_check  # this looks like a close )', ') || fail "problem"'])
+      expect(falseConviction, "a ')' in the comment used to close the substitution EARLY, hiding the real || fail two lines later").toEqual([])
+    })
+
+    /** Row 21 — heredoc body lines are DATA, not code; scanning must both skip them and correctly resume right after the terminator. */
+    it('EXECUTED — #179 row 21: heredoc body lines are not producers (quoted and unquoted delimiter), and scanning resumes correctly after the terminator', () => {
+      expect(findUncheckedProducers(["cat <<'EOF'", 'SOME_NEW_CHECK=$(some_new_check)', 'EOF'])).toEqual([])
+      expect(findUncheckedProducers(['cat <<EOF', 'SOME_NEW_CHECK=$(some_new_check)', 'EOF'])).toEqual([])
+
+      const afterHeredoc = findUncheckedProducers(["cat <<'EOF'", 'SOME_NEW_CHECK=$(some_new_check)', 'EOF', 'REAL_CHECK=$(some_new_check)'])
+      expect(afterHeredoc, 'the producer INSIDE the heredoc must stay invisible, and the REAL one right after the terminator must still be found').toHaveLength(1)
+      expect(afterHeredoc[0]!.line).toBe('REAL_CHECK=$(some_new_check)')
+
+      // CONTROL: a `<<WORD`-looking substring sitting inside a STRING (not a
+      // real heredoc) must not be mistaken for one — that direction of
+      // mistake would hide every real producer after it.
+      const inQuotedMessage = findUncheckedProducers(['echo "example: cmd <<EOF"', 'SOME_NEW_CHECK=$(some_new_check)'])
+      expect(inQuotedMessage).toHaveLength(1)
+      expect(inQuotedMessage[0]!.line).toBe('SOME_NEW_CHECK=$(some_new_check)')
     })
 
     it('EXECUTED — the predicate tells apart || exit 2 (honest abort) from || exit 0 (fake success) — same verb, opposite honesty', () => {
