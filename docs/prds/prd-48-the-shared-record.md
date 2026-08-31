@@ -1,6 +1,7 @@
 # prd-48 — the shared record: the unknowns are measured before the noticeboard is built
 
-> **Status:** proposed — drafted 2026-08-28 by KelliherL from the leads' design conversation of
+> **Status:** **BLESSED** — Lachlan Kelliher, 2026-08-31, in session. Milestone `prd48`.
+> Drafted 2026-08-28 by KelliherL from the leads' design conversation of
 > 2026-08-24 and the two research notes that land with this PRD's PR
 > (`docs/research/2026-08-24-shared-record-design-brief.md`,
 > `docs/research/2026-08-24-shared-record-spike-plan.md`), plus the restored
@@ -192,3 +193,24 @@ tombstone that makes pruned-reads-as-pruned unconditional (S7's discovered cavea
 dedup key `(actor.instance, event.id)` drops real events because ids repeat across session
 resumes (executed, S2); and `docs/record-format.md`'s id-uniqueness sentence describes a
 property the real ledger does not have.
+
+## Amendment — blessed, and what the blessing did NOT decide (2026-08-31)
+
+Blessed in session by Lachlan Kelliher. Read narrowly: **the blessing is one of wave 0's
+operator acts, not all of them.** It discharges "the leads bless prd-48", which is what #170 was
+blocked on and the only gate standing between this PRD and dispatchable work. Everything else
+wave 0 books is still open, and no issue in the `prd48` milestone may treat any of it as ruled:
+
+- **`author.email` — fact or word?** Still the leads'. It rides every `commit.landed` onto the
+  wire (S6/S2 §veil), so the build PRD cannot be written around it either way until it is ruled.
+- **The cohort's VPS, and who admins it.** #171 is blocked on this existing, not on anyone's code.
+- **Org-precedence detail, and the hosting shape.** Narrowed by the spikes, not closed.
+- **The S9 projection** — whether a member needs teammates in their *local* picture at all. Until
+  that is ruled, S9 stays unfiled by construction.
+- **Does the six-week window want wave 4 at all**, or does the programme stop after wave 3 with
+  the build PRD written for whoever comes next. Named in Open questions; still open.
+- **The throwaway GitHub OAuth app** stays the named operator act (S5, Success 5 Partial).
+
+Both defects the amendment above promised are now filed: the `mergeRecords` dedup key and the
+`record-format.md` sentence went out together as **#173**, since the false sentence and the code
+implementing it are one fact written twice.
