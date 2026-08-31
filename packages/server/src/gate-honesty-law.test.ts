@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync, chmodSync, mkdirSync, readFileSync, symlinkSync, unlinkSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, chmodSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 /**
@@ -57,6 +57,39 @@ const GATE_PATH = 'scripts/gate.sh'
  */
 const SOURCE = readFileSync(join(REPO_ROOT, GATE_PATH), 'utf8')
 const LINES = SOURCE.split('\n')
+
+/**
+ * A handful of proofs below make a real file unwritable and assert the write
+ * fails. `chmod 0444` cannot do that for root — `CAP_DAC_OVERRIDE` ignores
+ * the permission bit — so a test that only chmods would go red under root
+ * for a reason it never claimed (#74). Where the write target can be freely
+ * relocated, the fix is structural (an ENOTDIR obstruction, which no
+ * privilege bypasses) and needs no root check at all. Where the target must
+ * already exist as a well-formed, readable file — as `lanes.json` must, for
+ * `[ -f ... ]` and `JSON.parse` to see it — no setup step available to an
+ * unprivileged test process holds against root either (a directory's write
+ * bit is the same CAP_DAC_OVERRIDE-bypassable check; `chattr +i` needs
+ * `CAP_LINUX_IMMUTABLE` against the filesystem's owning namespace, which a
+ * user namespace's mapped root does not have). That case skips itself under
+ * root instead, with the reason on the test.
+ */
+const RUNNING_AS_ROOT = process.getuid?.() === 0
+
+/**
+ * `/bin/bash`'s major version — NOT the `bash` on PATH.
+ *
+ * `gate.sh`'s shebang is `#!/bin/bash`, so that interpreter is the one its
+ * guards actually run under, and it is the only one whose quirks can hold a
+ * landing. The two differ in practice: macOS ships 3.2.57 at `/bin/bash` while
+ * Homebrew puts 5.x first on PATH, which is exactly how a proof written for
+ * 3.2 comes to run under 5.x and pass without exercising anything.
+ */
+const SYSTEM_BASH_MAJOR = Number(
+  (spawnSync('/bin/bash', ['-c', 'echo "${BASH_VERSINFO[0]}"'], { encoding: 'utf8' }).stdout ?? '')
+    .trim(),
+)
+/** Empty-array expansion under `set -u` stopped being an error in bash 4.4. */
+const SYSTEM_BASH_GUARDS_EMPTY_ARRAYS = !Number.isNaN(SYSTEM_BASH_MAJOR) && SYSTEM_BASH_MAJOR >= 4
 
 /** The one line containing `needle`. Throws if zero or more than one match — an ambiguous anchor is worse than a missing one. */
 function uniqueLineIndex(needle: string): number {
@@ -142,10 +175,10 @@ interface FragmentResult {
 }
 
 /** Runs an assembled bash script and returns its outcome without throwing — a fail()'s exit 1 is an expected result here, not a test-harness error. Syntax-checks first, so a broken extraction fails with a clear parse error instead of a confusing runtime one. */
-function runFragment(script: string, cwd: string): FragmentResult {
-  execFileSync('bash', ['-n'], { input: script, encoding: 'utf8' })
+function runFragment(script: string, cwd: string, shell = 'bash'): FragmentResult {
+  execFileSync(shell, ['-n'], { input: script, encoding: 'utf8' })
   try {
-    const stdout = execFileSync('bash', ['-c', script], { cwd, encoding: 'utf8' })
+    const stdout = execFileSync(shell, ['-c', script], { cwd, encoding: 'utf8' })
     return { status: 0, stdout, stderr: '' }
   } catch (err) {
     const e = err as { status?: number; stdout?: string; stderr?: string }
@@ -240,17 +273,25 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    *
    * MEASURED FALSE-POSITIVE RATE (EXECUTED, run against every real
    * `VAR=$(...)` line in scripts/gate.sh — prd-46's own open question):
-   * 16 such assignments exist. Exactly 1 is flagged as structurally
+   * 15 such assignments exist. Exactly 1 is flagged as structurally
    * unchecked — :23 (`W=$(workmux path ...)`), declared before this issue
    * and still declared, because the very next line's existence check is
-   * the verdict rather than the redirect. 0 of the 16 are undeclared: the
+   * the verdict rather than the redirect. 0 of the 15 are undeclared: the
    * predicate does not convict a single honest line on this file.
    *
-   * The other 15 pass structurally on their own merits: 9 same-line forms
-   * (:17's `|| exit 2`, written before `fail` is even defined; 7 `|| fail`;
-   * 1 `|| { ...; fail ...; }` rescue block) and 6 next-line `_RC=$?`
-   * captures (:74/:77's `DIFF_RC`/`GREP_RC`, :100's `STATUS_RC`, :212's
-   * `CAT_RC`, :96's `N_RC` and the `DIRTY_RC` added beside it).
+   * The other 14 pass structurally on their own merits: 10 same-line forms
+   * (:17's `|| exit 2`, written before `fail` is even defined; 8 `|| fail`
+   * at :41 :56 :102 :196 :206 :270 :356 :380; 1 `|| { ...; fail ...; }`
+   * rescue block at :57) and 4 next-line `_RC=$?` captures (:139's `N_RC`,
+   * :143's `STATUS_RC`, :170's `DIRTY_RC`, :271's `CAT_RC`).
+   *
+   * These counts moved with #71, and the reason is structural rather than
+   * arithmetic: `DIFF_RC` and `GREP_RC` used to be next-line captures of
+   * `VAR=$(...)` producers. #71 replaced those producers with a redirect
+   * (`git diff -z ... >"$FENCE_LIST"`) and a pipeline (`printf '' | grep`),
+   * so both leave this predicate's population by construction rather than
+   * by becoming unchecked — their statuses are still read, one line later,
+   * exactly as before.
    *
    * These counts are PINNED below rather than left as prose. The revision
    * that introduced this paragraph said "the remaining 12 ... 9 same-line
@@ -450,11 +491,11 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     expect(undeclared.map((u) => `${u.index + 1}: ${u.line.trim()}`), 'undeclared unchecked producer(s) in scripts/gate.sh — fix the shape (see the :82 commit-count fix below) or add a DECLARED_TOLERANCES entry with a reason').toEqual([])
   })
 
-  it('EXECUTED — the measured false-positive rate on the real file, pinned: 1 of 16 $(...) assignments flagged, it is declared, 0 undeclared', () => {
+  it('EXECUTED — the measured false-positive rate on the real file, pinned: 1 of 15 $(...) assignments flagged, it is declared, 0 undeclared', () => {
     const allAssignmentLines = codeLines().filter((l) => matchDollarParenAssignment(l))
     const unchecked = findUncheckedProducers(LINES)
     const undeclared = unchecked.filter((u) => !DECLARED_TOLERANCES.some((t) => u.line.includes(t.needle)))
-    expect(allAssignmentLines.length, 'total $(...) assignments in scripts/gate.sh drifted — the doc comment above cites this count').toBe(16)
+    expect(allAssignmentLines.length, 'total $(...) assignments in scripts/gate.sh drifted — the doc comment above cites this count').toBe(15)
     expect(unchecked.length, 'flagged (structurally unchecked) count drifted — the doc comment above cites this count').toBe(1)
     expect(undeclared.length).toBe(0)
 
@@ -466,8 +507,8 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       const i = LINES.indexOf(l)
       return !tailChecksStatus(matchDollarParenAssignment(l)!.tail) && nextLineCapturesRC(LINES[i + 1])
     })
-    expect(sameLine.length, 'same-line-checked count drifted — the doc comment above cites it').toBe(9)
-    expect(nextLine.length, 'next-line _RC=$? count drifted — the doc comment above cites it').toBe(6)
+    expect(sameLine.length, 'same-line-checked count drifted — the doc comment above cites it').toBe(10)
+    expect(nextLine.length, 'next-line _RC=$? count drifted — the doc comment above cites it').toBe(4)
     expect(sameLine.length + nextLine.length + unchecked.length).toBe(allAssignmentLines.length)
   })
 
@@ -841,8 +882,8 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     })
   })
 
-  describe(':74 fence regex — an invalid FENCE holds, it does not print "fence OK"', () => {
-    const NEW_BLOCK = sliceLines('DIFF_FILES=$(git -C "$W" diff main...HEAD --name-only)', 'fence OK: $(printf')
+  describe(':98 fence audit — an invalid FENCE holds, and a hostile path is compared as bytes, not as text', () => {
+    const NEW_BLOCK = sliceLines('printf \'\' | grep -E "$FENCE"', 'fence OK: ${DIFF_FILES')
 
     it('the old masking form ( grep -vE "$FENCE" || true ) is gone from the file', () => {
       expect(SOURCE).not.toContain('grep -vE "$FENCE" || true')
@@ -852,6 +893,140 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(NEW_BLOCK).toContain('DIFF_RC=$?')
       expect(NEW_BLOCK).toMatch(/GREP_RC=\$\?/)
       expect(NEW_BLOCK).toContain('-gt 1')
+    })
+
+    it('the fix reads a NUL-delimited listing via -z / read -r -d \'\', not line-delimited `read -r`', () => {
+      expect(NEW_BLOCK).toContain('diff -z main...HEAD --name-only')
+      expect(NEW_BLOCK).toContain("read -r -d ''")
+    })
+
+    /**
+     * The two pairs below close the two gaps the review of #155 EXECUTED against
+     * the merged shape of this block. Both follow the standard the café.ts pair
+     * one screen down already sets — a text assertion AND a real fixture — and
+     * each fixture is run through the SUPERSEDED form too, so it is shown to
+     * discriminate rather than merely to pass.
+     */
+
+    it('the fence match is whole-string (`[[ =~ ]]`), not the line-by-line `grep -qE` it replaced', () => {
+      expect(NEW_BLOCK).toContain('[[ $f =~ $FENCE ]]')
+      expect(NEW_BLOCK).not.toContain('grep -qE "$FENCE"')
+    })
+
+    /** An OUT-of-fence path whose name contains a newline, one line of which looks in-fence. */
+    function fixtureWithNewlineInName(): string {
+      const dir = scratchDir('fence-newline')
+      initRepo(dir)
+      mkdirSync(join(dir, 'src', 'foo'), { recursive: true })
+      writeFileSync(join(dir, 'src', 'foo', 'plain.ts'), 'a\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'init')
+      git(dir, 'checkout', '-q', '-b', 'feature')
+      const hostile = join(dir, 'evil/a\nsrc/foo/b.ts')
+      mkdirSync(dirname(hostile), { recursive: true })
+      writeFileSync(hostile, 'b\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'add an OUT-OF-FENCE file whose name contains a newline')
+      return dir
+    }
+
+    it('EXECUTED — the per-file `grep -qE` form ADMITS an out-of-fence name containing an in-fence-looking line', () => {
+      const dir = fixtureWithNewlineInName()
+      const GREP_BLOCK =
+        'viol=()\n' +
+        "while IFS= read -r -d '' f; do\n" +
+        '  printf \'%s\' "$f" | grep -qE "$FENCE" || viol+=("$f")\n' +
+        'done < <(git diff -z main...HEAD --name-only)\n' +
+        '[ "${#viol[@]}" -gt 0 ] && { echo "VERDICT: fence violated"; fail "fence violated"; }\n' +
+        'echo "VERDICT: fence OK"\n'
+      const script = preludeScript(0, "FENCE='^src/foo/'\nW=.\n") + `cd "$W"\n` + GREP_BLOCK
+      const res = runFragment(script, dir)
+      // grep matches LINE BY LINE, so the "src/foo/b.ts" line of the NAME matches
+      // the fence and the file is waved through — a fail-OPEN fence bypass.
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('VERDICT: fence OK')
+    })
+
+    it('EXECUTED — the real, extracted form HOLDS that same out-of-fence name', () => {
+      const dir = fixtureWithNewlineInName()
+      const script = preludeScript(0, "FENCE='^src/foo/'\nW=.\n") + NEW_BLOCK + '\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('fence violated')
+    })
+
+    it('the fence-OK line survives an empty array under `set -u` (bash < 4.4 — /bin/bash on macOS is 3.2)', () => {
+      // extractLine, not NEW_BLOCK: the block also carries the comment that
+      // explains this fix, and that comment quotes the literal — asserting over
+      // the whole block would pass with the CODE reverted. EXECUTED: it did.
+      expect(extractLine('echo "  fence OK: ${DIFF_FILES')).toContain('${DIFF_FILES[*]-}')
+    })
+
+    it.skipIf(SYSTEM_BASH_GUARDS_EMPTY_ARRAYS)(
+      `EXECUTED — a branch with an empty diff prints "fence OK" and exits 0, rather than aborting past fail() (skipped: /bin/bash here is ${SYSTEM_BASH_MAJOR}.x, and empty-array expansion under \`set -u\` stopped being an error in 4.4, so this fragment cannot fail for the reason it claims — it is a proof only on bash < 4.4, which is what macOS ships)`,
+      () => {
+      const dir = scratchDir('fence-emptydiff')
+      initRepo(dir)
+      mkdirSync(join(dir, 'src', 'foo'), { recursive: true })
+      writeFileSync(join(dir, 'src', 'foo', 'plain.ts'), 'a\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'init')
+      git(dir, 'checkout', '-q', '-b', 'feature')
+      const script = preludeScript(0, "FENCE='^src/foo/'\nW=.\n") + NEW_BLOCK + '\n'
+      // `/bin/bash`, not PATH's bash: gate.sh's own shebang, and the only
+      // interpreter whose empty-array behaviour can hold a real landing.
+      const res = runFragment(script, dir, '/bin/bash')
+      // Without the `-` default this aborts "DIFF_FILES[*]: unbound variable" on
+      // bash 3.2 WITHOUT reaching fail() — no "GATE FAILED", no ">>> HOLDING" —
+      // on the very path :142 has a dedicated diagnosis for.
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('fence OK')
+      expect(res.stderr).not.toContain('unbound variable')
+    })
+
+
+    /**
+     * The pair below is the half this describe was missing, and its absence was
+     * found by reverting #71 wholesale and watching this file stay green: the
+     * four tests above pin the rc separation and plain-ASCII paths, so both of
+     * #71's central edits could be undone without a single assertion moving.
+     * The NUL-guard describe below already carries both halves for the same
+     * shape — a text assertion AND a real café.ts fixture — and #71 reused that
+     * shape here deliberately (`gate.sh:79`). This makes the standard the same
+     * on both sides of the file.
+     */
+    function fixtureWithNonAsciiInFenceName(): string {
+      const dir = scratchDir('fence-nonascii')
+      initRepo(dir)
+      mkdirSync(join(dir, 'src', 'foo'), { recursive: true })
+      writeFileSync(join(dir, 'src', 'foo', 'plain.ts'), 'a\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'init')
+      git(dir, 'checkout', '-q', '-b', 'feature')
+      writeFileSync(join(dir, 'src', 'foo', 'caf\u00e9.ts'), 'b\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'add an IN-FENCE file with a non-ASCII name')
+      return dir
+    }
+
+    it('EXECUTED — the OLD (line-delimited) form convicts an IN-FENCE caf\u00e9.ts, because git quotes the name', () => {
+      const dir = fixtureWithNonAsciiInFenceName()
+      const OLD_BLOCK =
+        'viol=$(git diff main...HEAD --name-only | grep -vE "$FENCE" || true)\n' +
+        '[ -n "$viol" ] && { echo "VERDICT: fence violated"; fail "fence violated"; }\n' +
+        'echo "VERDICT: fence OK"\n'
+      const script = preludeScript(0, "FENCE='^src/foo/'\nW=.\n") + `cd "$W"\n` + OLD_BLOCK
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('fence violated')
+    })
+
+    it('EXECUTED — the NEW (real, extracted) form passes that same IN-FENCE caf\u00e9.ts', () => {
+      const dir = fixtureWithNonAsciiInFenceName()
+      const script = preludeScript(0, "FENCE='^src/foo/'\nW=.\n") + NEW_BLOCK + '\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('fence OK')
     })
 
     function fixture(): string {
@@ -1464,6 +1639,15 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
      * prd-45's own thesis. The fix ties the report to the write with `||
      * fail()`, the same shape the sibling `:293 lane manifest prune` describe
      * below already holds `scripts/gate.sh` to.
+     *
+     * The two proofs below no longer make the floor unwritable with `chmod
+     * 0444` (#74): `CAP_DAC_OVERRIDE` lets root ignore that bit, so as root
+     * the write would silently succeed and both would go red for a reason
+     * neither claims. Instead a plain FILE sits where the floor's parent
+     * directory is expected, so the write fails with ENOTDIR — a structural
+     * impossibility no privilege level bypasses. Verified both ways: as the
+     * invoking user, and under `unshare -r` (mapped uid 0, on a machine with
+     * `kernel.apparmor_restrict_unprivileged_userns=0`) — exit 1 either way.
      */
     const WRITE_BLOCK = sliceLines('mkdir -p "$root/.swarm" && printf', 'timing-count ratchet:$RISE_NOTE')
 
@@ -1476,33 +1660,33 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(readFileSync(join(dir, '.swarm', 'timing-count'), 'utf8')).toBe('7\n')
     })
 
-    it('EXECUTED — a READ-ONLY floor HOLDS: fail() fires, the floor does not advance, and the unearned claim is never printed', () => {
+    it('EXECUTED — an UNWRITABLE floor HOLDS: fail() fires, the floor is never created, and the unearned claim is never printed', () => {
       const dir = scratchDir('write-readonly')
       mkdirSync(join(dir, '.swarm'), { recursive: true })
-      const countFile = join(dir, '.swarm', 'timing-count')
-      writeFileSync(countFile, '5\n')
-      chmodSync(countFile, 0o444)
+      const obstruction = join(dir, '.swarm', 'timing-count')
+      writeFileSync(obstruction, 'not a directory\n')
+      const countFile = join(obstruction, 'floor')
       const script = preludeScript(0, `root=${dir}\nTCOUNT=7\nCOUNT_FILE=${countFile}\nRISE_NOTE=" ROSE from 5 to 7"\n`) + WRITE_BLOCK + '\n'
       const res = runFragment(script, dir)
       expect(res.status).toBe(1)
       expect(res.stdout + res.stderr).toContain('cannot write the timing-count floor')
       expect(res.stdout + res.stderr).toContain('HOLDING')
       expect(res.stdout).not.toContain('ratchet:')
-      expect(readFileSync(countFile, 'utf8')).toBe('5\n')
+      expect(existsSync(countFile)).toBe(false)
     })
 
-    it('EXECUTED — the OLD (unchecked) write silently prints the same claim on the same read-only floor — the exact defect this fix removes', () => {
+    it('EXECUTED — the OLD (unchecked) write silently prints the same claim even though the floor was never created — the exact defect this fix removes', () => {
       const dir = scratchDir('write-readonly-old')
       mkdirSync(join(dir, '.swarm'), { recursive: true })
-      const countFile = join(dir, '.swarm', 'timing-count')
-      writeFileSync(countFile, '5\n')
-      chmodSync(countFile, 0o444)
+      const obstruction = join(dir, '.swarm', 'timing-count')
+      writeFileSync(obstruction, 'not a directory\n')
+      const countFile = join(obstruction, 'floor')
       const OLD_BLOCK = 'mkdir -p "$root/.swarm" && printf \'%s\\n\' "$TCOUNT" >"$COUNT_FILE"\n' + '[ -n "$RISE_NOTE" ] && echo "  timing-count ratchet:$RISE_NOTE"\n'
       const script = preludeScript(0, `root=${dir}\nTCOUNT=7\nCOUNT_FILE=${countFile}\nRISE_NOTE=" ROSE from 5 to 7"\n`) + OLD_BLOCK
       const res = runFragment(script, dir)
       expect(res.status).toBe(0)
       expect(res.stdout).toContain('timing-count ratchet: ROSE from 5 to 7')
-      expect(readFileSync(countFile, 'utf8')).toBe('5\n')
+      expect(existsSync(countFile)).toBe(false)
     })
 
     /**
@@ -1609,6 +1793,11 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(res.status).toBe(0)
       expect(res.stdout).toContain('lane manifest pruned')
 
+      // This chmod does not need the #74 fix: the OLD script's `catch {}`
+      // swallows a permission error the same as it swallows malformed JSON,
+      // so it prints "pruned" (exit 0) whether or not the write actually
+      // lands — the assertion below never checks the file's final content.
+      // Confirmed unaffected under `unshare -r`: this case does not flip.
       const unwritable = scratchDir('manifest-old-unwritable')
       mkdirSync(join(unwritable, '.swarm'), { recursive: true })
       const lanesFile = join(unwritable, '.swarm', 'lanes.json')
@@ -1630,7 +1819,17 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(res.stdout + res.stderr).toContain('lane manifest prune failed')
     })
 
-    it('EXECUTED — the NEW form HOLDS on an unwritable lanes.json', () => {
+    // Unlike the timing-count floor above, lanes.json cannot be made
+    // unwritable by an ENOTDIR obstruction: `[ -f ... ]` and `JSON.parse`
+    // both need it to exist as a well-formed, readable regular file, and no
+    // setup step open to an unprivileged test process holds a write off an
+    // *existing* file against `CAP_DAC_OVERRIDE` (a directory's write bit is
+    // the same bypassable check; `chattr +i` needs `CAP_LINUX_IMMUTABLE`
+    // against the filesystem's owning namespace, not a user namespace's
+    // mapped root — the setup itself would already fail as an unprivileged
+    // user, let alone hold against one). So this proof skips itself as root,
+    // per #74's done-when, rather than assert something false there.
+    it.skipIf(RUNNING_AS_ROOT)('EXECUTED — the NEW form HOLDS on an unwritable lanes.json (skipped as root: chmod 0444 does not hold against CAP_DAC_OVERRIDE, and no reachable setup here holds an already-existing file unwritable against it)', () => {
       const dir = scratchDir('manifest-new-unwritable')
       mkdirSync(join(dir, '.swarm'), { recursive: true })
       const lanesFile = join(dir, '.swarm', 'lanes.json')
