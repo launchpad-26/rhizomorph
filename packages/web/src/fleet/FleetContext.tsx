@@ -38,6 +38,45 @@ const FleetContext = createContext<FleetContextValue | null>(null)
 /** How often the derived fleet is rebuilt when no clock is pinned. */
 export const FLEET_TICK_MS = 1_000
 
+/**
+ * The `SessionState` slices `buildFleet` reads — and, spread below, the whole
+ * of the fleet memo's key besides the clock and the manifest.
+ *
+ * Ruling 3 (prd-47): the fleet rebuilds on its beat and on the facts
+ * `buildFleet` reads, never on reference churn. `core`'s `reduce` spreads the
+ * whole state object on every event to bump `eventCount` (`withEnvelope`,
+ * `reduce.ts:154`), so `state.session` is a fresh reference after an event that
+ * changed nothing — and keying on it re-rendered five consumer subtrees for
+ * such an event. Each reducer handler replaces only the slice it touched, so
+ * keying on the slices makes an event the fleet cannot read a no-op.
+ *
+ * Derived by reading `core`, not guessed: the union of `state.<slice>` reads
+ * across `core/src/fleet/*.ts` and the selectors `buildFleet` calls. NOT read,
+ * and deliberately absent: `checkpoints`, `forks`, `judge`, `refusals`,
+ * `firstEventTs`, `lastEventTs`. `FleetContext.test.tsx` pins that partition
+ * against `initialSessionState()`, so a slice added to `SessionState` reddens a
+ * law rather than silently joining neither list.
+ *
+ * `eventCount` is the one field `buildFleet` reads that is not a key: it
+ * changes on every event by construction, so keying on it would rebuild on
+ * every event and leave this ruling a no-op. Its only reader is StatusBar's
+ * event counter (`app/StatusBar.tsx:277`), which is beat-refreshed as a result
+ * — bounded by FLEET_TICK_MS, and only for the events that move nothing else.
+ */
+export const FLEET_INPUT_SLICES = [
+  'session',
+  'mainBranch',
+  'worktrees',
+  'branches',
+  'commits',
+  'panes',
+  'agents',
+  'collectors',
+  'errors',
+  'telemetry',
+  'traces',
+] as const
+
 export interface FleetProviderProps {
   children: ReactNode
   /** Test-only clock. Pinned, nothing re-derives on a timer. */
@@ -71,9 +110,14 @@ export function FleetProvider({ children, now, fetchLanes }: FleetProviderProps)
   const fetched = useLaneManifest(source === 'live', fetchLanes, foldedRepoPath(state.session))
   const manifest = fixtureManifest ?? fetched.manifest
 
+  const session = state.session
   const fleet = useMemo(
-    () => buildFleet(state.session, { now: clock, manifest }),
-    [state.session, clock, manifest],
+    () => buildFleet(session, { now: clock, manifest }),
+    // Spread rather than eleven hand-written lines so the key cannot drift from
+    // the list above: FLEET_INPUT_SLICES *is* the key. Constant length by
+    // construction (11 + 2), which is all React requires of a dep array — and
+    // `FleetContext.test.tsx` pins that length.
+    [...FLEET_INPUT_SLICES.map((slice) => session[slice]), clock, manifest],
   )
 
   const value = useMemo<FleetContextValue>(
