@@ -273,17 +273,18 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    *
    * MEASURED FALSE-POSITIVE RATE (EXECUTED, run against every real
    * `VAR=$(...)` line in scripts/gate.sh — prd-46's own open question):
-   * 15 such assignments exist. Exactly 1 is flagged as structurally
+   * 17 such assignments exist. Exactly 1 is flagged as structurally
    * unchecked — :23 (`W=$(workmux path ...)`), declared before this issue
    * and still declared, because the very next line's existence check is
-   * the verdict rather than the redirect. 0 of the 15 are undeclared: the
+   * the verdict rather than the redirect. 0 of the 17 are undeclared: the
    * predicate does not convict a single honest line on this file.
    *
-   * The other 14 pass structurally on their own merits: 10 same-line forms
-   * (:17's `|| exit 2`, written before `fail` is even defined; 8 `|| fail`
-   * at :41 :56 :102 :196 :206 :270 :356 :380; 1 `|| { ...; fail ...; }`
-   * rescue block at :57) and 4 next-line `_RC=$?` captures (:139's `N_RC`,
-   * :143's `STATUS_RC`, :170's `DIRTY_RC`, :271's `CAT_RC`).
+   * The other 16 pass structurally on their own merits: 11 same-line forms
+   * (:17's `|| exit 2`, written before `fail` is even defined; 9 `|| fail`
+   * at :41 :56 :116 :210 :220 :284 :370 :410 :411; 1 `|| { ...; fail ...; }`
+   * rescue block at :57) and 5 next-line `_RC=$?` captures (:73's
+   * `ANCESTOR_RC`, :153's `N_RC`, :157's `STATUS_RC`, :184's `DIRTY_RC`,
+   * :285's `CAT_RC`).
    *
    * These counts moved with #71, and the reason is structural rather than
    * arithmetic: `DIFF_RC` and `GREP_RC` used to be next-line captures of
@@ -291,7 +292,14 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    * (`git diff -z ... >"$FENCE_LIST"`) and a pipeline (`printf '' | grep`),
    * so both leave this predicate's population by construction rather than
    * by becoming unchecked — their statuses are still read, one line later,
-   * exactly as before.
+   * exactly as before. They moved again with #73: the rebase-ancestry check
+   * (`ANCESTOR_ERR`/`ANCESTOR_RC`, prd46 instance 1) and the lane-manifest
+   * prune's shape guard (`MANIFEST_OUT_LOG`, instance 2) each added one real
+   * producer, deliberately written so the predicate can see it is checked —
+   * `MANIFEST_OUT_LOG` is a same-line `|| fail` on its own `mktemp`, and the
+   * multi-line `node -e` itself is run as a bare command (never captured via
+   * `VAR=$(...)`) precisely so a multi-line assignment never enters this
+   * predicate's blind spot (see the comment beside it in gate.sh).
    *
    * These counts are PINNED below rather than left as prose. The revision
    * that introduced this paragraph said "the remaining 12 ... 9 same-line
@@ -454,7 +462,6 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     { needle: 'git push origin main 2>&1 | tail -1 || echo', count: 1, reason: 'push_or_warn(): the one documented non-fatal check in the file (prd-39 ruling 1)' },
     { needle: 'workmux path "$H" 2>/dev/null | tail -1', count: 1, reason: 'resolves $W; the very next line ([ -d "${W:-}" ] on :24) checks the result and falls back to a constructed path — the verdict is the existence check, not this redirect. Structural predicate: an UNCHECKED $(...) assignment, exempted here rather than by spelling.' },
     { needle: 'rev-parse --abbrev-ref HEAD 2>/dev/null) || fail', count: 1, reason: "stderr text is discarded, but the command's own exit code is still routed through fail() via || — structurally CHECKED, kept here for the historical record only." },
-    { needle: 'merge-base --is-ancestor main HEAD 2>/dev/null || fail', count: 1, reason: 'same — stderr discarded, exit code still routed through fail(); not a $(...) assignment at all, so out of the structural predicate\'s scope regardless.' },
     {
       // This needle deliberately avoids gate.sh's timing-opt-in marker
       // comment text as a contiguous substring. An earlier version of this
@@ -491,11 +498,11 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     expect(undeclared.map((u) => `${u.index + 1}: ${u.line.trim()}`), 'undeclared unchecked producer(s) in scripts/gate.sh — fix the shape (see the :82 commit-count fix below) or add a DECLARED_TOLERANCES entry with a reason').toEqual([])
   })
 
-  it('EXECUTED — the measured false-positive rate on the real file, pinned: 1 of 15 $(...) assignments flagged, it is declared, 0 undeclared', () => {
+  it('EXECUTED — the measured false-positive rate on the real file, pinned: 1 of 17 $(...) assignments flagged, it is declared, 0 undeclared', () => {
     const allAssignmentLines = codeLines().filter((l) => matchDollarParenAssignment(l))
     const unchecked = findUncheckedProducers(LINES)
     const undeclared = unchecked.filter((u) => !DECLARED_TOLERANCES.some((t) => u.line.includes(t.needle)))
-    expect(allAssignmentLines.length, 'total $(...) assignments in scripts/gate.sh drifted — the doc comment above cites this count').toBe(15)
+    expect(allAssignmentLines.length, 'total $(...) assignments in scripts/gate.sh drifted — the doc comment above cites this count').toBe(17)
     expect(unchecked.length, 'flagged (structurally unchecked) count drifted — the doc comment above cites this count').toBe(1)
     expect(undeclared.length).toBe(0)
 
@@ -507,8 +514,8 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       const i = LINES.indexOf(l)
       return !tailChecksStatus(matchDollarParenAssignment(l)!.tail) && nextLineCapturesRC(LINES[i + 1])
     })
-    expect(sameLine.length, 'same-line-checked count drifted — the doc comment above cites it').toBe(10)
-    expect(nextLine.length, 'next-line _RC=$? count drifted — the doc comment above cites it').toBe(4)
+    expect(sameLine.length, 'same-line-checked count drifted — the doc comment above cites it').toBe(11)
+    expect(nextLine.length, 'next-line _RC=$? count drifted — the doc comment above cites it').toBe(5)
     expect(sameLine.length + nextLine.length + unchecked.length).toBe(allAssignmentLines.length)
   })
 
@@ -1353,6 +1360,76 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     })
   })
 
+  describe(':73 rebase-ancestry check — a corrupt ref is told apart from an honest "not an ancestor"', () => {
+    /**
+     * `git merge-base --is-ancestor` returns 1 for the ordinary "not an
+     * ancestor" and 128 for a bad object (a missing/corrupt ref). The OLD
+     * form discarded stderr and routed both through the same `|| fail`, so
+     * an operator whose ref was corrupt was told "the rebase did not take"
+     * — a verdict about the rebase this line never established. The NEW
+     * form captures stderr and branches on the exit code instead.
+     */
+    const NEW_BLOCK = sliceLines('ANCESTOR_ERR=$(git -C "$W" merge-base --is-ancestor main HEAD 2>&1 >/dev/null)', 'a ref may be corrupt (see stderr above)', 1)
+
+    it('the old undifferentiated form (stderr discarded, both exit codes routed through one fail) is gone from the file', () => {
+      expect(SOURCE).not.toMatch(/merge-base --is-ancestor main HEAD 2>\/dev\/null \|\| fail/)
+      expect(NEW_BLOCK).toContain('ANCESTOR_RC')
+    })
+
+    function repoOn(branch: string): string {
+      const dir = scratchDir('ancestry')
+      initRepo(dir)
+      git(dir, 'checkout', '-q', '-b', branch)
+      writeFileSync(join(dir, 'a.txt'), 'a\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'init')
+      return dir
+    }
+
+    it('EXECUTED — the honest case (branch not on top of main) still holds with the ORIGINAL message', () => {
+      const dir = repoOn('main')
+      git(dir, 'checkout', '-q', '-b', 'feature')
+      writeFileSync(join(dir, 'a.txt'), 'a\nfeature\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'feature work')
+      // main moves ahead too, so feature is genuinely not an ancestor of it —
+      // exit 1, the ordinary case — rather than the trivial "no divergence".
+      git(dir, 'checkout', '-q', 'main')
+      writeFileSync(join(dir, 'a.txt'), 'a\nmain\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'main moves too')
+      git(dir, 'checkout', '-q', 'feature')
+      const script = preludeScript(0, 'BRANCH=feature\nW=.\n') + NEW_BLOCK + '\necho "VERDICT: on top of main"\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('branch feature is not on top of main (the rebase did not take)')
+      expect(res.stdout + res.stderr).not.toContain('exited 128')
+    })
+
+    it('EXECUTED — a corrupt/missing ref (128, not the ordinary 1) is reported as its own thing, not as "the rebase did not take"', () => {
+      // No branch named "main" exists at all here — the same shape a
+      // corrupt or unpushed ref produces: --is-ancestor cannot resolve the
+      // name and exits 128, distinct from the ordinary "not an ancestor" 1.
+      const dir = repoOn('trunk')
+      const script = preludeScript(0, 'BRANCH=trunk\nW=.\n') + NEW_BLOCK + '\necho "VERDICT: on top of main"\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      const out = res.stdout + res.stderr
+      expect(out).toContain('exited 128')
+      expect(out).not.toContain('the rebase did not take')
+      // stderr from the failed git call is surfaced, not swallowed.
+      expect(out).toMatch(/Not a valid object name|fatal:/)
+    })
+
+    it('EXECUTED — the honest case still passes when the branch genuinely IS on top of main (no false hold)', () => {
+      const dir = repoOn('main')
+      const script = preludeScript(0, 'BRANCH=main\nW=.\n') + NEW_BLOCK + '\necho "VERDICT: on top of main"\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('VERDICT: on top of main')
+    })
+  })
+
   describe(':190 timing-count ratchet — a corrupt or oversized count holds, it does not coerce to 0 or silently proceed', () => {
     const NEW_BLOCK = sliceLines('TIMINGCOUNT_LOG=$(mktemp "/tmp/gate-timingcount-$H.XXXXXX")', 'a timing test silently fell out (if this is deliberate, a human clears $COUNT_FILE)')
 
@@ -1473,6 +1550,41 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     const REPORT_LINE = extractLine('timing-count ratchet:$RISE_NOTE')
     const DISCOVERY_AND_COUNT_BLOCK = sliceLines('TIMING_FILES=()', 'TCOUNT=${#TIMING_FILES[@]}')
 
+    /**
+     * The four rise fixtures below (the plain rise, the canonical
+     * no-leading-zero rise, and both near-miss reproductions) used to
+     * hardcode a delta of 1 (or, for the plain rise, a delta of 2 that
+     * happened to survive only tolerances of 0 and 1) and assume
+     * RISE_TOLERANCE=0, so raising the tolerance turned at least one of
+     * them red with a diff naming neither the tolerance nor the change —
+     * the exact defect this issue exists to close. A verification pass
+     * found the plain-rise fixture specifically: EXECUTED at
+     * RISE_TOLERANCE=2 it reddened with "expected 'RISE_NOTE=[]' to
+     * contain 'ROSE from 5 to 7'". They now parse the real value out of
+     * SOURCE and derive RISE_DELTA (the smallest delta guaranteed to rise
+     * whatever the tolerance is) from it, so a raised tolerance moves their
+     * expected numbers instead of reddening them silently. The plain-rise
+     * fixture additionally sweeps RISE_TOLERANCE 0/1/2 directly (not just
+     * whatever value happens to be committed in gate.sh right now), via
+     * `ratchetBlockWithTolerance` substituting the literal value inside the
+     * real, extracted RATCHET_BLOCK text rather than a re-typed stand-in.
+     */
+    const RISE_TOLERANCE = (() => {
+      const m = SOURCE.match(/^\s*RISE_TOLERANCE=(\d+)\s*$/m)
+      if (!m) throw new Error(`cannot find a bare RISE_TOLERANCE=<n> assignment in ${GATE_PATH} — the rise fixtures below derive their expected delta from this value`)
+      return Number(m[1])
+    })()
+    const RISE_DELTA = RISE_TOLERANCE + 1
+
+    /** RATCHET_BLOCK with its own `RISE_TOLERANCE=<n>` line's value swapped for `n` — the real extracted block, still, just at a tolerance other than whatever is currently committed. Throws rather than silently no-op'ing if the real block's shape ever stops matching the substitution regex. */
+    function ratchetBlockWithTolerance(n: number): string {
+      const replaced = RATCHET_BLOCK.replace(/^(\s*RISE_TOLERANCE=)\d+\s*$/m, `$1${n}`)
+      if (replaced === RATCHET_BLOCK && n !== RISE_TOLERANCE) {
+        throw new Error('could not substitute RISE_TOLERANCE inside RATCHET_BLOCK — the sliced text no longer contains a bare RISE_TOLERANCE=<n> line')
+      }
+      return replaced
+    }
+
     it('the tolerance is a named, declared variable — not a magic number folded into the -gt condition it feeds', () => {
       // Anchored on the ASSIGNMENT, not a pinned value: a verification pass
       // found `toContain('RISE_TOLERANCE=0')` reddened at COLLECTION the
@@ -1480,13 +1592,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       // neither the tolerance nor the variable. 'RISE_TOLERANCE=' no longer
       // breaks collection when the value changes (still matches exactly one
       // line — the comment above it says "RISE_TOLERANCE is", no `=`; the
-      // comparison below reads `"$RISE_TOLERANCE"`, no `=` either). That is
-      // ALL this fixes: three fixtures a few tests below (the plain rise,
-      // and both near-miss reproductions) still hardcode a delta of 1 and
-      // assume a tolerance of 0, so raising RISE_TOLERANCE still turns them
-      // red — at RUNTIME now, with a real assertion diff, rather than at
-      // collection with an opaque "found 0" error. Updating those fixtures
-      // for a non-zero tolerance is tracked separately, not done here.
+      // comparison below reads `"$RISE_TOLERANCE"`, no `=` either).
       expect(SOURCE).toContain('RISE_TOLERANCE=')
       expect(RATCHET_BLOCK).toContain('"$RISE_TOLERANCE"')
     })
@@ -1509,13 +1615,15 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(res.stdout).toContain('RISE_NOTE=[]')
     })
 
-    it('EXECUTED — a count that RISES is distinguished from a hold: RISE_NOTE names old and new counts, and the gate does not fail', () => {
-      const dir = scratchDir('rise-up')
-      writeFileSync(join(dir, 'timing-count'), '5\n')
-      const script = preludeScript(0, `TCOUNT=7\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + RATCHET_BLOCK + '\necho "RISE_NOTE=[$RISE_NOTE]"\n'
+    it.each([0, 1, 2])('EXECUTED — a count that RISES is distinguished from a hold at RISE_TOLERANCE=%d: RISE_NOTE names old and new counts, and the gate does not fail', (tolerance) => {
+      const dir = scratchDir(`rise-up-tol${tolerance}`)
+      const prev = 5
+      const tcount = prev + tolerance + 1 // smallest delta guaranteed to rise at THIS tolerance
+      writeFileSync(join(dir, 'timing-count'), `${prev}\n`)
+      const script = preludeScript(0, `TCOUNT=${tcount}\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + ratchetBlockWithTolerance(tolerance) + '\necho "RISE_NOTE=[$RISE_NOTE]"\n'
       const res = runFragment(script, dir)
       expect(res.status).toBe(0)
-      expect(res.stdout).toContain('ROSE from 5 to 7')
+      expect(res.stdout).toContain(`ROSE from ${prev} to ${tcount}`)
     })
 
     it('EXECUTED — a FIRST RUN (no prior timing-count file) is reported as establishing the floor, not silently adopted', () => {
@@ -1601,13 +1709,15 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(res.stdout + res.stderr).toContain('non-canonical leading-zero')
     })
 
-    it('EXECUTED — the NEW ratchet still reports a CANONICAL rise correctly (8 -> 9, no leading zero) — the guard does not overreach', () => {
+    it('EXECUTED — the NEW ratchet still reports a CANONICAL rise correctly (no leading zero) — the guard does not overreach', () => {
       const dir = scratchDir('rise-octal-new-canonical')
-      writeFileSync(join(dir, 'timing-count'), '8\n')
-      const script = preludeScript(0, `TCOUNT=9\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + RATCHET_BLOCK + '\necho "RISE_NOTE=[$RISE_NOTE]"\n'
+      const prev = 8
+      const tcount = prev + RISE_DELTA // smallest delta guaranteed to rise, whatever RISE_TOLERANCE is
+      writeFileSync(join(dir, 'timing-count'), `${prev}\n`)
+      const script = preludeScript(0, `TCOUNT=${tcount}\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + RATCHET_BLOCK + '\necho "RISE_NOTE=[$RISE_NOTE]"\n'
       const res = runFragment(script, dir)
       expect(res.status).toBe(0)
-      expect(res.stdout).toContain('ROSE from 8 to 9')
+      expect(res.stdout).toContain(`ROSE from ${prev} to ${tcount}`)
     })
 
     it("EXECUTED — bash's `test` builtin (the comparison #42 hardened) reads a leading zero as DECIMAL, unlike arithmetic expansion — the two consumers disagree", () => {
@@ -1726,11 +1836,13 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
 
     it('EXECUTED — the NEW (real, extracted) ratchet catches the same near-miss: TCOUNT still rises to 3, but it is now named and reported', () => {
       const dir = waveOneNearMissFixture()
-      writeFileSync(join(dir, 'timing-count'), '2\n')
+      const tcount = 3 // fixed by the fixture: three files match the fixed-string discovery
+      const prev = tcount - RISE_DELTA // smallest PREV guaranteed to rise, whatever RISE_TOLERANCE is
+      writeFileSync(join(dir, 'timing-count'), `${prev}\n`)
       const script = preludeScript(0, `W=${dir}\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + DISCOVERY_AND_COUNT_BLOCK + '\n' + RATCHET_BLOCK + '\necho "RISE_NOTE=[$RISE_NOTE]"\n'
       const res = runFragment(script, dir)
       expect(res.status).toBe(0)
-      expect(res.stdout).toContain('ROSE from 2 to 3')
+      expect(res.stdout).toContain(`ROSE from ${prev} to ${tcount}`)
     })
 
     /**
@@ -1755,11 +1867,13 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
 
     it("EXECUTED — a bare RENAME into '*.bench.test.ts' (no marker at all) rises and reports the same way as the marker/prose near-miss", () => {
       const dir = benchFilenameNearMissFixture()
-      writeFileSync(join(dir, 'timing-count'), '2\n')
+      const tcount = 3 // fixed by the fixture: two marker files plus one *.bench.test.ts
+      const prev = tcount - RISE_DELTA // smallest PREV guaranteed to rise, whatever RISE_TOLERANCE is
+      writeFileSync(join(dir, 'timing-count'), `${prev}\n`)
       const script = preludeScript(0, `W=${dir}\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + DISCOVERY_AND_COUNT_BLOCK + '\n' + RATCHET_BLOCK + '\necho "RISE_NOTE=[$RISE_NOTE]"\n'
       const res = runFragment(script, dir)
       expect(res.status).toBe(0)
-      expect(res.stdout).toContain('ROSE from 2 to 3')
+      expect(res.stdout).toContain(`ROSE from ${prev} to ${tcount}`)
     })
   })
 
@@ -1862,6 +1976,244 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(res.status).toBe(0)
       expect(res.stdout).toContain('DONE')
       expect(res.stdout).not.toContain('pruned')
+    })
+
+    /**
+     * The shape half of the defect, distinct from the swallowed-catch half
+     * above: a lanes.json that parses fine but is not shaped as
+     * `{lanes: [...]}` used to write back unchanged (or gain an empty
+     * `.lanes` it never had) and still print "pruned" — the file parsed
+     * and was rewritten, which is not the fact the line claims. Each shape
+     * below EXECUTED against the OLD (pre-#73) filter-only body first, to
+     * show it really does print the false "pruned" line, then against the
+     * real NEW_BLOCK to show it now holds.
+     */
+    const OLD_FILTER_ONLY = 'const m = JSON.parse(fs.readFileSync(p, "utf8"));\n    m.lanes = (m.lanes || []).filter(l => l.handle !== process.env.H);\n    fs.writeFileSync(p, JSON.stringify(m, null, 2) + "\\n");\n'
+
+    function oldScriptFor(body: string): string {
+      return (
+        'if [ -f "$root/.swarm/lanes.json" ]; then\n' +
+        '  H="$H" ROOT="$root" node -e \'\n' +
+        '    const fs = require("fs");\n' +
+        '    const p = process.env.ROOT + "/.swarm/lanes.json";\n' +
+        `    ${body}` +
+        "  ' 2>/dev/null && echo \"  lane manifest pruned: $H\"\n" +
+        'fi\n'
+      )
+    }
+
+    it('EXECUTED — a JSON-ARRAY lanes.json: the OLD filter-only body prints "pruned" though nothing shaped as {lanes:[...]} existed; the NEW form HOLDS', () => {
+      const oldDir = scratchDir('manifest-shape-array-old')
+      mkdirSync(join(oldDir, '.swarm'), { recursive: true })
+      writeFileSync(join(oldDir, '.swarm', 'lanes.json'), JSON.stringify([{ handle: 't42' }]))
+      const oldRes = runFragment(preludeScript(0, `root=${oldDir}\n`) + oldScriptFor(OLD_FILTER_ONLY), oldDir)
+      expect(oldRes.status).toBe(0)
+      expect(oldRes.stdout).toContain('lane manifest pruned')
+
+      const dir = scratchDir('manifest-shape-array-new')
+      mkdirSync(join(dir, '.swarm'), { recursive: true })
+      writeFileSync(join(dir, '.swarm', 'lanes.json'), JSON.stringify([{ handle: 't42' }]))
+      const script = preludeScript(1, `root=${dir}\n`) + NEW_BLOCK + '\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('lane manifest prune failed')
+      // Pinned to the SPECIFIC thrown message, not just fail()'s generic
+      // line: a verify pass found the shape guard's own message never
+      // reached the operator (buried a few lines into node's stack trace,
+      // past `tail -6`'s window) — PROVEN INERT by deleting the entire
+      // guard and finding every shape test here still passed on the
+      // generic fail() line alone. This assertion is what makes deleting
+      // the guard fail this test instead of leaving it green.
+      expect(res.stdout + res.stderr).toContain('Error: lanes.json is not shaped as {lanes: [...]}')
+    })
+
+    it('EXECUTED — an object with NO `.lanes` key: the OLD filter-only body prints "pruned" after silently CREATING an empty .lanes; the NEW form HOLDS instead of guessing', () => {
+      const oldDir = scratchDir('manifest-shape-nokey-old')
+      mkdirSync(join(oldDir, '.swarm'), { recursive: true })
+      writeFileSync(join(oldDir, '.swarm', 'lanes.json'), JSON.stringify({ other: 1 }))
+      const oldRes = runFragment(preludeScript(0, `root=${oldDir}\n`) + oldScriptFor(OLD_FILTER_ONLY), oldDir)
+      expect(oldRes.status).toBe(0)
+      expect(oldRes.stdout).toContain('lane manifest pruned')
+      const oldAfter = JSON.parse(readFileSync(join(oldDir, '.swarm', 'lanes.json'), 'utf8'))
+      expect(oldAfter.lanes).toEqual([]) // fabricated a key that was never there
+
+      const dir = scratchDir('manifest-shape-nokey-new')
+      mkdirSync(join(dir, '.swarm'), { recursive: true })
+      writeFileSync(join(dir, '.swarm', 'lanes.json'), JSON.stringify({ other: 1 }))
+      const script = preludeScript(1, `root=${dir}\n`) + NEW_BLOCK + '\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('lane manifest prune failed')
+      expect(res.stdout + res.stderr).toContain('Error: lanes.json is not shaped as {lanes: [...]}')
+      const after = JSON.parse(readFileSync(join(dir, '.swarm', 'lanes.json'), 'utf8'))
+      expect(after).toEqual({ other: 1 }) // held before ever touching the file
+    })
+
+    it('EXECUTED — `.lanes` present but the WRONG TYPE (a string): the NEW form HOLDS rather than filtering a string as if it were an array', () => {
+      const dir = scratchDir('manifest-shape-wrongtype')
+      mkdirSync(join(dir, '.swarm'), { recursive: true })
+      writeFileSync(join(dir, '.swarm', 'lanes.json'), JSON.stringify({ lanes: 'nope' }))
+      const script = preludeScript(1, `root=${dir}\n`) + NEW_BLOCK + '\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('lane manifest prune failed')
+      expect(res.stdout + res.stderr).toContain('Error: lanes.json is not shaped as {lanes: [...]}')
+    })
+
+    it("EXECUTED — `.lanes` an array of NON-OBJECT entries (strings, numbers): the NEW form HOLDS rather than silently filtering elements with no `.handle`", () => {
+      const stringsDir = scratchDir('manifest-shape-elemstrings')
+      mkdirSync(join(stringsDir, '.swarm'), { recursive: true })
+      writeFileSync(join(stringsDir, '.swarm', 'lanes.json'), JSON.stringify({ lanes: ['t42'] }))
+      const stringsScript = preludeScript(1, `root=${stringsDir}\n`) + NEW_BLOCK + '\n'
+      const stringsRes = runFragment(stringsScript, stringsDir)
+      expect(stringsRes.status).toBe(1)
+      expect(stringsRes.stdout + stringsRes.stderr).toContain('Error: lanes.json .lanes contains a non-object entry')
+      const stringsAfter = JSON.parse(readFileSync(join(stringsDir, '.swarm', 'lanes.json'), 'utf8'))
+      expect(stringsAfter).toEqual({ lanes: ['t42'] }) // held before ever touching the file
+
+      const numsDir = scratchDir('manifest-shape-elemnums')
+      mkdirSync(join(numsDir, '.swarm'), { recursive: true })
+      writeFileSync(join(numsDir, '.swarm', 'lanes.json'), JSON.stringify({ lanes: [1, 2] }))
+      const numsScript = preludeScript(1, `root=${numsDir}\n`) + NEW_BLOCK + '\n'
+      const numsRes = runFragment(numsScript, numsDir)
+      expect(numsRes.status).toBe(1)
+      expect(numsRes.stdout + numsRes.stderr).toContain('Error: lanes.json .lanes contains a non-object entry')
+    })
+
+    it('EXECUTED — a well-shaped manifest that legitimately has no entry for this handle succeeds QUIETLY: not a failure, and not printed as a prune that did not happen', () => {
+      const dir = scratchDir('manifest-shape-noentry')
+      mkdirSync(join(dir, '.swarm'), { recursive: true })
+      writeFileSync(join(dir, '.swarm', 'lanes.json'), JSON.stringify({ lanes: [{ handle: 'other' }] }))
+      const script = preludeScript(1, `root=${dir}\n`) + NEW_BLOCK + '\necho DONE\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('DONE')
+      expect(res.stdout).not.toContain('pruned')
+      const after = JSON.parse(readFileSync(join(dir, '.swarm', 'lanes.json'), 'utf8'))
+      expect(after.lanes).toEqual([{ handle: 'other' }])
+    })
+
+    /**
+     * MUST-FIX 1 (verify pass): the ORIGINAL fix still wrote lanes.json
+     * back unconditionally on every run, even a NOOP where nothing
+     * changed. EXECUTED, control pair on a real read-only lanes.json:
+     *   writable,  handle absent -> rc=0 "NOOP"   (correct)
+     *   read-only, handle absent -> rc=1 EACCES   ("lane manifest prune
+     *   failed") — a VALID manifest failing the exact case this issue's
+     *   own criterion protects ("a manifest that legitimately has no
+     *   entry for this handle still succeeds quietly; that is not an
+     *   error"). The fix makes the write conditional on
+     *   `after.length !== before`, so a NOOP never touches the file.
+     */
+    it.skipIf(RUNNING_AS_ROOT)('EXECUTED — a well-shaped, READ-ONLY manifest with no entry for this handle still succeeds quietly (skipped as root: chmod 0444 does not hold against CAP_DAC_OVERRIDE)', () => {
+      const dir = scratchDir('manifest-readonly-noentry')
+      mkdirSync(join(dir, '.swarm'), { recursive: true })
+      const lanesFile = join(dir, '.swarm', 'lanes.json')
+      const before = JSON.stringify({ lanes: [{ handle: 'other' }] })
+      writeFileSync(lanesFile, before)
+      chmodSync(lanesFile, 0o444)
+      const script = preludeScript(1, `root=${dir}\n`) + NEW_BLOCK + '\necho DONE\n'
+      const res = runFragment(script, dir)
+      chmodSync(lanesFile, 0o644)
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('DONE')
+      expect(res.stdout).not.toContain('pruned')
+      expect(res.stdout + res.stderr).not.toContain('EACCES')
+      expect(readFileSync(lanesFile, 'utf8')).toBe(before) // never written at all
+    })
+
+    /**
+     * MUST-FIX 2 (verify pass): the ORIGINAL fix read the result with
+     * `grep -qF PRUNED` — a SUBSTRING match. EXECUTED, controls against the
+     * real bash logic (`case` on the file's exact content, mirroring what
+     * the real NEW_BLOCK's `grep -qxF` line does):
+     *   "PRUNED"     -> prints "pruned"   (correct)
+     *   "NOOP"       -> quiet             (correct)
+     *   "NOT_PRUNED" -> the OLD `-F` form PRINTS "pruned" (a false claim:
+     *                   "PRUNED" is a substring of "NOT_PRUNED"); the NEW
+     *                   `-x` (exact whole-line) form correctly HOLDS.
+     * gate.sh runs `set -uo pipefail` with no `-e`, so node writing
+     * anything other than exactly "PRUNED" or "NOOP" — corrupted output, a
+     * truncated write — used to be indistinguishable from a genuine NOOP
+     * once `-F`'s substring match was fooled. This is the same "verdict
+     * outruns what was established" shape the rest of this issue closes.
+     */
+    it("EXECUTED — the PRUNED/NOOP protocol requires an EXACT match: a corrupted result containing \"PRUNED\" as a substring does not fail open", () => {
+      const oldProtocolLine = 'grep -qF PRUNED "$MANIFEST_OUT_LOG" && echo "  lane manifest pruned: $H"'
+      const newProtocolLines = sliceLines('if grep -qxF PRUNED "$MANIFEST_OUT_LOG"; then', 'echo "  lane manifest pruned: $H"')
+      expect(SOURCE).not.toContain(oldProtocolLine) // the substring-matching form is gone
+      expect(NEW_BLOCK).toContain('grep -qxF PRUNED')
+      expect(newProtocolLines).toContain('grep -qxF PRUNED')
+
+      function protocolResultFor(content: string): FragmentResult {
+        const dir = scratchDir('manifest-protocol')
+        const outLog = join(dir, 'out.log')
+        mkdirSync(dir, { recursive: true })
+        writeFileSync(outLog, content)
+        const script =
+          preludeScript(0, `MANIFEST_OUT_LOG=${outLog}\nH=t42\n`) +
+          'if grep -qxF PRUNED "$MANIFEST_OUT_LOG"; then\n' +
+          '  echo "  lane manifest pruned: $H"\n' +
+          'elif grep -qxF NOOP "$MANIFEST_OUT_LOG"; then\n' +
+          '  :\n' +
+          'else\n' +
+          '  fail "lane manifest prune produced an unrecognized result — refusing to guess whether $H was pruned"\n' +
+          'fi\n' +
+          'echo DONE\n'
+        return runFragment(script, dir)
+      }
+
+      const pruned = protocolResultFor('PRUNED')
+      expect(pruned.status).toBe(0)
+      expect(pruned.stdout).toContain('lane manifest pruned: t42')
+
+      const noop = protocolResultFor('NOOP')
+      expect(noop.status).toBe(0)
+      expect(noop.stdout).not.toContain('pruned')
+      expect(noop.stdout).toContain('DONE')
+
+      const corrupted = protocolResultFor('NOT_PRUNED')
+      expect(corrupted.status).toBe(1)
+      expect(corrupted.stdout + corrupted.stderr).toContain('unrecognized result')
+      expect(corrupted.stdout).not.toContain('lane manifest pruned:') // the false success line, specifically
+    })
+
+    /**
+     * WORTH-DOING (verify pass): if MANIFEST_OUT_LOG's own mktemp fails,
+     * MANIFEST_LOG — already created by the mktemp just before it — was
+     * never removed before fail(). A fake `mktemp` on PATH ahead of the
+     * real one lets the FIRST call (MANIFEST_LOG) succeed and the SECOND
+     * (MANIFEST_OUT_LOG) fail, and logs the one real path it created, so
+     * this checks the EXACT file rather than a racy /tmp glob (this file's
+     * fixtures share H=t42, so many tests create `gate-manifest-t42.*`
+     * paths; a glob-based "nothing leaked" check would be flaky under
+     * concurrent test runs).
+     */
+    it('EXECUTED — an mktemp failure on MANIFEST_OUT_LOG does not leak MANIFEST_LOG', () => {
+      const dir = scratchDir('manifest-mktemp-leak')
+      mkdirSync(join(dir, '.swarm'), { recursive: true })
+      writeFileSync(join(dir, '.swarm', 'lanes.json'), JSON.stringify({ lanes: [{ handle: 't42' }] }))
+      const fakeBin = scratchDir('manifest-mktemp-fakebin')
+      const counterFile = join(fakeBin, 'count')
+      const pathLog = join(fakeBin, 'created-path')
+      const mktempScript =
+        '#!/bin/bash\n' +
+        `n=$(cat ${JSON.stringify(counterFile)} 2>/dev/null || echo 0)\n` +
+        'n=$((n+1))\n' +
+        `echo "$n" > ${JSON.stringify(counterFile)}\n` +
+        'if [ "$n" -eq 2 ]; then echo "mktemp: fake failure" >&2; exit 1; fi\n' +
+        'p=$(/usr/bin/mktemp "$@")\n' +
+        `echo "$p" >> ${JSON.stringify(pathLog)}\n` +
+        'echo "$p"\n'
+      writeFileSync(join(fakeBin, 'mktemp'), mktempScript)
+      chmodSync(join(fakeBin, 'mktemp'), 0o755)
+      const script = preludeScript(1, `root=${dir}\nexport PATH=${JSON.stringify(fakeBin)}:$PATH\n`) + NEW_BLOCK + '\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain("cannot create a scratch file for the lane-manifest prune's result")
+      const createdPaths = readFileSync(pathLog, 'utf8').trim().split('\n').filter(Boolean)
+      expect(createdPaths.length).toBe(1) // only MANIFEST_LOG's mktemp succeeded
+      expect(existsSync(createdPaths[0]!)).toBe(false) // and it was cleaned up before fail(), not leaked
     })
   })
 
