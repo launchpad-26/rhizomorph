@@ -106,9 +106,20 @@ NNP=$(printf '%02d' "$((10#$NN))")
 # It still RUNS offline, deliberately — a stale answer is useful and the
 # findings are still worth seeing. What it will not do is exit 0 and let that
 # read as verified. STALE=1 makes the verdict inconclusive at the end.
+#
+# Four checks below (fetch, ls-tree, show, issue list) used to discard stderr
+# outright — the verdicts stayed honest, but a real failure (say, the network
+# being down) and a benign one (no PRD filed yet) printed the same message, so
+# the operator was pointed at the wrong hypothesis. `errfile` captures whatever
+# the failing command actually said, and each `die`/verdict below prints it.
+errfile=$(mktemp) || die "cannot create a temp file"
+trap 'rm -f "$errfile"' EXIT
+
 STALE=0
-if ! git -C "$root" fetch -q origin 2>/dev/null; then
+FETCH_ERR=""
+if ! git -C "$root" fetch -q origin 2>"$errfile"; then
   STALE=1
+  FETCH_ERR=$(cat "$errfile" 2>/dev/null)
 fi
 trunk=$(git -C "$root" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)
 [ -n "$trunk" ] || trunk=origin/main
@@ -116,13 +127,21 @@ git -C "$root" rev-parse -q --verify "$trunk" >/dev/null 2>&1 \
   || die "cannot resolve trunk ref '$trunk' — fetch, or check the remote"
 
 docpath=$(git -C "$root" ls-tree -r --name-only "$trunk" \
-            -- docs/prds 2>/dev/null | grep -E "prd-$NNP-[^/]*\.md$" | head -1)
-[ -n "$docpath" ] || die "no PRD for prd-$NNP on $trunk under docs/prds/ (or done/)"
+            -- docs/prds 2>"$errfile" | grep -E "prd-$NNP-[^/]*\.md$" | head -1)
+if [ -z "$docpath" ]; then
+  lstree_err=$(cat "$errfile" 2>/dev/null)
+  [ -n "$lstree_err" ] \
+    && die "no PRD for prd-$NNP on $trunk under docs/prds/ (or done/) — git said: $lstree_err"
+  die "no PRD for prd-$NNP on $trunk under docs/prds/ (or done/)"
+fi
 
 doc=$(mktemp) || die "cannot create a temp file"
-trap 'rm -f "$doc"' EXIT
-git -C "$root" show "$trunk:$docpath" > "$doc" 2>/dev/null \
-  || die "cannot read $docpath from $trunk"
+trap 'rm -f "$doc" "$errfile"' EXIT
+if ! git -C "$root" show "$trunk:$docpath" > "$doc" 2>"$errfile"; then
+  show_err=$(cat "$errfile" 2>/dev/null)
+  [ -n "$show_err" ] && die "cannot read $docpath from $trunk — git said: $show_err"
+  die "cannot read $docpath from $trunk"
+fi
 
 say "── prd-$NNP — $docpath @ $trunk ──"
 
@@ -145,50 +164,83 @@ fi
 # that stays red after the correct fix is a check people learn to ignore. A
 # marker is a blockquote line beginning `> **SUPERSEDED` at column 0.
 #
-# The pop is POSITIONAL, not proximity-based, and this comment used to say
-# "within the six lines following the declaration" — a proximity rule the awk
-# below does not implement and never did. It keeps a stack: a `**Wave N`
-# line pushes, a column-0 marker pops whichever declaration is on TOP, however
-# far above it that declaration sits and whatever prose lies between. A marker
-# beside superseded prose therefore retires an unrelated, still-current wave
-# and says nothing.
+# The pop used to be POSITIONAL, not proximity-based: a stack where a
+# `**Wave N` line pushes and a column-0 marker pops whichever declaration is
+# on TOP, however far above it that declaration sits and whatever prose lies
+# between. #175 made that a hard error instead of a silent pop, for two
+# shapes prd-42's own convention (see its wave-10 amendment) names by hand:
 #
-# One precedence detail, because the sentence above is not the whole rule and a
-# half-rule is what this comment was corrected FOR: the declaration arm is
-# matched FIRST and ends in `next`, so a marker line that ITSELF contains
-# `**Wave N` never reaches the marker arm at all — it PUSHES instead of popping.
-# EXECUTED: `> **SUPERSEDED** by **Wave 2 - replacement**` under `**Wave 1`
-# leaves both waves pending (`1 1` and `2 2`); the same marker without the
-# quoted wave correctly pops (no output). That is precisely why prd-42's
-# convention forbids `**Wave <digit>` inside quoted text, and the two documents
-# now agree on the mechanism rather than only on the conclusion. That is a real failure this corpus hit (wave 4 vanished
-# from the count), and prd-42's amendment in this same bundle documents the
-# positional rule correctly — so the two now agree. Making a distant marker a
-# hard error is a behaviour change, deliberately not made here: this file is a
-# verbatim adoption, and the amendment's prose is the guard today.
+# - **The marker's own quoted text reproduces a `**Wave N` declaration.**
+#   The declaration pattern below is unanchored, so a line like
+#   `> **SUPERSEDED** by **Wave 2 - replacement**` matches IT FIRST — and
+#   that arm ends in `next`, so the marker arm is never reached at all. It
+#   PUSHES a second declaration instead of popping the first. EXECUTED:
+#   that exact line under `**Wave 1` used to leave both waves pending
+#   (`1 1` and `2 2`); checking the marker pattern before the declaration
+#   pattern, below, is what lets the marker arm see it.
+# - **A marker sits below a declaration OTHER than the one still open.**
+#   Concretely: some number of waves are declared and never marked (still
+#   current), then a run of LATER waves are each declared and marked
+#   immediately, and then a marker appears beside unrelated prose. That
+#   marker pops whatever is on top of the stack — one of the never-marked
+#   waves from earlier, not anything textually beside it. EXECUTED against
+#   this corpus once already: it silently deleted wave 4 from the count.
+#   The fix tracks, for the entry a marker is about to pop, the line of the
+#   NEXT `**Wave N` declaration after it (fixed the moment that next wave is
+#   pushed, regardless of stack order). A pop is legal only while the
+#   marker's line is still before that boundary — i.e. no other wave has
+#   been declared, and passed, since the one it is popping. A real,
+#   correctly-placed marker (this corpus's own wave 5/6/7 markers, 3–6 lines
+#   below their declarations) always satisfies this, because nothing else is
+#   declared in between; the wave-4 shape violates it, because waves 5, 6
+#   and 7 all got declared — and their boundary lines passed — first.
+#
+# A marker with NOTHING pending to pop (n==0) is left as a silent no-op, as
+# before — that shape is not what either measurement above describes, and is
+# not changed here.
 doc_waves=$(awk '
-  /\*\*Wave [0-9]+/ {
-    line = NR
-    match($0, /\*\*Wave [0-9]+/)
-    w = substr($0, RSTART+7, RLENGTH-7)
-    pending[++n] = w " " line
+  /^> \*\*SUPERSEDED/ {
+    if ($0 ~ /\*\*Wave [0-9]+/) {
+      printf "MALFORMED\tquoted-wave marker at line %d: a SUPERSEDED marker'"'"'s own text reproduces \"**Wave N\" — prd-42'"'"'s convention forbids quoting a wave declaration'"'"'s heading verbatim; name the wave by number and prose instead\n", NR
+      err = 1
+      exit 9
+    }
+    top = 0
+    for (i = pushed; i >= 1; i--) { if (!popped[i]) { top = i; break } }
+    if (top > 0 && top < pushed && NR >= decl_line[top + 1]) {
+      printf "MALFORMED\tout-of-range marker at line %d: the nearest still-pending wave is %s (declared at line %d), but wave %s was already declared at line %d before this marker — a marker must sit below its own wave and before any later **Wave N heading\n", NR, wave[top], decl_line[top], wave[top + 1], decl_line[top + 1]
+      err = 1
+      exit 9
+    }
+    if (top > 0) { popped[top] = 1 }
     next
   }
-  /^> \*\*SUPERSEDED/ {
-    if (n > 0) { delete pending[n]; n-- }
+  /\*\*Wave [0-9]+/ {
+    match($0, /\*\*Wave [0-9]+/)
+    pushed++
+    wave[pushed] = substr($0, RSTART + 7, RLENGTH - 7)
+    decl_line[pushed] = NR
     next
   }
   { }
-  END { for (i = 1; i <= n; i++) if (pending[i] != "") print pending[i] }
+  END {
+    if (err) exit 9
+    for (i = 1; i <= pushed; i++) if (!popped[i]) print wave[i] " " decl_line[i]
+  }
 ' "$doc")
+awk_rc=$?
+[ "$awk_rc" -eq 9 ] && die "$doc_waves"
 [ -n "$doc_waves" ] || die "no '**Wave N' declarations in $doc — is this PRD groomed?"
 
 # Waves the TRACKER claims, from titles. Open AND closed: a closed issue still
 # accounts for its wave, and ignoring it would report every shipped wave vacant.
-issue_rows=$(gh issue list --milestone "prd$NN" --state all --limit 200 \
+if ! issue_rows=$(gh issue list --milestone "prd$NN" --state all --limit 200 \
                --json number,title,state \
-               -q '.[] | "\(.number)\t\(.state)\t\(.title)"' 2>/dev/null) \
-  || die "could not read milestone 'prd$NN' — does it exist?"
+               -q '.[] | "\(.number)\t\(.state)\t\(.title)"' 2>"$errfile"); then
+  gh_err=$(cat "$errfile" 2>/dev/null)
+  [ -n "$gh_err" ] && die "could not read milestone 'prd$NN' — does it exist? gh said: $gh_err"
+  die "could not read milestone 'prd$NN' — does it exist?"
+fi
 
 drift=0
 
@@ -213,9 +265,29 @@ fi
 # skipped"). A vacant wave 0 is the rule being followed, so reporting it is a
 # false positive — and one that fired on the first run of this check against
 # prd-46, which books its wave 0 exactly as prd-45 does.
+# THE VACANT AND UNDECLARED-WAVE CHECKS below — cited by name, not by line.
+# This comment said ":267 and :287", which matched neither the pre-fix file
+# (218, 238) nor this one (285, 305): a citation that outran what it
+# established, in the commit whose subject is that nothing printed should.
+# Line numbers in a file that keeps growing cannot stay earned. They used
+# to feed
+# `grep -q` through a `printf | ...` pipe. `grep -q` exits at the FIRST
+# match, so a wave that IS present on a large enough tracker (or a distant
+# enough doc_waves list) got its writer killed by SIGPIPE before it finished
+# writing — and `pipefail` promoted that 141 into the pipeline's exit status,
+# reporting a false VACANT / UNDECLARED WAVE for a wave that was right there.
+# MEASURED, and it is a RACE rather than a threshold: at 200 rows (this
+# script's own `--limit`) with 250-char titles the payload is ~52 KB against a
+# 65,536 B pipe buffer, and four independent measurements of the same mutant
+# came back 12/25, 16/20, 19/25 and 20/25 — schedule-sensitive, not 5/5. It
+# saturates only well ABOVE the buffer size. A here-string tripped it 0/5 at
+# every size tried — because
+# a here-string is fed by the shell itself, not a forked writer process that
+# can receive SIGPIPE. Both checks below are now a single `awk`, fed via
+# here-string, with no pipe and so no writer to kill.
 for w in $(printf '%s\n' "$doc_waves" | awk '{print $1}' | sort -nu); do
   [ "$w" = 0 ] && continue
-  if ! printf '%s\n' "$issue_rows" | grep -qE "	.*[[:space:]]w$w:"; then
+  if ! awk -v w="$w" '$0 ~ ("\t.*[[:space:]]w" w ":") { found = 1 } END { exit !found }' <<< "$issue_rows"; then
     ln=$(printf '%s\n' "$doc_waves" | awk -v w="$w" '$1==w {print $2; exit}')
     say "  VACANT           wave $w is declared at :$ln, and no issue in prd$NN claims 'w$w:'"
     say "                   Either it was re-sequenced and the old paragraph still reads as"
@@ -235,7 +307,7 @@ while IFS=$'\t' read -r num state title; do
     say "                   the board's orphan check cannot tell. Sequence it or say in its"
     say "                   body that it is not dispatchable work."
     drift=1
-  elif ! printf '%s\n' "$doc_waves" | awk '{print $1}' | grep -qx "$w"; then
+  elif ! awk -v w="$w" '$1 == w { found = 1 } END { exit !found }' <<< "$doc_waves"; then
     say "  UNDECLARED WAVE  #$num ($state) claims w$w, which $docpath never declares"
     say "                   The tracker is ahead of the plan of record. Amend the PRD, or"
     say "                   move the issue — the DOCUMENT is the plan, so it rules."
@@ -252,6 +324,7 @@ if [ "$STALE" = 1 ]; then
   say "   Findings (if any) still stand — they were derived from a real document."
   say "   What cannot be trusted is the ABSENCE of findings. Re-run with the remote"
   say "   reachable before treating this as 'no drift'."
+  [ -n "$FETCH_ERR" ] && say "   git said: $FETCH_ERR"
   [ "$drift" = 0 ] && exit 3
   exit "$drift"
 fi
