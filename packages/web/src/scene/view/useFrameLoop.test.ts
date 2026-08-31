@@ -1,13 +1,15 @@
-import { reduceAll } from '@rhizomorph/core'
+import { createEvent as createRhizomorphEvent, reduceAll } from '@rhizomorph/core'
 import { act, createEvent, fireEvent, render } from '@testing-library/react'
 import { createElement, useRef, useState, type FunctionComponent } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildFleet, fixtureHistory, fleet20Spec, manifestFor, type Fleet } from '../../fleet/index.js'
+import { SETTLE_MS } from '../geometry.js'
 import type { SceneGeometry } from '../geometry.js'
 import { scenePaintCounts } from '../gl/index.js'
 import type { ThemeName } from '../palette.js'
 import { PulseField } from '../pulses.js'
 import { RetireRegistry } from '../retire.js'
+import { laneIndex } from '../resolve.js'
 import { SettleRegistry } from '../settle.js'
 import { useCamera, type CameraRig } from './useCamera.js'
 import { lastPaintedFrame, useFrameLoop, type SceneLatestState } from './useFrameLoop.js'
@@ -626,5 +628,385 @@ describe('a running loop is not re-entered by the camera it is moving (prd-47 ru
     m.tick()
 
     expect(since(before)).toEqual({ builds: 1, repaints: 0 })
+  })
+})
+
+/**
+ * THE MODEL STAGE'S OWN GATE (prd-47 ruling 2, #157) — a frame whose inputs
+ * are byte-identical to the last is not rebuilt.
+ *
+ * A sibling of the two describes above rather than a replacement: ruling 1
+ * answers a camera move without a rebuild; ruling 2 answers every OTHER kind
+ * of frame — the paused, settled scene the audit measured burning 16-34ms of
+ * CPU a frame to redraw a still picture.
+ *
+ * `scenePaintCounts()` stands in for the model stage exactly as it does
+ * above, including the field's own `step()` and the settle registry's
+ * `sizes()` — both mutated on every build this gate skips, and both read
+ * idempotent at a frozen clock (`useFrameLoop.ts`'s own doc comment on
+ * `canSkipBuild` carries the read). A skip must leave each in the state a
+ * build would have left it in; L8 is the law that holds that rather than a
+ * comment asserting it.
+ */
+describe('an identical frame is skipped at the build (prd-47 ruling 2)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+    document.body.innerHTML = ''
+  })
+
+  /**
+   * A live source that also hands back the raw state object, so a law can
+   * mutate its registries directly (`field.ingest`, `settle.note`) the way a
+   * live collector would — `liveSource` above hides exactly this, which is
+   * fine until a law needs to reach through to the registry itself.
+   */
+  function skipSource(): { source: () => SceneLatestState; state: SceneLatestState } {
+    const state = stateFor('dark')
+    return {
+      state,
+      source: () => {
+        const { now: _now, asOf: _asOf, ...base } = state
+        return { ...base }
+      },
+    }
+  }
+
+  /**
+   * `LiveHarness` above, plus the one input `useFrameLoop` freezes the clocks
+   * on: `paused`. Added exactly as `selectedId` is — `useState` plus a setter
+   * handed out through `onMount` — so the state literal stays fresh over
+   * stable references rather than one held object.
+   */
+  const SkipHarness: FunctionComponent<{
+    source: () => SceneLatestState
+    host: HTMLDivElement
+    canvas: HTMLCanvasElement
+    overlay: HTMLCanvasElement
+    onMount: (
+      rig: CameraRig,
+      setSelected: (id: string | null) => void,
+      setPaused: (paused: boolean) => void,
+    ) => void
+    onFailure: (message: string | null) => void
+  }> = ({ source, host, canvas, overlay, onMount, onFailure }) => {
+    const hostRef = useRef<HTMLDivElement | null>(host)
+    const canvasRef = useRef<HTMLCanvasElement | null>(canvas)
+    const overlayRef = useRef<HTMLCanvasElement | null>(overlay)
+    const geometryRef = useRef<SceneGeometry | null>(null)
+    const src = useRef(source)
+    const [selectedId, setSelectedId] = useState<string | null>(null)
+    const [paused, setPaused] = useState(false)
+    const latestRef = useRef<SceneLatestState>(src.current())
+    latestRef.current = { ...src.current(), selectedId, paused }
+    const rig = useCamera(canvasRef, latestRef)
+    useFrameLoop(hostRef, canvasRef, overlayRef, geometryRef, latestRef, rig, onFailure, undefined)
+    onMount(rig, setSelectedId, setPaused)
+    return null
+  }
+
+  function mountSkip() {
+    // A known baseline regardless of what an earlier test in this file left
+    // `window.devicePixelRatio` set to — the ruling-1 describe above sets it
+    // to 2 and never resets it, so an L4/L5/L6 run right after theirs starts
+    // from a dpr that already matches its own `resizeTo({ dpr: 2 })` target.
+    Object.defineProperty(window, 'devicePixelRatio', { value: 1, configurable: true })
+    const rect = {
+      ...HOST,
+      top: 0,
+      left: 0,
+      right: HOST.width,
+      bottom: HOST.height,
+      x: 0,
+      y: 0,
+      toJSON() {},
+    }
+    vi.spyOn(HTMLDivElement.prototype, 'getBoundingClientRect').mockImplementation(
+      () => rect as DOMRect,
+    )
+    const observers: ResizeObserverCallback[] = []
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          observers.push(callback)
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    )
+    let queued: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      queued.push(callback)
+      return queued.length
+    })
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+    const { host, canvas, overlay } = surfaces()
+    const { source, state } = skipSource()
+    let rig!: CameraRig
+    let setSelected!: (id: string | null) => void
+    let setPaused!: (paused: boolean) => void
+    let failure: string | null = null
+    render(
+      createElement(SkipHarness, {
+        source,
+        host,
+        canvas,
+        overlay,
+        onMount: (r, s, p) => {
+          rig = r
+          setSelected = s
+          setPaused = p
+        },
+        onFailure: (message) => (failure = message),
+      }),
+    )
+    /** One frame of the loop, and only one — `mountLive`'s own `tick`. */
+    const tick = () => {
+      const pending = queued
+      queued = []
+      act(() => {
+        for (const callback of pending) callback(0)
+      })
+    }
+    return {
+      canvas,
+      /** The raw, mutable state object every snapshot is spread from. */
+      state,
+      tick,
+      rig: () => rig,
+      select: (id: string | null) => act(() => setSelected(id)),
+      pause: (value: boolean) => act(() => setPaused(value)),
+      /** A resize, through the only path production has for one. */
+      resizeTo: (next: { width?: number; height?: number; dpr?: number }) => {
+        if (next.width !== undefined) rect.width = next.width
+        if (next.height !== undefined) rect.height = next.height
+        if (next.dpr !== undefined) {
+          Object.defineProperty(window, 'devicePixelRatio', {
+            value: next.dpr,
+            configurable: true,
+          })
+        }
+        for (const observe of observers) observe([], {} as ResizeObserver)
+      },
+      failure: () => failure,
+    }
+  }
+
+  const pinch = (canvas: HTMLCanvasElement, at: { x: number; y: number }, deltaY: number) => {
+    act(() => fireEvent.wheel(canvas, { deltaY, ctrlKey: true, clientX: at.x, clientY: at.y }))
+  }
+
+  /**
+   * The steady, skipping state every law but L2 starts from: one live build,
+   * then pause — which costs exactly one more build, the tick that freezes
+   * the clocks (`pausedAtRef`'s transition in `useFrameLoop.ts`). From here,
+   * with nothing else moved, every further tick skips.
+   */
+  function settleIntoPause(m: ReturnType<typeof mountSkip>) {
+    m.tick()
+    m.pause(true)
+    m.tick()
+  }
+
+  /**
+   * A camera far enough from the fit camera that `flight()` gives it a real
+   * duration — `armFlight` from the describe above, rebuilt against this
+   * harness's own `mountSkip` shape.
+   */
+  const armFlight = (m: ReturnType<typeof mountSkip>) => {
+    act(() => m.rig().moveTo({ k: 4, x: -900, y: -400 }))
+    m.tick()
+    act(() => m.rig().fit())
+    expect(m.rig().flightRef.current).not.toBeNull()
+  }
+
+  it('L1: paused and settled, a running loop builds once and repaints the rest', () => {
+    const m = mountSkip()
+    m.tick()
+    m.pause(true)
+    const before = scenePaintCounts()
+
+    for (let i = 0; i < 6; i += 1) m.tick()
+
+    expect(since(before)).toEqual({ builds: 1, repaints: 5 })
+  })
+
+  it('L2: it is the pause, not the loop', () => {
+    let t = NOW
+    vi.spyOn(Date, 'now').mockImplementation(() => t)
+    const m = mountSkip()
+    m.tick()
+    const before = scenePaintCounts()
+
+    for (let i = 0; i < 6; i += 1) {
+      t += 16
+      m.tick()
+    }
+
+    expect(since(before)).toEqual({ builds: 6, repaints: 0 })
+  })
+
+  it('L3: a selection under a paused scene forces the next tick to build', () => {
+    const m = mountSkip()
+    settleIntoPause(m)
+    const beforeMarks = JSON.stringify(lastPaintedFrame()!.marks)
+    const lane = m.state.fleet.lanes[0]?.id ?? 'lane-0'
+
+    m.select(lane)
+    const before = scenePaintCounts()
+    m.tick()
+
+    expect(since(before)).toEqual({ builds: 1, repaints: 0 })
+    expect(JSON.stringify(lastPaintedFrame()!.marks)).not.toBe(beforeMarks)
+  })
+
+  /**
+   * THE THREE DEVICE TERMS, one law each — #156's own finding 3 is exactly
+   * that a single law over three terms says nothing about two of them, and
+   * this gate reuses all three from `repaintFrame`'s.
+   */
+  for (const term of [
+    { name: 'the device pixel ratio', change: { dpr: 2 } },
+    { name: 'the width', change: { width: 700 } },
+    { name: 'the height', change: { height: 400 } },
+  ]) {
+    it(`L4/L5/L6: a paused scene rebuilds when ${term.name} moves`, () => {
+      const m = mountSkip()
+      settleIntoPause(m)
+
+      m.resizeTo(term.change)
+      const before = scenePaintCounts()
+      m.tick()
+
+      expect(since(before)).toEqual({ builds: 1, repaints: 0 })
+    })
+  }
+
+  it('L7: a flight is not stranded under a paused scene', () => {
+    // Armed LIVE, then paused mid-flight — not the other order. `goTo`
+    // (`useCamera.ts`) jumps rather than arming a flight whenever `paused` is
+    // already true ("an operator who has asked the scene to stop moving has
+    // asked for all of it"), so a flight can only exist here as one already
+    // in progress when the pause landed, which is exactly the case this gate
+    // must not strand.
+    const m = mountSkip()
+    m.tick()
+    armFlight(m)
+    m.pause(true)
+    const startCamera = { ...m.rig().cameraRef.current }
+    const before = scenePaintCounts()
+
+    for (let i = 0; i < 4; i += 1) m.tick()
+
+    expect(since(before)).toEqual({ builds: 4, repaints: 0 })
+    expect(m.rig().cameraRef.current).not.toEqual(startCamera)
+  })
+
+  it('L8: the pin is honest at a frozen clock — the residual made a law', () => {
+    // The residual (`useFrameLoop.ts`'s `canSkipBuild` doc comment): both
+    // `PulseField.step()` and `SettleRegistry.sizes()` are idempotent at a
+    // frozen clock, so a skip may leave them untouched. This is the law that
+    // holds it rather than a comment asserting it.
+    const state = stateFor('dark')
+    const news = fixtureHistory(fleet20Spec(), NOW)
+    state.field.ingest(news, laneIndex(state.fleet), NOW)
+    // Not vacuous: the field must actually carry live pulses for `step()` to
+    // have anything to (fail to) leave alone.
+    expect(state.field.concurrency()).toBeGreaterThan(0)
+
+    const rect = {
+      ...HOST,
+      top: 0,
+      left: 0,
+      right: HOST.width,
+      bottom: HOST.height,
+      x: 0,
+      y: 0,
+      toJSON() {},
+    }
+    vi.spyOn(HTMLDivElement.prototype, 'getBoundingClientRect').mockImplementation(
+      () => rect as DOMRect,
+    )
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(_callback: ResizeObserverCallback) {}
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    )
+    const { host, canvas, overlay } = surfaces()
+    const utils = render(createElement(Harness, { state, host, canvas, overlay }))
+    const lane = state.fleet.lanes[0]?.id ?? 'lane-0'
+    const snapshot = JSON.stringify(lastPaintedFrame()!.marks)
+
+    // Force two more builds under the SAME pinned clock — a rerender alone
+    // does not redraw under a pinned clock (there is no rAF and nothing else
+    // calls `redraw`), so each is followed by the same wheel gesture the
+    // ruling-1 suite above uses to invoke the gate.
+    utils.rerender(createElement(Harness, { state: { ...state, hoverId: lane }, host, canvas, overlay }))
+    pinch(canvas, { x: 300, y: 120 }, -120)
+    utils.rerender(createElement(Harness, { state: { ...state, hoverId: null }, host, canvas, overlay }))
+    pinch(canvas, { x: 420, y: 90 }, -120)
+
+    expect(JSON.stringify(lastPaintedFrame()!.marks)).toBe(snapshot)
+  })
+
+  it('L9: still settling still builds, and stops once it is not', () => {
+    let t = NOW
+    vi.spyOn(Date, 'now').mockImplementation(() => t)
+    const m = mountSkip()
+    settleIntoPause(m)
+    const index = laneIndex(m.state.fleet)
+    const lane = m.state.fleet.lanes[0]
+    const event = createRhizomorphEvent(
+      'worktree.discovered',
+      {
+        path: lane?.worktreePath ?? '/repo__worktrees/lane',
+        branch: lane?.branch ?? null,
+        head: 'sha-000',
+        isMain: false,
+      },
+      { id: 'evt-settle-1', ts: t },
+    )
+    m.state.settle.note([event], index, t)
+
+    const before = scenePaintCounts()
+    for (let i = 0; i < 3; i += 1) m.tick()
+    expect(since(before)).toEqual({ builds: 3, repaints: 0 })
+
+    // Once `settling(real)` reads false, every OTHER term is already
+    // unchanged (the frozen `clock`, the state, the device), so the very next
+    // tick already qualifies to skip — a jump straight past `SETTLE_MS`
+    // leaves nothing still to "catch up" on for this gate to force. The
+    // contrast with the block above (all three still built) is what proves
+    // it is the settling term doing the work, not merely "paused never
+    // skips" — the second half `since` still has to be taken, even though
+    // its count is 0 rather than the 1 a gradual, frame-by-frame crossing
+    // would show for one transitional build.
+    t += SETTLE_MS + 1
+    const afterSettle = scenePaintCounts()
+    for (let i = 0; i < 3; i += 1) m.tick()
+    expect(since(afterSettle)).toEqual({ builds: 0, repaints: 3 })
+  })
+
+  it('L10: the parity seam moves on a skip', () => {
+    // Moved on the REF directly rather than through a gesture: a wheel event
+    // fires the `zoom` handler synchronously, and `repaintFrame` (ruling 1's
+    // own gate) would sync `painted.camera` itself before the tick ever ran —
+    // which would make this law pass whether or not `skipBuild` does its own
+    // sync, exactly the "test that cannot fail for the reason it claims" this
+    // repo's own review discipline calls out. Writing the ref the way
+    // `stepFlight` does isolates the claim to `skipBuild` alone.
+    const m = mountSkip()
+    settleIntoPause(m)
+
+    m.rig().cameraRef.current = { k: 2, x: -40, y: -25 }
+    m.tick()
+
+    expect(lastPaintedFrame()?.camera).toEqual(m.rig().cameraRef.current)
   })
 })
