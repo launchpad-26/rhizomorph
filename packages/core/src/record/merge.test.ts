@@ -25,6 +25,89 @@ function actorRecord(instance: string, handle: string, startTs: number, lane: st
   return { events, record }
 }
 
+/**
+ * One actor's log across a RESUME. The id counter is per-run, so it restarts
+ * and `evt-000001` appears twice inside a single actor's own body — the shape
+ * prd-48's S2 spike measured in the real ledger (`evt-000001` fifteen times),
+ * not a contrived one. The clock does not restart, which is what makes the two
+ * runs distinguishable to a human reading the log and invisible to a key built
+ * out of the id.
+ */
+function resumedActorRecord(instance: string, handle: string) {
+  const first = createEventFactory({ idPrefix: 'evt', startTs: FIXTURE_START_TS, stepMs: 1000 })
+  first.sessionStarted({ sessionId: `sess-${handle}-1`, repoPath: '/repo', repoName: 'repo' })
+  first.toolActivity({ lane: handle, tool: 'Write', role: 'worker' })
+
+  const resumed = createEventFactory({
+    idPrefix: 'evt',
+    startTs: FIXTURE_START_TS + 60_000,
+    stepMs: 1000,
+  })
+  resumed.sessionStarted({ sessionId: `sess-${handle}-2`, repoPath: '/repo', repoName: 'repo' })
+  resumed.toolActivity({ lane: handle, tool: 'Bash', role: 'worker' })
+
+  const events = [...first.all(), ...resumed.all()]
+  const record = buildRecord(events, {
+    repoSlug: REPO_SLUG,
+    actor: { instance, handle, declared: true },
+  })
+  return { events, record }
+}
+
+/**
+ * #173 — the defect the shipped dedup key carried, and the reason prd-48's
+ * spike could not use `mergeRecords` as the wire's dedup reference.
+ *
+ * `(actor.instance, event.id)` was documented as an identity on the grounds
+ * that "an event id is only ever unique within one actor's own log". The
+ * parenthetical was the false half: the counter restarts on resume, so the id
+ * repeats *inside* one actor's log, the pair is not unique either, and the
+ * merge dropped distinct events as duplicates — 74.5% of a real ledger.
+ */
+describe('mergeRecords — an id that repeats inside one actor\'s own log (#173)', () => {
+  it('keeps every event of a log whose id counter restarted on resume', () => {
+    const alice = resumedActorRecord('inst-alice', 'alice')
+
+    // The precondition this whole test rests on: one actor, one body, repeated
+    // ids. If the fixture ever stops producing them, the test below passes for
+    // the wrong reason, so it is asserted rather than assumed.
+    const ids = alice.events.map((event) => event.id)
+    expect(new Set(ids).size).toBeLessThan(ids.length)
+
+    const result = mergeRecords(alice.record, alice.record)
+    if (!result.ok) throw new Error(result.reason)
+
+    // Self-merge is still idempotent — the overlapping re-export case the old
+    // key existed to serve is not traded away for this fix...
+    expect(result.merged.events).toHaveLength(alice.events.length)
+    // ...and the repeated ids all survive. Under `(actor.instance, event.id)`
+    // this collapsed to the number of DISTINCT ids, silently.
+    expect(result.merged.events.map((event) => event.id)).toEqual(ids)
+    expect(result.merged.events).toEqual(alice.events)
+  })
+
+  it('folds two actors who BOTH resumed without losing a line of either', () => {
+    const alice = resumedActorRecord('inst-alice', 'alice')
+    const bob = resumedActorRecord('inst-bob', 'bob')
+
+    const result = mergeRecords(alice.record, bob.record)
+    if (!result.ok) throw new Error(result.reason)
+
+    expect(result.merged.events).toHaveLength(alice.events.length + bob.events.length)
+
+    // Per-actor append order still holds through the interleave, which is what
+    // makes "nothing lost" mean something rather than just "a bigger array".
+    // Both actors ran the same two tools in the same order across their resume,
+    // so a merge that dropped either run would show it here as a short list.
+    const toolsFor = (lane: string) =>
+      result.merged.events
+        .filter((event) => event.type === 'tool.activity' && event.payload.lane === lane)
+        .map((event) => (event.type === 'tool.activity' ? event.payload.tool : null))
+    expect(toolsFor('alice')).toEqual(['Write', 'Bash'])
+    expect(toolsFor('bob')).toEqual(['Write', 'Bash'])
+  })
+})
+
 describe('mergeRecords', () => {
   it('folds two disjoint actors into one coherent, deduped, ordered stream', () => {
     // Same id prefix on purpose: two independent sessions minting "evt-000001"
@@ -196,7 +279,14 @@ describe('mergeRecords — a newer actor is folded, and its unknowns counted', (
     )
   })
 
-  it('does NOT dedupe unknowns — a merge against itself counts both, because neither has an id it can be keyed on', () => {
+  // AMENDED BY #173. This used to assert the opposite, and the reason it gave
+  // was sound for the key it was written against: an unknown line has no parsed
+  // id, so `(actor.instance, event.id)` could not key it, and folding on raw
+  // line text instead would have collapsed two distinct newer-era events that
+  // happened to serialise the same. Keying on the chain link removes the
+  // premise — a link exists whether or not this era can read the line, and it
+  // is not the line-text rule, as the test below this one shows.
+  it('dedupes an unknown line on its chain link, exactly as it dedupes an event', () => {
     const ahead = withLinesAt(
       actorRecord('inst-alice', 'alice', FIXTURE_START_TS, 'alice-lane').record,
       1,
@@ -204,12 +294,27 @@ describe('mergeRecords — a newer actor is folded, and its unknowns counted', (
     )
     const result = mergeRecords(ahead, ahead)
     if (!result.ok) throw new Error(result.reason)
-    // The events still dedupe on `(actor.instance, event.id)` as always...
     expect(result.merged.events).toHaveLength(4)
-    // ...and the unknown is counted twice, honestly: dedup needs a parsed id,
-    // and folding on raw line text would collapse two distinct newer-era events
-    // that happened to serialise the same.
+    // One line, at one chain position, merged against itself: one unknown.
+    expect(result.merged.unknown).toHaveLength(1)
+    expect(result.merged.unknown[0]?.line).toBe(FUTURE_LINE)
+    expect(result.merged.unknown[0]?.actorInstance).toBe('inst-alice')
+  })
+
+  it('and still counts two byte-identical newer-era lines as two, because their positions differ', () => {
+    // The exact worry the old exemption named. Two lines that serialise
+    // identically sit at different chain positions, so their links differ and
+    // neither is mistaken for the other — the honest answer the raw-line-text
+    // rule could not have given.
+    const base = actorRecord('inst-alice', 'alice', FIXTURE_START_TS, 'alice-lane').record
+    const twice = withLinesAt(withLinesAt(base, 1, [FUTURE_LINE]), 3, [FUTURE_LINE])
+
+    const result = mergeRecords(twice, twice)
+    if (!result.ok) throw new Error(result.reason)
     expect(result.merged.unknown).toHaveLength(2)
+    expect(result.merged.unknown.map((entry) => entry.line)).toEqual([FUTURE_LINE, FUTURE_LINE])
+    // Different body positions, and the report still says which lines they were.
+    expect(result.merged.unknown.map((entry) => entry.lineNumber)).toEqual([2, 4])
   })
 
   it('still refuses a line that is not an event at all', () => {
