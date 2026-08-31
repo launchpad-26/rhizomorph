@@ -27,6 +27,23 @@ import { recordingGl } from './gl/recorder.js'
 import { CANVAS_UNAVAILABLE_MESSAGE, lastPaintedFrame } from './view/useFrameLoop.js'
 import Scene, { SceneView } from './index.js'
 
+/**
+ * THE RENDER-COUNTING SEAM (#159) — `SceneView` calls `cursorOf` exactly once
+ * per render, in its className, so counting calls to it counts renders. Real
+ * behaviour passes straight through (`...actual`); only the count is added.
+ */
+const renders = vi.hoisted(() => ({ n: 0 }))
+vi.mock('./view/input.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./view/input.js')>()
+  return {
+    ...actual,
+    cursorOf: (...args: Parameters<typeof actual.cursorOf>) => {
+      renders.n++
+      return actual.cursorOf(...args)
+    },
+  }
+})
+
 // @gate-timing — load-sensitive under `--maxWorkers` (#124, #130, #144,
 // #151, #157, #172, #189) (#209). scripts/gate.sh greps for this exact
 // marker to route the whole file into its serial, alone timing pass instead
@@ -907,6 +924,269 @@ describe('the camera', () => {
       // The drag's 30px, and no sign of the flight resuming its arc underneath.
       expect(cameraOf(transforms).x).toBeCloseTo(interrupted.x + 30, 6)
     })
+  })
+})
+
+/**
+ * THE HOVER PATH READS NO LAYOUT (#159) — `pickAt` used to call
+ * `canvas.getBoundingClientRect()` on every mousemove; the origin is now
+ * published by `useFrameLoop`'s ResizeObserver and refreshed on scroll, so
+ * neither the canvas's nor the host's rect should ever be read from a hover.
+ *
+ * Its own `mountHover` rather than the camera describe's `mountCamera`,
+ * because the host rect here has to be a MUTABLE box: the scroll-trap case
+ * moves it after mount and dispatches `scroll`, which `mountCamera`'s fixed
+ * `mockReturnValue` cannot do.
+ */
+describe('the hover path reads no layout (#159)', () => {
+  const HOST = { width: 900, height: 500 }
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  function boxAt(left: number, top: number) {
+    return {
+      width: HOST.width,
+      height: HOST.height,
+      top,
+      left,
+      right: HOST.width + left,
+      bottom: HOST.height + top,
+      x: left,
+      y: top,
+      toJSON() {},
+    }
+  }
+
+  function mountHover() {
+    let rect = boxAt(0, 0)
+    const divRect = vi
+      .spyOn(HTMLDivElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(() => rect as DOMRect)
+    // Never stubbed to return anything — case 1's whole claim is that nothing
+    // on the hover path calls this any more.
+    const canvasRect = vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect')
+    vi.stubGlobal('Path2D', PATH2D)
+    const gl = recordingGl()
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(((type: string) =>
+      type === 'webgl2' ? gl.gl : fakeContext([])) as unknown as HTMLCanvasElement['getContext'])
+
+    const fleet = stagedFleet()
+    const onSelect = vi.fn()
+    const utils = render(
+      <SceneView
+        fleet={fleet}
+        field={new PulseField()}
+        settle={new SettleRegistry()}
+        retire={new RetireRegistry()}
+        selectedId={null}
+        onSelect={onSelect}
+        now={NOW}
+      />,
+    )
+
+    const canvas = utils.container.querySelector('canvas') as HTMLCanvasElement
+    const geometry = layoutScene(fleet, { ...HOST, now: NOW })
+
+    return {
+      ...utils,
+      canvas,
+      geometry,
+      onSelect,
+      divRect,
+      canvasRect,
+      /** Moves the host's box and fires the scroll event the fix listens for. */
+      moveOrigin(left: number, top: number) {
+        rect = boxAt(left, top)
+        fireEvent(window, new Event('scroll'))
+      },
+    }
+  }
+
+  const move = (canvas: HTMLCanvasElement, x: number, y: number) =>
+    fireEvent.mouseMove(canvas, { clientX: x, clientY: y })
+
+  it('reads no layout across twenty hover moves', () => {
+    // Plain moves, no button held: d3-zoom binds `mousedown`/`wheel`, not
+    // `mousemove`, so nothing of d3's reads layout on a hover either.
+    const { canvas, divRect, canvasRect } = mountHover()
+    divRect.mockClear()
+    canvasRect.mockClear()
+
+    for (let i = 0; i < 20; i += 1) move(canvas, 60 + i * 3, 60 + i * 2)
+
+    expect(canvasRect).not.toHaveBeenCalled()
+    expect(divRect).not.toHaveBeenCalled()
+  })
+
+  it('still picks the right lane — the positive control', () => {
+    // Without this, case 1 above would pass on a hover handler that had been
+    // deleted outright.
+    const { canvas, geometry, onSelect } = mountHover()
+    const thread = geometry.threads[0]
+    const node = thread?.node as { x: number; y: number }
+
+    move(canvas, node.x, node.y)
+    expect(canvas.className).toContain('cursor-pointer')
+
+    move(canvas, 5, 5)
+    expect(canvas.className).toContain('cursor-default')
+
+    fireEvent.click(canvas, { clientX: node.x, clientY: node.y })
+    expect(onSelect).toHaveBeenCalledWith(thread?.laneId)
+  })
+
+  it('stays correct on scroll — the trap the audit named', () => {
+    // A ResizeObserver never fires for a scroll. At the stale origin {0,0}
+    // this point is nowhere near a lane; only the refreshed origin puts it on
+    // one. Mutation this survives: remove the scroll listener and this hovers
+    // nothing, because the origin never catches up.
+    const { canvas, geometry, onSelect, moveOrigin } = mountHover()
+    const thread = geometry.threads[0]
+    const node = thread?.node as { x: number; y: number }
+    const clientX = node.x + 200
+    const clientY = node.y + 100
+
+    move(canvas, clientX, clientY)
+    expect(canvas.className).toContain('cursor-default')
+
+    moveOrigin(200, 100)
+    move(canvas, clientX, clientY)
+    expect(canvas.className).toContain('cursor-pointer')
+
+    fireEvent.click(canvas, { clientX, clientY })
+    expect(onSelect).toHaveBeenCalledWith(thread?.laneId)
+  })
+
+  it('keeps tracking through repeated scrolls, and keeps reading no layout', () => {
+    const { canvas, geometry, onSelect, moveOrigin, divRect, canvasRect } = mountHover()
+    const thread = geometry.threads[0]
+    const node = thread?.node as { x: number; y: number }
+
+    moveOrigin(40, -30)
+    move(canvas, node.x + 40, node.y - 30)
+    expect(canvas.className).toContain('cursor-pointer')
+
+    moveOrigin(-15, 60)
+    move(canvas, node.x - 15, node.y + 60)
+    expect(canvas.className).toContain('cursor-pointer')
+    fireEvent.click(canvas, { clientX: node.x - 15, clientY: node.y + 60 })
+    expect(onSelect).toHaveBeenCalledWith(thread?.laneId)
+
+    // The refresh must not have moved the layout read back onto the hover
+    // path — case 1's law still has to hold after all this scrolling.
+    divRect.mockClear()
+    canvasRect.mockClear()
+    for (let i = 0; i < 20; i += 1) move(canvas, node.x - 15 + i, node.y + 60 + i)
+    expect(canvasRect).not.toHaveBeenCalled()
+    expect(divRect).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * THE CURSOR COSTS NO RENDER (#159) — `panning` used to be `useState`, whose
+ * only consumer was `cursorOf`'s className, so a React commit landed at both
+ * ends of every drag to change a CSS cursor. `useFrameLoop`'s gesture bracket
+ * now writes `canvas.style.cursor` directly instead.
+ */
+describe('the cursor costs no render (#159)', () => {
+  const HOST = { width: 900, height: 500 }
+
+  function withView(event: Event): Event {
+    Object.defineProperty(event, 'view', { value: window, configurable: true })
+    return event
+  }
+  const press = (canvas: HTMLCanvasElement, x: number, y: number, button = 0) => {
+    fireEvent(canvas, withView(createEvent.mouseDown(canvas, { clientX: x, clientY: y, button })))
+  }
+  const move = (x: number, y: number) => {
+    fireEvent(window, withView(createEvent.mouseMove(window, { clientX: x, clientY: y })))
+  }
+  const release = (x: number, y: number) => {
+    fireEvent(window, withView(createEvent.mouseUp(window, { clientX: x, clientY: y })))
+  }
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+  afterEach(async () => {
+    cleanup()
+    await settle()
+  })
+
+  function mountCursor() {
+    const hostRect = {
+      ...HOST,
+      top: 0,
+      left: 0,
+      right: HOST.width,
+      bottom: HOST.height,
+      x: 0,
+      y: 0,
+      toJSON() {},
+    }
+    vi.spyOn(HTMLDivElement.prototype, 'getBoundingClientRect').mockReturnValue(hostRect as DOMRect)
+    vi.stubGlobal('Path2D', PATH2D)
+    const gl = recordingGl()
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(((type: string) =>
+      type === 'webgl2' ? gl.gl : fakeContext([])) as unknown as HTMLCanvasElement['getContext'])
+
+    const fleet = stagedFleet()
+    const onSelect = vi.fn()
+    const utils = render(
+      <SceneView
+        fleet={fleet}
+        field={new PulseField()}
+        settle={new SettleRegistry()}
+        retire={new RetireRegistry()}
+        selectedId={null}
+        onSelect={onSelect}
+        now={NOW}
+      />,
+    )
+
+    const canvas = utils.container.querySelector('canvas') as HTMLCanvasElement
+    const host = utils.container.firstElementChild as HTMLElement
+    const geometry = layoutScene(fleet, { ...HOST, now: NOW })
+
+    return { ...utils, canvas, host, geometry, onSelect }
+  }
+
+  it('costs no render across a real drag, and writes the cursor inline', () => {
+    // Mutation this survives: put `setPanning` back and this is 2, not 0.
+    const { canvas } = mountCursor()
+    renders.n = 0
+
+    press(canvas, 300, 120)
+    expect(canvas.style.cursor).toBe('grabbing')
+
+    move(310, 120)
+    move(320, 120)
+    release(320, 120)
+
+    expect(canvas.style.cursor).toBe('')
+    expect(renders.n).toBe(0)
+  })
+
+  it('never shows the grab cursor for a wheel gesture', () => {
+    // `.on('start')`'s `!== 'wheel'` test, which the rewrite must not lose.
+    const { canvas } = mountCursor()
+    fireEvent.wheel(canvas, { deltaY: -80, ctrlKey: true, clientX: 450, clientY: 250 })
+    expect(canvas.style.cursor).toBe('')
+  })
+
+  it('the class still owns the other three cursors, with no gesture running', () => {
+    const { canvas, host, geometry } = mountCursor()
+    const node = geometry.threads[0]?.node as { x: number; y: number }
+
+    fireEvent.keyDown(host, { key: ' ' })
+    expect(canvas.className).toContain('cursor-grab')
+    fireEvent.keyUp(host, { key: ' ' })
+
+    fireEvent.mouseMove(canvas, { clientX: node.x, clientY: node.y })
+    expect(canvas.className).toContain('cursor-pointer')
+
+    fireEvent.mouseMove(canvas, { clientX: 5, clientY: 5 })
+    expect(canvas.className).toContain('cursor-default')
   })
 })
 
