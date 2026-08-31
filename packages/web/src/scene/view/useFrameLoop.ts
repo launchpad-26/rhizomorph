@@ -211,6 +211,11 @@ export function useFrameLoop(
      * that is not in `SceneLatestState`. See {@link canSkipBuild}. */
     let builtClock = 0
     let builtAsOf = 0
+    /** Whether anything was still growing in at the last BUILD. The grow-in
+     * runs on the REAL clock, which a pause does not freeze, so the tick where
+     * this flips false is the one tick whose retained frame is stale — see
+     * {@link canSkipBuild}. */
+    let builtSettling = false
     /** Whether a build is on the stack right now — `repaintFrame`'s reentrancy
      * latch, and the reason a camera flight cannot recurse into one. See the
      * note at the top of `repaintFrame`. */
@@ -447,6 +452,7 @@ export function useFrameLoop(
       builtFrom = current
       builtClock = clock
       builtAsOf = asOfClock
+      builtSettling = current.settle.settling(real)
       // The clear colour follows the palette's own ground, so the picture and
       // the page share one floor in both themes (dark: byte-identical to the
       // old hardcoded BACKDROP). The blend mode follows the palette's carrier:
@@ -614,7 +620,17 @@ export function useFrameLoop(
       // The grow-in also keeps the real clock through a pause, on purpose: a
       // thread caught half-grown is a picture of a topology that does not
       // exist. Past settle it is constant, which is the case ruling 2 is for.
-      if (current.settle.settling(real)) return false
+      //
+      // BOTH terms, and the second is the one a jump-across-`SETTLE_MS` test
+      // cannot see. `settling(real)` alone stops skipping WHILE a thread grows
+      // and resumes the instant it stops — but the frame retained at that
+      // instant was built one tick EARLIER, at a growth just short of 1, and
+      // every tick after it then qualifies to skip. The thread would stay
+      // frozen a fraction short of grown for as long as the pause lasted,
+      // which is the exact failure keeping the grow-in on the real clock
+      // exists to prevent. Refusing while EITHER is true spends one catch-up
+      // build on the transition and skips from there.
+      if (current.settle.settling(real) || builtSettling) return false
       return true
     }
 

@@ -978,19 +978,20 @@ describe('an identical frame is skipped at the build (prd-47 ruling 2)', () => {
     for (let i = 0; i < 3; i += 1) m.tick()
     expect(since(before)).toEqual({ builds: 3, repaints: 0 })
 
-    // Once `settling(real)` reads false, every OTHER term is already
-    // unchanged (the frozen `clock`, the state, the device), so the very next
-    // tick already qualifies to skip — a jump straight past `SETTLE_MS`
-    // leaves nothing still to "catch up" on for this gate to force. The
-    // contrast with the block above (all three still built) is what proves
-    // it is the settling term doing the work, not merely "paused never
-    // skips" — the second half `since` still has to be taken, even though
-    // its count is 0 rather than the 1 a gradual, frame-by-frame crossing
-    // would show for one transitional build.
+    // Crossing `SETTLE_MS` costs exactly ONE more build and then skips. That
+    // one is the catch-up: the frame retained while settling was built at a
+    // growth just short of 1, so the gate refuses once more on `builtSettling`
+    // to paint the finished grow-in before it starts skipping. L11 is the law
+    // that says what that build is FOR — this one only counts it.
+    //
+    // The contrast with the block above (all three built) is what proves the
+    // settling term is doing the work rather than "paused never skips"; the
+    // contrast with the two skips after it proves the catch-up is one build
+    // and not a permanent refusal.
     t += SETTLE_MS + 1
     const afterSettle = scenePaintCounts()
     for (let i = 0; i < 3; i += 1) m.tick()
-    expect(since(afterSettle)).toEqual({ builds: 0, repaints: 3 })
+    expect(since(afterSettle)).toEqual({ builds: 1, repaints: 2 })
   })
 
   it('L10: the parity seam moves on a skip', () => {
@@ -1008,5 +1009,71 @@ describe('an identical frame is skipped at the build (prd-47 ruling 2)', () => {
     m.tick()
 
     expect(lastPaintedFrame()?.camera).toEqual(m.rig().cameraRef.current)
+  })
+
+  /**
+   * THE GROW-IN THAT FINISHES UNDER A PAUSE (the transition L9 could not see).
+   *
+   * `settling(real)` is a boolean derived from a clock the pause does NOT
+   * freeze, and it gates whether `real` matters at all. So the tick where it
+   * flips false is the one tick whose retained frame is stale: it was built
+   * one frame BEFORE the grow-in completed, at a growth just short of 1, and
+   * every tick after it qualifies to skip. The thread then stays frozen a
+   * fraction short of grown for as long as the pause lasts — which is exactly
+   * what `buildAndPaint` keeps the grow-in on the real clock to prevent ("a
+   * thread caught half-way through growing in is a picture of a fleet that
+   * does not exist, so one that was already running settles and THEN stops").
+   *
+   * L9 crosses `SETTLE_MS` in one jump, which lands the flip and the staleness
+   * on the same tick and hides it. Production crosses it a frame at a time,
+   * and so does this.
+   *
+   * The comparison is against a REBUILD at the same instant rather than
+   * against a hardcoded picture: force one by moving a field and moving it
+   * straight back, exactly as L8 does. If the retained frame is what a build
+   * would have produced, the skip was honest.
+   */
+  it('L11: a grow-in that finishes under a pause is not frozen a frame short', () => {
+    let t = NOW
+    vi.spyOn(Date, 'now').mockImplementation(() => t)
+    const m = mountSkip()
+    settleIntoPause(m)
+    const index = laneIndex(m.state.fleet)
+    const lane = m.state.fleet.lanes[0]
+    const event = createRhizomorphEvent(
+      'worktree.discovered',
+      {
+        path: lane?.worktreePath ?? '/repo__worktrees/lane',
+        branch: lane?.branch ?? null,
+        head: 'sha-000',
+        isMain: false,
+      },
+      { id: 'evt-settle-11', ts: t },
+    )
+    m.state.settle.note([event], index, t)
+
+    // A frame at a time across the whole grow-in, the way the rAF does it —
+    // never a jump. The last build lands on the last tick that still reads
+    // `settling`, one frame short of grown.
+    const FRAME = 16
+    for (let elapsed = 0; elapsed <= SETTLE_MS + FRAME * 2; elapsed += FRAME) {
+      t = NOW + elapsed
+      m.tick()
+    }
+    expect(m.state.settle.settling(t)).toBe(false)
+    const retained = JSON.stringify(lastPaintedFrame()?.marks ?? [])
+
+    // What a build at this very instant produces. Nothing about the fleet or
+    // the clocks changed across these two renders, so any difference is the
+    // grow-in the skip left unfinished.
+    const before = scenePaintCounts()
+    m.select('__force-rebuild__')
+    m.tick()
+    m.select(null)
+    m.tick()
+    expect(since(before).builds).toBeGreaterThan(0)
+    const rebuilt = JSON.stringify(lastPaintedFrame()?.marks ?? [])
+
+    expect(retained).toBe(rebuilt)
   })
 })
