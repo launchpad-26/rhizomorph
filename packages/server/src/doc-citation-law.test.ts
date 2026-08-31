@@ -224,8 +224,6 @@ function citationExists(cite: string): boolean {
     return readdirSync(path.join(REPO_ROOT, dir)).some((entry) => pattern.test(entry))
   }
 
-  if (existsSync(path.join(REPO_ROOT, stripped))) return true
-
   // Bare directory/number, no filename — `docs/adr/0012` for `docs/adr/0012-slug.md`.
   const dir = path.dirname(stripped)
   const base = path.basename(stripped)
