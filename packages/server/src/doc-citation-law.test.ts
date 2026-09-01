@@ -537,26 +537,6 @@ const ALLOWLISTED_BROKEN_CITATIONS: ReadonlyArray<{ file: string; cite: string; 
     reason: 'prd-40 was blessed and moved to docs/prds/done/ after this ADR cited its pre-done path',
   },
   {
-    file: 'docs/design-notes/node-apical-tuft-glow.md',
-    cite: 'docs/decisions/retire-transformation-not-deletion.md',
-    reason: 'the target lives under docs/design-notes/, not docs/decisions/, which was never created',
-  },
-  {
-    file: 'docs/design-notes/node-persist-lane.md',
-    cite: 'docs/decisions/node-seal-fold.md',
-    reason: 'the target lives under docs/design-notes/, not docs/decisions/, which was never created',
-  },
-  {
-    file: 'docs/design-notes/node-persist-lane.md',
-    cite: 'docs/decisions/retire-transformation-not-deletion.md',
-    reason: 'the target lives under docs/design-notes/, not docs/decisions/, which was never created',
-  },
-  {
-    file: 'docs/design-notes/root-depth-tissue-vibrancy.md',
-    cite: 'docs/decisions/palette-vibrancy-dials.md',
-    reason: 'the target lives under docs/design-notes/, not docs/decisions/, which was never created',
-  },
-  {
     file: 'packages/core/src/placeholder.ts',
     cite: 'packages/server/src/app.ts',
     reason: 'scaffold-era comment; no file has ever existed at this path (the server entry point is elsewhere)',
@@ -731,10 +711,6 @@ describe('doc citation law: a path cited from a document or a comment must exist
     expect(ALLOWLISTED_BROKEN_CITATIONS.map(({ file, cite }) => `${file} -> ${cite}`)).toEqual(
       [
         'docs/adr/0029-a-recording-may-repeat-a-fact.md -> docs/prds/prd-40-the-record-survives-the-write.md',
-        'docs/design-notes/node-apical-tuft-glow.md -> docs/decisions/retire-transformation-not-deletion.md',
-        'docs/design-notes/node-persist-lane.md -> docs/decisions/node-seal-fold.md',
-        'docs/design-notes/node-persist-lane.md -> docs/decisions/retire-transformation-not-deletion.md',
-        'docs/design-notes/root-depth-tissue-vibrancy.md -> docs/decisions/palette-vibrancy-dials.md',
         'packages/core/src/placeholder.ts -> packages/server/src/app.ts',
         'packages/web/src/lib/format.ts -> docs/prd2.md',
       ].sort(),
