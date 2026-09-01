@@ -300,6 +300,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    * | 19 | arithmetic expansion | `V=$((1+2))`, `V=$(( a > b ))` | no — not a producer | EXCLUDED (verification review) — `$((` is arithmetic, not command substitution: no external command runs, so there is no process exit status to check at all. The dispatch on `$` + `(` alone (rows 1-3's original shape) could not tell `$(` from `$((`; the third character is now checked before committing to the `$(...)` scanner. gate.sh uses `$((...))` three times today, none line-initial, which is the only reason this stayed silent |
    * | 20 | a `#` comment inside a multi-line `$(...)` or backtick body | `VAR=$(`⏎`  cmd  # note`⏎`)` | correctly parsed | HANDLED (verification review) — an UNBALANCED apostrophe in the comment (`# don't`) used to open a phantom single-quoted string that swallowed the real closing `)`, vanishing the whole producer; a `)` in the comment used to close the substitution early, turning a checked producer's real tail into unrelated later text and convicting it falsely. The scanner now recognises a `#` at a word boundary (start-of-scan or after whitespace, the same convention `stripQuotedRunsAndComments` already uses) and skips to end of line before resuming depth/quote tracking |
    * | 21 | `VAR=$(...)`-shaped TEXT inside a heredoc body | `cat <<'EOF'`⏎`X=$(cmd)`⏎`EOF` | no — not a producer | HANDLED (verification review) — heredoc body lines (quoted or unquoted delimiter, `<<`/`<<-`) are DATA being piped to a command, not executable assignments; a quoted delimiter's body cannot even expand `$(...)` if it somehow were code. Body lines between the opener and the matching terminator are excluded from producer-scanning entirely. `findHeredocStart` tracks quote state and comments itself (rather than reusing `stripQuotedRunsAndComments`, which DISCARDS quoted text and so cannot see a QUOTED delimiter) so a `<<EOF`-looking substring inside a message or comment (`echo "example: cmd <<EOF"`) is not mistaken for a real opener — that direction of mistake is the dangerous one, since it would hide every real producer between the false opener and wherever a same-named terminator line next happens to occur. Declared, not fully closed: two heredocs opened on the same line is not disambiguated further than "first one found, scanned greedily" — no such line exists in gate.sh today |
+   * | 22 | a `<<` that is NOT a heredoc opener — the `<<<` here-string, and the `<<` LEFT-SHIFT operator inside an arithmetic `((...))` | `grep -q x <<< foo`, `if (( a << b ))` | no — neither opens a heredoc | HANDLED (review of #191) — row 21's opener scan matched any `<<` whose next word looked like a delimiter, so both of these were read as heredoc openers whose terminator never arrives, marking EVERY remaining line of the script as body. That is row 21's own stated dangerous direction, reached by two spellings its CONTROL (a `<<EOF` inside a quoted message) did not cover. EXECUTED against the real scripts/gate.sh: inserting one `grep -q x <<< foo` line — or one `if (( a << b ))` line — above the first producer took the producer count from **17 to 0**. The pinned-count test does redden on that, so the law never went silently blind; it reddened with a count that points nowhere near the offending line, and a re-derive of the pin to the new smaller number would have blinded it for real. `findHeredocStart` now skips all three characters of `<<<` (retrying at `i + 1` would re-find the trailing `<<`) and skips an arithmetic `((...))` span by paren depth |
    *
    * MEASURED FALSE-POSITIVE RATE (EXECUTED, run against every real producer
    * of ANY spelling above in scripts/gate.sh — prd-46's own open question,
@@ -736,7 +737,35 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
           i++
           continue
         }
+        if (c === '(' && line[i + 1] === '(') {
+          // `((...))` is an ARITHMETIC context, where `<<` is the LEFT-SHIFT
+          // OPERATOR, not a heredoc opener (row 22). The whole span is
+          // skipped by paren depth so `(( a << b ))` cannot name `b` as a
+          // delimiter. An unbalanced `((` runs the scan to end of line and
+          // returns null — the safe direction, since a false opener hides
+          // producers while a missed one only leaves them visible.
+          let depth = 0
+          let j = i
+          for (; j < line.length; j++) {
+            if (line[j] === '(') depth++
+            else if (line[j] === ')') {
+              depth--
+              if (depth === 0) break
+            }
+          }
+          i = j
+          continue
+        }
         if (c === '<' && line[i + 1] === '<') {
+          // `<<<` is a HERE-STRING (row 22): its operand is a word fed on
+          // stdin, never a delimiter naming a body. All THREE characters are
+          // skipped deliberately — letting the loop retry at `i + 1` would
+          // find the trailing `<<` and read the operand as a delimiter,
+          // which is exactly the bug this guards.
+          if (line[i + 2] === '<') {
+            i += 2
+            continue
+          }
           const m = line.slice(i).match(/^<<([-~]?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/)
           if (m) return { delimiter: m[3]!, stripLeadingTabs: m[1] === '-' }
         }
@@ -1106,6 +1135,48 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       const inQuotedMessage = findUncheckedProducers(['echo "example: cmd <<EOF"', 'SOME_NEW_CHECK=$(some_new_check)'])
       expect(inQuotedMessage).toHaveLength(1)
       expect(inQuotedMessage[0]!.line).toBe('SOME_NEW_CHECK=$(some_new_check)')
+    })
+
+    /**
+     * Row 22 — the sibling of row 21's CONTROL. That control proved a
+     * `<<EOF` inside a QUOTED MESSAGE is not mistaken for an opener; these
+     * are the two spellings where the `<<` is real text, not inside any
+     * quote, and still does not open a heredoc. Both hid every producer
+     * below them, which is the failure direction row 21 itself names as the
+     * dangerous one.
+     */
+    it('EXECUTED — #179 row 22: a `<<<` here-string and an arithmetic `<<` left-shift do not open a heredoc, so producers below them stay visible', () => {
+      const afterHereString = findUncheckedProducers(['grep -q x <<< foo', 'SOME_NEW_CHECK=$(some_new_check)'])
+      expect(afterHereString, 'a `<<<` here-string used to be read as a heredoc opener with delimiter "foo", hiding every line after it').toHaveLength(1)
+      expect(afterHereString[0]!.line).toBe('SOME_NEW_CHECK=$(some_new_check)')
+
+      // The quoted-operand spelling took the same path to the same place.
+      expect(findUncheckedProducers(['grep -q x <<< "foo"', 'SOME_NEW_CHECK=$(some_new_check)'])).toHaveLength(1)
+
+      const afterShift = findUncheckedProducers(['if (( a << b )); then :; fi', 'SOME_NEW_CHECK=$(some_new_check)'])
+      expect(afterShift, 'an arithmetic left-shift with an IDENTIFIER right operand used to name that identifier as a heredoc delimiter').toHaveLength(1)
+      expect(afterShift[0]!.line).toBe('SOME_NEW_CHECK=$(some_new_check)')
+
+      // CONTROL 1: a REAL heredoc on a line that also carries an arithmetic
+      // span must still be found — the new skip must not eat the opener.
+      expect(findUncheckedProducers(['if (( a > 1 )); then cat <<EOF', 'SOME_NEW_CHECK=$(some_new_check)', 'EOF', 'fi'])).toEqual([])
+
+      // CONTROL 2: `<<` on its own is still a heredoc opener. Without this
+      // the fix could pass by disabling heredoc detection altogether.
+      expect(findUncheckedProducers(['cat <<EOF', 'SOME_NEW_CHECK=$(some_new_check)', 'EOF'])).toEqual([])
+    })
+
+    /**
+     * The blast radius, measured on the REAL file rather than on fixtures:
+     * one line of either row-22 spelling above the first producer used to
+     * take gate.sh's producer population from 17 to 0.
+     */
+    it('EXECUTED — #179 row 22: one here-string or left-shift line in the REAL scripts/gate.sh does not blind the scan', () => {
+      const firstProducer = findAllProducers(LINES)[0]!.index
+      for (const intruder of ['grep -q x <<< foo', 'if (( a << b )); then :; fi']) {
+        const mutated = [...LINES.slice(0, firstProducer), intruder, ...LINES.slice(firstProducer)]
+        expect(findAllProducers(mutated).length, `inserting ${JSON.stringify(intruder)} above the first producer must not change how many producers gate.sh has`).toBe(findAllProducers(LINES).length)
+      }
     })
 
     it('EXECUTED — the predicate tells apart || exit 2 (honest abort) from || exit 0 (fake success) — same verb, opposite honesty', () => {
