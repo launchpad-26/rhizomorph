@@ -7,17 +7,23 @@ Lane for prd-48 w2, issue #167. 2026-09-01. Build area
 
 **Headline:** the design below — accept = appended to a durable journal (`writeSync` +
 `fsyncSync`), *then* 202; fold asynchronously from the journal — closes the exact defect S2
-found. Across **75 real process kills** of the ingest server (far more than the 5–10 the issue
-asked for, for reasons explained below), spanning all four windows the design names (before the
-write, between write and fsync, after fsync but before the ack, and after the ack was fully
-flushed — the actual S2 failure mode), plus 20 shipper-side kills, a cursor rewind, and a garbage
-cursor: **zero lost batches, zero gaps, zero duplicate rows, identical chain digests** on every
-row. One thing this design change costs, measured: nothing detectable — a synchronous `fsync`
-per batch was indistinguishable from S2's free in-process enqueue at this box's throughput. One
-thing a `kill -9` sweep **cannot** prove, found while building the ablation: it cannot
-distinguish "durable because of `fsync`" from "durable because `write()` already committed to
-the kernel page cache," which is a same-process-crash guarantee, not the host-crash guarantee
-`fsync` actually buys.
+found. **The window that reproduces S2's defect — server dies after the 202 was fully
+flushed — was hit twice, and once with the full design (durable fsync) enabled: zero lost
+batches at that window.** (The other of the two `closed`-window kills was the `RZ_SKIP_FSYNC=1`
+ablation, fsync deliberately disabled — see below.) The sweep also fired 75 real process kills in
+total across all four windows the design names (far more than the 5–10 the issue asked for, for
+reasons explained below) — 61 of those landed in `c2` (crash before fsync returns), a window that
+was never unsafe even under S2's old design, since no ack had been sent yet. Across every kill,
+every window, plus 20 shipper-side kills, a cursor rewind, and a garbage cursor: **zero lost
+batches, zero gaps, zero duplicate rows, identical chain digests** on every row. What would
+strengthen this: more trials aimed specifically at the `closed` window, with fsync enabled — not
+re-run here (a fresh issue, cheap to run again since the harness's fault-injection hooks already
+exist), only n=1 at full design. One thing this design change costs, measured: nothing
+detectable — a synchronous `fsync` per batch was indistinguishable from S2's free in-process
+enqueue at this box's throughput. One thing a `kill -9` sweep **cannot** prove, found while
+building the ablation: it cannot distinguish "durable because of `fsync`" from "durable because
+`write()` already committed to the kernel page cache," which is a same-process-crash guarantee,
+not the host-crash guarantee `fsync` actually buys.
 
 ---
 
@@ -188,7 +194,9 @@ narrative — every one of these was caught by checking output rather than trust
    references port 5561). This is exactly the "shared box" cost S2's own note warned about —
    reported here rather than glossed over. [EXECUTED, and honestly incomplete: this lane cannot
    verify what happened to the other lane's process the second time, only that it did not cause
-   it]
+   it] Issue #166's own lane recorded this same outage from its side, as an unscripted server
+   death it attributed to sandbox process supervision — this lane's accidental kill is the actual
+   cause; #166 is correcting its own note.
 5. **The sweep's own port-clearing retry loop could not tell "spawn crashed via `EADDRINUSE`"
    apart from "spawn successfully fired its fault and self-killed on schedule"** — both look
    identical from outside (process gone within the 300 ms liveness check). This is why the sweep
@@ -240,22 +248,33 @@ batches from retries whose earlier attempt's ack was lost to a kill, all absorbe
 `ON CONFLICT DO NOTHING` with zero effect on the final row count. This is the exact idempotency
 §4 predicts for a shipper-side retry, confirmed rather than assumed. [EXECUTED]
 
-**(c) Server killed mid-flight — the row this issue is about, and the closed window did not
-reopen.** [EXECUTED] Deterministic fault-injection hooks in `server.mjs` let each trial target an
-exact point in the request handler with a real same-process `SIGKILL` (`process.kill(process.pid,
-'SIGKILL')`), rather than guessing external timing:
+**(c) Server killed mid-flight — the row this issue is about. The window that actually reproduces
+S2's defect fired twice, and once at full design.** [EXECUTED] Deterministic fault-injection hooks
+in `server.mjs` let each trial target an exact point in the request handler with a real
+same-process `SIGKILL` (`process.kill(process.pid, 'SIGKILL')`), rather than guessing external
+timing:
 
 | window | what it targets | times fired |
 |---|---|---|
 | `c1` | before `writeSync` at all | 9 |
-| `c2` | after `writeSync`, before `fsyncSync` | 61 |
+| `c2` | after `writeSync`, before `fsyncSync` — never unsafe, even under S2's old design (no ack sent yet) | 61 |
 | `c3` | after `fsyncSync` succeeds, before notify/response | 1 |
-| `closed` | **after the 202 response flush callback fires — the actual S2 defect window** | 2 |
+| `closed` | **after the 202 response flush callback fires — the actual S2 defect window** | **2 (1 at full design, 1 with fsync deliberately disabled — see ablation below)** |
 | *(deterministic self-`SIGKILL` subtotal)* | | **73** |
 | external `kill -9`, non-deterministic timing | matching S2's own method directly | 2 |
 | **total** | | **75** |
 
-The two `RZ_SKIP_FSYNC=1` ablation trials are **inside** that 73, not additional to it: programmed
+**Read the totals with the window they landed in, not as one number.** 61 of the 75 (81%) landed
+in `c2`, a window that was never the defect this issue exists to close — S2's old design was
+already safe there, because no ack had been sent. The window that matters, `closed`, fired twice,
+and one of those two was the `RZ_SKIP_FSYNC=1` ablation with fsync deliberately turned off (below)
+— so **the precise S2 reproduction target, with the full ack-after-durable-journal design enabled,
+was exercised exactly once.** That one trial: zero lost batches. The "75 real kills" headline
+number is real work and real evidence for the *ordering* claim across every window the design
+names, but it is not 75 independent tests of the `closed`-window fix — read the per-window table
+above for that, not the total.
+
+The two `RZ_SKIP_FSYNC=1` ablation trials are **inside** the 73, not additional to it: programmed
 trial 7 is a `c2` kill and trial 8 a `closed` kill, both with fsync skipped, so they are counted
 within the 61 and the 2 respectively. (Counting them as their own rows would double-count to 77.)
 Evidenced by exactly two `skipFsync=true` startup banners in `server.log`, one at `fault=c2/4` and
@@ -267,7 +286,10 @@ single one — including both `closed`-window kills, the precise reproduction ta
 defect, and both `RZ_SKIP_FSYNC` ablation kills — left `events_n` gap-free and duplicate-free once
 the fold worker caught up. The specific S2 failure ("count == 63,153 while cursor reached
 63,653") **did not recur**: at every checkpoint, `events_n`'s distinct-`n` count matched the
-shipper's cursor exactly. [EXECUTED]
+shipper's cursor exactly. [EXECUTED] **What would strengthen this most: more trials aimed
+specifically at the `closed` window with fsync enabled, since n=1 is thin for the window that
+matters most.** Not re-run here — a fresh issue, and cheap for whoever picks it up, since the
+`RZ_FAULT_POINT=closed` hook already exists and needs no new code.
 
 **The ablation is the most interesting single result in this note, and it complicates the design's
 own §6 framing.** Both `RZ_SKIP_FSYNC=1` trials — including one at the exact `closed` window, ack
@@ -350,7 +372,7 @@ ruling, unchanged from what S2's finding already established.
 
 | falsifier | verdict | deciding number |
 |---|---|---|
-| §6: does any row (c) trial show a batch the shipper got 2xx for, missing after fold catch-up? | **PASS** | 0 batches lost across 75 real kills (73 deterministic self-`SIGKILL`s — 9× c1, 61× c2, 1× c3, 2× closed, of which 2 were fsync-ablation trials — plus 2 external `kill -9`), every trial's post-catch-up `events_n` distinct-`n` count exactly equal to the shipper's cursor `n`. |
+| §6: does any row (c) trial show a batch the shipper got 2xx for, missing after fold catch-up? | **PASS** | 0 batches lost across 75 real kills total (9× c1, 61× c2, 1× c3, 2× closed). **The `closed` window — S2's actual defect — fired twice, one with the full design (fsync) enabled and one as the fsync-disabled ablation; the one full-design trial lost 0 batches.** Every trial's post-catch-up `events_n` distinct-`n` count exactly equal to the shipper's cursor `n`. n=1 at full design in the window that matters; more trials aimed at `closed` would strengthen this. |
 | The specific S2 reproduction target (count == cursor − 500, gap exact) | **DID NOT RECUR** | Every checkpoint across every row: `count(distinct n) = max(n) = 1,129,197`, zero gaps. |
 | Chain digest mismatch, any row? | **PASS** | 5/5 rows: local and server `chainDigest` identical, `verifyRecord ok:true`, `bodies_byte_equal:true`. |
 | Idempotent replay (row d)? | **PASS** | delta 0 on a 5,000-line resend. |

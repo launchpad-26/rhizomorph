@@ -30,11 +30,17 @@ The task: close prd-48 Success 2's QUALIFIED verdict by designing ack-after-dura
 batch, swept across many kill timings rather than one instance, with chain digests reported
 end-to-end and an explicit falsifier verdict.
 
-It went well, and the result is a clean PASS: 75 real process kills of the server (vs. the 5–10
-originally scoped), spanning all four fault windows the design named plus the exact S2 failure
-window, plus 20 shipper-side kills, a 5,000-line rewind and a total cursor loss — zero lost
-batches, zero gaps, zero duplicate rows, identical chain digests local vs. server on every row.
-The single biggest strength is that the three-dispatch shape (architect → implementer → reviewer)
+It went well, and the result is a clean PASS: 75 real process kills of the server total (vs. the
+5–10 originally scoped), spanning all four fault windows the design named, plus 20 shipper-side
+kills, a 5,000-line rewind and a total cursor loss — zero lost batches, zero gaps, zero duplicate
+rows, identical chain digests local vs. server on every row. **The window that actually reproduces
+S2's defect — server dies after the ack was fully flushed — fired only twice within that 75, and
+one of those two was the fsync-disabled ablation; the precise defect, with the full design
+enabled, was exercised exactly once, not 75 times.** A conductor review of the note caught this
+gap between the headline total and the load-bearing window's own count and required it be made
+explicit rather than left for a reader to compose from separate paragraphs — recorded here as a
+second instance of the same review-catches-what-authoring-missed pattern already noted below. The
+single biggest strength is that the three-dispatch shape (architect → implementer → reviewer)
 did exactly the job it was chosen for: the design section verifiably predates the results (the
 reviewer confirmed it contains zero post-run numbers, and it even names the wrong risk — WSL2's
 filesystem layers, this run's actual box was plain macOS/APFS), and review caught five real defects
@@ -78,8 +84,8 @@ sweep, and remains open for a future lane.
    the same miscount echoed in two further places in the note, one factually wrong claim about
    which rows' chain digests were expected to match each other, and one byte-inexact quoted log
    line. None of these were caught by the implementer's own pass.
-7. **The falsifier, though it passed 75/75, never instrumented the one place its own design most
-   explicitly flagged as a risk.** All four injectable fault points sit in the HTTP request
+7. **The falsifier, though every kill it fired came back clean, never instrumented the one place
+   its own design most explicitly flagged as a risk.** All four injectable fault points sit in the HTTP request
    handler; there is none between the Postgres `COMMIT` and the fold cursor's persist. The design's
    own §6 names "the fold cursor has its own race" as a candidate cause of a future failure — the
    implementation built the fault-injection hooks without one aimed at that exact claim. Found by
