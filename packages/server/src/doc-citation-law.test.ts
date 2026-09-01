@@ -557,29 +557,9 @@ const ALLOWLISTED_BROKEN_CITATIONS: ReadonlyArray<{ file: string; cite: string; 
     reason: 'the target lives under docs/design-notes/, not docs/decisions/, which was never created',
   },
   {
-    file: 'packages/core/src/events/judge.ts',
-    cite: 'docs/research/2026-08-04-semantic-judge-spike.md',
-    reason: 'the research note was removed by 756e1bf, whose own sweep covered docs citing docs, not code citing docs',
-  },
-  {
     file: 'packages/core/src/placeholder.ts',
     cite: 'packages/server/src/app.ts',
     reason: 'scaffold-era comment; no file has ever existed at this path (the server entry point is elsewhere)',
-  },
-  {
-    file: 'packages/server/src/collectors/judge/collector.ts',
-    cite: 'docs/research/2026-08-04-semantic-judge-spike.md',
-    reason: 'the research note was removed by 756e1bf, whose own sweep covered docs citing docs, not code citing docs',
-  },
-  {
-    file: 'packages/server/src/judge/mergetree.ts',
-    cite: 'docs/research/2026-08-04-semantic-judge-spike.md',
-    reason: 'the research note was removed by 756e1bf, whose own sweep covered docs citing docs, not code citing docs',
-  },
-  {
-    file: 'packages/server/src/judge/symbols.ts',
-    cite: 'docs/research/2026-08-04-semantic-judge-spike.md',
-    reason: 'the research note was removed by 756e1bf, whose own sweep covered docs citing docs, not code citing docs',
   },
   {
     file: 'packages/web/src/lib/format.ts',
@@ -755,11 +735,7 @@ describe('doc citation law: a path cited from a document or a comment must exist
         'docs/design-notes/node-persist-lane.md -> docs/decisions/node-seal-fold.md',
         'docs/design-notes/node-persist-lane.md -> docs/decisions/retire-transformation-not-deletion.md',
         'docs/design-notes/root-depth-tissue-vibrancy.md -> docs/decisions/palette-vibrancy-dials.md',
-        'packages/core/src/events/judge.ts -> docs/research/2026-08-04-semantic-judge-spike.md',
         'packages/core/src/placeholder.ts -> packages/server/src/app.ts',
-        'packages/server/src/collectors/judge/collector.ts -> docs/research/2026-08-04-semantic-judge-spike.md',
-        'packages/server/src/judge/mergetree.ts -> docs/research/2026-08-04-semantic-judge-spike.md',
-        'packages/server/src/judge/symbols.ts -> docs/research/2026-08-04-semantic-judge-spike.md',
         'packages/web/src/lib/format.ts -> docs/prd2.md',
       ].sort(),
     )
