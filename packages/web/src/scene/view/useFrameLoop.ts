@@ -14,6 +14,7 @@ import {
 } from '../camera.js'
 import { layoutScene, type SceneGeometry } from '../geometry.js'
 import { createScenePainter } from '../gl/index.js'
+import type { ViewOrigin } from './hitTest.js'
 import {
   breathOf,
   motionMode,
@@ -52,13 +53,14 @@ export interface SceneLatestState {
 
 export interface FrameLoopResult {
   lost: boolean
-  panning: boolean
   /**
    * Redraws when the loop is not running (a pinned clock). A no-op when it is.
    * Stable across renders, so an effect that only wants a redraw on some other
    * change (`hideFinished`) may safely leave it out of its own deps.
    */
   redraw: () => void
+  /** The canvas's client-space top-left, kept fresh for `pickAt`. */
+  originRef: RefObject<ViewOrigin>
 }
 
 /**
@@ -138,7 +140,9 @@ export function lastPaintedFrame(): PaintedFrame | null {
  * `setPanning(true)`, which commits at the start of every drag, so the first
  * mousemove of every real drag missed the repaint path entirely. Shallow
  * equality keeps the property that mattered (no field can be forgotten) and
- * drops the one that cost.
+ * drops the one that cost. #159 has since taken that commit out of the
+ * bracket entirely, so a drag no longer arms this at all; the shallow gate
+ * stays, because every other React commit still can.
  *
  * The four reference fields (`fleet`, `field`, `settle`, `retire`) compare by
  * identity, which is the conservative direction: a rebuilt fleet invalidates
@@ -180,7 +184,6 @@ export function useFrameLoop(
   now: number | undefined,
 ): FrameLoopResult {
   const [lost, setLost] = useState(false)
-  const [panning, setPanning] = useState(false)
 
   /**
    * The instant the operator pressed pause — **both** of the scene's clocks, while
@@ -191,6 +194,22 @@ export function useFrameLoop(
   const pausedAtRef = useRef<{ real: number; asOf: number } | null>(null)
   const redrawRef = useRef<() => void>(() => {})
   const redraw = useCallback(() => redrawRef.current(), [])
+
+  /**
+   * The canvas's top-left in client coordinates, for `pickAt`.
+   *
+   * Published rather than measured at the hit test: `pickAt` used to call
+   * `getBoundingClientRect()` on every mousemove, and the ResizeObserver below
+   * has already read the identical box (the canvas is `inset-0` inside the
+   * host, no border, no padding — one box, two elements).
+   *
+   * A ResizeObserver never fires for a **scroll**, and this is a
+   * viewport-relative quantity: the instant any ancestor scrolls, a cached
+   * origin is wrong and every hover after it picks the wrong lane, or nothing.
+   * That is the trap in the obvious version of this fix, so the scroll listener
+   * below is not optional and a law covers it.
+   */
+  const originRef = useRef<ViewOrigin>({ left: 0, top: 0 })
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -285,6 +304,7 @@ export function useFrameLoop(
 
     const resize = () => {
       const rect = host.getBoundingClientRect()
+      originRef.current = { left: rect.left, top: rect.top }
       dpr = Math.min(2, window.devicePixelRatio || 1)
       // Only a ZERO measurement falls back (mid-mount, before layout has run —
       // `useCamera`'s documented intent). This used to be a `Math.max` floor
@@ -316,6 +336,20 @@ export function useFrameLoop(
     guard(resize)
 
     /**
+     * Origin only — never `resize()`. A full resize reassigns `canvas.width`,
+     * which blanks the drawing buffer; doing that on every scroll event would
+     * strobe the picture.
+     */
+    const measureOrigin = () => {
+      const rect = host.getBoundingClientRect()
+      originRef.current = { left: rect.left, top: rect.top }
+    }
+    // Capture, because a scroll event from a scrolling ancestor does not
+    // bubble. Passive, because this never calls `preventDefault`.
+    window.addEventListener('scroll', measureOrigin, { capture: true, passive: true })
+    window.addEventListener('resize', measureOrigin)
+
+    /**
      * ONE BUILT FRAME — and the latch that keeps it the only paint of its tick.
      *
      * The latch is not bookkeeping. `buildAndPaint` steps a live flight before
@@ -334,7 +368,9 @@ export function useFrameLoop(
      * bottoms out in a `RangeError`, which `guard` turns into a permanent "the
      * scene stopped drawing" — and the arming condition was ordinary, because
      * `setPanning(false)` commits a render at the end of every drag. Drag, then
-     * press Fit, and the scene died.
+     * press Fit, and the scene died. That exact sequence no longer arms it
+     * (#159); the latch stays, because any other commit since the last build
+     * does.
      */
     const drawFrame = () => {
       drawing = true
@@ -553,7 +589,9 @@ export function useFrameLoop(
      * this issue exists to answer faster: `setPanning` commits a render at both
      * ends of every drag, so the first mousemove of a real drag found the gate
      * refusing and ran a full `layoutScene` + `sceneMarks` + `buildFrame`
-     * synchronously inside the input handler.
+     * synchronously inside the input handler. #159 removed that commit, so the
+     * first mousemove of a drag now finds the gate passing; the measurement
+     * that chose refusal over building here is unchanged.
      *
      * A PINNED clock has no next frame — `redrawRef` is the only thing that
      * draws under one — so there the build has to happen here or the picture
@@ -665,13 +703,31 @@ export function useFrameLoop(
 
     redrawRef.current = pinned ? () => guard(drawFrame) : () => {}
 
+    /**
+     * The drag cursor, written to the element rather than through React.
+     *
+     * This is the whole of what `panning` state ever did — its only consumer
+     * was `cursorOf` in `SceneView`'s className — and it cost a commit at both
+     * ends of every drag. An inline style beats the Tailwind cursor class while
+     * it is set and yields back to it when cleared, so `cursor-grab` (space
+     * held) and `cursor-pointer` (over a lane) still come from the class, which
+     * is where the state that genuinely re-renders already lives.
+     *
+     * The gesture bracket itself is unchanged: prd-47 lists it under "what
+     * already exists (do not rebuild)", and ruling 1's repaint path is written
+     * against it.
+     */
+    const setPanCursor = (panning: boolean) => {
+      canvas.style.cursor = panning ? 'grabbing' : ''
+    }
+
     behavior
       .on('start', (event: D3ZoomEvent<HTMLCanvasElement, unknown>) => {
         // A hand on the canvas cancels a flight; our own frames (which have no
         // source event) must not cancel the flight that is producing them.
         if (event.sourceEvent === null || event.sourceEvent === undefined) return
         rig.flightRef.current = null
-        setPanning(event.sourceEvent.type !== 'wheel')
+        setPanCursor(event.sourceEvent.type !== 'wheel')
       })
       .on('zoom', (event: D3ZoomEvent<HTMLCanvasElement, unknown>) => {
         const { k, x, y } = event.transform
@@ -682,7 +738,7 @@ export function useFrameLoop(
         }
         guard(repaintFrame)
       })
-      .on('end', () => setPanning(false))
+      .on('end', () => setPanCursor(false))
 
     select(canvas).call(behavior)
     // The behavior starts from wherever the camera already is, so a fleet
@@ -712,6 +768,8 @@ export function useFrameLoop(
       guard(drawFrame)
       return () => {
         host.removeEventListener('mousedown', onPress, true)
+        window.removeEventListener('scroll', measureOrigin, { capture: true })
+        window.removeEventListener('resize', measureOrigin)
         select(canvas).on('.zoom', null)
         observer?.disconnect()
         painter.dispose()
@@ -727,6 +785,8 @@ export function useFrameLoop(
     return () => {
       cancelAnimationFrame(frame)
       host.removeEventListener('mousedown', onPress, true)
+      window.removeEventListener('scroll', measureOrigin, { capture: true })
+      window.removeEventListener('resize', measureOrigin)
       select(canvas).on('.zoom', null)
       observer?.disconnect()
       painter.dispose()
@@ -740,7 +800,7 @@ export function useFrameLoop(
   // render rather than only when the pinned clock changes.
   }, [now, rig.moveTo])
 
-  return { lost, panning, redraw }
+  return { lost, redraw, originRef }
 }
 
 /**

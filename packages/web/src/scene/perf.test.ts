@@ -1,3 +1,5 @@
+import v8 from 'node:v8'
+import vm from 'node:vm'
 import { reduceAll } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { buildFleet, fixtureHistory, fleet20Spec, manifestFor, type Fleet } from '../fleet/index.js'
@@ -1516,12 +1518,116 @@ describe('the model floor (#579, prd-33 w2)', () => {
 
       report(
         `model floor 60x3, cut frozen mid-withdraw: ${median(frozen).toFixed(3)} ms median · ` +
-          `cut arriving (field moves every frame): ${median(arriving).toFixed(3)} ms median ` +
+          `${Math.max(...frozen).toFixed(3)} ms worst · ` +
+          `cut arriving (field moves every frame): ${median(arriving).toFixed(3)} ms median · ` +
+          `${Math.max(...arriving).toFixed(3)} ms worst ` +
           `(60fps budget ${FRAME_MS.toFixed(2)} ms)`,
       )
 
       expect(median(frozen)).toBeGreaterThan(0)
       expect(median(arriving)).toBeGreaterThan(0)
+    })
+  }, BENCH_TIMEOUT_MS)
+
+  /**
+   * `globalThis.gc` if the run already exposed it, otherwise one obtained
+   * through v8's own flag seam — vitest runs each file in a worker with its own
+   * isolate, so this works with no `NODE_OPTIONS` and no change to how anyone
+   * runs the suite. `null` when neither route yields a function, which is a
+   * REPORTED condition rather than a failure: CI does not expose gc, and a
+   * silently skipped measurement would read as a verdict it never earned.
+   *
+   * The flag is deliberately not restored — the captured function must stay
+   * valid for the rest of this file, and this is a test worker that exits.
+   */
+  function forcedCollector(): (() => void) | null {
+    const direct = (globalThis as { gc?: () => void }).gc
+    if (typeof direct === 'function') return direct
+    try {
+      v8.setFlagsFromString('--expose_gc')
+      const exposed = vm.runInNewContext('gc') as unknown
+      return typeof exposed === 'function' ? (exposed as () => void) : null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * IS THE VARIANCE GC? (prd-47 ruling 4.)
+   *
+   * The method, and it is the whole point of #160: run the same cell twice,
+   * interleaved, and force a collection **out of band** — immediately before a
+   * sample, outside the timed region — for one of the two series. If the tail
+   * is GC pauses landing inside timed frames, forcing collection between frames
+   * moves them out and `worst/median` collapses toward 1. If it does not
+   * collapse, the attribution was wrong and prd-47 w4 is never built.
+   *
+   * One cell (60x3, the heaviest, where the tail is widest) rather than all
+   * three: this file carries `// @gate-timing`, so `scripts/gate.sh` runs it
+   * serially and alone, and three cells would triple that pass for no extra
+   * signal.
+   *
+   * Reported, never asserted — a wall clock under `--maxWorkers` measures the
+   * box. The verdict is prose, in `research/2026-08-28-variance-attribution.md`
+   * and on #160. The laws below are counts.
+   */
+  it('reports the model floor under forced out-of-band collection (prd-47 ruling 4)', () => {
+    withPath2D(() => {
+      const collect = forcedCollector()
+      const fleets = Array.from({ length: 3 }, (_unused, c) => colonyFleet(60, c))
+      const plain: number[] = []
+      const forced: number[] = []
+      let plainMarks = 0
+      let forcedMarks = 0
+
+      for (let i = 0; i < 8; i += 1) modelFrame(fleets, NOW + i * 16, i, RETURN.tensionMs + 300)
+
+      if (collect === null) {
+        report(
+          'model floor 60x3 under forced collection: NOT MEASURED — no gc function ' +
+            'available in this worker (neither globalThis.gc nor v8 --expose_gc). ' +
+            'Ruling 4 is unanswered by this run; the research note carries the ' +
+            'measurement from a run where it was available.',
+        )
+        return
+      }
+
+      // INTERLEAVED, one of each per round, same instant and same fleets — the
+      // discipline #157 imposed on this file. Timed apart, the two series would
+      // differ by whatever else the box was doing between them, which is
+      // precisely the quantity under test.
+      for (let round = 0; round < ROUNDS; round += 1) {
+        const now = NOW + (8 + round) * 16
+        const bare = modelFrame(fleets, now, 8 + round, RETURN.tensionMs + 300)
+        plain.push(bare.ms)
+        plainMarks = bare.marks
+
+        collect()
+        const after = modelFrame(fleets, now, 8 + round, RETURN.tensionMs + 300)
+        forced.push(after.ms)
+        forcedMarks = after.marks
+      }
+
+      const tail = (of: readonly number[]): number => Math.max(...of) / median(of)
+      report(
+        `model floor 60x3 plain:  ${median(plain).toFixed(3)} ms median · ` +
+          `${Math.max(...plain).toFixed(3)} ms worst · ${tail(plain).toFixed(2)}x tail`,
+      )
+      report(
+        `model floor 60x3 forced: ${median(forced).toFixed(3)} ms median · ` +
+          `${Math.max(...forced).toFixed(3)} ms worst · ${tail(forced).toFixed(2)}x tail ` +
+          '(gc forced out of band, immediately before each sample)',
+      )
+
+      // THE LAW, and it is a count rather than a clock: the two series must have
+      // measured the SAME PICTURE, or a collapsed tail is an artefact of
+      // measuring less work rather than evidence about GC.
+      expect(forcedMarks).toBe(plainMarks)
+      // And both series must be complete. `Math.max(...[])` is -Infinity and
+      // `median([])` is 0, so a loop that silently produced no forced samples
+      // would report a 0x tail — a total collapse — and forge the verdict.
+      expect(plain).toHaveLength(ROUNDS)
+      expect(forced).toHaveLength(ROUNDS)
     })
   }, BENCH_TIMEOUT_MS)
 })
