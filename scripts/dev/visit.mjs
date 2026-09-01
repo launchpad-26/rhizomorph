@@ -22,6 +22,17 @@
  * Usage:
  *   node scripts/dev/visit.mjs [route] [flags]
  *     --shot <path.png>     screenshot after settle (repeatable via --script)
+ *     --capture <path.png>  the sanctioned way to produce a tracked
+ *                           screenshot (prd-43 ruling 4): requires --repo,
+ *                           substitutes a synthetic root for it before the
+ *                           shutter, and writes `<path.png>.manifest.json`
+ *                           recording that root and the shot's own SHA-256.
+ *                           `no-personal-paths-law.test.ts` recomputes the
+ *                           digest and fails a tracked PNG that lacks one or
+ *                           whose manifest names different bytes. THIS DOES
+ *                           NOT STOP FORGERY — see `substituteSyntheticRoot`
+ *                           below and the law's own module doc comment for
+ *                           what the digest actually proves.
  *     --theme dark|light    set data-theme before the shot
  *     --fixture 2|3         press the fixture key (20-lane / pathology)
  *     --repo <path>         RHIZOMORPH_REPO (omit = true first-run)
@@ -33,7 +44,8 @@
  * makes the exit code 1 so a loop cannot mistake a broken surface for a quiet
  * one.
  */
-import { mkdtempSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -60,9 +72,59 @@ const env = {
   RHIZOMORPH_GPU_ENV_APPLIED: '1',
   XDG_CONFIG_HOME: scratchConfig,
 }
+/**
+ * The synthetic root a capture is bound to (ruling 4). `/repo/rhizomorph` —
+ * not an invented path — is the SAME stand-in `packages/core/src/fixtures.ts`
+ * exports as `FIXTURE_REPO_PATH` for the in-app '2'/'3' fixture data, and it
+ * is what every currently-tracked screenshot's manifest already names (readable
+ * in `main-drawer.png` itself, which renders its watched path on screen). A
+ * fixed, shared name, not `mkdtempSync`'s random suffix: the string a reader
+ * sees in the manifest and possibly on screen should be the one this whole
+ * repo already uses for "nobody's real machine," not a fresh guess per run.
+ * `/repo` is a one-time operator setup (`sudo mkdir -p /repo && sudo chown
+ * "$(id -un)" /repo`) — this function fails loudly rather than silently
+ * substituting a different, unrecorded path if that setup hasn't been done.
+ *
+ * Only the ROOT is substituted. The real repo's git history is reached
+ * through the symlink unchanged, so a capture still shows this project's own
+ * real fleet — what changes is the path string the shell is told it is
+ * watching, which is what the app can put on screen (the MAIN drawer names
+ * its watched path).
+ *
+ * WHAT THIS DOES NOT DO: prove the resulting PNG's pixels are clean, or stop
+ * a hand-made (manifest, digest) pair from being forged — the SHA-256 in the
+ * sidecar is computed from whatever bytes actually exist, by this function or
+ * by a person with `sha256sum` and a text editor, identically. Substituting
+ * the root here only means a capture taken THIS way never shows a real path
+ * by construction; it says nothing about a capture not taken this way, which
+ * is why the law names what it can and cannot prove rather than trusting this
+ * comment. See `no-personal-paths-law.test.ts`'s SCREENSHOT BINDING
+ * section.
+ */
+function substituteSyntheticRoot(realRepo) {
+  const syntheticRoot = '/repo/rhizomorph'
+  try {
+    mkdirSync(path.dirname(syntheticRoot), { recursive: true })
+  } catch (err) {
+    throw new Error(
+      `--capture needs a writable ${path.dirname(syntheticRoot)} (one-time setup: sudo mkdir -p ${path.dirname(syntheticRoot)} && sudo chown "$(id -un)" ${path.dirname(syntheticRoot)}): ${err.message}`,
+    )
+  }
+  rmSync(syntheticRoot, { force: true })
+  symlinkSync(path.resolve(realRepo), syntheticRoot)
+  return syntheticRoot
+}
+
+const capturePath = flag('capture')
 const repo = flag('repo')
-if (repo === null) delete env.RHIZOMORPH_REPO
-else env.RHIZOMORPH_REPO = repo
+if (capturePath) {
+  if (repo === null) throw new Error('--capture requires --repo: a manifest with no synthetic root is not a manifest')
+  env.RHIZOMORPH_REPO = substituteSyntheticRoot(repo)
+} else if (repo === null) {
+  delete env.RHIZOMORPH_REPO
+} else {
+  env.RHIZOMORPH_REPO = repo
+}
 
 const app = await _electron.launch({ args: [MAIN], env, cwd: ROOT })
 const window = await app.firstWindow()
@@ -124,6 +186,14 @@ const shot = async (to) => {
 
 const shotPath = flag('shot')
 if (shotPath) await shot(shotPath)
+
+if (capturePath) {
+  await shot(capturePath)
+  const sha256 = createHash('sha256').update(readFileSync(capturePath)).digest('hex')
+  const manifestPath = `${capturePath}.manifest.json`
+  writeFileSync(manifestPath, `${JSON.stringify({ syntheticRoot: env.RHIZOMORPH_REPO, sha256 }, null, 2)}\n`)
+  console.log('manifest:', manifestPath)
+}
 
 const scriptPath = flag('script')
 if (scriptPath) {
