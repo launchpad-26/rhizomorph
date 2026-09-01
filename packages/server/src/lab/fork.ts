@@ -5,7 +5,7 @@ import type { EventOf, Exec, PayloadOf } from '@rhizomorph/core'
 import { createEvent, createIdFactory } from '@rhizomorph/core'
 import { defaultDataRoot, sessionDirFor, sessionFileName } from '../log/paths.js'
 import { findResumableSession, listSessions, readSessionEvents, RESUME_WINDOW_MS } from '../log/session-log.js'
-import { exec as realExec } from '../server/exec.js'
+import { exec as realExec, withTimeout } from '../server/exec.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { armWorktreePath } from './paths.js'
 import {
@@ -102,6 +102,9 @@ export interface DispatchForkResult {
 
 /** prd12 ruling 4: three arms is the floor at which a comparison may say anything at all. */
 export const DEFAULT_ARMS = 3
+
+/** Per-exec ceiling for every subprocess this module spawns — same value as `ROUTE_EXEC_TIMEOUT_MS` / `RETARGET_EXEC_TIMEOUT_MS`. A hung git call or a hung `workmux add` must not hang `dispatchFork` itself. */
+export const FORK_EXEC_TIMEOUT_MS = 5000
 
 /**
  * THE MODEL GRAMMAR (#234's second defect), this side of the seam.
@@ -253,7 +256,18 @@ export async function findCheckpoint(
 // --- dispatch --------------------------------------------------------------------
 
 export async function dispatchFork(options: DispatchForkOptions): Promise<DispatchForkResult> {
-  const exec = options.exec ?? realExec
+  // Deliberately NOT wrapped here. `restoreCheckpoint` → `restoreWorkspace`
+  // does its own `withTimeout(exec, RESTORE_EXEC_TIMEOUT_MS)` (120s, wide
+  // enough for `npm install`) — `withTimeout` always overrides the
+  // `timeoutMs` an outer wrap would try to set, so whichever wrap sits
+  // CLOSER to the raw exec wins. Wrapping here first would fix every
+  // restore call to `FORK_EXEC_TIMEOUT_MS` (5s) regardless of what
+  // `restoreWorkspace` asks for — exactly the composition bug #109 found.
+  // `forkExec` below carries the 5s ceiling for the calls this module makes
+  // directly (`workmux add`, `workmux path`); the raw exec is what reaches
+  // the restore so ITS OWN wrap is the one that ends up governing.
+  const rawExec = options.exec ?? realExec
+  const forkExec = withTimeout(rawExec, FORK_EXEC_TIMEOUT_MS)
   const now = options.now ?? Date.now
   const dataRoot = options.dataRoot ?? defaultDataRoot()
   const parentWorktreePath = path.resolve(options.parentWorktreePath)
@@ -294,7 +308,8 @@ export async function dispatchFork(options: DispatchForkOptions): Promise<Dispat
         treatment,
         parentWorktreePath,
         dataRoot,
-        exec,
+        restoreExec: rawExec,
+        forkExec,
         now,
         recorder,
         nextId,
@@ -313,7 +328,10 @@ interface DispatchArmContext {
   treatment: { model: string | null; promptDigest: string | null }
   parentWorktreePath: string
   dataRoot: string
-  exec: Exec
+  /** Handed to `restoreCheckpoint` UNWRAPPED — its own `RESTORE_EXEC_TIMEOUT_MS` wrap is the one that must govern. */
+  restoreExec: Exec
+  /** `FORK_EXEC_TIMEOUT_MS`-bounded — for the `workmux` calls this module makes directly. */
+  forkExec: Exec
   now: () => number
   recorder: SessionRecorder
   nextId: () => string
@@ -331,7 +349,7 @@ async function dispatchArm(ctx: DispatchArmContext): Promise<DispatchedArm> {
     parentWorktreePath: ctx.parentWorktreePath,
     forkWorktreePath: labWorktreePath,
     dataRoot: ctx.dataRoot,
-    exec: ctx.exec,
+    exec: ctx.restoreExec,
     ...(options.claudeProjectsRoot === undefined ? {} : { claudeProjectsRoot: options.claudeProjectsRoot }),
     ...(sessionUuid === undefined ? {} : { sessionUuid }),
     ...(options.install === undefined ? {} : { install: options.install }),
@@ -343,7 +361,7 @@ async function dispatchArm(ctx: DispatchArmContext): Promise<DispatchedArm> {
   let launcherSession: SynthesizedSession | null = null
 
   if (options.launch === true) {
-    const result = await ctx.exec('workmux', launcherArgv, { cwd: ctx.parentWorktreePath })
+    const result = await ctx.forkExec('workmux', launcherArgv, { cwd: ctx.parentWorktreePath })
     if (result.failed) {
       const detail = result.stderr.trim() || result.errorMessage || `exit ${result.code}`
       throw new Error(`workmux ${launcherArgv.join(' ')} failed: ${detail}`)
@@ -352,7 +370,7 @@ async function dispatchArm(ctx: DispatchArmContext): Promise<DispatchedArm> {
 
     // Whichever tree workmux put the agent in is the tree its session must
     // name. Ruling 5 is about the agent's cwd, not about ours.
-    const reported = await workmuxWorktreePath(ctx.exec, ctx.parentWorktreePath, laneHandle)
+    const reported = await workmuxWorktreePath(ctx.forkExec, ctx.parentWorktreePath, laneHandle)
     if (reported !== null && reported !== labWorktreePath) {
       worktreePath = reported
       // Session only, no workspace restore: workmux already made that tree,

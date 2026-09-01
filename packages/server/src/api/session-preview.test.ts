@@ -15,6 +15,7 @@ import {
   previewSession,
   registerSessionPreviewRoute,
 } from './session-preview.js'
+import { capabilityHeaders, TEST_CAPABILITY_TOKEN } from './test-support.js'
 
 /**
  * The two places this route can ever touch a filesystem — `candidateTranscriptPaths`
@@ -242,9 +243,11 @@ describe('GET /api/session-preview/:sessionId', () => {
   function makeApp(events: readonly RhizomorphEvent[] = sessionEvents()) {
     const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'), { resumeFrom: events })
     const app = Fastify()
-    registerSessionPreviewRoute(app, { repoPath: '/repo', repoName: 'repo', sessionDir, recorder }, {
-      claudeProjectsRoot: projectsRoot,
-    })
+    registerSessionPreviewRoute(
+      app,
+      { repoPath: '/repo', repoName: 'repo', sessionDir, recorder, capabilityToken: TEST_CAPABILITY_TOKEN },
+      { claudeProjectsRoot: projectsRoot },
+    )
     return app
   }
 
@@ -267,6 +270,7 @@ describe('GET /api/session-preview/:sessionId', () => {
         const response = await app.inject({
           method: 'GET',
           url: `/api/session-preview/${encodeURIComponent(bad)}`,
+          headers: capabilityHeaders(TEST_CAPABILITY_TOKEN),
         })
 
         expect(response.statusCode).toBe(400)
@@ -278,7 +282,11 @@ describe('GET /api/session-preview/:sessionId', () => {
     it('400s on the empty case too — the router does pass an empty :sessionId segment through', async () => {
       const app = makeApp()
 
-      const response = await app.inject({ method: 'GET', url: '/api/session-preview/' })
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/session-preview/',
+        headers: capabilityHeaders(TEST_CAPABILITY_TOKEN),
+      })
 
       expect(response.statusCode).toBe(400)
       expect(vi.mocked(candidateTranscriptPaths)).not.toHaveBeenCalled()
@@ -303,7 +311,11 @@ describe('GET /api/session-preview/:sessionId', () => {
   })
 
   it('404s with the honest reason for a genuinely unknown session id', async () => {
-    const response = await makeApp().inject({ method: 'GET', url: '/api/session-preview/no-such-session' })
+    const response = await makeApp().inject({
+      method: 'GET',
+      url: '/api/session-preview/no-such-session',
+      headers: capabilityHeaders(TEST_CAPABILITY_TOKEN),
+    })
 
     expect(response.statusCode).toBe(404)
     const body = response.json()
@@ -312,7 +324,11 @@ describe('GET /api/session-preview/:sessionId', () => {
   })
 
   it('200s, available:false, for a known session whose transcript is not on disk', async () => {
-    const response = await makeApp().inject({ method: 'GET', url: `/api/session-preview/${SESSION_ID}` })
+    const response = await makeApp().inject({
+      method: 'GET',
+      url: `/api/session-preview/${SESSION_ID}`,
+      headers: capabilityHeaders(TEST_CAPABILITY_TOKEN),
+    })
 
     expect(response.statusCode).toBe(200)
     const body = response.json()
@@ -323,7 +339,11 @@ describe('GET /api/session-preview/:sessionId', () => {
   it('200s with the place and first user message for a session whose transcript is on disk', async () => {
     await writeSessionFile([userLine('hello there'), assistantLine('hi')])
 
-    const response = await makeApp().inject({ method: 'GET', url: `/api/session-preview/${SESSION_ID}` })
+    const response = await makeApp().inject({
+      method: 'GET',
+      url: `/api/session-preview/${SESSION_ID}`,
+      headers: capabilityHeaders(TEST_CAPABILITY_TOKEN),
+    })
 
     expect(response.statusCode).toBe(200)
     const body = response.json()
@@ -340,16 +360,27 @@ describe('GET /api/session-preview/:sessionId', () => {
     const app = makeApp()
 
     for (const method of ['POST', 'PUT', 'PATCH', 'DELETE'] as const) {
-      const response = await app.inject({ method, url: `/api/session-preview/${SESSION_ID}` })
+      const response = await app.inject({
+        method,
+        url: `/api/session-preview/${SESSION_ID}`,
+        headers: capabilityHeaders(TEST_CAPABILITY_TOKEN),
+      })
       expect(response.statusCode).toBe(404)
     }
   })
 
-  it('is registered on the real app, untokened like /api/doctor, and still refuses a POST', async () => {
+  it('is registered on the real app, gated like the rest of wave 1, and still refuses a POST', async () => {
     const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'), { resumeFrom: [] })
     const app = buildApp({ repoPath: '/repo', repoName: 'repo', sessionDir, recorder })
 
-    const get = await app.inject({ method: 'GET', url: '/api/session-preview/nobody' })
+    const bare = await app.inject({ method: 'GET', url: '/api/session-preview/nobody' })
+    expect(bare.statusCode).toBe(401)
+
+    const get = await app.inject({
+      method: 'GET',
+      url: '/api/session-preview/nobody',
+      headers: capabilityHeaders(app),
+    })
     expect(get.statusCode).toBe(404)
     expect(get.json().available).toBe(false)
 

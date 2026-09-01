@@ -171,17 +171,24 @@ the strength of a `Host` header any caller writes freely. A read that requires
 the token is now its own class, `gated-read`, and these `GET` routes carry the
 same `requireCapabilityToken` the mutations do: `/api/sessions`,
 `/api/sessions/:id/events`, `/api/lanes`, `/api/transcript/:lane`,
-`/api/lab/checkpoints`, `/api/lab/experiments` and `/api/lab/estimate`.
+`/api/lab/checkpoints`, `/api/lab/experiments`, `/api/lab/estimate`, the four
+reads that postdate the route arithmetic — `/api/lane-index`,
+`/api/lane-index/:handle`, `/api/session-preview/:sessionId` and
+`/api/concierge/repos` (prd-29 ruling 7, #58) — then, as of wave 2a (prd-29
+ruling 7, #59), `/api/meta` and `/api/doctor` themselves, and as of wave 2b
+(prd-29 ruling 4, #60), `/api/stream`. The stream carries the same gate as the
+rest, with one addition: because `EventSource` cannot set a custom header at
+all, its `preHandler` also accepts the token from an HttpOnly, SameSite=Strict
+cookie the HTML serve sets beside the meta tag. That cookie is an alternate
+credential on `gated-read` routes ONLY — no mutation honours it, and
+`api/security.test.ts` asserts that refusal against the very default gate every
+mutation uses, rather than trusting the wiring to stay right.
 
-What is *not* gated yet, stated here rather than left to be discovered:
-`/api/meta`, `/api/doctor` and `/api/stream` are deferred to prd-29's wave 2, so
-no consumer outside the dashboard breaks mid-milestone; and the four reads that postdate
-that route arithmetic — `/api/lane-index`, `/api/lane-index/:handle`,
-`/api/session-preview/:sessionId` and `/api/concierge/repos` — were ruled into
-`gated-read` on 2026-08-24 (prd-29 ruling 7) and are still classed `read` in
-code. `GET /*` stays tokenless **forever**, named that way in its own row: it
-is the bootstrap the in-band `<meta>` delivery above depends on, and gating it
-would break both the browser's first paint and `rhizomorph rotate`'s scrape.
+What is *not* gated, stated here rather than left to be discovered: `GET /*`,
+and now only `GET /*`. It stays tokenless **forever**, named that way in its
+own row: it is the bootstrap the in-band `<meta>` delivery above depends on,
+and gating it would break both the browser's first paint and
+`rhizomorph rotate`'s scrape.
 The ceiling stated above applies to all of this without exception — read-gating
 cannot stop a local process that can already fetch the page, and nothing here
 should be read as claiming otherwise.

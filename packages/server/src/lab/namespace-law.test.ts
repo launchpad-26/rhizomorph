@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -437,7 +437,7 @@ describe('the lab namespace law, live (prd12 ruling 1, #153)', () => {
     await rm(root, { recursive: true, force: true })
   })
 
-  async function forkThreeArms(): Promise<void> {
+  async function forkThreeArms(options: { install?: boolean } = {}): Promise<void> {
     await captureCheckpoint({
       lane: 'law-lane',
       worktreePath: repoDir,
@@ -456,7 +456,7 @@ describe('the lab namespace law, live (prd12 ruling 1, #153)', () => {
       dataRoot,
       claudeProjectsRoot,
       exec: realExec,
-      install: false,
+      install: options.install ?? false,
       now: () => 1_000_100,
     })
   }
@@ -469,6 +469,37 @@ describe('the lab namespace law, live (prd12 ruling 1, #153)', () => {
 
     expect(git(['status', '--porcelain'])).toBe(before)
     expect(treeListing(repoDir).filter((entry) => !entry.startsWith('.git'))).toEqual(listingBefore)
+  })
+
+  /**
+   * prd41 ruling 1 — a restored tree is data, never code. `restoreWorkspace`
+   * (`restore.ts:293`) runs `npm install --no-audit --no-fund` with no
+   * `--ignore-scripts`, so a `postinstall` hook in the checkpointed tree
+   * executes as the operator. The fixture's `postinstall` writes a file into
+   * the WATCHED repo's own working tree — outside every namespace ruling 1
+   * grants (`refs/rhizomorph/`, git objects, the lab's own worktrees) — using
+   * an absolute path baked in at fixture-creation time, since the hook runs
+   * from the arm's own worktree, not from `repoDir`.
+   *
+   * This must fail today: nothing on the install path passes
+   * `--ignore-scripts`, so the write lands and the assertion below is false.
+   * The red result is the point — wave 2 makes it pass.
+   */
+  it('an install does not run a postinstall hook that escapes into the watched repo (prd41 ruling 1)', async () => {
+    const escapeTarget = path.join(repoDir, 'postinstall-escaped.txt')
+
+    await writeFile(
+      path.join(repoDir, 'package.json'),
+      `${JSON.stringify({ name: 'fixture', version: '1.0.0', scripts: { postinstall: 'node postinstall.cjs' } }, null, 2)}\n`,
+    )
+    await writeFile(
+      path.join(repoDir, 'postinstall.cjs'),
+      `require('fs').writeFileSync(${JSON.stringify(escapeTarget)}, 'escaped\\n')\n`,
+    )
+
+    await forkThreeArms({ install: true })
+
+    expect(existsSync(escapeTarget)).toBe(false)
   })
 
   it('creates refs ONLY under refs/rhizomorph/ — no branch, no tag, no remote ref', async () => {

@@ -7,7 +7,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Exec, ExecResult } from '@rhizomorph/core'
 import { createEventFactory, eventsToJsonl } from '@rhizomorph/core'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
 import { runCli } from '../cli/index.js'
 import { sessionFileName } from '../log/paths.js'
@@ -16,7 +16,10 @@ import { buildApp } from '../server/build-app.js'
 import { exec as realExec } from '../server/exec.js'
 import { SessionRecorder } from '../server/recorder.js'
 import {
+  LAB_CLI_LOCK_CEILING_MS,
+  LabCliLockCeilingError,
   LaunchValidationError,
+  MAX_ARMS,
   MODEL_GRAMMAR,
   estimateLaunchSpend,
   launchExperiment,
@@ -378,6 +381,262 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
   })
 
   /**
+   * prd41 ruling 4 — the arm-count ceiling, at the entry point: refused
+   * before anything is dispatched. `exec` fails the test if anything is
+   * executed, the same proof `MODEL_GRAMMAR`'s refusal above already uses.
+   */
+  it(`refuses more than MAX_ARMS (${MAX_ARMS}) arms before touching the laboratory at all`, async () => {
+    const neverRuns: Exec = async (command, argv) => {
+      throw new Error(`nothing should have been executed, but got: ${command} ${argv.join(' ')}`)
+    }
+    const arms = Array.from({ length: MAX_ARMS + 1 }, () => ({}))
+
+    await expect(
+      launchExperiment({ lane: 'x', checkpointId: 'y', arms }, { repoPath: repoDir, exec: neverRuns }),
+    ).rejects.toThrow(new RegExp(`may not exceed ${MAX_ARMS}`))
+  })
+
+  /** The other side of the ceiling: exactly MAX_ARMS is not refused. */
+  it(`dispatches exactly MAX_ARMS (${MAX_ARMS}) arms — the ceiling itself is accepted`, async () => {
+    const checkpointId = await seedCheckpoint('lane-ceiling', () => 1_000_000)
+    const exec = execWithStubs((command) => (command === 'workmux' ? OK : null))
+    const arms = Array.from({ length: MAX_ARMS }, () => ({ model: 'opus' }))
+
+    const result = await launchExperiment(
+      { lane: 'lane-ceiling', checkpointId, arms },
+      { repoPath: repoDir, exec, dataRoot, claudeProjectsRoot, now: () => 2_000_000 },
+    )
+
+    expect(result.failed).toBeNull()
+    expect(result.arms).toHaveLength(MAX_ARMS)
+  })
+
+  /**
+   * `withLabCliLock`'s module-level queue outlives any one test — a genuinely
+   * never-settling `exec` would leave every LATER test in this file (and the
+   * route describe block below) queued forever behind it. This gate stays
+   * pending for exactly as long as the test needs it wedged, and is always
+   * released (and drained) before the test returns, so the lock is clear for
+   * whatever runs next.
+   */
+  function hangingExecGate(): { exec: Exec; release: () => void } {
+    let release = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const exec: Exec = async () => {
+      await gate
+      return OK
+    }
+    return { exec, release }
+  }
+
+  /**
+   * prd41 ruling 2 — the lock ceiling. A first launch's `exec` does not
+   * resolve, so `withLabCliLock` does not clear; a second launch queued
+   * behind it must refuse once it has waited past the ceiling, not hang
+   * forever. `lockCeilingMs` is a test seam (production takes the default);
+   * `vi.useFakeTimers` fires that ceiling deterministically, mirroring
+   * `poll-loop.test.ts`'s own watchdog tests rather than a real wait.
+   */
+  it('a second launch queued behind a wedged lock refuses with LabCliLockCeilingError, naming what it waited on, rather than hanging', async () => {
+    vi.useFakeTimers()
+    try {
+      const checkpointId = await seedCheckpoint('lane-wedged', () => 1_000_000)
+      const { exec: hangingExec, release } = hangingExecGate()
+
+      const first = launchExperiment(
+        { lane: 'lane-wedged', checkpointId, arms: [{ model: 'opus' }] },
+        { repoPath: repoDir, exec: hangingExec, dataRoot, claudeProjectsRoot, now: () => 2_000_000, lockCeilingMs: 30_000 },
+      )
+      // Let `first` actually take the lock (its own `withLabCliLock` call
+      // resolves an already-settled `previous` via a microtask) before
+      // `second` reads what it's waiting on — otherwise `second` can be
+      // constructed in the same tick, before `first` has claimed the label.
+      await Promise.resolve()
+      await Promise.resolve()
+
+      try {
+        const second = launchExperiment(
+          { lane: 'lane-wedged', checkpointId, arms: [{ model: 'sonnet' }] },
+          { repoPath: repoDir, exec: hangingExec, dataRoot, claudeProjectsRoot, now: () => 2_000_000, lockCeilingMs: 30_000 },
+        )
+        const assertion = expect(second).rejects.toThrow(LabCliLockCeilingError)
+        await vi.advanceTimersByTimeAsync(30_000)
+        await assertion
+
+        // Naming what it waited on: the first arm's own diagnostic label.
+        await expect(second).rejects.toThrow(/arm 1 for lane "lane-wedged"/)
+      } finally {
+        // Let the wedged call (and anything still queued behind it) actually
+        // finish, so the module-level lock is clear before the next test runs.
+        release()
+        await first.catch(() => {})
+      }
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  /**
+   * The other half of "refuse, never queue" (prd41 ruling 2): a caller that
+   * gave up must never reach `exec` at all once its own turn arrives, even
+   * after the holder it was waiting on eventually clears. The test above only
+   * asserts `second`'s own promise rejects — that rejection is guaranteed by
+   * `Promise.race` regardless of whether `withLabCliLock` still runs `fn` for
+   * `second` afterward. This counts real invocations of the underlying `exec`
+   * instead, which is what would actually change if `withLabCliLock`'s
+   * `gaveUp` guard were removed: a refused caller's own `runLabCliOnce` would
+   * still run once the queue reaches its turn, spending real money nobody was
+   * watching for — the exact failure prd41 ruling 2 exists to close.
+   */
+  it(
+    'a caller that gave up never reaches exec, even after the holder it waited on finally clears',
+    async () => {
+      const checkpointId = await seedCheckpoint('lane-wedged-noop', () => 1_000_000)
+
+      // `first` and `second` each get their OWN exec/counter — `first`
+      // legitimately makes several exec calls once unblocked (git, npm,
+      // workmux, ...), so a single shared counter can't tell "first kept
+      // going" apart from "second ran too." Only `secondExecCalls` matters.
+      let firstExecCalls = 0
+      let releaseFirst = () => {}
+      const firstGate = new Promise<void>((resolve) => {
+        releaseFirst = resolve
+      })
+      const firstExec: Exec = async () => {
+        firstExecCalls += 1
+        await firstGate
+        return OK
+      }
+
+      let secondExecCalls = 0
+      const secondExec: Exec = async () => {
+        secondExecCalls += 1
+        return OK
+      }
+
+      const first = launchExperiment(
+        { lane: 'lane-wedged-noop', checkpointId, arms: [{ model: 'opus' }] },
+        { repoPath: repoDir, exec: firstExec, dataRoot, claudeProjectsRoot, now: () => 2_000_000, lockCeilingMs: 100 },
+      )
+
+      // Real, generously-bounded wait — NOT fake-timer ticks — for `first` to
+      // actually reach its first exec call and hang there. Getting there
+      // involves real subprocess/filesystem work (checkpoint resolution, git
+      // worktree add) whose duration varies with machine load; a fixed
+      // fake-timer tick count is not a reliable proxy for "enough real time
+      // has passed" and was measured flaky under CI load (#10's own PR CI).
+      const reachedExecDeadline = Date.now() + 10_000
+      while (firstExecCalls === 0 && Date.now() < reachedExecDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+      expect(firstExecCalls).toBeGreaterThan(0)
+
+      // Fake timers are scoped tightly to JUST the ceiling race below — a
+      // fast, deterministic 100ms of simulated time with no real I/O
+      // dependency — so a hang here can't leak fake timers into later tests
+      // in this file the way the unscoped version once did.
+      vi.useFakeTimers()
+      try {
+        // A small, real lock ceiling (100ms) — far below any per-exec
+        // `withTimeout` ceiling #8 wires into this same call chain. The call
+        // `first` is wedged on is `restoreWorkspace`'s `git worktree add`, so
+        // that ceiling is `RESTORE_EXEC_TIMEOUT_MS` (120s), not `fork.ts`'s
+        // `FORK_EXEC_TIMEOUT_MS` — see `lab/fork.ts:259` for why the restore
+        // path is deliberately left for `restore.ts` to bound. A ceiling here
+        // on the order of a per-exec one would let that unrelated timeout fire
+        // first once fake time is advanced past it, unwinding `first`'s hang
+        // on its own and confounding what this test means to isolate:
+        // `withLabCliLock`'s OWN ceiling, not the exec-level one.
+        //
+        // Belt and braces either way: `firstExec` is an injected mock that
+        // ignores `options.timeoutMs` entirely, so no per-exec timer exists
+        // here for fake time to advance onto. The margin is what keeps that
+        // true if this test is ever pointed at a real exec.
+        const second = launchExperiment(
+          { lane: 'lane-wedged-noop', checkpointId, arms: [{ model: 'sonnet' }] },
+          { repoPath: repoDir, exec: secondExec, dataRoot, claudeProjectsRoot, now: () => 2_000_000, lockCeilingMs: 100 },
+        )
+        const assertion = expect(second).rejects.toThrow(LabCliLockCeilingError)
+        await vi.advanceTimersByTimeAsync(100)
+        await assertion
+      } finally {
+        vi.useRealTimers()
+      }
+
+      // `second` gave up without ever reaching its own exec.
+      expect(secondExecCalls).toBe(0)
+
+      // Let `first` clear (and anything genuinely still queued behind it) —
+      // a caller that already gave up must not run now that its turn has
+      // actually arrived, which is exactly what a missing `gaveUp` guard in
+      // `withLabCliLock` would let happen. `first` itself may keep calling
+      // its own exec freely now — irrelevant to what this checks. Real,
+      // generously-bounded wait again, for the same reason as above.
+      releaseFirst()
+      await first.catch(() => {})
+      // A short real delay for anything chained behind `first`'s own
+      // settlement (the queue's `.then` reassignment) to actually run —
+      // not a fixed multi-second sleep, since `first` has already settled
+      // by this point and nothing further here depends on real subprocess
+      // I/O.
+      await new Promise((resolve) => setTimeout(resolve, 200))
+
+      expect(secondExecCalls).toBe(0)
+    },
+    20_000,
+  )
+
+  /**
+   * The same scenario, over the actual route this ceiling protects — a real
+   * `POST /api/lab/launch` must 503 rather than hang. The route has no seam
+   * to inject a hung `exec` of its own, so the occupying call reaches the lab
+   * CLI lock directly (it is process-wide, not per-request) — the same lock
+   * `registerLabRoutes` below serialises every launch through. The queued
+   * HTTP request never has its own `exec` reached at all: it gives up before
+   * its turn arrives, which is the whole point of "refuse, never queue."
+   */
+  it('a second POST /api/lab/launch 503s rather than hangs behind a wedged lock (prd41 ruling 2)', async () => {
+    vi.useFakeTimers()
+    const sessionDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-lab-lock-route-dir-'))
+    try {
+      const checkpointId = await seedCheckpoint('lane-wedged-route', () => 1_000_000)
+      const { exec: hangingExec, release } = hangingExecGate()
+
+      const occupying = launchExperiment(
+        { lane: 'lane-wedged-route', checkpointId, arms: [{ model: 'opus' }] },
+        { repoPath: repoDir, exec: hangingExec, dataRoot, claudeProjectsRoot, now: () => 2_000_000 },
+      )
+
+      try {
+        const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+        const app = buildApp({ repoPath: repoDir, repoName: 'repo', sessionDir, recorder })
+
+        const responsePromise = app.inject({
+          method: 'POST',
+          url: '/api/lab/launch',
+          headers: { [CAPABILITY_TOKEN_HEADER]: app.capabilityToken },
+          payload: { lane: 'lane-wedged-route', checkpointId, arms: [{ model: 'sonnet' }] },
+        })
+
+        await vi.advanceTimersByTimeAsync(LAB_CLI_LOCK_CEILING_MS)
+        const response = await responsePromise
+
+        expect(response.statusCode).toBe(503)
+        const { error } = response.json() as { error: string }
+        expect(error).toMatch(/arm 1 for lane "lane-wedged-route"/)
+      } finally {
+        release()
+        await occupying.catch(() => {})
+      }
+    } finally {
+      vi.useRealTimers()
+      await rm(sessionDir, { recursive: true, force: true })
+    }
+  })
+
+  /**
    * #234's second defect, at the entry point rather than over HTTP: the
    * refusal must be a `LaunchValidationError` (which the route renders as a
    * 400) and it must arrive before `runCli` is reached, so no worktree is
@@ -565,6 +824,73 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
     expect(result.arms).toHaveLength(0)
     expect(result.failed?.arm).toBe(1)
     expect(result.failed?.error).toMatch(/no checkpoint "nope"/)
+  })
+
+  /**
+   * #10: `runLabCliOnce` used to replace `process.stderr.write` for the whole
+   * duration of the CLI call, process-wide — so a `console.error` from
+   * anything else running concurrently (another request, a background loop,
+   * #239's degrade reporting) landed in the buffer this route builds
+   * `failed.error` from, and never reached the operator's real stderr at all.
+   * Stubs `workmux` to hang until this test writes an unrelated
+   * `console.error`, THEN fail — reproducing a slow fork with something else
+   * writing to stderr mid-flight. Both halves must hold: the outside write
+   * reaches the real stream, and it never leaks into this arm's own failure.
+   *
+   * Writes `process.stderr.write` directly rather than through
+   * `console.error` — vitest's own reporter intercepts `console.*` before it
+   * ever reaches `process.stderr.write`, which would make this assert nothing
+   * about the code under test either way; `console.error` (like every
+   * lab-subcommand error path in `cli/index.ts`) is itself just a caller of
+   * `process.stderr.write`, which is the actual seam this issue is about.
+   */
+  it('a console.error raised outside the lab during a stubbed slow fork reaches real stderr and is absent from failed.error', async () => {
+    const checkpointId = await seedCheckpoint('lane-outside-stderr', () => 1_000_000)
+
+    let markWorkmuxStarted: () => void = () => {}
+    const workmuxStarted = new Promise<void>((resolve) => {
+      markWorkmuxStarted = resolve
+    })
+    let releaseWorkmux: () => void = () => {}
+    const workmuxGate = new Promise<void>((resolve) => {
+      releaseWorkmux = resolve
+    })
+
+    const exec: Exec = async (command, args, execOptions) => {
+      if (command !== 'workmux') return realExec(command, args, execOptions)
+      markWorkmuxStarted()
+      await workmuxGate
+      return { stdout: '', stderr: 'workmux: tmux server not running', code: 1, failed: true }
+    }
+
+    const realWrites: string[] = []
+    const originalWrite = process.stderr.write.bind(process.stderr)
+    process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+      realWrites.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'))
+      return (originalWrite as unknown as (...args: unknown[]) => boolean)(chunk, ...rest)
+    }) as typeof process.stderr.write
+
+    try {
+      const launchPromise = launchExperiment(
+        { lane: 'lane-outside-stderr', checkpointId, arms: [{ model: 'opus' }] },
+        { repoPath: repoDir, exec, dataRoot, claudeProjectsRoot, now: () => 2_000_000 },
+      )
+
+      // Wait until the "fork" is genuinely mid-flight (blocked on workmux)
+      // before the outside write happens, and only then let it fail.
+      await workmuxStarted
+      process.stderr.write('OUTSIDE-STDERR-MARKER: an unrelated write during the slow fork\n')
+      releaseWorkmux()
+
+      const result = await launchPromise
+
+      expect(result.failed?.arm).toBe(1)
+      expect(result.failed?.error).toMatch(/tmux server not running/)
+      expect(result.failed?.error).not.toMatch(/OUTSIDE-STDERR-MARKER/)
+      expect(realWrites.some((chunk) => chunk.includes('OUTSIDE-STDERR-MARKER'))).toBe(true)
+    } finally {
+      process.stderr.write = originalWrite
+    }
   })
 })
 
@@ -892,15 +1218,46 @@ describe("the lab launch path is reachable only from an explicit request (prd12 
 
   const LAUNCH_ENTRY_RE = /\blaunchExperiment\b/
 
-  it('api/lab.ts has no clock of its own — the launch route never fires without an incoming request', () => {
+  /**
+   * `setInterval`/`setImmediate` are the two primitives capable of firing on
+   * their own schedule, independent of any one request — a repeating timer or
+   * a reentrant microtask loop is what "a clock of its own" means here.
+   * `setTimeout` is checked separately, immediately below: prd41 ruling 2
+   * gave this file exactly one, and it is request-scoped (the lock ceiling),
+   * not a clock — pinning it that way is more precise than banning the
+   * primitive outright.
+   */
+  it('api/lab.ts has no clock of its own — no repeating or reentrant trigger fires without an incoming request', () => {
     const source = readFileSync(LAB_ROUTE_FILE, 'utf8')
-    expect(/\b(setInterval|setTimeout|setImmediate)\s*\(/.test(source)).toBe(false)
+    expect(/\b(setInterval|setImmediate)\s*\(/.test(source)).toBe(false)
   })
 
   it('that detector bites — a scheduled launch would be caught', () => {
-    expect(
-      /\b(setInterval|setTimeout|setImmediate)\s*\(/.test('setInterval(() => launchExperiment(x, y), 60_000)'),
-    ).toBe(true)
+    expect(/\b(setInterval|setImmediate)\s*\(/.test('setInterval(() => launchExperiment(x, y), 60_000)')).toBe(true)
+  })
+
+  /**
+   * prd41 ruling 2's lock ceiling is the one `setTimeout` this file has —
+   * pinned to exactly one, and proven request-scoped rather than a clock:
+   * its callback only rejects an already-outstanding promise
+   * (`withLabCliLock`'s `ceilingReached`), it never calls `launchExperiment`,
+   * `runLabCliOnce` or `runCli`, and nothing rearms it. A future `setTimeout`
+   * added anywhere else in this file reds this pin rather than silently
+   * widening what "no clock of its own" actually covers.
+   */
+  it("the lock ceiling's setTimeout is the only one in this file, and its callback never reaches the launch entry point or the CLI invoker", () => {
+    const source = readFileSync(LAB_ROUTE_FILE, 'utf8')
+    const calls = source.match(/\bsetTimeout\s*\(/g) ?? []
+    expect(calls).toHaveLength(1)
+
+    const start = source.indexOf('ceilingTimer = setTimeout(')
+    expect(start).toBeGreaterThan(-1)
+    const end = source.indexOf('}, ceilingMs)', start)
+    expect(end).toBeGreaterThan(start)
+    const callback = source.slice(start, end)
+
+    expect(LAUNCH_ENTRY_RE.test(callback)).toBe(false)
+    expect(/\brunLabCliOnce\b|\brunCli\s*\(/.test(callback)).toBe(false)
   })
 
   it('no collector and no poll loop names the launch entry point — stated by name, not left to the sweep', () => {

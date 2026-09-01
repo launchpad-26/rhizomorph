@@ -51,7 +51,7 @@ describe('GET /api/meta', () => {
       })
 
       const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
-      const response = await app.inject({ method: 'GET', url: '/api/meta' })
+      const response = await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })
 
       expect(response.statusCode).toBe(200)
       const body = response.json() as Record<string, unknown>
@@ -84,7 +84,7 @@ describe('GET /api/meta', () => {
       })
 
       const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
-      const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as Record<string, unknown>
+      const body = (await (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()) as Record<string, unknown>
 
       expect(body).toMatchObject({ lastBootReason: 'writer-alive' })
     } finally {
@@ -111,11 +111,11 @@ describe('GET /api/meta', () => {
       const resumedApp = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder: resumedRecorder })
       const freshApp = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder: freshRecorder })
 
-      const resumedBody = (await (await resumedApp.inject({ method: 'GET', url: '/api/meta' })).json()) as Record<
+      const resumedBody = (await (await resumedApp.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(resumedApp) })).json()) as Record<
         string,
         unknown
       >
-      const freshBody = (await (await freshApp.inject({ method: 'GET', url: '/api/meta' })).json()) as Record<
+      const freshBody = (await (await freshApp.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(freshApp) })).json()) as Record<
         string,
         unknown
       >
@@ -133,7 +133,7 @@ describe('GET /api/meta', () => {
       const recorder = new SessionRecorder('3000', sessionFilePath(sessionDir, '3000'))
       const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
-      const response = await app.inject({ method: 'GET', url: '/api/meta' })
+      const response = await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })
 
       expect(response.statusCode).toBe(200)
       const body = response.json() as Record<string, unknown>
@@ -158,7 +158,7 @@ describe('GET /api/meta', () => {
       )
       const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
-      const response = await app.inject({ method: 'GET', url: '/api/meta' })
+      const response = await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })
       const body = response.json() as Record<string, unknown>
       expect(body.eventCount).toBe(1)
     } finally {
@@ -197,7 +197,7 @@ describe('GET /api/meta', () => {
       const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
       const countNow = async () => {
-        const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as Record<string, unknown>
+        const body = (await (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()) as Record<string, unknown>
         return body.eventCount
       }
 
@@ -226,7 +226,7 @@ describe('GET /api/meta', () => {
         const recorder = new SessionRecorder('5000', sessionFilePath(sessionDir, '5000'))
         const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
-        const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as {
+        const body = (await (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()) as {
           rung: string
           capabilities: Record<string, { attention: { level: string } }>
         }
@@ -266,7 +266,7 @@ describe('GET /api/meta', () => {
         )
         const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
-        const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as {
+        const body = (await (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()) as {
           rung: string
           capabilities: Record<string, AdapterCapabilitiesForTest>
         }
@@ -294,7 +294,7 @@ describe('GET /api/meta', () => {
         const recorder = new SessionRecorder('6500', sessionFilePath(sessionDir, '6500'))
         const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
-        const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as {
+        const body = (await (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()) as {
           capabilities: Record<string, AdapterCapabilitiesForTest>
         }
 
@@ -321,7 +321,7 @@ describe('GET /api/meta', () => {
         )
         const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
-        const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as {
+        const body = (await (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()) as {
           rung: string
           capabilities: Record<string, AdapterCapabilitiesForTest>
         }
@@ -350,7 +350,7 @@ describe('GET /api/meta', () => {
         )
         const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
-        const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as {
+        const body = (await (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()) as {
           rung: string
           capabilities: Record<string, AdapterCapabilitiesForTest>
         }
@@ -377,7 +377,7 @@ describe('GET /api/meta', () => {
         })
         const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
-        const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as Record<
+        const body = (await (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()) as Record<
           string,
           unknown
         >
@@ -418,7 +418,7 @@ describe('GET /api/meta', () => {
         const recorder = new SessionRecorder('9000', sessionFilePath(sessionDir, '9000'))
         const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
-        const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as {
+        const body = (await (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()) as {
           connection: {
             git: SourceFlowForTest
             tmux: SourceFlowForTest
@@ -453,7 +453,7 @@ describe('GET /api/meta', () => {
         )
         const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
-        const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as {
+        const body = (await (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()) as {
           connection: { git: SourceFlowForTest }
         }
 
@@ -482,7 +482,7 @@ describe('GET /api/meta', () => {
         )
         const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
-        const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as {
+        const body = (await (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()) as {
           connection: { refusals: { count: number; instance: string | null; expectedInstance: string | null } }
         }
 
@@ -509,7 +509,7 @@ describe('GET /api/meta', () => {
         )
         const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
-        const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as {
+        const body = (await (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()) as {
           connection: { otel: SourceFlowForTest }
         }
 
@@ -539,7 +539,7 @@ describe('GET /api/meta', () => {
         )
         const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
-        const body = (await (await app.inject({ method: 'GET', url: '/api/meta' })).json()) as {
+        const body = (await (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()) as {
           connection: { refusals: { count: number; instance: string | null; expectedInstance: string | null } }
         }
 

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { sessionFilePath } from '../log/session-log.js'
 import { buildApp } from '../server/build-app.js'
 import { SessionRecorder } from '../server/recorder.js'
+import { capabilityHeaders } from './test-support.js'
 import { flushBacklog, REPLAY_BATCH_SIZE, resumeBacklog, streamBacklogThenLive, type EventSink } from './stream.js'
 
 function event(id: string, ts: number): RhizomorphEvent {
@@ -260,7 +261,12 @@ describe('GET /api/stream resume (#166)', () => {
 
     const app = makeApp()
     await app.ready()
-    const response = await app.inject({ method: 'GET', url: '/api/stream', payloadAsStream: true })
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/stream',
+      headers: capabilityHeaders(app),
+      payloadAsStream: true,
+    })
     const stream = response.stream()
     const text = await readUntil(stream, (t) => t.includes('evt-2'))
 
@@ -281,7 +287,7 @@ describe('GET /api/stream resume (#166)', () => {
     const response = await app.inject({
       method: 'GET',
       url: '/api/stream',
-      headers: { 'last-event-id': 'evt-1' },
+      headers: { ...capabilityHeaders(app), 'last-event-id': 'evt-1' },
       payloadAsStream: true,
     })
     const stream = response.stream()
@@ -310,7 +316,7 @@ describe('GET /api/stream resume (#166)', () => {
     const response = await app.inject({
       method: 'GET',
       url: '/api/stream',
-      headers: { 'last-event-id': 'evt-from-a-restarted-session' },
+      headers: { ...capabilityHeaders(app), 'last-event-id': 'evt-from-a-restarted-session' },
       payloadAsStream: true,
     })
     const stream = response.stream()
@@ -346,7 +352,12 @@ describe('GET /api/stream resume (#166)', () => {
 
     const app = makeApp()
     await app.ready()
-    const response = await app.inject({ method: 'GET', url: '/api/stream', payloadAsStream: true })
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/stream',
+      headers: capabilityHeaders(app),
+      payloadAsStream: true,
+    })
     const stream = response.stream()
     const text = await readUntil(stream, (t) => t.includes(`"id":"evt-${total}"`))
 
@@ -373,7 +384,7 @@ describe('GET /api/stream resume (#166)', () => {
     const response = await app.inject({
       method: 'GET',
       url: '/api/stream',
-      headers: { 'last-event-id': `evt-${resumeAfter}` },
+      headers: { ...capabilityHeaders(app), 'last-event-id': `evt-${resumeAfter}` },
       payloadAsStream: true,
     })
     const stream = response.stream()

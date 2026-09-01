@@ -64,8 +64,9 @@ export type ConciergeReposResponse = ({ available: true } & DiscoverReposResult)
  * `GET /api/concierge/repos` — prd-20 ruling 5's read-only repo picker feed:
  * the repos the user's own Claude already knows (`~/.claude/projects`,
  * slug reversed honestly) plus a shallow, bounded scan of common roots. No
- * body, no token — the read-only half of the fourth hand, the same posture
- * as `GET /api/lanes` and `GET /api/doctor`.
+ * body, and gated (prd-29 ruling 7 / #58): carries `requireCapabilityToken`
+ * as a route-local `preHandler`, the read-only half of the fourth hand,
+ * the same posture as `GET /api/lanes`.
  *
  * `discoverRepos` reads the real machine by default; nothing here threads a
  * fixture through, because this route is the ONLY declared importer the
@@ -90,18 +91,22 @@ export type ConciergeReposResponse = ({ available: true } & DiscoverReposResult)
  * could.
  */
 export function registerConciergeReposRoute(app: FastifyInstance, ctx: ServerContext): void {
-  app.get('/api/concierge/repos', async (): Promise<ConciergeReposResponse> => {
-    if (ctx.readOnly === true) {
-      return {
-        available: false,
-        reason:
-          'not applicable — this server is replaying a finished session record, not watching a live repo, ' +
-          'and the setup wizard this feeds is never shown during a replay',
+  app.get(
+    '/api/concierge/repos',
+    { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') },
+    async (): Promise<ConciergeReposResponse> => {
+      if (ctx.readOnly === true) {
+        return {
+          available: false,
+          reason:
+            'not applicable — this server is replaying a finished session record, not watching a live repo, ' +
+            'and the setup wizard this feeds is never shown during a replay',
+        }
       }
-    }
-    const result = await discoverRepos()
-    return { available: true, ...result }
-  })
+      const result = await discoverRepos()
+      return { available: true, ...result }
+    },
+  )
 }
 
 /**

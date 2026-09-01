@@ -210,12 +210,12 @@ describe('POST /api/rotate', () => {
     })
     const app = makeApp()
 
-    const before = (await app.inject({ method: 'GET', url: '/api/meta' })).json() as Record<string, unknown>
+    const before = (await app.inject({ method: 'GET', url: '/api/meta', headers: authorised(app) })).json() as Record<string, unknown>
     expect(before).toMatchObject({ sessionId: FIRST, lastBootReason: 'resumed', resumedCount: 3 })
 
     await app.inject({ method: 'POST', url: '/api/rotate', headers: authorised(app) })
 
-    const after = (await app.inject({ method: 'GET', url: '/api/meta' })).json() as Record<string, unknown>
+    const after = (await app.inject({ method: 'GET', url: '/api/meta', headers: authorised(app) })).json() as Record<string, unknown>
     expect(after).toMatchObject({
       sessionId: String(ROTATE_AT),
       startedAt: ROTATE_AT,
@@ -236,7 +236,7 @@ describe('POST /api/rotate', () => {
     const app = makeApp()
     await app.inject({ method: 'POST', url: '/api/rotate', headers: authorised(app) })
 
-    const meta = (await app.inject({ method: 'GET', url: '/api/meta' })).json() as Record<string, unknown>
+    const meta = (await app.inject({ method: 'GET', url: '/api/meta', headers: authorised(app) })).json() as Record<string, unknown>
     expect(meta).toMatchObject({ lastBootReason: 'rotated', resumeWindowMs: RESUME_WINDOW_MS })
   })
 

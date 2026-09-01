@@ -1,5 +1,6 @@
 import { AGENT_ROLES, type AgentRole } from '@rhizomorph/core'
 import { DEFAULT_PORT, parseFlags, type FlagSpec } from './args.js'
+import { capabilityAwareFetch } from './rotate.js'
 import { ENV_SHELLS, fetchInstanceId, renderTelemetryEnv, type EnvShell } from './telemetry-env.js'
 
 const DEFAULT_ROLE: AgentRole = 'worker'
@@ -91,6 +92,11 @@ export function parseEnvArgs(argv: readonly string[]): EnvArgs {
  * conventions). `exit` always terminates in real usage; the `Promise<never>`
  * return type is honest about that and lets this slot into `runCli`'s
  * `Promise<CliHandle>` return without a dummy value.
+ *
+ * `/api/meta` is a `gated-read` (prd-29 ruling 7, #59), so the instance-id
+ * read goes through {@link capabilityAwareFetch} rather than a bare `fetch` —
+ * the same in-band scrape `rhizomorph rotate` already does, one shared helper
+ * instead of a third copy.
  */
 export async function runEnvCommand(
   rest: readonly string[],
@@ -113,7 +119,7 @@ export async function runEnvCommand(
 
   let instance: string
   try {
-    instance = await fetchInstanceId(envArgs.port)
+    instance = await fetchInstanceId(envArgs.port, { fetch: capabilityAwareFetch(envArgs.port) })
   } catch (err) {
     process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
     exit(1)
