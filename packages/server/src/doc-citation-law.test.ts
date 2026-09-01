@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -56,14 +56,16 @@ import { describe, expect, it } from 'vitest'
  * | trailing punctuation (`` `foo.ts`. ``)             | N/A — punctuation after a *closing* backtick is outside the match; nothing to strip, unlike `no-personal-paths-law`'s bare-name sweep |
  * | line/anchor suffix (`` `foo.ts:111` ``, `` `foo.md#heading` ``) | HANDLED — `:` and `#` are IN the character class, so the span is extracted whole and the suffix stripped before the existence check. It was NOT handled when this table first claimed it was: the class excluded both, so a suffixed span failed to match at all and `stripCitationSuffix` was unreachable from the sweep — a broken `x.ts:42` was invisible while a broken `x.ts` was caught. 234 `:NNN` occurrences exist across tracked markdown (215 distinct, 48 files) and ~12 in in-scope files — the earlier `~100` in this row was understated by more than half, so this is the corpus's most common form (review of #16) |
  * | line RANGE (`` `foo.ts:78-85` ``) | HANDLED — the sibling of the row above, and the reason widening the character class alone is not the fix: `/:\d+$/` matches a single number and stops, so admitting `:` without the range arm turns 7 real range citations into fresh violations. Stripped by `/:\d+(?:-\d+)?$/` (review of #16) |
- * | glob, directory-rooted (`` `packages/core/**` ``) | HANDLED — truncated at `**`, the parent directory must exist |
+ * | glob, directory-rooted (`` `packages/core/**` ``) | HANDLED — resolved against the real tracked tree, not truncated at the first `**` with everything past it unchecked (`` `packages/**\/anything-that-does-not-exist.ts` `` used to pass on the parent existing alone). `**` matches ZERO OR MORE path segments (review round 2): the first fix's regex kept both literal slashes flanking `**` mandatory, so `` `packages/core/src/fleet/**\/fences.ts` ``, `` `docs/**\/roadmap.md` `` and `` `packages/*\/src/**\/*.ts` `` — three real, existing citations — resolved false, a false positive louder than the false negative this row exists to close |
  * | glob, mid-filename (`` `docs/research/2026-08-02-obs-prd7-*.md` ``) | HANDLED — resolved against a real directory listing, not truncated like the directory glob above (a naive truncate-at-`*` would falsely redden this real, existing citation — caught by running the extractor against the tree before trusting it) |
  * | bare directory/number, no filename (`` `docs/adr/0012` ``)   | HANDLED — the one live instance of this form; resolved as a prefix match against `docs/adr/`'s real listing, same convention `adr-log-law.test.ts` already codifies for ADR numbers |
  * | inside a fenced code block (` ```json … ``` `)   | SKIPPED — verified BOTH ways in this corpus: `docs/architecture.md`'s own `.swarm/lanes.json` example fences a fabricated lane (`packages/web/src/panels/shelved/**`, an illustrative fixture, not a real file) alongside real command examples (`node packages/server/bin/rhizomorph.mjs`); mixing real and fabricated content inside fences means including them risks a false positive on the fabricated half, and ruling 5 (README recipes executed by the suite) is the mechanism for verifying the real half, not this law |
  * | path + trailing prose/args in ONE span (`` `scripts/dev/issues.sh list` ``) | SKIPPED — the one live instance; the character class stops at the space, so the whole span fails to match rather than truncating to a wrong substring — under-inclusion, not a false positive |
  * | `packages/**\/*.ts` **comments** (line comments, block comments, doc comments) | HANDLED — comment text only, via `extractComments`; a citation inside actual code (a string or template literal) is deliberately NOT swept, per ruling 1's own wording ("packages/**\/*.ts comments") |
  * | `packages/**\/*.ts` **code** (string/template literals) | SKIPPED — see above; a `` ` `` inside a `//` line is only swept if it appears AFTER the `//`, so a citation-shaped string literal preceding a trailing comment is correctly left alone |
- * | a path under a gitignored directory (`packages/*\/dist/…`) | HANDLED as always-valid — `dist/` is gitignored (`.gitignore:2`) and is a build artefact that exists only after `npm run build`; a doc describing where the bundle lands is not making a claim about the tracked tree, and treating it as broken would be a false positive this law would ship with (found while building this extractor: three `dist/`-rooted citations, none of them real breaks) |
+ * | `//` inside a STRING literal, ahead of a real citation on the same line (`` const u = 'https://x/`packages/foo.ts`' ``) | SKIPPED, declared (review of #186 item 2) — `extractComments`'s line-comment regex has no string-awareness, so a `//` inside a string is read as starting a real comment, and a citation-shaped backtick span later on the same line is swept as if it were commentary. Closing it needs a string-literal-aware tokenizer — quote tracking with escapes, template-literal nesting, and the classic regex-literal-vs-division ambiguity — categorically bigger than the regex-based extractor this file deliberately is, the same "needs a real parser" line the CODE-vs-comment row above already draws. No live instance; pinned by a CONTROL test below so the behaviour cannot silently change |
+ * | a path under a BUILD-ARTEFACT directory (`packages/*\/dist/…`) | HANDLED as always-valid — `dist/`, `dist-desktop/` and `dist-vendor/` are gitignored (`.gitignore`) build artefacts that exist only after `npm run build` or packaging; a doc describing where the bundle lands is not making a claim about the tracked tree. Scoped to exactly those three directory NAMES, not "anything git ignores" (review of #186 item 4) — `docs/audit/`, `coverage/`, `node_modules/` and any rule added later are gitignored too but are not build artefacts, and a citation into one of them is a real claim that can be wrong; the earlier, blanket form exempted every ignored path, so a dead citation into `docs/audit/` silently passed |
+ * | `.tsx` and `.mjs` source comments | OUT OF SCOPE, ruling (#186 item 9) — ruling 1 says `packages/**\/*.ts`, and `trackedFiles('packages/*.ts')` matches that exactly: 137 `.tsx` and 5 `.mjs` files go unswept. Verified this is the right call, not an oversight: the last of the 5 `.mjs` files the sweep would reach (`git ls-files 'packages/*.mjs'`, alphabetical — review round 2 corrected "first" to "last"; the substance is unaffected), `packages/web/src/scene/parity/capture.mjs`, cites a deleted `packages/web/src/scene/paint.ts` deliberately — in a comment AND a code constant — and resolves it out of git history, because `8686f24` (#578) replaced the 2D painter and the parity harness intentionally diffs against the pre-deletion file. Widening the sweep as written would false-positive on that live, working, documented citation. Before widening, the law needs a way to say "cited from history, on purpose" so a comment like that one can opt out — that mechanism does not exist yet, so the scope stays exactly ruling 1's, not narrower and not wider |
  *
  * ## The `git ls-files` glob gotcha this law's own tests pin down
  *
@@ -115,6 +117,138 @@ function trackedFiles(pattern: string): string[] {
     .filter((line) => line.length > 0)
 }
 
+/** Tracked AND untracked-but-not-ignored files matching `pattern` (#186 item 5) — a brand new doc must be checkable before `git add`, not only after it lands in the index. */
+function sweepFiles(pattern: string): string[] {
+  return execFileSync(
+    'git',
+    ['ls-files', '--cached', '--others', '--exclude-standard', '--', pattern],
+    { cwd: REPO_ROOT, encoding: 'utf8' },
+  )
+    .split('\n')
+    .filter((line) => line.length > 0)
+}
+
+/**
+ * Guards a sweep read against a file the git listing still names but that is
+ * gone from disk — deleted without `git rm`, or a staged-but-uncommitted
+ * deletion (#186 item 5's related finding: this used to throw ENOENT
+ * straight out of `readFileSync`, crashing the run instead of failing the law
+ * like any other missing citation would).
+ */
+function readSweptFile(file: string): string | undefined {
+  const filePath = path.join(REPO_ROOT, file)
+  return existsSync(filePath) ? readFileSync(filePath, 'utf8') : undefined
+}
+
+/**
+ * Every tracked file in the repo, for resolving a `**` glob against the real
+ * tree rather than truncating at the first occurrence (#186 item 3).
+ *
+ * INDEX-only, unlike `sweepFiles` (#186, review round 3, worth doing but not
+ * fixed): a brand-new UNTRACKED file cited through a `**` glob is reported
+ * broken, while the identical target cited LITERALLY resolves fine via the
+ * plain `existsSync` check earlier in `citationExists` — the glob arm here
+ * simply cannot see a file `git ls-files` does not know about yet. Reachable
+ * only in the narrow window where BOTH hold: the target itself is not yet
+ * `git add`ed, AND it is cited via a glob rather than its literal path: it
+ * clears the moment either the target is staged or the citation is written
+ * out in full. Noted rather than widened to `sweepFiles`' tracked+untracked
+ * union — that would make this function fork `git ls-files --others
+ * --exclude-standard` for every `**` citation, and the asymmetry is a real
+ * but momentary gap, not a false claim this file makes about what it checks.
+ */
+function allTrackedFiles(): string[] {
+  return execFileSync('git', ['ls-files'], { cwd: REPO_ROOT, encoding: 'utf8' })
+    .split('\n')
+    .filter((line) => line.length > 0)
+}
+
+const UNTRACKED_FIXTURE_RE = /^citation-law-untracked-fixture-(\d+)-\d+\.md$/
+
+/** The exact bytes `an untracked doc is swept too` writes to its fixture — the one thing `cleanUpOrphanedFixtures` is allowed to treat as proof it wrote a candidate file (#186, review round 3). */
+const UNTRACKED_FIXTURE_CONTENT = 'Cites a real path: `packages/server/src/doc-citation-law.test.ts`.\n'
+
+/**
+ * Deletes an `an untracked doc is swept too` fixture left behind by a PAST
+ * run of this same test — one that never reached its own `finally` because
+ * the process was killed (SIGINT, a CI timeout) rather than exiting normally.
+ *
+ * A candidate is deleted only if ALL THREE hold: its name matches the
+ * fixture pattern, its PID is no longer alive, its bytes are EXACTLY
+ * `UNTRACKED_FIXTURE_CONTENT`, and it is genuinely untracked. The first
+ * version checked name and PID only — EXECUTED against a real repro (review
+ * round 3's BLOCKER): a real document that merely happens to be named
+ * `citation-law-untracked-fixture-999999-<ts>.md` was deleted purely for
+ * matching that name, with no check on what the file actually was. Scoping a
+ * destructive guard by what a file is CALLED rather than what it IS is the
+ * #649 lesson this file already carries elsewhere, landing here on its own
+ * cleanup step. The content check alone would still let a TRACKED file with
+ * byte-identical content be swept up — `trackedFiles` closes that: only a
+ * file this test itself could have written, and never staged by anyone, is
+ * ever removed. An ACTIVE fixture from a genuinely concurrent run of this
+ * same test in another process must be left alone regardless — the alive
+ * check is what stops this cleanup step from manufacturing the exact race
+ * item 5's own fixture used to (#186, review round 2's BLOCKER), FROM THE
+ * OTHER DIRECTION: deleting a live run's fixture out from under it.
+ * `process.kill(pid, 0)` sends no signal — it only asks whether the PID is
+ * live, throwing ESRCH when it is not (EPERM means live but unowned by this
+ * user, which counts as alive here). `{ force: true }` on the delete because
+ * two processes can race the SAME orphan: without it, the loser's `rmSync`
+ * throws ENOENT on a file that is already gone rather than treating "someone
+ * else got there first" as success.
+ *
+ * `isTracked` defaults to the real, `git`-backed check — every REAL call
+ * site (this file's own housekeeping, at the top of `an untracked doc is
+ * swept too`) uses that default and nothing else. It takes a parameter at
+ * all only so the TRACKED-file guard can be proven without staging into the
+ * real index (#186, review round 4): doing that for real, from a test,
+ * raced this file's own required 4x-concurrent execution three separate
+ * ways in three separate attempts — `git`'s repo-wide `index.lock` against a
+ * sibling run's own `git add`/`git reset`; a real file sitting on shared
+ * disk, dead-pid-named and content-matching, genuinely untracked for the
+ * instant between being written and being staged, which a SIBLING run's own
+ * cleanup pass is CORRECT to delete by this guard's own rules; and finally,
+ * even once tracked-before-visible ordering closed that window, a residual
+ * ~2% rate of a fresh `git ls-files` disagreeing with an `update-index` that
+ * had just reported success against the SAME shared index under sustained
+ * concurrent writes. None of those three is a defect in this function —
+ * they are the cost of many processes racing to mutate ONE shared git index
+ * at once, which is exactly the situation a permanent, deterministic test
+ * must not need to create. Injecting the answer keeps the guard itself
+ * real (the `if (isTracked(rel)) continue` line below is exactly what ships)
+ * while making what "tracked" means for a single test case fixed and
+ * reproducible; `trackedFiles` and the real index it reads are already
+ * exercised elsewhere in this file (`an untracked doc is swept too` asserts
+ * `trackedFiles(fixtureRel)` is empty before relying on the same default).
+ */
+function cleanUpOrphanedFixtures(isTracked: (rel: string) => boolean = (rel) => trackedFiles(rel).length > 0): void {
+  const docsDir = path.join(REPO_ROOT, 'docs')
+  for (const entry of readdirSync(docsDir)) {
+    const match = entry.match(UNTRACKED_FIXTURE_RE)
+    if (!match) continue
+    const pid = Number(match[1])
+    let alive = true
+    try {
+      process.kill(pid, 0)
+    } catch (err) {
+      alive = (err as NodeJS.ErrnoException).code !== 'ESRCH'
+    }
+    if (alive) continue
+
+    const rel = `docs/${entry}`
+    const filePath = path.join(docsDir, entry)
+    let content: string
+    try {
+      content = readFileSync(filePath, 'utf8')
+    } catch {
+      continue // gone already — another process's cleanup (or its own `finally`) beat us to it
+    }
+    if (content !== UNTRACKED_FIXTURE_CONTENT) continue
+    if (isTracked(rel)) continue
+    rmSync(filePath, { force: true })
+  }
+}
+
 /** `git check-ignore` needs a trailing slash to resolve a directory pattern (like `dist/`) against a path that doesn't exist on disk — tried both ways. */
 function isIgnored(relPath: string): boolean {
   for (const candidate of [relPath, `${relPath}/`]) {
@@ -131,8 +265,27 @@ function isIgnored(relPath: string): boolean {
 /** Dated artefacts, excluded as CITING sources only — see the doc comment above. */
 const EXCLUDED_DIRS = ['docs/research/', 'docs/review/', 'docs/prds/']
 
+// `prefix-comparison-law.test.ts` flags any `X.startsWith(ident)` sitting near a
+// `path.*` call as a containment idiom — see OWN_FILE's own doc comment above
+// for why that constant is declared far from this line on purpose (#186 item
+// 8). If OWN_FILE (or its `path.relative(...)` call) is ever moved down here,
+// re-check that law's pinned count before assuming this line is unaffected.
 function isExcludedCitingFile(file: string): boolean {
   return file === OWN_FILE || EXCLUDED_DIRS.some((dir) => file.startsWith(dir))
+}
+
+/**
+ * Build artefacts that exist only after `npm run build` or packaging — the
+ * exemption below is scoped to exactly these directory NAMES, not "anything
+ * git ignores" (#186 item 4). `.gitignore`'s `dist/`, `dist-desktop/` and
+ * `dist-vendor/` rules have no leading slash, so git itself matches them at
+ * any depth; matching by path SEGMENT here mirrors that, rather than
+ * requiring the citation to be repo-rooted.
+ */
+const BUILD_ARTIFACT_DIR_NAMES = ['dist', 'dist-desktop', 'dist-vendor']
+
+function isBuildArtifactPath(relPath: string): boolean {
+  return relPath.split('/').some((segment) => BUILD_ARTIFACT_DIR_NAMES.includes(segment))
 }
 
 /** Illustrative examples, not citations — see the input table's fenced-code-block row. */
@@ -188,33 +341,134 @@ function globToRegExp(glob: string): RegExp {
   return new RegExp(`^${escaped}$`)
 }
 
-/** A cited path exists if the literal target exists, a directory glob's parent exists, a mid-filename glob matches a real sibling, a bare ADR-style prefix matches a real record, or the target is gitignored (a build artefact, not a tracked-tree claim). */
+/**
+ * Turns a FULL path glob into a regex over whole repo-relative paths, where
+ * `**` crosses `/` and matches ZERO OR MORE path segments, and a lone `*`
+ * matches within one segment only (#186 item 3, review round 2). `globToRegExp`
+ * above is the wrong tool for this: it treats every `*` — single or doubled —
+ * as `.*`, which is only correct for the basename-only, no-`**` case it is
+ * actually used for.
+ *
+ * Segment-by-segment, not token-by-token (the first version of this function
+ * was token-by-token and was defeated by its own doc comment: it claimed
+ * "zero or more" while `dir/**\/file` compiled to `dir/.*\/file`, which keeps
+ * BOTH literal slashes flanking `**` mandatory — matching zero segments would
+ * require the source string to contain `dir//file`, a double slash no real
+ * path has, so the "zero" case silently could never fire. `packages/core/src/
+ * fleet/**\/fences.ts` (that file exists), `docs/**\/roadmap.md` and
+ * `packages/*\/src/**\/*.ts` (live at `docs/review/gemini-3.1-pro/
+ * code-quality.md:25`, reachable through `citationExists` directly even
+ * though that file's own directory is excluded as a CITING source) all
+ * resolved false before this rewrite despite naming real files — a false
+ * positive on real, working citations, louder than the false negative this
+ * branch exists to close and just as wrong.
+ *
+ * An interior `**` (segments on both sides) compiles to `(?:/.*)?` and
+ * contributes NO separating slash of its own — the segment immediately after
+ * it still adds its own leading `/` the normal way. That is what lets the
+ * SAME token serve both the zero-segment case (group absent: the two real
+ * neighbours end up adjacent through one shared slash) and the N-segment
+ * case (group present: it swallows its own leading slash plus every
+ * character up to, but not including, the next segment's slash). A leading
+ * `**` (nothing before it) compiles to `(?:.*\/)?` instead — the trailing
+ * slash lives INSIDE the group there, since there is no earlier segment to
+ * borrow one from. A trailing `**` is unchanged from the first version:
+ * `/.*`, requiring the slash already emitted by the segment before it.
+ *
+ * The whole-glob-is-`**`-alone arm and the leading-`**` arm above are
+ * UNREACHABLE through any real citation (#186, review round 3, worth noting
+ * rather than fixing): `CITATION_RE` guarantees every span starts with a
+ * literal `packages/`, `scripts/` or `docs/`, so `segment === '**'` can never
+ * be true at index 0 for a glob this file's own extractor ever produces. Both
+ * arms are verified correct anyway — 182 comparisons against `picomatch`
+ * across repeated `**`, zero-segment and mixed `*`/`**` cases found zero
+ * mismatches (review round 2) — and kept for that reason: this function
+ * describes glob semantics in general, not "whatever CITATION_RE happens to
+ * feed it today," and removing a correct arm because nothing currently
+ * reaches it would leave the function quietly wrong the moment something
+ * else calls it with a leading `**`.
+ */
+function globToPathRegExp(glob: string): RegExp {
+  const escapeLiteral = (segment: string) =>
+    segment.replace(/[.+?^${}()|[\]\\]/g, '\\$&').split('*').join('[^/]*')
+
+  const segments = glob.split('/')
+  let pattern = ''
+  // Whether the NEXT literal segment must add its own leading `/`. Starts
+  // false (nothing precedes the first segment); a leading `**` also leaves
+  // it false, on purpose — its own optional group already carries the
+  // trailing slash it needs when non-empty, so the segment right after it
+  // must not double it.
+  let needsSlash = false
+  for (let i = 0; i < segments.length; i += 1) {
+    const segment = segments[i]!
+    const isFirst = i === 0
+    const isLast = i === segments.length - 1
+    if (segment === '**') {
+      if (isFirst && isLast) {
+        pattern += '.*'
+      } else if (isLast) {
+        pattern += needsSlash ? '/.*' : '.*'
+      } else if (isFirst) {
+        pattern += '(?:.*/)?'
+        needsSlash = false
+        continue
+      } else {
+        pattern += '(?:/.*)?'
+      }
+      needsSlash = true
+      continue
+    }
+    pattern += (needsSlash ? '/' : '') + escapeLiteral(segment)
+    needsSlash = true
+  }
+  return new RegExp(`^${pattern}$`)
+}
+
+/** A cited path exists if the literal target exists, a `**` glob resolves against a real tracked file, a mid-filename `*` glob matches a real sibling, a bare ADR-style prefix matches a real record, or the target sits under a build-artefact directory (`dist/` and friends — not a tracked-tree claim). */
 function citationExists(cite: string): boolean {
   const stripped = stripCitationSuffix(cite)
 
-  // Filesystem first, `git check-ignore` second. Both orders answer identically — a path
-  // that exists and a path that is ignored each return true — but isIgnored spawns 1-2
-  // child processes PER CITATION, and it was being consulted for all ~450 citations in
-  // the main sweep plus ~700 more in the exclusion scan. Idle and alone, against vitest's
-  // 5000 ms default (measured per test BY NAME, not by sorting two durations and assuming
-  // the order — the earlier form of this comment did the latter and had both pairs
-  // swapped):
+  // Filesystem first, `git check-ignore` second, and (#186 item 4, review round 2)
+  // `isBuildArtifactPath` gates the SECOND check now, short-circuiting `isIgnored`'s
+  // 1-2 child processes per citation before they fork at all for anything whose path
+  // does not contain a `dist`/`dist-desktop`/`dist-vendor` segment — which is nearly
+  // everything in the exclusion scan (docs/research, docs/review, docs/prds citations
+  // are mostly broken paths that never mention a build-artefact directory) and most of
+  // the main sweep too. This INVERTED the ordering the old form of this comment
+  // measured (measured per test BY NAME, not by sorting two durations and assuming the
+  // order — the ORIGINAL form of this comment did that and had both pairs swapped):
   //
-  //     exclusion honesty   3156 ms -> ~380 ms
-  //     main sweep          2466 ms -> ~145 ms
+  //     exclusion honesty   3156 ms -> ~380 ms -> ~60 ms
+  //     main sweep          2466 ms -> ~145 ms -> ~90 ms
   //
-  // The exclusion scan is the slower one on BOTH sides, and post-fix it is slower by a
-  // wider ratio — it walks citations that mostly do NOT exist, so `existsSync` fails to
-  // short-circuit and each one still forks `git check-ignore`, while the main sweep's
-  // mostly do exist and short-circuit immediately. gate.sh's load-batches mode runs the
-  // suite four times concurrently, where a 3.1 s test under a 5 s timeout has no room
-  // (review of #16).
+  // The exclusion scan is now the FASTER of the two: `isBuildArtifactPath` prunes
+  // essentially every one of its ~700 citations before `isIgnored` would have forked
+  // for them, where before this commit every one of them still forked unconditionally.
+  // The main sweep still carries the ~9 real `dist/`-rooted citations that DO reach
+  // `isIgnored`'s subprocess, so it is now the slower side by a comparatively narrow
+  // margin — the opposite of "slower on both sides, by a wider ratio," which was true
+  // only before this commit. gate.sh's load-batches mode runs the suite four times
+  // concurrently, where a multi-second test under a 5 s timeout has no room (review of
+  // #16); at these durations neither test is close to that ceiling.
   if (existsSync(path.join(REPO_ROOT, stripped))) return true
-  if (isIgnored(stripped)) return true
+  if (isBuildArtifactPath(stripped) && isIgnored(stripped)) return true
 
   if (stripped.includes('**')) {
-    const target = stripped.slice(0, stripped.indexOf('**')).replace(/\/$/, '')
-    return target.length > 0 && existsSync(path.join(REPO_ROOT, target))
+    // The literal prefix before the first `**` is a cheap early-out for the
+    // common "does not exist at all" case; it is NOT the whole check (#186
+    // item 3) — everything after the `**` must also resolve against a real
+    // tracked file, or a bogus filename past the `**` would pass on the
+    // prefix existing alone. Skipped entirely when the prefix itself
+    // contains a `*` (`packages/*/src/**/*.ts`, review round 2): `existsSync`
+    // can never see a literal directory named `*`, so the early-out would
+    // report the prefix as absent and false-negative every citation of that
+    // shape regardless of whether a real file matches — the exact failure
+    // this branch exists to close, one level up.
+    const prefix = stripped.slice(0, stripped.indexOf('**')).replace(/\/$/, '')
+    if (!prefix.includes('*') && (prefix.length === 0 || !existsSync(path.join(REPO_ROOT, prefix)))) return false
+    const regex = globToPathRegExp(stripped)
+    return allTrackedFiles().some((file) => regex.test(file))
   }
 
   if (stripped.includes('*')) {
@@ -236,17 +490,32 @@ function citationExists(cite: string): boolean {
 
 type Citation = { file: string; cite: string }
 
-/** Every citation from every in-scope `docs/*.md` file and every `packages/*.ts` file's comments — deduplicated per file, since existence does not depend on how many times a file repeats the same citation. */
+/**
+ * Every citation from every in-scope `docs/*.md` file and every `packages/*.ts`
+ * file's comments — deduplicated per file, since existence does not depend on
+ * how many times a file repeats the same citation.
+ *
+ * Swept via `sweepFiles`, tracked and untracked alike (#186 item 5): reading
+ * only `git ls-files`' INDEX made a brand new doc invisible until `git add`,
+ * so a dead citation in it passed all three of `AGENTS.md`'s pre-commit
+ * commands and only reddened once staged. `readSweptFile` skips (rather than
+ * crashes on) a file the listing names but that is gone from disk — the
+ * related ENOENT finding.
+ */
 function allCitations(): Citation[] {
   const out: Citation[] = []
-  for (const file of trackedFiles('docs/*.md')) {
+  for (const file of sweepFiles('docs/*.md')) {
     if (isExcludedCitingFile(file)) continue
-    const text = stripFencedCodeBlocks(readFileSync(path.join(REPO_ROOT, file), 'utf8'))
+    const raw = readSweptFile(file)
+    if (raw === undefined) continue
+    const text = stripFencedCodeBlocks(raw)
     for (const cite of new Set(extractCitations(text))) out.push({ file, cite })
   }
-  for (const file of trackedFiles('packages/*.ts')) {
+  for (const file of sweepFiles('packages/*.ts')) {
     if (isExcludedCitingFile(file)) continue
-    const text = extractComments(readFileSync(path.join(REPO_ROOT, file), 'utf8'))
+    const raw = readSweptFile(file)
+    if (raw === undefined) continue
+    const text = extractComments(raw)
     for (const cite of new Set(extractCitations(text))) out.push({ file, cite })
   }
   return out
@@ -367,6 +636,13 @@ describe('doc citation law: a path cited from a document or a comment must exist
   })
 
   it('every excluded directory is still tracked and still trips the detector — the exclusion is doing real work, not vacuous', () => {
+    // Pinned so the loop below cannot pass vacuously (#186 item 6): with
+    // EXCLUDED_DIRS emptied to `[]`, the `for` loop's body never runs and the
+    // test still reported green — 0 iterations is 0 failing assertions. This
+    // assertion fails on its own, before the loop, regardless of what the
+    // loop does or doesn't get to check.
+    expect(EXCLUDED_DIRS).toEqual(['docs/research/', 'docs/review/', 'docs/prds/'])
+
     for (const dir of EXCLUDED_DIRS) {
       const files = [...new Set([...trackedFiles(`${dir}*.md`), ...trackedFiles(`${dir}**/*.md`)])]
       expect(files.length, `${dir} has no markdown files to check`).toBeGreaterThan(0)
@@ -380,6 +656,120 @@ describe('doc citation law: a path cited from a document or a comment must exist
       }
       expect(brokenCount, `${dir} would trip nothing if scanned — the exclusion is stale`).toBeGreaterThan(0)
     }
+  })
+
+  it('an untracked doc is swept too — a new doc must fail before `git add`, not only after it (#186 item 5)', () => {
+    // The fixture cites a path that RESOLVES (review round 2, BLOCKER): the
+    // first version cited a dead path, so for however briefly this file sat
+    // on real disk under docs/, ANY OTHER process's concurrent sweep — of
+    // this same suite, staggered by nothing more than normal scheduling
+    // jitter — would pick it up via the exact `--others` visibility this test
+    // exists to prove, and fail ITS `every in-scope citation exists` test on
+    // a file it does not own. Reproduced: 8 staggered concurrent runs x 6
+    // rounds gave failures under load with the dead-citation fixture and none
+    // with this one. Citing a REAL path still proves the untracked file
+    // reaches `allCitations()` at all — which is everything item 5 asked —
+    // and still reddens when `sweepFiles` is reverted to `trackedFiles`,
+    // since a reverted sweep would not see this untracked file, real citation
+    // or not. Trade-off: unlike the dead-citation version, this no longer
+    // demonstrates end-to-end that an untracked file's BROKEN citation
+    // reddens the law — that path is covered separately, on a file already IN
+    // the tree, by `every in-scope citation exists...` at the bottom of this
+    // describe block.
+    cleanUpOrphanedFixtures()
+
+    const fixtureRel = `docs/citation-law-untracked-fixture-${process.pid}-${Date.now()}.md`
+    const fixturePath = path.join(REPO_ROOT, fixtureRel)
+    expect(existsSync(fixturePath), `${fixtureRel} already exists — pick a different fixture name`).toBe(false)
+
+    writeFileSync(fixturePath, UNTRACKED_FIXTURE_CONTENT)
+    try {
+      // Genuinely untracked, not accidentally staged — the whole point of the fixture.
+      expect(trackedFiles(fixtureRel)).toEqual([])
+      expect(sweepFiles(fixtureRel)).toEqual([fixtureRel])
+
+      expect(allCitations()).toContainEqual({
+        file: fixtureRel,
+        cite: 'packages/server/src/doc-citation-law.test.ts',
+      })
+    } finally {
+      rmSync(fixturePath, { force: true })
+    }
+  })
+
+  it('cleanUpOrphanedFixtures never deletes a real document that merely matches its naming pattern (#186, review round 3 BLOCKER)', () => {
+    // `process.hrtime.bigint()`, not `Date.now()` (#186, review round 5): a
+    // CONSTANT dead-pid segment plus millisecond resolution is the one
+    // combination in this file with no per-process uniqueness at all — two
+    // concurrent suites entering this test in the same millisecond mint the
+    // IDENTICAL path, and the gate's own 4x-concurrent load found exactly
+    // that: one run's `finally { rmSync }` deletes the file out from under
+    // the other run's `expect(existsSync(...))`, reading as this test's own
+    // BLOCKER when it is really two runs sharing one filename. The dead pid
+    // segment stays a constant on purpose — the cleanup must get PAST the
+    // alive check to reach the content check this test is actually proving,
+    // or it survives for the wrong reason. Nanosecond resolution is the
+    // fix, the same treatment the sibling test below already carries.
+    const rel = `docs/citation-law-untracked-fixture-999996-${process.hrtime.bigint()}.md`
+    const filePath = path.join(REPO_ROOT, rel)
+    writeFileSync(filePath, '# A real document that happens to match the fixture naming pattern\n')
+    try {
+      cleanUpOrphanedFixtures()
+      expect(existsSync(filePath), 'a real document was deleted for merely matching the fixture filename pattern').toBe(true)
+    } finally {
+      rmSync(filePath, { force: true })
+    }
+  })
+
+  it('cleanUpOrphanedFixtures never deletes a file its caller reports as TRACKED, even with a dead-pid name and byte-identical content (#186, review round 4)', () => {
+    // `isTracked` is INJECTED here, not answered by staging into the real
+    // index (review round 4): three separate attempts to prove this by
+    // actually running `git add`/`update-index` from the test each raced
+    // this file's own required 4x-concurrent execution a different way —
+    // `git`'s repo-wide `index.lock` against a sibling run's own index
+    // write; a real, on-disk, dead-pid-named, content-matching file sitting
+    // genuinely untracked for the instant between being written and being
+    // staged, which a SIBLING run's cleanup pass is CORRECT to delete by
+    // this guard's own rules; and, once that ordering was closed, a
+    // residual ~2% rate of a fresh `git ls-files` disagreeing with an
+    // `update-index` that had just reported success, under sustained
+    // concurrent writes to the ONE shared index. None of those is a defect
+    // in `cleanUpOrphanedFixtures` — they are the cost of many processes
+    // racing to mutate a single shared file, which a permanent,
+    // deterministic test has no business creating. `trackedFiles` and the
+    // real index it reads stay exercised elsewhere in this file (`an
+    // untracked doc is swept too` relies on the same default `isTracked`
+    // and separately asserts `trackedFiles(fixtureRel)` is empty first) —
+    // this test's job is only to prove `cleanUpOrphanedFixtures` respects
+    // whatever `isTracked` reports, which the injected function lets it do
+    // with zero flakiness.
+    const rel = `docs/citation-law-untracked-fixture-999997-${process.hrtime.bigint()}.md`
+    const filePath = path.join(REPO_ROOT, rel)
+    writeFileSync(filePath, UNTRACKED_FIXTURE_CONTENT)
+    try {
+      cleanUpOrphanedFixtures((candidate) => candidate === rel)
+      expect(existsSync(filePath), 'a file reported TRACKED was deleted by a cleanup step meant only for untracked orphans').toBe(true)
+    } finally {
+      rmSync(filePath, { force: true })
+    }
+  })
+
+  it("cleanUpOrphanedFixtures never deletes a fixture whose PID is still alive — the dangerous direction, since it could be a genuinely concurrent run's own (#186, review round 3)", () => {
+    // This test's own process is unimpeachably alive, so its PID doubles as
+    // a live one without needing a second process.
+    const rel = `docs/citation-law-untracked-fixture-${process.pid}-${Date.now()}.md`
+    const filePath = path.join(REPO_ROOT, rel)
+    writeFileSync(filePath, UNTRACKED_FIXTURE_CONTENT)
+    try {
+      cleanUpOrphanedFixtures()
+      expect(existsSync(filePath), 'a fixture with a LIVE pid was deleted — this is the guard that stops cleanup from destroying a genuinely concurrent run').toBe(true)
+    } finally {
+      rmSync(filePath, { force: true })
+    }
+  })
+
+  it('a file the git listing names but that is gone from disk is skipped, not a crash — the ENOENT sibling of item 5', () => {
+    expect(readSweptFile('docs/this-file-does-not-exist-on-disk.md')).toBeUndefined()
   })
 
   it('the allowlist is pinned — a silent addition here is exactly how a real regression gets waved through', () => {
@@ -426,13 +816,25 @@ describe('doc citation law: a path cited from a document or a comment must exist
   })
 
   it('fenced code blocks are stripped before extraction — the illustrative-example false positive this law was built to avoid', () => {
+    // The fenced content is itself citation-SHAPED (backtick-delimited, per
+    // CITATION_RE), not the double-quoted-JSON form real fenced examples in
+    // this corpus happen to use (#186 item 1). The earlier fixture fenced
+    // `{ "fence": ["packages/…/**"] }` — no backticks anywhere inside it, so
+    // CITATION_RE could never have matched it whether or not the fence was
+    // stripped, and `stripFencedCodeBlocks` returning its input UNCHANGED left
+    // this test 14/14 green. Asserted first WITHOUT stripping, so the fixture
+    // is proven to actually exercise the stripper before trusting the second
+    // assertion that stripping removes it.
     const rigged = [
       'See `packages/server/src/doc-citation-law.test.ts` in prose.',
-      '```json',
-      '{ "fence": ["packages/this-fabricated-example-does-not-exist/**"] }',
+      '```markdown',
+      'Example: `packages/this-fabricated-example-does-not-exist/**` is illustrative only.',
       '```',
       'And again in prose: `packages/this-directory-does-not-exist/nothing.ts`.',
     ].join('\n')
+
+    expect(extractCitations(rigged)).toContain('packages/this-fabricated-example-does-not-exist/**')
+
     const swept = extractCitations(stripFencedCodeBlocks(rigged))
     expect(swept).toEqual(['packages/server/src/doc-citation-law.test.ts', 'packages/this-directory-does-not-exist/nothing.ts'])
   })
@@ -446,6 +848,21 @@ describe('doc citation law: a path cited from a document or a comment must exist
     expect(swept).toEqual(['packages/server/src/doc-citation-law.test.ts'])
   })
 
+  it('CONTROL (#186 item 2, declared out of scope): a `//` inside a string literal still starts a "comment" — extractComments has no string-awareness', () => {
+    // See the input table's row for this. `extractComments`'s line-comment
+    // regex cannot tell a `//` inside a string from a real comment, so text
+    // after it — including a citation-shaped backtick span — is swept as if
+    // it were commentary. This is a KNOWN, documented false positive, not a
+    // fix in this change: closing it needs a string-literal-aware tokenizer,
+    // which this regex-based extractor deliberately does not attempt. Pinned
+    // so a change to extractComments that narrows or widens this behaviour is
+    // visible here rather than silent.
+    const subject = "const u = 'https://example.invalid/`packages/this-directory-does-not-exist/nothing.ts`'"
+    const control = "const u = 'no-slashes-here `packages/this-directory-does-not-exist/nothing.ts`'"
+    expect(extractCitations(extractComments(subject))).toEqual(['packages/this-directory-does-not-exist/nothing.ts'])
+    expect(extractCitations(extractComments(control))).toEqual([])
+  })
+
   it('a directory glob resolves against its parent, and a mid-filename glob resolves against a real sibling', () => {
     expect(citationExists('packages/server/**')).toBe(true)
     expect(citationExists('packages/this-directory-does-not-exist/**')).toBe(false)
@@ -455,6 +872,56 @@ describe('doc citation law: a path cited from a document or a comment must exist
     // `docs/research/2026-08-02-obs-prd7-*.md` citation.
     expect(citationExists('docs/research/2026-08-02-obs-prd7-*.md')).toBe(true)
     expect(citationExists('docs/research/2026-08-02-obs-prd7-this-does-not-exist-*.md')).toBe(false)
+  })
+
+  it('a `**` glob checks everything after it too, not just the parent (#186 item 3)', () => {
+    // The three real citations this branch resolves today, all trailing
+    // `dir/**` — pinned so the rewrite below is proven against the actual
+    // corpus, not only rigged fixtures.
+    expect(citationExists('packages/server/src/concierge/harness/**')).toBe(true)
+    expect(citationExists('packages/core/**')).toBe(true)
+    expect(citationExists('packages/web/src/disclosure/**')).toBe(true)
+
+    // The defect: the parent (`packages`) existing used to be the WHOLE
+    // check, so anything after the first `**` — a real filename, a further
+    // glob segment, a second `**` — was silently discarded rather than
+    // resolved. All three are real, reachable shapes; none existed live, but
+    // the earlier code could not have told any of them from a real citation.
+    expect(citationExists('packages/**/this-file-definitely-does-not-exist-anywhere.ts')).toBe(false)
+    expect(citationExists('packages/**/*-this-suffix-does-not-exist-anywhere.ts')).toBe(false)
+    expect(citationExists('packages/**/**/this-file-does-not-exist-either.ts')).toBe(false)
+
+    // A real file DOES resolve through a mid-pattern `**`, proving the fix is
+    // under-inclusive nowhere it should not be.
+    expect(citationExists('packages/**/doc-citation-law.test.ts')).toBe(true)
+  })
+
+  it('`**` matches ZERO path segments, not one-or-more (#186 item 3, review round 2)', () => {
+    // Three real citations, each requiring the ZERO-directory case to
+    // resolve: the round-1 fix kept both literal slashes flanking `**`
+    // mandatory, so none of these — all real, all existing — could ever
+    // match, a false positive on working code.
+    expect(citationExists('packages/core/src/fleet/**/fences.ts')).toBe(true)
+    expect(citationExists('docs/**/roadmap.md')).toBe(true)
+    // Live at docs/review/gemini-3.1-pro/code-quality.md:25 — reachable
+    // through citationExists directly even though that file's own directory
+    // is excluded as a citing source, so this pins the shape rather than the
+    // sweep finding it.
+    expect(citationExists('packages/*/src/**/*.ts')).toBe(true)
+
+    // The one-or-more-segment case must keep working too — this is a fix to
+    // the zero case, not a rewrite that only handles zero.
+    expect(citationExists('packages/core/src/fleet/**/does-not-exist.ts')).toBe(false)
+  })
+
+  it('a lone `*` does not cross `/` — only `**` spans directories (#186 item 3, review round 2)', () => {
+    // Pinned directly against globToPathRegExp's own regex, not just an
+    // end-to-end true/false: changing '[^/]*' to '.*' for the single-star arm
+    // would leave every citationExists() case above green (none of them
+    // exercises a lone `*` where the difference is observable), so the
+    // observable difference has to be asserted here.
+    expect(globToPathRegExp('packages/*/doc-citation-law.test.ts').test('packages/server/src/doc-citation-law.test.ts')).toBe(false)
+    expect(globToPathRegExp('packages/*/src/doc-citation-law.test.ts').test('packages/server/src/doc-citation-law.test.ts')).toBe(true)
   })
 
   it('a line-ref, line-range or heading-anchor suffix survives EXTRACTION and is then stripped', () => {
@@ -521,10 +988,38 @@ describe('doc citation law: a path cited from a document or a comment must exist
     expect(isIgnored('packages/web/dist')).toBe(true)
     expect(citationExists('packages/web/dist')).toBe(true)
     expect(citationExists('packages/web/dist/index.html')).toBe(true)
+    expect(isBuildArtifactPath('packages/web/dist')).toBe(true)
   })
 
-  it('this file excludes itself by identity, not by name or convention — and does not weaken the sweep for any other file', () => {
-    // Identity, not a hardcoded name: OWN_FILE is resolved from the running module itself.
+  it('a gitignored path that is NOT a build artefact is still a real violation (#186 item 4)', () => {
+    // docs/audit/ is gitignored — see .gitignore's own comment: findings are
+    // "kept out of git deliberately" — but it is not a build artefact, and a
+    // citation into a nonexistent audit file is a real, checkable claim. The
+    // earlier code exempted EVERY gitignored path, not just dist/ and its two
+    // siblings, so this silently passed.
+    expect(isIgnored('docs/audit/2026-08-20-does-not-exist.md')).toBe(true)
+    expect(isBuildArtifactPath('docs/audit/2026-08-20-does-not-exist.md')).toBe(false)
+    expect(citationExists('docs/audit/2026-08-20-does-not-exist.md')).toBe(false)
+
+    // coverage/ is also gitignored and also not a build artefact this
+    // exemption covers.
+    expect(isIgnored('coverage/this-file-does-not-exist-2mL9qX.html')).toBe(true)
+    expect(isBuildArtifactPath('coverage/this-file-does-not-exist-2mL9qX.html')).toBe(false)
+    expect(citationExists('coverage/this-file-does-not-exist-2mL9qX.html')).toBe(false)
+  })
+
+  it('this file excludes itself by an exact match, not a naming CONVENTION — and does not weaken the sweep for any other file', () => {
+    // The title does NOT say "not by name" (#186 item 7, review round 2): a
+    // hardcoded NAME (a plain string literal) is exactly what this assertion
+    // cannot rule out. `OWN_FILE === '<literal path>'` holds identically
+    // whether OWN_FILE is `path.relative(REPO_ROOT, fileURLToPath(import.meta.
+    // url))` (identity) or the same string typed by hand (a hardcoded name) —
+    // the first retitle still claimed "not by name", and that claim is exactly
+    // as unprovable from in here as the original "by identity" one was. What
+    // IS provable, and is what the rest of this test asserts, is that the
+    // exclusion is not a naming CONVENTION — matching a PATTERN like "any
+    // `*-law.test.ts` file" — since a same-directory sibling with a similar
+    // name is demonstrably not excluded.
     expect(OWN_FILE).toBe('packages/server/src/doc-citation-law.test.ts')
 
     // Not a naming CONVENTION either — the #649 lesson. A same-directory file with a
@@ -549,6 +1044,23 @@ describe('doc citation law: a path cited from a document or a comment must exist
     expect(extractCitations(siblingText)).toContain('packages/server/src/app.ts')
     expect(citationExists('packages/server/src/app.ts')).toBe(false)
     expect(allCitations().some(({ file, cite }) => file === siblingFile && cite === 'packages/server/src/app.ts')).toBe(true)
+  })
+
+  it('CONTROL (#186 item 9 ruling): capture.mjs carries the deliberate historical citation the ruling is about, and .mjs stays out of the sweep', () => {
+    const mjsFile = 'packages/web/src/scene/parity/capture.mjs'
+    const raw = readFileSync(path.join(REPO_ROOT, mjsFile), 'utf8')
+
+    // The citation the ruling's evidence rests on is really there, backtick-
+    // delimited in a doc comment, exactly like any citation this law does
+    // sweep — the only thing exempting it is the file EXTENSION.
+    expect(extractCitations(extractComments(raw))).toContain('packages/web/src/scene/paint.ts')
+
+    // `packages/*.ts` (git's own glob semantics) does not reach a `.mjs` file
+    // — confirmed structurally, not just by absence from the citation list
+    // below, since an empty result there could also mean "swept and found no
+    // citations" rather than "never swept at all".
+    expect(trackedFiles('packages/*.ts')).not.toContain(mjsFile)
+    expect(allCitations().some(({ file }) => file === mjsFile)).toBe(false)
   })
 
   it('every in-scope citation exists, unless it is honesty-checked on the allowlist above', () => {
