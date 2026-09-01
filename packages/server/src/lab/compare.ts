@@ -4,7 +4,7 @@ import { reduceAll } from '@rhizomorph/core'
 import type { ForkDispatchRecord } from '@rhizomorph/core'
 import { defaultDataRoot, sessionDirFor } from '../log/paths.js'
 import { listSessions, readSessionEvents } from '../log/session-log.js'
-import { exec as realExec, withTimeout } from '../server/exec.js'
+import { describeExecFailure, exec as realExec, withTimeout } from '../server/exec.js'
 import { runGit } from './git.js'
 
 /**
@@ -32,8 +32,21 @@ export const DEFAULT_VERIFY_COMMAND = 'npm test'
 /** prd12 ruling 4's floor. Below this the surface shows runs, never conclusions. */
 export const MIN_ARMS_TO_RANK = 3
 
-/** Per-exec ceiling for every subprocess this module spawns — same value as `ROUTE_EXEC_TIMEOUT_MS` / `RETARGET_EXEC_TIMEOUT_MS`. A hung verify command or a hung git call must not hang `compareFork` itself. */
+/** Per-exec ceiling for the git plumbing this module runs (`countCommits`) — same value as `ROUTE_EXEC_TIMEOUT_MS` / `RETARGET_EXEC_TIMEOUT_MS`. A hung git call must not hang `compareFork` itself. NOT used for the verify command — see {@link COMPARE_VERIFY_TIMEOUT_MS}, which is the sibling of `RESTORE_EXEC_TIMEOUT_MS`, not of this one: a gate command is a wider thing to wait on than git plumbing, same as a dependency install is (`docs/design-notes/lab-launch-ceilings.md`). */
 export const COMPARE_EXEC_TIMEOUT_MS = 5000
+
+/**
+ * Per-exec ceiling for the verify command (`verifyArm`), whose default is
+ * `npm test` — a real test suite, not git plumbing. This repo's own suite runs
+ * ~39s wall on an idle box (~186s of summed worker time, which is the figure
+ * the review quoted); `COMPARE_EXEC_TIMEOUT_MS`'s 5s killed every real arm
+ * before it could finish either way (prd41 PR #123 review, Blocking 2). 10
+ * minutes is a ceiling on
+ * operator patience for a gate run, not a performance budget, in the same
+ * spirit as `RESTORE_EXEC_TIMEOUT_MS`: past ten minutes a verify command is
+ * wedged, not slow. See `docs/design-notes/lab-launch-ceilings.md`.
+ */
+export const COMPARE_VERIFY_TIMEOUT_MS = 600_000
 
 export type VerifiedOutcome = 'pass' | 'fail' | 'not-run'
 
@@ -80,6 +93,7 @@ export interface CompareForkOptions {
 
 export async function compareFork(options: CompareForkOptions): Promise<ForkComparison> {
   const exec = withTimeout(options.exec ?? realExec, COMPARE_EXEC_TIMEOUT_MS)
+  const verifyExec = withTimeout(options.exec ?? realExec, COMPARE_VERIFY_TIMEOUT_MS)
   const dataRoot = options.dataRoot ?? defaultDataRoot()
   const verifyCommand = options.verifyCommand ?? DEFAULT_VERIFY_COMMAND
 
@@ -106,7 +120,7 @@ export async function compareFork(options: CompareForkOptions): Promise<ForkComp
   for (const dispatch of dispatches) {
     const verification = options.skipVerify === true
       ? { outcome: 'not-run' as const, detail: '--no-verify' }
-      : await verifyArm(exec, dispatch.worktreePath, verifyCommand)
+      : await verifyArm(verifyExec, dispatch.worktreePath, verifyCommand)
 
     arms.push({
       arm: dispatch.arm,
@@ -151,8 +165,19 @@ async function verifyArm(
     return { outcome: 'not-run', detail: result.errorMessage }
   }
   if (result.failed) {
-    const line = (result.stderr.trim() || result.stdout.trim()).split('\n')[0] ?? ''
-    return { outcome: 'fail', detail: line.length > 0 ? line : `exit ${result.code}` }
+    // `describeExecFailure`, not a fourth hand-rolled copy of it (#306's git
+    // collector, #425's three judge readers, `restore.ts`'s npm install were
+    // the first three). A verify command killed on `COMPARE_VERIFY_TIMEOUT_MS`
+    // reports `code: null` with no stderr — the exact shape a two-arm
+    // `stderr || stdout` spelling renders as the useless `exit null`, same as
+    // the three before it. The first line of stdout is kept as a fallback
+    // ABOVE that: a failing test command more often explains itself there
+    // than on stderr, and `describeExecFailure` only reads the latter.
+    const firstLine = (text: string) => text.trim().split('\n')[0] ?? ''
+    const stderrLine = firstLine(result.stderr)
+    const stdoutLine = firstLine(result.stdout)
+    const detail = stderrLine.length > 0 ? stderrLine : stdoutLine.length > 0 ? stdoutLine : describeExecFailure(result)
+    return { outcome: 'fail', detail }
   }
   return { outcome: 'pass', detail: null }
 }

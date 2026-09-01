@@ -10,6 +10,8 @@ import { exec as realExec } from '../server/exec.js'
 import { captureCheckpoint } from './checkpoint.js'
 import {
   compareFork,
+  COMPARE_EXEC_TIMEOUT_MS,
+  COMPARE_VERIFY_TIMEOUT_MS,
   MIN_ARMS_TO_RANK,
   renderComparison,
   type ForkComparison,
@@ -240,9 +242,37 @@ describe('compareFork', () => {
 
     for (const arm of comparison.arms) {
       expect(arm.verified).toBe('fail')
-      expect(arm.verifiedDetail).toBe('exit null')
+      // Not `'exit null'` — that spelling cannot tell "a hung command was
+      // correctly killed" from "every real command is killed" (PR #123
+      // review, Blocking 2), which is exactly the shape this test's mock
+      // produces (`code: null`, no stderr, no stdout). `describeExecFailure`
+      // names the timeout instead.
+      expect(arm.verifiedDetail).toBe('killed with no exit code — the exec timeout')
     }
   }, 2000)
+
+  it('gives the verify command COMPARE_VERIFY_TIMEOUT_MS, not the 5s git-plumbing COMPARE_EXEC_TIMEOUT_MS (#123 review, Blocking 2)', async () => {
+    const forkId = await forkWith(1)
+    const seen: Array<{ command: string; args: readonly string[]; timeoutMs: number | undefined }> = []
+
+    await compareFork({
+      forkId,
+      parentWorktreePath: repoDir,
+      dataRoot,
+      verifyCommand: 'fake-gate --ci',
+      exec: async (command, args, options) => {
+        seen.push({ command, args, timeoutMs: options?.timeoutMs })
+        if (command === 'fake-gate') return OK
+        return realExec(command, args, options)
+      },
+    })
+
+    // Both really were spawned, so this cannot pass vacuously.
+    const verifyCall = seen.find((call) => call.command === 'fake-gate')
+    const gitCall = seen.find((call) => call.command === 'git' && call.args[0] === 'rev-list')
+    expect(verifyCall?.timeoutMs, 'the verify command was not spawned').toBe(COMPARE_VERIFY_TIMEOUT_MS)
+    expect(gitCall?.timeoutMs, 'the git plumbing call was not spawned').toBe(COMPARE_EXEC_TIMEOUT_MS)
+  })
 })
 
 // --- the table (prd12 rulings 4 and 6) ---------------------------------------------
