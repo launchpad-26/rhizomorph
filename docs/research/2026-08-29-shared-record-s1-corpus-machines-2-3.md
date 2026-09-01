@@ -1,13 +1,19 @@
-# s1-corpus — telemetry cost on machines 2 and 3
+# s1-corpus — telemetry cost on machines 2, 3 and 4
 
-**Scope note, stated up front:** this note now covers **both** remaining machines. It was filed on
-2026-08-29 covering machine 2 only, with machine 3 recorded as an open item under Ruling 1 ("a
-spike that overruns its budget files its partial note ... silence is not a result"); machine 3 was
-measured on 2026-09-01 and folded in here (#189). The three-machine table the wave-1 DoD asked for
-now exists.
+**Scope note, stated up front:** this note now covers machine 2, machine 3, **and a fourth
+machine**. It was filed on 2026-08-29 covering machine 2 only, with machine 3 recorded as an open
+item under Ruling 1 ("a spike that overruns its budget files its partial note ... silence is not a
+result"); machine 3 was measured on 2026-09-01 and folded in (#189, commit `a4c92f2`) — that work is
+**unchanged by this update**. A fourth, independently-measured machine (gabriel-canaan, posted as a
+GitHub comment on issue #189 on 2026-09-01) is folded in here, **additively**: nothing about machine
+1, 2 or 3's own numbers or sections is altered. The three-machine table the wave-1 DoD asked for
+already existed; this update extends it to four points.
 
-Both machines are named by role ("machine 2", "machine 3"), never by hostname, and no real home
-path appears below — this repo's rule against committing a real machine's identity.
+All four machines are named by role ("machine 2", "machine 3", "machine 4"), never by hostname, and
+no real home path appears below — this repo's rule against committing a real machine's identity.
+Machine 4's numbers are gabriel-canaan's own, posted as "numbers only — no verdicts or conclusions
+drawn"; every comparison, falsifier re-verdict and spread call involving machine 4 below is this
+note's addition, graded `[REASONED]`, built on their `[EXECUTED]` figures.
 
 ## Machine 2
 
@@ -369,99 +375,309 @@ compresses best on all three compressors — but note it is **weaker** here (9.7
 spread) than the "noticeably better" machine 2 saw, consistent with this box's corpus being less
 dominated by high-entropy `contentHash` strings.
 
-## Three-machine table
+## Machine 4
+
+No CPU, RAM, OS or load-average figures were reported for this machine — unlike machines 1–3, all
+of which state a box spec. This is a real gap in what can be claimed about it (see "What this did
+not test"), not an oversight in transcription: the source comment states machine identifiers,
+absolute timestamps and wall-clock timings were deliberately omitted.
+
+## Machine 4: what ran
+
+**[EXECUTED — gabriel-canaan, issue #189 comment, 2026-09-01]** Posted as "numbers only — no
+verdicts or conclusions drawn here." Per the comment: "All executed read-only against a live
+`~/.local/share/rhizomorph`, per the machine-2 note's Reproduction block. `awk` run under `LC_ALL=C`
+(byte totals reconcile exactly with `stat`)." No copies, no method deviations reported, and no
+"Reproduction (machine 4)" section is added below — the comment states it reused "Reproduction
+(machine 2)" unmodified.
+
+## Machine 4: results
+
+### 1. Corpus census
+
+**[EXECUTED — gabriel-canaan]**
+
+```
+dirs                     9  (5 real, 4 fixture)
+fixture dirs             4   (44.4% of dirs)
+fixture bytes      102,957   (0.12% of corpus)
+fixture sessions         4   189 lines
+
+real dirs                5
+real files              83
+real bytes      85,989,935   (82.0 MiB)
+real sessions           11
+session bytes   85,197,623
+total events       230,647
+corpus span         25.022 days
+
+events/day           9,218
+bytes/day          3.40 MB
+bytes/event          369.4
+```
+
+| dir (role) | dir bytes | sessions | largest session bytes | largest session events | dur (h) | distinct panes | lane-tagged lines |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| main project checkout | 85,697,956 | 7 | 22,043,666 | 53,698 | 72.27 | 76 | 34,669 |
+| worktree lane A | 85,995 | 1 | 25,571 | 84 | 0.00 | 15 | 4 |
+| server package | 85,436 | 1 | 20,823 | 70 | 0.01 | 6 | 11 |
+| worktree lane B | 77,884 | 1 | 17,101 | 57 | 0.00 | 15 | 0 |
+| an unrelated repo | 44,650 | 1 | 21,720 | 70 | 0.00 | 32 | 0 |
+| **total (5 real)** | **85,989,935** | **11** | — | **230,647** | — | — | — |
+
+Fixture dirs identified by `repoPath` on each dir's first event, same method as machines 2 and 3:
+two `plain-repo-*` point at a `/tmp/tmp.*/watched/plain-repo` sandbox path, the other two at repos
+built inside an agent scratch dir — no real home path in either.
+
+**[REASONED] Reconciliation flag, not silently smoothed over:** the five dir-bytes figures above sum
+to 85,991,921, which is 1,986 bytes (0.0023%) **more** than the reported "real bytes" total of
+85,989,935 that the comment's bytes/event, MiB and MB/day figures are all derived from and reconcile
+against exactly (verified below). The itemized table and the top-line total disagree by a small,
+immaterial amount — most likely a between-snapshot difference of the kind machine 2's note already
+flags for its own live corpus (per-dir bytes and the whole-machine total taken at slightly different
+moments), though that is inference, not confirmed here. The 85,989,935 figure is used throughout
+this note wherever "machine 4 real bytes" is needed, since it is the one every derived figure
+(bytes/event, MiB, MB/day) was checked against and matches.
+
+**[REASONED] Every other subtotal in this machine's numbers reconciles exactly:** fixture dirs
+(4/9 = 44.4%, matches), fixture bytes (102,957 / (85,989,935+102,957) = 0.12%, matches), sessions
+(7+1+1+1+1 = 11, matches), bytes/event (85,197,623 / 230,647 ≈ 369.4, matches), bytes/day
+(85,197,623 / 25.022 ≈ 3.40 MB, matches), events/day (230,647 / 25.022 ≈ 9,218, matches), and real
+bytes in MiB (85,989,935 / 1,048,576 ≈ 82.0 MiB, matches). The dir-table discrepancy above is the
+only one found.
+
+### 2. Global per-type census, three largest real logs
+
+**[EXECUTED — gabriel-canaan]** All three logs sit in the same real dir (the main project
+checkout): 57,895,247 bytes / 155,653 lines, bytes/event 372.0.
+
+| type | lines | % lines | bytes | % bytes |
+|---|---:|---:|---:|---:|
+| pane.activity | 80,704 | 51.849 | 23,833,531 | 41.167 |
+| llm.usage | 28,512 | 18.318 | 11,552,723 | 19.955 |
+| trace.span | 16,008 | 10.284 | 10,620,882 | 18.345 |
+| tool.activity | 14,348 | 9.218 | 5,687,374 | 9.824 |
+| agent.activeTime | 5,144 | 3.305 | 1,372,605 | 2.371 |
+| **five high-frequency classes** | **144,716** | **92.974** | **53,067,115** | **91.661** |
+| **durable rest (17 types)** | **10,937** | **7.027** | **4,828,132** | **8.339** |
+
+**[REASONED] This reconciles exactly**, both ways: the five-class and durable-rest subtotals sum to
+155,653 lines / 57,895,247 bytes (the stated census total), and independently, summing the 17
+individual durable-rest line items given in the source comment (`llm.cost` through `session.started`)
+gives 10,937 lines / 4,828,132 bytes on the nose — the same two numbers the comment states as the
+subtotal. No smoothing needed here.
+
+`agent.removed` = 0 on this machine (stated); `collector.disabled` = 92.
+
+**Like machine 3, and unlike machine 2, this machine has genuine five-high-frequency-class
+composition** — all five of machine 1's named set are real percentages here, not one dominant class
+with the other four near zero. Machine 4's non-`pane.activity` share of the five classes
+(18.318 + 10.284 + 9.218 + 3.305 = 41.125% of lines) is larger than machine 3's equivalent
+(6.603 + 4.814 + 2.606 + 1.384 = 15.407%), making machine 4 the most agent/LLM-dense of the three
+machines whose per-type breakdown is available in this note (machine 1's own breakdown is not
+reproduced here, only its aggregate durable-fact %). See "The durable-fact spread" below for what
+this does to the four-machine ordering.
+
+### 3. Events per lane-hour and per pane-hour
+
+**[EXECUTED — gabriel-canaan]** Largest session (main project checkout, 53,698 events, 72.27 h):
+64.6% of lines carry `lane` (34,669 / 53,698), 30.5% carry `paneId` (16,358 / 53,698) — real
+coverage on both axes, as on machine 3.
+
+| | events | lanes | ev/lane-hour |
+|---|---:|---:|---:|
+| peak lane-hour 1 | 2,821 | 4 | 705.2 |
+| peak lane-hour 2 | 3,399 | 5 | 679.8 |
+| peak lane-hour 3 | 3,350 | 5 | 670.0 |
+
+| | events | panes | ev/pane-hour |
+|---|---:|---:|---:|
+| peak pane-hour 1 | 2,821 | 2 | 1,410.5 |
+| peak pane-hour 2 | 3,208 | 3 | 1,069.3 |
+| peak pane-hour 3 | 2,880 | 3 | 960.0 |
+
+```
+busiest single (lane,hour)   1,547
+busiest no-lane bucket       1,361
+busiest single (pane,hour)     989
+buckets > 5,000 events           0   (both groupings)
+```
+
+**[REASONED] Unlike machine 3's lane-hour figure, this one is not a denominator-of-1 artefact:**
+machine 4's three peak lane-hour buckets have real multi-lane denominators (4, 5, 5), not 1. That
+makes 705.2 the first lane-hour aggregate-ratio figure in this note's whole four-machine set that is
+not suspected of being inflated by an all-untagged hour — see "peak events/lane-hour" in the table
+below. It also reports its overall busiest (lane,hour) bucket, 1,547, separately from its busiest
+`no-lane`-only bucket, 1,361 — the two are not the same query. Machines 1 and 3 report only a single
+figure under "busiest single (lane,hour) bucket," which is their **overall** busiest bucket, and it
+happens to be a `no-lane` one on both. Machine 4's overall busiest bucket (1,547) is what maps
+directly onto machine 1's and 3's figures, not the no-lane-restricted one — see the four-machine
+table below.
+
+### 4. Compression
+
+**[EXECUTED — gabriel-canaan]** `gzip -9`, `xz -6 -T0`, single run each. No per-run timing (ms) and
+no `zstd` run were reported for this machine.
+
+| file | orig | gzip -9 | ratio | xz -6 | ratio | pane.activity % bytes |
+|---|---:|---:|---:|---:|---:|---:|
+| log C | 16,216,193 | 1,728,965 | 9.38x | 1,366,540 | 11.87x | 37.8 |
+| log B | 19,635,388 | 3,078,726 | 6.38x | 2,321,076 | 8.46x | 67.2 |
+| log A | 22,043,666 | 2,211,102 | 9.97x | 1,686,480 | 13.07x | 20.4 |
+
+gzip -9 mean 8.58x; xz -6 mean 11.13x.
+
+**[REASONED] Reconciles exactly:** each ratio (orig ÷ compressed) matches the stated per-file value,
+and the mean of the three gzip ratios is 8.577 ≈ 8.58x, the mean of the three xz ratios is
+11.133 ≈ 11.13x — both match the comment's stated means.
+
+The "pane.activity % bytes" column has no counterpart in machine 2's or 3's compression tables — a
+per-machine-4-only figure, not forced into the shared four-machine table below.
+
+## Four-machine table
 
 Machine 1 = WSL2 Ubuntu, i9-13900H. Machine 2 = macOS Apple Silicon, 18 cores / 48 GiB.
-Machine 3 = macOS Apple Silicon, 8 cores / 8 GiB. "Spread" is max ÷ min across all three.
+Machine 3 = macOS Apple Silicon, 8 cores / 8 GiB. Machine 4 = specs not reported (gabriel-canaan,
+issue #189 comment). "Spread" is max ÷ min across all four. Machine 1–3 columns are unchanged from
+the three-machine table Ciaran Slow committed in `a4c92f2`; only the machine 4 column, and the
+spread/>2x columns, are new.
 
-| metric | machine 1 | machine 2 | machine 3 | spread | >2x? |
-|---|---:|---:|---:|---:|:---:|
-| real session dirs / fixture dirs | 26 real / 73 fixture (74% dirs, 4.4% bytes) | 3 real / 0 fixture | 35 real / 4 fixture (10.3% dirs, 8.21% bytes) | n/a | — |
-| real corpus total bytes | 216,153,315 | 565,936,245 | 40,225,806 | **14.07x** | **yes** (scale) |
-| **largest-session bytes/event** | **413.5** | **280.3** | **366.6** | **1.48x** | **no** |
-| **3-log-census bytes/event** | **415.3** | **280.2** | **377.7** | **1.48x** | **no** |
-| whole-corpus bytes/event | — | 283.1 | 361.1 | 1.28x | no |
-| gzip -9 mean ratio | 10.3x | 7.84x | 8.80x | 1.31x | no |
-| xz -6 mean ratio | 12.9x | 11.49x | 12.06x | 1.12x | no |
-| zstd -19 mean ratio | — | — | 12.13x | n/a | — |
-| largest-session events/day-equiv (ev / dur_h × 24) | 35,128 | 191,144 | 28,211 | **6.78x** | **yes** |
-| whole-corpus events/day | — | 105,155 | 5,142 | **20.4x** | **yes** |
-| whole-corpus MB/day | — | 29.77 | 1.86 | **16.0x** | **yes** |
-| **durable-fact % of lines** | **6.81%** | **0.10%** | **3.23%** | **68x** | **yes** |
-| **durable-fact % of bytes** | **7.12%** | **0.15%** | **2.86%** | **47x** | **yes** |
-| peak events/lane-hour, aggregate | 2,024.2 | n/a (no lanes) | 4,629.0 ⚠ | 2.29x | see caveat |
-| peak events/pane-hour, aggregate | n/a | 1,406.5 | 1,161.5 | 1.21x | no |
-| busiest single (pane,hour) bucket | n/a | 1,799 | 1,799 | **1.00x** | no |
-| busiest single (lane,hour) bucket | 4,183 (`no-lane`) | n/a | 5,942 (`no-lane`) | 1.42x | no |
+| metric | machine 1 | machine 2 | machine 3 | machine 4 | spread | >2x? |
+|---|---:|---:|---:|---:|---:|:---:|
+| real session dirs / fixture dirs | 26 real / 73 fixture (74% dirs, 4.4% bytes) | 3 real / 0 fixture | 35 real / 4 fixture (10.3% dirs, 8.21% bytes) | 5 real / 4 fixture (44.4% dirs, 0.12% bytes) | n/a | — |
+| real corpus total bytes | 216,153,315 | 565,936,245 | 40,225,806 | 85,989,935 | **14.07x** | **yes** (scale) |
+| **largest-session bytes/event** | **413.5** | **280.3** | **366.6** | **410.5** | **1.48x** | **no** |
+| **3-log-census bytes/event** | **415.3** | **280.2** | **377.7** | **372.0** | **1.48x** | **no** |
+| whole-corpus bytes/event | — | 283.1 | 361.1 | 369.4 | 1.30x | no |
+| gzip -9 mean ratio | 10.3x | 7.84x | 8.80x | 8.58x | 1.31x | no |
+| xz -6 mean ratio | 12.9x | 11.49x | 12.06x | 11.13x | 1.16x | no |
+| zstd -19 mean ratio | — | — | 12.13x | — | n/a | — |
+| largest-session events/day-equiv (ev / dur_h × 24) | 35,128 | 191,144 | 28,211 | 17,832 | **10.72x** | **yes** |
+| whole-corpus events/day | — | 105,155 | 5,142 | 9,218 | **20.4x** | **yes** |
+| whole-corpus MB/day | — | 29.77 | 1.86 | 3.40 | **16.0x** | **yes** |
+| **durable-fact % of lines** | **6.81%** | **0.10%** | **3.23%** | **7.03%** | **70.3x** | **yes** |
+| **durable-fact % of bytes** | **7.12%** | **0.15%** | **2.86%** | **8.34%** | **55.6x** | **yes** |
+| peak events/lane-hour, aggregate | 2,024.2 | n/a (no lanes) | 4,629.0 ⚠ | 705.2 | **6.56x** (2.87x excl. m3 ⚠) | **yes** (see ⚠) |
+| peak events/pane-hour, aggregate | n/a | 1,406.5 | 1,161.5 | 1,410.5 | 1.21x | no |
+| busiest single (pane,hour) bucket | n/a | 1,799 | 1,799 | 989 | 1.82x | no |
+| busiest single (lane,hour) bucket | 4,183 (`no-lane`) | n/a | 5,942 (`no-lane`) | 1,547 | **3.84x** | **yes** |
 
 ⚠ The machine-3 lane-hour figure has a denominator of 1 and is not a real per-actor rate — see
-"Events per lane-hour AND per pane-hour" above. Machine 1's is likely affected the same way.
+"Events per lane-hour AND per pane-hour" above. Machine 1's is likely affected the same way. Machine
+4's is not: its three peak lane-hour buckets have real multi-lane denominators (4, 5, 5), so 705.2 is
+the first lane-hour aggregate-ratio figure in this set not suspected of being an artefact. Excluding
+the flagged machine-3 value, machine 1 vs machine 4 alone is 2,024.2 / 705.2 = **2.87x** — still
+over the 2x line on a same-unit, non-degenerate comparison.
+
+Machine 4 also separately reports its busiest `no-lane`-only bucket, 1,361 — smaller than its
+overall busiest bucket (1,547), meaning the largest single bucket on this machine happens to carry a
+real lane tag, unlike on machines 1 and 3 where the overall largest bucket is the `no-lane` one. The
+1,361 figure has no counterpart on machines 1 or 3 (they report only their overall busiest bucket,
+not a `no-lane`-restricted one), so it is not forced into the row above.
 
 **Machine 3 is the first machine that can be compared to both others on their own chosen unit** —
 it has lanes (like machine 1) and enough panes to bucket (like machine 2), so the lane-hour and
 pane-hour rows above finally sit on the same page rather than in two notes using two conventions.
+Machine 4 adds a second such machine, and its multi-lane-denominator lane-hour figure is arguably
+the more trustworthy of the two.
 
-### The named falsifier: bytes/event, PASSES on three points
+**Two rows newly cross the 2x line with a fourth point that did not with three:** the busiest single
+(lane,hour) bucket (was 1.42x at three machines, machine 3 vs machine 1; is 3.84x at four, machine 3
+vs machine 4's 1,547) and the peak lane-hour aggregate ratio (was 2.29x machine 1 vs machine 3,
+already flagged as caveated; is 6.56x at four, or 2.87x on the reliable pair alone). Neither is the
+named falsifier — see below — but both are >2x spreads the DoD's general instruction to call out
+per-machine differences would catch.
+
+### The named falsifier: bytes/event, PASSES on four points
 
 The issue's falsifier: *"if machines 2 and 3 disagree with machine 1 by more than 2x on
-bytes/event, the brief's §2 baseline is one box's habit and not a corpus."*
+bytes/event, the brief's §2 baseline is one box's habit and not a corpus."* Machine 4 is not named
+in the issue's original wording (it predates machine 4's data existing at all), but the same test
+applies to it by extension: does it also stay inside 2x of machine 1?
 
-| framing | m1 | m2 | m3 | max ÷ min | verdict |
-|---|---:|---:|---:|---:|:---|
-| largest-session bytes/event | 413.5 | 280.3 | 366.6 | **1.48x** | PASS |
-| 3-log-census bytes/event | 415.3 | 280.2 | 377.7 | **1.48x** | PASS |
+| framing | m1 | m2 | m3 | m4 | max ÷ min | verdict |
+|---|---:|---:|---:|---:|---:|:---|
+| largest-session bytes/event | 413.5 | 280.3 | 366.6 | 410.5 | **1.48x** | PASS |
+| 3-log-census bytes/event | 415.3 | 280.2 | 377.7 | 372.0 | **1.48x** | PASS |
 
-**Verdict: PASS, and more strongly than it passed at two points.** Machine 3 lands *between* the
-two prior machines (366.6 / 377.7 against machine 1's ~414 and machine 2's ~280), so it does not
-widen the spread at all — the max and min are still machine 1 and machine 2, and the ratio is
-unchanged at 1.48x, comfortably under the 2x trigger.
+**Verdict: PASS, unchanged, and machine 4 does not widen the spread either.** Machine 4 lands close
+to machine 1 on the largest-session framing (410.5 vs 413.5) and mid-band on the 3-log-census
+framing (372.0, between machine 3's 377.7 and machine 2's 280.2). The max and min across all four
+points are still machine 1 and machine 2 in both framings, so the ratio is unchanged at 1.48x.
 
-Two things this third point buys that the two-machine version could not:
+A corroborating framing not part of the issue's named test (machine 1 has no equivalent figure, so
+it cannot be the falsifier itself): whole-corpus bytes/event is 283.1 (m2), 361.1 (m3), 369.4 (m4) —
+a 1.30x spread across the three machines where it can be computed at all, consistent with the same
+band.
 
-1. **The spread is now interpolated, not just bounded.** With two points, 1.48x could have been two
-   arbitrary values that happened to be close. With a third landing in the middle, ~280–415 B/event
-   looks like a genuine band rather than a coincidence of two boxes.
-2. **It holds across the largest compositional difference in the set.** Machine 3's durable-fact
-   share (3.23%) is 32x machine 2's, and its type mix is close to machine 1's — yet its bytes/event
-   sits *between* them rather than tracking composition. **Byte cost per event is roughly invariant
-   to what the events are**, which is the property a storage-sizing model actually needs.
+Three things this fourth point buys that the three-machine version could not:
 
-**For sizing, use bytes/event ≈ 280–415 B, centre ~360 B.** All three machines fall in it, on three
-different workload shapes and two different OSes.
+1. **The spread is now interpolated by two independent points, not one.** Machine 3 landing in the
+   middle could have been one coincidence; machine 4 landing near the top of the same band, on a
+   compositionally very different corpus, makes the band itself the more likely explanation.
+2. **It holds across the widest compositional swing in the set, not just the second-widest.**
+   Machine 4's durable-fact share (7.03%/8.34%) is now the highest of all four machines — higher
+   than machine 1's, and 70x machine 2's — yet its bytes/event sits *inside* the same 280–415 B
+   band, not above it. **Byte cost per event is invariant to what the events are**, even at the
+   extreme of composition, which is the property a storage-sizing model actually needs.
+3. **It holds without hardware or OS information for machine 4 at all.** Machines 1–3 differ by OS
+   and CPU; machine 4's box is unknown entirely. That the byte-cost band holds even when a data
+   point's hardware can't be checked is a mild additional point in favour of it being a property of
+   the event format, not of any one machine's disk, filesystem, or encoding.
 
-### The durable-fact spread: a continuum, not a coin flip
+**For sizing, use bytes/event ≈ 280–415 B, centre ~360 B — unchanged from the three-machine
+conclusion.** All four machines fall in it, on four different workload shapes, at least two
+different OSes (a third, unknown), and now including the machine with the highest durable-fact
+share of the cohort.
 
-The DoD asked whether machine 3 lands near either end of machine 1's 6.81–7.12% vs machine 2's
-0.10–0.15%, or somewhere else. **Somewhere else — in between, nearer machine 1.**
+### The durable-fact spread: a continuum, not a coin flip — now with a new top end
 
-| | m1 | m3 | m2 |
-|---|---:|---:|---:|
-| durable-fact % of lines | 6.81% | **3.23%** | 0.10% |
-| durable-fact % of bytes | 7.12% | **2.86%** | 0.15% |
-| ratio to machine 3 | 2.11x / 2.49x above | — | 32x / 19x below |
+The three-machine version of this note found machine 3 landing between machine 1's 6.81–7.12% and
+machine 2's 0.10–0.15%, nearer machine 1. **Machine 4 does not land in that gap. It lands past
+machine 1, becoming the new top of the continuum.**
 
-The three points do not cluster at two poles, so the honest reading is **not** "machine 2 is the
-odd one out and 4–7% is the real baseline". It is that durable-fact share is a **function of what
-the machine was doing**, and it moves over more than two orders of magnitude:
+| | m4 | m1 | m3 | m2 |
+|---|---:|---:|---:|---:|
+| durable-fact % of lines | **7.03%** | 6.81% | 3.23% | 0.10% |
+| durable-fact % of bytes | **8.34%** | 7.12% | 2.86% | 0.15% |
+| step ratio to next column | 1.03x / 1.17x | 2.11x / 2.49x | 32.3x / 19.1x | — |
+
+Span across all four (max ÷ min): **70.3x on lines, 55.6x on bytes.**
+
+This ordering — 0.10% < 3.23% < 6.81% < 7.03% on lines, 0.15% < 2.86% < 7.12% < 8.34% on bytes — is
+itself directly checkable from the four percentages above; it does not depend on machine 1's
+per-type breakdown, which is not reproduced in this note. It is monotonic across all four points,
+same as the three-machine finding, with machine 4 marginally ahead of machine 1 rather than tied
+with or below it.
+
+The mechanism the three-machine note proposed still explains the ordering wherever a per-type
+breakdown is available (machines 2, 3 and 4):
 
 - Machine 2's dominant session was one long-running server-package session — almost pure
   `pane.activity` (99.9% of lines), with LLM/tool/tracing classes essentially absent. 0.10%.
 - Machine 3's sessions are mixed lane work — real `llm.usage` (6.6%), `trace.span` (4.8%),
   `tool.activity` (2.6%) traffic alongside pane polling. 3.23%.
-- Machine 1's are dogfood lane-fleet sessions, denser still in agent activity. 6.81%.
+- Machine 4's sessions are more agent/LLM-dense still: `llm.usage` (18.3%), `trace.span` (10.3%),
+  `tool.activity` (9.2%), `agent.activeTime` (3.3%) — a non-`pane.activity` share of the five
+  high-frequency classes (41.1%) more than double machine 3's (15.4%). 7.03%.
+- Machine 1's are dogfood lane-fleet sessions; its own per-type breakdown is not in this note, so
+  where it sits on this same axis cannot be checked directly, only inferred from its durable-fact %
+  landing just under machine 4's.
 
-The ordering tracks *agent/LLM activity per unit of pane polling*, monotonically, across all three.
-That is a mechanism, not a spread.
+**The consequence for PRD48 stands and is now better evidenced, with a wider worst case:** a
+retention plan that assumes "durable facts are ~4% of the corpus" is now wrong by up to **70x**
+(was 68x) at one end of this cohort. **Durable facts must be sized from the count of agent/LLM
+events a machine actually produces, never as a percentage of total corpus bytes** — the percentage
+is not a property of Rhizomorph, it is a property of the workload, and it remains the single least
+portable number in this note.
 
-**The consequence for PRD48 stands and is now better evidenced:** a retention plan that assumes
-"durable facts are ~4% of the corpus" is wrong by up to 68x at one end of this cohort. **Durable
-facts must be sized from the count of agent/LLM events a machine actually produces, never as a
-percentage of total corpus bytes** — the percentage is not a property of Rhizomorph, it is a
-property of the workload, and it is the single least portable number in this note.
-
-By contrast, bytes/event (invariant, 1.48x) and the per-pane poll ceiling (~1,800 events/pane-hour,
-identical on the two machines it could be measured on) *are* properties of Rhizomorph, and those
-are the two numbers a shared server should be sized on.
+By contrast, bytes/event (invariant, 1.48x at four points) is still a property of Rhizomorph, and
+the per-pane poll ceiling finding needs a small revision rather than a restatement: machine 4's
+busiest single pane-hour bucket is 989, well under the ~1,800 ceiling machines 2 and 3 both hit
+exactly. That is **consistent with, not a counter-example to**, the ceiling theory — a ceiling caps
+the maximum a pane *can* reach, it does not require every machine's busiest hour to reach it, and
+989 < 1,800 is exactly what "under the cap" looks like. Bytes/event and the ceiling remain the two
+numbers a shared server should be sized on; durable-fact share should not be one of them.
 
 ### What the third machine changed
 
@@ -476,6 +692,30 @@ Recorded plainly, since two of these revise the machine-2 note rather than merel
 - **The 1,799 peak is a 2 s poll ceiling**, identified only because two machines hit the identical
   number. A two-machine note had the coincidence in it and did not resolve it.
 - **`zstd` is no longer untested** — and at `-19` it is not worth its time over `xz -6`.
+
+### What the fourth machine changed
+
+Recorded the same way, against the three-machine table in `a4c92f2` (which this update leaves
+unchanged):
+
+- **The falsifier still passes** — unchanged verdict, and machine 4 does not widen the spread; it
+  lands close to machine 1 on one framing and mid-band on the other.
+- **Machine 1 is no longer the top of the durable-fact continuum.** Machine 4 sits marginally above
+  it (7.03%/8.34% vs 6.81%/7.12%), so the ordering is a continuum with machine 4 at one end, not
+  "machine 1 as ceiling, machine 2 as floor."
+- **Two rows newly cross the 2x line that did not at three machines:** the busiest single
+  (lane,hour) bucket (1.42x → 3.84x) and the peak lane-hour aggregate ratio (2.29x, already caveated
+  → 6.56x, or 2.87x excluding the flagged machine-3 value). Neither is the named falsifier.
+- **The 1,799 poll-ceiling finding is not falsified, but is no longer "identical on every machine
+  that measured it."** Machine 4's busiest pane-hour bucket is 989 — under the ceiling, which is
+  consistent with a cap rather than a target.
+- **Machine 4 supplies the first lane-hour aggregate-ratio figure with a real (non-1) denominator**,
+  making it arguably more trustworthy than either machine 1's or machine 3's equivalent figure.
+- **A small, unresolved reconciliation gap**: machine 4's itemized real-dir bytes sum to 1,986 bytes
+  (0.0023%) more than its reported real-bytes total. Flagged, not corrected — see "Corpus census"
+  above.
+- **No hardware, OS or load information exists for machine 4** — the first machine in this note
+  where that is true. Every claim above is about its telemetry output only.
 
 ## What this did not test
 
@@ -513,6 +753,27 @@ Machine 3's gaps:
   someone outside this repo — the durable-fact mechanism above says workload shape is what moves
   the numbers, so a fourth machine with a genuinely different *purpose* would be worth more than a
   fourth developer laptop.
+
+Machine 4's gaps:
+
+- **No hardware, OS or load-average figures at all** — the source comment states these were
+  deliberately omitted, along with machine identifiers, absolute timestamps and wall-clock timings.
+  No claim in this note about machine 4 depends on its hardware, but it also means no claim about
+  hardware *can* be made — unlike machines 1–3, there is no way to say whether this box was loaded
+  during the run.
+- **No compression timing (ms) and no `zstd` run.** The ratios reconcile exactly against the
+  reported bytes; there is nothing to check the *speed* claims against, because none were made.
+- **Not independently re-executed.** These are gabriel-canaan's own read-only numbers, posted to
+  the issue; this note's author verified the arithmetic (subtotals, ratios, percentages, MiB/MB
+  conversions) against the numbers as posted, but did not re-run the commands on that machine —
+  same evidentiary status this note already gives machine 1's figures, which are also cited rather
+  than re-executed by whoever writes the comparison.
+- **A small, unresolved dir-bytes reconciliation gap** (1,986 bytes / 0.0023%) between the itemized
+  per-dir table and the reported real-bytes total — see "Corpus census" above. Immaterial to every
+  conclusion drawn (all derived figures use the reported total, which is internally consistent with
+  bytes/event, MiB and MB/day), but not silently corrected.
+- **Four machines is still a small cohort of developer workstations** — see machine 3's gap above,
+  which now applies with one more data point rather than fewer.
 
 ## Reproduction (machine 2)
 
