@@ -78,3 +78,11 @@ decision, not a side effect of it.
 > `packages/core/src/fleet/` (with their tests), so the server reaches the same
 > judgment the browser does rather than re-folding with `reduceAll` beside it. The
 > inverted layering the consequence names no longer exists.
+
+> **Amendment — the moving commit, named (2026-09-02).** `69249f0` (2026-08-13)
+> is the commit the amendment above refers to: it `git mv`'d `buildFleet.ts` and
+> its siblings from `packages/web/src/fleet/` to `packages/core/src/fleet/`.
+> `packages/web/src/fleet/` still exists — it now holds only `FleetContext.tsx`
+> and the other browser-side consumers, not `buildFleet` — so a citation law that
+> checks only whether the path resolves cannot see that this consequence was
+> fixed.
