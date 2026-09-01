@@ -2,6 +2,15 @@ import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { RhizomorphEvent } from '@rhizomorph/core'
 import { parseJsonl } from '@rhizomorph/core'
+// `lane-index.ts` imports this module's `readSessionLog` to populate its cache,
+// so this import closes a cycle. It is sound for one reason, and only that
+// reason: the binding is read inside a function body, at call time, long after
+// both module bodies have run. Do NOT instantiate anything from `lane-index.js`
+// at module scope here — a `new ParsedSessionLogCache()` on this file's top
+// level dies with `TypeError: ParsedSessionLogCache is not a constructor`
+// (class bindings are not hoisted across a cycle), which is also why a private
+// second cache is not merely wrong per ruling 1 but unloadable.
+import { parsedSessionLogCache } from './lane-index.js'
 import { sessionFileName, sessionIdFromFileName } from './paths.js'
 import { isLockLive, readSessionLock } from './session-lock.js'
 
@@ -35,6 +44,13 @@ export interface SessionLogRead {
  * understand, shouldn't take the rest of the session with it) but counted in
  * `unreadableLineCount` so a caller (the listing) can say so rather than
  * acting as though the file were shorter than it is.
+ *
+ * **This is the raw parse, and it must stay raw.** It is the function
+ * `ParsedSessionLogCache.populate` calls to fill an entry (`lane-index.ts`),
+ * so routing it through that cache the way {@link readSessionEvents} below is
+ * routed would be unbounded recursion, not a second helping of the same
+ * saving. A caller that wants the memoised parse of the whole
+ * {@link SessionLogRead} asks the cache directly, as `log/listing.ts:2` does.
  */
 export async function readSessionLog(filePath: string): Promise<SessionLogRead> {
   let raw: string
@@ -53,9 +69,42 @@ export async function readSessionLog(filePath: string): Promise<SessionLogRead> 
  * Reads back a session's events alone. Every caller here — boot resumption,
  * the raw events route — only ever needed the fold; see {@link readSessionLog}
  * for the listing's fuller need (how much of the file it took).
+ *
+ * **Through the shared parse cache (prd-44 ruling 1 / #104).** That ruling
+ * states its own reach: *"to every reader of the session directory, not just
+ * this route [...] a second caller that walks the directory per request is the
+ * same defect with a different route name."* This is that third reader —
+ * `api/lab.ts`'s `readAllEvents` calls it once per finished session on every
+ * `/api/lab/checkpoints`, `/experiments` and `/estimate` request, and
+ * `lab/compare.ts` and `lab/fork.ts` walk the same directory — so it reads
+ * through the same `parsedSessionLogCache` instance `log/lane-index.ts` owns
+ * and `log/listing.ts` imports, never a second cache of its own. A second
+ * instance would satisfy every count law in isolation while defeating the
+ * cross-session sharing that is the point (ruling 1's amendment).
+ *
+ * **Why it is safe without a live-session id, which this signature cannot
+ * have.** `readLaneIndex` and `listSessionListings` take the live session's
+ * events from the recorder's buffer rather than from the file (`listing.ts`'s
+ * own reason: never race the writer's append), and they can, because they are
+ * given `liveSessionId`. This function is given a *path*, so it cannot make
+ * that choice — and does not need to: the cache's key is the file's `mtimeMs`
+ * **and** `size`, a session log is append-only, and an append always moves the
+ * size. A recording still being written therefore invalidates its own entry on
+ * every append, so the worst this can serve is exactly what a fresh
+ * `readSessionLog` of the same bytes would have returned. The callers that
+ * *do* hold a buffer already short-circuit before reaching here —
+ * `api/sessions.ts:30`, `api/transcript.ts:656`, `api/lab.ts:95` — and that is
+ * where the choice belongs.
+ *
+ * **A copy per call, deliberately.** The cache hands back the array it holds;
+ * twenty-odd callers were written against a `RhizomorphEvent[]` they own, and
+ * some hand it straight to a constructor. Copying keeps that contract exactly
+ * as it was — one caller can never mutate another's read — and it is a pointer
+ * copy against a parse measured at 281 ms on this repo's own session directory
+ * (prd-44's Evidence), which is the whole cost this issue removes.
  */
 export async function readSessionEvents(filePath: string): Promise<RhizomorphEvent[]> {
-  return (await readSessionLog(filePath)).events
+  return [...(await parsedSessionLogCache.read(filePath)).events]
 }
 
 export interface SessionSummary {

@@ -2,11 +2,13 @@ import { IDENTITY, type Camera } from '../camera.js'
 import type { Point } from '../geometry.js'
 import {
   BACKDROP,
+  isLinear,
   type ArcMark,
   type BakedMark,
   type ContourMark,
   type GrainMark,
   type Mark,
+  type Paint,
   type RibbonMark,
   type StrokeMark,
   type WashMark,
@@ -133,8 +135,263 @@ function isOverlay(mark: Mark): boolean {
 }
 
 /**
+ * ONE TESSELLATION PER SETTLED RIBBON, WHILE ITS CONTENT DOESN'T MOVE — #178's
+ * discipline one stage later (prd-44 ruling 5), gated to the ONE population it
+ * actually pays for. A first attempt cached every world mark and was rejected on
+ * its own measurement (issue #32's history): a living lane's fields genuinely
+ * differ every frame, so its cache slot is a guaranteed miss, and the digest walk
+ * paid for that miss was pure overhead — regressing the realistic frame even
+ * though the retired-only slice really did speed up 6x. This cache is gated
+ * instead to exactly the marks `scene/marks/` itself already treats as settled:
+ * a `RibbonMark` whose `role` is `'persist'` (the strand, `thread.ts`) or
+ * `'persist-mark'` (the tail/seal, `node.ts`) — the marks prd10 rulings 13–16
+ * make permanent once a lane has landed. Every other mark (a living thread, a
+ * node, a tuft, anything mid-return) is drawn exactly as before, at exactly its
+ * old cost — no digest, no map lookup, nothing added to its path.
+ *
+ * Keyed per MARK, not per lane: `sceneMarks` visits every lane once per pass, so
+ * one lane's marks are scattered across the array rather than contiguous. A
+ * per-mark slot handles that for free — each mark decides for itself, in the
+ * order the walk visits it, which is also the order `Runs`' run-merging needs.
+ *
+ * One slot per `(laneId, role, ordinal-this-frame)`, holding the content digest
+ * it was last built from and what that build produced — the same shape
+ * `livingSpineCache`/`retiredSpineCache` already use: overwritten, never
+ * appended, bounded by the number of distinct identities the session has ever
+ * produced.
+ *
+ * No panel/camera term in the key, and none is needed: `ribbon()` never reads
+ * `panel.width`, `panel.height` or `panel.camera` (see `buildFrame`'s own
+ * comment below), so neither can move a cached mark's bytes. A resize is caught
+ * one stage up — `layoutScene`'s own `world`-keyed cache hands `scene/marks/` a
+ * *new* `path` array the instant `width`/`height`/`rootRadius`/`spacing` move,
+ * which produces a new `outline` and therefore a new digest here; a lane leaving
+ * the settled state arrives under a different `role` (a slot never filled
+ * before), so there is nothing stale to invalidate — see
+ * docs/design-notes/geometry-cache-audit-178.md for the fuller argument, which
+ * this reuses rather than re-derives.
+ */
+const settledRibbonCache = new Map<string, { digest: string; built: BuiltRibbon }>()
+
+/**
+ * HIT AND MISS, COUNTED — the law the wall-clock table could not carry.
+ *
+ * prd-44's after-table reports the cache's win in milliseconds, and a
+ * millisecond cannot say *why* it moved: the 2026-08-24 input-latency audit read
+ * the `persistent200` paint cell ~7x above the committed figure on a second box
+ * and could not distinguish "the cache never hits here" from "the table was
+ * measured under conditions the suite does not reproduce". Those are opposite
+ * defects with opposite fixes, and a timing is silent between them. A count is
+ * not: one warm frame over a settled field either tessellates nothing or it
+ * does, on any box, at any load, in any run shape.
+ *
+ * Deliberately a delta reader rather than an absolute: {@link settledRibbonCache}
+ * lives for the module's life and a vitest worker runs many files against it, so
+ * a law reads these before and after its own frames and asserts the difference.
+ * That is also what keeps the law honest if this file's miss path is ever
+ * refactored — the counter is incremented where the hit/miss decision is
+ * actually made, not inferred from a side effect of it.
+ */
+let settledRibbonHits = 0
+let settledRibbonMisses = 0
+
+/** {@link settledRibbonHits}/{@link settledRibbonMisses}, for a counting law.
+ * Read as a delta across the frames under test. */
+export function settledRibbonCacheCounts(): { hits: number; misses: number } {
+  return { hits: settledRibbonHits, misses: settledRibbonMisses }
+}
+
+/** One scratch batch, reused for every cache-miss tessellation this session —
+ * never allocated per mark, per frame. `buildFrame` is called once per
+ * animation frame from one thread; nothing here is reentrant. */
+const scratch = new Batch()
+
+interface BuiltRibbon {
+  runs: readonly LocalRun[]
+  pos: Float32Array
+  col: Float32Array
+  fall: Float32Array
+  count: number
+}
+
+/** A run, as `ribbon()` left it, before it is rebased onto the real stream. */
+type LocalRun =
+  | { kind: 'tris'; start: number; additive: boolean; world: boolean }
+  | {
+      kind: 'stencil'
+      fillStart: number
+      fillCount: number
+      coverStart: number
+      coverCount: number
+      additive: boolean
+      world: boolean
+    }
+
+/** A `RibbonMark` `scene/marks/` treats as settled — permanent once built, per
+ * the header on {@link settledRibbonCache}. */
+function isSettledRibbon(mark: Mark): mark is RibbonMark {
+  return mark.kind === 'ribbon' && (mark.role === 'persist' || mark.role === 'persist-mark')
+}
+
+/**
+ * Runs `ribbon()` for exactly one mark into the shared scratch batch and hands
+ * back what it produced, offsets still local to that one mark (0-based) so the
+ * caller can rebase them onto wherever the real stream currently ends. This is
+ * the miss path — the same `ribbon()` the live path always called, just aimed
+ * at a throwaway buffer first so the result can be kept.
+ */
+function tessellateRibbon(mark: RibbonMark, additive: boolean): BuiltRibbon {
+  scratch.reset()
+  const scratchRuns = new Runs()
+  ribbon(scratch, scratchRuns, mark, true, additive)
+  const runs: LocalRun[] = scratchRuns.done(scratch.n).map((run): LocalRun => {
+    if (run.kind === 'tris') {
+      return { kind: 'tris', start: run.start, additive: run.additive, world: run.world }
+    }
+    if (run.kind === 'stencil') {
+      return {
+        kind: 'stencil',
+        fillStart: run.fillStart,
+        fillCount: run.fillCount,
+        coverStart: run.coverStart,
+        coverCount: run.coverCount,
+        additive: run.additive,
+        world: run.world,
+      }
+    }
+    // A single ribbon's own tessellation can only ever open `tris` or
+    // `stencil` runs — `wash`/`grain` are chrome-only and never reach here.
+    throw new Error(`unreachable: a settled ribbon produced a ${run.kind} run`)
+  })
+  return {
+    runs,
+    pos: scratch.pos.slice(0, scratch.n * 2),
+    col: scratch.col.slice(0, scratch.n * 4),
+    fall: scratch.fall.slice(0, scratch.n * 4),
+    count: scratch.n,
+  }
+}
+
+/**
+ * Replays a built ribbon (fresh or cached — the two are indistinguishable from
+ * here) into the real stream: the vertex bytes are appended as one block, and
+ * each local run is rebased onto wherever that block landed, then issued
+ * through the SAME `Runs` calls the live path always used — `openTriangles` for
+ * a `tris` run (so it still merges with whatever is already open, exactly as it
+ * would if `ribbon()` had been called directly), `push` for a `stencil` run (so
+ * it still seals whatever was open, exactly as `stencil()` does).
+ *
+ * The seal below mirrors `stencil()`'s own `runs.seal(vertices.n)`: it has to
+ * run BEFORE this block's first byte is appended, or a still-open run from the
+ * mark before this one swallows the fan and cover box as ordinary triangles
+ * (the even-odd leak this exact bug produced when it was first built — see
+ * branch `32-spike-per-mark-cache`, commit `6ad2777`). A ribbon's own
+ * tessellation is either all-`tris` or all-`stencil`, never both, so sealing
+ * once, before the block, is exactly what every `stencil()` call in the miss
+ * path would have done individually.
+ */
+function spliceBuilt(vertices: Batch, runs: Runs, built: BuiltRibbon): void {
+  const base = vertices.n
+  if (built.runs.some((run) => run.kind === 'stencil')) runs.seal(base)
+  vertices.appendRaw(built.pos, built.col, built.fall, built.count)
+  for (const run of built.runs) {
+    if (run.kind === 'tris') {
+      runs.openTriangles(base + run.start, run.additive, run.world)
+      continue
+    }
+    runs.push(
+      {
+        kind: 'stencil',
+        fillStart: base + run.fillStart,
+        fillCount: run.fillCount,
+        coverStart: base + run.coverStart,
+        coverCount: run.coverCount,
+        additive: run.additive,
+        world: run.world,
+      },
+      base + run.coverStart + run.coverCount,
+    )
+  }
+}
+
+/**
+ * A STABLE RING IS THE SAME OBJECT, SO IDENTITY IS THE KEY — not a walk over
+ * its points (#147).
+ *
+ * The first form of this digest joined every point of every outline ring into a
+ * string, every frame. It was correct and it was the whole regression: measured
+ * across `b89ca23` alone, `persistent200`'s paint stage went 13.392 -> 24.682 ms
+ * with the living-only ceiling flat, while the cache hit 600 of 600 — a key
+ * walked at a few hundred points x 600 ribbons x 60 Hz, bought with a saving
+ * smaller than the walk. Keying on identity instead: 10.309 ms, a real 23% under
+ * the pre-cache baseline rather than an 84% loss over it.
+ *
+ * **The guarantee is upstream and it is not new.** `ribbon.ts`'s `OUTLINE_CACHE`
+ * is a `WeakMap` on the SPINE array's identity (`ribbon.ts:170`): a settled lane
+ * whose spine `geometry.ts` hands back unchanged gets back the same
+ * `Point[][]` — the same ring objects — frame after frame. `marks/thread.ts`'s
+ * `PERSIST_RIBBON_CACHE` keys the same way, and `geometry.ts`'s
+ * `retiredSpineCacheFor` is what makes the spine stable in the first place. So
+ * this reuses the discipline its two siblings one stage up already run on,
+ * which is what #178 argued and what the content walk quietly stopped doing.
+ *
+ * **This can only ever produce a false MISS, never a false hit.** A ring rebuilt
+ * as a new array is a new id, so it misses and takes the full tessellation —
+ * correct, and exactly the pre-cache cost. For a false HIT the same array object
+ * would have to change its contents in place, and nothing builds an outline that
+ * way: `buildOutline` returns fresh arrays out of `map`/`flatMap`/`filter`
+ * (`ribbon.ts:194-217`), `regionMark` wraps a caller's ring without touching it
+ * (`marks/types.ts:538`), and no `push`/`splice`/`sort`/indexed write reaches
+ * any of them anywhere in `scene/` — checked, not assumed. If that ever changes,
+ * this key is the thing it breaks.
+ *
+ * Keyed on the member RINGS rather than the outer array, which costs one
+ * `WeakMap` hit per ring — a handful, not a few hundred — and is the form that
+ * keeps working for a mark whose outer array is rebuilt around stable rings.
+ * `regionMark` does exactly that (`outline: [spec.ring]`, a fresh literal every
+ * call); it only ever carries `role: 'rank-enclosure'` today, which
+ * {@link isSettledRibbon} does not admit, so nothing depends on it — but the
+ * outer-array form would have silently lost that population the day it did.
+ *
+ * Everything else in the key is unchanged and stays content-compared, because
+ * none of it is pinned by the spine: `widthRoot`, `widthTip`, the `additive`
+ * flag, and above all `paint` — `budget()` reads live salience even for a
+ * settled lane, so a spotlight or an alarm elsewhere in the fleet must still
+ * reach it. Not `mark.path` (`ribbon()` never reads it) and not `mark.dashed`
+ * (already baked into separate outline polygons by the time a mark arrives).
+ */
+const ringIds = new WeakMap<readonly Point[], number>()
+let nextRingId = 0
+
+/** A stable id for one outline ring, minted on first sight and held only as
+ * long as the ring itself — the `WeakMap` is what bounds this. */
+function ringId(ring: readonly Point[]): number {
+  const known = ringIds.get(ring)
+  if (known !== undefined) return known
+  nextRingId += 1
+  ringIds.set(ring, nextRingId)
+  return nextRingId
+}
+
+function digestRibbon(mark: RibbonMark, additive: boolean): string {
+  const pt = (p: Point): string => `${p.x},${p.y}`
+  const ink = (i: Ink): string => `${i.rgb[0]},${i.rgb[1]},${i.rgb[2]},${i.alpha}`
+  const paintDigest = (p: Paint): string =>
+    isLinear(p)
+      ? `L${pt(p.from)}>${pt(p.to)}:${p.stops.map((s) => `${s.at}=${ink(s.ink)}`).join(',')}`
+      : ink(p)
+  const shape = mark.outline.map(ringId).join(';')
+  return `${shape}|${mark.widthRoot}|${mark.widthTip}|${paintDigest(mark.paint)}|${additive}`
+}
+
+/**
  * THE WHOLE FRAME, as triangles and ranges. Pure: same marks in, byte-identical
  * arrays out, on any machine and with no canvas anywhere.
+ *
+ * Not stateless any more: {@link settledRibbonCache} persists across calls, but
+ * it changes nothing this contract promises — a cache hit is required to be
+ * byte-identical to what a miss would have produced, and `frame.test.ts` holds
+ * that.
  */
 export function buildFrame(marks: readonly Mark[], panel: PanelView, into?: Batch): GlFrame {
   const vertices = into ?? new Batch()
@@ -147,12 +404,33 @@ export function buildFrame(marks: readonly Mark[], panel: PanelView, into?: Batc
   const chrome: Mark[] = []
   for (const mark of marks) (isChrome(mark) ? chrome : world).push(mark)
 
+  const slotOrdinal = new Map<string, number>()
   for (const mark of world) {
     if (isOverlay(mark)) {
       overlay.push({ mark, world: true, from: 0 })
       continue
     }
-    draw(vertices, runs, mark, true, isLight(mark) && panel.lightBlend !== 'cover')
+    const additive = isLight(mark) && panel.lightBlend !== 'cover'
+    if (!isSettledRibbon(mark)) {
+      draw(vertices, runs, mark, true, additive)
+      continue
+    }
+    const prefix = `${mark.laneId ?? ''}|${mark.role}`
+    const ordinal = slotOrdinal.get(prefix) ?? 0
+    slotOrdinal.set(prefix, ordinal + 1)
+    const slotKey = `${prefix}|${ordinal}`
+    const digest = digestRibbon(mark, additive)
+    const known = settledRibbonCache.get(slotKey)
+    let built: BuiltRibbon
+    if (known !== undefined && known.digest === digest) {
+      built = known.built
+      settledRibbonHits += 1
+    } else {
+      built = tessellateRibbon(mark, additive)
+      settledRibbonMisses += 1
+      settledRibbonCache.set(slotKey, { digest, built })
+    }
+    spliceBuilt(vertices, runs, built)
   }
 
   for (const mark of chrome) {

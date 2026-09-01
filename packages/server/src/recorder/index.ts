@@ -22,11 +22,22 @@ export {
   closeCurrentSession,
   nextSessionStart,
   openNextSession,
+  RETARGET_OR_ROTATION_IN_FLIGHT_MESSAGE,
   retargetSession,
+  RetargetInFlightError,
   rotateSession,
+  RotationRefusedError,
   type ClosedSession,
+  type CloseSessionOptions,
   type OpenedSession,
+  type OpenSessionOptions,
+  type RetargetBoundary,
   type RetargetSessionOptions,
   type Rotation,
   type RotateSessionOptions,
+  // `performRetarget`, `beginRetargetBoundary` and `reserveInFlightForTest`
+  // are deliberately absent — they are the doors #87's rotation-entry law
+  // guards, and the barrel is not "everything rotate.ts exports" (see the
+  // completeness guard in `namespace-law.test.ts`, and rotate.ts's own doc
+  // comment on each of the three).
 } from './rotate.js'

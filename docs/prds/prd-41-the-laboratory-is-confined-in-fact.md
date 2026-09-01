@@ -95,8 +95,11 @@ forbids.
   `poll-loop.ts:91`. The lab wires the same helper; it does not grow its own.
 - `runCli`'s existing `log` and `exit` options in `api/lab.ts` — the seam ruling 3 threads the
   stderr sink through.
-- `refuseFlagShaped` and `MODEL_GRAMMAR` (`lab/fork.ts:131`, `api/lab.ts:268`) — `#234`'s
-  validation. The arm-count ceiling joins that validation block rather than inventing a second one.
+- `refuseFlagShaped` (`api/lab.ts:349`) and `MODEL_GRAMMAR` (`api/lab.ts:268`, with its guarded
+  second copy at `lab/fork.ts:131` — the drift between them is already a law,
+  `lab/model-grammar-law.test.ts`, from `#405`) — `#234`'s validation. The arm-count ceiling joins
+  `api/lab.ts`'s validation block rather than inventing a second one, which is also where ruling 4
+  puts `MAX_ARMS`.
 - `lab/namespace-law.test.ts` — the law exists and bites; ruling 1 widens which paths it walks.
 
 ## Rulings

@@ -2,8 +2,9 @@ import path from 'node:path'
 import { createEvent, type SessionCloseReason, type SessionLink } from '@rhizomorph/core'
 import { defaultClaudeProjectsRoot, repoSlug, sessionFileName } from '../log/paths.js'
 import { removeSessionLock, writeSessionLock } from '../log/session-lock.js'
+import { readSessionEvents } from '../log/session-log.js'
 import { captureSessionTranscripts } from '../log/transcript-capture.js'
-import type { SessionRecorder } from './session-recorder.js'
+import { CloseNotDurableError, type SessionRecorder } from './session-recorder.js'
 
 /**
  * ROTATION — the recorder's hand (prd16 ruling 2), the observer's third and
@@ -62,6 +63,10 @@ export interface ClosedSession {
   /** Events in the closed log, counting its `session.closed` line. */
   eventCount: number
   closedAt: number
+  /** False when the close line reached the file but `sync()` did not confirm it (prd-40 ruling 1, 1b). */
+  synced: boolean
+  /** Present only when `synced` is false: what the sync failure said. */
+  syncError?: string
 }
 
 export interface OpenedSession {
@@ -113,6 +118,15 @@ export type OpenSessionOptions = Pick<
  * `captureSessionTranscripts` itself never throws for an individual lane it
  * could not find; it records that lane's gap in the manifest and moves on, so
  * one vanished transcript never blocks the operator's rotation.
+ *
+ * **A failed fsync does not fail the close** (prd-40 ruling 1, rule 1b-i, #80).
+ * A session is closed the instant its `session.closed` line is appended; if the
+ * following `sync()` fails, the close still happened and this returns a
+ * `ClosedSession` with `synced: false` and the failure in `syncError` rather
+ * than throwing. That is what makes reopening unconditional — the recorder
+ * holds the seal it earned on that path, and only `openNextSession` releases
+ * it, so a throw here would wedge every later `record()` forever. Every other
+ * close failure is rule 1a, means the close did not happen, and still throws.
  */
 export async function closeCurrentSession(options: CloseSessionOptions): Promise<ClosedSession> {
   const { sessionDir, recorder } = options
@@ -120,35 +134,83 @@ export async function closeCurrentSession(options: CloseSessionOptions): Promise
   const sessionId = recorder.sessionId
   const filePath = recorder.filePath
   const closedAt = now()
-  // +1 for the close event itself: the number a reader of the finished file counts.
-  const eventCount = recorder.eventsSoFar().length + 1
+  // +1 for the close event itself.
+  //
+  // **A claim about the session at the moment of append, not a census of the
+  // file** (prd-40 ruling 1's fifth amendment, #80). A `record()` whose append
+  // is already in flight has not been folded yet, though its line is ahead of
+  // the close line on the writer's FIFO tail — so this can undercount the
+  // finished file. Under rule 1b the close line's authority begins at its own
+  // append, so what it carries is what was known at that moment and no more.
+  // `verifyRecord` remains the thing that counts lines.
+  //
+  // Read from the FOLD, not from `eventsSoFar().length` (prd-44 ruling 4, #37):
+  // the in-memory window is capped at `MAX_BUFFERED_EVENTS`, so past that a
+  // buffer census would write "75001" into the durable record of a session that
+  // recorded far more. `foldSoFar().eventCount` is never capped, and prd-40
+  // ruling 2 already asks every reader to answer from the maintained fold
+  // rather than re-derive from the buffer.
+  const eventCount = recorder.foldSoFar().eventCount + 1
 
   await captureSessionTranscripts({
     events: recorder.eventsSoFar(),
+    // The lane list must be every lane this SESSION named, not every lane
+    // still in the recorder's window (#133): prd-44 ruling 4 caps that window,
+    // so a lane whose attributing events have been evicted would be absent
+    // from the capture — permanently, since the capture is what the lane index
+    // reads once the log has been pruned. Read here rather than inside the
+    // capture so `log/transcript-capture.ts` gains no import of its own reader
+    // (`log/session-log.ts` already imports `log/lane-index.ts`, which imports
+    // the capture — one more edge would close that ring). The read is safe at
+    // this exact point: `session.closed` has not been appended yet and is not
+    // an attributed type anyway, and an unreadable log comes back `[]`, which
+    // the capture reads as "the read failed" rather than "no lanes".
+    recordedEvents: await readSessionEvents(filePath),
     sessionDir,
     sessionId,
     claudeProjectsRoot: options.claudeProjectsRoot ?? defaultClaudeProjectsRoot(),
     now: closedAt,
   })
 
-  await recorder.closeWith(
-    createEvent(
-      'session.closed',
-      {
-        sessionId,
-        reason: options.reason ?? 'rotated',
-        eventCount,
-        ...(options.successor ? { successor: options.successor } : {}),
-      },
-      // Derived from the closed session's own id rather than a counter, so it
-      // is unique in the log without depending on which id factory a caller
-      // happens to hold, and legible in the file (`session-closed-1000`).
-      { id: `session-closed-${sessionId}`, ts: closedAt },
-    ),
-  )
+  let synced = true
+  let syncError: string | undefined
+  try {
+    await recorder.closeWith(
+      createEvent(
+        'session.closed',
+        {
+          sessionId,
+          reason: options.reason ?? 'rotated',
+          eventCount,
+          ...(options.successor ? { successor: options.successor } : {}),
+        },
+        // Derived from the closed session's own id rather than a counter, so it
+        // is unique in the log without depending on which id factory a caller
+        // happens to hold, and legible in the file (`session-closed-1000`).
+        { id: `session-closed-${sessionId}`, ts: closedAt },
+      ),
+    )
+  } catch (error) {
+    // RULE 1b-i — a close that happened but was not synced is still a close, so
+    // this returns rather than throws and carries the failure in its result.
+    // That is what makes reopening unconditional: `rotateSession` and
+    // `performRetarget` both reach `openNextSession` on their own, and it is
+    // `openSession` that releases the seal rule 1b held.
+    //
+    // Any OTHER failure is rule 1a — the close did not happen, nothing is in
+    // the file, and the recorder already released its own seal. That still
+    // throws, which is what keeps rule 3's law honest: a subscriber throwing
+    // after a durable close must still reject all the way out of here.
+    if (!(error instanceof CloseNotDurableError)) throw error
+    synced = false
+    syncError = error.cause instanceof Error ? error.cause.message : String(error.cause)
+  }
+  // RULE 1b-ii — still runs on the unsynced path. The lock guards a LIVE
+  // session, and this one is not live: its close line is on disk. Skipping it
+  // would leave an orphan lock beside the new session's, for no gain.
   await removeSessionLock(sessionDir, sessionId)
 
-  return { sessionId, filePath, eventCount, closedAt }
+  return { sessionId, filePath, eventCount, closedAt, synced, ...(syncError === undefined ? {} : { syncError }) }
 }
 
 /**
@@ -197,36 +259,91 @@ export function nextSessionStart(closedSessionId: string, nowMs: number): number
  * AND `retargetSession` (#14), because the guarantee is "never two
  * close/open pairs racing the same recorder", and that has to be true whether
  * both sides are rotations, both are retargets, or one of each. What differs
- * is what the SECOND caller gets, and that stays per-function rather than
- * becoming a flag on the map:
+ * is what the SECOND caller gets, and — since #49 — that depends on what
+ * KIND of boundary is already running, which is why the map's value carries
+ * a `kind` alongside the promise rather than the promise alone:
  *
- * - `rotateSession` COALESCES — two operators (or a click and a
- *   `rhizomorph rotate` in the same second) asking at once is ONE boundary,
- *   not two, so the second caller awaits the first's answer instead of
- *   closing a session that is a millisecond old. That is a considered
- *   decision (its own doc, above) and #14 does not change it.
- * - `retargetSession` REFUSES. Coalescing would hand the second caller the
- *   FIRST caller's destination — asked to move to B, told "moved to A",
- *   status 200 — which is exactly the queued-retarget failure mode the PRD
- *   rejects. So a retarget that finds this map already occupied (by a
- *   rotation or another retarget) throws {@link RetargetInFlightError}
- *   instead of returning the entry.
+ * - Second caller is a rotation, first is a rotation: COALESCES — two
+ *   operators (or a click and a `rhizomorph rotate` in the same second)
+ *   asking at once is ONE boundary, not two, so the second caller awaits the
+ *   first's answer instead of closing a session that is a millisecond old.
+ *   That is a considered decision (its own doc, above) and neither #14 nor
+ *   #49 changes it.
+ * - Second caller is a retarget, first is anything: REFUSES. Coalescing
+ *   would hand the second caller the FIRST caller's destination — asked to
+ *   move to B, told "moved to A", status 200 — which is exactly the
+ *   queued-retarget failure mode the PRD rejects. A retarget that finds this
+ *   map already occupied (by a rotation or another retarget) throws
+ *   {@link RetargetInFlightError} instead of returning the entry.
+ * - Second caller is a rotation, first is anything OTHER than a rotation:
+ *   REFUSES (#49, prd-42 ruling 5). Handing a rotation caller a `Rotation`
+ *   whose `closed.reason` is `'retargeted'` and whose `opened` session is a
+ *   different repo than the one it asked to rotate is the same input class
+ *   #14 already refused in the other direction — the rotation's own
+ *   coalescing rationale above is an argument about two ROTATIONS sharing a
+ *   boundary, and it does not carry to a boundary that is anything else.
+ *   Deliberately spelled `kind !== 'rotation'` rather than `kind ===
+ *   'retarget'`: the two are equivalent for the only two kinds that exist
+ *   today, but the review that reopened #49 showed the equality form is
+ *   fail-OPEN — a third kind added to this map later (nobody has written
+ *   one; the map has always had exactly two callers) would silently coalesce
+ *   past a check that only recognised the kinds it was written against. The
+ *   inequality form refuses anything it does not specifically know is safe,
+ *   which is the same posture `RetargetInFlightError` below already takes.
+ *   Rejects with {@link RotationRefusedError} — a rejection, not a
+ *   synchronous throw, matching `retargetSession`'s own error shape (both
+ *   doors into this guard now fail the same way for `Promise.all` and
+ *   `.catch` callers alike).
  */
-const inFlight = new WeakMap<SessionRecorder, Promise<Rotation>>()
+interface InFlightBoundary {
+  kind: 'rotation' | 'retarget'
+  promise: Promise<Rotation>
+}
+const inFlight = new WeakMap<SessionRecorder, InFlightBoundary>()
+
+/** Rejects {@link rotateSession}'s promise in place of coalescing onto a boundary that is not itself a rotation — see the map doc above. */
+export class RotationRefusedError extends Error {}
 
 /** Close, then open. See this module's own doc for why that order is the law. */
 export function rotateSession(options: RotateSessionOptions): Promise<Rotation> {
   const running = inFlight.get(options.recorder)
-  if (running) return running
+  if (running) {
+    if (running.kind !== 'rotation') {
+      // Deliberately NOT built on `RETARGET_OR_ROTATION_IN_FLIGHT_MESSAGE`'s
+      // opening clause (#154, item 3), even though both read "___ is already
+      // in flight for this recorder — refusing rather than coalescing": the
+      // two call sites do not hold the same information. This one has
+      // `running.kind` in hand and names the actual occupant — today always
+      // `'retarget'`, since the branch above already ruled out `'rotation'`.
+      // `RETARGET_OR_ROTATION_IN_FLIGHT_MESSAGE`'s callers — this module's own
+      // `retargetSession` throw and `api/retarget.ts`'s 409 body — reach this
+      // point only AFTER `beginRetargetBoundary` has already returned `null`,
+      // which discards which kind held the slot; they can only speak
+      // generically ("a rotation or retarget"). Sharing the clause would mean
+      // either this message losing the specific kind it actually knows, or
+      // plumbing the discarded kind back out through `beginRetargetBoundary`
+      // for a one-word gain. The second clause differs for the same reason
+      // item 3 grants it: this is the rotation-refused-by-non-rotation
+      // direction (ruling 5), not the retarget-refused-by-anything direction.
+      return Promise.reject(
+        new RotationRefusedError(
+          `a ${running.kind} is already in flight for this recorder — refusing rather than coalescing, ` +
+            'since a boundary that is not itself a rotation may close into a repo (or state) this rotation never asked about',
+        ),
+      )
+    }
+    return running.promise
+  }
 
   const rotation = (async () => {
     const closed = await closeCurrentSession(options)
     const opened = await openNextSession(options, closed)
     return { closed, opened }
   })()
-  inFlight.set(options.recorder, rotation)
+  const boundary: InFlightBoundary = { kind: 'rotation', promise: rotation }
+  inFlight.set(options.recorder, boundary)
   return rotation.finally(() => {
-    if (inFlight.get(options.recorder) === rotation) inFlight.delete(options.recorder)
+    if (inFlight.get(options.recorder) === boundary) inFlight.delete(options.recorder)
   })
 }
 
@@ -281,8 +398,22 @@ export interface RetargetSessionOptions {
  */
 export class RetargetInFlightError extends Error {}
 
+/**
+ * The one wording for "a boundary is already held", shared by this module's
+ * own throw below and `api/retarget.ts`'s 409 body — previously spelled twice
+ * (#53), once per caller of {@link beginRetargetBoundary}. Exported from here
+ * rather than `api/refusals.ts` (which already unifies the retarget/rotate
+ * *code*, not this message): that file is reserved for the neutral refusal
+ * vocabulary shared across routes and is out of this issue's fence, while this
+ * module and `api/retarget.ts` already share an import edge.
+ */
+export const RETARGET_OR_ROTATION_IN_FLIGHT_MESSAGE =
+  'a rotation or retarget is already in flight for this recorder — refusing rather than coalescing or queuing, ' +
+  "since a second caller would either report the FIRST boundary's destination as its own result, or act on a " +
+  'target that is already stale by the time its own turn comes'
+
 export interface RetargetBoundary {
-  /** The close/open actually happened — settle with its real result, releasing the guard and, if `rotateSession` coalesced onto it, handing that caller the SAME `Rotation` this one got. */
+  /** The close/open actually happened — settle with its real result, releasing the guard. */
   resolve(rotation: Rotation): void
   /** The boundary is being abandoned without ever running the close/open (a refusal upstream of it, or an unexpected failure) — releases the guard just the same, but as a rejection. */
   reject(err: unknown): void
@@ -296,11 +427,11 @@ export interface RetargetBoundary {
  * (no loop stop, no validation, no snapshot) rather than discovering the
  * collision only after doing all of that.
  *
- * The reservation is a `Promise<Rotation>` in `inFlight` the instant this
- * returns, so a `rotateSession` racing this retarget coalesces onto it
- * exactly as it would onto a running rotation, from the very first instant —
- * it never observes a window where the retarget is "reserved but not really
- * running yet".
+ * The reservation is tagged `kind: 'retarget'` in `inFlight` the instant this
+ * returns, so a `rotateSession` racing this retarget sees that tag — and, per
+ * #49/prd-42 ruling 5, REFUSES rather than coalescing — from the very first
+ * instant. It never observes a window where the retarget is "reserved but not
+ * really running yet".
  */
 export function beginRetargetBoundary(recorder: SessionRecorder): RetargetBoundary | null {
   if (inFlight.has(recorder)) return null
@@ -314,10 +445,11 @@ export function beginRetargetBoundary(recorder: SessionRecorder): RetargetBounda
   // Nobody may ever coalesce onto a boundary that is refused before it does
   // any work — this reference must not turn that into an unhandled rejection.
   pending.catch(() => {})
-  inFlight.set(recorder, pending)
+  const boundary: InFlightBoundary = { kind: 'retarget', promise: pending }
+  inFlight.set(recorder, boundary)
 
   const release = () => {
-    if (inFlight.get(recorder) === pending) inFlight.delete(recorder)
+    if (inFlight.get(recorder) === boundary) inFlight.delete(recorder)
   }
   return {
     resolve: (rotation) => {
@@ -364,10 +496,7 @@ export async function performRetarget(options: RetargetSessionOptions): Promise<
 export async function retargetSession(options: RetargetSessionOptions): Promise<Rotation> {
   const boundary = beginRetargetBoundary(options.recorder)
   if (boundary === null) {
-    throw new RetargetInFlightError(
-      'a rotation or retarget is already in flight for this recorder — refusing rather than coalescing, ' +
-        'since coalescing would report the FIRST boundary\'s destination as this call\'s own result',
-    )
+    throw new RetargetInFlightError(RETARGET_OR_ROTATION_IN_FLIGHT_MESSAGE)
   }
   try {
     const rotation = await performRetarget(options)
@@ -376,5 +505,25 @@ export async function retargetSession(options: RetargetSessionOptions): Promise<
   } catch (err) {
     boundary.reject(err)
     throw err
+  }
+}
+
+/**
+ * Test-only: reserves this recorder's `inFlight` slot under an arbitrary
+ * `kind`, bypassing the two kinds any real caller can ever produce
+ * (`'rotation'` via {@link rotateSession}, `'retarget'` via
+ * {@link beginRetargetBoundary}). Exists so `rotateSession`'s guard can be
+ * proven fail-closed against a kind NOBODY has written yet, rather than
+ * trusting that property until a real third caller shows up and either
+ * confirms or breaks it — precisely the gap the equality-vs-inequality
+ * distinction in this module's own doc comment above exists to close.
+ * The reserved promise never settles on its own; the returned release
+ * function is how a test lets it go. No production code may import this.
+ */
+export function reserveInFlightForTest(recorder: SessionRecorder, kind: string): () => void {
+  const boundary: InFlightBoundary = { kind: kind as InFlightBoundary['kind'], promise: new Promise<Rotation>(() => {}) }
+  inFlight.set(recorder, boundary)
+  return () => {
+    if (inFlight.get(recorder) === boundary) inFlight.delete(recorder)
   }
 }

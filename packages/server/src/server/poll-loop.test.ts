@@ -1,5 +1,5 @@
 import type { AnyCollector, CollectorContext, EventOf, Exec, ExecResult, RhizomorphEvent } from '@rhizomorph/core'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { COLLECTOR_EXEC_TIMEOUT_MS, createPollLoop } from './poll-loop.js'
 import type { SessionRecorder } from './recorder.js'
 import type { LoadedSnapshot, SnapshotStore } from './snapshot-store.js'
@@ -10,15 +10,36 @@ function createFakeRecorder(): { recorder: SessionRecorder; events: RhizomorphEv
     record: async (event: RhizomorphEvent) => {
       events.push(event)
     },
+    recordAlarm: async (event: EventOf<'collector.error'>) => {
+      events.push(event)
+      return { appended: true }
+    },
   } as unknown as SessionRecorder
   return { recorder, events }
 }
 
-/** A recorder whose every `record` call rejects — simulates a disk-full or permission-denied append. */
+/**
+ * A recorder on a disk that cannot be written: every `record` rejects, and
+ * `recordAlarm` reports `{ appended: false }` — the alarm's own append failed
+ * too. Per ADR-0030 it still reaches subscribers, which is what `subscribe`
+ * here exists to let the tests observe.
+ */
 function createFailingRecorder(): SessionRecorder {
+  const listeners: ((event: RhizomorphEvent) => void)[] = []
   return {
     record: async () => {
       throw new Error('ENOSPC: no space left on device')
+    },
+    recordAlarm: async (event: EventOf<'collector.error'>) => {
+      for (const listener of listeners) listener(event)
+      return { appended: false }
+    },
+    subscribe: (listener: (event: RhizomorphEvent) => void) => {
+      listeners.push(listener)
+      return () => {
+        const at = listeners.indexOf(listener)
+        if (at >= 0) listeners.splice(at, 1)
+      }
     },
   } as unknown as SessionRecorder
 }
@@ -326,6 +347,148 @@ describe('the poll loop and snapshot persistence', () => {
     // The loop is still alive: a second tick runs rather than the process
     // having died on an unhandled rejection from the first one.
     await expect(pollLoop.tick()).resolves.toBeUndefined()
+  })
+})
+
+describe('the poll loop degrade voice (prd40 success 2)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('writes the operator a line naming the event and the collector when the alarm cannot be appended', async () => {
+    // P0. The fallback in `recordOrDegrade` had no assertion of any kind
+    // before this law: the two tests above drive it and assert only that the
+    // loop did not crash. Cover it before changing it — what the line SAYS is
+    // the operator's only handle on which collector went quiet.
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const recorder = createFailingRecorder()
+    const broken: AnyCollector = {
+      name: 'broken',
+      initialSnapshot: () => ({ polls: 0 }),
+      poll: () => {
+        throw new Error('broken blew up')
+      },
+    }
+
+    const pollLoop = createPollLoop({
+      repoPath: '/tmp/repo',
+      collectors: [broken],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+    })
+    await pollLoop.tick()
+
+    expect(reported).toHaveBeenCalledWith(
+      expect.stringContaining('[rhizomorph] failed to report collector.error for broken'),
+    )
+  })
+
+  it('reaches a live subscriber even when the alarms own append fails', async () => {
+    // P1, the decisive law: the disk-full case. `record` publishes nothing when
+    // its append fails (prd40 ruling 1), so before ADR-0030 this alarm reached
+    // nobody in exactly the case it exists for and the dashboard went on
+    // looking healthy. This test is unpassable through `record`.
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const recorder = createFailingRecorder()
+    const heard: RhizomorphEvent[] = []
+    recorder.subscribe((event) => {
+      heard.push(event)
+    })
+    const broken: AnyCollector = {
+      name: 'broken',
+      initialSnapshot: () => ({ polls: 0 }),
+      poll: () => {
+        throw new Error('broken blew up')
+      },
+    }
+
+    const pollLoop = createPollLoop({
+      repoPath: '/tmp/repo',
+      collectors: [broken],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+    })
+    await pollLoop.tick()
+
+    expect(collectorErrors(heard)).toHaveLength(1)
+    expect(collectorErrors(heard)[0]?.payload).toMatchObject({
+      collector: 'broken',
+      message: 'broken blew up',
+    })
+  })
+
+  it('still writes the operators line beside the emit — two channels, not one', async () => {
+    // P2. `api/lab.ts` replaces `process.stderr.write` process-wide for the
+    // duration of a lab fork (prd41 #10 owns that), so the emit cannot be the
+    // only channel either. Both fire, or the guarantee is half a guarantee.
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const recorder = createFailingRecorder()
+    const heard: RhizomorphEvent[] = []
+    recorder.subscribe((event) => {
+      heard.push(event)
+    })
+    const broken: AnyCollector = {
+      name: 'broken',
+      initialSnapshot: () => ({ polls: 0 }),
+      poll: () => {
+        throw new Error('broken blew up')
+      },
+    }
+
+    const pollLoop = createPollLoop({
+      repoPath: '/tmp/repo',
+      collectors: [broken],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+    })
+    await pollLoop.tick()
+
+    expect(heard).toHaveLength(1)
+    expect(reported).toHaveBeenCalledWith(
+      '[rhizomorph] failed to report collector.error for broken: the session log could not be written',
+    )
+  })
+
+  it('speaks in the same voice for a snapshot-save failure as for a collector failure', async () => {
+    // P3, the sibling case. `persist`'s degrade call and `runTick`'s are
+    // structurally identical, and a fix applied to one and not the other is
+    // the defect shape this repo keeps finding. The collector below emits
+    // nothing of its own, so `persist()`s catch is the only one in play.
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const recorder = createFailingRecorder()
+    const heard: RhizomorphEvent[] = []
+    recorder.subscribe((event) => {
+      heard.push(event)
+    })
+    const store = createFakeStore()
+    store.failSave = new Error('EACCES: permission denied')
+    const silent: AnyCollector = {
+      name: 'silent',
+      initialSnapshot: () => ({ polls: 0 }),
+      poll: (prev: { polls: number }) => ({
+        nextSnapshot: { polls: prev.polls + 1 },
+        events: [],
+      }),
+    }
+
+    const pollLoop = createPollLoop({
+      repoPath: '/tmp/repo',
+      collectors: [silent],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+      snapshotStore: store,
+    })
+    await pollLoop.tick()
+
+    expect(collectorErrors(heard)).toHaveLength(1)
+    expect(collectorErrors(heard)[0]?.payload).toMatchObject({
+      collector: 'silent',
+      message: 'snapshot save failed: EACCES: permission denied',
+    })
   })
 })
 
@@ -769,5 +932,150 @@ describe('the poll loop, rebuildable (prd20 ruling 5, retarget spike Q1/gap a+b)
       .filter((e) => e.type === 'collector.error' && 'message' in e.payload)
       .map((e) => (e.type === 'collector.error' ? e.payload.message : undefined))
     expect(messages).toEqual(['saw 0'])
+  })
+})
+
+/**
+ * A recorder whose Nth append (1-based) rejects and whose others land. Both
+ * publishing paths append, so both share the count: `record` rejects on it,
+ * and `recordAlarm` — which never rejects (ADR-0030) — reports it as
+ * `{ appended: false }` and publishes nothing.
+ */
+function createRecorderFailingOn(n: number): { recorder: SessionRecorder; events: RhizomorphEvent[] } {
+  const events: RhizomorphEvent[] = []
+  let calls = 0
+  const recorder = {
+    record: async (event: RhizomorphEvent) => {
+      calls += 1
+      if (calls === n) throw new Error('ENOSPC: no space left on device')
+      events.push(event)
+    },
+    recordAlarm: async (event: EventOf<'collector.error'>) => {
+      calls += 1
+      if (calls === n) return { appended: false }
+      events.push(event)
+      return { appended: true }
+    },
+  } as unknown as SessionRecorder
+  return { recorder, events }
+}
+
+/** Emits three events derived from its snapshot, so an un-advanced snapshot re-derives the same batch. */
+function batchCollector(name = 'batch'): AnyCollector {
+  return {
+    name,
+    initialSnapshot: () => ({ polls: 0 }),
+    poll: (prev: { polls: number }, ctx: CollectorContext) => ({
+      nextSnapshot: { polls: prev.polls + 1 },
+      events: [0, 1, 2].map((index) =>
+        ctx.emit('collector.error', { collector: name, message: `poll ${prev.polls} event ${index}` }),
+      ),
+    }),
+  }
+}
+
+const messagesOf = (events: readonly RhizomorphEvent[]) => collectorErrors(events).map((event) => event.payload.message)
+
+describe('the poll loop advances its snapshot only once the batch is on disk (prd40 ruling 1)', () => {
+  it('re-derives the WHOLE batch when the second event of three fails, appending the first twice', async () => {
+    // Call 1 is event 0 (lands), call 2 is event 1 (rejects), call 3 is the
+    // degrade `collector.error` the catch reports.
+    const { recorder, events } = createRecorderFailingOn(2)
+    const pollLoop = createPollLoop({
+      repoPath: '/tmp/repo',
+      collectors: [batchCollector()],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+    })
+
+    await pollLoop.tick()
+    await pollLoop.tick()
+
+    // The second poll was handed the SAME snapshot, so it re-derived poll 0's
+    // batch — including the event whose append had already resolved.
+    expect(messagesOf(events).filter((message) => message === 'poll 0 event 0')).toHaveLength(2)
+    expect(messagesOf(events)).toEqual([
+      'poll 0 event 0',
+      'ENOSPC: no space left on device',
+      'poll 0 event 0',
+      'poll 0 event 1',
+      'poll 0 event 2',
+    ])
+  })
+
+  it('does not advance the snapshot when the only event fails, and re-emits it next tick', async () => {
+    const { recorder, events } = createRecorderFailingOn(1)
+    const pollLoop = createPollLoop({
+      repoPath: '/tmp/repo',
+      collectors: [countingCollector()],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+    })
+
+    await pollLoop.tick()
+    await pollLoop.tick()
+
+    // 'saw 0' twice would mean the snapshot never advanced at all; once, after
+    // the degrade line, is the event being re-derived exactly as intended.
+    expect(messagesOf(events)).toEqual(['ENOSPC: no space left on device', 'saw 0'])
+  })
+
+  it('does not persist the snapshot for a batch that failed', async () => {
+    const { recorder } = createRecorderFailingOn(2)
+    const store = createFakeStore()
+    const pollLoop = createPollLoop({
+      repoPath: '/tmp/repo',
+      collectors: [batchCollector()],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+      snapshotStore: store,
+    })
+
+    await pollLoop.tick()
+
+    expect(store.saves).toEqual([])
+  })
+
+  it('still reports a rejected append through the existing degrade path, and keeps ticking', async () => {
+    const { recorder, events } = createRecorderFailingOn(1)
+    const pollLoop = createPollLoop({
+      repoPath: '/tmp/repo',
+      collectors: [countingCollector()],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+    })
+
+    await pollLoop.tick()
+
+    const degraded = collectorErrors(events).filter((event) => event.payload.collector === 'counter')
+    expect(degraded.map((event) => event.payload.message)).toEqual(['ENOSPC: no space left on device'])
+    // The loop survived it: a later tick still polls.
+    await expect(pollLoop.tick()).resolves.toBeUndefined()
+  })
+
+  it('leaves the clean path exactly as it was: the snapshot advances once per tick and persists once', async () => {
+    const { recorder, events } = createFakeRecorder()
+    const store = createFakeStore()
+    const pollLoop = createPollLoop({
+      repoPath: '/tmp/repo',
+      collectors: [countingCollector()],
+      recorder,
+      exec: nullExec,
+      now: () => 0,
+      snapshotStore: store,
+    })
+
+    await pollLoop.tick()
+    await pollLoop.tick()
+
+    expect(messagesOf(events)).toEqual(['saw 0', 'saw 1'])
+    expect(store.saves).toEqual([
+      { name: 'counter', snapshot: { polls: 1 } },
+      { name: 'counter', snapshot: { polls: 2 } },
+    ])
   })
 })

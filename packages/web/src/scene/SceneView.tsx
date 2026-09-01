@@ -147,7 +147,7 @@ export function SceneView({
   }
 
   const camera = useCamera(canvasRef, latest)
-  const { lost, panning, redraw } = useFrameLoop(
+  const { lost, redraw, originRef } = useFrameLoop(
     hostRef,
     canvasRef,
     overlayRef,
@@ -183,16 +183,16 @@ export function SceneView({
     >
       <canvas
         ref={canvasRef}
-        className={`absolute inset-0 h-full w-full ${cursorOf(panning, grabReady, hoverId !== null)}`}
+        className={`absolute inset-0 h-full w-full ${cursorOf(grabReady, hoverId !== null)}`}
         onMouseMove={(event) =>
           setHoverId(
-            pickAt(geometryRef.current, canvasRef.current, camera.cameraRef.current, event.clientX, event.clientY),
+            pickAt(geometryRef.current, originRef.current, camera.cameraRef.current, event.clientX, event.clientY),
           )
         }
         onMouseLeave={() => setHoverId(null)}
         onClick={(event) =>
           onSelect(
-            pickAt(geometryRef.current, canvasRef.current, camera.cameraRef.current, event.clientX, event.clientY),
+            pickAt(geometryRef.current, originRef.current, camera.cameraRef.current, event.clientX, event.clientY),
           )
         }
       />

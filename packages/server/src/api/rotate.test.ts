@@ -3,15 +3,18 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { AnyCollector, CollectorContext } from '@rhizomorph/core'
 import { createEvent } from '@rhizomorph/core'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { snapshotDirFor } from '../log/paths.js'
 import { readSessionEvents, RESUME_WINDOW_MS, sessionFilePath } from '../log/session-log.js'
 import { readSessionLock, writeSessionLock } from '../log/session-lock.js'
 import { writeSessionLabel } from '../log/label.js'
+import { beginRetargetBoundary } from '../recorder/rotate.js'
+import { SessionLogWriter } from '../recorder/session-log-writer.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { buildApp } from '../server/build-app.js'
 import { createPollLoop } from '../server/poll-loop.js'
 import { recordSessionBootMeta } from './meta.js'
+import { RETARGET_IN_FLIGHT_CODE } from './refusals.js'
 import { CAPABILITY_TOKEN_HEADER } from './security.js'
 
 /**
@@ -135,6 +138,10 @@ describe('POST /api/rotate', () => {
         filePath: sessionFilePath(sessionDir, FIRST),
         eventCount: 2,
         closedAt: ROTATE_AT,
+        // #80: durability is reported, not assumed. The happy path says so
+        // explicitly and carries no `syncError` — `toEqual`, not
+        // `toMatchObject`, is what asserts the absence.
+        synced: true,
       },
       opened: {
         sessionId: String(ROTATE_AT),
@@ -146,6 +153,41 @@ describe('POST /api/rotate', () => {
     expect((await readSessionEvents(sessionFilePath(sessionDir, FIRST))).at(-1)?.type).toBe('session.closed')
     expect(await readSessionLock(sessionDir, FIRST)).toBeNull()
     expect(await readSessionLock(sessionDir, String(ROTATE_AT))).not.toBeNull()
+  })
+
+  /**
+   * PRD-40 RULING 1, 1b-iii (#80). Under rule 1b a rotation can partly
+   * succeed: the old session closed, the new one open, durability gone. An
+   * error status would say nothing happened, which is false, and would invite
+   * a retry that rotates a SECOND time — a worse outcome than the one being
+   * reported. So the route answers 200 and states the fact in the body. 409
+   * stays `RotationRefusedError`'s, asserted by its own law below.
+   *
+   * `api/rotate.ts` is deliberately NOT edited for this: it already returns
+   * `rotation.closed` whole, so the new field reaches the body by
+   * construction. This law is what stops someone narrowing that return later.
+   */
+  it('answers 200, not an error, when the close line landed but the fsync failed (1b-iii)', async () => {
+    const app = makeApp()
+    const sync = vi.spyOn(SessionLogWriter.prototype, 'sync').mockRejectedValueOnce(new Error('EIO: i/o error, fsync'))
+    try {
+      const response = await app.inject({ method: 'POST', url: '/api/rotate', headers: authorised(app) })
+
+      expect(response.statusCode).toBe(200)
+      const body = response.json() as { closed: { synced: boolean; syncError?: string }; opened: { sessionId: string } }
+      expect(body.closed.synced).toBe(false)
+      expect(body.closed.syncError).toContain('EIO')
+      // The rotation genuinely happened — which is the whole reason this is
+      // not a 4xx or a 5xx.
+      expect(body.opened.sessionId).toBe(String(ROTATE_AT))
+      expect(recorder.sessionId).toBe(String(ROTATE_AT))
+      expect((await readSessionEvents(sessionFilePath(sessionDir, FIRST))).map((e) => e.type)).toEqual([
+        'session.started',
+        'session.closed',
+      ])
+    } finally {
+      sync.mockRestore()
+    }
   })
 
   it('never rotates on a GET — the boundary takes a POST, so no link or prefetch can cross it', async () => {
@@ -234,6 +276,55 @@ describe('POST /api/rotate', () => {
     expect((await readSessionEvents(sessionFilePath(sessionDir, FIRST))).map((e) => e.type)).toEqual([
       'session.started',
     ])
+  })
+
+  /**
+   * #49 (prd-42 ruling 5). `rotateSession` and `retargetSession` share one
+   * in-flight guard (`recorder/rotate.ts`, #14) so the two never race the
+   * same recorder — but before this issue, a rotation asked while a retarget
+   * held that guard COALESCED onto it: this route's `await rotateSession(...)`
+   * awaited the SAME pending promise the retarget's boundary holds, so it
+   * would eventually resolve to the retarget's OWN `Rotation` at status 200 —
+   * an `opened` session in a repo other than this route's own `ctx.repoPath`,
+   * reported as this caller's own boundary. `beginRetargetBoundary` is the
+   * same primitive `api/retarget.ts` reserves the guard with before its own
+   * (slow) validation, so holding it open here — deliberately never
+   * resolved — stands in for a real in-flight retarget without needing a
+   * second repo on disk to retarget into: pre-fix this request hangs on the
+   * retarget's boundary until the test's own timeout; post-fix it refuses
+   * with 409 the instant it arrives, never touching that promise at all.
+   */
+  it("refuses with 409 while a retarget is in flight — never the retarget's boundary (#49, prd-42 ruling 5)", async () => {
+    const app = makeApp()
+    const boundary = beginRetargetBoundary(recorder)
+    expect(boundary).not.toBeNull() // sanity: the guard really is free before this test claims it
+
+    const response = await app.inject({ method: 'POST', url: '/api/rotate', headers: authorised(app) })
+
+    expect(response.statusCode).toBe(409)
+    const body = response.json() as { code?: string; error?: string; closed?: unknown; opened?: unknown }
+    // Compared against the shared, compiler-checked constant imported from
+    // `refusals.ts` — not a second hardcoded `'retarget-in-flight'` — so this
+    // assertion moves with the union rather than independently agreeing with
+    // it by coincidence. `api/rotate.ts` imports the SAME value.
+    expect(body.code).toBe(RETARGET_IN_FLIGHT_CODE)
+    // The defect this test reproduces: a 200 carrying the retarget's own boundary.
+    expect(body.closed).toBeUndefined()
+    expect(body.opened).toBeUndefined()
+    expect(body.error).not.toContain('retargeted')
+
+    // Nothing happened to THIS repo's session: same session, same lock, no
+    // close line — the guard is still the retarget's to release, untouched.
+    expect(recorder.sessionId).toBe(FIRST)
+    expect(await readSessionLock(sessionDir, FIRST)).not.toBeNull()
+    expect((await readSessionEvents(sessionFilePath(sessionDir, FIRST))).map((e) => e.type)).toEqual([
+      'session.started',
+    ])
+
+    // Release the reservation so this test leaves nothing pending — its own
+    // recorder is never touched again, but an unsettled promise would still
+    // be a leaked handle past the test's end.
+    boundary?.reject(new Error('test cleanup: abandoning the reserved boundary'))
   })
 })
 

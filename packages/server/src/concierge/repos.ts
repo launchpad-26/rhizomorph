@@ -2,6 +2,7 @@ import { access, readdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { defaultClaudeProjectsRoot } from '../log/paths.js'
+import { disambiguateSlugByCwd, type TranscriptReadFs } from './slug-disambiguate.js'
 
 /**
  * prd-20 ruling 5's read-only repo discovery: enumerate `~/.claude/projects`
@@ -12,19 +13,22 @@ import { defaultClaudeProjectsRoot } from '../log/paths.js'
  * a "not yet known" list: a repo Claude already knows can also sit under a
  * common root and so appear in both — see `scanCommonRoots`'s own doc.
  *
- * `collectors/sessionlog/worktree-slug.ts` maps `/`, `_`, `.`, `\`, `:` and a
- * literal space to `-` (prd-42 ruling 1 closed its worst gap, the space — not
- * its last: the real Claude Code slugger maps every non-alphanumeric
- * character, per #47 and the evidence on that helper's own doc comment, and
- * this module's own re-encode below only ever covers three of them). This
- * module does not rely on that transform at all: `reverseProjectSlug`
- * below walks the real filesystem one directory hop at a time, matching each
- * hop against actual directory entries (encoded the same three ways Claude
- * Code encodes them — `.`, `_` and a space) rather than guessing which
- * characters a `-` used to be. That sidesteps the dotted- and spaced-path
- * gaps rather than fixing the forward helper, which this lane does not own —
- * and the divergence between the two encodings is real but not this lane's
- * to reconcile either, for the same reason.
+ * `collectors/sessionlog/worktree-slug.ts` maps the same class this module
+ * does as of prd-42 wave 7 (#124): EVERY non-alphanumeric character becomes
+ * `-` (verified against the shipped binary — see that helper's own doc
+ * comment, and #120). This module does not rely on that (or any other fixed)
+ * encoder transform at all: `reverseProjectSlug` below walks the real
+ * filesystem one directory hop at a time, matching each hop against actual
+ * directory entries (re-encoded with the SAME full grammar the real slugger
+ * uses — every non-alphanumeric character folds to `-`) rather than guessing
+ * which characters a `-` used to be. Encoding every real entry with the true
+ * grammar, rather than a narrower approximation of it, is what lets the walk
+ * fail CLOSED — an entry that would collide under the real encoder is
+ * detected as ambiguous here too, instead of silently matching a
+ * dash-named sibling it should not. The divergence this walk once had with
+ * `worktree-slug.ts`'s narrower encoder is closed rather than deferred:
+ * #124 widens that encoder to this same class in this wave, and the
+ * round-trip law in `repos.test.ts` is where the agreement is pinned.
  *
  * Every read goes through `node:fs/promises`, not the `Sync` family: a
  * `GET /api/concierge/repos` request runs this on the server's single event
@@ -168,27 +172,64 @@ const WINDOWS_DRIVE_SLUG_RE = /^[A-Za-z]--/
  * Reverses one `~/.claude/projects` slug back to the real path it names, by
  * walking the filesystem from `/` one path segment at a time and matching
  * the next stretch of the slug against actual directory entries — never by
- * guessing which of `/`, `_`, `.`, or a space a given `-` used to be.
+ * guessing which non-alphanumeric character a given `-` used to be.
  *
- * At each directory, every real subdirectory name is re-encoded the same way
- * Claude Code encodes a path segment (`.`, `_`, and a literal space all
- * become `-`; a literal `-` is left alone) and checked against the
- * *remaining* slug. Verified against this machine's own `~/.claude/projects`
- * during development — the space case (`ASK JO` → `ASK-JO`, `TailR
- * Nutrition` → `TailR-Nutrition`) is not in #243's own list, so it would
- * otherwise have surfaced as a run of honestly-unresolved slugs that were,
- * in fact, real and present.
+ * At each directory, every real subdirectory name is re-encoded with the same
+ * full grammar the real Claude Code slugger uses (every non-alphanumeric
+ * character becomes `-`; alphanumerics are left alone) and checked against
+ * the *remaining* slug. This is deliberately the FULL grammar the shipped
+ * slugger uses — the class `worktree-slug.ts` also maps, since #124 (#120): a walk
+ * that only re-encoded `.`, `_`, `:`, `\` and a literal space would treat a
+ * real collision under the actual encoder (`a+b` and `a-b`, say) as no
+ * collision at all, and return a real but wrong sibling path silently
+ * instead of failing closed. Encoding with the real grammar means every
+ * character the shipped slugger folds to `-` is recognised as a fold here
+ * too, so a genuine ambiguity is reported as one rather than missed.
  *
- * Among entries that match, the LONGEST encoded form wins, so a directory
- * whose own name contains a literal `-` (`worktrees-challenge`) is preferred
- * over stopping one token early. But when TWO OR MORE entries tie for that
- * longest match — `foo-bar` and `foo.bar` both encode to `foo-bar`, and
- * nothing about the slug says which one Claude Code meant — the walk does
- * NOT pick whichever the filesystem happened to enumerate first. A silent
- * pick would be a wrong answer with no sign it was ever in doubt, which is
- * the one thing this module's whole contract refuses to do: the tie is
- * reported as an ambiguous slug, naming every tied candidate, rather than
- * guessed at.
+ * Every entry that could plausibly continue the slug at a given hop is
+ * explored, not just the longest one: a directory whose own name contains a
+ * literal `-` (`worktrees-challenge`) beating a one-token-early stop is still
+ * the common case, but a SHORTER match at one hop can lead to a DIFFERENT
+ * real directory several hops further in — `/repo/packages/web` and
+ * `/repo/packages-web` both encode to the same slug, and a walk that
+ * committed to whichever entry was longest at that fork would never even
+ * look at the other branch. So the walk tries every matching entry at a
+ * fork (`walkSlugCandidates` below) and keeps every branch that fully
+ * consumes the slug against real directories.
+ *
+ * When that produces exactly one real path, it is returned outright — the
+ * overwhelmingly common case, and it costs exactly what the walk always
+ * cost: no candidate collision, no extra branch to explore.
+ *
+ * When it produces MORE THAN ONE — two or more real, distinct directories
+ * this one slug could equally have come from, whether they tied at the same
+ * hop (`foo-bar` and `foo.bar`, both encoding to `foo-bar`) or diverged at
+ * different hops (`packages/web` vs `packages-web`) — the walk does NOT pick
+ * whichever branch happened to resolve, and does not simply refuse either.
+ * **It decides from evidence and refuses when evidence is absent** (operator
+ * ruling, 2026-08-28, #142): it reads the slug's OWN transcript
+ * (`~/.claude/projects/<slug>/*.jsonl`) for the `cwd` Claude Code itself
+ * recorded while running there, through `slug-disambiguate.ts`'s
+ * `disambiguateSlugByCwd`. When that cwd names one of the real candidates,
+ * that candidate is the answer. When no record carries a `cwd`, the
+ * transcript can't be read or parsed, or the recorded `cwd` names neither
+ * candidate (or no longer exists at all), the walk falls back to the same
+ * honest refusal it always gave: `path: null`, naming every candidate,
+ * rather than guessing.
+ *
+ * This costs nothing extra for the vastly more common non-ambiguous walk.
+ * When a real fork DOES occur, the cost is: one extra `listSubdirectories`
+ * call per remaining slug segment down whichever branch turns out not to be
+ * the answer (bounded by how much of the slug is left at the fork — a
+ * handful of directories at most in practice; sometimes zero, when the
+ * losing branch's remaining slug is already fully consumed), plus, only when
+ * two or more branches both fully resolve, one `readdir` of the slug's own
+ * transcript directory and one `readFile` per file found there (ordinarily
+ * exactly one session; a resumed session adds one more). Every one of those
+ * reads still goes through the same `await`ed, event-loop-yielding
+ * primitives this module already uses (see this module's own doc) — paid
+ * once, only for the directory that is actually ambiguous, never on every
+ * request. `repos.test.ts` counts this exactly for the monorepo case above.
  *
  * Returns the resolved path, or `null` with a reason naming where the walk
  * stopped — this is the "unknown is not absent" half of the contract: a
@@ -197,9 +238,63 @@ const WINDOWS_DRIVE_SLUG_RE = /^[A-Za-z]--/
  * read: the reason says so plainly, rather than reporting the same "no
  * match" text a genuinely empty directory would get.
  */
+export interface ReverseProjectSlugOptions {
+  /** Where the slug's own transcript would live — defaults to the real `~/.claude/projects`. Only ever consulted once a genuine ambiguity needs it. */
+  claudeProjectsRoot?: string
+  /** The transcript-reading seam (`slug-disambiguate.ts`). Defaults to the real filesystem. */
+  transcriptFs?: TranscriptReadFs
+}
+
+type SlugWalkOutcome = { path: string } | { path: null; reason: string }
+
+/**
+ * Every real directory this slug's remaining stretch could resolve to from
+ * `dir` onward, explored branch by branch — one leaf outcome per branch,
+ * neither deduplicated nor ranked here (the caller does that).
+ * `remaining.length === 0` is the base case: `dir` was already confirmed to
+ * exist (it came from a listing this same walk already read, or is the
+ * filesystem root), so it resolves outright with no further read.
+ */
+async function walkSlugCandidates(slug: string, dir: string, remaining: string, fs: DiscoveryFs): Promise<SlugWalkOutcome[]> {
+  if (remaining.length === 0) return [{ path: dir }]
+
+  const listing = await fs.listSubdirectories(dir)
+  if (!listing.readable) {
+    return [{ path: null, reason: `could not resolve slug "${slug}" past ${dir}: ${listing.reason}` }]
+  }
+
+  const matches: Array<{ entry: string; nextRemaining: string }> = []
+  for (const entry of listing.entries) {
+    const encoded = entry.replace(/[^a-zA-Z0-9]/g, '-')
+    if (remaining === encoded) {
+      matches.push({ entry, nextRemaining: '' })
+    } else if (remaining.startsWith(`${encoded}-`)) {
+      matches.push({ entry, nextRemaining: remaining.slice(encoded.length + 1) })
+    }
+  }
+
+  if (matches.length === 0) {
+    return [
+      {
+        path: null,
+        reason:
+          `no directory under ${dir} matches the next part of slug "${slug}" ` +
+          `(resolved as far as ${dir}, "${remaining}" left unmatched)`,
+      },
+    ]
+  }
+
+  const outcomes: SlugWalkOutcome[] = []
+  for (const { entry, nextRemaining } of matches) {
+    outcomes.push(...(await walkSlugCandidates(slug, path.join(dir, entry), nextRemaining, fs)))
+  }
+  return outcomes
+}
+
 export async function reverseProjectSlug(
   slug: string,
   fs: DiscoveryFs = realDiscoveryFs,
+  options: ReverseProjectSlugOptions = {},
 ): Promise<{ path: string } | { path: null; reason: string }> {
   if (!slug.startsWith('-')) {
     if (WINDOWS_DRIVE_SLUG_RE.test(slug)) {
@@ -214,58 +309,27 @@ export async function reverseProjectSlug(
     return { path: null, reason: `"${slug}" does not start with "-", so it is not a slug for an absolute path` }
   }
 
-  let currentDir: string = path.sep
-  let remaining = slug.slice(1)
+  const outcomes = await walkSlugCandidates(slug, path.sep, slug.slice(1), fs)
+  const successes = outcomes.filter((outcome): outcome is { path: string } => outcome.path !== null)
+  const distinctPaths = Array.from(new Set(successes.map((success) => success.path)))
 
-  while (remaining.length > 0) {
-    const listing = await fs.listSubdirectories(currentDir)
-    if (!listing.readable) {
-      return {
-        path: null,
-        reason: `could not resolve slug "${slug}" past ${currentDir}: ${listing.reason}`,
-      }
-    }
-
-    let bestEntries: string[] = []
-    let bestEncodedLength = -1
-    for (const entry of listing.entries) {
-      const encoded = entry.replace(/[._ ]/g, '-')
-      const isFinalSegment = remaining === encoded
-      const isMidSegment = remaining.startsWith(`${encoded}-`)
-      if (!isFinalSegment && !isMidSegment) continue
-
-      if (encoded.length > bestEncodedLength) {
-        bestEntries = [entry]
-        bestEncodedLength = encoded.length
-      } else if (encoded.length === bestEncodedLength) {
-        bestEntries.push(entry)
-      }
-    }
-
-    if (bestEntries.length === 0) {
-      return {
-        path: null,
-        reason:
-          `no directory under ${currentDir} matches the next part of slug "${slug}" ` +
-          `(resolved as far as ${currentDir}, "${remaining}" left unmatched)`,
-      }
-    }
-
-    if (bestEntries.length > 1) {
-      return {
-        path: null,
-        reason:
-          `ambiguous slug "${slug}": under ${currentDir}, ${bestEntries.map((entry) => `"${entry}"`).join(' and ')} ` +
-          `all encode to the same next part of the slug — cannot tell which one Claude Code meant without guessing`,
-      }
-    }
-
-    const bestEntry = bestEntries[0] as string
-    currentDir = path.join(currentDir, bestEntry)
-    remaining = remaining.length === bestEncodedLength ? '' : remaining.slice(bestEncodedLength + 1)
+  if (distinctPaths.length === 0) {
+    const failure = outcomes.find(
+      (outcome): outcome is { path: null; reason: string } =>
+        outcome.path === null && outcome.reason.startsWith('could not resolve slug'),
+    )
+    return failure ?? (outcomes[0] as { path: null; reason: string })
   }
 
-  return { path: currentDir }
+  if (distinctPaths.length === 1) {
+    return { path: distinctPaths[0] as string }
+  }
+
+  return disambiguateSlugByCwd(slug, distinctPaths, {
+    claudeProjectsRoot: options.claudeProjectsRoot ?? defaultClaudeProjectsRoot(),
+    pathExists: (target) => fs.exists(target),
+    transcriptFs: options.transcriptFs,
+  })
 }
 
 export interface KnownProjectEntry {
@@ -339,7 +403,7 @@ export async function listKnownProjects(claudeProjectsRoot: string, fs: Discover
   const cachedFs = withSharedDirectoryCache(fs)
   const projects: KnownProjectEntry[] = await Promise.all(
     listing.entries.map(async (slug) => {
-      const reversed = await reverseProjectSlug(slug, cachedFs)
+      const reversed = await reverseProjectSlug(slug, cachedFs, { claudeProjectsRoot })
       if (reversed.path === null) {
         return { slug, path: null, resolved: false, reason: reversed.reason }
       }

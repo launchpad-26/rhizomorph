@@ -67,12 +67,21 @@ import { describe, expect, it } from 'vitest'
  *     `new RegExp` (a manual character-code loop, say). Check 3 cannot see
  *     it by construction; check 1 only sees it if it sits inside a
  *     `claudeProjectsRoot`/`path.resolve` join.
- *   - A hand-rolled transform using a NEGATED class (`/[^a-zA-Z0-9]/g`, #47's
- *     own real shape) OUTSIDE a join. Check 3 deliberately excludes negated
- *     classes everywhere, not just inside a join — see check 3's own doc
- *     comment for why (`snapshot-store.ts`/`log/paths.ts` would otherwise be
- *     convicted for sanitising a NAME, not a path) — so a hoisted copy of
- *     exactly #47's shape is only caught if it sits inside a join (check 1).
+ *   - A hand-rolled transform using a negated class OUTSIDE a join, UNLESS it
+ *     is the EXACT canonical body (`/[^a-zA-Z0-9]/g`, #47's own real shape and,
+ *     since #124, also the canonical implementation's — see check 3's own doc
+ *     comment). That exact body is no longer a blind spot outside a join: #143
+ *     found that the most likely form of duplication, a copy-paste of today's
+ *     canonical transform, was exactly the negated-class shape this bullet
+ *     used to wave through unconditionally. Any OTHER negated class (a
+ *     different alphabet, a quantifier, a kept character) is still assumed
+ *     innocent rather than convicted for being negated at all —
+ *     `snapshot-store.ts`/`log/paths.ts` sanitise a NAME, not a path, with a
+ *     class that never equals the canonical one, and stay clear on that
+ *     content difference alone. The one place the canonical body legitimately
+ *     recurs — `concierge/repos.ts`'s reverse walk, and its test's mirrored
+ *     fixture — is excluded by PATH IDENTITY, not by pattern, since its text
+ *     is indistinguishable from a real duplicate.
  *   - A transform behind a NAMED regex constant (`SLUG_CHARS`) used OUTSIDE
  *     a join. Check 3 does not resolve what a constant's own definition
  *     contains; check 2 is keyed on the FUNCTION name, not a regex constant
@@ -153,6 +162,34 @@ const OWN_PATH = 'packages/server/src/collectors/sessionlog/forward-transform-la
  * assumed.
  */
 const CANONICAL_IMPLEMENTATION_PATH = 'packages/server/src/collectors/sessionlog/worktree-slug.ts'
+
+/**
+ * The other two files allowed to carry the exact canonical negated-class body
+ * (`[^a-zA-Z0-9]`) — named rather than pattern-matched, the same AGENTS.md
+ * #649 discipline `CANONICAL_IMPLEMENTATION_PATH` already uses, and for the
+ * same reason: a hand-authored exclusion by content cannot tell this text
+ * apart from a real duplicate, because it IS the same text.
+ *
+ * - `concierge/repos.ts`'s reverse walk (#120) re-encodes a single directory
+ *   ENTRY with this class to compare it against a slug — the sibling REVERSE
+ *   direction this file's doc comment calls out, not a second forward
+ *   path-to-slug transform. prd-42 ruling 1's round-trip law
+ *   (`concierge/repos.test.ts`) is what pins the two directions to agreeing
+ *   on this exact class, so the two sides are expected to share the text.
+ * - `concierge/repos.test.ts` mirrors that same one-liner to build its
+ *   collision-probe fixtures (measured: #143 found this is a real, executed
+ *   line, not a comment quoting history) — the same legitimate reuse, one
+ *   file over.
+ *
+ * Measured at #143: these are the ONLY two tracked files under `SCAN_ROOT`
+ * (besides `CANONICAL_IMPLEMENTATION_PATH` and this law's own `OWN_PATH`)
+ * that carry this exact text — `grep -rn '\[\^a-zA-Z0-9\]' packages/server/src`
+ * turned up nothing else, reordered or otherwise.
+ */
+const CANONICAL_NEGATED_CLASS_ALLOWED_PATHS = [
+  'packages/server/src/concierge/repos.ts',
+  'packages/server/src/concierge/repos.test.ts',
+]
 
 /**
  * Only actual source files can HAND-ROLL an implementation — a PRD or design
@@ -357,29 +394,47 @@ const SPLIT_JOIN_DASH_PATTERN = /\.split\(\s*(?:(['"])\/\1|path\.sep)\s*\)\.join
 const REPLACEALL_SLASH_DASH_PATTERN = /\.replaceAll\(\s*(['"])\/\1\s*,\s*(['"])-\2\s*\)/g
 
 /**
- * That `/`-in-a-positive-class test is the discriminator that keeps the
- * regex-literal patterns above from convicting code that merely looks
- * similar:
+ * `/`-in-a-positive-class is the discriminator for a POSITIVE class: a
+ * forward path-to-slug transform must fold `/` — the one character no
+ * path-flattening scheme can skip — so a positive class that includes it is
+ * the signature of a second, competing implementation.
+ *
+ * A NEGATED class can never contain a literal `/` at all (it lists what is
+ * EXCLUDED, and `/` is never excluded from exclusion), so that discriminator
+ * cannot apply to it — asking "does this negated class mention `/`" is
+ * always false and answers nothing. #143's finding was that the law used to
+ * treat that as "therefore harmless", when since #124 it is exactly backwards
+ * for one specific body: `[^a-zA-Z0-9]` (`CANONICAL_NEGATED_CLASS` below) IS
+ * the real transform, so a hand-rolled copy most likely carries that exact
+ * text, not a positive class at all.
+ *
+ * So a negated class is judged by exact-text equality to the canonical body
+ * instead, which is what lets these three real files sort correctly:
  *
  * - `snapshot-store.ts` and `log/paths.ts` sanitise a single NAME
- *   (`collectorName`, a filesystem-safe stem) with a NEGATED class
- *   (`/[^a-z0-9-]+/g`) — negated classes are excluded outright, since they
- *   describe "everything but", not "these separators", and are a different
- *   kind of transform (sanitising one token) from folding a whole PATH's
- *   separators to `-`. This is also why #47's own real shape
- *   (`/[^a-zA-Z0-9]/g`) is a known gap for this check outside a join — see
- *   the file doc comment.
+ *   (`collectorName`, a filesystem-safe stem) with a DIFFERENT negated class
+ *   (`/[^a-z0-9-]+/g` — lowercase only, keeps the dash, quantified). It never
+ *   equals `CANONICAL_NEGATED_CLASS`, so it is excluded on content alone, the
+ *   same way an unrelated positive class is — no name needed.
  * - `concierge/repos.ts`'s reverse walk re-encodes a single directory ENTRY
- *   for comparison (`entry.replace(/[._ ]/g, '-')`) — a positive class, but
- *   one that never lists `/`, because it already operates on a path segment
- *   with no separator left in it. It is the sibling *reverse* direction
- *   this same file's doc comment calls out, not a second forward transform.
+ *   for comparison (`entry.replace(/[^a-zA-Z0-9]/g, '-')`, #120) — the EXACT
+ *   canonical body. This one IS textually indistinguishable from a real
+ *   duplicate (prd-42 ruling 1's round-trip law is what pins the two
+ *   directions to sharing this exact class), so content alone cannot clear
+ *   it — it is excluded by PATH IDENTITY instead
+ *   (`CANONICAL_NEGATED_CLASS_ALLOWED_PATHS`), the sibling *reverse* direction
+ *   this file's doc comment calls out, not a second forward transform.
+ *   `repos.test.ts` mirrors the same one-liner to build fixtures and is named
+ *   alongside it for the same reason.
  *
- * A forward path-to-slug transform must fold `/` — that is the one
- * character no path-flattening scheme can skip — so a positive class (or the
- * bare-escaped-slash form) that includes it is the signature of a second,
- * competing implementation.
+ * The residual gap, named rather than silent: a semantically-equivalent but
+ * differently-spelled negated class (reordered, e.g. `[^0-9A-Za-z]`, or an
+ * escaped/unicode-property variant) still is not caught — the match below is
+ * textual, not semantic, the same tradeoff `CANONICAL_IMPLEMENTATION_PATH`
+ * already makes by excluding one exact path rather than a guessed pattern.
  */
+const CANONICAL_NEGATED_CLASS = '[^a-zA-Z0-9]'
+
 function findHandRolledForwardTransforms(contents: string): string[] {
   const code = codeOf(contents)
   const hits: string[] = []
@@ -387,6 +442,10 @@ function findHandRolledForwardTransforms(contents: string): string[] {
   for (const match of code.matchAll(FORWARD_REPLACE_PATTERN)) {
     const body = match[1]
     if (body === undefined) continue
+    if (body === CANONICAL_NEGATED_CLASS) {
+      hits.push(match[0])
+      continue
+    }
     if (body.startsWith('[^')) continue
     if (!body.includes('/')) continue
     hits.push(match[0])
@@ -395,6 +454,10 @@ function findHandRolledForwardTransforms(contents: string): string[] {
   for (const match of code.matchAll(NEW_REGEXP_REPLACE_PATTERN)) {
     const charClass = match[2]
     if (charClass === undefined) continue
+    if (charClass === CANONICAL_NEGATED_CLASS) {
+      hits.push(match[0])
+      continue
+    }
     if (charClass.startsWith('[^')) continue
     if (!charClass.includes('/')) continue
     hits.push(match[0])
@@ -627,9 +690,93 @@ describe('forward transform law: worktreePathToProjectSlug is the only path-to-s
       expect(findHandRolledForwardTransforms(rigged)).toEqual([])
     })
 
-    it('does NOT fire on the reverse walk re-encoding a bare entry name — no `/` in its class', () => {
-      const rigged = "const encoded = entry.replace(/[._ ]/g, '-')"
-      expect(findHandRolledForwardTransforms(rigged)).toEqual([])
+    it('fires on the EXACT canonical negated-class body, hoisted outside worktree-slug.ts — #143\'s finding, no longer an unconditional blind spot', () => {
+      const rigged = "const encoded = extraDir.replace(/[^a-zA-Z0-9]/g, '-')"
+      expect(findHandRolledForwardTransforms(rigged)).toEqual([".replace(/[^a-zA-Z0-9]/g, '-')"])
+    })
+
+    it('the pure detector cannot tell repos.ts\'s real reverse-walk line apart from a duplicate by content alone — proving the exclusion below is a named identity, not an accident of the pattern', () => {
+      const contents = readFileSync(`${REPO_ROOT}/${CANONICAL_NEGATED_CLASS_ALLOWED_PATHS[0]}`, 'utf8')
+      const hits = findHandRolledForwardTransforms(contents)
+      expect(hits.some((hit) => hit.includes(CANONICAL_NEGATED_CLASS))).toBe(true)
+    })
+
+    it('the canonical implementation itself would trip this detector too, for the same reason — its exclusion from the sweep is CANONICAL_IMPLEMENTATION_PATH, not a content accident', () => {
+      const contents = readFileSync(`${REPO_ROOT}/${CANONICAL_IMPLEMENTATION_PATH}`, 'utf8')
+      const hits = findHandRolledForwardTransforms(contents)
+      expect(hits.some((hit) => hit.includes(CANONICAL_NEGATED_CLASS))).toBe(true)
+    })
+
+    /**
+     * The allowlist is an EXEMPTION, so it needs the same discipline the
+     * canonical path gets above: each entry must exist, be tracked, and carry
+     * exactly the number of occurrences its allowance was granted for.
+     *
+     * Without the count, an allowed file holds blanket immunity for ANY number
+     * of hits — review of #143 proved it (EXECUTED): appending a real hoisted
+     * forward transform to `repos.ts` left this law green, 35/35, while the
+     * same transform in a third file was caught with a usable message. And
+     * #45's original defect was a hand-rolled copy in a TEST file, which is
+     * exactly the kind of file the second entry exempts.
+     *
+     * Without the tracked check, an allowance can outlive the code that
+     * justified it: #143 blessed `repos.ts` on the strength of a specific line,
+     * and #142 — the very next commit in the same wave — rewrote that function.
+     * The justification survived by luck, and nothing was checking.
+     */
+    const CANONICAL_NEGATED_CLASS_EXPECTED_HITS: Record<string, number> = {
+      'packages/server/src/collectors/sessionlog/worktree-slug.ts': 1,
+      'packages/server/src/concierge/repos.ts': 1,
+      'packages/server/src/concierge/repos.test.ts': 1,
+    }
+
+    /**
+     * The pin covers `CANONICAL_IMPLEMENTATION_PATH` too, not just the two
+     * allowlisted paths. That file is dropped from the sweep WHOLESALE by
+     * `scannableTrackedFiles`, so before this entry existed it held exactly
+     * the blanket file immunity the two commits above removed from the
+     * allowlist — the third instance of one shape, missed because it is
+     * exempted by a different mechanism.
+     *
+     * EXECUTED (review of this PR): appending a real hoisted
+     * `p.replace(/[^a-zA-Z0-9]/g, '-')` to `worktree-slug.ts` left this law
+     * green at 36/36, while the identical transform in `log/paths.ts` was
+     * caught by name. Its count is 1 and not 2 for the same reason
+     * `repos.test.ts`'s is: `:16` quotes Claude Code's own minified source in
+     * a doc comment as evidence, and `codeOf()` is what keeps that from being
+     * a fungible slot.
+     */
+    it('every exempted path is tracked, and carries exactly the occurrences its allowance was granted for', () => {
+      const tracked = new Set(trackedFiles())
+      expect(Object.keys(CANONICAL_NEGATED_CLASS_EXPECTED_HITS).sort()).toEqual(
+        [...CANONICAL_NEGATED_CLASS_ALLOWED_PATHS, CANONICAL_IMPLEMENTATION_PATH].sort(),
+      )
+      for (const [file, expected] of Object.entries(CANONICAL_NEGATED_CLASS_EXPECTED_HITS)) {
+        expect(tracked.has(file), `${file} is allowlisted but not tracked by git`).toBe(true)
+        const contents = readFileSync(`${REPO_ROOT}/${file}`, 'utf8')
+        // codeOf(), not raw contents — the same reason check 3 uses it at :237.
+        // Counting comment text made the two slots FUNGIBLE: `repos.test.ts`
+        // carries one live line (:312) and one doc comment quoting the class
+        // (:264), so a file could delete the comment, add a real duplicate, and
+        // keep the count. EXECUTED in review: exactly that swap stayed green at
+        // 36/36. The inverse bit too — a pure documentation comment added to an
+        // allowlisted file tripped the pin, and following this message's own
+        // advice ("raise the count") would have bought the immunity the first
+        // mutation used. The false positive manufactured the false negative.
+        const occurrences = codeOf(contents).split(CANONICAL_NEGATED_CLASS).length - 1
+        expect(
+          occurrences,
+          `${file} carries ${occurrences} occurrence(s) of the canonical body, allowed for ${expected}. ` +
+            'A new one is either a second forward transform (fix it) or a deliberate addition (raise the count, in the same commit, with the reason).',
+        ).toBe(expected)
+      }
+    })
+
+    it('does NOT fire on the real snapshot-store.ts / log/paths.ts files — the natural regression fixtures for this signature', () => {
+      const snapshotStore = readFileSync(`${REPO_ROOT}/packages/server/src/server/snapshot-store.ts`, 'utf8')
+      const logPaths = readFileSync(`${REPO_ROOT}/packages/server/src/log/paths.ts`, 'utf8')
+      expect(findHandRolledForwardTransforms(snapshotStore)).toEqual([])
+      expect(findHandRolledForwardTransforms(logPaths)).toEqual([])
     })
 
     it('does NOT fire on an unrelated positive class that never lists a path separator', () => {
@@ -652,19 +799,26 @@ describe('forward transform law: worktreePathToProjectSlug is the only path-to-s
     })
 
     it('does NOT fire on a comment that merely quotes the defect shape as history — the trigger for MUST FIX 2', () => {
+      // Live code here is the log-paths/snapshot-store shape deliberately,
+      // not repos.ts's — that content differs from CANONICAL_NEGATED_CLASS on
+      // its own, so this test isolates "a comment doesn't trip it" without
+      // also depending on the path-identity exclusion covered above.
       const rigged = [
-        '// This class used to be missing the space:',
-        "//   worktreePath.replace(/[/_. ]/g, '-')",
-        "const encoded = entry.replace(/[._ ]/g, '-') // reverse-direction, no slash",
+        '// This name used to be sanitised with a five-character class:',
+        "//   name.replace(/[._: ]/g, '-')",
+        "const cleaned = name.toLowerCase().replace(/[^a-z0-9-]+/g, '-') // sanitises a name, negated class",
       ].join('\n')
       expect(findHandRolledForwardTransforms(rigged)).toEqual([])
     })
 
-    it('no tracked file outside worktree-slug.ts hand-rolls this operation, wherever it sits', () => {
+    it('no tracked file outside the named allowances hand-rolls this operation, wherever it sits', () => {
       const violations: string[] = []
       for (const file of scannableTrackedFiles()) {
         const contents = readFileSync(`${REPO_ROOT}/${file}`, 'utf8')
         for (const hit of findHandRolledForwardTransforms(contents)) {
+          if (hit.includes(CANONICAL_NEGATED_CLASS) && CANONICAL_NEGATED_CLASS_ALLOWED_PATHS.includes(file)) {
+            continue
+          }
           violations.push(`${file}: ${hit}`)
         }
       }

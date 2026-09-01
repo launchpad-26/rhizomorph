@@ -18,6 +18,12 @@ export const HIT_RADIUS = 30
  */
 export const ROOT_HIT_SLACK = 8
 
+/** Where the canvas's top-left sits in client coordinates. */
+export interface ViewOrigin {
+  left: number
+  top: number
+}
+
 /**
  * What is under the pointer: the nearest node within {@link HIT_RADIUS}, the
  * root-mass ({@link MAIN_SELECTION}) when the pointer is on the mass itself,
@@ -28,6 +34,13 @@ export const ROOT_HIT_SLACK = 8
  * tolerance is a property of the hand holding the mouse, so it stays thirty
  * screen pixels at 6× as much as at 0.4×.
  *
+ * The origin is passed in rather than measured. `canvas.getBoundingClientRect()`
+ * here was a forced layout read on every mousemove; the frame loop's
+ * ResizeObserver has already measured the same box (`useFrameLoop.ts`'s
+ * `resize`), and publishes its top-left for this function to read. That makes
+ * the hover path free of layout — and this function pure, which is why it has
+ * a unit test now and did not before.
+ *
  * **Lanes first, the mass second.** They can overlap — a lane whose node has
  * not drifted out yet sits close in against the mass, and at the far end of a
  * zoom-out everything is close to everything. A node is the smaller, more
@@ -36,15 +49,14 @@ export const ROOT_HIT_SLACK = 8
  */
 export function pickAt(
   geometry: SceneGeometry | null,
-  canvas: HTMLCanvasElement | null,
+  origin: ViewOrigin | null,
   camera: Camera,
   clientX: number,
   clientY: number,
 ): string | null {
-  if (geometry === null || canvas === null) return null
+  if (geometry === null || origin === null) return null
 
-  const rect = canvas.getBoundingClientRect()
-  const at = toWorld(camera, { x: clientX - rect.left, y: clientY - rect.top })
+  const at = toWorld(camera, { x: clientX - origin.left, y: clientY - origin.top })
 
   let best: string | null = null
   let bestDistance = HIT_RADIUS / camera.k

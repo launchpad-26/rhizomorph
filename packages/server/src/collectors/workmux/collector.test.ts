@@ -161,11 +161,99 @@ describe('createWorkmuxCollector', () => {
         payload: { collector: 'workmux', reason: 'spawn workmux ENOENT' },
       }),
     ])
-    expect(execCalls).toBe(1)
+    // `status` and `list` are issued together (#34) — both subprocesses are
+    // in flight on this one poll, even though the missing-binary verdict is
+    // decided from `status` alone and `list`'s result is never read.
+    expect(execCalls).toBe(2)
 
     const second = await collector.poll(first.nextSnapshot, context)
     expect(second.events).toEqual([])
-    expect(execCalls).toBe(1)
+    expect(execCalls).toBe(2)
+  })
+
+  // --- #34: status and list run as one bounded fan-out, not back to back ---
+
+  it('issues status and list together — both subprocesses are already in flight before either settles (#34)', async () => {
+    const collector = createWorkmuxCollector()
+    const calls: string[] = []
+    let resolveStatus: ((result: ExecResult) => void) | undefined
+    let resolveList: ((result: ExecResult) => void) | undefined
+    const exec: Exec = (command, args) => {
+      calls.push(`${command} ${args.join(' ')}`)
+      const subcommand = args[0]
+      if (subcommand === 'status') return new Promise((resolve) => (resolveStatus = resolve))
+      if (subcommand === 'list') return new Promise((resolve) => (resolveList = resolve))
+      throw new Error(`unexpected command: ${command} ${args.join(' ')}`)
+    }
+    const context = makeContext(exec)
+
+    const pollPromise = collector.poll(collector.initialSnapshot(), context)
+
+    // Asserted with NO await between the call and this line: `runBounded`
+    // starts every worker synchronously up to its own first `await`, so both
+    // `exec` calls have already fired before `poll`'s returned promise gets a
+    // single microtask tick — a count/order assertion, not a wall clock.
+    expect(calls).toEqual(['workmux status --json', 'workmux list --json'])
+
+    resolveStatus?.(ok('[]'))
+    resolveList?.(ok('[]'))
+    await pollPromise
+  })
+
+  it('the missing-binary early return decides from status alone, even when list resolves with real rows (#34)', async () => {
+    const collector = createWorkmuxCollector()
+    const context = makeContext(
+      fakeExec({
+        status: [missingBinary()],
+        list: [ok(fixture('list-working.json'))],
+      }),
+    )
+
+    const result = await collector.poll(collector.initialSnapshot(), context)
+
+    // Identical to the missing-binary-only case: a real `list` payload never
+    // leaks into the disabled snapshot, because it is never read on this path.
+    expect(result.nextSnapshot).toEqual({
+      disabled: true,
+      agents: {},
+      worktreeByPath: {},
+      statusSkipVoiced: {},
+      listSkipVoiced: {},
+      unrecognisedStatusVoiced: {},
+      textFallbackVoiced: false,
+    })
+    expect(result.events).toEqual([
+      expect.objectContaining({
+        type: 'collector.disabled',
+        payload: { collector: 'workmux', reason: 'spawn workmux ENOENT' },
+      }),
+    ])
+  })
+
+  it('a non-ENOENT status failure disables and carries the roster forward even when list succeeds with real rows (#34)', async () => {
+    const collector = createWorkmuxCollector()
+    const exec = fakeExec({
+      status: [
+        ok(fixture('status-mixed.json')),
+        { stdout: '', stderr: 'workmux: session index corrupted', code: 1, failed: true },
+      ],
+      list: [ok(fixture('list-working.json')), ok(fixture('list-working.json'))],
+    })
+    const context = makeContext(exec)
+
+    const first = await collector.poll(collector.initialSnapshot(), context)
+    const second = await collector.poll(first.nextSnapshot, context)
+
+    expect(second.nextSnapshot.disabled).toBe(true)
+    // The roster from the successful first poll carries forward untouched —
+    // `list`'s second, healthy response is never consulted on this path.
+    expect(second.nextSnapshot.agents).toEqual(first.nextSnapshot.agents)
+    expect(second.events).toEqual([
+      expect.objectContaining({
+        type: 'collector.disabled',
+        payload: expect.objectContaining({ reason: expect.stringContaining('session index corrupted') }),
+      }),
+    ])
   })
 
   it('never crashes on an unrecognised status value, and reports it loudly', async () => {

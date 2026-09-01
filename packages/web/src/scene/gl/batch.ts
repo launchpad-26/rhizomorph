@@ -141,6 +141,21 @@ export class Batch {
     this.vertex(c.x, c.y, colour)
   }
 
+  /**
+   * Appends `count` vertices whose bytes were already computed elsewhere — a
+   * plain copy, no arithmetic. This is how `frame.ts`'s settled-ribbon
+   * tessellation cache gets a cached mark's vertices back into the real stream
+   * without re-running `draw()`: {@link vertex} is how a *new* triangle is
+   * authored, this is how an *old* one is replayed.
+   */
+  appendRaw(pos: Float32Array, col: Float32Array, fall: Float32Array, count: number): void {
+    while ((this.n + count) * 2 > this.pos.length) this.grow()
+    this.pos.set(pos.subarray(0, count * 2), this.n * 2)
+    this.col.set(col.subarray(0, count * 4), this.n * 4)
+    this.fall.set(fall.subarray(0, count * 4), this.n * 4)
+    this.n += count
+  }
+
   reset(): void {
     this.n = 0
   }

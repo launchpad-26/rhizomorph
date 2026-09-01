@@ -5,9 +5,9 @@
 
 > **Where the narrative stops, and what to read instead (2026-08-25).** The
 > sections below run prd0 → prd17 and stop there; several milestones have
-> landed since, and the decisions they made live in `docs/adr/` — 0001 through
-> 0027 today — rather than here. **The ADR log is the register of record; this
-> file appends narrative.** Where an ADR overrules a claim below, the claim
+> landed since, and the decisions they made live in `docs/adr/` rather than
+> here. **The ADR log is the register of record; this file appends
+> narrative.** Where an ADR overrules a claim below, the claim
 > carries a superseding pointer in this file's usual idiom rather than being
 > rewritten, because the record of what was decided and why is worth more than
 > a tidy present tense. Four of those supersessions are load-bearing: ADR-0021
@@ -2154,6 +2154,27 @@ laws now hold, four of them landed in this tree:
    rotation crash ordering is close-then-open, never both-open, and is
    itself tested.
 
+**What a replay may now contain (amended 2026-08-25 by
+[ADR-0029](adr/0029-a-recording-may-repeat-a-fact.md)).** Not rotting is not
+the same as every line naming a distinct fact, and this section should not be
+read as promising exactly-once — it never was true here. Since prd-40 ruling 1
+the recording is **at-least-once on the poll path**: `server/poll-loop.ts:223`
+awaits `recorder.record` before `snapshots.set`, so a rejected append leaves
+the collector snapshot un-advanced and the next tick re-derives and re-appends
+the whole batch. It is **at-most-once on the other eleven `recorder.record`
+sites** — the OTLP receiver's six, the lab's two, `cli/run.ts`, `rotate.ts` and
+the poll loop's own degrade path — which hold no snapshot, so a rejected append
+there loses the event outright. A repeated line is therefore permitted content,
+not corruption, and **nothing dedupes it and nothing detects it**: the five
+laws above are about lines that cannot be *read*, while a duplicate reads
+perfectly, chains cleanly and counts as a good line at both ends. The converse
+promise is prd-40 success 1 — an event that reached a subscriber has reached
+the log, with one named exception and no other: the degrade `collector.error`
+reporting an append failure may be emitted without having been appended, since
+it is the alarm saying the log is unwritable. The cost ADR-0029 accepted rather
+than fixed is named there: seven of the fifteen event families era-1 contains
+fold a repeated fact into corrupted state.
+
 ### The fold-order divergence — RESOLVED by #205: append order is the truth
 
 `packages/core/src/reduce.test.ts`'s "the fold-order law" fixture proved,
@@ -2732,4 +2753,56 @@ stale before (#238), and it drifted again since.
   fence stays docs-and-screenshots-only in the committed tree. Root `npm
   test` (104 files, 1,553 tests) and `npm run typecheck` both green against
   the tree this doc describes.
+- 2026-08-25 — prd-40 ruling 1 /
+  [ADR-0029](adr/0029-a-recording-may-repeat-a-fact.md), amending ADR-0011:
+  **a recording may contain the same fact twice, and a reader must not treat
+  that as corruption.** The guarantee is per-path and has to be stated that
+  way — **at-least-once on the poll path**, where awaiting the append before
+  advancing the collector snapshot means a rejected append leaves the snapshot
+  un-advanced and the next tick re-derives and re-appends the batch, and
+  **at-most-once on the other eleven `recorder.record` sites**, which hold no
+  snapshot and lose a rejected event outright. Exactly-once was never true of
+  this log, and this ruling does not make it less true. **No read-side
+  dedupe**, and not for want of trying: the envelope
+  (`packages/core/src/events/common.ts`) carries nothing that identifies a
+  *fact* rather than an *emission* — `id` is a per-process counter stamped at
+  emission, so the two copies differ — and a content hash would delete a
+  genuine event at 1-in-100 on the repo's own era-1 corpus, which already holds
+  a `(type, payload)`-identical pair; that is ADR-0011's abolished silent skip
+  returning under a new name. The cost is named so it is citable, not so it is
+  in scope: seven of the fifteen event families era-1 contains fold a repeated
+  fact into corrupted state — six accumulate (spend, tokens, tool and pane
+  activity counts, `commits.log`) and `agent.status` rewrites `previousStatus`
+  outright — and one duplicated `llm.usage` line moved that corpus's reported
+  spend +7.7%. See [What a replay may now
+  contain](#ruling-3--recordings-never-rot-the-integrity-laws-landed) above.
+  (issue #81; ADR accepted 2026-08-25)
+- 2026-08-26 — prd-40 success 1 /
+  [ADR-0030](adr/0030-the-alarm-may-outrun-the-record.md): **the degrade
+  `collector.error` reporting an append failure is emitted whether or not its
+  own append lands** — success 1's one named exception, and it is reached
+  through a type-narrowed `recordAlarm(event: EventOf<'collector.error'>)` so
+  that the carve-out is a compile-time property of the signature rather than a
+  claim any caller can make. **The exemption is emission only.** Success 1
+  still forbids leaving the fold ahead of the file, and that clause is *not*
+  carved out: on a failed append the alarm enters neither `buffer` nor
+  `foldState`, so `eventsSoFar()` and `foldSoFar()` stay exactly as honest as
+  the file and only subscribers hear it. The consequence is the converse of
+  ADR-0029 — **a live stream may contain a `collector.error` that a replay of
+  the same session does not**, and only that event type. (issue #26; ADR
+  accepted 2026-08-26)
+- 2026-08-26 — prd-40 ruling 2 /
+  [ADR-0031](adr/0031-the-recorder-hands-out-a-frozen-fold.md): **every fold
+  `foldSoFar()` hands out is deep-frozen**, because there is exactly one fold
+  and returning it by reference let a caller mutate the recorder's only copy
+  silently, permanently for the session, with no repair path. A caller's write
+  now throws instead. **Not a readonly return type:** `foldSoFar()`'s result is
+  assigned to `LadderManifest.folded: SessionState` and flows to
+  `selectConnection(state: SessionState)`, so any readonly return cascades into
+  `packages/core`'s selector signatures — and a shallow `Readonly` would pay
+  that cost and still miss the nested write, which is the one that corrupts.
+  The consequence: **the reducer is now held to ADR-0002's purity contract on
+  this path**, since the frozen fold is the input to the next `reduce()` — an
+  impure arm throws in strict mode rather than corrupting silently, which is a
+  bug surfaced, not a cost introduced. (issue #69; ADR accepted 2026-08-26)
 

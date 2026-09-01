@@ -1,4 +1,4 @@
-import type { AnyCollector, Exec, PollResult, RhizomorphEvent } from '@rhizomorph/core'
+import type { AnyCollector, EventOf, Exec, PollResult } from '@rhizomorph/core'
 import { createCollectorContext, createEvent, createIdFactory } from '@rhizomorph/core'
 import type { SessionRecorder } from './recorder.js'
 import type { SnapshotStore } from './snapshot-store.js'
@@ -156,13 +156,23 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
    * Reports a failure via the recorder without letting a *second* failure —
    * the report itself rejecting — escape as an unhandled rejection. The
    * reporting path is never the crash path (issue #239).
+   *
+   * `recordAlarm` rather than `record`, because on a full disk this alarm's own
+   * append fails too, and `record` publishes nothing when its append fails —
+   * which would silence the alarm in exactly the case it exists for (prd-40
+   * success 2, and success 1's one named exception; ADR-0030). It appends when
+   * it can, emits to subscribers either way, and never rejects — so there is no
+   * catch here to write.
+   *
+   * The `console.error` stays beside the emit rather than behind it: the DoD
+   * asks for a line the operator can find afterwards, and prd41 #10 owns the
+   * `api/lab.ts` stderr override that can silence one. Two channels, not one.
    */
-  async function recordOrDegrade(event: RhizomorphEvent, collectorName: string): Promise<void> {
-    try {
-      await recorder.record(event)
-    } catch (reportError) {
+  async function recordOrDegrade(event: EventOf<'collector.error'>, collectorName: string): Promise<void> {
+    const { appended } = await recorder.recordAlarm(event)
+    if (!appended) {
       console.error(
-        `[rhizomorph] failed to report ${event.type} for ${collectorName}: ${reportError instanceof Error ? reportError.message : String(reportError)}`,
+        `[rhizomorph] failed to report ${event.type} for ${collectorName}: the session log could not be written`,
       )
     }
   }
@@ -213,10 +223,16 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
           })
 
         const result = await raceBudget(pollPromise)
-        snapshots.set(collector.name, result.nextSnapshot)
+        // prd40 ruling 1 (ADR-0029): the snapshot advances only once every event
+        // in this batch is on disk. A rejected append therefore leaves
+        // `previous` in place and the next tick re-derives the WHOLE batch —
+        // including the events whose appends already resolved, which are
+        // appended twice. ADR-0029 rules that duplicate accepted; losing the
+        // event is not.
         for (const event of result.events) {
           await recorder.record(event)
         }
+        snapshots.set(collector.name, result.nextSnapshot)
         // Reference check: a collector that handed its snapshot straight back
         // (nothing new, or an error branch) has nothing to write.
         if (result.nextSnapshot !== previous) await persist(collector, result.nextSnapshot)

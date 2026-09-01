@@ -56,7 +56,7 @@ meaning from them — they are not part of this schema.
 
 | Field      | Type            | Meaning |
 |------------|-----------------|---------|
-| `instance` | non-empty string| The identity of the *process* that recorded this — stable for the life of one session, unique enough that two different actors' records for the same repo never collide on it. This codebase's own emitter uses its server session id (the same id `/api/meta` publishes, and the join key `mergeRecords` dedupes events on alongside each event's own id). |
+| `instance` | non-empty string| The identity of the *process* that recorded this — stable for the life of one session, unique enough that two different actors' records for the same repo never collide on it. This codebase's own emitter uses its server session id (the same id `/api/meta` publishes, and the actor half of the `(link.hash, actor.instance)` key `mergeRecords` dedupes on — see "Merging two actors' records" below; the event's own id is deliberately no part of it, #173). |
 | `handle`   | non-empty string| A human-readable display name for the actor. |
 | `declared` | boolean         | `true` when a human explicitly supplied `handle` (e.g. `rhizomorph export-record --handle alice`); `false` when it is just a default (this codebase's emitter defaults to the OS username) that nobody vouched for. A reader rendering actor identity should treat `declared: false` as "best guess," not a claim. |
 
@@ -248,9 +248,29 @@ replayable event stream:
 
 - **Refuse across repos.** Different `manifest.repoSlug` values is an honest
   error, never a best-effort guess at reconciling unrelated histories.
-- **Dedup by `(actor.instance, event.id)`.** An event id is only ever unique
-  within one actor's own log (two independent sessions can both mint
-  `evt-000001`), so the dedup key is the pair, not the id alone.
+- **Dedup by `(link.hash, actor.instance)` — the chain link, not the event.**
+  An event id identifies nothing on its own *and nothing in a pair either*: the
+  id counter is per-run and restarts when a session resumes, so one actor's own
+  log repeats `evt-000001` (fifteen times, in the ledger prd-48's shipper spike
+  measured). A chain link cannot collide that way, because its hash covers the
+  line's content **and** its position in the chain — two distinct events are two
+  distinct links even when every field matches, and the same event re-exported
+  from the same start is the same link.
+
+  This is a **correction**, not a restatement. Until #173 this section said the
+  key was `(actor.instance, event.id)` "because an event id is only ever unique
+  within one actor's own log". The first half was right and the parenthetical
+  was wrong, and a reader implementing the documented rule would have built a
+  merge that silently discarded real events — 74.5% of one measured ledger.
+
+  The cost of keying on the chain: two exports of the same actor that begin at
+  **different first events** are different chains from their genesis on, so
+  their overlap does not dedup. An export beginning mid-log is a different
+  artifact, and calling its events the same ones is precisely the guess the old
+  key was making.
+
+  Unknown lines (from a newer era this reader cannot fold) dedup by the same
+  rule. A link exists whether or not the line parses, so they need no exemption.
 - **Order per-actor append-only, cross-actor by timestamp with `actor.instance`
   as the tiebreak.** Concretely: repeatedly take whichever of the two
   streams' next unconsumed event has the earlier `ts` (comparing

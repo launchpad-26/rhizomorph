@@ -7,6 +7,15 @@
 # agent rather than something to route around: a lane with nobody to ask should
 # stop and be asked about. The sidebar is how you see it waiting.
 #
+# The file that actually carries this: `scripts/lane-agent.sh` execs Claude
+# Code with no `--dangerously-skip-permissions` flag (#64, fixed 2026-08-25 —
+# it briefly passed the flag, contradicting this comment, and every lane
+# dispatched through it ran bypassed against the withdrawn ruling until the
+# wrapper was corrected). This config's own `agent:` line below is the
+# default; dispatch still goes through the wrapper via
+# `-a "bash scripts/lane-agent.sh <model>"` for the telemetry wiring — see
+# the note near that flag further down.
+#
 # `claude-study` is ~/.local/bin/claude-study — a real executable, NOT a zsh
 # alias. workmux launches the agent outside the pane command's shell, so an
 # alias resolves to nothing there. It runs Claude Code under its own config

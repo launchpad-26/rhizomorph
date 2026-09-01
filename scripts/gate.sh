@@ -63,33 +63,127 @@ rm -f "$GITDIR_LOG"
 # tree that is not the one landing. Verified: this holds a stale branch and
 # false-holds nothing — an already-current branch, a fresh zero-commit branch
 # and HEAD == main all have main as an ancestor.
-git -C "$W" merge-base --is-ancestor main HEAD 2>/dev/null || fail "branch $BRANCH is not on top of main (the rebase did not take) — rebase it, then re-run"
+#
+# `--is-ancestor` returns 1 for the ordinary "not an ancestor" and 128 for a
+# bad object (a corrupt ref, history missing from a shallow clone) — two
+# different facts. The old form discarded stderr and routed both through the
+# same `|| fail "the rebase did not take"`, telling an operator with a
+# corrupt ref that their rebase failed. stderr is captured instead so the 128
+# case can say what it actually is.
+ANCESTOR_ERR=$(git -C "$W" merge-base --is-ancestor main HEAD 2>&1 >/dev/null)
+ANCESTOR_RC=$?
+if [ "$ANCESTOR_RC" -eq 1 ]; then
+  fail "branch $BRANCH is not on top of main (the rebase did not take) — rebase it, then re-run"
+elif [ "$ANCESTOR_RC" -ne 0 ]; then
+  echo "$ANCESTOR_ERR"
+  fail "git merge-base --is-ancestor exited $ANCESTOR_RC on $BRANCH — not the ordinary 1 for 'not an ancestor'; a ref may be corrupt (see stderr above)"
+fi
 
-# The producer (git diff) and the consumer's normal exit (grep -vE) are two
+# The producer (git diff) and the consumer's normal exit (grep) are two
 # different facts and are checked separately. `|| true` cannot simply be
 # deleted: grep -v exits 1 on the ordinary "everything matched the fence, no
 # violations" path, so treating any nonzero as failure would hold every clean
 # landing. Only a producer failure, or grep itself erroring (an invalid
 # regex — FENCE='[' exits 2, not 1), holds.
-DIFF_FILES=$(git -C "$W" diff main...HEAD --name-only)
-DIFF_RC=$?
-[ "$DIFF_RC" -ne 0 ] && fail "git diff main...HEAD failed (rc=$DIFF_RC) — cannot audit the fence"
-viol=$(printf '%s' "$DIFF_FILES" | grep -vE "$FENCE")
+#
+# -z / read -r -d '', not --name-only line-delimited: git quotes a non-ASCII
+# name by default ("caf\303\251.ts"), so a line-based read compares an
+# escaped literal against FENCE instead of the bytes on disk, and an in-fence
+# file with such a name is reported as a violation (prd-46 #71). This is the
+# same defect the NUL-byte guard below already fixed at its own producer —
+# reusing that shape here rather than inventing a third. The file listing is
+# written to a real file, not a pipe or process substitution, so the
+# producer's own exit status is captured directly.
+#
+# The regex is validated separately from the per-file matching below: it is
+# checked ONCE, against empty input, so its rc means only "does this pattern
+# compile" and is never conflated with "did this filename match" (which is
+# always 0 or 1 once the pattern is known-valid).
+#
+# Matching is `[[ =~ ]]`, not `grep -qE`: grep matches LINE BY LINE, so a name
+# containing a newline was admitted whenever ANY line of it matched FENCE —
+# `evil/a<NL>src/foo/b.ts` passed a fence of '^src/foo/'. EXECUTED: the
+# line-delimited form this replaces CONVICTED that file, so per-file grep was a
+# fail-OPEN reversal of the very guard #71 exists to harden. `[[ =~ ]]` matches
+# the whole string (no REG_NEWLINE), so `^` anchors at the name, not at a line.
+# Validation above stays on grep -E: both are POSIX ERE, and if they ever did
+# disagree the disagreement lands as rc 2 from [[ ]], which reads as no-match
+# and CONVICTS — a false hold, never a false pass.
+printf '' | grep -E "$FENCE" >/dev/null 2>&1
 GREP_RC=$?
 [ "$GREP_RC" -gt 1 ] && fail "fence regex '$FENCE' is invalid (grep rc=$GREP_RC) — cannot audit the fence"
-[ -n "$viol" ] && { echo "  outside fence:"; echo "$viol" | sed 's/^/    /'; fail "fence violated (widen it deliberately, with the diff as justification, or send it back)"; }
-echo "  fence OK: $(printf '%s' "$DIFF_FILES" | tr '\n' ' ')"
+
+FENCE_LIST=$(mktemp "/tmp/gate-fence-list-$H.XXXXXX") || fail "cannot create a scratch file for the fence file listing"
+git -C "$W" diff -z main...HEAD --name-only >"$FENCE_LIST"
+DIFF_RC=$?
+[ "$DIFF_RC" -ne 0 ] && { rm -f "$FENCE_LIST"; fail "git diff main...HEAD failed (rc=$DIFF_RC) — cannot audit the fence"; }
+
+DIFF_FILES=()
+viol=()
+while IFS= read -r -d '' f; do
+  DIFF_FILES+=("$f")
+  [[ $f =~ $FENCE ]] || viol+=("$f")
+done <"$FENCE_LIST"
+rm -f "$FENCE_LIST"
+
+[ "${#viol[@]}" -gt 0 ] && { echo "  outside fence:"; printf '    %s\n' "${viol[@]}"; fail "fence violated (widen it deliberately, with the diff as justification, or send it back)"; }
+# ${DIFF_FILES[*]-}, not ${DIFF_FILES[*]}: an empty array under `set -u` (:13)
+# is an unbound variable on bash < 4.4, and /bin/bash on macOS is 3.2. EXECUTED
+# there: a branch whose diff against main is empty aborted with a bare
+# "DIFF_FILES[*]: unbound variable", rc 1, WITHOUT passing through fail() — so
+# no "GATE FAILED" and no ">>> HOLDING" line, on the one code path the script
+# has a dedicated diagnosis for eighteen lines further down ("no commits on the
+# branch (a worker may have left work uncommitted)", :142). The old
+# line-delimited form printed "fence OK: " and reached it; this restores that.
+echo "  fence OK: ${DIFF_FILES[*]-}"
 
 # These two compare ARITHMETICALLY, not as text: BSD wc -l right-aligns its
 # count in an eight-char field ("       0"), and command substitution strips
 # only the trailing newline — compared as text on macOS, the stranded-work
 # check fired on every clean tree and the empty-branch check never (#416).
+#
+# The producer's own exit status is read before the verdict below trusts $n
+# (prd-46 #70): pipefail (set at :13) makes this pipeline's status the git
+# log failure, not wc -l's own success, when main..HEAD cannot even be
+# computed — e.g. with .git/HEAD removed, `git log` reports "fatal: not a
+# git repository", pipeline rc 128, n=0, and the OLD code (no RC check) held
+# with "no commits on the branch (a worker may have left work uncommitted)"
+# — a fault it did not earn. This was #70's headline evidence: the law
+# reading green over exactly this line.
 n=$(git -C "$W" log --oneline main..HEAD | wc -l)
+N_RC=$?
+[ "$N_RC" -ne 0 ] && fail "git log/wc -l failed (rc=$N_RC) — cannot count commits on the branch"
 [ "$n" -eq 0 ] && fail "no commits on the branch (a worker may have left work uncommitted — check git status in the worktree)"
 STATUS_OUT=$(git -C "$W" status --porcelain)
 STATUS_RC=$?
 [ "$STATUS_RC" -ne 0 ] && fail "git status failed in $W (rc=$STATUS_RC) — cannot verify the worktree is clean"
+# SIBLING of the same shape (a $(...) pipeline whose own exit status feeds
+# no check), FIXED here rather than declared — the :96 fix above is its
+# twin (prd-46 #70 ruling 3). The guard is `-gt 1`, not `-ne 0`, and the
+# asymmetry is the whole point:
+#
+#   -ne 0  would misfire on EVERY clean landing. EXECUTED: grep -v's "no
+#          match" exit (1) is the ORDINARY outcome both on a clean tree and
+#          when nothing besides package-lock.json changed — the same
+#          masking bug the fence fix at :74-80 exists to avoid.
+#   -gt 1  cannot fire on a legitimate landing: grep returns only 0 or 1
+#          when it RUNS, and wc -l returns 0. It fires when a stage does
+#          not run or dies — EXECUTED: rc 127 with grep absent from PATH
+#          (this script rewrites PATH itself at :14), and rc >=128 when a
+#          stage is signalled.
+#
+# An earlier revision of this comment declared the line instead, arguing
+# `-gt 1` "would never fire at all, since the pattern is a fixed literal
+# and cannot itself be invalid". Pattern validity is not the only route to
+# a >1 status, so that reason was false and the tolerance it justified was
+# a claim this file had not earned — the exact defect prd-46 exists to
+# abolish, sitting inside its own tolerance table. Recorded rather than
+# quietly deleted: the wrong reason is why the fix looked unnecessary.
+#
+# $STATUS_OUT, the other fallible input, is already RC-checked two lines up.
 dirty=$(printf '%s' "$STATUS_OUT" | grep -v package-lock.json | wc -l)
+DIRTY_RC=$?
+[ "$DIRTY_RC" -gt 1 ] && fail "the dirty-count pipeline failed (rc=$DIRTY_RC) — cannot verify the worktree is clean"
 [ "$dirty" -ne 0 ] && { printf '%s\n' "$STATUS_OUT" | head -5; fail "uncommitted work stranded in the worktree"; }
 echo "  commits: $n, worktree clean"
 
@@ -170,6 +264,22 @@ if [ "$LOAD" != "0" ]; then
   [ "$TCOUNT" = "0" ] && fail "timing pass matches ZERO files — a renamed/moved timing test fell out of the gate (the #209 trap: it would still run, silently, under 4x load); restore its '// @gate-timing' marker or '.bench.test.ts' name"
 
   COUNT_FILE="$root/.swarm/timing-count"
+  # A RISE is not the mirror image of a DROP. A dropped timing test is a
+  # silent loss of coverage, so it stays a hard fail() below (#42's line,
+  # untouched). A risen count is routine — landing a genuine new timing test
+  # raises it correctly — and #48 measured what hard-failing every rise would
+  # buy: a check annoying enough to get suppressed or have its ratchet file
+  # deleted within a week, which is worse than the gap it closes. So a rise
+  # is never a fail(): it is a REPORT, printed next to the write below so it
+  # is never silently absorbed into the new floor unseen. RISE_TOLERANCE is
+  # declared data (prd-45 ruling 3: tolerances are data, not a condition
+  # folded into a regex) — a human changes the VALUE by editing this one
+  # line. gate-honesty-law.test.ts's rise fixtures parse this value out of
+  # this file and derive their own expected delta from it, so raising it
+  # moves their expected numbers instead of reddening them with a diff that
+  # names neither the tolerance nor the change.
+  RISE_TOLERANCE=0
+  RISE_NOTE=""
   if [ -f "$COUNT_FILE" ]; then
     TIMINGCOUNT_LOG=$(mktemp "/tmp/gate-timingcount-$H.XXXXXX") || fail "cannot create a scratch log for reading $COUNT_FILE"
     PREV=$(cat "$COUNT_FILE" 2>"$TIMINGCOUNT_LOG")
@@ -183,6 +293,22 @@ if [ "$LOAD" != "0" ]; then
     case "$PREV" in
       ('' | *[!0-9]*) fail "$COUNT_FILE contains '$PREV', not a whole number — a corrupt ratchet must not be silently trusted as 0; a human clears or fixes it" ;;
     esac
+    # All-digit still isn't safe: bash arithmetic below (:$((TCOUNT - PREV)))
+    # reads a leading zero as an OCTAL prefix, not decimal — '08' is not even
+    # valid octal (errors out, and the rise it hid is never reported, floor
+    # written anyway), and '010' is valid octal 8, so a genuine hold (PREV=10)
+    # would misreport as a rise from 8. #42 hardened the ONE arithmetic
+    # consumer of $PREV (the `-lt` comparison, unaffected — [ ] does decimal);
+    # this is the SECOND one (#48), and gets the same "do not silently trust
+    # it" treatment rather than a normalising rewrite. Deliberately kept
+    # ABOVE the drop check below rather than moved after it: `[ -lt ]` does
+    # read a leading zero as decimal, so reordering would "work", but it
+    # would make this guard's safety depend on landing below a check it can
+    # just as easily sit above — the guard holds regardless of order, and
+    # keeping it here needs no such dependency.
+    case "$PREV" in
+      (0[0-9]*) fail "$COUNT_FILE contains '$PREV', a non-canonical leading-zero number — bash arithmetic (not the '-lt' comparison below, which reads it correctly as decimal) would treat it as octal. This guard fires BEFORE the drop check below can, so a hand-written value here can be hiding a real drop: before touching $COUNT_FILE, compare $TCOUNT (the current timing-set count, above) against the DECIMAL number '$PREV' was meant to hold — if $TCOUNT is lower, that is a genuine drop, and clearing this file (rather than correcting it) would silently absorb the drop into a fresh floor instead of reporting it. A human corrects the VALUE (writes the intended decimal number to $COUNT_FILE); clearing it is only safe once that comparison is done." ;;
+    esac
     # An all-digit but oversized value (e.g. 20 digits) passes the case guard
     # above and then breaks the comparison itself: bash's `[ -lt ]` errors
     # "integer expected" at exit >1, and `&&` never reaches fail() on a
@@ -193,6 +319,10 @@ if [ "$LOAD" != "0" ]; then
     CMP_RC=$?
     [ "$CMP_RC" -gt 1 ] && fail "cannot compare timing counts — $COUNT_FILE contains '$PREV', which is too large to compare against TCOUNT=$TCOUNT; a human clears or fixes it"
     [ "$CMP_RC" -eq 0 ] && fail "timing pass matches $TCOUNT file(s), fewer than the $PREV last recorded — a timing test silently fell out (if this is deliberate, a human clears $COUNT_FILE)"
+    # CMP_RC is 1 here — both 0 and >1 fail() above — so TCOUNT >= PREV always.
+    [ "$((TCOUNT - PREV))" -gt "$RISE_TOLERANCE" ] && RISE_NOTE=" ROSE from $PREV to $TCOUNT — confirm the new file(s) belong in the timing set rather than an accidental marker match (#48); this becomes the new floor below"
+  else
+    RISE_NOTE=" no prior floor found — this landing ESTABLISHES it at $TCOUNT (first run, or a human cleared $COUNT_FILE; the file is .gitignore'd and per-machine, #48)"
   fi
   echo "  timing set (${TCOUNT}): ${TIMING_FILES[*]}"
 
@@ -220,7 +350,14 @@ if [ "$LOAD" != "0" ]; then
   # suite, so the split is exact and nothing goes unmeasured.
   if ( cd "$W" && npx vitest run --maxWorkers=1 "${TIMING_SHORT[@]}" >/tmp/g-$H-timing.log 2>&1 ); then
     echo "  timing tests (serial, alone): green"
-    mkdir -p "$root/.swarm" && printf '%s\n' "$TCOUNT" >"$COUNT_FILE"
+    # RISE_NOTE claims a consequence of this write ("becomes the new floor" /
+    # "ESTABLISHES it") — a claim this line is not entitled to make unless the
+    # write actually landed. mkdir -p failing, or printf hitting a read-only
+    # $COUNT_FILE, used to fall through silently: the fragment still exited 0
+    # and RISE_NOTE still printed, a verdict about a floor that never moved.
+    mkdir -p "$root/.swarm" && printf '%s\n' "$TCOUNT" >"$COUNT_FILE" \
+      || fail "cannot write the timing-count floor at $COUNT_FILE — the ratchet did not advance; a human fixes its permissions"
+    [ -n "$RISE_NOTE" ] && echo "  timing-count ratchet:$RISE_NOTE"
   else
     grep -aE '×' /tmp/g-$H-timing.log | head -3 | sed 's/^/    /'
     fail "timing tests red when run ALONE — this one is real (budget regression, not contention)"
@@ -254,20 +391,83 @@ if [ -f "$root/.swarm/lanes.json" ]; then
   # JSON.parse / writeFileSync throw makes node's own exit code the fact
   # that decides which line prints, routed through the same fail() as
   # everything else past the merge.
+  #
+  # That closed the swallowed-catch half but not the shape half: a
+  # lanes.json that is a JSON ARRAY, an object with no `.lanes` key, or a
+  # `.lanes` holding non-object entries, all parse and (without a shape
+  # guard) write back fine — node exits 0 either way — even though "the
+  # file parsed and was rewritten" is not "this handle was removed". A
+  # shape this code does not understand now throws too, same route as
+  # malformed JSON. A manifest that legitimately has no entry for this
+  # handle is a different, honest outcome (NOOP) and is not an error — it
+  # is reported as neither a prune nor a failure.
+  #
+  # The write itself only runs when something actually changed (verify
+  # review, MUST-FIX 1): writing lanes.json back unconditionally on every
+  # run — even a NOOP — made a VALID manifest with no entry for this
+  # handle FAIL on a read-only lanes.json (EACCES), which is exactly the
+  # case this issue's own criterion protects: "a manifest that legitimately
+  # has no entry for this handle still succeeds quietly; that is not an
+  # error." A NOOP now never touches the file at all.
+  #
+  # The result crosses the shell/node boundary through a file, read back
+  # with `grep -qxF` — EXACT whole-line match, not `grep -qF`'s substring
+  # match (verify review, MUST-FIX 2: a corrupted result like "NOT_PRUNED"
+  # contains "PRUNED" as a substring and the old `-F` form printed the
+  # false "pruned" line for it) — rather than captured via
+  # VAR=$(node -e '<multi-line>'): a multi-line $(...) is invisible to
+  # ruling 1's own structural predicate (it only matches a producer whose
+  # closing paren is on the SAME line), so capturing this multi-line
+  # script that way would add a checked producer the law itself cannot see
+  # is checked — exactly the blind spot prd46 w5 (#179) names. Anything
+  # other than an exact "PRUNED" or "NOOP" line — truncated output, a
+  # missing file, garbage — holds rather than guessing either way.
   MANIFEST_LOG=$(mktemp "/tmp/gate-manifest-$H.XXXXXX") || fail "cannot create a scratch log for the lane-manifest prune"
-  if H="$H" ROOT="$root" node -e '
+  MANIFEST_OUT_LOG=$(mktemp "/tmp/gate-manifest-out-$H.XXXXXX") || { rm -f "$MANIFEST_LOG"; fail "cannot create a scratch file for the lane-manifest prune's result"; }
+  H="$H" ROOT="$root" node -e '
     const fs = require("fs");
     const p = process.env.ROOT + "/.swarm/lanes.json";
     const m = JSON.parse(fs.readFileSync(p, "utf8"));
-    m.lanes = (m.lanes || []).filter(l => l.handle !== process.env.H);
-    fs.writeFileSync(p, JSON.stringify(m, null, 2) + "\n");
-  ' 2>"$MANIFEST_LOG"; then
-    echo "  lane manifest pruned: $H"
-    rm -f "$MANIFEST_LOG"
+    if (m === null || typeof m !== "object" || Array.isArray(m) || !Array.isArray(m.lanes)) {
+      throw new Error("lanes.json is not shaped as {lanes: [...]}");
+    }
+    if (!m.lanes.every(l => l !== null && typeof l === "object" && !Array.isArray(l))) {
+      throw new Error("lanes.json .lanes contains a non-object entry");
+    }
+    const before = m.lanes.length;
+    const after = m.lanes.filter(l => l.handle !== process.env.H);
+    if (after.length === before) {
+      process.stdout.write("NOOP");
+    } else {
+      m.lanes = after;
+      fs.writeFileSync(p, JSON.stringify(m, null, 2) + "\n");
+      process.stdout.write("PRUNED");
+    }
+  ' >"$MANIFEST_OUT_LOG" 2>"$MANIFEST_LOG"
+  MANIFEST_RC=$?
+  if [ "$MANIFEST_RC" -eq 0 ]; then
+    if grep -qxF PRUNED "$MANIFEST_OUT_LOG"; then
+      echo "  lane manifest pruned: $H"
+    elif grep -qxF NOOP "$MANIFEST_OUT_LOG"; then
+      :
+    else
+      rm -f "$MANIFEST_LOG" "$MANIFEST_OUT_LOG"
+      fail "lane manifest prune produced an unrecognized result — refusing to guess whether $H was pruned"
+    fi
+    rm -f "$MANIFEST_LOG" "$MANIFEST_OUT_LOG"
   else
-    tail -6 "$MANIFEST_LOG"
-    rm -f "$MANIFEST_LOG"
-    fail "lane manifest prune failed — .swarm/lanes.json is malformed or unwritable"
+    # The thrown message (what a human needs) sits a few lines INTO node's
+    # stack trace, not in the last 6 lines of it (verify review: a shape
+    # guard's message never reached this point — PROVEN INERT by deleting
+    # the whole guard and finding every shape test still passed on the
+    # `tail -6` fallback's generic fail() line alone). Node always prints
+    # the error's own class + message on a line starting `Error:`,
+    # `TypeError:`, or `SyntaxError:` before the "at ..." frames; that line
+    # is grepped for first, and `tail -6` stays as the fallback for
+    # anything that error class list does not cover.
+    grep -m1 -E '^(Error|SyntaxError|TypeError):' "$MANIFEST_LOG" || tail -6 "$MANIFEST_LOG"
+    rm -f "$MANIFEST_LOG" "$MANIFEST_OUT_LOG"
+    fail "lane manifest prune failed — .swarm/lanes.json is malformed, unwritable, or not shaped as {lanes: [...]}"
   fi
 fi
 

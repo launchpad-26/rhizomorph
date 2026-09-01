@@ -1,6 +1,8 @@
 # prd-44 — the flat instrument: what it costs to watch tracks the swarm, not the session's age
 
-> **Status:** **BLESSED** — Ciaran Slow, 2026-08-24, in session. Milestone `prd44`. Drafted the
+> **Status:** **SHIPPED** — 2026-08-27. Milestone `prd44` closed with every issue done; the
+> closeout, including what the plan got wrong, is the last section of this document.
+> Blessed by Ciaran Slow, 2026-08-24, in session. Drafted the
 > same day from `docs/review/2026-08-24-performance.md` (a measured pass over `60c2cae`); every
 > cited line re-verified against `main` at `9a26030`, where prd-29 ruling 7 had just moved
 > `/api/lane-index` into `gated-read` — which is why ruling 1 lives in `log/`. Consumes prd-40's ordering; refuses prd-33's model stage and
@@ -342,3 +344,148 @@ added by any wave may be named `*.bench.test.ts` or carry a `// @gate-timing` ma
 ratchets the count in `.swarm/timing-count`. A count law is deterministic and belongs in the
 normal suite; put it in the timing set and it slows the operator's landing tool and moves a ratchet
 only a human can clear.
+
+---
+
+# Outcome — shipped 2026-08-27
+
+Twelve issues, three days from blessing to close. Every ruling landed, and both wave-0 answers
+came from the operator rather than from a lane.
+
+It took **nine pull requests to do it**: five to `main` (#50, #128, #129, #131, #134) and four to
+an integration branch that never had one of its own (#96, #97, #101, #102). That second number is
+the interesting one, and it is the last thing in this section.
+
+What follows is the closeout — what shipped against each ruling, how the six success criteria
+actually read now, what the four open questions turned out to be, and, because it is the most
+useful part, what the plan got wrong.
+
+Written at `8315237`, the merge that closed the milestone. Ruling numbers above are untouched;
+this is appended, as the standard requires.
+
+## The five rulings, as they landed
+
+| ruling | issues | landed | deviation from the mechanism this PRD imagined |
+|---|---|---|---|
+| 1 — a finished recording is parsed once | #30, #104 | PR #50, PR #129 | none in shape. The bound and eviction rule the PRD left open became **ADR-0028** (128 MB of raw file bytes, LRU, single-flighted). #104 extended it to the third reader — `readSessionEvents` — which is the "how far it extends" clause doing its job rather than a new decision. |
+| 2 — the log is opened once per session | #31, #46, #55 | PR #50 (#31, and #55 superseded inside it by `ddf7e41`), PR #96 → PR #128 (#46) | none. Two failure paths the ruling did not name needed their own issues: a failed append must release the descriptor (#46) and a clean stop must too (#55). |
+| 3 — independent subprocesses start together | #33, #34, #35, #36 | PR #50, PR #128 | none. The cap became `COLLECTOR_FANOUT_LIMIT = 4` in one new module, consumed by three collectors, with results gathered concurrently and appended in the collector's own order. |
+| 4 — the server states its retention | #37 | PR #131 | **yes.** The ruling said the bound would be stated and any surface reading a bounded window would say so. It is, and the fold's `eventCount` carries the honesty — but eviction advances an index rather than trimming an array, because a `splice(0, n)` per event past the bound would have reintroduced ruling 2's own per-event cost one file away. |
+| 5 — a picture that cannot change is not rebuilt | #32 | PR #102 → PR #128 | **yes, and it is the most instructive one.** "A persistent range in the existing `Batch`, invalidated by the same world signature" was tried and **rejected on its own measurement**: caching every world mark made a living lane's slot a guaranteed miss and the digest walk pure overhead, regressing the realistic frame even though the retired-only slice sped up 6x. What shipped is a per-mark content-digest cache gated to `role: 'persist' \| 'persist-mark'` — the marks `scene/marks/` already treats as settled. The ruling's *claim* held; its proposed mechanism did not. |
+
+## The six success criteria, assessed
+
+Each one names the law that proves it, because criterion 6 forbids proving any of them with a
+measurement. Where a criterion is met only within this PRD's declared scope, it says so.
+
+1. **Parse and read work per request is constant in the session directory's size — met as
+   scoped.** `parsedSessionLogCache` parses each finished recording once per process, and three
+   readers share the one instance (`lane-index.ts`, `listing.ts`, `session-log.ts`). Pinned by
+   counting laws in all three test files, e.g. *"parses each closed recording once, however many
+   times the index is read"*. **The per-request fold over already-parsed events is not constant
+   and was never claimed** — the Non-goals give `reduceAll(eventsSoFar())` and `/api/meta` to
+   prd-40, and #104 explicitly left `api/lab.ts`'s per-request `reduceAll` out of scope. That
+   half is still open, and it is prd-40's, not a residual here.
+2. **One `write` per event, one `open` per session — met.** The writer holds one descriptor for
+   its life; `sync()` reuses that handle and releases it, so there is no second `open` anywhere on
+   the path. Ordering and `sync()` semantics are unchanged, pinned by the three pre-existing laws
+   the ruling named as its acceptance criteria plus #46's and #55's release laws.
+3. **Independent subprocesses start together, and the log is byte-identical to the serial
+   ordering — met.** Each collector fans out and then walks its own original array by index to
+   emit, so a replay of the same inputs is byte-identical; the cap is asserted as a max-in-flight
+   **count**. Three collectors, three laws.
+4. **The server's retention is a stated number with a name — met.** `MAX_BUFFERED_EVENTS = 75_000`,
+   evicted oldest-first, with the fold left complete so
+   `eventsSoFar().length < foldSoFar().eventCount` is how a reader detects a partial window — the
+   same pair `eventsWindowLabel` already reads. Eight laws, all counts.
+   **One honesty cost, named on the issue and in PR #131 rather than discovered later:** the web
+   client derives its total from the events it *receives*, so after a truncated replay it can no
+   longer tell its window is partial. Filed as **#132**.
+5. **A settled retired lane contributes no per-frame tessellation — met.** Gated to settled marks
+   only, keyed on a content digest, with a law asserting tessellations per frame rather than a
+   frame time.
+6. **Every claim above is a counting law — met, and it held under pressure.** No law added by any
+   wave asserts a wall clock, and none is named `*.bench.test.ts` or carries `@gate-timing`, so
+   `.swarm/timing-count` never moved. Two places where holding this line cost real work are worth
+   recording: #37's laws run at the **real** 75,000 rather than an injected toy bound (a
+   configurable ceiling tested at 4 would never exercise the default it protects), and #38's
+   golden-era-corpus law survived eight mutations before a ninth was written that could kill it —
+   a law that cannot fail for the reason it claims is not a law.
+
+## Wave 0's two answers
+
+Booked, not skipped, and both the operator's (Ciaran Slow, 2026-08-27, in session). Recorded here
+because a wave-0 answer that lives only on an issue is lost when the issue closes.
+
+- **The buffer's ceiling is 75,000** — deliberately *the client's* number (`MAX_EVENTS`,
+  `web/src/app/streamState.ts`), so `eventsWindowLabel`'s vocabulary means one thing on both sides
+  of the wire. 25,000 was rejected for truncating sessions that exist here; 150,000 for being a
+  bound that never fires.
+- **Retention has no default age.** The operator names the age at the moment they ask, every time;
+  a caller who supplies none gets a refusal, not a policy. A 30-day default was offered and
+  rejected — a default age is a policy that reaps a lane nobody thought about. Newest-N-per-slug
+  was rejected for the same shape plus a worse failure: a quiet week's recording evicted by a busy
+  day's.
+
+## The four open questions, answered
+
+1. **The lane-index cache's eviction story** — answered by #30 and written down as **ADR-0028**:
+   bounded by the raw file bytes it holds rather than by an entry count, 128 MB, plain LRU, with a
+   single entry larger than the whole budget still cached alone. Single-flighted, so two callers
+   racing a cold file cost one parse.
+2. **Where the old descriptor's close goes** — answered, and more cleanly than the grooming
+   amendment expected. `sync()` releases the handle, so `openSession` and `rotate.ts` needed no
+   change. The narrow sub-question — whether `sync()`'s separate `open(filePath, 'r+')` should
+   reuse the held handle — is answered **yes**: there is no second `open` left on the path at all.
+3. **Whether the concurrency cap belongs per collector or per process** — **partly answered, and
+   the rest survives this PRD.** What shipped is a per-call cap, and `concurrency.ts` records why
+   that is also the per-process ceiling *today*: `runTick` awaits the six collectors in turn, so at
+   most one fan-out is ever live. If the poll loop ever fans out across collectors, that stops
+   being true and the question has to be answered before it does. Still open, now with the
+   condition that would force it.
+4. **Whether a retired lane's vertex range survives a camera or resize change** — answered by #32,
+   and the answer removed the question rather than solving it. No panel or camera term is needed in
+   the key, because `ribbon()` never reads `panel.width`, `panel.height` or `panel.camera`; a
+   resize is caught one stage up, where `layoutScene`'s `world`-keyed cache hands out a new `path`
+   the instant the world moves, producing a new outline and therefore a new digest. The
+   `geometry-cache-audit-178.md` argument is reused rather than re-derived.
+
+## What the plan got wrong
+
+- **The grooming amendment's three waves were right about the toll and wrong about the count.** It
+  collapsed five waves into three to pay the ~21 h per-PR toll three times instead of four.
+  Nine PRs were opened. Five reached `main`; four reached an integration branch and had to be
+  relanded, so their toll was paid twice. The amendment's reasoning was sound and nothing enforced
+  it at dispatch — each issue was built as its own lane and merged on its own, which is the
+  one-issue-one-PR habit the working agreement exists to break.
+- **A ruling's stated mechanism is not a ruling.** Ruling 5's persistent-`Batch`-range and
+  ruling 4's array-trimming both lost to measurement, and in both cases the ruling's *claim*
+  survived intact. The PRD would have been better with the mechanism sentences marked as
+  candidates rather than written in the ruling's own voice.
+- **#104 arrived with no wave.** Ruling 1's "how far it extends" clause named the defect shape
+  exactly — *"a second caller that walks the directory per request is the same defect with a
+  different route name"* — and a third reader was still found later, by a review of a different
+  PR. An extension clause that names a shape should have come with a search for every instance of
+  it at grooming time, not a promise to recognise one later.
+- **The work was finished days before it landed, and the tracker could not see the difference.**
+  Waves 1 and 2 were built, reviewed and merged — into an integration branch named `prd44` that
+  never had a PR to `main`. Five commits sat there while `main` moved 40 commits past them, and
+  four issues were closed with comments that said, truthfully, *"merged into prd44"*. Nothing was
+  mis-recorded and nothing was lost; the milestone simply read as done while none of it was on
+  `main`. It was recovered on 2026-08-27 by cherry-picking all five onto current `main` as PR #128.
+  The general lesson belongs in `AGENTS.md`, not here: **a green gate on a branch whose base is
+  not `main` has landed nothing.**
+
+## Residuals, with owners
+
+Nothing here blocks the milestone's close; all four are filed.
+
+- **#132** (High) — the client can tell a live window is partial. The honesty cost of ruling 4,
+  named in PR #131 before it was merged.
+- **#133** (High) — a rotation captures every lane the session named. `rotate.ts` hands the
+  transcript capture a window, so an evicted lane vanishes from the manifest.
+- **#130** (Low) — `server/concurrency.ts`'s doc comment names the indexed-access friction and the
+  three different idioms ruling 3's three consumers each invented for it. Three retros asked for
+  this in comments; the fourth ask is a tracked issue.
+- **`snapshots/<id>/` is not pruned** by #38's policy — collector byte offsets for a session
+  nobody will resume. A real if small disk cost, deliberately not folded into retention's meaning.
