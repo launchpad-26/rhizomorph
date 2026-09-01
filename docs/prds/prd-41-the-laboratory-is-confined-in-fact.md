@@ -130,6 +130,29 @@ The global `process.stderr.write` override is deleted. The stderr sink threads t
 existing options, so a lab launch captures only its own child's output and the degrade voice keeps
 its channel.
 
+### Corrected 2026-09-01 — the mechanism is scoped capture, not deletion-plus-threading
+
+Neither sentence above is what `#10` shipped, and PR #123's review (non-blocking finding) is right
+to flag the mismatch. `api/lab.ts:579` still assigns `process.stderr.write` — it is not deleted —
+and `cli/index.ts` still writes to it directly at seven call sites, never through `runCli`'s `log`
+option. What actually landed: the override itself is scoped with `AsyncLocalStorage`
+(`stderrCaptureScope`, `api/lab.ts:555`), so it captures a write only when that write happens
+inside the current `runCli` call's own async scope, and lets everything else — including
+`poll-loop.ts`'s degrade `console.error` running concurrently on its own timer — fall through to
+the real stream untouched.
+
+This PRD's premise was false: it assumed `runCli`'s `log`/`exit` options were the stderr seam to
+thread through, but they were never wired to the seven direct-write call sites in `cli/index.ts`,
+so "thread through `log`" was not a smaller version of the right fix — it described a seam that
+doesn't reach the problem. Scoping the capture is the right call regardless: it meets success
+criterion 3 (the degrade voice keeps its channel) without plumbing a fourth parameter through four
+modules, which the Rejected-alternatives section above already argues against for a different
+reason. Ruling 3's own two sentences above ("the global `process.stderr.write` override is
+deleted", "the stderr sink threads through `runCli`'s existing options") are therefore both false
+of the tree, while success criterion 3 is genuinely met — recorded here so a later reader checking
+the ruling against the tree finds an explanation instead of a contradiction. This PRD has no
+separate definition-of-done list; Ruling 3's two sentences are the whole of what it asked for.
+
 ## Ruling 4 — a ceiling that spends money is declared
 
 `MAX_ARMS` is named in `api/lab.ts` beside `#234`'s validation, and an over-limit launch is

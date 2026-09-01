@@ -11,8 +11,16 @@ import { sessionDirFor } from '../log/paths.js'
 import { listSessions, readSessionEvents } from '../log/session-log.js'
 import { exec as realExec } from '../server/exec.js'
 import { captureCheckpoint } from './checkpoint.js'
-import { armLaneHandle, dispatchFork, findCheckpoint, MODEL_GRAMMAR, workmuxAddArgv } from './fork.js'
+import {
+  armLaneHandle,
+  dispatchFork,
+  findCheckpoint,
+  FORK_EXEC_TIMEOUT_MS,
+  MODEL_GRAMMAR,
+  workmuxAddArgv,
+} from './fork.js'
 import { labWorktreesRoot } from './paths.js'
+import { RESTORE_EXEC_TIMEOUT_MS } from './restore.js'
 
 /** Hermetic under 4x concurrency: per-test `mkdtemp` root, pid+uuid ids, no shared state. */
 
@@ -542,6 +550,79 @@ describe('dispatchFork', () => {
       }),
     ).rejects.toThrow(/workmux add .* failed/)
   }, 2000)
+
+  it('gives the restore its RESTORE_EXEC_TIMEOUT_MS ceiling through dispatchFork, not FORK_EXEC_TIMEOUT_MS (#123 review, Blocking 1 / #109)', async () => {
+    // `withTimeout` always overrides `timeoutMs` — so whichever wrap sits
+    // CLOSEST to the raw exec wins the value a subprocess actually sees.
+    // `dispatchFork` used to wrap with `FORK_EXEC_TIMEOUT_MS` (5s) BEFORE
+    // handing the exec down to `restoreCheckpoint`, which fixed every
+    // restore call — including `npm install` — to 5s regardless of
+    // `RESTORE_EXEC_TIMEOUT_MS` (120s). This goes through `dispatchFork`
+    // itself, not `restoreWorkspace` directly, because the composition is
+    // exactly what a direct call cannot exercise.
+    await writeFile(
+      path.join(repoDir, 'package.json'),
+      `${JSON.stringify({ name: 'fixture', version: '1.0.0', private: true }, null, 2)}\n`,
+    )
+    git(['add', 'package.json'])
+    git(['commit', '-m', 'add package.json'])
+
+    const seen: Array<{ command: string; args: readonly string[]; timeoutMs: number | undefined }> = []
+    await capture()
+
+    await dispatchFork({
+      parentLane: 'parent-lane',
+      parentWorktreePath: repoDir,
+      arms: 1,
+      forkId: uniqueId('fork'),
+      dataRoot,
+      claudeProjectsRoot,
+      install: true,
+      now: () => 1_000_100,
+      exec: async (command, args, options) => {
+        seen.push({ command, args, timeoutMs: options?.timeoutMs })
+        if (command === 'npm') return { stdout: '', stderr: '', code: 0, failed: false }
+        return realExec(command, args, options)
+      },
+    })
+
+    // Matched on argv, not just on the binary: `dispatchFork` may grow a git
+    // call of its own (5s-bounded, correctly) before the restore, and a bare
+    // `command === 'git'` would then silently assert against THAT call
+    // instead of the one this test is about.
+    const npmCall = seen.find((call) => call.command === 'npm' && call.args[0] === 'install')
+    const gitWorktreeAdd = seen.find((call) => call.command === 'git' && call.args[0] === 'worktree')
+    expect(npmCall?.timeoutMs, 'npm install was not spawned').toBe(RESTORE_EXEC_TIMEOUT_MS)
+    expect(gitWorktreeAdd?.timeoutMs, 'git worktree add was not spawned').toBe(RESTORE_EXEC_TIMEOUT_MS)
+  })
+
+  it('still gives its OWN workmux calls FORK_EXEC_TIMEOUT_MS, not the wider RESTORE_EXEC_TIMEOUT_MS (#123 review, Blocking 1)', async () => {
+    await capture()
+    const seen: Array<{ command: string; timeoutMs: number | undefined }> = []
+
+    await dispatchFork({
+      parentLane: 'parent-lane',
+      parentWorktreePath: repoDir,
+      arms: 1,
+      forkId: uniqueId('fork'),
+      dataRoot,
+      claudeProjectsRoot,
+      install: false,
+      launch: true,
+      now: () => 1_000_100,
+      exec: async (command, args, options) => {
+        seen.push({ command, timeoutMs: options?.timeoutMs })
+        if (command === 'workmux') return { stdout: '', stderr: '', code: 0, failed: false }
+        return realExec(command, args, options)
+      },
+    })
+
+    const workmuxCalls = seen.filter((call) => call.command === 'workmux')
+    expect(workmuxCalls.length).toBeGreaterThan(0)
+    for (const call of workmuxCalls) {
+      expect(call.timeoutMs).toBe(FORK_EXEC_TIMEOUT_MS)
+    }
+  })
 
   it('refuses a non-positive arm count', async () => {
     await capture()

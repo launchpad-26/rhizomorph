@@ -539,13 +539,21 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
       // in this file the way the unscoped version once did.
       vi.useFakeTimers()
       try {
-        // A small, real lock ceiling (100ms) — far below the 5000ms per-exec
-        // `withTimeout` ceiling #8 wires into this same call chain
-        // (`fork.ts`'s `FORK_EXEC_TIMEOUT_MS`). A 30s ceiling here would let
-        // that unrelated, shorter, per-exec timeout fire first once fake time
-        // is advanced past it, unwinding `first`'s hang on its own and
-        // confounding what this test means to isolate: `withLabCliLock`'s
-        // OWN ceiling, not the exec-level one.
+        // A small, real lock ceiling (100ms) — far below any per-exec
+        // `withTimeout` ceiling #8 wires into this same call chain. The call
+        // `first` is wedged on is `restoreWorkspace`'s `git worktree add`, so
+        // that ceiling is `RESTORE_EXEC_TIMEOUT_MS` (120s), not `fork.ts`'s
+        // `FORK_EXEC_TIMEOUT_MS` — see `lab/fork.ts:259` for why the restore
+        // path is deliberately left for `restore.ts` to bound. A ceiling here
+        // on the order of a per-exec one would let that unrelated timeout fire
+        // first once fake time is advanced past it, unwinding `first`'s hang
+        // on its own and confounding what this test means to isolate:
+        // `withLabCliLock`'s OWN ceiling, not the exec-level one.
+        //
+        // Belt and braces either way: `firstExec` is an injected mock that
+        // ignores `options.timeoutMs` entirely, so no per-exec timer exists
+        // here for fake time to advance onto. The margin is what keeps that
+        // true if this test is ever pointed at a real exec.
         const second = launchExperiment(
           { lane: 'lane-wedged-noop', checkpointId, arms: [{ model: 'sonnet' }] },
           { repoPath: repoDir, exec: secondExec, dataRoot, claudeProjectsRoot, now: () => 2_000_000, lockCeilingMs: 100 },
