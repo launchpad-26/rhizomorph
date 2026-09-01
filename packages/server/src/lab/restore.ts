@@ -4,9 +4,21 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import type { Exec, PayloadOf } from '@rhizomorph/core'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
-import { exec as realExec } from '../server/exec.js'
+import { describeExecFailure, exec as realExec, withTimeout } from '../server/exec.js'
 import { runGit } from './git.js'
 import { assertInsideLabWorktrees } from './paths.js'
+
+/**
+ * Per-exec ceiling for `restoreWorkspace`'s `git worktree add` and `npm install`
+ * (prd41 ruling 2). Deliberately 24x the 5000ms every other lab module uses:
+ * the others bound git plumbing, and this one bounds a **dependency install**,
+ * which prd-41's own spike measured at ~6s on a warm cache and which is
+ * unbounded above on a cold one. 5000ms here would not be a ceiling, it would
+ * be a coin flip — the restore would be killed mid-install and reported as a
+ * failed one. The number is a ceiling on operator patience, not a performance
+ * budget: past two minutes, an install is wedged rather than slow.
+ */
+export const RESTORE_EXEC_TIMEOUT_MS = 120_000
 
 /**
  * prd12 phase 2's restore half — the inverse of `checkpoint.ts`. A checkpoint
@@ -258,6 +270,11 @@ export interface RestoreWorkspaceOptions {
    * part of the recipe, because an arm that cannot run its own gate command is
    * not a restored reality. Set false only where a test has no dependencies to
    * install and is asserting something else.
+   *
+   * Always `--ignore-scripts` (prd41 ruling 1): a checkpoint is a snapshot of
+   * a tree an agent may have authored, and running its `preinstall` /
+   * `postinstall` / `prepare` hooks would execute that agent's code as the
+   * operator — an escape prd-12 ruling 1's fence never granted.
    */
   install?: boolean
 }
@@ -270,7 +287,7 @@ export interface RestoredWorkspace {
 }
 
 export async function restoreWorkspace(options: RestoreWorkspaceOptions): Promise<RestoredWorkspace> {
-  const exec = options.exec ?? realExec
+  const exec = withTimeout(options.exec ?? realExec, RESTORE_EXEC_TIMEOUT_MS)
   const parentWorktreePath = path.resolve(options.parentWorktreePath)
   const forkWorktreePath = path.resolve(options.forkWorktreePath)
 
@@ -290,10 +307,18 @@ export async function restoreWorkspace(options: RestoreWorkspaceOptions): Promis
   const wantsInstall = options.install ?? true
   const hasManifest = await exists(path.join(forkWorktreePath, 'package.json'))
   if (wantsInstall && hasManifest) {
-    const result = await exec('npm', ['install', '--no-audit', '--no-fund'], { cwd: forkWorktreePath })
+    const result = await exec('npm', ['install', '--no-audit', '--no-fund', '--ignore-scripts'], {
+      cwd: forkWorktreePath,
+    })
     if (result.failed) {
-      const detail = result.stderr.trim() || result.errorMessage || `exit ${result.code}`
-      throw new Error(`npm install failed in ${forkWorktreePath}: ${detail}`)
+      // `describeExecFailure`, not a fourth hand-rolled copy of it. Wrapping this
+      // exec in `withTimeout` above is precisely what creates the third failure
+      // case that helper exists for: a killed child reports `code: null` with no
+      // stderr and no `errorMessage`, so the two-arm spelling this line used to
+      // carry rendered the one failure a bounded exec is guaranteed to eventually
+      // produce as the useless `exit null`. Same bug, same shape, as #306's git
+      // collector and #425's three judge readers.
+      throw new Error(`npm install failed in ${forkWorktreePath}: ${describeExecFailure(result)}`)
     }
   }
 
