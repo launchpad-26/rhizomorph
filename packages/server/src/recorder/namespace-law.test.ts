@@ -848,7 +848,25 @@ function rotateModuleExportNames(rotateSource: string): string[] {
   // namespace re-export on the barrel side. Before this arm, the form derived
   // nothing at all — not noise, an outright silent drop, since no alternation
   // anywhere in this function reached the `* as` shape.
-  for (const match of rotateSource.matchAll(/\bexport\s*\*\s*as\s+([\w$]+)\s*from\s*(['"`])[^'"`]*\2/g)) {
+  //
+  // `export type * as ns from '…'` is the same arm's own TYPE sibling and is
+  // matched by the same alternation (review of #185). It was the one form in
+  // this family left silently undeclared: the value spelling derived `['ns']`
+  // while the type spelling one keyword away derived `[]` — fails OPEN, since
+  // `ns` is a real local export name either way and this function already
+  // derives type-only names (`export type X`, `export interface X`) into the
+  // same set. One optional keyword is the whole difference; it is the arm's
+  // sibling case, not a new production. NOTE the asymmetry with bare `export type *
+  // from` in the residual table below is the SAME asymmetry the value forms
+  // already carry, and for the same reason: `as ns` names something locally,
+  // a bare star names nothing.
+  // `(?:\s*|\s+type\s+)` rather than `\s*(?:type\s+)?`: the first branch keeps
+  // the value form's original zero-whitespace tolerance byte for byte, and the
+  // second requires real whitespace BEFORE `type`, so widening cannot newly
+  // match an identifier that merely starts with the keyword (`exporttype *`).
+  for (const match of rotateSource.matchAll(
+    /\bexport(?:\s*|\s+type\s+)\*\s*as\s+([\w$]+)\s*from\s*(['"`])[^'"`]*\2/g,
+  )) {
     if (match[1]) names.add(match[1])
   }
   for (const match of rotateSource.matchAll(/\bexport\s+(?:declare\s+)?(?:interface|type)\s+([\w$]+)/g)) {
@@ -1879,6 +1897,12 @@ describe('the recorder namespace law (prd16 ruling 2)', () => {
         // for rotate.ts's names; this row is about rotate.ts forwarding
         // ANOTHER module's export as a namespace of its own.
         ["export * as ns from './helpers.js'", 'ns'],
+        // The same arm's TYPE sibling. The value spelling above derived `ns`
+        // while this one derived nothing at all — a fail-OPEN form in #185's
+        // own family, one keyword from the arm #185 added, and the only one
+        // left with no row and no verdict anywhere in this file (review of
+        // #185). `tns` is a real local export name either way.
+        ["export type * as tns from './helpers.js'", 'tns'],
         // A TIGHT generator default — no space anywhere around the `*` — found
         // fail-OPEN (not merely the narrower fail-closed gap first suspected)
         // by #185's review round 2: `defaultExportLocalNames` missed it, which
@@ -1928,10 +1952,36 @@ describe('the recorder namespace law (prd16 ruling 2)', () => {
      *   one shape would be another single-spelling patch on a defect this file
      *   has already recorded as needing a different kind of tool entirely. See
      *   the CONTROL test below.
+     * - A declarator list wrapped so the comma lands at the BEGINNING of the
+     *   continuation line (`export const a = 1\n  , b = 2`) derives `["a"]` —
+     *   fails OPEN, `b` dropped (EXECUTED, review of #185; #185's own body
+     *   names this form but the file did not, which is the silent exclusion
+     *   this issue exists to end). Deliberately left, and the reason is #185's
+     *   OWN stopping rule rather than difficulty: the wrapped-declarator-list
+     *   production has already been defeated twice and rebuilt once, and a
+     *   `\n`-at-depth-0 exception for "the next non-whitespace character is a
+     *   comma" would be a third patch on the same production by the same
+     *   method. What closes it is the same real-continuation awareness the
+     *   `export const c =\n  1` residual already names — one tool, both
+     *   shapes — not another leading-character special case. Unreachable in
+     *   `rotate.ts` today, and no formatter here emits it: `biome.json` sets
+     *   `"formatter": { "enabled": false }`. See the CONTROL test below.
+     * - `export type * from './helpers.js'` on rotate.ts's own surface derives
+     *   `[]` — the TYPE spelling of the bare-star residual two rows above, and
+     *   left for exactly the same reason: a bare star has no local name, so
+     *   deriving anything means resolving and reading another file. Recorded
+     *   because its `as ns` sibling IS now derived in both spellings, and a
+     *   reader who sees that should not have to guess which halves of the
+     *   grid are covered. See the CONTROL test below.
      */
     it('CONTROL: nested destructuring, a module-side `export * from`, and a barrel string literal are all fail-OPEN residuals declared above, not silently accepted', () => {
       expect(rotateModuleExportNames('export const { outer: { nested } } = value\n')).toEqual([])
       expect(rotateModuleExportNames("export * from './helpers.js'\n")).toEqual([])
+      // The two residuals #185's body named but its file left undeclared,
+      // now pinned so an accidental change reddens rather than passing
+      // quietly in either direction (review of #185).
+      expect(rotateModuleExportNames('export const a = 1\n  , b = 2\n')).toEqual(['a'])
+      expect(rotateModuleExportNames("export type * from './helpers.js'\n")).toEqual([])
 
       const rotateSrc = 'export function realDoor() {}\n'
       const barrelWithFakeReexportInAString =
@@ -2094,6 +2144,33 @@ describe('the recorder namespace law (prd16 ruling 2)', () => {
       ).toEqual(['ns'])
       expect(
         barrelCompletenessGaps(rotateSrc, "export { realDoor, ns } from './rotate.js'\n", BARREL_GUARDED_DOORS),
+      ).toEqual([])
+    })
+
+    it("EXECUTED: `export type * as ns from` is the value arm's own TYPE sibling and derives the same real name (review of #185)", () => {
+      // Measured on #185's head before this fix: the value spelling derived
+      // ['ns'] and the type spelling derived [] — fails OPEN, and it was the
+      // one member of #185's family carrying neither an arm nor a verdict.
+      expect(rotateModuleExportNames("export type * as tns from './helpers.js'\n")).toEqual(['tns'])
+      // CONTROL: the value spelling is unchanged by the widening.
+      expect(rotateModuleExportNames("export * as ns from './helpers.js'\n")).toEqual(['ns'])
+      // CONTROL: widening for `type` must not credit a bare `export type *`,
+      // which has no local name at all — the same asymmetry the value forms
+      // already carry, pinned so the two do not drift apart.
+      expect(rotateModuleExportNames("export type * from './helpers.js'\n")).toEqual([])
+      // CONTROL: an identifier merely STARTING with the keyword mints nothing
+      // — this is why the widening requires whitespace before `type` rather
+      // than hanging `(?:type\s+)?` off the existing `\s*`.
+      expect(rotateModuleExportNames("exporttype * as sneaky from './helpers.js'\n")).toEqual([])
+    })
+
+    it('EXECUTED, end to end: a barrel omitting a module-side TYPE namespace re-export reddens the completeness guard by that name (review of #185)', () => {
+      const rotateSrc = "export function realDoor() {}\nexport type * as tns from './helpers.js'\n"
+      expect(
+        barrelCompletenessGaps(rotateSrc, "export { realDoor } from './rotate.js'\n", BARREL_GUARDED_DOORS),
+      ).toEqual(['tns'])
+      expect(
+        barrelCompletenessGaps(rotateSrc, "export { realDoor, tns } from './rotate.js'\n", BARREL_GUARDED_DOORS),
       ).toEqual([])
     })
 
