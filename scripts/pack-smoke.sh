@@ -268,9 +268,31 @@ boot_and_check() {
   }
   echo "server listening at $url"
 
+  # /api/meta is a gated-read (prd-29 ruling 7, #59) — a bare curl now 401s.
+  # Scrape the capability token off the served shell first, the same way
+  # `rhizomorph rotate`/`rhizomorph env` do (`cli/rotate.ts`'s
+  # `readCapabilityTokenFromHtml`: same attribute, same meta name), then
+  # carry it as the header the gate requires (`api/security.ts`'s
+  # `CAPABILITY_TOKEN_HEADER`).
+  local token=""
+  for i in $(seq 1 30); do
+    local shell_html
+    shell_html="$(curl -sf "$url/" || true)"
+    token="$(printf '%s' "$shell_html" | grep -o '<meta[^>]*name="rhizomorph-capability"[^>]*>' | grep -o 'content="[^"]*"' | sed -E 's/^content="(.*)"$/\1/')"
+    [ -n "$token" ] && break
+    sleep 1
+  done
+
+  [ -n "$token" ] || {
+    echo "the page served at $url/ never carried a rhizomorph-capability token within 30s ($label):"
+    cat "$log"
+    exit 1
+  }
+  echo "scraped the capability token off the served shell ($label)"
+
   local meta_ok=""
   for i in $(seq 1 30); do
-    if curl -sf "$url/api/meta" -o "$WORK/meta-$label.json"; then
+    if curl -sf -H "x-rhizomorph-capability: $token" "$url/api/meta" -o "$WORK/meta-$label.json"; then
       meta_ok=1
       break
     fi

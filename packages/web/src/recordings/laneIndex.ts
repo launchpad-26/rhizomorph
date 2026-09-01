@@ -1,4 +1,5 @@
 import type { FetchLike } from '../replay/api.js'
+import { capabilityRead } from './capabilityRead.js'
 
 /**
  * THE LANE AXIS'S DATA (prd-31 ruling 8 / S4, #558) — `GET /api/lane-index`,
@@ -153,8 +154,13 @@ export function parseLaneIndexPage(body: unknown): LaneIndexPage {
 
 export const LANE_INDEX_URL = '/api/lane-index'
 
-/** The whole index, oldest activity last — as the server orders it, never re-sorted here. */
-export async function fetchLaneIndex(fetchImpl: FetchLike = fetch): Promise<LaneIndexPage> {
+/**
+ * The whole index, oldest activity last — as the server orders it, never
+ * re-sorted here. `/api/lane-index` is a `gated-read` (prd-29 ruling 7, #58),
+ * so the default routes through the shared `capabilityRead`, which carries
+ * the capability token.
+ */
+export async function fetchLaneIndex(fetchImpl: FetchLike = capabilityRead): Promise<LaneIndexPage> {
   const response = await fetchImpl(LANE_INDEX_URL)
   if (!response.ok) throw new Error(`${LANE_INDEX_URL} responded ${response.status}`)
   return parseLaneIndexPage(await response.json())
