@@ -1,6 +1,7 @@
 import type { RhizomorphEvent } from '@rhizomorph/core'
 import type { FastifyInstance } from 'fastify'
 import type { ServerContext } from '../server/context.js'
+import { requireCapabilityToken } from './security.js'
 
 /**
  * The minimal surface {@link flushBacklog} needs from the response — a real
@@ -140,22 +141,35 @@ export function streamBacklogThenLive(
  * in one burst (see {@link flushBacklog}), then live-tails. Fastify's own
  * reply lifecycle is bypassed via `hijack()` since the response body is an
  * indefinitely-open stream, not one payload.
+ *
+ * `gated-read` (prd-29 ruling 4, #60): a browser `EventSource` cannot set a
+ * custom header at all, so this route's `preHandler` is the one call site in
+ * the app that passes `allowCookie: true` — it accepts the HttpOnly cookie
+ * `server/static.ts` sets beside the capability meta tag, as well as the
+ * header every other gated route requires. Spec-level `Last-Event-ID`
+ * auto-resume is untouched by this: the cookie rides on the connection the
+ * browser opens exactly as it always has, so nothing below this line, and
+ * nothing on the client, changes at all.
  */
 export function registerStreamRoute(app: FastifyInstance, ctx: ServerContext): void {
-  app.get('/api/stream', async (request, reply) => {
-    reply.hijack()
-    const res = reply.raw
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-    })
+  app.get(
+    '/api/stream',
+    { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '', { allowCookie: true }) },
+    async (request, reply) => {
+      reply.hijack()
+      const res = reply.raw
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+      })
 
-    const lastEventIdHeader = request.headers['last-event-id']
-    const lastEventId = Array.isArray(lastEventIdHeader) ? lastEventIdHeader[0] : lastEventIdHeader
-    const backlog = resumeBacklog(ctx.recorder.eventsSoFar(), lastEventId)
+      const lastEventIdHeader = request.headers['last-event-id']
+      const lastEventId = Array.isArray(lastEventIdHeader) ? lastEventIdHeader[0] : lastEventIdHeader
+      const backlog = resumeBacklog(ctx.recorder.eventsSoFar(), lastEventId)
 
-    const unsubscribe = streamBacklogThenLive(res, backlog, (onEvent) => ctx.recorder.subscribe(onEvent))
-    request.raw.on('close', unsubscribe)
-  })
+      const unsubscribe = streamBacklogThenLive(res, backlog, (onEvent) => ctx.recorder.subscribe(onEvent))
+      request.raw.on('close', unsubscribe)
+    },
+  )
 }

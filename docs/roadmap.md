@@ -241,21 +241,41 @@
   printed fault holds the landing and a runbook citing `gate.sh`'s behaviour rather than its
   line numbers (#1 and #2, landed together as PR #40). What that PR's verify pass found beyond
   them is prd45's, not a residual here.
-- **prd40–43 — current blessed programme** (`docs/prds/prd-40-the-record-survives-the-write.md`
-  through `docs/prds/prd-43-the-claim-is-a-test.md`): the record survives the write, the
-  laboratory is confined in fact, one path has one spelling, and a document's factual claim
-  fails the build when it goes false. These PRDs are fresh, blessed and actively represented by
-  the GitHub backlog. **Per-milestone issue counts are deliberately not restated here** — a
-  hand-maintained number in this file goes false the same day and reads as live state; the
-  board is the source, via `scripts/dev/issues.sh list` and the `prd40`–`prd43` milestones.
-- **prd44 — the flat instrument** (`docs/prds/prd-44-the-flat-instrument.md`, BLESSED
-  2026-08-24): what it costs to watch tracks the swarm, not the session's age. Five rulings —
-  a finished recording is parsed once rather than once per request, the log is opened once per
-  session rather than once per event, independent subprocesses start together without the log's
-  order becoming theirs to decide, the server states its retention as the client already does,
-  and a picture that cannot change is not rebuilt. Drafted the same day from
-  `docs/review/2026-08-24-performance.md`, a measured pass; consumes prd40's ordering and
-  refuses prd33's model stage.
+- **prd40 — the record survives the write**
+  (`docs/prds/done/prd-40-the-record-survives-the-write.md`, shipped): an event on screen is an
+  event on disk. Two rulings — the append is awaited before the event is anyone's, and the fold
+  the server answers from is maintained rather than rebuilt. Its milestone closed 2026-08-27
+  with every issue done. It produced **three ADRs**, and only the first was one it could name in
+  advance: [0029](adr/0029-a-recording-may-repeat-a-fact.md) (the prerequisite it gated wave 2
+  behind, whose evidence then corrected ruling 1's own mechanism),
+  [0030](adr/0030-the-alarm-may-outrun-the-record.md) and
+  [0031](adr/0031-the-recorder-hands-out-a-frozen-fold.md), both reached from a wave's build
+  rather than its plan. **The closeout is the last section of the PRD itself** — the four
+  success criteria assessed against counting laws, what the plan got wrong, and the open
+  question whose premise turned out to be false: there is no exporter caller to narrow
+  `eventsSoFar()` to, because both exporters read the recording back from disk.
+- **prd41–43 — current blessed programme**
+  (`docs/prds/prd-41-the-laboratory-is-confined-in-fact.md` through
+  `docs/prds/prd-43-the-claim-is-a-test.md`): the laboratory is confined in fact, one path has
+  one spelling, and a document's factual claim fails the build when it goes false. These PRDs
+  are blessed and actively represented by the GitHub backlog. **Per-milestone issue counts are
+  deliberately not restated here** — a hand-maintained number in this file goes false the same
+  day and reads as live state; the board is the source, via `scripts/dev/issues.sh list` and the
+  `prd41`–`prd43` milestones.
+- **prd44 — the flat instrument** (`docs/prds/done/prd-44-the-flat-instrument.md`, shipped):
+  what it costs to watch tracks the swarm, not the session's age. Five rulings — a finished
+  recording is parsed once rather than once per request, the log is opened once per session
+  rather than once per event, independent subprocesses start together without the log's order
+  becoming theirs to decide, the server states its retention as the client already does, and a
+  picture that cannot change is not rebuilt. Drafted the same day it was blessed from
+  `docs/review/2026-08-24-performance.md`, a measured pass; consumed prd40's ordering and
+  refused prd33's model stage. Its milestone closed 2026-08-27 with every issue done. **The
+  closeout is the last section of the PRD itself** — the two wave-0 answers the operator gave,
+  the four open questions with what the code decided, the six success criteria assessed against
+  counting laws rather than measurements, and the two rulings whose stated *mechanism* lost to
+  measurement while the claim survived. What it left behind has owners rather than a residual
+  paragraph here: the honesty cost of bounding the server's window, the transcript capture a
+  bounded window can no longer complete, and a doc note ruling 3's three consumers each needed.
 - **prd45 — the earned verdict** (`docs/prds/prd-45-the-earned-verdict.md`, BLESSED
   2026-08-24): a check that could not run says so. Drafted from prd39's verify pass and from
   prd24's closing amendment, which retired to `done/` leaving two residuals with no owner.

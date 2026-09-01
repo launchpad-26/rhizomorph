@@ -1,6 +1,9 @@
+import { homedir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  DATA_ROOT_ENV_VAR,
+  defaultDataRoot,
   repoSlug,
   sessionDirFor,
   sessionFileName,
@@ -10,6 +13,93 @@ import {
   transcriptCaptureDir,
   transcriptCaptureFileName,
 } from './paths.js'
+
+/**
+ * The historical root, spelled out rather than re-derived from the function
+ * under test. Every one of `defaultDataRoot()`'s callers already has data on
+ * disk at this path, so "unset behaves as before" is the load-bearing claim
+ * here — a mutation that renamed any one of these three segments has to fail.
+ */
+const HISTORICAL_ROOT = path.join(homedir(), '.local', 'share', 'rhizomorph')
+
+describe('defaultDataRoot', () => {
+  let savedOverride: string | undefined
+  let savedXdg: string | undefined
+
+  beforeEach(() => {
+    savedOverride = process.env[DATA_ROOT_ENV_VAR]
+    savedXdg = process.env.XDG_DATA_HOME
+    delete process.env[DATA_ROOT_ENV_VAR]
+    delete process.env.XDG_DATA_HOME
+  })
+
+  afterEach(() => {
+    if (savedOverride === undefined) delete process.env[DATA_ROOT_ENV_VAR]
+    else process.env[DATA_ROOT_ENV_VAR] = savedOverride
+    if (savedXdg === undefined) delete process.env.XDG_DATA_HOME
+    else process.env.XDG_DATA_HOME = savedXdg
+  })
+
+  it('is the historical path when nothing overrides it', () => {
+    expect(defaultDataRoot()).toBe(HISTORICAL_ROOT)
+  })
+
+  it('honours the override, using the value as given', () => {
+    process.env[DATA_ROOT_ENV_VAR] = '/spikes/copied-data-dir'
+    expect(defaultDataRoot()).toBe('/spikes/copied-data-dir')
+  })
+
+  // Unset and empty are different facts about intent and the same fact about a
+  // path: `RHIZOMORPH_DATA_DIR=` names no directory. Without this branch an
+  // empty value would return '', and `sessionDirFor` would then quietly root a
+  // whole installation at the process's cwd.
+  it('treats an empty override as no override, not as a root of ""', () => {
+    process.env[DATA_ROOT_ENV_VAR] = ''
+    expect(defaultDataRoot()).toBe(HISTORICAL_ROOT)
+    expect(sessionDirFor('/a/repo')).toBe(path.join(HISTORICAL_ROOT, repoSlug('/a/repo')))
+  })
+
+  it('ignores XDG_DATA_HOME, so a box that sets it still finds yesterday\'s logs', () => {
+    process.env.XDG_DATA_HOME = '/xdg/data'
+    expect(defaultDataRoot()).toBe(HISTORICAL_ROOT)
+  })
+
+  it('lets XDG_DATA_HOME lose to the real override rather than racing it', () => {
+    process.env.XDG_DATA_HOME = '/xdg/data'
+    process.env[DATA_ROOT_ENV_VAR] = '/spikes/copied-data-dir'
+    expect(defaultDataRoot()).toBe('/spikes/copied-data-dir')
+  })
+})
+
+describe('defaultDataRoot precedence against an explicit argument', () => {
+  let savedOverride: string | undefined
+
+  beforeEach(() => {
+    savedOverride = process.env[DATA_ROOT_ENV_VAR]
+    process.env[DATA_ROOT_ENV_VAR] = '/spikes/copied-data-dir'
+  })
+
+  afterEach(() => {
+    if (savedOverride === undefined) delete process.env[DATA_ROOT_ENV_VAR]
+    else process.env[DATA_ROOT_ENV_VAR] = savedOverride
+  })
+
+  // The eight existing call sites all read `options.dataRoot ?? defaultDataRoot()`.
+  // If the variable outranked the argument, every one of them would start
+  // ignoring a directory it was explicitly handed — so the argument wins, and
+  // the variable only answers "where is the root when nobody named one".
+  it('an explicit dataRoot still wins — the variable answers only for callers who named none', () => {
+    expect(sessionDirFor('/a/repo', '/explicit/root')).toBe(
+      path.join('/explicit/root', repoSlug('/a/repo')),
+    )
+  })
+
+  it('and a caller who names none follows the override', () => {
+    expect(sessionDirFor('/a/repo')).toBe(
+      path.join('/spikes/copied-data-dir', repoSlug('/a/repo')),
+    )
+  })
+})
 
 describe('repoSlug', () => {
   it('combines a sanitized basename with a short hash of the absolute path', () => {

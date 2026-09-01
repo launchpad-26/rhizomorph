@@ -155,7 +155,12 @@ describe('runCli', () => {
 
     expect(handle.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
 
-    const metaResponse = await fetch(`${handle.url}/api/meta`)
+    // /api/meta is a gated-read (prd-29 ruling 7, #59) — carry the token off
+    // the same server instance rather than scraping it, since this test is
+    // driving `handle.app` directly and already holds it.
+    const metaResponse = await fetch(`${handle.url}/api/meta`, {
+      headers: capabilityHeaders(handle.app),
+    })
     expect(await metaResponse.json()).toMatchObject({ repoPath, repoName: 'my-repo' })
 
     // runCli's own boot already awaited the first tick before returning `handle`
@@ -323,19 +328,35 @@ describe('runCli', () => {
  * assuming the default is free (or, worse, borrowing whichever Rhizomorph
  * happens to be running on this machine). See `telemetry-env.test.ts` for the
  * renderer's own tests.
+ *
+ * AMENDED for #59: `/api/meta` is a `gated-read` now, and the token is handed
+ * out only through the served dashboard page (ADR-0012) — the same reason
+ * `runCli rotate subcommand` below gives its booted server a real
+ * `webDistDir`. Without one, `rhizomorph env` would meet a page with no
+ * capability meta tag to scrape and correctly refuse.
  */
 describe('runCli env subcommand', () => {
   let dataRoot: string
+  let webDistDir: string
   let server: CliHandle | undefined
 
   beforeEach(async () => {
     dataRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-env-cli-test-'))
+    webDistDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-env-cli-web-'))
+    // The shell vite emits, minus the bundle — same fixture `runCli rotate
+    // subcommand` below uses, for the same reason (see this block's own doc).
+    await writeFile(
+      path.join(webDistDir, 'index.html'),
+      '<!doctype html>\n<html lang="en"><head><title>the Rhizomorph</title></head><body><div id="root"></div></body></html>\n',
+      'utf8',
+    )
   })
 
   afterEach(async () => {
     await server?.stop()
     server = undefined
     await rm(dataRoot, { recursive: true, force: true })
+    await rm(webDistDir, { recursive: true, force: true })
   })
 
   async function bootServer(): Promise<{ port: number; instance: string }> {
@@ -343,6 +364,7 @@ describe('runCli env subcommand', () => {
       dataRoot,
       collectors: [],
       log: silentLog,
+      webDistDir,
     })
     return { port: Number(new URL(server.url).port), instance: server.recorder.sessionId }
   }

@@ -14,6 +14,7 @@ import { parseWorktreeList, type ParsedWorktree } from './parse-worktrees.js'
 import type { GitBranchState, GitSnapshot, GitWorktreeState } from './types.js'
 import { voiceSkips } from '../parse-skip.js'
 import { describeExecFailure } from '../../server/exec.js'
+import { type FanoutOutcome, mapBounded } from '../../server/concurrency.js'
 
 const COLLECTOR_NAME = 'git'
 
@@ -79,6 +80,43 @@ function runGit(context: CollectorContext, args: readonly string[], cwd: string)
  * the judge readers after being fixed here.
  */
 const describeGitFailure = describeExecFailure
+
+/**
+ * `runGit` (via `context.exec`) never rejects — every real and fixture
+ * `Exec` resolves an `ExecResult` with `failed: true` instead — so `!ok` here
+ * is unreached in practice. Handled anyway because {@link mapBounded} is
+ * typed for it: a thrown value becomes a synthetic failed result routed
+ * through the same `describeGitFailure` fallback chain as a normal exec
+ * failure, so a caller never has to branch on how the outcome failed.
+ *
+ * `outcome` is `| undefined` only because `noUncheckedIndexedAccess` can't
+ * see that {@link mapBounded} returns exactly one outcome per input at its
+ * own index — a hole here would itself be a `mapBounded` contract violation,
+ * not a real git failure, but it still gets the same failed-result shape
+ * rather than a throw, so a bug in the helper surfaces as one collector.error
+ * instead of taking the whole poll down.
+ */
+function execResultOf(outcome: FanoutOutcome<ExecResult> | undefined): ExecResult {
+  if (outcome === undefined) {
+    return { stdout: '', stderr: '', code: null, failed: true, errorMessage: 'mapBounded returned no outcome at its own index' }
+  }
+  if (outcome.ok) return outcome.value
+  return {
+    stdout: '',
+    stderr: '',
+    code: null,
+    failed: true,
+    errorMessage: outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason),
+  }
+}
+
+/** Same shape of defensive unwrap as {@link execResultOf}, for `computeAheadBehind`'s own result type. */
+function aheadBehindOf(
+  outcome: FanoutOutcome<{ aheadOfMain: number | null; behindMain: number | null }> | undefined,
+): { aheadOfMain: number | null; behindMain: number | null } {
+  if (outcome !== undefined && outcome.ok) return outcome.value
+  return { aheadOfMain: null, behindMain: null }
+}
 
 export const gitCollector: Collector<GitSnapshot> = {
   name: COLLECTOR_NAME,
@@ -239,11 +277,19 @@ async function diffBranches(
     return { branches: prevSnapshot.branches, refsFailures: failures }
   }
 
+  const refs = parseForEachRef(refsResult.stdout)
+
+  // Fan out `computeAheadBehind` per branch through #33's bounded helper
+  // instead of awaiting each `rev-list` serially. Outcomes land indexed to
+  // `refs`, so the loop below still walks branches in for-each-ref's own
+  // order no matter which exec settles first — a replay stays byte-identical.
+  const aheadBehindOutcomes = await mapBounded(refs, (ref) => computeAheadBehind(context, mainBranch, ref.branch))
+
   const nextBranches: Record<string, GitBranchState> = {}
 
-  for (const ref of parseForEachRef(refsResult.stdout)) {
+  for (const [index, ref] of refs.entries()) {
     const prevBranch: GitBranchState | undefined = prevSnapshot.branches[ref.branch]
-    const { aheadOfMain, behindMain } = await computeAheadBehind(context, mainBranch, ref.branch)
+    const { aheadOfMain, behindMain } = aheadBehindOf(aheadBehindOutcomes[index])
     nextBranches[ref.branch] = { head: ref.head, aheadOfMain, behindMain }
 
     const headMoved = !prevBranch || prevBranch.head !== ref.head
@@ -349,12 +395,23 @@ async function diffDirty(
   const nextDirty: Record<string, DirtyFile[]> = {}
   const nextFailures: Record<string, number> = {}
 
-  for (const worktree of worktrees) {
-    // Dropped by diffWorktrees already — no exec, no carry-forward, and no
-    // ENOENT to misread as "git is gone" (ADR-0016).
-    if (worktree.prunable) continue
+  // Dropped by diffWorktrees already — no exec, no carry-forward, and no
+  // ENOENT to misread as "git is gone" (ADR-0016). A prunable worktree never
+  // reaches the fan-out below, so it costs no exec at all.
+  const liveWorktrees = worktrees.filter((worktree) => !worktree.prunable)
 
-    const statusResult = await runGit(context, ['status', '--porcelain'], worktree.path)
+  // Fan out `git status --porcelain` per worktree through #33's bounded
+  // helper instead of awaiting each one serially. Outcomes land indexed to
+  // `liveWorktrees`, so the loop below still walks worktrees in `worktree
+  // list`'s own order no matter which exec settles first — a replay stays
+  // byte-identical, and the per-worktree failure counters below see exactly
+  // the same sequence of results they would have serially.
+  const statusOutcomes = await mapBounded(liveWorktrees, (worktree) =>
+    runGit(context, ['status', '--porcelain'], worktree.path),
+  )
+
+  liveWorktrees.forEach((worktree, index) => {
+    const statusResult = execResultOf(statusOutcomes[index])
     if (statusResult.failed) {
       const failures = (prevSnapshot.dirtyFailures?.[worktree.path] ?? 0) + 1
       nextFailures[worktree.path] = failures
@@ -384,7 +441,7 @@ async function diffDirty(
       }
       // Every failure after that stays silent — the incident was already
       // voiced once; repeating it every poll is the heartbeat #415 removes.
-      continue
+      return
     }
 
     const files = parseStatusPorcelain(statusResult.stdout)
@@ -410,7 +467,7 @@ async function diffDirty(
         }),
       )
     }
-  }
+  })
 
   return { dirty: nextDirty, dirtyFailures: nextFailures }
 }

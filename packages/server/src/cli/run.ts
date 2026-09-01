@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createEvent, createIdFactory, reduceAll, selectBranches, selectWorktreeViews } from '@rhizomorph/core'
+import { createEvent, createIdFactory, selectBranches, selectWorktreeViews } from '@rhizomorph/core'
 import { recordSessionBootMeta } from '../api/meta.js'
 import { defaultDataRoot, sessionDirFor, sessionFileName, snapshotDirFor } from '../log/paths.js'
 import {
@@ -204,7 +204,13 @@ export async function runServerCommand(
   await pollLoop.tick()
 
   log.log(`rhizomorph running at ${url}`)
-  const bootState = reduceAll(recorder.eventsSoFar())
+  // The recorder's maintained fold, not a re-fold of its buffer (prd-40 ruling
+  // 2, and prd-44 ruling 4 / #37 makes it load-bearing rather than merely
+  // cheaper): the buffer is a window capped at `MAX_BUFFERED_EVENTS`, so on a
+  // resumed session past that cap `reduceAll(eventsSoFar())` would describe the
+  // last 75,000 events instead of the session, and the boot line would
+  // under-report the worktrees and branches the operator is watching.
+  const bootState = recorder.foldSoFar()
   const worktreeCount = selectWorktreeViews(bootState).length
   const branchCount = selectBranches(bootState).length
   log.log(

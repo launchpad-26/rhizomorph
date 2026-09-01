@@ -141,11 +141,65 @@ the same file, not because it depends on the predicate. Alone in its wave for th
 second lane in `gate.sh` at the same time is a rebase conflict at landing, which is exactly what
 the fence rule exists to prevent.
 
-**Unfiled work implied, described not numbered:** declared tolerance #7's reason distinguishes
-`--is-ancestor`'s exit 1 from its exit 128 only through stderr it discards; the law's two
-`0444`-write assertions are false as root and go red in a root container; and `.swarm/coupling.txt`
-needs an entry for the law's collection-time coupling to `gate.sh`'s text — that last one is
-gitignored working state and therefore an operator act, not a lane's.
+**Waves 3-6 were this document's "unfiled work implied, described not numbered" paragraph,
+and are declared here because they were filed.** Amended 2026-08-31. The paragraph named three
+residuals and left them unnumbered; issues were then filed against waves 3, 4, 5 and 6, so the
+tracker ran ahead of the plan of record and `scripts/dev/prd-reconcile.sh 46` reported six
+UNDECLARED WAVE rows. The document is the plan, so the document moves — the waves below are the
+work that was already filed, not new scope. Nothing here is groomed afresh; each names the issue
+that carries it.
+
+**Wave 3 — the prints that outrun what they established.** `prd46 w3: nothing the gate or its law
+prints outruns what it established` (#73). Declared tolerance #7's reason distinguishes
+`--is-ancestor`'s exit 1 from its exit 128 only through stderr it discards; the prune's success
+line is printed for "the file parsed and was rewritten" rather than for a handle actually removed;
+and a manifest whose shape the prune does not understand passes silently. It **absorbs wave 6**
+(below) as its third instance. Follows waves 2 and 4, which between them held both of its
+fenced files — `gate.sh` was wave 2's and the law file was wave 4's, and both landed together
+in PR #155, so this issue's line citations must be re-derived against that result rather than
+trusted.
+
+**Wave 4 — the proofs that are false as root.** `prd46 w4: the law's unwritable-file proofs hold
+as root, or say they do not` (#74, closed 2026-08-31 in PR #155). The law's two `0444`-write
+assertions cannot hold against `CAP_DAC_OVERRIDE`, so they went red in a root container. Landed
+as `it.skipIf(RUNNING_AS_ROOT)` with the reason in the test title — hold, or skip and say so.
+
+**Wave 5 — the coupling the registry does not record, and the class the predicate does not
+cover.** Two issues, disjoint fences, dispatchable as peers:
+
+- `prd46 w5: the coupling registry records the law's collection-time hold on gate.sh` (#72).
+  `.swarm/coupling.txt` needs an entry for the law's collection-time coupling to `gate.sh`'s text.
+  **Ordinary dispatchable work.** This document previously called it an operator act rather than a
+  lane's, on the ground that the file is gitignored working state. That ground is false and the
+  conclusion goes with it: `.gitignore` writes `.swarm/*` and then `!.swarm/coupling.txt`, so the
+  file is TRACKED. EXECUTED 2026-08-31 — `git ls-files --error-unmatch` returns it (rc 0),
+  `git check-ignore` does not match it (rc 1), and it carries commit history. A lane can commit
+  it, so a lane may have it. Ruled by the operator 2026-08-31, closing the contradiction #72's own
+  body raised on 2026-08-26.
+
+  One dispatch note, because no single-wave lint run can surface it: `scripts/fence-lint.sh 47 72`
+  reports an OVERLAP on `.swarm/coupling.txt` across milestones. It is **historical** — #47 is
+  closed and its work landed as `88c3686`, which is in that file's own history — and `fence-lint`
+  reads fences, not issue state, so it will keep reporting it.
+- `prd46 w5: the law's own proofs and predicate cover the class, not one spelling` (#179). Ruling
+  1's predicate recognises only the bare `VAR=$(` spelling and is blind to `VAR="$(cmd)"`,
+  `export VAR=$(…)`, backticks and multi-line `$( … )`; and a second proof in the same file goes
+  vacuous under root instead of skipping. **Success 1 and success 3 are not met until this lands**
+  — see the note below.
+
+**Wave 6 — superseded, and kept declared because its issue is closed against it.** `prd46 w6: the
+rise fixtures derive their delta from the tolerance they test` (#82, closed 2026-08-28). Merged
+into wave 3 at the operator's direction as its third instance — same two files, so the two could
+never have been peers. Nothing was dropped. It stays declared rather than marked with a
+`SUPERSEDED` blockquote because a marker retires the wave from the declared set, and #82 is closed
+*claiming* w6: retiring it here would re-report that issue as UNDECLARED, trading one drift row
+for another.
+
+**Where this leaves the success criteria.** Every wave this document declared before today
+(0, 1, 2) is complete — but success 1 (*"fails the law regardless of the spelling"*) and success 3
+(*"every clause can fail for the reason it claims"*) are **not met**, and #179 is what closes both.
+The milestone reads done by waves and is not done by its own definition; recorded here so nobody
+closes it on the wave count alone.
 
 ## Open questions
 

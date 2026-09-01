@@ -1,4 +1,5 @@
 import { CONNECTION_SOURCES, RUNGS, SIGNALS, type ConnectionSource, type Rung, type Signal } from '@rhizomorph/core'
+import { capabilityRead } from '../recordings/capabilityRead.js'
 
 /**
  * THE GETS THE CONNECT PAGE READS, PARSED DEFENSIVELY (prd19 ruling 5,
@@ -356,8 +357,16 @@ export function doctorCheck(reading: DoctorReading, id: string): DoctorFact | nu
   return reading.kind === 'checks' ? (reading.checks.find((check) => check.id === id) ?? null) : null
 }
 
+/**
+ * `/api/session-preview/:sessionId` and `/api/concierge/repos` are
+ * `gated-read`s (prd-29 ruling 7, #58), and `/api/meta` and `/api/doctor`
+ * joined them in wave 2a (ruling 7, #59). All four share this one default, so
+ * every read in this file goes through the shared `capabilityRead` rather
+ * than growing a second token path — an injected `fetchImpl` (tests)
+ * bypasses it.
+ */
 function defaultFetch(): FetchLike | null {
-  return typeof globalThis.fetch === 'function' ? ((input: string) => globalThis.fetch(input)) as FetchLike : null
+  return typeof globalThis.fetch === 'function' ? (capabilityRead as FetchLike) : null
 }
 
 /**

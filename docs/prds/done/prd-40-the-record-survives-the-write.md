@@ -1,6 +1,9 @@
 # prd-40 — the record survives the write: an event on screen is an event on disk
 
-> **Status:** **BLESSED** — Ciaran Slow, 2026-08-22, in session. Milestone `prd40`. Drafted the same day from the reconciled audit
+> **Status:** **SHIPPED** — 2026-08-27. Milestone `prd40` closed with all ten issues done; the
+> closeout, including the open question whose premise turned out to be false, is the last
+> section of this document.
+> Blessed by Ciaran Slow, 2026-08-22, in session. Drafted the same day from the reconciled audit
 > at `03df141` (findings 5 and 7 — untracked artefact, `.gitignore`d; the sha is the anchor). Ruling 1 needs an **ADR** before its code — it changes what a replay may
 > contain, which is ADR-0011's territory, not this PRD's.
 >
@@ -224,6 +227,91 @@ session's buffer, fold and subscribers. `record()` therefore captures its writer
 and publishes nothing if the recorder has moved on. The event stays durable in the file it was
 appended to — the session it belongs to.
 
+**Amended 2026-08-26, fifth — a session is closed when its line is appended, not when it is
+synced.** Operator ruling, taken on #80 before that issue was dispatched. Rule 1 above says "a
+failed append **or sync** releases the seal", and that wording is the defect: an append that
+resolves has already put `session.closed` into the file, so a sync that fails afterwards releases
+a seal on a session that is closed on disk — and a later `record()` appends behind the close line.
+Confirmed pre-existing on `main` by two reviewers with a probe that rejects `sync` once, and
+invisible downstream, because `verifyRecord` computes the chain over the body as given.
+
+**Rule 1 splits in two:**
+
+1a. A failed **append** releases the seal and rejects. The close did not happen — nothing reached
+    the file — so the seal it took must not outlive it. Unchanged.
+
+1b. A failed **sync after a successful append does not release the seal.** The close *did* happen:
+    the line is in the file, and prd17 ruling 1's guarantee that it is the last line is now owed.
+    `closeWith` still rejects, so the failure is reported rather than swallowed — losing durability
+    is a fact the operator must learn — but the seal it earned stays, and only `openSession`
+    releases it.
+
+**What made this a fork, and why it is not one.** Holding the seal on a failed sync appears to
+wedge the recorder: `rotate.ts` reaches `openSession` (`:168`) only once `closeWith` resolves, so a
+rejected close would leave the seal held with nothing alive to release it — the hang rule 3 was
+added to prevent. That is real, and it is a property of the **caller**, not of this rule. The seal
+is only unreleasable because reopening is conditional on a successful close.
+
+**So reopening becomes unconditional.** `rotate.ts` opens the next session whether `closeWith`
+resolves or rejects. A session that could not be synced still ends, a fresh one still starts, the
+sync failure still reaches the operator, and no line ever lands behind `session.closed`. Rule 3 is
+untouched — a durable close still may not reject below the append — and the law at
+`session-recorder.test.ts:50` keeps the guarantee it was written for.
+
+**Two alternatives, and why they lost.** *Leave it as written* — the record can be silently
+corrupted and nothing downstream detects it, which is the failure shape ADR-0011 abolished for the
+silent skip. *Release the seal and record that the close was unsynced* — honest, but it does not
+actually prevent a line landing after `session.closed`; it only annotates a file that has already
+broken prd17 ruling 1.
+
+**Fence consequence, recorded before the change.** #80 was fenced to `session-recorder.ts` and its
+test. Rule 1b's cost lands in `rotate.ts`, so that issue widens to
+`packages/server/src/recorder/rotate.ts` and `rotate.test.ts`. Note prd-42's #49 touched that file
+on 2026-08-26 (`9406974`); #80 rebases onto it rather than racing it.
+
+**What "unconditional" costs, ruled 2026-08-26 in review of the amendment.** Raised by
+@gabriel-canaan: the sentence above dissolves one fork and opens three smaller ones, and a ruling
+that leaves those to a lane has not finished the job it names for itself. `rotateSession`
+(`rotate.ts:261-262`) is `closeCurrentSession` then `openNextSession`, and the second takes the
+first's `ClosedSession` — which a throwing close never returns. So all three are ruled here.
+
+1b-i. **`closeCurrentSession` returns rather than throws.** It absorbs the recorder's rejection and
+   returns a `ClosedSession` that carries the sync failure. **Nothing has to be reconstructed:**
+   `sessionId`, `filePath`, `closedAt` and `eventCount` are all captured at `rotate.ts:120-123`,
+   before the first `await`, so the descriptor is fully determined before the failure point.
+   `nextSessionStart(closed.sessionId, …)` therefore still guarantees a strictly greater id.
+   **Rule 1b is untouched by this** — `SessionRecorder.closeWith` still rejects, and reporting the
+   lost durability is still its job. The absorption is at the rotation layer, which is the layer
+   that owns what happens next.
+
+1b-ii. **`removeSessionLock` still runs** (`rotate.ts:149`). The lock guards a *live* session, and
+   the session is not live: its close line is on disk, which is what 1b establishes. Skipping it
+   would leave an orphan lock beside the new session's for no gain. Recorded because the blast
+   radius was measured rather than assumed — locks are per-session files and go stale after
+   `LOCK_STALE_MS`, so the wrong answer here is untidy and self-healing rather than dangerous,
+   which is exactly the kind of question a lane would otherwise decide silently.
+
+1b-iii. **`/api/rotate` answers 200, with the lost durability stated in the body.** Under 1b a
+   rotation can partly succeed: the old session closed, the new one open, durability gone. An error
+   status would say nothing happened, which is false, and would invite a retry that rotates a second
+   time — a worse outcome than the one being reported. 409 is spoken for by `RotationRefusedError`
+   and is not reused. The route reports the fact; it does not refuse.
+
+**In scope for #80, and out of it.** In scope: `closeCurrentSession`'s return shape, the
+unconditional call to `openNextSession`, the lock's placement, and the field `/api/rotate` reports.
+Out of scope: `RotationRefusedError` and the 409 path, `LOCK_STALE_MS`, and any change to what
+`closeWith` itself promises beyond 1a/1b above. A law drives **append resolves, sync rejects** —
+neither existing seal law covers it, and a test that only rejects `append` would pass while this
+stayed broken.
+
+**The `eventCount` question is ruled with it.** `closeCurrentSession` reads
+`recorder.eventsSoFar().length + 1` (`rotate.ts:124`), which can undercount a `record()` whose
+append is in flight but whose buffer push has not happened. Under 1b the close line's authority
+begins at its own append, so the count it carries is what was known at that moment and no more.
+**The count is a claim about the buffer, not a census of the file** — say so where it is written,
+and let `verifyRecord` remain the thing that counts lines. It is in #80's scope to state, not to
+re-engineer.
+
 ## Ruling 2 — the fold the server answers from is maintained, never rebuilt
 
 The recorder keeps a running `SessionState` beside its buffer: updated in `record()` via the
@@ -326,3 +414,128 @@ a live success criterion. Landed in #86, along with a prd-41 pointer stranded be
 - **Should `foldSoFar()` be the only reader, with `eventsSoFar()` narrowed to the exporter?**
   It would make ruling 2 structural rather than conventional, but it touches every current
   caller. Open, not ruled.
+
+---
+
+# Outcome — shipped 2026-08-27
+
+Ten issues, eleven pull requests, five days from blessing to close. Both rulings landed, all four
+success criteria are met, and the PRD produced **three ADRs** — one as a prerequisite it named for
+itself, two as consequences it did not.
+
+Written at `37d537f`, the merge that closed the milestone. Ruling numbers above are untouched; this
+is appended, as the standard requires.
+
+## The two rulings, as they landed
+
+| ruling | issues | landed | deviation from the mechanism this PRD named |
+|---|---|---|---|
+| 1 — the append is awaited before the event is anyone's | #4, #26, #80, #106 | PR #79, #105, #118, #125 (plus PR #77 for its prerequisite ADR and PR #116 for its fifth amendment) | **yes, and the PRD recorded it itself.** ADR-0029's evidence corrected the *mechanism* ruling 1 named while leaving its conclusion intact — the amendment inside the ruling says so. Three later corrections followed the same pattern: the degrade alarm had to move to the durability boundary (#26), close-versus-sync became two separate catches with opposite meanings (#80, the fifth amendment), and one subscriber's throw turned out to blind the others (#106). |
+| 2 — the fold the server answers from is maintained, never rebuilt | #3, #5, #69, #81 | PR #67, #98, #114 | none in shape. `foldSoFar()` landed as new additive surface exactly as planned, and the frozen-fold requirement (#69) was a hardening the ruling did not anticipate rather than a change to it. |
+
+Wave 3 bundled two issues into one PR (#98 carried #5 and #81). Waves 4 through 7 could not: three
+issues contended for `recorder/session-recorder.ts`, so they ran as consecutive single-issue PRs.
+See "what the plan got wrong" below — that is a collision between two rules, not a lapse in either.
+
+## The four success criteria, assessed
+
+1. **An event that reaches a subscriber has reached the log — met.** `record()` awaits its append
+   before it publishes, and the poll loop advances its collector snapshot only after every event in
+   the batch is on disk (`poll-loop.ts` says so in its own words). Both loci, as the criterion
+   demanded. The one named exception is exempt **by name and by type**:
+   `recordAlarm(event: EventOf<'collector.error'>)`, so no collector-derived event can reach the
+   carve-out at all — a compile-time property rather than a claim a caller can make.
+   **Still true after prd-44 ruling 4 bounded the in-memory window**, which a reader will wonder
+   about: the bound changes which events a *new subscriber replays*, not whether an event that
+   reaches a subscriber reached the log first, and the fold stays complete either way.
+2. **A dropped write is loud — met.** #26, and the alarm reaches subscribers even when its own
+   append cannot (ADR-0030). #106 then removed the way one broken dashboard could silence that
+   alarm for every dashboard behind it.
+3. **`/api/meta` costs the same at hour six as at minute one — met, and pinned by a count.** The
+   fold is maintained incrementally and `/api/meta` answers from it. The law asserts **zero extra
+   `reduce()` calls per `foldSoFar()` read, at two session sizes**
+   (`session-recorder.test.ts`), plus a reference-identity law that a re-fold cannot fake — the
+   spy alone was structurally blind to a rebuild through `reduceAll`, which the file records.
+4. **The replay contract says what a replay may now contain — met 2026-08-25**, before wave 2 was
+   allowed to dispatch. [ADR-0029](../adr/0029-a-recording-may-repeat-a-fact.md) names
+   duplicate-on-replay accepted. The criterion's own text above carries the date.
+
+## Three ADRs, and only one was planned
+
+- **[ADR-0029](../adr/0029-a-recording-may-repeat-a-fact.md)** — the prerequisite this PRD named
+  for itself and gated wave 2 behind (PR #77). Its evidence then corrected ruling 1's mechanism.
+- **[ADR-0030](../adr/0030-the-alarm-may-outrun-the-record.md)** — the alarm may outrun the record.
+  Success 1's named exception, promoted to an ADR once #26 showed it had to live on the durability
+  boundary rather than in the poll loop.
+- **[ADR-0031](../adr/0031-the-recorder-hands-out-a-frozen-fold.md)** — the recorder hands out a
+  frozen fold. Ruling 2 said the fold is maintained; it did not say the fold is handed out by
+  reference to sixteen callers, which is what made a caller's mutation silent, permanent for the
+  session, and unrepairable.
+
+Both consequential ADRs were reached from a wave's *build*, not from its plan. An ADR a PRD can
+name in advance is the exception here, not the rule.
+
+## The two open questions
+
+**1. Does a duplicate on replay break any existing consumer? — answered 2026-08-25**, with the
+corpus, and the answer is above in full: no test breaks, meaning does, in 79 of era-1's 100 lines.
+ADR-0029 accepts that cost and records the content-hash dedupe it rejected. Fixing the seven
+non-idempotent reducer arms was explicitly not scoped here and remains unowned.
+
+**2. Should `foldSoFar()` be the only reader, with `eventsSoFar()` narrowed to the exporter? —
+still unruled, and its premise is false.** Two things learned after this PRD stopped looking, both
+worth having before the question is asked again:
+
+- **There is no exporter caller to narrow to.** `cli/export-record.ts` and `cli/export-otlp.ts`
+  both read the recording back from **disk** via `readSessionEvents`, never from the recorder's
+  buffer. The question as phrased proposes narrowing a surface to the one consumer that does not
+  use it. (Found while auditing all fourteen call sites for prd-44 #37, and recorded on that issue
+  after this PRD had already named the question a prerequisite it was not.)
+- **`eventsSoFar()` is no longer the whole session.** prd-44 ruling 4 bounded it to the last
+  `MAX_BUFFERED_EVENTS`, so the interesting question has changed shape: it is no longer "who may
+  read the raw events" but "which readers can tolerate a window". Eleven call sites read it today;
+  two that could not — `rotate.ts`'s event count and `cli/run.ts`'s boot fold — were moved to
+  `foldSoFar()` by prd-44 #37, which is ruling 2's own recommendation arriving where it was needed.
+
+**Open, not ruled** — and whoever picks it up should re-ask it in prd-44's terms rather than these.
+
+## What the plan got wrong
+
+The re-sequencing above already records the three things this PRD found about itself, in its own
+voice and dated: one file claimed by three issues at once, `#26` authored into a wave its own plan
+proved unbuildable, and two dependencies `scripts/fence-lint.sh` structurally cannot see. Those
+stand. What only hindsight adds:
+
+- **The bundling rule lost to the fence rule, and neither was wrong.** The working agreement says
+  bundle, because the ~21 h toll is per-PR. `AGENTS.md` says never bundle across a live fence,
+  because two issues claiming one path is a rebase conflict already scheduled. Waves 4–7 were three
+  issues on `recorder/session-recorder.ts` plus one found later, so they paid the toll four times
+  on purpose. A PRD whose rulings converge on one file should expect that at grooming time and say
+  so, rather than let the two rules meet in the sequencing section.
+- **"Unfiled work implied" came true exactly, and was found by someone else's review.** The
+  Sequencing section says the other fifteen `eventsSoFar()` call sites "were counted but not
+  audited one by one. If any of them folds per call the way `/api/meta` does, it is the same issue
+  with a different route name." One did — `api/lab.ts` — and it surfaced during the review of #98,
+  became **#104**, and shipped under prd-44 rather than here. The prediction was right and cost a
+  milestone boundary anyway: **an extension clause that names a defect shape should come with a
+  search for every instance of it, at grooming time.** prd-44's closeout reached the same
+  conclusion independently, from its own ruling 1.
+- **The docs debt was created by the fence discipline working, and nobody planned for it.** #99 and
+  #100 exist because two waves *correctly* declined to open `docs/architecture.md` across a live
+  fence. That is the discipline behaving as designed, and its predictable cost is a docs pass at
+  the end — which sat as the last open work in the milestone for two days. A closing docs wave
+  belongs in the sequencing from the start, not as debt discovered when everything else is done.
+- **A ruling can be stranded on a merged branch.** #26's DoD rested on success 1's named exception,
+  whose commit had been pushed to `prd39-paper` after that branch's PR merged and never landed —
+  so on `main` the exception did not exist. Recovered in PR #86. The general form of this is now in
+  `AGENTS.md`'s Landing section (`50c8804`): a green gate on a branch whose base is not `main` has
+  landed nothing.
+
+## Residuals
+
+None open. Everything this PRD spawned has landed or has an owner elsewhere:
+
+- **#104** — the third parse-cache reader, prd-44's, shipped in PR #129.
+- **#106** — the subscriber-isolation gap #26's build found, shipped here in PR #125.
+- **The seven non-idempotent reducer arms** ADR-0029's corpus evidence exposed: explicitly out of
+  scope, still unowned, and the strongest candidate this PRD leaves behind.

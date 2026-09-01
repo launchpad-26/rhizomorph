@@ -3,13 +3,18 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { repoSlug, sessionDirFor, snapshotDirFor } from '../log/paths.js'
 import { RESUME_WINDOW_MS } from '../log/session-log.js'
 import type { Rotation } from '../recorder/index.js'
-import { beginRetargetBoundary, performRetarget } from '../recorder/rotate.js'
+import {
+  beginRetargetBoundary,
+  performRetarget,
+  RETARGET_OR_ROTATION_IN_FLIGHT_MESSAGE,
+} from '../recorder/rotate.js'
 import type { ServerContext } from '../server/context.js'
 import { exec as realExec, withTimeout } from '../server/exec.js'
 import { describeTelemetryCost, lanesAtBoundary } from '../server/retarget-cost.js'
 import { validateRetargetTarget } from '../server/retarget-validation.js'
 import { createFileSnapshotStore } from '../server/snapshot-store.js'
 import { recordSessionBootMeta, sessionBootMetaFor } from './meta.js'
+import { RETARGET_IN_FLIGHT_CODE, type RetargetRefusalCode } from './refusals.js'
 import { requireCapabilityToken } from './security.js'
 
 /**
@@ -101,18 +106,6 @@ export function parseRetargetRequestBody(body: unknown): RetargetRequestBody {
 export const RETARGET_EXEC_TIMEOUT_MS = 5000
 
 /**
- * Which check refused. One code per distinguishable operator situation —
- * three of them are `validateRetargetTarget`'s own reasons, passed through
- * unchanged so the route never re-words a refusal the module below it owns.
- */
-export type RetargetRefusalCode =
-  | 'not-found'
-  | 'not-a-repo'
-  | 'writer-alive'
-  | 'already-watching'
-  | 'retarget-in-flight'
-
-/**
  * The data root the adopted repo's session directory is built under, derived
  * from the one being watched now.
  *
@@ -173,10 +166,8 @@ export function registerRetargetRoute(app: FastifyInstance, ctx: ServerContext):
       const boundary = beginRetargetBoundary(ctx.recorder)
       if (boundary === null) {
         return reply.code(409).send({
-          code: 'retarget-in-flight' satisfies RetargetRefusalCode,
-          error:
-            'another retarget (or rotation) is already in flight for this recorder — refused rather than ' +
-            'queued, so this request never risks writing a session into a repo the operator has already moved away from',
+          code: RETARGET_IN_FLIGHT_CODE,
+          error: RETARGET_OR_ROTATION_IN_FLIGHT_MESSAGE,
         })
       }
 

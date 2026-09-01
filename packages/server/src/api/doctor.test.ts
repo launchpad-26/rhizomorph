@@ -13,6 +13,7 @@ import { SessionLogWriter } from '../recorder/index.js'
 import { buildApp } from '../server/build-app.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { createRouteDoctorProbe, PROBE_CACHE_TTL_MS, ROUTE_EXEC_TIMEOUT_MS, runServerDoctor } from './doctor.js'
+import { capabilityHeaders } from './test-support.js'
 import type * as ExecModule from '../server/exec.js'
 
 function okResult(stdout = ''): ExecResult {
@@ -708,10 +709,11 @@ describe('GET /api/doctor', () => {
     return buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
   }
 
-  it('serves the server-relevant checks as a JSON array, GET-only and without a token', async () => {
+  it('serves the server-relevant checks as a JSON array, GET-only, gated by the capability token (prd-29 ruling 7, #59)', async () => {
     await setup()
     try {
-      const response = await makeApp().inject({ method: 'GET', url: '/api/doctor' })
+      const app = makeApp()
+      const response = await app.inject({ method: 'GET', url: '/api/doctor', headers: capabilityHeaders(app) })
 
       expect(response.statusCode).toBe(200)
       const body = response.json()
@@ -736,7 +738,8 @@ describe('GET /api/doctor', () => {
   it('answers at this repo\'s own path — the session-boundary check names it', async () => {
     await setup()
     try {
-      const response = await makeApp().inject({ method: 'GET', url: '/api/doctor' })
+      const app = makeApp()
+      const response = await app.inject({ method: 'GET', url: '/api/doctor', headers: capabilityHeaders(app) })
       const body = response.json()
       const boundary = checkFor(body, 'session-boundary')
       expect(boundary.message).toContain(repoPath)
@@ -759,7 +762,12 @@ describe('GET /api/doctor', () => {
     it('a loopback Host succeeds', async () => {
       await setup()
       try {
-        const response = await makeApp().inject({ method: 'GET', url: '/api/doctor', headers: { host: '127.0.0.1:4321' } })
+        const app = makeApp()
+        const response = await app.inject({
+          method: 'GET',
+          url: '/api/doctor',
+          headers: { host: '127.0.0.1:4321', ...capabilityHeaders(app) },
+        })
         expect(response.statusCode).toBe(200)
       } finally {
         await teardown()
@@ -770,7 +778,10 @@ describe('GET /api/doctor', () => {
     // — this route's own (now-deleted) route-local message contained that same
     // phrase, so a substring match would stay green even if the app-wide guard
     // stopped running before this route (prd-23 #307: the route-local
-    // `preHandler` is gone; this is the sentence that survives it).
+    // `preHandler` is gone; this is the sentence that survives it). No
+    // capability header here on purpose: the Host guard is an `onRequest` hook
+    // and must refuse before the route's own `preHandler` capability gate ever
+    // runs, so this stays a bare request to prove that ordering.
     it('a non-loopback Host is refused, before any check runs', async () => {
       await setup()
       try {
@@ -794,7 +805,7 @@ describe('GET /api/doctor', () => {
         const ctx = { repoPath, repoName: 'repo', sessionDir, recorder }
         const app = buildApp(ctx)
 
-        const before = (await app.inject({ method: 'GET', url: '/api/doctor' })).json()
+        const before = (await app.inject({ method: 'GET', url: '/api/doctor', headers: capabilityHeaders(app) })).json()
         expect(checkFor(before, 'session-boundary').message).toContain(repoPath)
 
         // The retarget mutation — no re-registration, no new buildApp call, and
@@ -802,7 +813,7 @@ describe('GET /api/doctor', () => {
         // be serving the single-flight cache built for the OLD repo.
         ctx.repoPath = otherRepoPath
 
-        const after = (await app.inject({ method: 'GET', url: '/api/doctor' })).json()
+        const after = (await app.inject({ method: 'GET', url: '/api/doctor', headers: capabilityHeaders(app) })).json()
         expect(checkFor(after, 'session-boundary').message).toContain(otherRepoPath)
         expect(checkFor(after, 'session-boundary').message).not.toContain(repoPath)
       } finally {
@@ -819,8 +830,8 @@ describe('GET /api/doctor', () => {
         const app = buildApp(ctx)
 
         const [a, b] = await Promise.all([
-          app.inject({ method: 'GET', url: '/api/doctor' }),
-          app.inject({ method: 'GET', url: '/api/doctor' }),
+          app.inject({ method: 'GET', url: '/api/doctor', headers: capabilityHeaders(app) }),
+          app.inject({ method: 'GET', url: '/api/doctor', headers: capabilityHeaders(app) }),
         ])
 
         expect(a.statusCode).toBe(200)
@@ -845,7 +856,7 @@ describe('GET /api/doctor', () => {
           readOnly: true,
         })
 
-        const response = await app.inject({ method: 'GET', url: '/api/doctor' })
+        const response = await app.inject({ method: 'GET', url: '/api/doctor', headers: capabilityHeaders(app) })
         const body = response.json()
 
         expect(checkFor(body, 'session-boundary').message).toContain('not applicable')

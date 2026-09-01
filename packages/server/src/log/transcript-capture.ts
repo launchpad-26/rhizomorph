@@ -46,6 +46,19 @@ export interface TranscriptCaptureManifest {
   complete: boolean
   totalBytes: number
   lanes: CapturedLaneTranscript[]
+  /**
+   * Which events the lane list itself came from (#133). `'recording'` means the
+   * session's own log, so the list is every lane the session named;
+   * `'window'` means the recorder's in-memory buffer, which prd-44 ruling 4
+   * caps at `MAX_BUFFERED_EVENTS` — so past that cap the list may be SHORT and
+   * nothing here can tell. Absent on a manifest written before #133, which
+   * reads the same way as `'window'`: unknown rather than complete.
+   *
+   * This is a different question from {@link complete}, and the two are
+   * deliberately separate: `complete` is about the lanes that were found,
+   * `attributedFrom` is about whether finding them was possible at all.
+   */
+  attributedFrom?: 'recording' | 'window'
 }
 
 function manifestFilePath(sessionDir: string, sessionId: string): string {
@@ -177,8 +190,39 @@ function captureGapReason(lane: string, tried: readonly string[]): string {
 }
 
 export interface CaptureSessionTranscriptsOptions {
-  /** The closing session's own events — walked for every lane it ever attributed. */
+  /**
+   * The closing session's events as the caller holds them in memory. Since
+   * prd-44 ruling 4 (#37) that is a WINDOW of the last `MAX_BUFFERED_EVENTS`,
+   * not necessarily the session — see {@link recordedEvents}, which is where a
+   * caller that can read the log says so.
+   */
   events: readonly RhizomorphEvent[]
+  /**
+   * The same session's events as read back from its own log — every lane it
+   * ever named, whatever has since fallen out of {@link events} (#133).
+   *
+   * **Sound because the log is always the superset.** prd-40 ruling 1 appends
+   * before publishing, so nothing reaches {@link events} that is not already in
+   * the file; and rotation captures BEFORE appending `session.closed`, which is
+   * not an attributed type, so the log at that instant carries exactly the
+   * attributions this needs.
+   *
+   * Three states, and the third is the one worth reading:
+   *
+   * - **omitted** — the caller has not been taught the difference and is
+   *   vouching for {@link events}. Attribution comes from there, exactly as it
+   *   did before #133, and {@link TranscriptCaptureManifest.complete} is
+   *   computed exactly as it was.
+   * - **non-empty** — the authority. Attribution comes from here.
+   * - **empty** — the caller asked for the recording and the read gave nothing
+   *   back (`readSessionEvents` reports an unreadable log as `[]`). Attribution
+   *   falls back to {@link events}, which still captures the recent lanes
+   *   rather than none — but `complete` is forced to `false`, because the lane
+   *   list may now be short and nothing at this layer can know that it is. A
+   *   capture that quietly claimed completeness there would be the dishonest
+   *   failure ADR-0011 abolished, one artefact over.
+   */
+  recordedEvents?: readonly RhizomorphEvent[]
   /** This repo's session directory — captures land under `transcripts/<sessionId>/` inside it. */
   sessionDir: string
   /** The session being closed. */
@@ -204,12 +248,27 @@ export interface CaptureSessionTranscriptsOptions {
  * Returns `null` and writes nothing when the session never attributed a
  * single lane — there is nothing to capture, so no `transcripts/` directory
  * appears for a session that was never instrumented.
+ *
+ * **The lane list comes from the recording, not from the caller's window**
+ * (#133), whenever the caller can supply one — see
+ * {@link CaptureSessionTranscriptsOptions.recordedEvents}. Attributing from a
+ * bounded window means a lane whose only attributing events have been evicted
+ * is absent from the manifest: not reported unreadable, not counted, simply
+ * gone, and gone permanently, because the capture is what the lane index reads
+ * once the log itself has been pruned. That the newest attribution wins
+ * (`findAttribution` walks backwards) is what makes the wider list purely
+ * additive: a lane already in the window keeps exactly the attribution it had.
  */
 export async function captureSessionTranscripts(
   options: CaptureSessionTranscriptsOptions,
 ): Promise<TranscriptCaptureManifest | null> {
-  const { events, sessionDir, sessionId, claudeProjectsRoot, now } = options
-  const lanes = allAttributedLanes(events)
+  const { events, recordedEvents, sessionDir, sessionId, claudeProjectsRoot, now } = options
+  // The recording is the authority when there is one; the window is the
+  // fallback, and a fallback the caller did not choose is never sold as
+  // complete (see `recordedEvents`).
+  const fromRecording = recordedEvents !== undefined && recordedEvents.length > 0
+  const readFailed = recordedEvents !== undefined && recordedEvents.length === 0
+  const lanes = allAttributedLanes(fromRecording ? recordedEvents : events)
   if (lanes.length === 0) return null
 
   const dir = transcriptCaptureDir(sessionDir, sessionId)
@@ -256,9 +315,13 @@ export async function captureSessionTranscripts(
   const manifest: TranscriptCaptureManifest = {
     sessionId,
     capturedAt: now,
-    complete: captured.every((entry) => entry.captured),
+    // `readFailed` forces this false even when every lane that WAS found made
+    // it in: the question `complete` answers is "is this recording's
+    // conversation whole", and a possibly-short lane list cannot answer yes.
+    complete: !readFailed && captured.every((entry) => entry.captured),
     totalBytes: captured.reduce((sum, entry) => sum + entry.bytes, 0),
     lanes: captured,
+    attributedFrom: fromRecording ? 'recording' : 'window',
   }
   await writeTranscriptCaptureManifest(sessionDir, manifest)
   return manifest

@@ -44,6 +44,14 @@
     "./replay/rotate": "./src/replay/rotate.ts",
     "./lab/launch": "./src/lab/launch/launch.ts",
     "./concierge/instrument": "./src/concierge/instrument.ts",
-    "./concierge/clone": "./src/concierge/clone.ts"
+    "./concierge/clone": "./src/concierge/clone.ts",
+    "./replay/api": "./src/replay/api.ts",
+    "./fleet/manifest": "./src/fleet/manifest.ts",
+    "./drawer/useTranscript": "./src/drawer/useTranscript.ts",
+    "./lab/api": "./src/lab/api.ts",
+    "./lab/launch/estimate": "./src/lab/launch/estimate.ts",
+    "./recordings/laneIndex": "./src/recordings/laneIndex.ts",
+    "./lane-page/laneIndex": "./src/lane-page/laneIndex.ts",
+    "./connect/meta": "./src/connect/meta.ts"
   }
 }

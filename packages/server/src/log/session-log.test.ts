@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // The writing half lives behind the recorder seam (prd16 ruling 6); these
 // reader/boundary tests still need a writer to lay down the fixtures they read.
 import { dropTrailingPartialLine, SessionLogWriter } from '../recorder/index.js'
+import { parsedSessionLogCache, readLaneIndex } from './lane-index.js'
 import {
   decideSessionBoot,
   findResumableSession,
@@ -668,5 +669,112 @@ describe('formatBootDuration', () => {
   it('renders sub-minute durations as seconds', () => {
     expect(formatBootDuration(12_000)).toBe('12s')
     expect(formatBootDuration(0)).toBe('0s')
+  })
+})
+
+// prd-44 ruling 1 extends "parsed once, not once per request" to *every* reader
+// of the session directory, and #104 is the third one: `readSessionEvents`,
+// reached per request by `api/lab.ts`'s three routes plus `lab/compare.ts` and
+// `lab/fork.ts`. Every law here asserts a COUNT (`parseCount`), never a wall
+// clock — a timing assertion measures the box, which is the defect prd-24
+// named. No file here is a `*.bench.test.ts` and none carries a
+// `@gate-timing` marker, so `scripts/gate.sh`'s 4x-load timing set and its
+// `.swarm/timing-count` ratchet are untouched.
+describe('readSessionEvents through the shared parse cache', () => {
+  let dir: string
+
+  /** One JSONL file's worth of bytes for `events`, exactly as the writer lays them down. */
+  function jsonl(...events: ReturnType<typeof errorEvent>[]): string {
+    return `${events.map((event) => JSON.stringify(event)).join('\n')}\n`
+  }
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-log-cache-test-'))
+    // The cache is one per process (ADR-0028), so a count law has to start
+    // from a known floor rather than from whatever another test left behind.
+    parsedSessionLogCache.resetForTests()
+  })
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+    parsedSessionLogCache.resetForTests()
+  })
+
+  it('parses a finished recording once, however many times its events are read', async () => {
+    const filePath = sessionFilePath(dir, '1000')
+    const events = [errorEvent('evt-1', 1), errorEvent('evt-2', 2)]
+    await writeFile(filePath, jsonl(...events))
+
+    expect(await readSessionEvents(filePath)).toEqual(events)
+    expect(await readSessionEvents(filePath)).toEqual(events)
+    expect(await readSessionEvents(filePath)).toEqual(events)
+
+    // 3 is the defect this issue exists to remove; 0 would mean this reader
+    // never reached the cache at all, so the law fails in both directions.
+    expect(parsedSessionLogCache.parseCount).toBe(1)
+  })
+
+  it('shares one instance with the lane index rather than keeping a second cache', async () => {
+    const filePath = sessionFilePath(dir, '1000')
+    await writeFile(filePath, jsonl(errorEvent('evt-1', 1)))
+
+    expect(await readSessionEvents(filePath)).toEqual([errorEvent('evt-1', 1)])
+    expect(parsedSessionLogCache.parseCount).toBe(1)
+
+    // The whole point of ruling 1's amendment: the cache spans readers and
+    // sessions. A second instance inside `session-log.ts` would pass the law
+    // above and fail this one, which is why this one exists.
+    await readLaneIndex(dir)
+    expect(parsedSessionLogCache.parseCount).toBe(1)
+  })
+
+  it('re-parses a recording that grew, so a session still being appended to is never served a stale window', async () => {
+    const filePath = sessionFilePath(dir, '1000')
+    const first = errorEvent('evt-1', 1)
+    const second = errorEvent('evt-2', 2)
+    await writeFile(filePath, jsonl(first))
+
+    expect(await readSessionEvents(filePath)).toEqual([first])
+    await appendFile(filePath, jsonl(second))
+
+    // This reader is handed a path, not a live session id, so it cannot make
+    // `listing.ts`’s choice between the recorder buffer and the file. It does
+    // not need to: an append always moves `size`, so the live recording
+    // invalidates its own entry every time it grows.
+    expect(await readSessionEvents(filePath)).toEqual([first, second])
+    expect(parsedSessionLogCache.parseCount).toBe(2)
+  })
+
+  it('still excludes an unreadable line, and still reads a missing file as empty', async () => {
+    const filePath = sessionFilePath(dir, '1000')
+    const good = errorEvent('evt-1', 1)
+    await writeFile(filePath, `${jsonl(good)}not json at all\n`)
+
+    // A cache must never turn a parse failure into a silently shorter read:
+    // the malformed line is excluded from `events` and counted, cached or not.
+    expect(await readSessionEvents(filePath)).toEqual([good])
+    expect(await readSessionEvents(filePath)).toEqual([good])
+    expect((await readSessionLog(filePath)).unreadableLineCount).toBe(1)
+    expect(parsedSessionLogCache.parseCount).toBe(1)
+
+    // A file that is not there is not a parse, and is not remembered as one.
+    expect(await readSessionEvents(path.join(dir, 'missing.jsonl'))).toEqual([])
+    expect(await readSessionEvents(path.join(dir, 'missing.jsonl'))).toEqual([])
+    expect(parsedSessionLogCache.parseCount).toBe(1)
+  })
+
+  it('hands every caller its own array, so one caller cannot mutate what the next one reads', async () => {
+    const filePath = sessionFilePath(dir, '1000')
+    const recorded = errorEvent('evt-1', 1)
+    await writeFile(filePath, jsonl(recorded))
+
+    const mine = await readSessionEvents(filePath)
+    mine.push(errorEvent('evt-99', 99))
+    mine.shift()
+
+    const theirs = await readSessionEvents(filePath)
+    expect(theirs).toEqual([recorded])
+    expect(theirs).not.toBe(mine)
+    expect(parsedSessionLogCache.parseCount).toBe(1)
   })
 })

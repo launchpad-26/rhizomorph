@@ -7,15 +7,19 @@ import {
   isSafeSessionId,
 } from '../log/transcript-attribution.js'
 import type { ServerContext } from '../server/context.js'
+import { requireCapabilityToken } from './security.js'
 import { parseTranscript, readBoundedLines, type TranscriptEntry } from './transcript.js'
 
 /**
- * `GET /api/session-preview/:sessionId` (prd20 w6) — untokened, like
- * `/api/doctor` (#216's posture: a plain read costs an unauthenticated caller
- * nothing this route doesn't already bound). A session id off the wire is
- * NEVER built into a path without first passing {@link isSafeSessionId} — the
- * same shape gate `transcript-attribution.ts` applies everywhere a session id
- * meets a filesystem — and the file this route reads is located the same way
+ * `GET /api/session-preview/:sessionId` (prd20 w6) — gated (prd-29 ruling 7 /
+ * #58): carries `requireCapabilityToken` as a route-local `preHandler`,
+ * exactly as the rest of wave 1's reads do. It answers only the capability
+ * token's holder, superseding the #216 "untokened, like `/api/doctor`"
+ * posture this route carried before `gated-read` existed. A session id off
+ * the wire is NEVER built into a path without first passing
+ * {@link isSafeSessionId} — the same shape gate `transcript-attribution.ts`
+ * applies everywhere a session id meets a filesystem — and the file this
+ * route reads is located the same way
  * the transcript tail does: `findSessionAttribution` (this session id's own
  * newest-wins attribution) into `candidateTranscriptPaths` (the two places the
  * collector itself tails).
@@ -169,26 +173,30 @@ export function registerSessionPreviewRoute(
 ): void {
   const claudeProjectsRoot = options.claudeProjectsRoot ?? defaultClaudeProjectsRoot()
 
-  app.get<{ Params: { sessionId: string } }>('/api/session-preview/:sessionId', async (request, reply) => {
-    const { sessionId } = request.params
+  app.get<{ Params: { sessionId: string } }>(
+    '/api/session-preview/:sessionId',
+    { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') },
+    async (request, reply) => {
+      const { sessionId } = request.params
 
-    // Checked before anything else touches the event log or a filesystem —
-    // a traversal-shaped id is refused here and never built into a path.
-    if (!isValidSessionIdParam(sessionId)) {
-      return reply.code(400).send({ error: `sessionId is not a valid identifier: ${JSON.stringify(sessionId)}` })
-    }
+      // Checked before anything else touches the event log or a filesystem —
+      // a traversal-shaped id is refused here and never built into a path.
+      if (!isValidSessionIdParam(sessionId)) {
+        return reply.code(400).send({ error: `sessionId is not a valid identifier: ${JSON.stringify(sessionId)}` })
+      }
 
-    const result = await previewSession({
-      events: ctx.recorder.eventsSoFar(),
-      sessionId,
-      claudeProjectsRoot,
-      chunkBytes: options.chunkBytes,
-    })
+      const result = await previewSession({
+        events: ctx.recorder.eventsSoFar(),
+        sessionId,
+        claudeProjectsRoot,
+        chunkBytes: options.chunkBytes,
+      })
 
-    if (!result.available) {
-      const { available, sessionId: id, reason } = result
-      return reply.code(result.unknownSessionId ? 404 : 200).send({ available, sessionId: id, reason })
-    }
-    return result
-  })
+      if (!result.available) {
+        const { available, sessionId: id, reason } = result
+        return reply.code(result.unknownSessionId ? 404 : 200).send({ available, sessionId: id, reason })
+      }
+      return result
+    },
+  )
 }

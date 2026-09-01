@@ -65,11 +65,21 @@ export interface StreamContextValue {
   /** Shown in the provenance bar — a fixture must never pass as live data. */
   provenance: string
   /**
-   * Non-null only once the live event buffer's retention ceiling
-   * (`streamState.ts`'s `MAX_EVENTS`) has actually evicted something —
-   * `"showing the last N events"`. A surface reading `state.events` directly
-   * (never `state.session`, which absorbed every event regardless) must say
-   * this rather than let a bounded window pass as the whole session.
+   * Non-null once the window this context hands out is short of the session it
+   * belongs to — `"showing the last N events"`. A surface reading
+   * `state.events` directly (never `state.session`, which absorbed every event
+   * regardless) must say this rather than let a bounded window pass as the
+   * whole session.
+   *
+   * **Two ways to get there, and only one of them is this client's own.** The
+   * browser evicts at `streamState.ts`'s `MAX_EVENTS`, which its own fold sees.
+   * The *server* also bounds what it replays — `MAX_BUFFERED_EVENTS`, prd-44
+   * ruling 4 — and that truncation is invisible to a fold built from the
+   * truncated stream: every event the client received is in its own
+   * `session.eventCount`, so the pair agrees and the window reads as whole
+   * (#132). The live branch therefore takes the session's true total from
+   * `/api/meta`, which serves it from the recorder's maintained fold and is
+   * never capped.
    */
   eventsWindowLabel: string | null
 }
@@ -89,6 +99,105 @@ const StreamContext = createContext<StreamContextValue | null>(null)
  */
 const REPLAY_CONNECTED_AT = Number.MAX_SAFE_INTEGER
 
+/**
+ * `/api/meta`'s shape as this file needs it — one number, and the same
+ * `MetaFetchLike`/`defaultMetaFetch` posture `StatusBar.tsx` already uses for
+ * the same route, so there is one story here rather than two.
+ */
+type MetaFetchLike = (input: string) => Promise<{ ok: boolean; json: () => Promise<unknown> }>
+
+const SESSION_META_URL = '/api/meta'
+
+function defaultMetaFetch(): MetaFetchLike | null {
+  return typeof globalThis.fetch === 'function'
+    ? ((input: string) => globalThis.fetch(input)) as MetaFetchLike
+    : null
+}
+
+/**
+ * `eventCount` from `/api/meta`, or `null` for anything this cannot trust: a
+ * body that is not an object, a count that is not a non-negative integer, a
+ * non-`ok` response, a server that predates the field, a throw. All of them
+ * read the same way — the total is *unavailable*, never half-trusted and never
+ * guessed at.
+ */
+function parseRecordedEventCount(body: unknown): number | null {
+  if (typeof body !== 'object' || body === null) return null
+  const { eventCount } = body as { eventCount?: unknown }
+  return typeof eventCount === 'number' && Number.isInteger(eventCount) && eventCount >= 0 ? eventCount : null
+}
+
+/**
+ * How many events the live session has actually recorded, from `/api/meta` —
+ * `null` while it is unknown.
+ *
+ * **Why a fetch at all, when the fold is right here.** The fold is built from
+ * what arrived, so it cannot see what did not: after a replay the server
+ * truncated at `MAX_BUFFERED_EVENTS` (prd-44 ruling 4), `events.length` and
+ * `session.eventCount` agree and the window reads as whole. `/api/meta`
+ * answers `eventCount` from the recorder's own maintained fold (prd-40 ruling 2,
+ * #592 made it a live route fact rather than a boot snapshot), which is never
+ * capped — so it is the one authority on the wire that a truncated stream
+ * cannot mislead.
+ *
+ * **Read once per session identity, and that is enough**, because the label
+ * only ever renders how many events are *shown*: the total is a threshold, not
+ * a figure anyone reads. A total that has since grown cannot make the
+ * comparison wrong in the direction that matters — see `liveWindowPair`, which
+ * takes the larger of the two, so the client's own eviction is still caught by
+ * its own fold exactly as before.
+ *
+ * **Cleared the instant the identity changes** (the same rotation boundary
+ * `StatusBar.tsx`'s boot facts re-read on): carrying the previous session's
+ * larger total into a fresh one would report a brand-new session as partial,
+ * which is the false positive this whole change must not introduce.
+ */
+function useRecordedEventCount(
+  enabled: boolean,
+  liveSessionId: string | null,
+  fetchImpl?: MetaFetchLike,
+): number | null {
+  const [recorded, setRecorded] = useState<number | null>(null)
+
+  useEffect(() => {
+    setRecorded(null)
+    if (!enabled || liveSessionId === null) return
+
+    const impl = fetchImpl ?? defaultMetaFetch()
+    if (impl === null) return
+
+    let live = true
+    impl(SESSION_META_URL)
+      .then(async (response) => (response.ok ? parseRecordedEventCount(await response.json()) : null))
+      .catch(() => null)
+      .then((value) => {
+        if (live) setRecorded(value)
+      })
+
+    return () => {
+      live = false
+    }
+  }, [enabled, fetchImpl, liveSessionId])
+
+  return recorded
+}
+
+/**
+ * The pair {@link eventsWindowLabel} is asked about on the live path: the
+ * window as received, against the larger of what this client folded and what
+ * the session has actually recorded.
+ *
+ * `eventsWindowLabel` stays the single author of the sentence — only what it is
+ * asked about changes. And the `<=` is what keeps the change one-directional:
+ * an unavailable, stale or smaller total leaves the pair exactly as it was, so
+ * the worst `/api/meta` can do is fail to *reveal* a truncation. It can never
+ * manufacture one.
+ */
+function liveWindowPair(state: StreamState, recorded: number | null): Pick<StreamState, 'events' | 'session'> {
+  if (recorded === null || recorded <= state.session.eventCount) return state
+  return { events: state.events, session: { ...state.session, eventCount: recorded } }
+}
+
 export interface StreamProviderProps {
   url: string
   children: ReactNode
@@ -100,9 +209,14 @@ export interface StreamProviderProps {
    * switched off entirely so no test races an interval.
    */
   now?: number
+  /**
+   * Test-only escape hatch for injecting a mock `/api/meta` fetch — the same
+   * hatch `StatusBarProps.fetchMeta` provides for the same route (#132).
+   */
+  fetchMeta?: MetaFetchLike
 }
 
-export function StreamProvider({ url, children, createSource, now }: StreamProviderProps) {
+export function StreamProvider({ url, children, createSource, now, fetchMeta }: StreamProviderProps) {
   // #155 audit: wall-clock is correct here. This is the LIVE SSE connection's
   // own news/history boundary — it exists whether or not the app is ever put
   // into replay mode, and when `mode === 'replay'` the value below (`value`,
@@ -144,6 +258,16 @@ export function StreamProvider({ url, children, createSource, now }: StreamProvi
   // hit. `replay.state` is already replay's own incrementally-folded session
   // (#160's `foldFrom`, never redone here), and `replayStreamState` composes
   // the rest — the events slice and the news/history split — without a fold.
+  // The live session's true recorded total, for the label alone. Disabled off
+  // the live path for `StatusBar.tsx`'s reason: `/api/meta` only ever describes
+  // the live recorder, so asking it while replaying or while a fixture drives
+  // would be a request whose answer must be discarded anyway.
+  const recordedEventCount = useRecordedEventCount(
+    mode !== 'replay' && source === 'live',
+    live.state.session.session?.sessionId ?? null,
+    fetchMeta,
+  )
+
   const replayState = useMemo(
     () => replayStreamState(replay.scrubEvents, replay.scrubEventCount, replay.state, REPLAY_CONNECTED_AT),
     [replay.scrubEvents, replay.scrubEventCount, replay.state],
@@ -183,9 +307,13 @@ export function StreamProvider({ url, children, createSource, now }: StreamProvi
       // not the live template, or that frame pairs source='fleet20' with a
       // string that begins "live" (prd-19 ruling 6, found by PR #282's review).
       provenance: source === 'live' ? `live · ${url}` : specFor(source).provenance,
-      eventsWindowLabel: eventsWindowLabel(live.state),
+      // The one branch whose window the server may have truncated before this
+      // client ever saw it (#132). Replay and the fixtures each fold a whole
+      // log, so their own `session.eventCount` is already the true total and
+      // they keep reading it.
+      eventsWindowLabel: eventsWindowLabel(liveWindowPair(live.state, recordedEventCount)),
     }
-  }, [mode, replayState, source, fixture, live.state, live.status, url])
+  }, [mode, replayState, source, fixture, live.state, live.status, url, recordedEventCount])
 
   return <StreamContext.Provider value={value}>{children}</StreamContext.Provider>
 }

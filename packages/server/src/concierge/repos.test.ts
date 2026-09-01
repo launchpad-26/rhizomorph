@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, statSync } from 'node:fs'
-import { chmod, mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises'
 import { platform, tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { worktreePathToProjectSlug } from '../collectors/sessionlog/worktree-slug.js'
 import {
   type DiscoveryFs,
   type SubdirectoryListing,
@@ -13,6 +14,81 @@ import {
   reverseProjectSlug,
   scanCommonRoots,
 } from './repos.js'
+import type { TranscriptFileListing, TranscriptFileRead, TranscriptReadFs } from './slug-disambiguate.js'
+
+// Hoisted here (was declared at the bottom of this file, after the round-trip
+// law below that now needs it) so every `describe` in this file can guard a
+// platform-illegal fixture on the same value, rather than each growing its
+// own `platform() !== 'win32'` spelling.
+const isPosix = platform() !== 'win32'
+
+// A reserved device name is reserved case-insensitively and with any
+// extension (`CON`, `con`, `CON.txt` all match) — matched against the name up
+// to (not including) the first `.`, so an extension cannot launder it. Device
+// numbering starts at 1: `COM0` and `LPT0` are ordinary, unreserved names.
+// Windows also recognizes the 8-bit ISO/IEC 8859-1 superscript digits ¹, ², ³
+// as digits inside COM#/LPT# — `COM¹` is reserved in every directory exactly
+// like `COM1` (Microsoft's own example: `echo test > COM¹` fails to create a
+// file) — so the numbered alternation matches both spellings.
+const WIN32_RESERVED_DEVICE_NAME = /^(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])$/i
+
+/**
+ * (#153) The class of path segment `mkdir` fails on under Windows/NTFS,
+ * derived from the actual naming rule rather than enumerated per case, so
+ * that any future addition to a fixture segment list is covered by
+ * construction instead of needing to be remembered. Four rules, none of them
+ * a plain character set:
+ *
+ *  - an NTFS-illegal character. Microsoft's list has nine: the eight below,
+ *    plus `/`. `/` is deliberately absent from the class — it is a path
+ *    separator on every platform this predicate warns about, so
+ *    `path.join(root, ...segments)`, the only way a "segment" string reaches
+ *    this predicate, has already turned it into hierarchy before the string
+ *    arrives here; there is no single-segment case for it to catch. `\`
+ *    stays in the class for the opposite reason: it is *not* a separator on
+ *    POSIX, so a segment containing it survives `path.join` there intact and
+ *    still needs flagging for win32 portability;
+ *  - a control character (`0x00`-`0x1F`);
+ *  - a trailing dot or trailing space (NTFS silently strips both from the
+ *    name it actually stores, so the round trip this file tests would not
+ *    see back what it wrote);
+ *  - a reserved device name (`WIN32_RESERVED_DEVICE_NAME`, above) — a naming
+ *    rule, not a character set, and the reason a character-class derivation
+ *    alone would not close this class.
+ */
+function isWin32IllegalSegment(segment: string): boolean {
+  if (/[<>:"|?*\\]/.test(segment)) return true
+  if (/[\x00-\x1F]/.test(segment)) return true
+  if (segment.endsWith('.') || segment.endsWith(' ')) return true
+  return WIN32_RESERVED_DEVICE_NAME.test(segment.split('.')[0] ?? '')
+}
+
+/** The fixture segments the round-trip law generates paths from. */
+const ROUND_TRIP_SEGMENT_SOURCE = [
+  'plain-word',
+  'dotted.segment',
+  'under_score',
+  'a space here',
+  'a:colon here',
+  'a\\backslash here',
+  'wide+punct~at@x',
+  "quote'comma,paren(x)",
+  'accentéhere',
+  'emoji\u{1F600}here',
+] as const
+
+/**
+ * The segments the law generates on a given platform. Extracted from the law
+ * body so the win32 branch is reachable on Linux: as an inline
+ * `isPosix || !isWin32IllegalSegment(...)` filter, `isPosix` short-circuits on
+ * every platform CI runs, so the predicate was never called from the generator
+ * — and BOTH deleting it (`.filter(() => true)`) and INVERTING it left the law
+ * green. The rows above tested the rule; nothing tested that the generator used
+ * it. A pure function over a boolean and strings needs no Windows runner.
+ */
+function roundTripSegmentsFor(posix: boolean): string[] {
+  return ROUND_TRIP_SEGMENT_SOURCE.filter((segment) => posix || !isWin32IllegalSegment(segment))
+}
 
 /**
  * An in-memory `DiscoveryFs`. `tree[dir]` is the list of real (non-symlink)
@@ -50,6 +126,34 @@ function fixtureFs(
   }
 }
 
+/**
+ * An in-memory `TranscriptReadFs` — mirrors `fixtureFs` above, but for the
+ * transcript-reading seam `reverseProjectSlug` only ever consults once it
+ * has found a genuine ambiguity (see `slug-disambiguate.ts`).
+ */
+function fixtureTranscriptFs(
+  files: Record<string, string[]>,
+  contents: Record<string, string> = {},
+): TranscriptReadFs {
+  return {
+    listTranscriptFiles: async (slugDir): Promise<TranscriptFileListing> => ({ readable: true, files: files[slugDir] ?? [] }),
+    readTranscriptFile: async (filePath): Promise<TranscriptFileRead> => ({ readable: true, content: contents[filePath] ?? '' }),
+  }
+}
+
+/**
+ * Passed to every pre-existing ambiguous-slug test below so the walk's
+ * refusal stays hermetic (no real `~/.claude/projects` read) rather than
+ * relying on the real machine's own project history happening not to
+ * collide with a fixture slug — the tie itself still refuses exactly as it
+ * did before this file's cwd-disambiguation existed, since there is no
+ * transcript here to settle it either way.
+ */
+const NO_TRANSCRIPT_EVIDENCE = {
+  claudeProjectsRoot: path.join('/', 'claude-projects-fixture-root'),
+  transcriptFs: fixtureTranscriptFs({}),
+}
+
 describe('reverseProjectSlug', () => {
   it('resolves a simple absolute-path slug by walking real directory entries', async () => {
     const fs = fixtureFs({
@@ -70,10 +174,10 @@ describe('reverseProjectSlug', () => {
   })
 
   it('resolves a slug through a DOTTED directory name — the #243 gap the forward transform misses', async () => {
-    // worktree-slug.ts's forward transform maps `/`, `_`, `.`, `\`, `:` and a
-    // literal space to `-` (prd-42 ruling 1 closed its worst gap, the space —
-    // not its last: see #47 and that helper's own doc comment for the wider,
-    // still-open divergence). This reverses by matching the real entry
+    // worktree-slug.ts's forward transform maps every non-alphanumeric
+    // character to `-` (prd-42 ruling 1 closed the space, #47 the colon and
+    // backslash, and #124 the rest — so both sides now share one class).
+    // This reverses by matching the real entry
     // `v2.0` (encoded `v2-0`) against the slug, so the dot never needs to be
     // guessed at — it is read off the filesystem instead.
     const fs = fixtureFs({
@@ -149,7 +253,7 @@ describe('reverseProjectSlug', () => {
       '/Users/dev': ['foo-bar', 'foo.bar'],
     })
 
-    const result = await reverseProjectSlug('-Users-dev-foo-bar', fs)
+    const result = await reverseProjectSlug('-Users-dev-foo-bar', fs, NO_TRANSCRIPT_EVIDENCE)
     expect(result.path).toBeNull()
     const reason = (result as { reason: string }).reason
     expect(reason).toContain('ambiguous')
@@ -217,6 +321,481 @@ describe('reverseProjectSlug', () => {
     const reason = (result as { reason: string }).reason
     expect(reason).toContain('permission denied')
     expect(reason).not.toContain('no directory under')
+  })
+
+  /**
+   * #120: the walk's re-encode used to cover only five characters (`.`, `_`,
+   * `:`, `\` and a space), so any OTHER punctuation in a real directory entry
+   * was left untouched by the re-encode and never matched the slug at all —
+   * only the innocent dash-named sibling matched, and the walk returned it as
+   * a real but WRONG path, silently. Fixed by re-encoding with the real
+   * Claude Code grammar (`entry.replace(/[^a-zA-Z0-9]/g, '-')`, verified
+   * against the shipped 2.1.246 binary), which makes the walk fail CLOSED:
+   * a genuine collision is now reported as an honest ambiguity refusal
+   * instead of a silent wrong match.
+   *
+   * `aZb` is the control, run three ways below: alone, beside an unrelated
+   * dash-named sibling, and absent. None of the three involves a collision,
+   * so all three must behave exactly as they did before this fix — proving
+   * the fix closes the real gap without making the walk newly refuse
+   * ordinary, unambiguous slugs.
+   */
+  describe('the walk fails CLOSED over the real (every-non-alphanumeric) slug grammar', () => {
+    it('control: aZb alone resolves correctly', async () => {
+      const fs = fixtureFs({
+        '/': ['Users'],
+        '/Users': ['dev'],
+        '/Users/dev': ['aZb'],
+      })
+      expect(await reverseProjectSlug('-Users-dev-aZb', fs)).toEqual({
+        path: path.join('/', 'Users', 'dev', 'aZb'),
+      })
+    })
+
+    it('control: aZb beside an unrelated dash-named sibling still resolves correctly — a decoy sibling does not make the walk newly refuse it', async () => {
+      const fs = fixtureFs({
+        '/': ['Users'],
+        '/Users': ['dev'],
+        '/Users/dev': ['aZb', 'a-b'],
+      })
+      expect(await reverseProjectSlug('-Users-dev-aZb', fs)).toEqual({
+        path: path.join('/', 'Users', 'dev', 'aZb'),
+      })
+    })
+
+    it('control: aZb absent produces an honest refusal, never a silent match on the unrelated sibling', async () => {
+      const fs = fixtureFs({
+        '/': ['Users'],
+        '/Users': ['dev'],
+        '/Users/dev': ['a-b'],
+      })
+      const result = await reverseProjectSlug('-Users-dev-aZb', fs)
+      expect(result.path).toBeNull()
+    })
+
+    it.each(['+', '~', '@', ',', "'", '(', '!', '#', '%', '=', ';', 'é', '😀'])(
+      'collision probe %s: an entry beside its own dash-sibling fails CLOSED — an honest ambiguity refusal, never the silent wrong sibling',
+      async (ch) => {
+        const entry = `a${ch}b`
+        const encoded = entry.replace(/[^a-zA-Z0-9]/g, '-')
+        // The dash-sibling is the encoded form itself: it is unaffected by
+        // its own re-encode (dashes and alphanumerics pass through
+        // unchanged), so it is a genuinely distinct, innocent directory name
+        // that happens to collide with `entry` once both are re-encoded.
+        const sibling = encoded
+        const fs = fixtureFs({
+          '/': ['Users'],
+          '/Users': ['dev'],
+          '/Users/dev': [entry, sibling],
+        })
+
+        const result = await reverseProjectSlug(`-Users-dev-${encoded}`, fs, NO_TRANSCRIPT_EVIDENCE)
+        expect(result.path, `expected an honest refusal for "${entry}" vs "${sibling}", not a silent match`).toBeNull()
+        const reason = (result as { reason: string }).reason
+        expect(reason).toContain('ambiguous')
+        expect(reason).toContain(entry)
+        expect(reason).toContain(sibling)
+      },
+    )
+
+    it('collision probe: two DIFFERENT non-dash attractors that fold to the same encoded form also collide, not only a dash sibling — a+b beside a:b, no a-b present', async () => {
+      // Pre-#47 this pair was an honest refusal (neither "+" nor ":" was in
+      // the walk's class); #47 made ":" an attractor on its own, turning this
+      // into a silent wrong match; this fix closes it by recognising both.
+      const fs = fixtureFs({
+        '/': ['Users'],
+        '/Users': ['dev'],
+        '/Users/dev': ['a+b', 'a:b'],
+      })
+      const result = await reverseProjectSlug('-Users-dev-a-b', fs, NO_TRANSCRIPT_EVIDENCE)
+      expect(result.path).toBeNull()
+      const reason = (result as { reason: string }).reason
+      expect(reason).toContain('ambiguous')
+      expect(reason).toContain('a+b')
+      expect(reason).toContain('a:b')
+    })
+
+    it('collision probe: a~b beside a\\b also collides, not only a dash sibling', async () => {
+      const fs = fixtureFs({
+        '/': ['Users'],
+        '/Users': ['dev'],
+        '/Users/dev': ['a~b', 'a\\b'],
+      })
+      const result = await reverseProjectSlug('-Users-dev-a-b', fs, NO_TRANSCRIPT_EVIDENCE)
+      expect(result.path).toBeNull()
+      const reason = (result as { reason: string }).reason
+      expect(reason).toContain('ambiguous')
+    })
+  })
+})
+
+/**
+ * prd42 w9's ruling (#142, operator 2026-08-28): when the walk's tie-break
+ * finds MORE THAN ONE real directory a slug could have come from, it decides
+ * from the slug's own transcript rather than guessing. The monorepo shape
+ * from the issue itself — `/repo/packages/web` and `/repo/packages-web` both
+ * encode to `-repo-packages-web` — is EXECUTED here in both directions, with
+ * the wrong answer visibly different from the right one each time.
+ */
+describe('reverseProjectSlug — an ambiguous slug is decided by the transcript\'s own recorded cwd', () => {
+  const monorepoFs = fixtureFs({
+    '/': ['repo'],
+    '/repo': ['packages', 'packages-web'],
+    '/repo/packages': ['web'],
+    '/repo/packages/web': [],
+    '/repo/packages-web': [],
+  })
+  const claudeProjectsRoot = path.join('/', 'claude-projects')
+  const slug = '-repo-packages-web'
+  const slugDir = path.join(claudeProjectsRoot, slug)
+  const packagesWeb = path.join('/', 'repo', 'packages', 'web')
+  const packagesDashWeb = path.join('/', 'repo', 'packages-web')
+
+  it('resolves to /repo/packages/web when that is the transcript\'s recorded cwd', async () => {
+    const transcriptFs = fixtureTranscriptFs(
+      { [slugDir]: ['session1.jsonl'] },
+      { [path.join(slugDir, 'session1.jsonl')]: `${JSON.stringify({ type: 'user', cwd: packagesWeb })}\n` },
+    )
+
+    const result = await reverseProjectSlug(slug, monorepoFs, { claudeProjectsRoot, transcriptFs })
+    expect(result).toEqual({ path: packagesWeb })
+  })
+
+  it('resolves to /repo/packages-web when THAT is the transcript\'s recorded cwd — the wrong answer visibly different from the right one above', async () => {
+    const transcriptFs = fixtureTranscriptFs(
+      { [slugDir]: ['session1.jsonl'] },
+      { [path.join(slugDir, 'session1.jsonl')]: `${JSON.stringify({ type: 'user', cwd: packagesDashWeb })}\n` },
+    )
+
+    const result = await reverseProjectSlug(slug, monorepoFs, { claudeProjectsRoot, transcriptFs })
+    expect(result).toEqual({ path: packagesDashWeb })
+  })
+
+  it('refuses, naming both candidates, when no record in the transcript carries a cwd at all', async () => {
+    const transcriptFs = fixtureTranscriptFs(
+      { [slugDir]: ['session1.jsonl'] },
+      { [path.join(slugDir, 'session1.jsonl')]: `${JSON.stringify({ type: 'system' })}\n` },
+    )
+
+    const result = await reverseProjectSlug(slug, monorepoFs, { claudeProjectsRoot, transcriptFs })
+    expect(result.path).toBeNull()
+    const reason = (result as { reason: string }).reason
+    expect(reason).toContain('ambiguous')
+    expect(reason).toContain(packagesWeb)
+    expect(reason).toContain(packagesDashWeb)
+  })
+
+  it('refuses when the transcript file itself cannot be read', async () => {
+    const transcriptFs: TranscriptReadFs = {
+      listTranscriptFiles: async () => ({ readable: true, files: ['session1.jsonl'] }),
+      readTranscriptFile: async () => ({ readable: false, reason: 'EACCES: permission denied' }),
+    }
+
+    const result = await reverseProjectSlug(slug, monorepoFs, { claudeProjectsRoot, transcriptFs })
+    expect(result.path).toBeNull()
+    expect((result as { reason: string }).reason).toContain('permission denied')
+  })
+
+  it('refuses when the transcript is malformed (no line parses as JSON)', async () => {
+    const transcriptFs = fixtureTranscriptFs({ [slugDir]: ['session1.jsonl'] }, { [path.join(slugDir, 'session1.jsonl')]: 'not json\n' })
+
+    const result = await reverseProjectSlug(slug, monorepoFs, { claudeProjectsRoot, transcriptFs })
+    expect(result.path).toBeNull()
+    expect((result as { reason: string }).reason).toContain('malformed')
+  })
+
+  it('refuses when the recorded cwd names a real directory that is neither candidate', async () => {
+    const elsewhere = path.join('/', 'somewhere', 'else')
+    const fsWithElsewhere = fixtureFs({
+      '/': ['repo', 'somewhere'],
+      '/repo': ['packages', 'packages-web'],
+      '/repo/packages': ['web'],
+      '/repo/packages/web': [],
+      '/repo/packages-web': [],
+      '/somewhere': ['else'],
+      '/somewhere/else': [],
+    })
+    const transcriptFs = fixtureTranscriptFs(
+      { [slugDir]: ['session1.jsonl'] },
+      { [path.join(slugDir, 'session1.jsonl')]: `${JSON.stringify({ type: 'user', cwd: elsewhere })}\n` },
+    )
+
+    const result = await reverseProjectSlug(slug, fsWithElsewhere, { claudeProjectsRoot, transcriptFs })
+    expect(result.path).toBeNull()
+    const reason = (result as { reason: string }).reason
+    expect(reason).toContain(elsewhere)
+    expect(reason).toContain('names none of them')
+  })
+
+  it('refuses, distinctly, when the recorded cwd names a path that no longer exists on disk', async () => {
+    const gone = path.join('/', 'repo', 'renamed-away')
+    const transcriptFs = fixtureTranscriptFs(
+      { [slugDir]: ['session1.jsonl'] },
+      { [path.join(slugDir, 'session1.jsonl')]: `${JSON.stringify({ type: 'user', cwd: gone })}\n` },
+    )
+
+    const result = await reverseProjectSlug(slug, monorepoFs, { claudeProjectsRoot, transcriptFs })
+    expect(result.path).toBeNull()
+    const reason = (result as { reason: string }).reason
+    expect(reason).toContain(gone)
+    expect(reason).toContain('no longer exists on disk')
+  })
+
+  it('costs exactly one extra directory read to explore the losing branch, plus one transcript listing and one file read — EXECUTED', async () => {
+    let listSubdirectoryCalls = 0
+    const countingFs: DiscoveryFs = {
+      exists: monorepoFs.exists,
+      listSubdirectories: async (dir) => {
+        listSubdirectoryCalls += 1
+        return monorepoFs.listSubdirectories(dir)
+      },
+    }
+
+    let listTranscriptCalls = 0
+    let readTranscriptCalls = 0
+    const transcriptFs: TranscriptReadFs = {
+      listTranscriptFiles: async (dir) => {
+        listTranscriptCalls += 1
+        return { readable: true, files: ['session1.jsonl'] }
+      },
+      readTranscriptFile: async () => {
+        readTranscriptCalls += 1
+        return { readable: true, content: `${JSON.stringify({ type: 'user', cwd: packagesWeb })}\n` }
+      },
+    }
+
+    const result = await reverseProjectSlug(slug, countingFs, { claudeProjectsRoot, transcriptFs })
+
+    expect(result).toEqual({ path: packagesWeb })
+    // '/', '/repo', '/repo/packages' — one hop more than the 2 a
+    // non-ambiguous walk straight to /repo/packages-web would have cost
+    // (see this test file's own describe doc): the walk must open the
+    // losing branch to find out whether IT resolves too.
+    expect(listSubdirectoryCalls).toBe(3)
+    expect(listTranscriptCalls).toBe(1)
+    expect(readTranscriptCalls).toBe(1)
+  })
+})
+
+/**
+ * prd-42 ruling 1's round-trip law: for a generated set of paths including
+ * spaces, dots, underscores, colons and backslashes, encoding through
+ * `worktreePathToProjectSlug` then walking back through `reverseProjectSlug`
+ * must return the original path.
+ *
+ * Lives here, not in `collectors/sessionlog/worktree-slug.test.ts` (#47,
+ * absorbing #52): `concierge/namespace-law.test.ts` clause 1's "no file in
+ * either package reaches the concierge module" sweep skips every file
+ * `isInConcierge` already covers — a test living in this directory needs no
+ * computed specifier, no cast and no hand-copied return type to reach
+ * `reverseProjectSlug`, unlike the version of this law that used to live
+ * outside the module. `reverseProjectSlug` above is the real, typed import.
+ *
+ * The colon case used to assert an HONEST REFUSAL here (`path: null`) rather
+ * than a round trip, because `reverseProjectSlug`'s re-encode only covered
+ * `.`, `_` and a space. #47 widened it to also cover `:` and `\`, so the
+ * colon and backslash segments below now assert the round trip every other
+ * segment already does — proven, not asserted: reverting the walk's class to
+ * `/[._ ]/g` reddens exactly the colon and backslash pairs in this matrix
+ * (measured while writing this test), so a class narrowed back down is
+ * caught here, not silently passed as a fluke pairing.
+ *
+ * The colon and backslash segments are skipped on win32 — both are illegal in
+ * an NTFS filename, so the `mkdir` for either fails outright there, unrelated
+ * to anything this law actually tests. Asserted on every other platform,
+ * which is where #47 actually widened the walk's class.
+ *
+ * (#153) That skip is derived from `isWin32IllegalSegment`, above, rather
+ * than from a hardcoded two-item list: a segment reaching `ROUND_TRIP_SEGMENTS`
+ * below is filtered by the actual rule, so a future addition outside today's
+ * two characters (another NTFS-illegal character, a trailing dot or space, a
+ * reserved device name, a control character) is covered by construction
+ * instead of needing its own carve-out remembered at the call site.
+ */
+describe("worktreePathToProjectSlug round-trips through reverseProjectSlug", () => {
+  it('resolves every generated path back to itself, including a literal space everywhere and — on POSIX — a colon and a backslash', async () => {
+    // `os.tmpdir()` is a symlink on macOS (`/var` -> `/private/var`) and is
+    // not on Linux — encoding the raw path and walking back to the canonical
+    // one would pass on ubuntu and fail only on the macOS CI leg. Resolved
+    // once, up front, so every generated case is built beneath the canonical
+    // root and the round trip is symmetric on every platform.
+    const tmpRoot = await mkdtemp(path.join(tmpdir(), 'worktree-slug-law-'))
+    const root = await realpath(tmpRoot)
+
+    try {
+      // Every candidate segment is filtered through `isWin32IllegalSegment`
+      // (#153) rather than gated by a hardcoded list of today's two
+      // win32-illegal cases — a segment added to the list below in the
+      // future is covered by the same rule automatically, with nobody needing
+      // to remember to wrap it in a platform check. On POSIX the filter is a
+      // no-op (`isPosix ||` short-circuits before the predicate runs), so
+      // every segment here is generated there regardless of whether it would
+      // be win32-illegal. Skipped on win32 rather than deleted: deleting the
+      // colon and backslash cases would erase w5's evidence that the walk
+      // round-trips them at all (the whole reason they exist), and the
+      // non-vacuity floors just below are conditioned on `isPosix` for the
+      // same two segments so they never assert something false about what was
+      // actually generated on the platform running them.
+      const ROUND_TRIP_SEGMENTS = roundTripSegmentsFor(isPosix)
+
+      // Every ordered pair of distinct segments — each mapped character is
+      // exercised both leading and following another — plus one path
+      // carrying every generated segment together, so the round trip also
+      // holds when all of them appear in the same slug at once.
+      const roundTripPaths: string[][] = []
+      for (const first of ROUND_TRIP_SEGMENTS) {
+        for (const second of ROUND_TRIP_SEGMENTS) {
+          if (first !== second) roundTripPaths.push([first, second])
+        }
+      }
+      roundTripPaths.push(ROUND_TRIP_SEGMENTS)
+
+      // NON-VACUITY FLOORS, hand-maintained rather than derived from
+      // `isWin32IllegalSegment` — the same trade the DERIVED assertion in the
+      // `roundTripSegmentsFor` describe block below makes explicit for its own
+      // NON-VACUITY PIN: deriving "which character must still show up in a
+      // generated segment" from the predicate would make each floor here as
+      // hard to read as the predicate is precise to write. A segment added to
+      // `ROUND_TRIP_SEGMENT_SOURCE` above gets no floor of its own for free —
+      // one has to be added here by hand, guarded with `if (isPosix)` below
+      // if (and only if) the segment is win32-illegal. Getting that guard
+      // wrong fails CLOSED, not open: an unconditional floor asserting a
+      // win32-illegal character is present would go red on win32, because
+      // `roundTripSegmentsFor` has already filtered that segment out by the
+      // time this line runs.
+      expect(roundTripPaths.some((segments) => segments.some((segment) => segment.includes(' ')))).toBe(true)
+      // Colon and backslash are only ever generated on POSIX (see the skip
+      // above) — asserting these unconditionally on win32 would claim a
+      // segment was generated that never was.
+      if (isPosix) {
+        expect(roundTripPaths.some((segments) => segments.some((segment) => segment.includes(':')))).toBe(true)
+        expect(roundTripPaths.some((segments) => segments.some((segment) => segment.includes('\\')))).toBe(true)
+      }
+      // The characters #124 added to the forward class, and #120 to the walk:
+      // without these rows the law is green against EITHER side narrowed back
+      // to the pre-wave class, which is what made it unable to pin this wave.
+      expect(roundTripPaths.some((segments) => segments.some((segment) => segment.includes('+')))).toBe(true)
+      expect(roundTripPaths.some((segments) => segments.some((segment) => segment.includes('é')))).toBe(true)
+      expect(roundTripPaths.some((segments) => segments.some((segment) => segment.includes('\u{1F600}')))).toBe(true)
+
+      for (const segments of roundTripPaths) {
+        const target = path.join(root, ...segments)
+        await mkdir(target, { recursive: true })
+
+        const slug = worktreePathToProjectSlug(target)
+        const result = await reverseProjectSlug(slug)
+
+        expect(result, `round trip broke for ${target} (slug ${slug})`).toEqual({ path: target })
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+})
+
+/**
+ * (#153) `isWin32IllegalSegment` is a pure function over strings, so the
+ * class it derives is checked directly rather than only through the round
+ * trip's `mkdir` (which cannot fail on Linux for anything in this table, win32
+ * illegal or not — see the file-level note on why win32 itself is untestable
+ * here). Every production named in the issue gets its own row: the eight
+ * segments the round-trip law already treats as legal must accept, and every
+ * category of the reachable class must reject — including the two rows people
+ * get wrong twice, a reserved device name surviving an extension and a case
+ * change, and the pair that is deliberately NOT reserved (`COM0`, `LPT0`).
+ */
+describe('roundTripSegmentsFor — the generator actually consults the predicate', () => {
+  // EXECUTED on Linux, both branches. Without this the call site was untested
+  // on every platform CI runs: deleting the predicate from the filter, and
+  // inverting it, each left the round-trip law green.
+  it('on POSIX every fixture segment survives — nothing is skipped', () => {
+    expect(roundTripSegmentsFor(true)).toEqual([...ROUND_TRIP_SEGMENT_SOURCE])
+  })
+
+  it('on win32 exactly the win32-illegal segments are dropped, and nothing else is', () => {
+    const dropped = roundTripSegmentsFor(true).filter((s) => !roundTripSegmentsFor(false).includes(s))
+    // TWO assertions, and they are not the same claim — the fix re-review found
+    // the comment here asserting only the first.
+    //
+    // DERIVED: whatever the predicate rejects is what goes. Add
+    // `'a?query here'` to the source above and this line follows it with no
+    // edit — that is the property #153 exists to establish, and it holds.
+    expect(dropped).toEqual(ROUND_TRIP_SEGMENT_SOURCE.filter((s) => isWin32IllegalSegment(s)))
+    // NON-VACUITY PIN, and it DOES need editing when the list grows. Keep it:
+    // the derived assertion above is satisfiable by `[] === []`, so a predicate
+    // that rejected nothing would pass it. This literal is what makes that
+    // impossible. The cost is that adding a segment reddens this line — which
+    // is correct, not a defect, and is the trade the earlier comment hid by
+    // claiming the whole test needed no editing.
+    expect(dropped).toEqual(['a:colon here', 'a\\backslash here'])
+  })
+
+  it('CONTROL — the two branches genuinely differ, so neither assertion above is vacuous', () => {
+    expect(roundTripSegmentsFor(false).length).toBeLessThan(roundTripSegmentsFor(true).length)
+    expect(roundTripSegmentsFor(false).every((s) => !isWin32IllegalSegment(s))).toBe(true)
+  })
+})
+
+describe('isWin32IllegalSegment', () => {
+  it.each([
+    'plain-word',
+    'dotted.segment',
+    'under_score',
+    'a space here',
+    'wide+punct~at@x',
+    "quote'comma,paren(x)",
+    'accentéhere',
+    'emoji\u{1F600}here',
+    // The negative boundary of the control-character rule: Microsoft reserves
+    // integer 0 and 1-31 only, so DEL (0x7F) is an ordinary character. Without
+    // this row the range's UPPER edge is unpinned in the accepting direction.
+    'a\x7Fdel here',
+  ])('accepts %j — legal on every platform, including win32', (segment) => {
+    expect(isWin32IllegalSegment(segment)).toBe(false)
+  })
+
+  it.each<[string, string]>([
+    ['a:colon here', 'NTFS-illegal character: colon'],
+    ['a\\backslash here', 'NTFS-illegal character: backslash (path separator)'],
+    ['a<less here', 'NTFS-illegal character: less-than'],
+    ['a>greater here', 'NTFS-illegal character: greater-than'],
+    ['a"quote here', 'NTFS-illegal character: double quote'],
+    ['a|pipe here', 'NTFS-illegal character: pipe'],
+    ['a?query here', 'NTFS-illegal character: question mark'],
+    ['a*star here', 'NTFS-illegal character: asterisk'],
+    // 0x01 alone cannot pin `0x00-0x1F`: narrowing the source range to /\x01/
+    // left this whole group green (29 passed, rc 0) in the wave-10 reconcile.
+    // Both ends plus an interior value, and DEL as the negative boundary —
+    // Microsoft's rule is integer 0 and 1 through 31, so 0x7F is legal.
+    ['a\x00nul here', 'control character: NUL, bottom of the range'],
+    ['a\x01control here', 'control character: interior'],
+    ['a\x1Fus here', 'control character: 0x1F, top of the range'],
+    ['dotted.', 'trailing dot'],
+    ['trailing ', 'trailing space'],
+    ['CON', 'reserved device name'],
+    ['con', 'reserved device name, lowercase'],
+    ['CON.txt', 'reserved device name surviving an extension'],
+    ['NUL', 'reserved device name'],
+    ['COM1', 'reserved numbered device name, bottom of range'],
+    ['COM9', 'reserved numbered device name, top of range'],
+    ['LPT1', 'reserved numbered device name, bottom of range'],
+    ['LPT9', 'reserved numbered device name, top of range'],
+    // Windows treats the ISO/IEC 8859-1 superscript digits as valid COM#/LPT#
+    // digits, reserving six more names an ASCII-only `[1-9]` would miss.
+    ['COM¹', 'reserved numbered device name, superscript one'],
+    ['COM²', 'reserved numbered device name, superscript two'],
+    ['COM³', 'reserved numbered device name, superscript three'],
+    ['LPT¹', 'reserved numbered device name, superscript one'],
+    ['LPT²', 'reserved numbered device name, superscript two'],
+    ['LPT³', 'reserved numbered device name, superscript three'],
+    ['COM¹.txt', 'reserved superscript device name surviving an extension'],
+    ['LPT³.txt', 'reserved superscript device name surviving an extension'],
+  ])('rejects %j (%s)', (segment) => {
+    expect(isWin32IllegalSegment(segment)).toBe(true)
+  })
+
+  it.each(['COM0', 'LPT0'])('accepts %j — device numbering starts at 1, not 0', (segment) => {
+    expect(isWin32IllegalSegment(segment)).toBe(false)
   })
 })
 
@@ -512,7 +1091,6 @@ describe('discoverRepos', () => {
   })
 })
 
-const isPosix = platform() !== 'win32'
 const isRoot = isPosix && typeof process.getuid === 'function' && process.getuid() === 0
 
 /**

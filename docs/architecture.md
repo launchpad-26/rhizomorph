@@ -5,9 +5,9 @@
 
 > **Where the narrative stops, and what to read instead (2026-08-25).** The
 > sections below run prd0 → prd17 and stop there; several milestones have
-> landed since, and the decisions they made live in `docs/adr/` — 0001 through
-> 0027 today — rather than here. **The ADR log is the register of record; this
-> file appends narrative.** Where an ADR overrules a claim below, the claim
+> landed since, and the decisions they made live in `docs/adr/` rather than
+> here. **The ADR log is the register of record; this file appends
+> narrative.** Where an ADR overrules a claim below, the claim
 > carries a superseding pointer in this file's usual idiom rather than being
 > rewritten, because the record of what was decided and why is worth more than
 > a tidy present tense. Four of those supersessions are load-bearing: ADR-0021
@@ -143,19 +143,22 @@ mutation is, with a gate-presence law that fails the build the day a row loses
 its gate. `read` therefore now means specifically a *tokenless* read.
 
 **Where the boundary actually stands** — as opposed to where it is ruled to
-stand — is worth stating plainly, because the two differ today. Seven reads are
-gated: `/api/sessions`, `/api/sessions/:id/events`, `/api/lanes`,
-`/api/transcript/:lane`, and the laboratory's `/api/lab/checkpoints`,
-`/api/lab/experiments`, `/api/lab/estimate`. Seven are still tokenless, and
-three of those — `/api/meta`, `/api/doctor` and `/api/stream` — are **ruled to
-gate and not yet gated**, deferred to prd-29's wave 2 so that no consumer
-outside the SPA breaks mid-milestone. `GET /*` stays tokenless *forever*
-(prd-29 ruling 1): it is the bootstrap the browser's first paint and
-`rhizomorph rotate`'s scrape both read the in-band token from (ADR-0012), so
-gating it could not stop a local process and would break the delivery the token
-itself depends on. Ruled 2026-08-24 and not yet in code: the late reads gate
-too, which leaves `GET /*` alone outside the gate once they do. Read the
-table's own `routeClass` values for the state of the boundary, never this
+stand — is worth stating plainly. Since prd-29's wave 2b landed the two no
+longer differ. Fourteen reads are gated: `/api/sessions`,
+`/api/sessions/:id/events`, `/api/lanes`, `/api/transcript/:lane`, the
+laboratory's `/api/lab/checkpoints`, `/api/lab/experiments`,
+`/api/lab/estimate`, the four reads that postdated the route arithmetic —
+`/api/lane-index`, `/api/lane-index/:handle`,
+`/api/session-preview/:sessionId`, `/api/concierge/repos` (prd-29 ruling 7,
+#58) — then, as of wave 2a, `/api/meta` and `/api/doctor` (prd-29 ruling 7,
+#59), and as of wave 2b `/api/stream` (prd-29 ruling 4, #60), which carries the
+same gate but additionally accepts the token from an HttpOnly, SameSite=Strict
+cookie, since `EventSource` cannot set a header at all. `GET /*` is the only
+tokenless read left, and stays tokenless *forever* (prd-29 ruling 1): it is
+the bootstrap the browser's first paint and `rhizomorph rotate`'s scrape both
+read the in-band token from (ADR-0012), so gating it could not stop a local
+process and would break the delivery the token itself depends on. Nothing is ruled to gate and still missing from code. Read
+the table's own `routeClass` values for the state of the boundary, never this
 paragraph's tense.
 
 ### Lane manifest (prd3 ruling 19)
@@ -2774,4 +2777,32 @@ stale before (#238), and it drifted again since.
   spend +7.7%. See [What a replay may now
   contain](#ruling-3--recordings-never-rot-the-integrity-laws-landed) above.
   (issue #81; ADR accepted 2026-08-25)
+- 2026-08-26 — prd-40 success 1 /
+  [ADR-0030](adr/0030-the-alarm-may-outrun-the-record.md): **the degrade
+  `collector.error` reporting an append failure is emitted whether or not its
+  own append lands** — success 1's one named exception, and it is reached
+  through a type-narrowed `recordAlarm(event: EventOf<'collector.error'>)` so
+  that the carve-out is a compile-time property of the signature rather than a
+  claim any caller can make. **The exemption is emission only.** Success 1
+  still forbids leaving the fold ahead of the file, and that clause is *not*
+  carved out: on a failed append the alarm enters neither `buffer` nor
+  `foldState`, so `eventsSoFar()` and `foldSoFar()` stay exactly as honest as
+  the file and only subscribers hear it. The consequence is the converse of
+  ADR-0029 — **a live stream may contain a `collector.error` that a replay of
+  the same session does not**, and only that event type. (issue #26; ADR
+  accepted 2026-08-26)
+- 2026-08-26 — prd-40 ruling 2 /
+  [ADR-0031](adr/0031-the-recorder-hands-out-a-frozen-fold.md): **every fold
+  `foldSoFar()` hands out is deep-frozen**, because there is exactly one fold
+  and returning it by reference let a caller mutate the recorder's only copy
+  silently, permanently for the session, with no repair path. A caller's write
+  now throws instead. **Not a readonly return type:** `foldSoFar()`'s result is
+  assigned to `LadderManifest.folded: SessionState` and flows to
+  `selectConnection(state: SessionState)`, so any readonly return cascades into
+  `packages/core`'s selector signatures — and a shallow `Readonly` would pay
+  that cost and still miss the nested write, which is the one that corrupts.
+  The consequence: **the reducer is now held to ADR-0002's purity contract on
+  this path**, since the frozen fold is the input to the next `reduce()` — an
+  impure arm throws in strict mode rather than corrupting silently, which is a
+  bug surfaced, not a cost introduced. (issue #69; ADR accepted 2026-08-26)
 

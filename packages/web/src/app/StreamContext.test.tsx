@@ -14,6 +14,7 @@ import { ModeProvider, useReplay } from './ModeContext.js'
 import { StreamProvider, useStream } from './StreamContext.js'
 import {
   NEWS_GRACE_MS,
+  eventsWindowLabel,
   foldStreamEvent,
   foldStreamEvents,
   initialStreamState,
@@ -691,5 +692,245 @@ describe('the rotation through the provider (#592)', () => {
     await waitFor(() => expect(screen.getByTestId('repo-events').textContent).toBe('3'))
     expect(screen.getByTestId('repo-worktrees').textContent).toBe('/repos/alpha/lane')
     expect(screen.getByTestId('repo-first-ts').textContent).toBe('10000')
+  })
+})
+
+// ── the live window's honesty (#132, prd-44 ruling 4's cost) ────────────────
+
+/**
+ * The server bounds what it replays (`MAX_BUFFERED_EVENTS`, prd-44 ruling 4),
+ * and that truncation is invisible to a fold built from the truncated stream:
+ * every event the client received is in its own `session.eventCount`, so the
+ * pair `eventsWindowLabel` reads agrees and the window passes as whole. The
+ * live branch therefore asks `/api/meta` for the session's true recorded total.
+ *
+ * **Scale is not the point, the relation is.** The real case is a server
+ * sending the last 75,000 of a 200,000-event session; these laws send 2 of 900.
+ * Both are "the client received fewer than the session recorded", which is the
+ * only thing the label's rule looks at — and 2-of-900 drives it without a
+ * 200,000-event fixture. `streamState.test.ts` already proves the wording at
+ * the scale eviction requires.
+ *
+ * Every assertion is a rendered string or a call count, never a wall clock.
+ */
+describe('the live window says so when the server had room to send less than the session', () => {
+  const NOW = Date.UTC(2026, 6, 31, 12, 0, 0)
+
+  /** A live session that has started, so the provider has an identity to key its fetch on. */
+  function liveSessionStarted(sessionId = 's-live') {
+    return createEvent(
+      'session.started',
+      { sessionId, repoPath: '/repo', repoName: 'rhizomorph', mainBranch: 'main' },
+      { id: nextId(), ts: 8000 },
+    )
+  }
+
+  /**
+   * Counts the calls, so a law can prove a request was never made at all, and
+   * answers per call: `metaFetch(a, b)` gives `a` to the first request and `b`
+   * to the second, which is how the rotation law tells "forgot the old total"
+   * from "asked again and got the same number".
+   */
+  function metaFetch(...bodies: unknown[]) {
+    const calls: string[] = []
+    const impl = (input: string) => {
+      const body = bodies[Math.min(calls.length, bodies.length - 1)]
+      calls.push(input)
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(body) })
+    }
+    return { impl, calls }
+  }
+
+  /** The failure shapes, each of which must read exactly as today. */
+  function failingMetaFetch(kind: 'not-ok' | 'throws', body: unknown = { eventCount: 900 }) {
+    const calls: string[] = []
+    const impl = (input: string) => {
+      calls.push(input)
+      if (kind === 'throws') return Promise.reject(new Error('ECONNREFUSED'))
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(body) })
+    }
+    return { impl, calls }
+  }
+
+  async function renderLive(fetchMeta?: (input: string) => Promise<{ ok: boolean; json: () => Promise<unknown> }>) {
+    let source!: FakeEventSource
+    await act(async () => {
+      render(
+        <StreamProvider
+          url="/api/stream"
+          now={NOW}
+          createSource={() => {
+            source = new FakeEventSource()
+            return source
+          }}
+          {...(fetchMeta ? { fetchMeta } : {})}
+        >
+          <SourceProbe />
+        </StreamProvider>,
+      )
+    })
+    return { getSource: () => source }
+  }
+
+  /** Emits the events and lets the `/api/meta` promise settle into state. */
+  async function emit(source: FakeEventSource, events: readonly RhizomorphEvent[]) {
+    await act(async () => {
+      for (const event of events) source.emit(event)
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+  }
+
+  function label(): string {
+    return screen.getByTestId('events-window-label').textContent ?? ''
+  }
+
+  it('says the window is partial when the session recorded more than this client received', async () => {
+    const meta = metaFetch({ eventCount: 900 })
+    const { getSource } = await renderLive(meta.impl)
+
+    await emit(getSource(), [liveSessionStarted(), liveWorktreeEvent()])
+
+    // THE law. On the code before #132 this reads '' — the client's own fold
+    // says 2 of 2, and the 898 events the server had no room to replay are
+    // invisible to it.
+    await waitFor(() => expect(label()).toBe('showing the last 2 events'))
+    expect(meta.calls).toEqual(['/api/meta'])
+  })
+
+  it('leaves the wording to eventsWindowLabel rather than composing a second sentence', async () => {
+    const meta = metaFetch({ eventCount: 900 })
+    const { getSource } = await renderLive(meta.impl)
+    const events = [liveSessionStarted(), liveWorktreeEvent()]
+
+    await emit(getSource(), events)
+
+    // Byte-identical to what the label itself produces for the corrected pair,
+    // so this context can never drift into a voice of its own — the failure
+    // #384's boot-reason seam is about, one layer over.
+    const expected = eventsWindowLabel({
+      events: [...events],
+      session: { ...initialStreamState(NOW).session, eventCount: 900 },
+    })
+    await waitFor(() => expect(label()).toBe(expected))
+  })
+
+  it('reports nothing when the session recorded exactly what arrived', async () => {
+    const meta = metaFetch({ eventCount: 2 })
+    const { getSource } = await renderLive(meta.impl)
+
+    await emit(getSource(), [liveSessionStarted(), liveWorktreeEvent()])
+
+    await waitFor(() => expect(meta.calls).toHaveLength(1))
+    expect(label()).toBe('')
+  })
+
+  it('degrades to the fold, never to an invented total, for every way the route can fail', async () => {
+    for (const meta of [
+      failingMetaFetch('not-ok'), // a non-ok response
+      failingMetaFetch('throws'), // the fetch itself throws
+      metaFetch({ resumedCount: 3 }), // a server that predates the field
+      metaFetch({ eventCount: -1 }), // a count no session can have
+      metaFetch({ eventCount: 12.5 }), // not an integer
+      metaFetch({ eventCount: 1 }), // SMALLER than arrived — a stale answer is discarded, never adopted
+      metaFetch('not an object'),
+      metaFetch(null),
+    ]) {
+      cleanup()
+      const { getSource } = await renderLive(meta.impl)
+      await emit(getSource(), [liveSessionStarted(), liveWorktreeEvent()])
+      await waitFor(() => expect(meta.calls).toHaveLength(1))
+      // Exactly today's answer. An unavailable total must never become a
+      // label — "showing the last 2 events" here would be the instrument
+      // inventing a truncation that did not happen.
+      expect(label()).toBe('')
+    }
+  })
+
+  it('asks nothing of /api/meta while a fixture is driving', async () => {
+    const meta = metaFetch({ eventCount: 900 })
+    const { getSource } = await renderLive(meta.impl)
+
+    // The fixture takes over BEFORE the live session's identity arrives, which
+    // is what makes the gate observable at all: the fetch is keyed on that
+    // identity, so a law that switches sources afterwards proves only that the
+    // effect did not re-run.
+    await act(async () => {
+      fireEvent.keyDown(window, { key: '2' })
+    })
+    expect(screen.getByTestId('source').textContent).toBe('fleet20')
+
+    await emit(getSource(), [liveSessionStarted(), liveWorktreeEvent()])
+
+    // A fixture folds a whole log, so its own `session.eventCount` IS the true
+    // total and the route has nothing to add — the same reason `StatusBar.tsx`
+    // does not ask while replaying. Not one request.
+    expect(meta.calls).toEqual([])
+    expect(label()).toBe('')
+  })
+
+  it('asks nothing of /api/meta while replaying', async () => {
+    const meta = metaFetch({ eventCount: 900 })
+    let source!: FakeEventSource
+    await act(async () => {
+      render(
+        <ModeProvider fetchImpl={makeFetch(replaySessionEvents())}>
+          <StreamProvider
+            url="/api/stream"
+            now={NOW}
+            fetchMeta={meta.impl}
+            createSource={() => {
+              source = new FakeEventSource()
+              return source
+            }}
+          >
+            <SourceProbe />
+            <ReplayDriver />
+          </StreamProvider>
+        </ModeProvider>,
+      )
+    })
+
+    // Replay first, again so the gate is observable rather than merely
+    // unexercised: entering replay before the live identity exists means a
+    // gated fetch never fires at all.
+    await act(async () => {
+      fireEvent.click(screen.getByText('select session'))
+    })
+    await emit(source, [liveSessionStarted(), liveWorktreeEvent()])
+
+    // `/api/meta` only ever describes the live recorder, so asking it while
+    // replaying is a request whose answer must be discarded — `StatusBar.tsx`'s
+    // own reason for the same gate on the same route.
+    expect(meta.calls).toEqual([])
+    expect(label()).toBe('')
+  })
+
+  it('forgets the previous session total the moment the identity changes', async () => {
+    // 900 for the session that had been running a while, then 1 for the fresh
+    // one — which is what `/api/meta` actually answers across a rotation.
+    const meta = metaFetch({ eventCount: 900 }, { eventCount: 1 })
+    const { getSource } = await renderLive(meta.impl)
+    await emit(getSource(), [liveSessionStarted('s-one'), liveWorktreeEvent()])
+    await waitFor(() => expect(label()).toBe('showing the last 2 events'))
+
+    // A rotation: the operator ended that session and opened another. The fold
+    // resets to the new session and the total must reset with it — carrying 900
+    // across would report a brand-new 1-event session as partial, which is the
+    // false positive this whole change must not introduce.
+    // A SYNCHRONOUS act, deliberately: it emits without draining the microtask
+    // queue, so this reads the instant the identity changed and not the state
+    // after the second answer has landed. That distinction is the whole law —
+    // an implementation that re-fetches but does not clear passes every
+    // end-state assertion while showing the new session as partial for as long
+    // as the request is in flight.
+    act(() => {
+      getSource().emit(liveSessionStarted('s-two'))
+    })
+    expect(label()).toBe('')
+
+    await waitFor(() => expect(meta.calls).toHaveLength(2))
+    expect(label()).toBe('')
   })
 })

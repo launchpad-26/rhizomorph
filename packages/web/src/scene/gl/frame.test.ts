@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Point } from '../geometry.js'
-import { ribbonMark, type ContourMark, type Mark, type TextMark } from '../marks/index.js'
+import { ribbonMark, type ContourMark, type Mark, type RibbonMark, type TextMark } from '../marks/index.js'
 import { ICE_200, ICE_1000, TISSUE_900, ink } from '../palette.js'
 import { PINCH_EPSILON } from '../ribbon.js'
+import { Batch } from './batch.js'
 import { buildFrame, dashRuns, veiled, veilOf, type VeilLayer } from './frame.js'
 import { noiseTile } from './programs.js'
 
@@ -191,6 +192,334 @@ describe('a ribbon, zipped', () => {
       PANEL,
     )
     expect(frame.runs.map((run) => run.kind)).toEqual(['stencil'])
+  })
+})
+
+describe('the settled-ribbon tessellation cache (prd-44 ruling 5)', () => {
+  // Distinct laneIds from every other describe block in this file, so a slot
+  // ordinal here can never collide with one from an earlier `it()` by
+  // content-coincidence.
+  /**
+   * THE SPINE A SETTLED LANE IS HANDED, FRAME AFTER FRAME — the same array
+   * object, memoised here because that is the production invariant and not a
+   * convenience (#147).
+   *
+   * Once `dissolve` pins at 1, `geometry.ts`'s `retiredSpineCacheFor` hands
+   * every mark builder ONE cached `path` array for that lane, `thread.ts`'s
+   * `PERSIST_RIBBON_CACHE` keys its mark on that array's identity, and
+   * `ribbon.ts`'s `OUTLINE_CACHE` keys the outline on it in turn — so the
+   * outline's rings are the same objects every frame, which is exactly what
+   * `digestRibbon` now reads. A helper that minted a fresh spine per call would
+   * be exercising the one condition a settled lane never reaches, and the arms
+   * below would be asserting a hit that production gets for a reason the test
+   * had removed.
+   */
+  const spines = new Map<number, readonly Point[]>()
+  function settledSpine(y: number): readonly Point[] {
+    const known = spines.get(y)
+    if (known !== undefined) return known
+    const built = Array.from({ length: 20 }, (_unused, i) => ({ x: i * 6, y }))
+    spines.set(y, built)
+    return built
+  }
+
+  function persistMark(laneId: string, y = 80): RibbonMark {
+    return ribbonMark({
+      ...base,
+      role: 'persist',
+      laneId,
+      path: settledSpine(y),
+      widthRoot: 1.4,
+      widthTip: 0.6,
+      paint: ink(ICE_200, 0.5),
+    })
+  }
+
+  function liveThread(laneId: string, y = 80): Mark {
+    return {
+      ...base,
+      role: 'thread',
+      laneId,
+      kind: 'stroke',
+      points: [
+        { x: 0, y },
+        { x: 30, y },
+      ],
+      width: 2,
+      ink: ink(ICE_200, 1),
+    }
+  }
+
+  // The SHAPE a real living lane actually draws (`marks/thread.ts:158-160`):
+  // `kind: 'ribbon'`, `role: 'thread'`. This is the population `isSettledRibbon`
+  // must exclude — a `stroke` mark was never going to reach the ribbon-cache
+  // code at all, so it cannot stand in for this case.
+  //
+  // It takes the SAME memoised spine a settled lane gets, deliberately. The
+  // gate is `role`, so this mark is the one thing standing between the cache
+  // and the population the first attempt's own measurement rejected — and it
+  // can only prove that if everything EXCEPT the role says "hit". Given a fresh
+  // spine it would miss on identity alone, and the arm below would pass with
+  // the gate loosened, which is the mutation it exists to fail (#147).
+  function livingRibbon(laneId: string, y = 80): RibbonMark {
+    return ribbonMark({
+      ...base,
+      role: 'thread',
+      laneId,
+      path: settledSpine(y),
+      widthRoot: 1.4,
+      widthTip: 0.6,
+      paint: ink(ICE_200, 0.5),
+    })
+  }
+
+  it('writes vertices once, and none again for the same content on the next frame', () => {
+    const spy = vi.spyOn(Batch.prototype, 'vertex')
+    const first = buildFrame([persistMark('lane-cache-a')], PANEL)
+    const afterFirst = spy.mock.calls.length
+    expect(afterFirst).toBeGreaterThan(0)
+
+    // A FRESH mark object, same values — exactly what `sceneMarks` hands
+    // `buildFrame` every frame for a lane whose `dissolve` has pinned at 1.
+    const second = buildFrame([persistMark('lane-cache-a')], PANEL)
+    expect(spy.mock.calls.length).toBe(afterFirst)
+
+    // The byte-equal contract the issue names: a cache hit reproduces exactly
+    // what a fresh build produced, run structure included.
+    expect(Array.from(second.vertices.pos.slice(0, second.vertices.n * 2))).toEqual(
+      Array.from(first.vertices.pos.slice(0, first.vertices.n * 2)),
+    )
+    expect(second.runs).toEqual(first.runs)
+    expect(second.drawCalls).toBe(first.drawCalls)
+    spy.mockRestore()
+  })
+
+  it('changed content is a real miss — this is not a cache that lies', () => {
+    const spy = vi.spyOn(Batch.prototype, 'vertex')
+    buildFrame([persistMark('lane-cache-b')], PANEL)
+    const afterFirst = spy.mock.calls.length
+    buildFrame([persistMark('lane-cache-b', 84)], PANEL) // one input moved
+    expect(spy.mock.calls.length).toBeGreaterThan(afterFirst)
+    spy.mockRestore()
+  })
+
+  it('a rebuilt outline is a MISS, never a false hit — the one direction the identity key is allowed to be wrong in', () => {
+    // The safety property the key rests on (#147). `digestRibbon` reads the
+    // outline's ring IDENTITIES, so a lane whose geometry is rebuilt as fresh
+    // arrays — byte-for-byte the same picture — does NOT hit. That is correct
+    // and it is the whole licence: a false miss costs exactly the pre-cache
+    // tessellation, while a false hit would serve last frame's triangles for
+    // this frame's shape. Identity can only ever fail in the safe direction,
+    // and this is the arm that says so out loud.
+    const spy = vi.spyOn(Batch.prototype, 'vertex')
+    const points = (): readonly Point[] =>
+      Array.from({ length: 20 }, (_unused, i) => ({ x: i * 6, y: 80 }))
+    const of = (path: readonly Point[]): RibbonMark =>
+      ribbonMark({
+        ...base,
+        role: 'persist',
+        laneId: 'lane-cache-rebuilt',
+        path,
+        widthRoot: 1.4,
+        widthTip: 0.6,
+        paint: ink(ICE_200, 0.5),
+      })
+
+    const first = buildFrame([of(points())], PANEL)
+    const afterFirst = spy.mock.calls.length
+    expect(afterFirst).toBeGreaterThan(0)
+
+    // A SEPARATE array of identical points — same picture, new objects.
+    const second = buildFrame([of(points())], PANEL)
+    expect(spy.mock.calls.length).toBeGreaterThan(afterFirst)
+
+    // …and the miss is a real tessellation, not a degraded one: the safe
+    // direction has to stay byte-correct or "false miss" is not the harmless
+    // thing this arm claims it is.
+    expect(Array.from(second.vertices.pos.slice(0, second.vertices.n * 2))).toEqual(
+      Array.from(first.vertices.pos.slice(0, first.vertices.n * 2)),
+    )
+    expect(second.runs).toEqual(first.runs)
+    spy.mockRestore()
+  })
+
+  it('a living thread pays no cache overhead — every frame is a full write, not a slot lookup', () => {
+    const spy = vi.spyOn(Batch.prototype, 'vertex')
+    buildFrame([liveThread('lane-cache-live')], PANEL)
+    const firstCalls = spy.mock.calls.length
+    spy.mockClear()
+    buildFrame([liveThread('lane-cache-live')], PANEL)
+    expect(spy.mock.calls.length).toBe(firstCalls)
+    spy.mockRestore()
+  })
+
+  it('a living RIBBON (kind: ribbon, role: thread) never enters the cache — this is the exact population the rejected first attempt regressed on', () => {
+    // `isSettledRibbon` gates on `role`, not `kind`, precisely because a real
+    // living lane's own thread IS a `RibbonMark` (`marks/thread.ts:158-160`).
+    // If this gate were loosened to `mark.kind === 'ribbon'` — reintroducing
+    // exactly the population the first attempt's own measurement rejected —
+    // this same-content second frame would be a cache hit (zero writes)
+    // instead of a full redraw.
+    const spy = vi.spyOn(Batch.prototype, 'vertex')
+    buildFrame([livingRibbon('lane-cache-live-ribbon')], PANEL)
+    const firstCalls = spy.mock.calls.length
+    expect(firstCalls).toBeGreaterThan(0)
+    spy.mockClear()
+    // Same content, a fresh mark object — exactly the shape that IS a cache
+    // hit for a 'persist' role. A 'thread' role must redraw it in full again.
+    buildFrame([livingRibbon('lane-cache-live-ribbon')], PANEL)
+    expect(spy.mock.calls.length).toBe(firstCalls)
+    spy.mockRestore()
+  })
+
+  it('a paint-only change on a settled ribbon is a real miss — a settled lane\'s salience can still shift', () => {
+    // `budget()` reads live salience even for a settled lane (spotlight, alarm
+    // elsewhere in the fleet), so `paint` is NOT pinned the way geometry is —
+    // `digestRibbon` has to catch this or a dimmed/brightened settled lane
+    // would silently keep serving its old colour forever.
+    const spy = vi.spyOn(Batch.prototype, 'vertex')
+    const geometry = Array.from({ length: 20 }, (_unused, i) => ({ x: i * 6, y: 80 }))
+    buildFrame(
+      [
+        ribbonMark({
+          ...base,
+          role: 'persist',
+          laneId: 'lane-cache-paint',
+          path: geometry,
+          widthRoot: 1.4,
+          widthTip: 0.6,
+          paint: ink(ICE_200, 0.5),
+        }),
+      ],
+      PANEL,
+    )
+    const afterFirst = spy.mock.calls.length
+    buildFrame(
+      [
+        ribbonMark({
+          ...base,
+          role: 'persist',
+          laneId: 'lane-cache-paint',
+          path: geometry, // same geometry, identity included
+          widthRoot: 1.4,
+          widthTip: 0.6,
+          paint: ink(ICE_1000, 1), // only the paint moved
+        }),
+      ],
+      PANEL,
+    )
+    expect(spy.mock.calls.length).toBeGreaterThan(afterFirst)
+    spy.mockRestore()
+  })
+
+  it('a settled lane scattered across passes is recognised beside a live neighbour that keeps moving', () => {
+    // `sceneMarks` never hands one lane's marks to `buildFrame` contiguously,
+    // so this is the case that actually matters: the settled lane's mark
+    // lands with a changing live mark on either side, and must still be
+    // recognised on its own, contributing zero further vertex writes.
+    const settled = persistMark('lane-cache-c')
+
+    const liveSpy = vi.spyOn(Batch.prototype, 'vertex')
+    buildFrame([liveThread('lane-cache-live-c', 0)], PANEL)
+    const liveAloneCalls = liveSpy.mock.calls.length
+    liveSpy.mockRestore()
+
+    const spy = vi.spyOn(Batch.prototype, 'vertex')
+    buildFrame([liveThread('lane-cache-live-c', 0), settled], PANEL)
+    const afterFirst = spy.mock.calls.length
+
+    buildFrame([liveThread('lane-cache-live-c', 10), persistMark('lane-cache-c')], PANEL)
+    const secondCallCalls = spy.mock.calls.length - afterFirst
+    // The live mark's own cost, and NOTHING from the settled one.
+    expect(secondCallCalls).toBe(liveAloneCalls)
+    spy.mockRestore()
+  })
+
+  it('a camera change cannot invalidate a settled ribbon — ribbon() never reads panel.camera', () => {
+    const spy = vi.spyOn(Batch.prototype, 'vertex')
+    buildFrame([persistMark('lane-cache-d')], PANEL)
+    const afterFirst = spy.mock.calls.length
+    buildFrame([persistMark('lane-cache-d')], { ...PANEL, camera: { k: 2.4, x: 30, y: -10 } })
+    expect(spy.mock.calls.length).toBe(afterFirst)
+    spy.mockRestore()
+  })
+
+  it('a lane leaving the settled state is a guaranteed miss, not a stale hit', () => {
+    // A re-dispatched lane arrives with a different ROLE ('thread' instead of
+    // 'persist') for the same laneId — a slot `buildFrame` has never filled,
+    // so there is nothing stale to serve even before content is compared.
+    const spy = vi.spyOn(Batch.prototype, 'vertex')
+    buildFrame([persistMark('lane-cache-e')], PANEL)
+    const afterFirst = spy.mock.calls.length
+    buildFrame([liveThread('lane-cache-e')], PANEL)
+    expect(spy.mock.calls.length).toBeGreaterThan(afterFirst)
+    spy.mockRestore()
+  })
+
+  it('the tail/seal role (persist-mark) is cached too, and independently of the strand', () => {
+    const tail = ribbonMark({
+      ...base,
+      role: 'persist-mark',
+      laneId: 'lane-cache-f',
+      path: [
+        { x: 40, y: 80 },
+        { x: 46, y: 78 },
+        { x: 50, y: 76 },
+      ],
+      widthRoot: 2,
+      widthTip: 0,
+      paint: ink(ICE_1000, 1),
+    })
+
+    const spy = vi.spyOn(Batch.prototype, 'vertex')
+    buildFrame([tail], PANEL)
+    const afterFirst = spy.mock.calls.length
+    expect(afterFirst).toBeGreaterThan(0)
+    buildFrame([{ ...tail }], PANEL)
+    expect(spy.mock.calls.length).toBe(afterFirst)
+    spy.mockRestore()
+  })
+
+  it('a zero-width settled ribbon takes the stencil path through the cache without corrupting a neighbour', () => {
+    // The degenerate (organic-enclosure) branch of ribbon() produces `stencil`
+    // runs instead of `tris`. The replay path has to seal whatever run is open
+    // BEFORE its first byte lands, exactly as stencil() itself does — getting
+    // this wrong swallows a preceding open run's bytes into the stencil fan
+    // (the bug fixed on branch 32-spike-per-mark-cache, commit 6ad2777).
+    const enclosure = ribbonMark({
+      ...base,
+      role: 'persist',
+      laneId: 'lane-cache-g',
+      path: ring(120, 120, 20),
+      widthRoot: 0,
+      widthTip: 0,
+      paint: ink(ICE_200, 1),
+    })
+    const settled = { ...enclosure, outline: [ring(120, 120, 20)] }
+    const live = liveThread('lane-cache-live-g', 0)
+
+    // Ground truth: what the live mark's own tris run costs with no settled
+    // neighbour at all — what a seal-position bug would corrupt away from.
+    const liveOnly = buildFrame([liveThread('lane-cache-live-g', 0)], PANEL)
+    const liveOnlyTris = liveOnly.runs[0]
+    expect(liveOnlyTris?.kind === 'tris' && liveOnlyTris.count).toBeGreaterThan(0)
+    const liveOnlyCount = liveOnlyTris?.kind === 'tris' ? liveOnlyTris.count : -1
+
+    const fresh = buildFrame([live, settled], PANEL)
+    expect(fresh.runs.map((run) => run.kind)).toEqual(['tris', 'stencil'])
+    const liveTris = fresh.runs[0]
+    // Sealing at the wrong position (the historical bug) makes the stencil's
+    // own fill+cover bytes bleed into this count — asserting it against the
+    // live-only baseline, not just against itself, is what catches that.
+    expect(liveTris?.kind === 'tris' && liveTris.count).toBe(liveOnlyCount)
+
+    // Second frame: the settled ribbon is a cache hit, replayed through the
+    // exact same seal-then-splice path — the live neighbour's count must
+    // still match the same ground truth, not just match the first (miss) frame.
+    const cached = buildFrame([liveThread('lane-cache-live-g', 5), { ...settled }], PANEL)
+    expect(cached.runs.map((run) => run.kind)).toEqual(['tris', 'stencil'])
+    const cachedLiveTris = cached.runs[0]
+    expect(cachedLiveTris?.kind === 'tris' && cachedLiveTris.count).toBe(liveOnlyCount)
   })
 })
 

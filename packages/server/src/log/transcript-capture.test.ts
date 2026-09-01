@@ -221,3 +221,164 @@ describe('readTranscriptCaptureManifest', () => {
     }
   })
 })
+
+// ── the lane list is the session's, not the window's (#133) ─────────────────
+
+/**
+ * prd-44 ruling 4 (#37) capped the recorder's in-memory window, and
+ * `rotate.ts` handed that window to the capture. So on a session past the cap,
+ * a lane whose attributing events had been evicted was simply absent from the
+ * manifest — not reported unreadable, not counted, gone. And gone permanently:
+ * the capture is what the lane index reads once the log itself has been pruned
+ * (#38), so the loss outlives the recording.
+ *
+ * Every assertion here is a lane list, a flag or a byte count — never a wall
+ * clock. No law here is named `*.bench.test.ts` and none carries a
+ * `@gate-timing` marker.
+ */
+describe('captureSessionTranscripts — the lane list comes from the recording', () => {
+  const OLD_LANE = '519-migrate'
+  const OLD_WORKTREE = '/tmp/rhizomorph-fixture/519-migrate'
+  const OLD_PROJECT_SLUG = '-tmp-rhizomorph-fixture-519-migrate'
+  const OLD_SESSION_ID = 'sess-519'
+
+  let sessionDir: string
+  let claudeProjectsRoot: string
+
+  beforeEach(async () => {
+    sessionDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-capture-recording-'))
+    claudeProjectsRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-capture-projects-'))
+  })
+
+  afterEach(async () => {
+    await Promise.all([
+      rm(sessionDir, { recursive: true, force: true }),
+      rm(claudeProjectsRoot, { recursive: true, force: true }),
+    ])
+  })
+
+  async function writeTranscript(slug: string, claudeSessionId: string, text = '{"type":"user"}'): Promise<void> {
+    const dir = path.join(claudeProjectsRoot, slug)
+    await mkdir(dir, { recursive: true })
+    await writeFile(path.join(dir, `${claudeSessionId}.jsonl`), `${text}\n`)
+  }
+
+  /** The lane whose attributing events have fallen out of the recorder's window. */
+  function evictedLaneEvents() {
+    const f = createEventFactory({ idPrefix: 'old' })
+    return [
+      f.llmUsage({ lane: OLD_LANE, branch: OLD_LANE, sessionId: OLD_SESSION_ID, worktreePath: OLD_WORKTREE }),
+    ]
+  }
+
+  function capture(options: {
+    events: ReturnType<typeof laneEvents>
+    recordedEvents?: ReturnType<typeof laneEvents>
+  }) {
+    return captureSessionTranscripts({
+      events: options.events,
+      ...(options.recordedEvents !== undefined ? { recordedEvents: options.recordedEvents } : {}),
+      sessionDir,
+      sessionId: RECORDING_SESSION_ID,
+      claudeProjectsRoot,
+      now: 1_700_000_000_500,
+    })
+  }
+
+  it('captures a lane whose attributing events the window has already evicted', async () => {
+    await writeTranscript(PROJECT_SLUG, SESSION_ID)
+    await writeTranscript(OLD_PROJECT_SLUG, OLD_SESSION_ID)
+    const recent = laneEvents()
+    const whole = [...evictedLaneEvents(), ...recent]
+
+    // The window holds only the recent lane; the recording holds both. THE law:
+    // on the code before #133 this manifest names one lane, because the window
+    // is all it ever looked at.
+    const manifest = await capture({ events: recent, recordedEvents: whole })
+
+    expect(manifest?.lanes.map((entry) => entry.lane).sort()).toEqual([LANE, OLD_LANE].sort())
+    expect(manifest?.lanes.every((entry) => entry.captured)).toBe(true)
+    expect(manifest?.attributedFrom).toBe('recording')
+    expect(manifest?.complete).toBe(true)
+  })
+
+  it('still reports an evicted lane it could not capture, rather than dropping it back out of the list', async () => {
+    // The recent lane's transcript exists; the evicted lane's does not. The
+    // wider list must not quietly shrink back to the lanes that happened to
+    // work — a lane that cannot be captured is a recorded gap (ADR-0011's
+    // posture), and that is the whole reason the list is widened at all.
+    await writeTranscript(PROJECT_SLUG, SESSION_ID)
+    const recent = laneEvents()
+
+    const manifest = await capture({ events: recent, recordedEvents: [...evictedLaneEvents(), ...recent] })
+
+    const evicted = manifest?.lanes.find((entry) => entry.lane === OLD_LANE)
+    expect(evicted?.captured).toBe(false)
+    expect(evicted?.bytes).toBe(0)
+    expect(evicted?.reason).toContain('TRANSCRIPT NOT CAPTURED')
+    expect(manifest?.complete).toBe(false)
+    expect(manifest?.attributedFrom).toBe('recording')
+  })
+
+  it('is purely additive — a lane already in the window keeps the attribution it had', async () => {
+    // The recording carries an OLDER claude session id for the same lane; the
+    // window carries the newer one. `findAttribution` walks backwards, so the
+    // newest wins and the wider list can only ADD lanes, never re-point one at
+    // a stale transcript. Only the newer id's file exists, so a regression
+    // here reads as an uncaptured lane rather than as a subtle wrong path.
+    await writeTranscript(PROJECT_SLUG, SESSION_ID)
+    const f = createEventFactory({ idPrefix: 'stale' })
+    const stale = [f.llmUsage({ lane: LANE, branch: LANE, sessionId: 'sess-84-older', worktreePath: WORKTREE })]
+    const recent = laneEvents()
+
+    const manifest = await capture({ events: recent, recordedEvents: [...stale, ...recent] })
+
+    expect(manifest?.lanes).toHaveLength(1)
+    expect(manifest?.lanes[0]?.claudeSessionId).toBe(SESSION_ID)
+    expect(manifest?.lanes[0]?.captured).toBe(true)
+  })
+
+  it('falls back to the window when the log could not be read, and refuses to call that complete', async () => {
+    await writeTranscript(PROJECT_SLUG, SESSION_ID)
+    const recent = laneEvents()
+
+    // `readSessionEvents` reports an unreadable log as `[]`, so an empty array
+    // is "the caller asked for the recording and did not get it".
+    const manifest = await capture({ events: recent, recordedEvents: [] })
+
+    // The recent lanes are still captured — a failed read must not cost the
+    // capture entirely.
+    expect(manifest?.lanes.map((entry) => entry.lane)).toEqual([LANE])
+    expect(manifest?.lanes[0]?.captured).toBe(true)
+    expect(manifest?.attributedFrom).toBe('window')
+    // But `complete` is false even though every lane FOUND made it in: the
+    // list itself may be short, and nothing at this layer can know that it is.
+    expect(manifest?.complete).toBe(false)
+  })
+
+  it('reads exactly as it did before #133 for a caller that supplies no recording', async () => {
+    await writeTranscript(PROJECT_SLUG, SESSION_ID)
+
+    const manifest = await capture({ events: laneEvents() })
+
+    // A caller that never asked is vouching for its own events (`listing.ts`'s
+    // tests, and any future caller holding a whole log) — so `complete` is
+    // computed exactly as it always was, and only `attributedFrom` says that
+    // the list's provenance is the caller's word rather than a recording.
+    expect(manifest?.lanes.map((entry) => entry.lane)).toEqual([LANE])
+    expect(manifest?.complete).toBe(true)
+    expect(manifest?.attributedFrom).toBe('window')
+  })
+
+  it('writes nothing at all when the recording named no lane either', async () => {
+    const f = createEventFactory({ idPrefix: 'bare' })
+    const unattributed = [f.worktreeDiscovered({ path: '/repo', branch: 'main', isMain: true })]
+
+    const manifest = await capture({ events: [], recordedEvents: unattributed as never })
+
+    // Unchanged: no lanes means no `transcripts/` directory for a session that
+    // was never instrumented, rather than an empty manifest claiming a capture.
+    expect(manifest).toBeNull()
+    expect(await readTranscriptCaptureManifest(sessionDir, RECORDING_SESSION_ID)).toBeNull()
+  })
+})
