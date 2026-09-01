@@ -61,8 +61,15 @@ describe("the shipped manifest is the product's, not a placeholder", () => {
     // lives. A wrong homepage ends up in the Linux desktop entry and the
     // Windows uninstall metadata, which is exactly where nobody looks until a
     // stranger clicks it.
-    const homepage = String(manifest(APP_MANIFEST)['homepage'] ?? '')
-    expect(homepage).toContain('launchpad-26/rhizomorph')
+    //
+    // Derived from the ROOT manifest's `repository.url` (review of #21,
+    // round 1) rather than checked with `toContain('launchpad-26/rhizomorph')`
+    // against itself — that passed a `-archive`-suffixed fork path just as
+    // readily as the real one, and ties this field to the same one source the
+    // describe block below reads, instead of being its own fourth copy.
+    const root = manifest(ROOT_MANIFEST)
+    const ownerRepo = ownerRepoFrom(String((root['repository'] as { url?: string } | undefined)?.url ?? ''))
+    expect(manifest(APP_MANIFEST)['homepage']).toBe(`https://github.com/${ownerRepo}#readme`)
   })
 
   it('declares the entry point electron-builder packages, and only bundled output', () => {
@@ -78,22 +85,39 @@ describe("the shipped manifest is the product's, not a placeholder", () => {
  * what `npm repo` / `npm bugs` and every registry listing resolve through —
  * had no law at all. Same defect (prd43 w3, #21): a personal fork path
  * instead of where this repo actually lives.
+ *
+ * **Review of #21, round 1 (BLOCKER):** the first version of this law asserted
+ * each field with `toContain('launchpad-26/rhizomorph')` — three independent
+ * `toContain` calls are three copies with three assertions, not one source
+ * with three derivations, and containment passes anything with that text as
+ * a PREFIX. EXECUTED by the reviewer: `homepage` and `bugs.url` rewritten to
+ * `.../rhizomorph-archive` still passed 13/13. `repository.url` is now read
+ * ONCE, into `ownerRepo`, and `homepage`/`bugs.url` are asserted `toBe` the
+ * exact string that derives from it — a `-archive` suffix, or any other
+ * wrong-but-prefixed value, can no longer pass.
  */
 describe("the root manifest's published repository identity", () => {
   const root = manifest(ROOT_MANIFEST)
+  const repository = root['repository'] as { url?: string } | undefined
+  const ownerRepo = ownerRepoFrom(String(repository?.url ?? ''))
 
-  it('points its homepage at the repository that actually exists', () => {
-    expect(String(root['homepage'] ?? '')).toContain('launchpad-26/rhizomorph')
+  it("repository.url names the repo that actually exists — every field below derives from this ONE read, not a copy of its own", () => {
+    expect(ownerRepo).toBe('launchpad-26/rhizomorph')
   })
 
-  it("points repository.url at the same repo — what 'npm repo' resolves", () => {
-    const repository = root['repository'] as { url?: string } | undefined
-    expect(String(repository?.url ?? '')).toContain('launchpad-26/rhizomorph')
+  it("homepage is EXACTLY what repository.url derives — what 'npm repo' resolves", () => {
+    expect(root['homepage']).toBe(`https://github.com/${ownerRepo}#readme`)
   })
 
-  it("points bugs.url at the same repo's issues — what 'npm bugs' resolves", () => {
+  it("bugs.url is EXACTLY what repository.url derives — what 'npm bugs' resolves", () => {
     const bugs = root['bugs'] as { url?: string } | undefined
-    expect(String(bugs?.url ?? '')).toContain('launchpad-26/rhizomorph')
+    expect(bugs?.url).toBe(`https://github.com/${ownerRepo}/issues`)
+  })
+
+  it('bites: a homepage carrying the real owner/repo as a mere PREFIX (an archived-fork suffix, the reviewer\'s exact repro) is rejected — containment would have missed it, equality does not', () => {
+    const archived = `https://github.com/${ownerRepo}-archive#readme`
+    expect(archived).toContain(ownerRepo!) // documents exactly the trap `toContain` fell into
+    expect(archived).not.toBe(`https://github.com/${ownerRepo}#readme`)
   })
 })
 
@@ -124,15 +148,33 @@ describe("every tracked clone instruction names the manifest's own repository (p
   const REPO_ROOT = path.join(HERE, '..', '..', '..', '..')
   const CLONE_SITES = ['README.md', 'docs/demo.md', 'docs/user-guide/getting-started.md']
 
+  /**
+   * The sibling of review round 1's BLOCKER above: `text.toContain(cloneCommand)`
+   * would pass a doc line reading `git clone https://github.com/${ownerRepo}-archive`
+   * too, since the correct command is a PREFIX of that wrong one. Extracting the
+   * whole `git clone <url>` line and asserting it EQUALS the derived command closes
+   * the same containment gap here, not just on the manifest fields it was reported on.
+   */
+  function cloneLineIn(text: string): string | undefined {
+    return text.match(/^git clone \S+$/m)?.[0]
+  }
+
   for (const relPath of CLONE_SITES) {
-    it(`${relPath} clones the repository the manifest names, not a hand-typed copy`, () => {
+    it(`${relPath} clones EXACTLY the repository the manifest names, not a prefix or a hand-typed copy`, () => {
       const text = readFileSync(path.join(REPO_ROOT, relPath), 'utf8')
-      expect(text).toContain(cloneCommand)
+      expect(cloneLineIn(text)).toBe(cloneCommand)
     })
   }
 
   it('bites: ownerRepoFrom does not accept a fork path the manifest never named — a spelling #21\'s own audit never used', () => {
     expect(ownerRepoFrom('git+https://github.com/a-forked-mirror/rhizomorph.git')).toBe('a-forked-mirror/rhizomorph')
     expect(ownerRepoFrom('git+https://github.com/a-forked-mirror/rhizomorph.git')).not.toBe(ownerRepo)
+  })
+
+  it('bites: cloneLineIn rejects a doc line carrying the real command as a mere PREFIX (an archived-fork suffix) — toContain would have missed it', () => {
+    const archived = `${cloneCommand}-archive`
+    expect(cloneLineIn(archived)).toBe(archived)
+    expect(cloneLineIn(archived)).not.toBe(cloneCommand)
+    expect(archived).toContain(cloneCommand) // documents exactly the trap the old assertion fell into
   })
 })
