@@ -1,12 +1,14 @@
 # Retro — prd48 w2: two shippers writing at once lose and reorder nothing (#166)
 
 Lane `166-concurrent-shippers`. Covers the full run: architect's plan, the
-implementer's build and six runs, the reviewer's independent re-derivation, and
+implementer's build and six runs, the reviewer's independent re-derivation,
 this session's follow-up fixes to the four items review flagged but could not
-itself verify or fix. Verify (typecheck/lint/test) is green on the final state
-— the diff is a single new file,
-`docs/research/2026-08-29-shared-record-s2-concurrent-actors.md`, so nothing
-else could have regressed. Written once, after that gate passed.
+itself verify or fix, and a second pass after PR review by the conductor
+found two further issues (the outage's real cause, and two of the three
+per-actor checks being structurally incapable of failing) — see items 3 and 6
+below, added on that second pass. Verify (typecheck/lint/test) is green on
+the final state — the diff is two new files (the note and this retro), so
+nothing else could have regressed.
 
 ## What Was Built
 
@@ -26,18 +28,28 @@ why the diff this issue produced is documentation, not code.
 ## Retro Summary
 
 The task: settle, for prd-48's build PRD, whether N concurrent shippers writing
-into one server lose or reorder anything. The answer is PASS — zero
-duplicates, zero reorders, zero gaps across 902,640 rows and 48 actor-checks,
-under five deliberately adversarial interleavings plus one unscripted one.
+into one server lose or reorder anything. The answer is PASS, stated now to
+the precision the evidence actually supports: this design is lossless (zero
+gaps, all 48 chain digests close) under five deliberately adversarial
+interleavings plus one real shared-box outage; per-actor ordering is
+guaranteed by the design's construction (one shipper in flight at a time, one
+FIFO drain loop) rather than demonstrated by these runs, and the one
+actor-check that had any genuine path to fail an ordering assertion held.
 
-It went well. The plan was precise enough that a real, unanticipated finding
-(id collisions blocking the primary per-actor order check on most of the real
-data) degraded gracefully into the plan's own pre-authorized fallback instead
-of stalling the spike or getting smoothed over. The one implementation bug the
-harness hit was caught by the harness's own correctness check before any chaos
-row ran. The one real weakness — two numbers in the note that turned out to be
-unverifiable after the fact — was caught by review, not shipped silently, and
-was fixed by explicit caveat rather than either invented precision or deletion.
+It went well overall, but two things this note first got wrong both survived
+past this session's own read and needed the conductor's PR review to catch:
+a wrong cause named for the mid-run outage (attributed to sandbox process
+supervision; actually a sibling lane's accidental kill), and a headline that
+read 47 of 48 structurally-guaranteed non-failures as if they were 48
+independent demonstrations. Both are corrected in this revision — see items 3
+and 6 below. Set against that: the plan was precise enough that a real,
+unanticipated finding (id collisions blocking the primary per-actor order
+check on most of the real data) degraded gracefully into the plan's own
+pre-authorized fallback instead of stalling the spike or getting smoothed
+over; the one implementation bug the harness hit was caught by the harness's
+own correctness check before any chaos row ran; and the note's habit of
+reporting what wasn't clean, rather than hiding it, is exactly what made both
+late-caught issues fixable instead of buried.
 
 ## What Went Wrong
 
@@ -61,13 +73,21 @@ was fixed by explicit caveat rather than either invented precision or deletion.
    by id alone. This is a real, load-bearing scope finding for prd-48, not a
    spike-harness problem.
 
-3. **An unscripted ~2–3 minute server outage mid-run** — the server process
-   died with no trace in its own log, consistent with a bare `node server.mjs
-   &` inside one shell invocation being reaped when that shell invocation
-   exited. Not a defect in the server or shipper code, but it directly explains
-   two things that would otherwise have looked anomalous: `sustained-b`'s
-   eight shippers all exiting with `code: null` instead of a clean exit, and
-   `mixed-j`'s wall time running long against its expected baseline.
+3. **An unscripted ~2–3 minute server outage mid-run, and a wrong first
+   attribution for it.** The server process died with no trace in its own
+   log. The note's first draft attributed this to sandbox process
+   supervision reaping a bare `node server.mjs &`. That attribution was
+   wrong, and PR review by the conductor caught it: the sibling lane for
+   issue #167, sharing the same box, recorded in its own note killing a
+   concurrent sibling lane's server process by accident during a broad
+   `ps`/`lsof`-based cleanup, naming this exact port (5561) and this exact
+   build area. The outage was a real shared-box collision between two
+   sibling spikes, not an artefact of this harness's own process-launch
+   style. It still directly explains two things that would otherwise have
+   looked anomalous: `sustained-b`'s eight shippers all exiting with `code:
+   null` instead of a clean exit, and `mixed-j`'s wall time running long
+   against its expected baseline — that part of the analysis was right; only
+   the cause named for it was not.
 
 4. **Two numbers in the note were observed only live, never persisted, and
    were unverifiable by review time.** `queueDepth`/`queueDepthPeak` were read
@@ -91,6 +111,28 @@ was fixed by explicit caveat rather than either invented precision or deletion.
    surfaced only when review independently re-derived the numbers from the raw
    harness output on disk instead of trusting the note's own summary.
 
+6. **Two of the note's three per-actor checks were headlined as demonstrated
+   results when most of their coverage was actually guaranteed by the
+   harness's own construction — the exact "test that cannot fail for the
+   reason it claims" shape this repo names by name.** Caught by the
+   conductor on PR review, not by the implementer, the first review pass, or
+   this session's own read of the note. `events_n`'s primary key
+   `(project, actor_instance, n)` with `ON CONFLICT ... DO NOTHING` makes
+   `dup_count = 0` a database-constraint fact in every run, chaotic or not —
+   not a result any chaos row could have failed. `shipper.mjs` awaits each
+   POST before forming its next batch (one batch in flight per actor, ever)
+   and `server.mjs` drains with a single FIFO loop, so per-actor
+   `n`-vs-`serial` monotonicity is guaranteed by construction for any actor
+   never killed mid-flight — of 48 actor-checks, exactly one (actor-5, row
+   `kill-i`) ever had a genuine path to an inversion. The headline read "zero
+   duplicates, zero reorders... across every one of 48 actor-checks" as if
+   all 48 were independent demonstrations, when 47 of the 48 reorder checks,
+   and all 48 dup checks, could only ever have reported zero. The gap check
+   and the chain-digest closure were the two checks actually doing
+   run-dependent work, and they were correctly reported as such — the defect
+   was in what the surrounding prose implied about the other two, not in the
+   SQL or the numbers themselves.
+
 ## Root Causes
 
 - **(1)** is a genuine defect in throwaway code, caught by exactly the
@@ -104,10 +146,17 @@ was fixed by explicit caveat rather than either invented precision or deletion.
   contact with reality only because the plan had pre-authorized a fallback for
   "if it bites" in general terms, not because the specific cross-actor shape
   was foreseen.
-- **(3)** is environmental — this sandbox's process-supervision behavior
-  reaping a background job started with a bare `&`, not a flaw in the
-  code under test. Root cause is the harness's own process-launch style for a
-  process meant to outlive the invoking shell command.
+- **(3)** is environmental — a real collision between two sibling lanes'
+  spikes sharing one box, not a flaw in the code under test. The wrong
+  *first* attribution (sandbox process supervision) was a reasoning gap: the
+  actual evidence available at the time (no error trace, a bare `&`-launched
+  process, timing consistent with a shell exit) was also consistent with an
+  external kill, and nothing in the note's first draft checked for one
+  before naming a cause. The correct root cause only became checkable once a
+  second document — the sibling #167 lane's own note — existed to compare
+  against; this lane could not have ruled it out unilaterally at the time it
+  wrote the note, since the two lanes' spikes ran concurrently and neither
+  had visibility into the other's actions as they happened.
 - **(4)** is the one real process gap here. The harness had a durable
   persistence path for anything derived from a SQL query or a file artifact,
   and no equivalent path for anything observed only through a live HTTP
@@ -121,6 +170,16 @@ was fixed by explicit caveat rather than either invented precision or deletion.
   exists to catch. Transcription and off-by-one errors are a normal cost of
   hand-copying numbers from a live run into prose; they went undetected until
   a second, independent computation caught them.
+- **(6)** is a gap in what "verify the numbers" covered. Both the reviewer's
+  independent re-derivation and this session's own read confirmed every
+  number in the note was real and reproducible — and stopped there. Neither
+  asked the structurally different question "given this schema and this
+  drain-loop design, could this check have returned anything else?" That
+  question requires reading the harness's own source for what it structurally
+  permits, not just re-running its queries against what it happened to
+  produce — a check that cannot fail is not caught by checking that its
+  output is accurate, only by asking whether its output could ever have been
+  different.
 
 ## What Worked Well
 
@@ -135,12 +194,14 @@ was fixed by explicit caveat rather than either invented precision or deletion.
   smoke run, before any of the six real runs — the expensive failure mode
   (discovering a systemic cursor bug after 902,640 rows had already been
   collected on top of it) never happened.
-- **Honest reporting of what wasn't clean.** The unscripted outage and the
-  non-clean `sustained-b` shipper exits were reported plainly, attributed to
-  the sandbox rather than the design, and explicitly kept out of the falsifier
-  table rather than folded in as if they had been designed chaos rows. This is
-  what keeps the "0/0/0 dup/inversion/gap, PASS" verdict trustworthy — it is an
-  honest zero, not one with a hidden asterisk.
+- **Honest reporting of what wasn't clean, even though the first cause named
+  for it was wrong.** The unscripted outage and the non-clean `sustained-b`
+  shipper exits were reported plainly rather than hidden or folded into the
+  falsifier table as if they had been designed chaos rows — that instinct
+  was right, and it is what made the wrong attribution fixable at review
+  (fully described, so a reader with more information — the sibling #167
+  lane's own note — could correct it) rather than buried where nobody would
+  think to check it.
 - **Independent re-derivation at review**, from raw output on disk rather than
   the note's own summary, caught real, if small, errors that a read-through
   would have missed — the wrong digest and the off-by-one count in particular
@@ -173,22 +234,45 @@ was fixed by explicit caveat rather than either invented precision or deletion.
    guidance the architect agent uses when planning a spike that extends an
    existing single-actor precedent doc.
 
-3. **Launch a throwaway harness's long-running process with `nohup ... &` or a
-   process manager, not a bare `&` inside one shell invocation**, when the
-   process needs to outlive the invoking command (here, a 10-minute sustained
-   run). This would plausibly have prevented the unscripted outage. Low
-   leverage on its own — the harness is throwaway and outside the repo, so
-   there is no repo file this changes today — worth carrying into a future
-   spike-harness checklist if one gets written, not worth a standalone doc for
-   this alone.
+3. **Before naming a cause for an anomaly on a shared box, check whether a
+   concurrent sibling lane could be the cause, not only the harness's own
+   process-launch style.** Item 3's wrong first attribution would have been
+   caught earlier by a habit as cheap as `ps`/`lsof` on the claimed port
+   before writing the "sandbox artefact" sentence, or by explicitly noting
+   in the note that the cause was unconfirmed pending what sibling lanes
+   report. The actual fix here cost nothing but a later correction; the
+   leverage is in not shipping a wrong causal claim as EXECUTED-confidence
+   prose in the first place. Worth one line in a future spike-harness
+   checklist: "an anomaly on a shared box gets a hedge until a concurrent
+   sibling lane's own note is checked or ruled out, not a confident cause."
+
+4. **Ask "could this check return anything else?" for every per-actor
+   assertion before calling it a demonstrated result**, not only "does this
+   check's output match what the harness produced." Recommendation 1's
+   persistence checklist and this one are the same shape: both are about
+   what a spike-planning template should ask for up front so review is
+   checking claims against a stated design intent, rather than discovering
+   after the fact that a check was decorative. **Artifact: repo doc.** Same
+   file as Recommendation 1, `docs/research/2026-08-24-shared-record-spike-plan.md`
+   — add alongside the persistence checklist item: "for each per-actor or
+   per-row check in the verification plan, state whether the harness's own
+   design lets it fail at all, and for which cases; a check with no failure
+   path is reported as a construction guarantee, not a demonstrated result."
 
 ## Highest-Leverage Next Step
 
-Add the persistence checklist item from Recommendation 1 to
+Add both the persistence checklist item (Recommendation 1) and the
+failure-path checklist item (Recommendation 4) to
 `docs/research/2026-08-24-shared-record-spike-plan.md`, the architect's
-spike-planning doc that future prd-48 S-series waves are planned from: any
-number sourced from a live endpoint or ambient shell state during a run must
-be polled on an interval and written to a results file, not only observed
-live. This is the one gap in an otherwise fully re-derivable, EXECUTED-labeled
-note, and with several more S-series spikes still ahead in this PRD, it is the
-one most likely to recur unless the plan template says so up front.
+spike-planning doc that future prd-48 S-series waves are planned from — they
+are the same shape of fix (state up front what a check can and cannot show,
+rather than discovering the gap at review) and belong together in one pass
+over that doc: any number sourced from a live endpoint or ambient shell state
+during a run must be polled on an interval and written to a results file, not
+only observed live; and for each per-actor or per-row check in the
+verification plan, state whether the harness's own design lets it fail at
+all. Both gaps reached a committed PR before being caught (one by review, one
+by the conductor at PR review, one full round later) in an otherwise
+fully re-derivable note, and with several more S-series spikes still ahead in
+this PRD, both are the kind of gap most likely to recur unless the plan
+template says so up front.
