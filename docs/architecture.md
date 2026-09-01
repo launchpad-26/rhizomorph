@@ -193,7 +193,7 @@ one optional field the Rhizomorph *does* read: an operator's own declaration
 that a lane is parked, absent meaning `false`. It is written only by
 whatever wrote `.swarm/lanes.json` in the first place — this read-only
 instrument never sets it — and it is not dispatch metadata like the rest:
-`buildFleet` (`packages/web/src/fleet/buildFleet.ts`) uses it to exempt a
+`buildFleet` (`packages/core/src/fleet/buildFleet.ts`) uses it to exempt a
 parked lane from the FROZEN and inferred-WAITING alarms and to keep it off
 the ladder, while leaving every other fact about the lane (its output, its
 age, its fence compliance) exactly as true as it would be unparked — parked
@@ -344,7 +344,7 @@ so the wording here can be checked against the rulings that required it.
 
 ### The derived fleet object — one object, four surfaces
 
-`buildFleet` (`packages/web/src/fleet/buildFleet.ts`) is the single function
+`buildFleet` (`packages/core/src/fleet/buildFleet.ts`) is the single function
 the attention strip, fleet table, burn strip, and scene all read — and read
 *only*, never re-deriving their own count of "how many lanes are working" or
 their own collision total. Its own doc comment states the reason directly:
@@ -431,7 +431,7 @@ scene never turns into uncapped light spam.
 The wire contract — `.swarm/lanes.json`, served at `GET /api/lanes` — is
 specified once, under [Server](#lane-manifest-prd3-ruling-19) above; this is
 where the web side of that contract is reconciled, not re-specified.
-`packages/web/src/fleet/fences.ts` owns the consumer: `parseLaneManifest`
+`packages/core/src/fleet/fences.ts` owns the consumer: `parseLaneManifest`
 turns whatever `/api/lanes` served into a `LaneManifest` (`handle →
 LaneFence`), or `null` on anything malformed — a fence is an accusation, so a
 half-parsed manifest (fencing some lanes, silently un-fencing others) is
@@ -447,7 +447,7 @@ array shape was rejected outright — a live manifest read as absent even
 though both the server and the consumer's own tests were green, because the
 consumer's test had hand-rolled an object-shaped approximation of the payload
 instead of copying the real one. The regression test
-(`packages/web/src/fleet/fences.test.ts`) now pins the exact envelope
+(`packages/core/src/fleet/fences.test.ts`) now pins the exact envelope
 `packages/server/src/api/lanes.test.ts` asserts the server serves, so the two
 sides of the contract can't drift apart silently again.
 
@@ -463,7 +463,7 @@ read-only instrument. `parseLaneManifest` carries it through unchanged
 the same soft fallback `issue`/`model` get, rather than the flat-refusal
 treatment a malformed `fence` gets, since a bad `parked` only ever softens
 an accusation). `buildFleet` reads it onto `Lane.parked` and gives it three
-consequences, all in `packages/web/src/fleet/buildFleet.ts`: `detectFrozen`
+consequences, all in `packages/core/src/fleet/buildFleet.ts`: `detectFrozen`
 and the inferred half of `detectWaiting` exempt a parked lane by
 construction, alongside the exemptions those detectors already had; a
 parked lane never reaches `buildLadder`'s attention list, however many
@@ -2327,13 +2327,13 @@ stale before (#238), and it drifted again since.
   from `sessionlog --extra-sessions` tagging an unrelated probe session
   `role: conductor`, tokens with no dollars attached. That number was worse
   than absent: it looked like a real measurement of orchestration overhead
-  and was not one. `SpendPanel` (`packages/web/src/panels/spend/`) now
-  computes its own cost-only overhead (`selectCostOverhead`/
-  `formatCostOverhead`, `packages/web/src/panels/spend/format.ts`) straight
+  and was not one. `SpendPanel` (packages/web/src/panels/spend/, deleted
+  outright by `b1cb3d5` once the burn strip superseded it) computed its own
+  cost-only overhead (`selectCostOverhead`/`formatCostOverhead`) straight
   from `RoleSpend.costUsd`/`costEventCount` — fields `selectRoleSpend` already
-  exposed — and renders `conductor not instrumented — see docs/telemetry.md`
-  whenever `conductor.costEventCount === 0`, regardless of what its tokens
-  say. **Rejected alternative:** keeping the token-based ratio alive as a
+  exposed — and rendered `conductor not instrumented` whenever
+  `conductor.costEventCount === 0`, regardless of what its tokens said.
+  **Rejected alternative:** keeping the token-based ratio alive as a
   fallback so historical, un-instrumented sessions (this project's own build
   day) would still produce a number. Rejected because that fallback fits one
   accident of this project's own history — a conductor that was, in fact,

@@ -537,31 +537,6 @@ const ALLOWLISTED_BROKEN_CITATIONS: ReadonlyArray<{ file: string; cite: string; 
     reason: 'prd-40 was blessed and moved to docs/prds/done/ after this ADR cited its pre-done path',
   },
   {
-    file: 'docs/architecture.md',
-    cite: 'packages/web/src/fleet/buildFleet.ts',
-    reason: 'moved to packages/core/src/fleet/buildFleet.ts (#246)',
-  },
-  {
-    file: 'docs/architecture.md',
-    cite: 'packages/web/src/fleet/fences.test.ts',
-    reason: 'moved to packages/core/src/fleet/fences.test.ts alongside buildFleet.ts',
-  },
-  {
-    file: 'docs/architecture.md',
-    cite: 'packages/web/src/fleet/fences.ts',
-    reason: 'moved to packages/core/src/fleet/fences.ts alongside buildFleet.ts',
-  },
-  {
-    file: 'docs/architecture.md',
-    cite: 'packages/web/src/panels/spend/',
-    reason: 'SpendPanel moved to packages/web/src/lane-page/',
-  },
-  {
-    file: 'docs/architecture.md',
-    cite: 'packages/web/src/panels/spend/format.ts',
-    reason: 'moved with the rest of the spend panel to packages/web/src/lane-page/',
-  },
-  {
     file: 'docs/design-notes/node-apical-tuft-glow.md',
     cite: 'docs/decisions/retire-transformation-not-deletion.md',
     reason: 'the target lives under docs/design-notes/, not docs/decisions/, which was never created',
@@ -776,11 +751,6 @@ describe('doc citation law: a path cited from a document or a comment must exist
     expect(ALLOWLISTED_BROKEN_CITATIONS.map(({ file, cite }) => `${file} -> ${cite}`)).toEqual(
       [
         'docs/adr/0029-a-recording-may-repeat-a-fact.md -> docs/prds/prd-40-the-record-survives-the-write.md',
-        'docs/architecture.md -> packages/web/src/fleet/buildFleet.ts',
-        'docs/architecture.md -> packages/web/src/fleet/fences.test.ts',
-        'docs/architecture.md -> packages/web/src/fleet/fences.ts',
-        'docs/architecture.md -> packages/web/src/panels/spend/',
-        'docs/architecture.md -> packages/web/src/panels/spend/format.ts',
         'docs/design-notes/node-apical-tuft-glow.md -> docs/decisions/retire-transformation-not-deletion.md',
         'docs/design-notes/node-persist-lane.md -> docs/decisions/node-seal-fold.md',
         'docs/design-notes/node-persist-lane.md -> docs/decisions/retire-transformation-not-deletion.md',
