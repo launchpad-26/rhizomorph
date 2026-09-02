@@ -170,6 +170,7 @@ variance is attributed and the tail is printed` (ruling 4's spike — `research/
 
 **Wave 4 — gated on wave 3's spike verdict.** `prd47 w4: the display list allocates on a
 free-list` — groomed only if the GC attribution holds, with the cross-PRD note for `marks/`.
+**It did not hold; wave 4 was never groomed** (see the open question below, and prd-49).
 
 **Unfiled work implied, described not numbered:** the GPU-side harness
 (`EXT_disjoint_timer_query_webgl2` on the existing spike rigs) and everything queued behind it —
@@ -183,7 +184,11 @@ whether the camera is the instrument's claim or the operator's hand.
 
 - **What does the overlay's camera-dependent pass cost during a repaint-only frame?** Unmeasured;
   wave 1 measures before it lands. Open, not ruled.
-- **Is the variance GC?** Ruling 4 exists to answer it; the pooling never lands without it. Open,
-  not ruled.
+- **Is the variance GC?** **Answered NO, 2026-09-01** — `research/2026-08-28-variance-attribution.md`
+  (`74007f3`): 0.74 % of animation-frame time at shipped scale, 0 of 764 frames over budget, and
+  ruling 4's own falsifier not met (worst/median rose, 1.25x → 1.66x). The pooling was never
+  built. The answer is conditional on the scale the instrument renders, and that condition is now
+  **prd-49** (`docs/prds/prd-49-potential-change.md`) with issue #190 — a tripwire in the backlog
+  rather than a paragraph in a closed PRD.
 - **Does `mergeProps`-style context selection (ruling 3's deferred refactor) come here or its own
   PRD?** 25 call sites is a fence question before it is a code question. Open, not ruled.
