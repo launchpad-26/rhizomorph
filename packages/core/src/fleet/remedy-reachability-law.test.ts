@@ -132,7 +132,7 @@ function remedyStrings(source: string): string[] {
   return extractCallArgs(source, 'add').map((args) => resolveArg(args[3]!, constants))
 }
 
-/** A path-shaped token needs a directory separator or one of these extensions — see the input table's "bare command name" and ".json data file" rows for why `.json` is not here. */
+/** A path-shaped token needs one of these extensions. A directory separator alone is NOT enough — `scripts/dev/never-written` is not extracted at all, so an extensionless dead remedy passes; widening to "separator OR extension", which this comment used to claim outright, is `#231`. See the input table's "bare command name" and ".json data file" rows for why `.json` is not here. */
 const PATH_TOKEN_RE = /^[A-Za-z0-9_.\-/]+\.(?:sh|ts|tsx|js|mjs|md)$/
 
 /** Every path-like token a remedy string names, per the input table above. */
