@@ -396,7 +396,7 @@ Every status below was checked by reading the tree, not by reasoning from this d
   settings PRD to adopt it, or an explicit parking; naming which is an operator act, not a
   lane's.
 
-### Found while revisiting — new, and no owner
+### Found while revisiting — filed as `#235`
 
 - **The lab law's file count is a floor, and its own comment says it is not.**
   `no-live-fleet-law.test.ts`'s coverage assertion is
@@ -411,7 +411,24 @@ Every status below was checked by reading the tree, not by reasoning from this d
   a **shrink inside a subdirectory that survives**. The count is 17 today (5 root, 2 `branching/`,
   7 `compare/`, 3 `launch/`) and the by-name test checks exactly one file per subdirectory, so
   `compare/` could drop from seven files to five with two appearing at `lab/`'s root and both
-  assertions stay green while coverage of `compare/` shrank. Small, but it is the "test that
-  cannot fail for the reason it claims" shape `AGENTS.md` names, and the fix is the one word the
-  comment already assumes. Adjacent to `#23`'s mandate that a stated count derive from the thing
-  it counts, but not inside its fence. **No owner.**
+  assertions stay green while coverage of `compare/` shrank. It is the "test that cannot fail for
+  the reason it claims" shape `AGENTS.md` names.
+
+  **Corrected again while filing, and the correction is the part worth keeping:** this entry first
+  ended by calling the fix "the one word the comment already assumes" — swap
+  `toBeGreaterThanOrEqual` for `toBe`. That is wrong, and wrong in the direction that matters.
+  Both matchers compare a single total, so `toBe(17)` survives the very mutation described above.
+  What the exact matcher adds is that *growth* reddens — worth having, and the house pattern
+  `route-class-law.test.ts` follows — but it does not close the hole this entry names. The
+  per-subdirectory count does. A finding whose stated fix does not survive its own stated failure
+  scenario is worse than no finding, and this one made that mistake twice before it was filed.
+
+  It also has a **sibling**, found only because filing asked for one:
+  `lab/launch/explicit-invocation-law.test.ts` carries the identical comment-versus-assertion pair
+  one directory away — its file doc says it copies the no-live-fleet law's tactic, and it copied
+  this along with it. Three other floors in the tree were checked and are honest, each pairing its
+  floor with `toContain` checks or naming itself a vacuity guard.
+
+  **Owner: `#235`** (prd43 w5 — ruling 2, a count stated in prose is derived from the thing it
+  counts, with ruling 1 already making a comment prose for that purpose). Ordered behind `#220`,
+  which holds all of `packages/web/src/lab/` for prd-30's sweep.
