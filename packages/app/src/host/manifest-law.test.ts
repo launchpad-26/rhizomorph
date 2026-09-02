@@ -209,8 +209,8 @@ function trackedMarkdownFiles(): string[] {
     .filter((line) => line.length > 0)
 }
 
-/** A line naming an actual GitHub clone instruction, tolerant of everything `cloneLinesIn` below is — used only to DISCOVER which files to check, not to extract a url from them. */
-const CLONE_INSTRUCTION_RE = /git clone.*github\.com/
+/** A line naming an actual GitHub clone instruction, tolerant of everything `cloneLinesIn` below is — used only to DISCOVER which files to check, not to extract a url from them. `[ \t]+` rather than a single space for the same reason `cloneLinesIn` matches that way: the shell collapses whitespace, so `git  clone` is the same invocation, and a discovery filter that misses it leaves the whole file unswept (review of #223). */
+const CLONE_INSTRUCTION_RE = /git[ \t]+clone.*github\.com/
 
 /**
  * Every tracked, non-historical markdown file with a real clone-this-repo
@@ -303,6 +303,16 @@ describe("every tracked clone instruction names the manifest's own repository (p
   type CloneLine = { line: string; url: string | undefined }
 
   /**
+   * `git` and `clone` separated by any run of spaces or tabs. The shell
+   * collapses whitespace before git ever sees the words, so `git  clone <url>`
+   * is the SAME invocation as `git clone <url>` — rounds 2 and 3 normalized the
+   * whitespace BEFORE `git` (indentation, a `$ ` prompt) and left the gap
+   * BETWEEN `git` and `clone`, where a wrong url was invisible to both this
+   * matcher and `CLONE_INSTRUCTION_RE`'s discovery sweep (review of #223).
+   */
+  const GIT_CLONE_PREFIX_RE = /^git[ \t]+clone(?=[ \t]|$)/
+
+  /**
    * Every `git clone` invocation in `text`. Four review-round-3 findings, all
    * EXECUTED against the real tree, all fixed here — the round-2 version
    * only ever recognized a bare `git clone <url> [dir]` line at column 0:
@@ -330,10 +340,11 @@ describe("every tracked clone instruction names the manifest's own repository (p
     const out: CloneLine[] = []
     for (const rawLine of text.split('\n')) {
       const stripped = rawLine.replace(/^\s*(?:\$\s+)?/, '')
-      if (stripped !== 'git clone' && !stripped.startsWith('git clone ')) continue
+      const prefix = stripped.match(GIT_CLONE_PREFIX_RE)
+      if (!prefix) continue
       const withoutComment = stripped.replace(/\s+#.*$/, '')
       const tokens = withoutComment
-        .slice('git clone'.length)
+        .slice(prefix[0].length)
         .trim()
         .split(/\s+/)
         .filter((token) => token.length > 0)
@@ -385,6 +396,14 @@ describe("every tracked clone instruction names the manifest's own repository (p
   it('bites: leading indentation and a shell-prompt prefix do not hide a wrong url — review round 3', () => {
     expect(cloneLinesIn(`  git clone ${expectedUrl}-archive`).map((l) => l.url)).toEqual([`${expectedUrl}-archive`])
     expect(cloneLinesIn(`$ git clone ${expectedUrl}-archive`).map((l) => l.url)).toEqual([`${expectedUrl}-archive`])
+  })
+
+  it('bites: whitespace BETWEEN "git" and "clone" does not hide a wrong url — the shell collapses it, so this is the same invocation (review of #223)', () => {
+    expect(cloneLinesIn(`git  clone ${expectedUrl}-archive`).map((l) => l.url)).toEqual([`${expectedUrl}-archive`])
+    expect(cloneLinesIn(`git\tclone ${expectedUrl}-archive`).map((l) => l.url)).toEqual([`${expectedUrl}-archive`])
+    expect(cloneLinesIn(`  $ git   clone ${expectedUrl}-archive`).map((l) => l.url)).toEqual([`${expectedUrl}-archive`])
+    // and the DISCOVERY sweep sees it too, or the file above is never swept at all
+    expect(CLONE_INSTRUCTION_RE.test(`git  clone ${expectedUrl}`)).toBe(true)
   })
 
   it('bites: a clone line whose tokens resolve to no url is reported as its own failure, not silently treated as absent — review round 2\'s core complaint', () => {
