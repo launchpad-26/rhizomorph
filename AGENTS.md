@@ -74,7 +74,7 @@ scripts/dev/issues.sh type     <n>... bug|feature|task
 scripts/dev/issues.sh status   <n>... backlog|ready|in-progress|in-review|done
 scripts/dev/issues.sh batch                   # '<issue> <when> <status> [priority] [type]' lines on stdin
 scripts/dev/issues.sh close    <n> "reason"   # a reason is required
-scripts/dev/issues.sh orphans                 # open issues missing from the board
+scripts/dev/issues.sh orphans                 # open issues off the board, or with no milestone
 scripts/dev/issues.sh ids                     # field/option ids, for debugging
 ```
 
@@ -131,7 +131,18 @@ Work outside a PRD uses `<area>: <what becomes true>`, e.g.
 `workmux collector: listByHandle keys on basename(path)`.
 
 Every issue must carry a milestone. `scripts/dev/issues.sh orphans` finds the
-ones that do not.
+ones that do not — and finds the ones missing from the board, which is a
+different fact and is reported on its own line. An issue with no milestone
+belongs to no programme and appears in no burndown.
+
+**That sentence was false from the day it was written until 2026-09-02.**
+`cmd_orphans` compared open issues against board membership and never read
+`milestone`, so running the named check answered a different question and then
+printed a success message — the rule read as enforced while nothing enforced
+it, and four issues had drifted milestone-less by the time anyone counted. The
+command now does what this paragraph always claimed. Kept as a note because the
+failure is the interesting part: a wrong pointer to a real command is worse
+than no pointer, since it reports success.
 
 ### Waves and the bundle unit
 

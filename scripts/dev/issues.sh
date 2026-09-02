@@ -19,7 +19,7 @@
 #   scripts/dev/issues.sh batch                   # many issues, many fields, one board read
 #   scripts/dev/issues.sh show <n>                # issue body + board fields
 #   scripts/dev/issues.sh close <n> "reason"      # close WITH a comment, never silently
-#   scripts/dev/issues.sh orphans                 # open issues missing from the board
+#   scripts/dev/issues.sh orphans                 # open issues off the board, or with no milestone
 #   scripts/dev/issues.sh ids                     # field/option ids (for debugging)
 #
 # The value comes LAST on the write subcommands, so the historical two-argument
@@ -387,8 +387,17 @@ cmd_orphans() {
   # reconciliation: open issues do not all live on the board — that is this
   # command's whole premise — so the board read surviving the cap does not
   # prove this read did.
+  # `milestone` rides along on the SAME read rather than a second call. AGENTS.md
+  # has always said "every issue must carry a milestone" and named THIS command
+  # as what finds the ones that do not — which it did not do until 2026-09-02:
+  # it compared against board membership only, so the rule read as enforced
+  # while the command answered a different question and reported success. Four
+  # issues had drifted milestone-less by the time anyone counted. The field is
+  # free here (one `gh issue list`, already being made) and #581's whole subject
+  # is how many times this script reads a remote, so adding a call would have
+  # been the wrong fix even for a right check.
   local open_raw
-  open_raw="$(gh issue list --repo "$REPO" --state open --limit "$BOARD_LIMIT" --json number,title)" \
+  open_raw="$(gh issue list --repo "$REPO" --state open --limit "$BOARD_LIMIT" --json number,title,milestone)" \
     || die "could not read open issues (gh issue list failed)"
   printf '%s' "$open_raw" \
     | python3 -c '
@@ -400,13 +409,48 @@ if len(issues) >= limit:
     sys.stderr.write("error: gh issue list returned %d issues, at or above the --limit of %d; raise BOARD_LIMIT in %s\n"
                      % (len(issues), limit, sys.argv[3]))
     sys.exit(1)
-missing = [i for i in issues if str(i["number"]) not in on]
-if not missing:
+
+def label(i):
+    return "  #%d %s" % (i["number"], i["title"][:70])
+
+off_board = [i for i in issues if str(i["number"]) not in on]
+
+# "Was the field read at all?" is decided ONCE, here, and every later line
+# defers to it. An older gh, or a caller that trims the --json list, returns
+# rows with no `milestone` key — and "not read" is a different fact from
+# "read, and null". Collapsing them would report every open issue as drifted
+# the day gh changes, which is a check reporting a verdict it did not earn.
+#
+# Decided over ALL rows, not `issues[0]`: gh emits a uniform shape so one row
+# would do, but an empty list has no row 0 and must not silently answer "clean"
+# for a question nobody could ask. An earlier draft here ALSO put a
+# `"milestone" in i` guard on the comprehension below; it was dead code — this
+# branch already returns before the list is consulted — and deleting it left
+# every test green, which is how it was caught. One place decides, and it is
+# this one.
+field_read = bool(issues) and all("milestone" in i for i in issues)
+no_milestone = [i for i in issues if i.get("milestone") is None]
+
+# Two findings, two lines, never one merged verdict: an issue can be both, and
+# a single "N orphans" count would hide which rule it broke. Each clean line
+# names the thing it checked, so neither can be read as covering the other.
+if not off_board:
     print("all open issues are on the board")
 else:
     print("not on the board:")
-    for i in missing:
-        print("  #%d %s" % (i["number"], i["title"][:70]))
+    for i in off_board:
+        print(label(i))
+
+if not issues:
+    print("no open issues — nothing to check for a milestone")
+elif not field_read:
+    print("milestone not read — this gh did not return the field, so nothing is claimed about it")
+elif not no_milestone:
+    print("all open issues carry a milestone")
+else:
+    print("no milestone:")
+    for i in no_milestone:
+        print(label(i))
 ' "$on_board" "$BOARD_LIMIT" "$0"
 }
 
