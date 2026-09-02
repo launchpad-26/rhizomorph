@@ -1,6 +1,9 @@
 # prd-41 — the laboratory is confined in fact: the fence prd-12 promised, enforced
 
-> **Status:** **BLESSED** — Ciaran Slow, 2026-08-22, in session. Milestone `prd41`. Drafted the same day from the reconciled audit
+> **Status:** **SHIPPED** — 2026-09-02. Milestone `prd41`: seven issues, all closed, across
+> three waves plus two late review defects; the closeout, including what the plan got wrong,
+> is the last section of this document.
+> Blessed by Ciaran Slow, 2026-08-22, in session. Drafted the same day from the reconciled audit
 > at `03df141` (findings 8, 9, 10, 28 — untracked artefact, `.gitignore`d; the sha is the anchor). Successor to prd-12, whose own Outcome line says *"its fence is incomplete — see
 > #234, #245"*: prd-12 is shipped and cannot take new waves, so the unfinished half lands here
 > and cites its rulings rather than restating them.
@@ -185,6 +188,18 @@ captures only its own child's stderr` (ruling 3).
 any law (prd-24 names them). And the `install: true` call sites that stub `npm` should probably
 stop stubbing it once ruling 1 lands, since the stub is what hid this.
 
+**#109 and #196 — wave-less by title, filed by wave 3's own review.** Amended 2026-09-02. Both
+were filed against this PRD's territory by the independent review of PR `#123`, and neither
+carries a wave token, so `scripts/dev/prd-reconcile.sh 41` reports two NO WAVE rows: fence-lint
+never saw them and the board's orphan check could not tell. They were not dropped — `#109` is
+ruling 2's composition defect and `#196` its sibling one module over, and both closed in
+**PR `#195`** (`d8dd1f6`). Declared here rather than by retitling two closed issues, for the
+reason prd-46 gives for `#75`: the issues are closed claiming no wave, and editing their titles
+now would rewrite the record of what was actually dispatched. **This paragraph does not clear the
+rows, and is not meant to** — the NO WAVE check reads the issue *title* and never reads this
+document, so both report for as long as they keep their titles. A standing report with its reason
+recorded beats a falsified one.
+
 ## Open questions
 
 - **`--ignore-scripts`, or `install: false` by default?** Ruling 1 takes the first because the CLI
@@ -195,3 +210,131 @@ stop stubbing it once ruling 1 lands, since the stub is what hid this.
 - **Should the lab lock's ceiling be configurable?** prd-35 owns the settings surface and its
   non-negotiables list; whether a timeout belongs there is its question, not this one's. Open,
   not ruled.
+
+## The four rulings, as they landed
+
+**Ruling 1 — a restored tree is data, never code.** Landed in wave 2 (`#7`), with wave 1 (`#6`)
+landing the law red against the pre-fix tree first, per prd-24's discipline.
+`lab/restore.ts:310` passes `--ignore-scripts`, and `lab/namespace-law.test.ts:500` now calls
+`forkThreeArms({ install: true })` — the default path. That is the whole point: the vacuity the
+ruling named was *a law asserting a fence only on the path the default does not take*, and the
+fix was to make the law take the default path, not to widen what the law claims.
+
+**Ruling 2 — every lab subprocess is bounded, and the lock refuses rather than hangs.** Landed in
+wave 2 (`#8`, `#9`) — all four lab modules wrap through `withTimeout`, `withLabCliLock` gained a
+ceiling, and an over-waited launch refuses with **503** (`api/lab.ts:483,808`). **And then it was
+found to be false in production by its own review.** `withTimeout` *always overrides* the
+`timeoutMs` an incoming options object carries, so composing two wraps is a trap rather than a
+safety margin: the wrap closest to the raw `exec` wins. `dispatchFork`'s 5 s wrap sat inside
+`restoreWorkspace`'s 120 s one, so `npm install` — the entire reason 120 s exists — ran capped at
+5 s against an install this PRD's own spike measured at ~6 s warm (`#109`). Its sibling one module
+over: a single `COMPARE_EXEC_TIMEOUT_MS` bounded both git plumbing and the verify command, whose
+default is `npm test`, so `compareFork` reported **every arm as failed regardless of the truth**
+(`#196`). Both fixed in `d8dd1f6` (PR `#195`), and the fix was *not wrapping at the outer layer at
+all*.
+
+**Ruling 3 — a request may not silence the process.** **The verdict is met and both of the
+ruling's own sentences are false of the tree**, which this document says about itself in its
+2026-09-01 correction rather than leaving a later reader to find the contradiction. What landed
+(`#10`) is `AsyncLocalStorage` scoping (`stderrCaptureScope`, `api/lab.ts:555`), not deletion plus
+threading: the override still exists and captures a write only inside the current `runCli` call's
+own async scope, letting `poll-loop.ts`'s concurrent degrade `console.error` through untouched.
+The PRD's premise was simply wrong about the repo — `runCli`'s `log` option was never wired to
+`cli/index.ts`'s seven direct writes, so "thread it through `log`" did not describe a smaller
+version of the right fix; it described a seam that does not reach the problem.
+
+**Ruling 4 — a ceiling that spends money is declared.** Landed (`#9`): `MAX_ARMS = 8`
+(`api/lab.ts:366`), refused with **400** naming the ceiling and why each arm costs
+(*"each arm forks a live, spending agent lane"*). The ruling deliberately required a number and
+refused to pick one, sending the reasoning to `docs/design-notes/lab-launch-ceilings.md` — which
+is where this repo puts the rationale for a value. That note now carries the whole ceiling family,
+including the composition trap above, and is the durable artefact this PRD produced.
+
+## The five success criteria, assessed
+
+1. **A fork cannot execute code from the tree it restored — MET.** `--ignore-scripts` on the
+   install, and the containment law walks the installing path.
+2. **A hung child is abandoned within a stated budget, and the lab keeps answering — MET, and
+   only after `#109` and `#196`.** For the fortnight between wave 2 and PR `#195` the criterion
+   read as met while the production path ran at 5 s. See below for why nothing could see it.
+3. **The degrade voice keeps its volume during a launch — MET**, by a mechanism this document
+   did not name and has since corrected in place.
+4. **A ceiling that costs money is declared, not discovered — MET.** Declared, refused before
+   anything dispatches, and reasoned in a design note rather than asserted in code.
+5. **A stated confinement is true of the run it describes — MET.** `cli/index.ts:225-227` is
+   unchanged and is now true where it stands, which is exactly what ruling 1 promised: the fix was
+   to the fact, not to the print order. This criterion is the best-written one in the document —
+   it names its own earlier draft as falsified and says why the obvious test (print order) could
+   never have caught the defect.
+
+`EXECUTED` 2026-09-02, Node v22.23.2: `packages/server/src/lab/` + `api/lab.test.ts` — 8 files,
+**157 passed**. `git merge-base --is-ancestor d8dd1f6 origin/main` passes, so `#109`'s and
+`#196`'s fixes are on `main` and not on an integration branch.
+
+## The three open questions, answered
+
+**`--ignore-scripts`, or `install: false` by default?** **Still open, still unowned.** Ruling 1
+took the narrower change deliberately — the CLI surface is the breaking-change contract, so a
+default flip is a major bump for something `--ignore-scripts` achieves at patch level. The flip
+remains the safer default and remains an operator ruling nobody has made.
+
+**What is `MAX_ARMS`?** **Answered: 8**, with its reasoning in
+`docs/design-notes/lab-launch-ceilings.md` rather than here — a launch panel comparing treatments
+realistically spans 2–4, and 8 gives generous headroom without letting one click fork a lane farm.
+Ruling 4 asked for a declared number and got one that can be argued with, which is the difference
+between a ceiling and a limit discovered by exhaustion.
+
+**Should the lab lock's ceiling be configurable?** **Still open, still prd-35's.** No wave here
+entered the settings surface, and nothing since has taken the question.
+
+## What the plan got wrong
+
+**Ruling 3 was built on a premise that was false about this repo.** It named `runCli`'s `log`
+option as the seam and it is not one. The document's own 2026-09-01 correction is the right
+response — it records that both of the ruling's sentences are false of the tree *while the
+criterion they served is genuinely met*, so a reader checking the ruling against the code finds an
+explanation instead of a contradiction. That is the third instance of "a stated mechanism is not a
+ruling" in this cohort, after prd-42's ruling 2 and prd-45's ruling 4, and all three predate
+prd-47 writing the lesson down.
+
+**Ruling 2 was the right verdict wired the wrong way round, and no test in the suite could see
+it.** `restore.test.ts`'s own composition test called `restoreWorkspace` **directly**, with an
+unwrapped exec — so it exercised a shape that never occurs at runtime and passed while the
+production path was capped at 5 s. The design note states the general form: *a regression test for
+a composition bug has to go through the caller that composes, not the callee alone.* This is the
+"what mutation would this test survive?" question from `AGENTS.md`, and the answer here was
+*any* — the test could not fail for the reason it claimed, because it never built the composition
+the defect lives in.
+
+**Two of this milestone's seven issues carry no wave.** `#109` and `#196` were filed by PR `#123`'s
+review against territory this PRD already owned, and neither took a wave token — so fence-lint
+never saw them and `prd-reconcile.sh` reports two standing NO WAVE rows. Declared in the
+Sequencing above rather than cleared by retitling closed issues, on prd-46's `#75` reasoning.
+
+**`#109` was closed with a comment that says "merged into prd41", not "main".** `AGENTS.md` names
+that exact wording as the tell for prd-44's two-day loss, where five commits sat on an integration
+branch while the milestone read as done. Checked here rather than assumed —
+`git merge-base --is-ancestor d8dd1f6 origin/main` passes, the `prd41` branch reached `main`
+through PR `#123`, and nothing was stranded. Recorded because the check is one command and that
+wording is the only thing that prompts anyone to run it.
+
+## Residuals, with owners
+
+- **`FORK_EXEC_TIMEOUT_MS` — 5 s for `workmux add`.** The third member of the ceiling family,
+  named by PR `#123`'s review with no number offered and still without one. `workmux add` runs
+  `.workmux.yaml`'s `post_create` hooks, which in this repo means `npm ci`: measured **~1.6 s
+  warm** against **6.9 s cold** for the same dependency set, so it fits today with about 3x margin
+  and does not fit on a cold cache. And `post_create` is arbitrary operator-authored shell, so no
+  measurement of it generalises past the repo it was taken in. The design note leaves it as a
+  stated open question rather than silently widening it, on the grounds that picking that ceiling
+  is a ruling and a ruling is not a review's to make. **No owner.**
+- **The `install: false` default flip.** Open question 1. An operator ruling and a major bump.
+  **No owner.**
+- **`lab/compare/`'s seven files, ungoverned by any law.** Named as a non-goal here and by prd-24
+  before that; widening what a law claims was explicitly not this PRD's work. Still ungoverned.
+  **No owner.**
+- **The `install: true` call sites that stub `npm`.** This PRD's own unfiled work said they
+  *"should probably stop stubbing it once ruling 1 lands, since the stub is what hid this"*.
+  Ruling 1 landed; the stubs were not revisited. **No owner.**
+- **Whether the lock ceiling is configurable.** prd-35's settings surface. **Owned by a PRD, not
+  by an issue.**

@@ -473,17 +473,21 @@ describe('the lab namespace law, live (prd12 ruling 1, #153)', () => {
 
   /**
    * prd41 ruling 1 — a restored tree is data, never code. `restoreWorkspace`
-   * (`restore.ts:293`) runs `npm install --no-audit --no-fund` with no
-   * `--ignore-scripts`, so a `postinstall` hook in the checkpointed tree
-   * executes as the operator. The fixture's `postinstall` writes a file into
-   * the WATCHED repo's own working tree — outside every namespace ruling 1
-   * grants (`refs/rhizomorph/`, git objects, the lab's own worktrees) — using
-   * an absolute path baked in at fixture-creation time, since the hook runs
-   * from the arm's own worktree, not from `repoDir`.
+   * (`restore.ts:310`) runs `npm install --no-audit --no-fund --ignore-scripts`,
+   * so a `postinstall` hook in the checkpointed tree does NOT execute as the
+   * operator. The fixture's `postinstall` writes a file into the WATCHED
+   * repo's own working tree — outside every namespace ruling 1 grants
+   * (`refs/rhizomorph/`, git objects, the lab's own worktrees) — using an
+   * absolute path baked in at fixture-creation time, since the hook runs from
+   * the arm's own worktree, not from `repoDir`.
    *
-   * This must fail today: nothing on the install path passes
-   * `--ignore-scripts`, so the write lands and the assertion below is false.
-   * The red result is the point — wave 2 makes it pass.
+   * Written to fail: when this landed there was no `--ignore-scripts` anywhere
+   * on the install path, so the write landed and the assertion below was false.
+   * `f85ce8b` (#6, 2026-08-26) is what turned it green, and it is the half of
+   * prd-41 ruling 1 that `SECURITY.md` cites as evidence the gap is closed —
+   * so this comment has to say what the code does now, not what it did when
+   * the law was red. The `{ install: true }` below is the point: the default
+   * path, which the rest of this file's fixtures never take.
    */
   it('an install does not run a postinstall hook that escapes into the watched repo (prd41 ruling 1)', async () => {
     const escapeTarget = path.join(repoDir, 'postinstall-escaped.txt')

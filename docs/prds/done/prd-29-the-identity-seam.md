@@ -1,10 +1,13 @@
 # prd-29 — the identity seam: a read answers only the token's holder
 
-> **Outcome:** ruled — all six rulings accepted 2026-08-24 and ruling 7 gates the four reads
+> **Status:** **SHIPPED** — 2026-09-02. Milestone `prd29`: four issues, all closed; the closeout,
+> including what the plan got wrong, is the last section of this document. All fourteen `/api`
+> reads are `gated-read`; `GET /*` alone stays tokenless, forever, as the named bootstrap.
+>
+> **Outcome (as ruled, 2026-08-24):** all six rulings accepted and ruling 7 gates the four reads
 > that postdated the route math; wave 1 shipped; waves 2a/2b and the four-read slice are
-> groomable. `GET /*` alone stays tokenless, forever, as the named bootstrap. Unblocks prd-43
-> issue #23. Reconciled 2026-08-22 at `03df141`; extends prd-23 and stands on
-> ADR-0012/0014/0024.
+> groomable. Unblocks prd-43 issue #23. Reconciled 2026-08-22 at `03df141`; extends prd-23 and
+> stands on ADR-0012/0014/0024.
 
 ## Problem
 
@@ -221,3 +224,157 @@ wave 2a). End-state unchanged in spirit and now total in letter: after the waves
 ungated mutations. That is the sentence prd-43 issue #23 was blocked on, and ADR-0012's
 ceiling still applies: none of this stops a local process, and no shipped surface may say
 otherwise.
+
+## The three wave-less rows, declared
+
+Amended 2026-09-02. `scripts/dev/prd-reconcile.sh 29` reports **NO WAVE** for `#58`, `#59` and
+`#60`. None of the three was unsequenced: they carry `w1b:`, `w2a:` and `w2b:` in their titles,
+which is exactly the sub-wave vocabulary the Sequencing section above uses (*"two in wave 2a
+(`/api/meta`, `/api/doctor`), one in wave 2b (`/api/stream`)"*). The check wants an integer — a
+`wN:` token — and a lettered sub-wave does not match it, so fence-lint never saw the three and the
+board's orphan check could not tell.
+
+**The document is right and the tooling is right; the vocabularies simply disagree.** Sub-waves
+were the honest description here: wave 2's two halves genuinely could run in parallel and
+genuinely had different blast radii — 2a breaks CLI consumers if it is wrong, 2b breaks the
+browser's stream — so splitting them by letter recorded a real distinction that "wave 2" and
+"wave 3" would have flattened. Every later PRD in this cohort uses integers only, and none has
+needed a letter since.
+
+**This paragraph does not clear the rows, and is not meant to.** The check reads the issue title
+and never reads this document, so all three report for as long as they keep their titles. Retitling
+three closed issues would falsify the record of what was actually dispatched, which wave 6 of
+prd-46 and the `#75` paragraph there both refuse on the same ground. Standing report, reason
+recorded.
+
+## The seven rulings, as they landed
+
+**Ruling 1 — a fourth route class exists: `gated-read`.** Landed, and it is now the largest class
+in the table: `api/index.ts` carries **fourteen** `gated-read` rows and exactly one `read` —
+`GET /*`, the named bootstrap, with the OTLP inbox's four rows the only `ungated-mutation`s.
+ADR-0024 carries the four-class taxonomy, by amendment rather than in-place edit as the ruling
+required.
+
+**Ruling 2 — the gate-presence law: "gated" fails the build when it is fiction.** Landed. prd-23
+ruling 5's unimplemented half is closed: the route-class law reads each route's real `preHandler`
+chain off `build-app.ts`'s `onRoute` hook and fails any `gated-*` row whose route lacks its gate
+(`route-class-law.test.ts:141`). The table stopped being trusted prose.
+
+**Ruling 3 — the credential stays in-band; the CLI scrapes, it never stores.** Landed in wave 2a
+(`#59`). `rhizomorph env` and `doctor` adopted rotate's existing meta-scrape through one shared
+helper rather than growing two more copies, and CI's boot smoke now scrapes the shell for the
+token and sends it (`ci.yml:161`) instead of `cat`ing `/api/meta`'s body into the build log. The
+recorded price — one extra request per CLI invocation — was paid as stated.
+
+**Ruling 4 — the stream authenticates by cookie, never by query param.** Landed in wave 2b
+(`#60`). `CAPABILITY_COOKIE_NAME`, HttpOnly and SameSite=Strict, set beside the meta tag by the
+same HTML serve (`api/security.ts:96`), read back only when a gate is built with `allowCookie`.
+`No Secure` is a deliberate, documented choice — the server is loopback-only over plain HTTP, and
+a `Secure` cookie would silently never be sent. The client did not change at all, and
+`Last-Event-ID` auto-resume survived untouched, both as the ruling promised. See the residuals
+for the half of this ruling that is enforced by omission rather than by a law.
+
+**Ruling 5 — `tokensMatch` becomes constant-time.** Landed; `timingSafeEqual` at
+`api/security.ts`. It was already fact in the tree when the operator ruled, so accepting it
+recorded what the build enforced.
+
+**Ruling 6 — the web laws grow a read axis; nothing is slipped past them.** Landed. Both laws were
+amended as *tightenings* rather than loosenings — `mutating-calls-law.test.ts` grew a read
+enumeration instead of dropping its universe, and `drawer/readonly.test.ts`'s "no request init at
+all" became an allowed-headers literal rather than `Record<string, string>`. The argument the
+ruling made for the drawer amendment is the one that held: the constitution forbids mutations, not
+credentials, and a header proving the reader may read mutates nothing.
+
+**Ruling 7 — the four reads that postdate the route math gate too.** Landed (`#58`). This is the
+ruling worth reading, because it exists only because somebody re-derived an arithmetic the
+document had already stated. The Sequencing said *"of the ten `/api` reads"*; there were fourteen,
+four having arrived from prd-31, prd-20 and ADR-0019 after the math was written. One of them,
+`GET /api/session-preview/:sessionId`, returns transcript content — the family wave 1 gated first
+— and carried a recorded `#216` posture (*"untokened, like `/api/doctor`"*) that predated the
+class entirely.
+
+## The five success criteria, assessed
+
+1. **Every `/api` read refuses a tokenless request; `GET /*` alone stays tokenless — MET.**
+   Fourteen `gated-read` rows, one `read` row, and the catch-all never grew a gate.
+2. **"Gated" is proven, not declared — MET.** Ruling 2's presence check reads the running app's
+   real `preHandler` chains rather than the table's prose.
+3. **Nothing outside the browser breaks — MET.** The shared scrape helper carried `env`, `doctor`
+   and `rotate`; CI's smoke sends the token and no longer prints the meta body.
+4. **The stream keeps its nature — MET as written, and see the residual.** `Last-Event-ID`
+   survives, the credential appears in no URL or request line, and no mutation *does* accept the
+   cookie today. The clause *"any mutation accepts the cookie"* is a falsifier no law watches.
+5. **The prose matches the mechanism — MET.** The ceiling ADR-0012 records is stated in the
+   Problem, restated as a non-goal, and restated again in ruling 7's last sentence. Nothing
+   shipped claims read-gating stops a local process, which for a security-shaped PRD is the
+   criterion most worth having written down.
+
+`EXECUTED` 2026-09-02, Node v22.23.2: `route-class-law`, `api/security`,
+`replay/mutating-calls-law` and `drawer/readonly` — 4 files, **61 passed**.
+
+## The four open questions, answered
+
+**Dev mode, inherited from prd-23.** **Still open, still inherited.** `vite dev` serves
+`index.html` itself, so neither meta tag nor cookie exists there; ADR-0012 records that `dev:web`
+alone reaches no live server anyway, so the gate adds refusal to unreachability. Whoever rules
+prd-23's copy rules this one. Nothing here resolved it.
+
+**Does the cookie rotate?** **Still open**, and now with a second holder: `/api/rotate` mints a
+new session id and the token does not move, so a cookie copy of the token inherits prd-23's
+question exactly. Unchanged by anything this PRD shipped.
+
+**Amendment or new ADR for the four-class table?** **Answered: a new record.** ADR-0024 carries
+the `gated-read` class and the gate-presence law. The leads owned the form and took it.
+
+**Wave 3's shape — extend the coverage law's parser, or a new walker?** **Answered by wave 3
+itself** (`#61`): the read axis joined `packages/contract/`'s existing coverage law rather than
+getting its own walker.
+
+## What the plan got wrong
+
+**The route arithmetic went stale between drafting and grooming, and the document had no way to
+notice.** *"Of the ten `/api` reads"* was true when written and wrong by the time waves were
+groomed — four reads had arrived from three other PRDs. Ruling 7 caught it, but only because a
+human re-counted; nothing in the tooling compares a PRD's stated route math against the route
+table it describes. The gate-presence law this very PRD built proves a row's gate exists; no law
+proves the *document's* count of rows is current. That is the same class of defect one level up,
+and it is the most interesting thing prd-29 produced.
+
+**A lettered sub-wave is a vocabulary the tooling does not speak.** `w1b`, `w2a` and `w2b` were
+honest descriptions of real parallelism with different blast radii, and they cost three permanent
+NO WAVE rows. The distinction was worth recording; the notation was not the way to record it.
+
+**Ruling 4's "a mutation never honours the cookie" is enforced by omission.** The ruling states it
+as an absolute, `api/security.ts:144-153` says plainly that it is *"enforced by omission, not a
+runtime check"*, and `security.test.ts` asserts the refusal against the gate's default rather than
+against the wiring. That is a check proving a proxy for the fact it claims — prd-45 ruling 2's
+exact subject, in a PRD that shipped the week before prd-45 was blessed. See the residual for the
+mutation that proves it.
+
+**The status block said "waves 2a/2b and the four-read slice are groomable" and then stayed that
+way after they shipped.** All four issues closed 2026-08-25; the document read as mid-flight until
+today. Same drift prd-45 recorded about itself, from the same cause — nobody was reading prd-29
+any more.
+
+## Residuals, with owners
+
+- **No law stops a `gated-mutation` route from being built with `allowCookie: true`.** Ruling 4
+  forbids it in words; the enforcement is that every mutation call site happens to omit the
+  option. **`EXECUTED` 2026-09-02 — the mutation is silent.** Adding `{ allowCookie: true }` to
+  `POST /api/label`'s gate (`api/label.ts:38`) and running `route-class-law`, `api/security` and
+  `api/label` gives **47 passed, nothing red**: the route-class law sees a gate is present, not
+  which options built it, and the security test asserts the default rather than the wiring.
+  Reverted immediately; the file is unchanged. The practical exposure is bounded by
+  SameSite=Strict, so this is a missing law rather than a live hole — but it is exactly the shape
+  prd-45 and prd-46 spent two milestones closing in `gate.sh`. **No owner.**
+- **The document's route count has no law.** Ruling 7 exists because the arithmetic went stale and
+  a person noticed. Nothing compares a PRD's stated route math to `api/index.ts`'s table, and the
+  next PRD that quotes a count will go stale the same way. **No owner.**
+- **Dev mode.** Open question 1, inherited from prd-23 and still held there. **Owned by a PRD, not
+  by an issue.**
+- **Whether the cookie rotates.** Open question 2, inherited from prd-23's identical question
+  about the token. **Owned by a PRD, not by an issue.**
+- **Stage 2's forwarded identity.** The whole point of building the seam — *"one place that
+  answers 'may this reader read?', today with 'it holds the token', later with a verified
+  identity"*. The seam exists and is unoccupied. Explicitly a non-goal here; no successor PRD has
+  claimed it. **No owner.**
