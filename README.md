@@ -354,8 +354,67 @@ the collectors that read git/tmux/workmux live under
 `packages/server/src/collectors/sessionlog/`, the server that binds the
 port is `packages/server/src/index.ts`, the laboratory's entire write
 surface is `packages/server/src/lab/`, and the concierge's is
-`packages/server/src/concierge/`. Grep for `fetch(` or `http.request`: the
-only outbound path is the clone above.
+`packages/server/src/concierge/`.
+
+Sweep the app and the desktop shell (`packages/web/src` and
+`packages/app/src`, every module format, comments stripped, excluding tests)
+for a **named vocabulary** of request-originating spellings, and there are
+**thirteen** call sites in **ten** modules:
+`packages/app/src/host/fleet-feed.ts` (two),
+`packages/web/src/app/StreamContext.tsx`,
+`packages/web/src/concierge/clone.ts`,
+`packages/web/src/concierge/instrument.ts`,
+`packages/web/src/hooks/useEventStream.ts`,
+`packages/web/src/lab/launch/launch.ts`,
+`packages/web/src/recordings/capabilityRead.ts` (two),
+`packages/web/src/recordings/label.ts`,
+`packages/web/src/replay/rotate.ts`, and
+`packages/web/src/scene/parity/capture.mjs` (two) —
+`route-class-law.test.ts` runs that same sweep, over the same roots, and
+fails if this list stops matching what it finds. The two numbers above and the
+ten paths below them are all read out of this file and compared to it —
+nothing here is a number typed twice.
+
+**What "named vocabulary" means, and what it does not promise.** The law
+matches a listed set of spellings: a call to `fetch`, `http.request`,
+`https.request`, `http.get`, `https.get` or `navigator.sendBeacon`, plain or
+optional-chained; the `new EventSource`, `new WebSocket` and
+`new XMLHttpRequest` constructors; a
+dynamic `import()` of `http`/`https`; and a reference to the platform function
+taken under another name — `globalThis`/`window`/`self`, via `.fetch`,
+`?.fetch`, `['fetch']`, or a renamed destructure. That list, with a pinned
+expected count for each spelling, is the `it.each` table in the law itself,
+which is the authority rather than this paragraph.
+
+It is a **regression net over an enumerated grammar, not a proof of
+exhaustiveness.** "Every way JavaScript can send a byte" is an open set, and no
+regex closes it — five rounds of adversarial review added ten spellings to that
+table, each one found by someone thinking of a cell nobody had listed. So the
+honest claim is the bounded one: nothing in the listed vocabulary can appear
+outside the list above without the build going red, and a genuinely novel
+spelling needs a human to notice it and a row to be added. The loopback
+argument below is what carries the actual security property; this sweep keeps
+the enumeration honest.
+
+Six further modules — `app/StatusBar.tsx`, `connect/meta.ts`,
+`drawer/useTranscript.ts`, `fleet/manifest.ts`, `lane-page/LanePage.tsx` and
+`lane-page/laneIndex.ts`, all under `packages/web/src/` — read
+`typeof globalThis.fetch` to check the capability exists and then delegate to
+`recordings/capabilityRead.ts`, whose own two calls are already counted above.
+They are consumers of one egress point rather than six more of them, so
+counting them again would overstate the surface rather than describe it.
+
+Every one of the thirteen targets this instrument's own loopback origin, not
+the wider internet: the browser-side calls pass a path relative to the page
+itself, which only ever loads from `127.0.0.1`/`localhost` (the server binds
+nowhere else, and `mutation-guard.ts`'s `Host` check refuses anything else
+regardless); `capture.mjs` drives a headless browser pointed at
+`http://127.0.0.1:<port>/`; and the Electron shell's two go through a
+`baseUrl` that
+[`app/src/host/boot-line.ts`](packages/app/src/host/boot-line.ts)'s
+`readListeningUrl` refuses to set to anything but a loopback host in the
+first place. The clone above is still the only path that ever leaves the
+machine.
 
 ## Support matrix
 

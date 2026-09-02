@@ -320,6 +320,18 @@ wording is the only thing that prompts anyone to run it.
 
 ## Residuals, with owners
 
+**Revisited 2026-09-02**, against `main` at `9eddf0a`. Of the four residuals recorded as
+**No owner** at closeout, **two were already discharged** by work that landed after this PRD
+closed, and the one residual that *had* an owner turns out to name a **shipped** PRD. The
+original claims are corrected in place rather than deleted: a residual that quietly disappears
+cannot be checked later, and being wrong about what is still open is the exact failure this
+section exists to prevent. Nothing below amends a ruling — ownership is bookkeeping, and the
+section's title always invited it.
+
+Every status below was checked by reading the tree, not by reasoning from this document.
+
+### Still open, and both are rulings before they can be issues
+
 - **`FORK_EXEC_TIMEOUT_MS` — 5 s for `workmux add`.** The third member of the ceiling family,
   named by PR `#123`'s review with no number offered and still without one. `workmux add` runs
   `.workmux.yaml`'s `post_create` hooks, which in this repo means `npm ci`: measured **~1.6 s
@@ -327,14 +339,96 @@ wording is the only thing that prompts anyone to run it.
   and does not fit on a cold cache. And `post_create` is arbitrary operator-authored shell, so no
   measurement of it generalises past the repo it was taken in. The design note leaves it as a
   stated open question rather than silently widening it, on the grounds that picking that ceiling
-  is a ruling and a ruling is not a review's to make. **No owner.**
+  is a ruling and a ruling is not a review's to make.
+
+  **Confirmed unchanged** — `fork.ts` still exports `FORK_EXEC_TIMEOUT_MS` at 5000, and its doc
+  comment still names `workmux add` among the subprocesses it bounds. **Owner: an operator
+  ruling, unfiled.** It cannot be an issue first, because the issue would have to choose the
+  number, which is the part that is not a lane's to choose. What the ruling has to settle: whether
+  `workmux add` gets a ceiling of its own — as `COMPARE_VERIFY_TIMEOUT_MS` did, splitting off from
+  the 5 s git-plumbing value for exactly this reason — or whether a cold-cache `post_create` is
+  accepted as out of scope and the 5 s stands with that stated.
+
 - **The `install: false` default flip.** Open question 1. An operator ruling and a major bump.
-  **No owner.**
-- **`lab/compare/`'s seven files, ungoverned by any law.** Named as a non-goal here and by prd-24
-  before that; widening what a law claims was explicitly not this PRD's work. Still ungoverned.
-  **No owner.**
-- **The `install: true` call sites that stub `npm`.** This PRD's own unfiled work said they
-  *"should probably stop stubbing it once ruling 1 lands, since the stub is what hid this"*.
-  Ruling 1 landed; the stubs were not revisited. **No owner.**
-- **Whether the lock ceiling is configurable.** prd-35's settings surface. **Owned by a PRD, not
-  by an issue.**
+
+  **Confirmed unchanged** — `restore.ts` still reads `options.install ?? true`. Ruling 1 did land
+  beside it: the install is now unconditionally `--ignore-scripts`, which is what makes the flip a
+  smaller question than it was at closeout — the containment argument for flipping is discharged,
+  and what remains is a cost and surface question, not a safety one. **Owner: an operator ruling,
+  unfiled.**
+
+### Discharged since closeout — the claims as written are now false
+
+- **~~`lab/compare/`'s seven files, ungoverned by any law.~~ Discharged, and the claim was wrong
+  when written.** `packages/web/src/lab/no-live-fleet-law.test.ts` walks `lab/` **recursively**
+  (the 2026-08-08 audit's finding #2 made it so, because a flat `readdirSync` had been seeing 5 of
+  17 files and missing `branching/`, `compare/` and `launch/` outright). It reaches
+  `compare/compare.ts` by name, checks every file under `compare/` against the fleet, panel and
+  scene import patterns, and its own file doc records compare/ having been checked clean against
+  them as a condition of that amendment. So those seven files are governed.
+
+  What prd-24 declined was a **different law family** — contract and coverage laws, in a non-goal
+  about not widening what *those* claim. This residual carried that forward as "ungoverned by any
+  law", which conflated the two and overstated it. Retired.
+
+- **~~The `install: true` call sites that stub `npm`.~~ Substantially discharged.** The one site
+  where the stub actually hid the defect was the law's, and it no longer stubs: the containment
+  test in `namespace-law.test.ts` runs a real `npm install` against a fixture carrying a real
+  `postinstall` hook and asserts the escape target is never written — turned green by `f85ce8b`
+  (`#6`), the wave this PRD's own closeout credits, and its comment now says out loud that the
+  `{ install: true }` there *"is the point: the default path, which the rest of this file's
+  fixtures never take."*
+
+  The remaining `install: true` sites in `restore.test.ts` and `fork.test.ts` do still stub `npm`,
+  and **that is correct rather than residual**: they assert argv (`--ignore-scripts` is passed) and
+  `timeoutMs` (the call gets `RESTORE_EXEC_TIMEOUT_MS`, not the 5 s value). A real install there
+  would cost seconds per case and prove nothing those assertions do not already prove. Retired as
+  a residual; the unfiled note that produced it read every stub as the same stub.
+
+### The owner that is not one
+
+- **Whether the lock ceiling is configurable.** ~~prd-35's settings surface. **Owned by a PRD, not
+  by an issue.**~~ **Its owner is shipped.** `prd-35`'s Outcome line reads *"shipped"*, and a
+  shipped PRD cannot take new waves — the convention this document's own header applies to prd-12
+  ("prd-12 is shipped and cannot take new waves, so the unfinished half lands here"), and that
+  prd-43's header states directly: *a shipped PRD cannot be edited in place*. So this residual has
+  been homeless since prd-35 closed, while reading as owned. **No owner.** It needs a live
+  settings PRD to adopt it, or an explicit parking; naming which is an operator act, not a
+  lane's.
+
+### Found while revisiting — filed as `#235`
+
+- **The lab law's file count is a floor, and its own comment says it is not.**
+  `no-live-fleet-law.test.ts`'s coverage assertion is
+  `expect(sourceFiles().length).toBeGreaterThanOrEqual(17)`, while the comment directly above it
+  says the 17 is *"pinned exactly, not a loose lower bound: headroom here would defeat the
+  point"*, and explains that slack would forgive exactly the shallow-walk defect the law was
+  amended to catch. The comment describes an assertion the code does not make.
+
+  Stated precisely, because the obvious reading of it is too strong: losing a whole subdirectory
+  *is* caught, by the next test naming `branching/geometry.ts`, `compare/compare.ts` and
+  `launch/launch.ts` — the "caught twice over" the comment claims. What the floor cannot catch is
+  a **shrink inside a subdirectory that survives**. The count is 17 today (5 root, 2 `branching/`,
+  7 `compare/`, 3 `launch/`) and the by-name test checks exactly one file per subdirectory, so
+  `compare/` could drop from seven files to five with two appearing at `lab/`'s root and both
+  assertions stay green while coverage of `compare/` shrank. It is the "test that cannot fail for
+  the reason it claims" shape `AGENTS.md` names.
+
+  **Corrected again while filing, and the correction is the part worth keeping:** this entry first
+  ended by calling the fix "the one word the comment already assumes" — swap
+  `toBeGreaterThanOrEqual` for `toBe`. That is wrong, and wrong in the direction that matters.
+  Both matchers compare a single total, so `toBe(17)` survives the very mutation described above.
+  What the exact matcher adds is that *growth* reddens — worth having, and the house pattern
+  `route-class-law.test.ts` follows — but it does not close the hole this entry names. The
+  per-subdirectory count does. A finding whose stated fix does not survive its own stated failure
+  scenario is worse than no finding, and this one made that mistake twice before it was filed.
+
+  It also has a **sibling**, found only because filing asked for one:
+  `lab/launch/explicit-invocation-law.test.ts` carries the identical comment-versus-assertion pair
+  one directory away — its file doc says it copies the no-live-fleet law's tactic, and it copied
+  this along with it. Three other floors in the tree were checked and are honest, each pairing its
+  floor with `toContain` checks or naming itself a vacuity guard.
+
+  **Owner: `#235`** (prd43 w5 — ruling 2, a count stated in prose is derived from the thing it
+  counts, with ruling 1 already making a comment prose for that purpose). Ordered behind `#220`,
+  which holds all of `packages/web/src/lab/` for prd-30's sweep.

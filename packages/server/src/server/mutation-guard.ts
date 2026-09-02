@@ -55,10 +55,10 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
  *    (true of every non-browser client, `rhizomorph rotate` included) is
  *    allowed through this check, deliberately and permanently — this guard is
  *    not the control for a caller with no browser. `requireCapabilityToken`
- *    in `api/security.ts` is, and since #234 each of this server's five
+ *    in `api/security.ts` is, and since #234 each of this server's six
  *    GATED mutating routes requires it: `/api/label`, `/api/rotate`,
- *    `/api/lab/launch`, and the concierge's two granted powers
- *    `/api/concierge/clone` and `/api/concierge/launch` (prd-20 ruling 1 /
+ *    `/api/retarget`, `/api/lab/launch`, and the concierge's two granted
+ *    powers `/api/concierge/clone` and `/api/concierge/launch` (prd-20 ruling 1 /
  *    ADR-0019 — the gate IS the grant there, which is why neither may ever
  *    be reachable from a collector or a poll). The other four mutating
  *    routes — the OTLP inbox's
@@ -95,11 +95,11 @@ const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
 
 /**
  * Methods the `Origin` and `Content-Type` checks apply to — `Host` above
- * runs for every method regardless. This server has nine mutating routes
+ * runs for every method regardless. This server has ten mutating routes
  * today (prd-23 ruling 5's route-class law — `api/index.ts`'s `ROUTE_CLASSES`
- * is where all nine are declared): five gated (`/api/label`, `/api/rotate`,
- * `/api/lab/launch`, `/api/concierge/clone`, `/api/concierge/launch`) and
- * four ungated by design (the OTLP inbox:
+ * is where all ten are declared): six gated (`/api/label`, `/api/rotate`,
+ * `/api/retarget`, `/api/lab/launch`, `/api/concierge/clone`,
+ * `/api/concierge/launch`) and four ungated by design (the OTLP inbox:
  * `/v1/metrics`, `/v1/logs`, `/v1/traces`, and the bare-path fallback
  * `POST /`, ADR-0018) — every one of them a `POST`; `PUT`/`PATCH`/`DELETE` are
  * included so a future mutating route never has to remember to ask for this

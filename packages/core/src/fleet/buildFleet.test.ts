@@ -529,7 +529,7 @@ describe('detection honesty', () => {
 
     const gap = blind.gaps.find((candidate) => candidate.id === 'no-lane-manifest')
     expect(gap?.line).toBe(
-      'NO LANE MANIFEST (.swarm/lanes.json) — off-fence detection unavailable — run: dispatch.sh (writes the fence manifest)',
+      'NO LANE MANIFEST (.swarm/lanes.json) — off-fence detection unavailable — run: your dispatch tooling — writes .swarm/lanes.json, not part of this repo (see docs/user-guide/troubleshooting.md)',
     )
   })
 })

@@ -144,6 +144,33 @@ command now does what this paragraph always claimed. Kept as a note because the
 failure is the interesting part: a wrong pointer to a real command is worse
 than no pointer, since it reports success.
 
+**The one carve-out: `charter-laws`.** Every milestone this repo had was a
+`prd<NN>` until 2026-09-02, which put the rule above in direct collision with the
+naming convention above it: work outside a PRD is a named, legitimate category,
+and there was nowhere for such an issue to be milestoned. Both rules could not
+hold. `charter-laws` is where that squeeze resolves — the milestone for an issue
+that **enforces a rule the design charter already states**, where the PRD that
+set the rule has shipped and no live PRD claims the charter section it sits in.
+
+Reach for it only when all three hold, and prefer a PRD when any does not. If a
+live PRD owns the territory the issue is that PRD's, however awkward the fit; if
+the work needs a ruling made or a new value decided, it wants a PRD of its own,
+and small PRDs are ordinary: prd-49 holds a single issue and prd-50 was written
+for one orphaned residual. `charter-laws` is not the escape from writing one.
+
+`#39` is the case that opened it, and it is worth reading before reusing the
+milestone: charter law 9's greyscale rule is attributed to prd-03, which has
+shipped; the cap restating it sits in `docs/design/charter.md`'s §4 colour
+through-line, which no live PRD claims (prd-30 is the nearest, and its status
+line puts its authority at §6 and disclaims §8); and the issue's own Definition
+of done says the value decision belongs in `docs/design-notes/` rather than a
+PRD — so a PRD
+written to give it a milestone would have contradicted the issue it was homing.
+Law 9 is also the only law in the charter's table recorded as having no automated
+test, so this milestone is deliberately not a programme and holds one issue. If
+it ever holds a wave, that is the signal it has become a PRD and should be
+written as one.
+
 ### Waves and the bundle unit
 
 A **wave** is a set of issues that can all be built at once. Wave *N+1* may
