@@ -273,3 +273,22 @@ change repeated.
 
 `packages/web/src/scene/` is excluded from #220 while #39 holds `scene/palette.ts` and
 `theme/theme.css`; its three tooltips move in a later pass.
+
+## Amendment — prd-33's glance rides this PRD's acceptance (operator, 2026-09-02)
+
+prd-33 ruling 14 transfers the lay-viewer half of its wave-0 glance here. This PRD already owes a
+first-glance acceptance by a genuine layman once #220 and #221 land, on the same screen prd-33's
+scene occupies; two lay sessions on one screen was never sensible, and the 2026-08-22 audit named
+"one unrun act blocks two PRDs' acceptance" as the defect. That act is now one act, and it carries:
+
+- prd-33's **Check 3 encoding list** — threads from a mass are lanes; thicker means *produced
+  more*; distance is lifecycle; green working, amber waiting, hollow red dead; a cut thread is
+  FROZEN, a needle tip EXPENSIVE; the centre is one organic mass — as recorded in
+  `docs/design/glance-2026-09-02.md`.
+- the two observations that run surfaced for a viewer's reaction: the fifth PATHOLOGY chip
+  collapsing into `+1` at 1440 px, and the right-hand roster's activity word (`IDLE`, `WORKING`)
+  sitting beside lanes whose STATE is a pathology.
+
+A viewer FAIL on a scene encoding lands as an explanation in this PRD's vocabulary or as a scene
+defect; the CUT remedy prd-33 ruling 5 held does not transfer, and ruling 14 says why.
+
