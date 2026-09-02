@@ -80,7 +80,7 @@ scripts/dev/issues.sh ids                     # field/option ids, for debugging
 
 The four setters take **one or more issues, with the value last** —
 `when 548 549 550 now`, never `when now 548 549`. Which argument is which is
-checked rather than assumed (`split_targets`, `scripts/dev/issues.sh:467`): every
+checked rather than assumed (`split_targets` in `scripts/dev/issues.sh`): every
 issue argument must be a bare number and the value must not be, so a transposed
 call dies with "the value goes last, not first" instead of quietly writing
 Timeline `548` onto an issue called `now`.
@@ -377,16 +377,17 @@ Two habits are enough to prevent it, and both are cheap:
 
 The third argument is the one this section used not to name. `[load-batches]` is
 a batch count, and the script's own comment calls it **mandatory for anything
-touching tests** (`scripts/gate.sh:91`) — a suite green 8/8 quietly has failed
-67% at 4x concurrency. Given one, the gate runs the suite four times at once per
-batch with each run's worker pool bounded (`--maxWorkers=5`, so the probe measures
-the suite and not the scheduler), and then runs the timing tests **alone,
-serially, once** — the only condition under which a wall-clock assertion means
-anything at all. The timing set is derived rather than listed: a file opts in with
-a `// @gate-timing` marker or a `*.bench.test.ts` name (#209), and a pass that
-matches zero files fails loudly, because the failure it exists to prevent is a
-renamed timing test dropping out of the serial pass and running under load with
-nothing going red. Omit the argument on a branch that touched tests and none of
+touching tests** (the `Load gate:` comment in `scripts/gate.sh`) — a suite green
+8/8 quietly has failed 67% at 4x concurrency. Given one, the gate runs the suite
+four times at once per batch with each run's worker pool bounded
+(`--maxWorkers=5`, so the probe measures the suite and not the scheduler), and
+then runs the timing tests **alone, serially, once** — the only condition under
+which a wall-clock assertion means anything at all. The timing set is derived
+rather than listed: a file opts in with a `// @gate-timing` marker or a
+`*.bench.test.ts` name (#209), and a pass that matches zero files fails loudly,
+because the failure it exists to prevent is a renamed
+timing test dropping out of the serial pass and running under load with nothing
+going red. Omit the argument on a branch that touched tests and none of
 that runs; the landing is green on the friendlier condition.
 
 CI runs `build`, `test`, `typecheck`, `lint`, a packaging guard, and a boot smoke

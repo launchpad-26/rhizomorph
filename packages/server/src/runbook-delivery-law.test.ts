@@ -42,6 +42,26 @@ function isIgnored(relPath: string): boolean {
   }
 }
 
+/**
+ * Every `path.ext:NN` citation in a piece of text.
+ *
+ * Deliberately NOT scoped to `.yml`. The rule the runbook now states is general
+ * — "a registry entry pinned to a number for a file that moves is a registry
+ * entry that rots by construction" — and scoping the detector to the extension
+ * that happened to rot first is the sibling case AGENTS.md warns about. It was
+ * not hypothetical: with the two CI citations corrected, `AGENTS.md` still
+ * carried `scripts/dev/issues.sh:467` for `split_targets` (really at 511) and
+ * `scripts/gate.sh:91` for the load-batches comment (really at 232), both wrong
+ * on the same tree that fixed the `.yml` ones.
+ *
+ * One definition, used by both the assertion and the rigged-input test below —
+ * two copies of a regex is how a rigged test ends up proving a regex the
+ * assertion does not use.
+ */
+function lineCitationsIn(text: string): string[] {
+  return text.match(/\b[\w./-]+\.[a-z]+:\d+/g) ?? []
+}
+
 function isTracked(relPath: string): boolean {
   const out = execFileSync('git', ['ls-files', '--', relPath], { cwd: REPO_ROOT, encoding: 'utf8' })
   return out.trim().length > 0
@@ -151,15 +171,27 @@ describe('runbook delivery law: AGENTS.md reaches every checkout and worktree', 
     // the worse failure, because spot-checking it says "fine". Same lesson
     // .swarm/coupling.txt already records for scripts/gate.sh.
     const runbook = readFileSync(`${REPO_ROOT}/AGENTS.md`, 'utf8')
-    const lineCitations = runbook.match(/\b[\w.-]+\.ya?ml:\d+/g) ?? []
-    expect(lineCitations).toEqual([])
+    expect(lineCitationsIn(runbook)).toEqual([])
   })
 
   it('the line-number detector fires on rigged text — proving it bites', () => {
     // Without this, the assertion above passes on a typo'd regex, on an empty
     // file, and on a runbook that stopped mentioning CI at all.
     const rigged = 'A second job, `pack-smoke` (`.github/workflows/ci.yml:166`), packs the tarball.'
-    expect(rigged.match(/\b[\w.-]+\.ya?ml:\d+/g)).toEqual(['ci.yml:166'])
+    // The leading `.` of a dotfile path is outside the `\b`, so the reported
+    // match starts at `github`. The detector fires either way — the matched
+    // text only ever reaches a failure message.
+    expect(lineCitationsIn(rigged)).toEqual(['github/workflows/ci.yml:166'])
+    // The sibling extensions the first draft of this law did not see. Both of
+    // these were live in AGENTS.md when the .yml ones were corrected.
+    expect(lineCitationsIn('checked rather than assumed (`scripts/dev/issues.sh:467`)')).toEqual([
+      'scripts/dev/issues.sh:467',
+    ])
+    expect(lineCitationsIn('the comment calls it mandatory (`scripts/gate.sh:91`)')).toEqual([
+      'scripts/gate.sh:91',
+    ])
+    // ...and it does not convict ordinary prose, a bare filename or a ratio.
+    expect(lineCitationsIn('see `.github/workflows/ci.yml` and AGENTS.md; 8/8 at 4x')).toEqual([])
   })
 
   it('the runbook names exactly the steps the workflow still runs after a red Test', () => {
