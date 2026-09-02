@@ -191,11 +191,15 @@
   door is the file drop shared with prd17, configured-but-silent reads `partial` with its
   reason, and the lapse mechanism is ruled with its interval bound to a measured design
   note. The beacon and staleness waves are groomable.
-- **prd29 — the identity seam** (`docs/prds/prd-29-the-identity-seam.md`, ruled 2026-08-24):
-  the gated-read seam and its first seven browser reads ship. The policy is ruled — all six
-  rulings accepted and ruling 7 gates the four late reads; `GET /*` alone stays tokenless,
-  forever, as the named bootstrap. prd43 #23 is unblocked; waves 2a/2b and the four-read
-  slice are groomable.
+- **prd29 — the identity seam** (`docs/prds/done/prd-29-the-identity-seam.md`, shipped): every
+  `/api` read answers only the token's holder. Seven rulings — a fourth route class,
+  `gated-read`; a gate-presence law that fails the build when "gated" is fiction; the CLI
+  scrapes the credential rather than storing it; the stream authenticates by an HttpOnly
+  SameSite=Strict cookie, never a query param; `timingSafeEqual`; both web laws grown by
+  tightening; and the four reads that arrived after the route math was written. Fourteen
+  `gated-read` rows today against exactly one `read` — `GET /*`, the named bootstrap, tokenless
+  forever. prd43 #23 unblocked. The closeout records what the plan got wrong, including the
+  route arithmetic that went stale between drafting and grooming with no law able to notice.
 - **prd30 — the open hand** (`docs/prds/prd-30-the-open-hand.md`, BLESSED 2026-08-08,
   partially shipped): the shared card, condition selector and teach layer ship, but the code's
   own law still names `MarkHoverCard`, the loupe read-out and the semantic `title=` adoption
