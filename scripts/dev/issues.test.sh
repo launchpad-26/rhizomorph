@@ -183,8 +183,8 @@ has "truncated issue list: names the limit"        "at or above the --limit of 1
 
 # The milestone half of `orphans`, added 2026-09-02. AGENTS.md had claimed this
 # command found issues with no milestone since before it could; the claim went
-# unchecked because nothing here exercised it. These four assertions are the
-# check that claim never had.
+# unchecked because nothing here exercised it. These assertions are the check
+# that claim never had.
 #
 # Each is written so it FAILS if the milestone arm is deleted — that is the
 # mutation to run against them. Asserting only the clean case would pass with
@@ -215,6 +215,16 @@ has "orphans: ...and the milestone finding is not swallowed by it" "no milestone
 fresh ms_absent
 out=$(MOCK_DROP_MILESTONE=1 "$SCRIPT" orphans 2>&1)
 has "orphans: an unread milestone field claims nothing" "milestone not read" "$out"
+
+# Zero open issues is the fourth state, and the branch ordering hides it: with
+# the list empty `field_read` is False, so deleting the empty-list line does not
+# fall through to silence — it falls through to "milestone not read", a claim
+# about gh that nothing observed. Deleting that line was a SILENT mutation, 41/41
+# green, until this assertion existed. Same species as the dead guard `cmd_orphans`
+# describes deleting: the arm that keeps a verdict honest was itself unheld.
+fresh ms_none
+out=$(MOCK_OPEN_ISSUES=0 "$SCRIPT" orphans 2>&1)
+has "orphans: an empty issue list claims nothing about the field" "no open issues" "$out"
 
 # cmd_list's reconciliation: the board walk and the open-issue list are
 # different APIs, and when they disagree the table must say so rather than
