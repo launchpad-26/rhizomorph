@@ -211,15 +211,16 @@
   local Inter and JetBrains Mono faces, a build-policed type and colour ramp,
   computed contrast in both themes, one focus token, and a persisted light/dark
   switch whose chrome never impersonates status.
-- **prd33 — the living scene** (`docs/prds/prd-33-the-living-scene.md`, BLESSED 2026-08-08,
-  acceptance pending): the scene work and recorded before/after frame measurements ship. The
-  remaining gate is the first-glance operator act. Success criterion 1's blanket *"not met
-  while any older cap has moved"* is historical and superseded by ruling 10, which raises the
-  concurrent-**motion** cap — `EVENT.maxConcurrent` from 5 to 7, derived from the recorded
-  load rather than guessed, with the alarm class exempt and always winning (the PRD's own
-  amendment, 2026-08-22). The instrument's supported size is a different ruling and a stated
-  number: ruling 13's 90 threads at 60 fps — three colonies of thirty — with 180 threads
-  rendering correctly at 30 fps and *"not a bug to be closed by relaxing this table"*.
+- **prd33 — the living scene** (`docs/prds/done/prd-33-the-living-scene.md`, shipped 2026-09-02):
+  growth as its own motion class, the ambient family under "ambient never means", the dials,
+  the fruiting material, the light-theme carrier, and recorded before/after frame measurements.
+  Success criterion 1's blanket *"not met while any older cap has moved"* is historical and
+  superseded by ruling 10 (`EVENT.maxConcurrent` 5 → 7 from the recorded load, alarms exempt).
+  The wave-0 glance ran on 2026-09-02 (`docs/design/glance-2026-09-02.md`); its lay-viewer half
+  transfers to prd-30's first-glance acceptance by ruling 14, which also records what that
+  transfer gives up. The instrument's supported size is ruling 13's stated number: 90 threads at 60 fps —
+  three colonies of thirty — with 180 threads rendering correctly at 30 fps and *"not a bug to
+  be closed by relaxing this table"*.
 - **prd34 — the doorstep** (`docs/prds/prd-34-the-doorstep.md`, ruled 2026-08-24, release
   acceptance parked): the Electron shell, tray, first run, three-platform installer workflow
   and update gate ship; rulings 1–9 accepted and Success 3 reconciled with ruling 9's signing

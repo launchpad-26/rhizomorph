@@ -1,9 +1,10 @@
 # prd-33 — the living scene: procedurally alive, lawfully vibrant
 
-> **Outcome:** implementation shipped; acceptance pending — growth, ambient/material laws, dials
-> and recorded before/after frame measurements exist. The wave-0 first-glance operator act remains,
-> and Success criterion 1 predates ruling 10's measured cap change. Reconciled in depth 2026-08-22
-> at `03df141`; see `retained-prds-review-2026-08-22.md`.
+> **Status:** **SHIPPED** — 2026-09-02. Growth, ambient/material laws, dials and recorded
+> before/after frame measurements had all landed by 2026-08-21; the wave-0 glance ran on
+> 2026-09-02 (`docs/design/glance-2026-09-02.md`) and its lay-viewer half transfers to prd-30 by
+> **ruling 14**, the last section of this document. Reconciled in depth 2026-08-22 at `03df141`;
+> see `retained-prds-review-2026-08-22.md`.
 >
 > Owns THREE of the design charter's §8 pending rulings
 > (`docs/design/charter.md`, PR #451): growth (§5), the ambient layer (§4) and ceilings (§4),
@@ -435,3 +436,55 @@ by the recorded load; the criterion is preserved above rather than silently rewr
 remaining acceptance work is the wave-0 first-glance act, not reverting the measured cap.
 `packages/web/src/scene/perf.test.ts` already records and continues to report the before/after
 frame measurements for the texture/detail work.
+
+## Amendment — ruling 14: the glance transfers, and this PRD closes (operator, 2026-09-02)
+
+Ruled against `main` at `0851512`, on the wave-0 run recorded in
+`docs/design/glance-2026-09-02.md`.
+
+**What the run found.** The protocol (`docs/demo.md`, prd-03 ruling 25's four checks) was staged
+on fixtures `2` and `3` and, for MODE, on a real 1425-minute recorded session replayed on the real
+server. Every encoding the protocol asks a lay viewer to volunteer is rendered: nine threads from
+one organic mass; the widest thread is the one that produced most; the cut thread is FROZEN and
+the needle tip EXPENSIVE; law 9a's hues hold in dark and survive the light-theme carrier switch;
+the STATE column names all five pathologies with distinct glyph and hue; the `PAUSE MOTION` still
+says `MOTION PAUSED` in words (ruling 12); and in replay the attention strip is structurally
+absent, replaced by the REPLAY banner with timestamp and session identity (ruling 16). The
+instrument half of wave 0 is complete and executed. **The lay-viewer half was not run.**
+
+**Ruling 14 — the lay-viewer half of wave 0 transfers to prd-30's first-glance acceptance.**
+Ruling 5 called the glance *"not skippable for schedule."* This ruling does not skip it; it moves
+it. prd-30 already owes a first-glance acceptance by a genuine layman once its adoption sweep
+(#220, #221) lands — on this same screen. Two lay sessions on one screen was never sensible, and
+the duplication is on the record twice over: both 2026-08-22 documents book a first-glance act,
+one per PRD, and neither notices the other. `docs/prds/reconciliation-2026-08-22.md` asks prd-30
+to *"perform first-glance acceptance"* and prd-33 to *"Run the booked first-glance operator
+act"*; `docs/prds/retained-prds-review-2026-08-22.md` tells prd-30 to *"run the first-glance
+exercise"* after its full-scope law empties its allowlist and prd-33 to *"Run the human glance
+test, record the result, then move prd-33 to `done` if it passes."* One unrun act, two PRDs'
+acceptance. That act is now one act, owned by one PRD. The Check 3 encoding list and the two
+observations the run surfaced — the fifth PATHOLOGY chip collapsing into `+1` at 1440 px, and the
+right-hand roster's activity word beside a pathology — ride with it; prd-30's matching amendment
+receives them.
+
+**What is given up, said plainly.** Ruling 5 allowed a glance FAIL to **CUT** a scene mark. After
+this ruling, a mark that fails with prd-30's viewer gets an explanation in prd-30's vocabulary —
+the remedy ruling 5 itself listed second — or a scene defect filed against a shipped PRD. Not a
+cut. Twelve rulings of scene work have landed and settled since the gate was booked; the operator
+judges the cut power no longer worth holding a PRD open for, and records that judgement here rather
+than letting the gate lapse silently.
+
+**Success, read against this ruling.** 1 — met as amended 2026-08-22 (ruling 10 supersedes the cap
+clause). 2 — met: the ambient-never-means harness the open questions record. 3 — met as the
+2026-08-22 review verified. 4 — met: `packages/web/src/scene/perf.test.ts` records the before/after
+frames. 5 — met as amended here: the results table exists, and the FAILs it may yet yield are
+prd-30's to find and file.
+
+**Also recorded by the run, not this PRD's to fix.** `docs/demo.md` says `Esc` exits panel focus;
+`packages/web/src/app/PanelGrid.tsx` says `Escape` is deliberately unhandled — executed, and the
+doc is the one that is wrong or the shell is. The tracked fixture screenshots under
+`docs/screenshots/` are 84 scene commits older than the scene they depict. Both are filed on the
+tracker under prd-43: #225 (the `Esc` contradiction) and #226 (the stale screenshots, sequenced
+after #22).
+
+Rulings 1–13 stand as written. Nothing is renumbered.
