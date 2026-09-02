@@ -29,7 +29,7 @@ cloning the repo is the install story. Four commands, on a plain terminal,
 no undocumented steps:
 
 ```sh
-git clone https://github.com/KelliherL/rhizomorph
+git clone https://github.com/launchpad-26/rhizomorph
 cd rhizomorph
 npm install
 npm run build   # builds the dashboard once; the server serves it statically
@@ -97,6 +97,23 @@ choice #177 named and left open — was settled by events rather than by a
 ruling: this repo was re-uploaded to a fresh tree on 2026-08-21, so the
 fresh-tree branch of that decision is simply the one we are standing on. No
 wave here promises a date.
+
+## CLI reference
+
+Every subcommand `rhizomorph` dispatches on (`packages/server/src/cli/index.ts`); a `cli-surface-law` test asserts this list and that dispatch table name the same set, in both directions, so a registered subcommand can't go undocumented and a documented one can't go stale. `rhizomorph <subcommand> --help` has the full usage for any of them.
+
+| Command | What it does |
+|---|---|
+| `rhizomorph [path]` | Boots the server + collectors, watching `path` (default: current directory). The fallback when `argv[0]` matches nothing below — see [Install and run](#install-and-run). |
+| `rhizomorph doctor [path]` | Read-only preflight — Node version, target path, web build, port, session logs, tmux/workmux, telemetry env, harness roster — one `ok`/`warn`/`FAIL` line per check, each with its remedy. |
+| `rhizomorph env <lane>` | Prints the exact, export-ready OTLP env block for a lane, read from a running instance — see [Telemetry](#telemetry-the-money-layer). |
+| `rhizomorph export-record` | Hands a recorded session to someone else as a portable, hash-chained file — see [the record format](docs/record-format.md). |
+| `rhizomorph export-otlp` | Writes a recorded session's trace spans out as an OTLP/HTTP JSON export-trace request. Nothing is sent anywhere — it's an offline dump; replay it into Langfuse (or any OTLP-compatible backend) yourself. |
+| `rhizomorph replay <record-file>` | Verifies a portable record's hash chain, then serves it read-only through the same dashboard a live recording uses. |
+| `rhizomorph sessions [path]` | Lists every session recorded for a repo, newest first, with a title derived from its own events. |
+| `rhizomorph label <sessionId> <text>` | Renames a recorded session's auto-title. |
+| `rhizomorph rotate` | Asks the running instrument to close its current session log and open a new one. |
+| `rhizomorph lab <checkpoint\|fork\|compare>` | The laboratory's namespace (opt-in, explicitly invoked) — see [The laboratory](#the-laboratory--opt-in-explicitly-invoked-and-separate-prd12-ruling-1). |
 
 ## Trust
 

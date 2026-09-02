@@ -15,7 +15,7 @@ tool checking their own work.
 ## Setup
 
 ```sh
-git clone https://github.com/KelliherL/rhizomorph
+git clone https://github.com/launchpad-26/rhizomorph
 cd rhizomorph
 npm install
 npm run build   # builds server, web and the desktop shell

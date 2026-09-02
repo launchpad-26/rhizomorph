@@ -27,7 +27,7 @@ in the README for why, and for what `npx rhizomorph` does today). Four
 commands:
 
 ```sh
-git clone https://github.com/KelliherL/rhizomorph
+git clone https://github.com/launchpad-26/rhizomorph
 cd rhizomorph
 npm install
 npm run build   # builds the dashboard once; the server serves it statically

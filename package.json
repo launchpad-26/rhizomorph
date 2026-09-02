@@ -13,13 +13,13 @@
   ],
   "license": "MIT",
   "author": "Lachlan Kelliher",
-  "homepage": "https://github.com/KelliherL/rhizomorph#readme",
+  "homepage": "https://github.com/launchpad-26/rhizomorph#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/KelliherL/rhizomorph.git"
+    "url": "git+https://github.com/launchpad-26/rhizomorph.git"
   },
   "bugs": {
-    "url": "https://github.com/KelliherL/rhizomorph/issues"
+    "url": "https://github.com/launchpad-26/rhizomorph/issues"
   },
   "type": "module",
   "engines": {
