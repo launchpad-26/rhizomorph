@@ -32,6 +32,17 @@ import { describe, expect, it } from 'vitest'
  * research note and the pre-`done/` PRD path above. Excluding by citing-file directory,
  * not by cited-target directory, is what makes both of those findable.
  *
+ * A dated artefact can also live OUTSIDE those three directories — the first instance
+ * is a run record under `docs/design/` pinned to one commit (#228). Excluding it by
+ * directory would sweep every live design document with it, and excluding it by
+ * filename is the guard-scoped-by-naming-convention failure AGENTS.md records twice.
+ * So a document is a dated artefact by what it IS: it opens with a tree pin,
+ * `**Tree:** \`<ref>\` at \`<sha>\``, and that pin RESOLVES to a real commit. A pin that
+ * does not resolve is not an exemption — it is reported by name (`badPins()`), or any
+ * live document could write a fake one and leave the sweep. Documents only: a `.ts`
+ * comment declaring a pin is still a live claim, and `allCitations()`'s TS loop never
+ * consults `isPinnedArtefact`.
+ *
  * ## The land-red question, resolved on the issue before this file was written
  *
  * This law commits GREEN. `ALLOWLISTED_BROKEN_CITATIONS` below names every citation
@@ -65,6 +76,7 @@ import { describe, expect, it } from 'vitest'
  * | `packages/**\/*.ts` **code** (string/template literals) | SKIPPED — see above; a `` ` `` inside a `//` line is only swept if it appears AFTER the `//`, so a citation-shaped string literal preceding a trailing comment is correctly left alone |
  * | `//` inside a STRING literal, ahead of a real citation on the same line (`` const u = 'https://x/`packages/foo.ts`' ``) | SKIPPED, declared (review of #186 item 2) — `extractComments`'s line-comment regex has no string-awareness, so a `//` inside a string is read as starting a real comment, and a citation-shaped backtick span later on the same line is swept as if it were commentary. Closing it needs a string-literal-aware tokenizer — quote tracking with escapes, template-literal nesting, and the classic regex-literal-vs-division ambiguity — categorically bigger than the regex-based extractor this file deliberately is, the same "needs a real parser" line the CODE-vs-comment row above already draws. No live instance; pinned by a CONTROL test below so the behaviour cannot silently change |
  * | a path under a BUILD-ARTEFACT directory (`packages/*\/dist/…`) | HANDLED as always-valid — `dist/`, `dist-desktop/` and `dist-vendor/` are gitignored (`.gitignore`) build artefacts that exist only after `npm run build` or packaging; a doc describing where the bundle lands is not making a claim about the tracked tree. Scoped to exactly those three directory NAMES, not "anything git ignores" (review of #186 item 4) — `docs/audit/`, `coverage/`, `node_modules/` and any rule added later are gitignored too but are not build artefacts, and a citation into one of them is a real claim that can be wrong; the earlier, blanket form exempted every ignored path, so a dead citation into `docs/audit/` silently passed |
+ * | a CITING document whose head declares `` **Tree:** `<ref>` at `<sha>` `` | EXCLUDED as a citing source, when the sha resolves (`git cat-file -e <sha>^{commit}`) — a dated run record pinned to one commit is a record of that tree, not a live claim (#228; the same reasoning as the three excluded directories, keyed on what the file IS rather than where it sits). The marker is exactly that form, read from the first 12 non-fenced lines: prose mentioning a tree, a pin with no `at`, or a pin buried in the body do not exempt. A pin whose sha does NOT resolve exempts nothing and is reported by `badPins()` |
  * | `.tsx` and `.mjs` source comments | OUT OF SCOPE, ruling (#186 item 9) — ruling 1 says `packages/**\/*.ts`, and `trackedFiles('packages/*.ts')` matches that exactly: 137 `.tsx` and 5 `.mjs` files go unswept. Verified this is the right call, not an oversight: the last of the 5 `.mjs` files the sweep would reach (`git ls-files 'packages/*.mjs'`, alphabetical — review round 2 corrected "first" to "last"; the substance is unaffected), `packages/web/src/scene/parity/capture.mjs`, cites a deleted `packages/web/src/scene/paint.ts` deliberately — in a comment AND a code constant — and resolves it out of git history, because `8686f24` (#578) replaced the 2D painter and the parity harness intentionally diffs against the pre-deletion file. Widening the sweep as written would false-positive on that live, working, documented citation. Before widening, the law needs a way to say "cited from history, on purpose" so a comment like that one can opt out — that mechanism does not exist yet, so the scope stays exactly ruling 1's, not narrower and not wider |
  *
  * ## The `git ls-files` glob gotcha this law's own tests pin down
@@ -168,6 +180,30 @@ const UNTRACKED_FIXTURE_RE = /^citation-law-untracked-fixture-(\d+)-\d+\.md$/
 /** The exact bytes `an untracked doc is swept too` writes to its fixture — the one thing `cleanUpOrphanedFixtures` is allowed to treat as proof it wrote a candidate file (#186, review round 3). */
 const UNTRACKED_FIXTURE_CONTENT = 'Cites a real path: `packages/server/src/doc-citation-law.test.ts`.\n'
 
+/** HEAD, resolved once — the one sha a pinned FIXTURE can declare and be sure resolves in every checkout that runs this suite. */
+const HEAD_SHA = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim()
+
+/**
+ * The exact bytes `a document that declares a resolving tree pin…` writes (#228): the
+ * pin, then the SAME real-path citation as `UNTRACKED_FIXTURE_CONTENT`, for the same
+ * concurrency reason that test's doc comment gives — a dead citation left on shared
+ * disk reddens a sibling run's sweep, a real one cannot, and the exclusion is still
+ * provable by the fixture's ABSENCE from `allCitations()`.
+ */
+const PINNED_FIXTURE_CONTENT = `**Tree:** \`main\` at \`${HEAD_SHA}\`\n\nCites a real path: \`packages/server/src/doc-citation-law.test.ts\`.\n`
+
+/**
+ * What `cleanUpOrphanedFixtures` may treat as bytes this file wrote: the untracked
+ * fixture's exact content, or the pinned fixture's SHAPE — an orphan from an earlier
+ * HEAD carries a different sha, so equality against today's constant would leave it
+ * behind forever, and the shape (a 40-hex pin over the same one-line real citation)
+ * is still something no real document produces.
+ */
+const PINNED_FIXTURE_SHAPE_RE = /^\*\*Tree:\*\* `main` at `[0-9a-f]{40}`\n\nCites a real path: `packages\/server\/src\/doc-citation-law\.test\.ts`\.\n$/
+function isFixtureContent(content: string): boolean {
+  return content === UNTRACKED_FIXTURE_CONTENT || PINNED_FIXTURE_SHAPE_RE.test(content)
+}
+
 /**
  * Deletes an `an untracked doc is swept too` fixture left behind by a PAST
  * run of this same test — one that never reached its own `finally` because
@@ -243,7 +279,7 @@ function cleanUpOrphanedFixtures(isTracked: (rel: string) => boolean = (rel) => 
     } catch {
       continue // gone already — another process's cleanup (or its own `finally`) beat us to it
     }
-    if (content !== UNTRACKED_FIXTURE_CONTENT) continue
+    if (!isFixtureContent(content)) continue
     if (isTracked(rel)) continue
     rmSync(filePath, { force: true })
   }
@@ -272,6 +308,89 @@ const EXCLUDED_DIRS = ['docs/research/', 'docs/review/', 'docs/prds/']
 // re-check that law's pinned count before assuming this line is unaffected.
 function isExcludedCitingFile(file: string): boolean {
   return file === OWN_FILE || EXCLUDED_DIRS.some((dir) => file.startsWith(dir))
+}
+
+/**
+ * The tree-pin marker (#228) — one form, no variants. `**Tree:**`, a backticked ref,
+ * the word `at`, a backticked 7–40 hex sha, at the start of a line. Anchored to a
+ * line start and to the literal `at` so prose like "the *Tree* view: `foo.ts`" or a
+ * bare `**Tree:** `main`` cannot match — the rigged-input test below holds both.
+ * Read from the head of the (fence-stripped) document only: a pin buried in the body
+ * is not a declaration, it is a mention.
+ */
+const TREE_PIN_RE = /^\*\*Tree:\*\*\s+`[^`\n]+`\s+at\s+`([0-9a-f]{7,40})`/m
+const PIN_HEAD_LINES = 12
+
+function declaredTreePin(text: string): string | undefined {
+  const head = text.split('\n').slice(0, PIN_HEAD_LINES).join('\n')
+  return TREE_PIN_RE.exec(head)?.[1]
+}
+
+/**
+ * `git cat-file -e <sha>^{commit}` — exits 0 when the object exists AND is a commit.
+ * Cached per sha: the sweep asks once per pinned document, and every pinned document
+ * in one run tends to pin the same few commits.
+ */
+const pinResolutionCache = new Map<string, boolean>()
+function pinResolves(sha: string): boolean {
+  const cached = pinResolutionCache.get(sha)
+  if (cached !== undefined) return cached
+  let resolves = true
+  try {
+    execFileSync('git', ['cat-file', '-e', `${sha}^{commit}`], { cwd: REPO_ROOT, stdio: 'ignore' })
+  } catch {
+    resolves = false
+  }
+  pinResolutionCache.set(sha, resolves)
+  return resolves
+}
+
+/**
+ * `pinResolves` asks the LOCAL object store, so it can only answer in a clone that has
+ * the history. A `--depth 1` checkout holds no sha but the tip, so every honest pin to
+ * an ancestor reads as a fake one — and the exemption inverts into its own defect: the
+ * one real pinned record, `docs/design/glance-2026-09-02.md` at `0851512`, gets reported
+ * by `badPins()` and swept as a live claim, which is exactly what #228 fixes, on CI only.
+ *
+ * `.github/workflows/ci.yml`'s suite leg therefore checks out with `fetch-depth: 0`, and
+ * the test below asserts that precondition rather than trusting it: an edit back to the
+ * default depth fails HERE, naming the cause, instead of surfacing as a bad-pin report
+ * against a document whose pin is perfectly honest (review of #229).
+ */
+function repoIsShallow(): boolean {
+  return execFileSync('git', ['rev-parse', '--is-shallow-repository'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim() === 'true'
+}
+
+/** A pinned artefact — excluded as a CITING source — only when its declared pin resolves. */
+function isPinnedArtefact(text: string): boolean {
+  const sha = declaredTreePin(text)
+  return sha !== undefined && pinResolves(sha)
+}
+
+interface BadPin {
+  file: string
+  sha: string
+}
+
+/** Pure: every entry whose head declares a pin that does not resolve. Tested on rigged input; `badPins()` runs it over the tree. */
+function badPinsIn(entries: readonly { file: string; text: string }[]): BadPin[] {
+  const out: BadPin[] = []
+  for (const { file, text } of entries) {
+    const sha = declaredTreePin(text)
+    if (sha !== undefined && !pinResolves(sha)) out.push({ file, sha })
+  }
+  return out
+}
+
+function badPins(): BadPin[] {
+  const entries: { file: string; text: string }[] = []
+  for (const file of sweepFiles('docs/*.md')) {
+    if (isExcludedCitingFile(file)) continue
+    const raw = readSweptFile(file)
+    if (raw === undefined) continue
+    entries.push({ file, text: stripFencedCodeBlocks(raw) })
+  }
+  return badPinsIn(entries)
 }
 
 /**
@@ -509,6 +628,9 @@ function allCitations(): Citation[] {
     const raw = readSweptFile(file)
     if (raw === undefined) continue
     const text = stripFencedCodeBlocks(raw)
+    // A declared, RESOLVING tree pin makes this a dated artefact (#228) — see the
+    // Scope section. Documents only; the TS loop below deliberately never asks.
+    if (isPinnedArtefact(text)) continue
     for (const cite of new Set(extractCitations(text))) out.push({ file, cite })
   }
   for (const file of sweepFiles('packages/*.ts')) {
@@ -701,6 +823,78 @@ describe('doc citation law: a path cited from a document or a comment must exist
     } finally {
       rmSync(filePath, { force: true })
     }
+  })
+
+  it('a document that declares a resolving tree pin is a dated artefact, excluded as a citing source — wherever it lives (#228)', () => {
+    cleanUpOrphanedFixtures()
+
+    const fixtureRel = `docs/citation-law-untracked-fixture-${process.pid}-${Date.now()}.md`
+    const fixturePath = path.join(REPO_ROOT, fixtureRel)
+    expect(existsSync(fixturePath), `${fixtureRel} already exists — pick a different fixture name`).toBe(false)
+
+    // The unpinned half of the same bytes DOES extract the citation — so the
+    // absence asserted below is the pin's doing, not the extractor's.
+    const unpinned = PINNED_FIXTURE_CONTENT.split('\n\n').slice(1).join('\n\n')
+    expect(declaredTreePin(unpinned)).toBeUndefined()
+    expect(extractCitations(unpinned)).toEqual(['packages/server/src/doc-citation-law.test.ts'])
+    expect(declaredTreePin(PINNED_FIXTURE_CONTENT)).toBe(HEAD_SHA)
+    expect(isFixtureContent(PINNED_FIXTURE_CONTENT), 'the cleanup must recognise its own fixture by shape').toBe(true)
+
+    writeFileSync(fixturePath, PINNED_FIXTURE_CONTENT)
+    try {
+      expect(trackedFiles(fixtureRel)).toEqual([])
+      expect(sweepFiles(fixtureRel), 'the sweep must SEE the file — exclusion, not invisibility, is what is being proved').toEqual([fixtureRel])
+      expect(allCitations().filter(({ file }) => file === fixtureRel)).toEqual([])
+      expect(badPins().filter(({ file }) => file === fixtureRel), 'a resolving pin is not a bad pin').toEqual([])
+    } finally {
+      rmSync(fixturePath, { force: true })
+    }
+  })
+
+  it('the pin marker is exactly one form — prose about a tree, a pin with no `at`, or a pin outside the head do not exempt (#228)', () => {
+    const sha = HEAD_SHA.slice(0, 7)
+    expect(declaredTreePin(`**Tree:** \`main\` at \`${sha}\`\n`)).toBe(sha)
+    expect(declaredTreePin(`# Title\n\n**Protocol:** x\n**Tree:** \`origin/main\` at \`${HEAD_SHA}\`. **Disposition:** y\n`)).toBe(HEAD_SHA)
+    // The false positives the regex is anchored against.
+    expect(declaredTreePin(`The *Tree* view: \`packages/server/src/doc-citation-law.test.ts\` at \`${sha}\`\n`)).toBeUndefined()
+    expect(declaredTreePin(`**Tree:** \`main\` \`${sha}\`\n`)).toBeUndefined()
+    expect(declaredTreePin(`**Tree:** \`main\` at \`not-a-sha\`\n`)).toBeUndefined()
+    expect(declaredTreePin(`**Tree:** \`main\` at \`${sha}\``.padStart(200, 'prose ') + '\n')).toBeUndefined()
+    // Buried past the head: twelve lines of body, then a pin.
+    expect(declaredTreePin(`${'body\n'.repeat(PIN_HEAD_LINES)}**Tree:** \`main\` at \`${sha}\`\n`)).toBeUndefined()
+    // Inside a fence, which the docs loop strips before asking.
+    expect(declaredTreePin(stripFencedCodeBlocks(`\`\`\`\n**Tree:** \`main\` at \`${sha}\`\n\`\`\`\n`))).toBeUndefined()
+  })
+
+  it('a pin that does not resolve exempts nothing and is reported by name — a fake pin is a defect, not an exit (#228)', () => {
+    const fake = 'deadbeef0'
+    expect(pinResolves(fake)).toBe(false)
+    expect(pinResolves(HEAD_SHA)).toBe(true)
+    expect(pinResolves(HEAD_SHA.slice(0, 7)), 'a short sha resolves like a long one').toBe(true)
+
+    const rigged = [
+      { file: 'docs/design/rigged-fake-pin.md', text: `**Tree:** \`main\` at \`${fake}\`\n\nCites \`packages/this-directory-does-not-exist/nothing.ts\`.\n` },
+      { file: 'docs/design/rigged-real-pin.md', text: PINNED_FIXTURE_CONTENT },
+      { file: 'docs/design/rigged-no-pin.md', text: 'No pin at all.\n' },
+    ]
+    expect(badPinsIn(rigged)).toEqual([{ file: 'docs/design/rigged-fake-pin.md', sha: fake }])
+    expect(isPinnedArtefact(rigged[0]!.text), 'a fake pin must NOT exempt').toBe(false)
+    expect(isPinnedArtefact(rigged[1]!.text)).toBe(true)
+
+    // The real tree carries no bad pin today — pinned like the allowlist, so a
+    // fake one landing anywhere under docs/ is named here rather than absorbed.
+    expect(badPins()).toEqual([])
+  })
+
+  it('the pin arm has the history it needs — in a shallow clone every honest pin reads as fake (#228, review of #229)', () => {
+    expect(
+      repoIsShallow(),
+      'this clone is SHALLOW, so `git cat-file -e <sha>^{commit}` cannot see any sha but the tip and every tree pin to an ancestor reads as a fake one — run `git fetch --unshallow`, or restore `fetch-depth: 0` on the suite leg in `.github/workflows/ci.yml`',
+    ).toBe(false)
+    // And the pin arm is not vacuous in this clone: an ancestor of HEAD resolves,
+    // which is the case a depth-1 checkout loses and a fake sha never had.
+    const parent = execFileSync('git', ['rev-parse', 'HEAD^'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim()
+    expect(pinResolves(parent), 'an ancestor sha must resolve — this is the case a shallow clone breaks').toBe(true)
   })
 
   it('a file the git listing names but that is gone from disk is skipped, not a crash — the ENOENT sibling of item 5', () => {

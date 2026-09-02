@@ -36,8 +36,22 @@ jobs:
             node: min
     runs-on: ${{ matrix.os }}
     steps:
+      # FULL history, not the default depth-1 shallow checkout: `Test` below runs
+      # `doc-citation-law`, whose tree-pin exclusion (#228) asks the local object
+      # store whether a dated artefact's declared sha is a real commit
+      # (`git cat-file -e <sha>^{commit}`). In a shallow clone every sha but the
+      # tip is absent, so an HONEST pin reads as a fake one: the one real pinned
+      # record, `docs/design/glance-2026-09-02.md` at `0851512`, is reported by
+      # `badPins()` and swept as a live claim — the defect #228 fixes, reappearing
+      # on CI only. Proved both directions in a depth-1 clone of this tree: 1
+      # failed there, 29 passed after `git fetch --unshallow` (review of #229).
+      # `pack-smoke` below runs no suite and stays shallow. The law asserts this
+      # precondition itself, so an edit back to the default fails with a sentence
+      # rather than a mystery bad-pin report.
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node (current, from engines)
         if: matrix.node == 'current'
