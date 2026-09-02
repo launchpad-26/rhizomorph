@@ -1,6 +1,8 @@
 # prd-46 — the class, not the enumeration: a guard that lists spellings misses the next one
 
-> **Status:** **BLESSED** — gabriel-canaan, 2026-08-25, in session. Milestone `prd46`. Drafted 2026-08-25 from the verification of PR #68 (prd-45 wave 1).
+> **Status:** **SHIPPED** — 2026-09-02. Milestone `prd46`: nine issues, all closed; the
+> closeout, including what the plan got wrong, is the last section of this document.
+> Blessed by gabriel-canaan, 2026-08-25, in session. Drafted 2026-08-25 from the verification of PR #68 (prd-45 wave 1).
 > Earned explicitly by **prd-45 ruling 1**, which says *"a fix that closes the enumerated set and
 > not the class earns this PRD a successor"* — that condition is now met, with evidence. Stands on
 > prd-39 (the gate that holds) and prd-45 (the earned verdict), whose thesis this inherits: a check
@@ -195,6 +197,23 @@ never have been peers. Nothing was dropped. It stays declared rather than marked
 *claiming* w6: retiring it here would re-report that issue as UNDECLARED, trading one drift row
 for another.
 
+**#75 — wave-less by title, absorbed by wave 3.** Amended 2026-09-02. `prd46: the manifest
+prune says it pruned only when it did` (#75) was filed without a wave token, so
+`scripts/dev/prd-reconcile.sh 46` reports it as a NO WAVE row: fence-lint never saw it and the
+board's orphan check could not tell. It was not dropped — its subject is wave 3's second
+instance (*"the prune's success line is printed for 'the file parsed and was rewritten' rather
+than for a handle actually removed"*), and it closed in **PR #184**, wave 3's bundle, alongside
+#73. Declared here rather than by retitling a closed issue, for the reason wave 6 gives above:
+the issue is closed claiming no wave, and editing its title now would rewrite the record of what
+was actually dispatched.
+
+**This paragraph does not clear the row, and is not meant to.** `prd-reconcile.sh`'s NO WAVE
+check reads the issue *title* for a `wN:` token and never reads this document, so #75 will keep
+reporting for as long as it keeps its title — the same standing-report situation as the
+`fence-lint.sh 47 72` OVERLAP in the residuals below. `EXECUTED` 2026-09-02 against the script's
+own logic. What this paragraph buys is that the next reader finds the answer here instead of
+re-deriving it; the alternative — retitling — trades a true row for a falsified record.
+
 **Where this leaves the success criteria.** Every wave this document declared before today
 (0, 1, 2) is complete — but success 1 (*"fails the law regardless of the spelling"*) and success 3
 (*"every clause can fail for the reason it claims"*) are **not met**, and #179 is what closes both.
@@ -209,3 +228,87 @@ closes it on the wave count alone.
   suppressed into uselessness, which is how the current enumeration got here. Open, not ruled.
 - **Should the law govern any script beyond `gate.sh`?** `scripts/dev/*.sh` have the same shape and
   none of the same stakes. Open, not ruled.
+
+## The three rulings, as they landed
+
+**Ruling 1 — the law recognises a swallowed failure by structure, not by spelling.** Landed in
+wave 1 (#70) as the structural predicate, and then **widened twice more than the ruling
+anticipated**. The reference form the ruling named — *a `$(...)` assignment whose following line
+is neither `_RC=$?` nor `|| fail`* — turned out to recognise only the bare `VAR=$(` spelling; it
+was blind to `VAR="$(cmd)"`, `export VAR=$(…)`, backticks and the multi-line `$( … )` shape.
+#179 (wave 5, PR #191) closed that, and the predicate now carries a **20-row table** of
+spellings with each row's disposition and the evidence for it.
+
+Row 4 is the one worth reading. A keyword-prefixed producer (`export V=$(false)`) exits 0
+because bash reports the **keyword builtin's** status, not the substitution's — so a `|| fail`
+tail on such a line checks the wrong thing and can never fire. Round 1 of #179's fix treated
+those lines as *checked*, which made the law **worse than before it existed**: invisible became
+seen-and-excused. Caught in verification review; the landed form forces them into
+`findUncheckedProducers` unconditionally.
+
+**Ruling 2 — every control exercises the mechanism it controls for.** Landed. The non-vacuity
+controls now run the real predicate against a rigged input and show it firing, and against a
+clean input and show it silent, rather than asserting something adjacent.
+
+**Ruling 3 — a fix's sibling is named in the same commit, or declared.** Held throughout, and it
+is the ruling that produced the record this closeout is built from: waves 3, 4, 5 and 6 all exist
+because a fix named where else its shape lived instead of stopping at the line it was given.
+prd-47 later generalised it into the standing PR-body question *"what is the sibling case?"*.
+
+## The four success criteria, assessed
+
+1. **A dishonest guard fails the law regardless of spelling — MET**, and only after #179. This
+   document's own Sequencing said so in advance (*"success 1 and success 3 are not met until this
+   lands"*), which is the single best thing about how prd-46 was run: the milestone read done by
+   wave count while the document said plainly that it was not.
+2. **`gate.sh:82` fixed or declared — MET.** Fixed in wave 1, in the same issue as the predicate
+   that convicts it, in the order the Sequencing specified.
+3. **Every clause can fail for the reason it claims — MET**, likewise on #179.
+4. **The tolerance list stops growing by one string per review — MET.** A tolerance is now an
+   exemption from a rule rather than a member of the matched set. `EXECUTED` 2026-09-02:
+   `gate-honesty-law.test.ts` runs 182 tests, all passing, at 6.49 s.
+
+## The two open questions, still open
+
+**Does the structural predicate have a tolerable false-positive rate on this file?** Still open,
+and now better evidenced than when it was asked: the 20-row table records which spellings are
+producers and which are excluded (row 9, `VAR="just text"`, names `gate.sh:14` as a live instance
+correctly never flagged), and row 20 records two false-conviction bugs found and fixed in
+verification — an unbalanced apostrophe inside a comment, and a `)` inside one. The rate has not
+been surveyed across the whole script. **Open, not ruled.** Inherits to whoever governs the law
+next.
+
+**Should the law govern any script beyond `gate.sh`?** Still open. `scripts/dev/*.sh` have the
+same shape and none of the same stakes, and nothing since has changed that. **Open, not ruled.**
+
+## What the plan got wrong
+
+**The Sequencing was written for two waves and the work needed six.** Waves 3–6 were a single
+"unfiled work implied, described not numbered" paragraph; issues were filed against them anyway,
+and `prd-reconcile.sh` reported six UNDECLARED WAVE rows before the 2026-08-31 amendment moved
+the document to match. The amendment was the right call and is why this closeout has so little
+to add — but the pattern is that **an unnumbered paragraph gets filed against**, and the plan is
+then behind from the first day someone acts on it.
+
+**Ruling 1's reference form was mistaken for the rule.** The ruling said *structure, not
+spelling*, then offered one concrete shape to illustrate it — and the implementation
+matched the shape rather than the class, which is precisely the failure the ruling was written
+to abolish, one level further down. It took #179 and a verification round to notice. prd-47's
+response to this cohort of lessons — mark every mechanism *candidate* — reads as a direct
+consequence.
+
+**A verification round made the law worse before it made it better.** #179's round 1 counted
+keyword-prefixed producers as checked. A fix that converts an invisible defect into an excused
+one is worse than no fix, and only a second adversarial pass caught it.
+
+## Residuals, with owners
+
+- **The false-positive-rate survey** (open question 1 above). Unowned, and cheap to start: the
+  predicate and its table now exist to survey against.
+- **Whether the law should govern `scripts/dev/*.sh`** (open question 2). Unowned.
+- **`fence-lint.sh 47 72`'s historical OVERLAP on `.swarm/coupling.txt`.** Not a defect and not
+  fixable by editing a fence: `fence-lint` reads fences, not issue state, and #47 is closed with
+  its work in that file's history. It will keep reporting. Recorded so the next reader does not
+  re-investigate it. **No owner needed.**
+- **`shellcheck` over `scripts/`.** Still unfiled, still correctly out of scope here — it cannot
+  see a guard whose two paths are both syntactically valid. Carried in prd-45's residuals.
