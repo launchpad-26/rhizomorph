@@ -261,7 +261,10 @@ and the packaging guard and boot smoke carry `!cancelled() && steps.build.outcom
    both PRDs are about.
 2. **No postcondition proves a proxy — MET.** Ruling 2's landing above.
 3. **The class cannot regress unnoticed — MET.** `gate-honesty-law.test.ts` runs in every lane's
-   `npm test`. `EXECUTED` 2026-09-02: 182 passed, 1 file, 6.49 s.
+   `npm test`. `EXECUTED` 2026-09-02: 1 file, 182 tests, 6.5 s — 181 passed and 1 skipped,
+   the `it.skipIf(SYSTEM_BASH_GUARDS_EMPTY_ARRAYS)` case in
+   `packages/server/src/gate-honesty-law.test.ts`, which sits out wherever the system bash is 4
+   or newer. "182 passed" is the number on a bash-3.2 host only.
 4. **A red leg still reports every gate that could have run — MET**, by the superseding
    mechanism rather than the drafted one. The two steps that genuinely cannot produce evidence
    on a Build-red leg now say `skipped` rather than an unearned green.
@@ -302,8 +305,9 @@ at grooming, and nothing here checked it.
 ## Residuals, with owners
 
 - **A `shellcheck` job over `scripts/`.** Named as unfiled work by prd-39 and again here; still
-  unfiled. `EXECUTED` 2026-09-02: no workflow runs it — the only hits in `.github/` are three
-  `# shellcheck disable=` comments in files nothing lints. **No owner.**
+  unfiled. `EXECUTED` 2026-09-02: no workflow runs it — the only hits in `.github/` are two
+  `# shellcheck disable=SC2086` comments in `.github/workflows/desktop.yml`, in a file nothing
+  lints. The repo's only other one is `scripts/pack-smoke.sh:100`. **No owner.**
 - **prd-24 ruling 3's tail.** `packages/web/src/interaction/no-model-call-law.test.ts:82` still
   carries a hardcoded `toBeGreaterThan(2)` floor, and `packages/web/src/connect/index.test.tsx`
   is the other walk prd-24 named. Deliberately excluded here (folding them in would widen the

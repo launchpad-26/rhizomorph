@@ -202,8 +202,10 @@ prune says it pruned only when it did` (#75) was filed without a wave token, so
 `scripts/dev/prd-reconcile.sh 46` reports it as a NO WAVE row: fence-lint never saw it and the
 board's orphan check could not tell. It was not dropped — its subject is wave 3's second
 instance (*"the prune's success line is printed for 'the file parsed and was rewritten' rather
-than for a handle actually removed"*), and it closed in **PR #184**, wave 3's bundle, alongside
-#73. Declared here rather than by retitling a closed issue, for the reason wave 6 gives above:
+than for a handle actually removed"*). It closed **2026-08-26 as superseded by #73**, which took
+both instances of the one fact; #73 then landed in **PR #184**, wave 3's bundle, whose own
+`Closes` lines are #73 and #181. #184 is where the work arrived, not where #75 closed. Declared
+here rather than by retitling a closed issue, for the reason wave 6 gives above:
 the issue is closed claiming no wave, and editing its title now would rewrite the record of what
 was actually dispatched.
 
@@ -236,7 +238,7 @@ wave 1 (#70) as the structural predicate, and then **widened twice more than the
 anticipated**. The reference form the ruling named — *a `$(...)` assignment whose following line
 is neither `_RC=$?` nor `|| fail`* — turned out to recognise only the bare `VAR=$(` spelling; it
 was blind to `VAR="$(cmd)"`, `export VAR=$(…)`, backticks and the multi-line `$( … )` shape.
-#179 (wave 5, PR #191) closed that, and the predicate now carries a **20-row table** of
+#179 (wave 5, PR #191) closed that, and the predicate now carries a **22-row table** of
 spellings with each row's disposition and the evidence for it.
 
 Row 4 is the one worth reading. A keyword-prefixed producer (`export V=$(false)`) exits 0
@@ -266,12 +268,13 @@ prd-47 later generalised it into the standing PR-body question *"what is the sib
 3. **Every clause can fail for the reason it claims — MET**, likewise on #179.
 4. **The tolerance list stops growing by one string per review — MET.** A tolerance is now an
    exemption from a rule rather than a member of the matched set. `EXECUTED` 2026-09-02:
-   `gate-honesty-law.test.ts` runs 182 tests, all passing, at 6.49 s.
+   `gate-honesty-law.test.ts` runs 182 tests at ~6.5 s — 181 passing and 1 skipped by
+   `it.skipIf(SYSTEM_BASH_GUARDS_EMPTY_ARRAYS)` on any host whose system bash is 4 or newer.
 
 ## The two open questions, still open
 
 **Does the structural predicate have a tolerable false-positive rate on this file?** Still open,
-and now better evidenced than when it was asked: the 20-row table records which spellings are
+and now better evidenced than when it was asked: the 22-row table records which spellings are
 producers and which are excluded (row 9, `VAR="just text"`, names `gate.sh:14` as a live instance
 correctly never flagged), and row 20 records two false-conviction bugs found and fixed in
 verification — an unbalanced apostrophe inside a comment, and a `)` inside one. The rate has not
