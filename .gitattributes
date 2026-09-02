@@ -1,0 +1,19 @@
+# Line endings are law for what the suite reads as TEXT (prd-25 ruling 4, #210).
+#
+# The era corpus reaches @rhizomorph/core as `?raw` text through
+# packages/core/src/eras/corpus.ts, and the golden-era law compares the fold to
+# the committed snapshot byte for byte. Under core.autocrlf=true — the
+# Git-for-Windows default — a checkout rewrites LF to CRLF, so the INPUT lies
+# and nothing inside the suite can repair it: the corpus cannot be re-blessed
+# from inside vitest by design (eras.test.ts). The same failure reaches every
+# JSON / JSONL / text fixture a collector test reads off disk. The only native
+# Windows run this project has ever done lost the eras golden byte-identity to
+# exactly this.
+#
+# packages/server/src/corpus-eol-law.test.ts asks `git check-attr` about every
+# file the suite reads as text and fails if one is not covered here. Nothing
+# below renormalised a committed byte: every pinned file was already LF (or a
+# single line with no line ending) in the index when this landed.
+*.jsonl                                        text eol=lf
+*.json                                         text eol=lf
+packages/server/src/collectors/*/fixtures/**   text eol=lf
