@@ -37,23 +37,31 @@ dynamic `import()` calls, so the gap is the indirection rather than the
 syntax. Nothing in the tree enforces the boundary itself today, and #245
 tracks building something that would.
 
-**One live gap in that confinement, stated plainly because this document
-invites you to report exactly this class of escape.** Restoring a
-checkpoint into a fork worktree runs `npm install` in it, and it does so
-*without* `--ignore-scripts` (`packages/server/src/lab/restore.ts`, whose
-`install` option defaults to true). So a checkpointed tree carrying a
-`preinstall`, `postinstall` or `prepare` hook executes that hook as you,
-outside the ref-and-worktree namespace everything above describes — and
-the namespace law never catches it, because its own fixtures only ever
-exercise the `{install: false}` path. The confinement claim in this
-section is therefore true of what the laboratory *writes* and not yet true
-of what a restore can *run*. This is not news to the project: it is the
-first Evidence item in
-[`docs/prds/prd-41-the-laboratory-is-confined-in-fact.md`](docs/prds/prd-41-the-laboratory-is-confined-in-fact.md)
-(blessed 2026-08-22), and closing it is a boarded issue in that
-milestone's wave 2 — *a restored tree's install runs no scripts*. Until
-that lands, treat `lab fork` on a checkpoint of a repo you do not trust as
-running that repo's install hooks, because that is what it does.
+**A gap that was live here until 2026-08-26, recorded rather than deleted
+because this document invites you to report exactly this class of escape.**
+Restoring a checkpoint into a fork worktree runs `npm install` in it, and
+it used to do so *without* `--ignore-scripts` — so a checkpointed tree
+carrying a `preinstall`, `postinstall` or `prepare` hook executed that hook
+as you, outside the ref-and-worktree namespace everything above describes.
+The namespace law could not catch it, because its own fixtures only ever
+exercised the `{install: false}` path: a fence asserted on the one route
+the default never takes.
+
+**Both halves are closed.** `packages/server/src/lab/restore.ts` now passes
+`--ignore-scripts` on every install it runs, and
+`packages/server/src/lab/namespace-law.test.ts` now exercises
+`{install: true}` — the default path — against a fixture whose
+`postinstall` attempts a write outside `refs/rhizomorph/` and fails if it
+lands. Both shipped in prd-41 wave 2 and are on `main`; the account,
+including what the plan got wrong, is in
+[`docs/prds/done/prd-41-the-laboratory-is-confined-in-fact.md`](docs/prds/done/prd-41-the-laboratory-is-confined-in-fact.md).
+
+Note what did *not* change: `install` still defaults to true, so a restore
+still installs dependencies. What it no longer does is execute the
+checkpointed tree's own lifecycle scripts. The confinement claim in this
+section is now true of what the laboratory writes **and** of what a restore
+can run.
+
 Since #234, the launch route requires the same `x-rhizomorph-capability`
 token `POST /api/label` does, on top of the Origin/Host/Content-Type guard
 below. See the [Trust section](README.md#trust) for the full account.
