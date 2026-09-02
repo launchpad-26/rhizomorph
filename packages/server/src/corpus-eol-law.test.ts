@@ -17,9 +17,11 @@ import { describe, expect, it } from 'vitest'
  * test reads off disk.
  *
  * `.gitattributes` at the repo root is the pin (`text eol=lf`). This law is what holds
- * it: for every file the suite reads as text, ask `git check-attr` — the effective
- * attribute git will actually apply, never a re-implementation of the pattern syntax —
- * and fail if the answer is not `eol: lf`.
+ * it: for every file in the three derived sets below, ask `git check-attr` — the
+ * effective attribute git will actually apply, never a re-implementation of the pattern
+ * syntax — and fail if the answer is not `eol: lf`. Those three sets are narrower than
+ * "every file the suite reads as text", and the gap is named in `.gitattributes` rather
+ * than implied here.
  *
  * **Scoped by what a file IS, not by what it is called** (AGENTS.md's #649 lesson: a
  * guard keyed on a filename prefix missed three older captures). Three derived sets,

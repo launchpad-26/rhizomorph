@@ -10,10 +10,21 @@
 # Windows run this project has ever done lost the eras golden byte-identity to
 # exactly this.
 #
-# packages/server/src/corpus-eol-law.test.ts asks `git check-attr` about every
-# file the suite reads as text and fails if one is not covered here. Nothing
-# below renormalised a committed byte: every pinned file was already LF (or a
-# single line with no line ending) in the index when this landed.
+# packages/server/src/corpus-eol-law.test.ts asks `git check-attr` about three
+# derived sets — the `?raw` imports of corpus.ts, every non-source file under
+# eras/, every collector fixture — and fails if one is not covered here. That is
+# narrower than "every file the suite reads as text": the .ts.txt fixtures under
+# packages/server/src/lab/__fixtures__ and the .ts sources read back through
+# import.meta.glob ?raw are text the suite reads and are NOT pinned. Both were
+# checked under CRLF and their laws stayed green, so the gap is scope, not a
+# live defect — but the law will not catch a new text fixture outside the three.
+#
+# Deliberately not the blanket idiom `* text=auto eol=lf`: that rewrites
+# docs/research/2026-08-04-prd10-gorgeous-spike.md, which is 239 CRLF lines in
+# the index (blob a7c74b7 -> d21a88b), and renormalising a committed file is
+# what #210 forbids. Nothing below renormalised a committed byte: every pinned
+# file was already LF (or a single line with no line ending) in the index when
+# this landed.
 *.jsonl                                        text eol=lf
 *.json                                         text eol=lf
 packages/server/src/collectors/*/fixtures/**   text eol=lf
