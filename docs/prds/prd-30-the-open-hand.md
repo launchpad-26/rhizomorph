@@ -5,7 +5,7 @@
 > owes is a **re-seat**, not a build: `MarkHoverCard` and the loupe read-out already exist as
 > shipped card chrome in `tide/`, and retiring those idioms is what lets `one-card-law.test.ts`
 > widen to its full sentence with an empty allowlist. The `title=` adoption sweep is the bulk of
-> it — 97 native tooltips across 15 directories at `26c48c7`. First-glance acceptance follows
+> it — 97 native tooltips across 14 directories at `26c48c7`. First-glance acceptance follows
 > that sweep and is an operator act, not a lane. Reconciled in depth 2026-08-22 at `03df141`;
 > see `retained-prds-review-2026-08-22.md`.
 >
