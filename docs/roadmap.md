@@ -276,8 +276,8 @@
   measurement while the claim survived. What it left behind has owners rather than a residual
   paragraph here: the honesty cost of bounding the server's window, the transcript capture a
   bounded window can no longer complete, and a doc note ruling 3's three consumers each needed.
-- **prd45 — the earned verdict** (`docs/prds/prd-45-the-earned-verdict.md`, BLESSED
-  2026-08-24): a check that could not run says so. Drafted from prd39's verify pass and from
+- **prd45 — the earned verdict** (`docs/prds/done/prd-45-the-earned-verdict.md`, SHIPPED
+  2026-09-02): a check that could not run says so. Drafted from prd39's verify pass and from
   prd24's closing amendment, which retired to `done/` leaving two residuals with no owner.
   Four rulings — a guard in the landing tool may not print a verdict it did not earn, a
   postcondition asserts the fact it claims, the landing tool is covered by an executable
