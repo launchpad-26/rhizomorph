@@ -194,7 +194,7 @@ const CANONICAL_NEGATED_CLASS_ALLOWED_PATHS = [
 /**
  * Only actual source files can HAND-ROLL an implementation — a PRD or design
  * note quoting the defect's exact line as historical evidence (this PRD does,
- * `docs/prds/prd-42-one-path-one-spelling.md:26`, citing the very code this
+ * `docs/prds/done/prd-42-one-path-one-spelling.md:30`, citing the very code this
  * issue removes) is prose about the code, not a second copy of it. Scoping by
  * extension, rather than by an explicit per-file exclusion, is the AGENTS.md
  * #649 discipline applied to the allow side: a hand-authored exclusion list

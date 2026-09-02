@@ -1,6 +1,9 @@
 # prd-42 — one path, one spelling: a path means the same thing everywhere it is written
 
-> **Status:** **BLESSED** — Ciaran Slow, 2026-08-22, in session. Milestone `prd42`. Drafted the same day from the reconciled audit
+> **Status:** **SHIPPED** — 2026-09-02. Milestone `prd42`: twenty-eight issues, all closed,
+> across eleven waves; the closeout, including what the plan got wrong, is the last section of
+> this document.
+> Blessed by Ciaran Slow, 2026-08-22, in session. Drafted the same day from the reconciled audit
 > at `03df141` (findings 3, 19, 20 — untracked artefact, `.gitignore`d; the sha is the anchor). Stands on `#217`/`#228`/`#299`/`#401`, whose lesson — *a duplicated path primitive gets
 > hardened in one copy and keeps the hole in the other* — is this PRD's whole thesis.
 
@@ -740,3 +743,151 @@ and caught by the check itself.
 
 Wave 11 is a number nothing else has used. Nothing above renumbers a ruling or
 an earlier wave.
+
+## The seven rulings, as they landed
+
+**Ruling 1 — the encoder and the reverse walk are one fact, proven by round trip.** Landed as
+wave 1's law (`#11`) and wave 2's fix (`#12`), and then **moved twice more than the ruling
+anticipated**: `#47` added the colon and the backslash, `#124` replaced the enumeration outright.
+Both sides now read `/[^a-zA-Z0-9]/g` — `worktree-slug.ts:84` and `repos.ts:268`, byte-identical,
+`EXECUTED` 2026-09-02. The ruling's *method* is why that was survivable: it required a **round
+trip** and explicitly refused a table of the class's literal contents, so the class could move
+three times without the law ever going stale-and-green. Its own sentence — *"a law asserting the
+class's literal contents would pass at any wrong-but-matching pair, which is how this survived"* —
+is the most load-bearing line in this document.
+
+**Ruling 2 — containment has one implementation, and callers import it.** The **verdict held and
+its named mechanism did not survive one call site.** The sweep landed (`#15`, `#45`) as
+`paths/prefix-comparison-law.test.ts`, a zero-tolerance law with no allowlist entry — not even
+one — and `static.ts:304` does canonicalize through the shared primitive. But `static.ts`'s
+descriptor check deliberately **does not** call `isInside`, and the reason is recorded at
+`server/static.ts:219-241`: `descriptorPath` is the kernel's own already-resolved answer, and
+`isInside` re-resolves through `realpathSync.native` every time, which **reopens the exact
+symlink-swap race the check exists to close** — EXECUTED before the function was written. It is
+spelled as a segment comparison instead, precisely so it does not trip the syntactic proxy that
+enforces the ruling. The ruling said *"a path-containment comparison written outside
+`containment.ts` is a defect regardless of whether it is currently exploitable"*; one site turned
+out to be the case where importing the primitive was the exploitable choice.
+
+**Ruling 3 — a route that moves a session holds its own boundary.** Landed in wave 2 (`#14`).
+`retargetSession` took `rotateSession`'s `WeakMap` rather than growing a second one, and refuses
+with 409 in five places. The doc comment that named an obligation and assigned it to a caller
+that did not exist was corrected in the same commit, as the ruling required.
+
+**Ruling 4 — the probe decides which side is wrong, and it runs before either fix.** Held, and it
+is the only ruling here that governs **the order of the work** rather than the code. Wave 4
+booked the colon-and-backslash probe as an operator act — not dispatchable, because "start a real
+session on a real machine" is not a fenced code change — and wave 5 waited on its answer. The
+ruling's own arithmetic is why: for a character whose behaviour is unknown the two possibilities
+carry opposite fixes, so choosing without the probe is a coin toss with a 50 % chance of
+hardening the wrong side.
+
+**Ruling 5 — a rotation refuses a retarget's boundary; coalescing stays rotation-to-rotation.**
+Landed (`#49`). The shared in-flight map learned an operation `kind`
+(`recorder/rotate.ts:298-302,343`), so the refusal is one fact rather than two routes each
+guessing. `api/rotate.ts:70` cites the ruling in the code it governs, and reuses 409 rather than
+minting a second refusal vocabulary.
+
+**Ruling 6 — a widening on the tokenless route is pinned by a test, in the commit that widens
+it.** Landed (`#51`). The ruling deliberately did not decide *which* outcome was right for the
+symlink case — only that it be chosen, stated and pinned rather than inherited from whatever the
+primitive happened to do.
+
+**Ruling 7 — an ambiguous slug is decided by evidence, and refused when there is none.** Landed
+in wave 9 (`#142`) as `concierge/slug-disambiguate.ts`. It is the one ruling drafted from a
+defect this PRD did **not** introduce: the same-slug collision was proven pre-existing by
+regressing the walk to its pre-`#120` five-character class and watching it answer silently there
+too. `#120`'s done-when was scoped to same-segment collisions on that evidence rather than left
+as an unmet bullet.
+
+## The four success criteria, assessed
+
+1. **A repo path with a space finds its transcripts — MET**, and this document said out loud that
+   it was **not** met for three days after waves 1–3 merged. The residuals amendment of
+   2026-08-25 named the live falsifier — a colon and a backslash — rather than letting merged
+   waves read as delivery. `#47` and `#124` closed it; the premise was then re-proven by `grep -ao`
+   against the shipped binary rather than quoted, with a control that returns zero hits.
+2. **Containment is decided in one place — MET.** One implementation, one importable primitive,
+   and a law that hunts the idioms rather than trusting a review. See ruling 2 above for the one
+   call site that honours the rule by not calling the primitive, and says so in fourteen lines of
+   comment.
+3. **A route that moves a session refuses to overlap with itself — MET in both directions.**
+   `#14` closed retarget-against-retarget; `#49` closed rotation-against-retarget, which the
+   residuals amendment had correctly recorded as "met in one direction only".
+4. **The slug change is stated, not slipped — MET.** PR `#54`'s body says it in its own words:
+   *"on-disk slug directory names change for any path containing a space"*, with the reason no
+   migration is needed — a spaced-path slug never resolved, so nothing exists under the old
+   spelling.
+
+`EXECUTED` 2026-09-02, Node v22.23.2: `prefix-comparison-law`, `concierge/repos`,
+`recorder/rotate`, `forward-transform-law` and `recorder/namespace-law` — 5 files, **269 passed**.
+
+## The three open questions, answered
+
+**Is 409 the right refusal for an overlapping retarget, or 423?** **409**, answered in place
+during wave 2 and adopted by ruling 5 for the other direction. 423 was never implemented and is
+not proposed.
+
+**Does any tracked fixture encode a slug by hand?** **Answered better than it was asked.** The
+question wanted an enumeration; what landed is a standing cardinality law
+(`collectors/sessionlog/forward-transform-law.test.ts`) that asserts exactly one implementation
+exists and never names the character class — deliberately, because a law that pinned the class
+would go red the moment a correct fix landed. It found a real fourth copy at
+`cli/index.test.ts:250`, which had passed only because `os.tmpdir()` happens to contain none of
+the characters the hand-rolled class was missing: a property of the platform, not of the test.
+An enumeration would have gone stale on the next fixture; the law does not.
+
+**Should `isInside` case-fold on macOS and Windows?** **Still open, still unowned.** It changes
+the primitive's meaning on two platforms and interacts with prd-25's Windows leg, which does not
+exist yet — the only `windows-latest` runner in `.github/workflows/` remains the desktop
+installer's. Correctly parked rather than answered, and it stays parked here rather than being
+smuggled into a closeout.
+
+## What the plan got wrong
+
+**Ruling 2 named a mechanism, and one call site proved the mechanism wrong.** *"`static.ts:119`
+uses `canonicalize` + `isInside`"* was written as though the ruling and the mechanism were the
+same thing. The ruling was right; `isInside` at that one site would have re-opened the race the
+check exists to close. This is the identical shape prd-45 hit with `if: always()` a week later,
+and it is why prd-47 marks every mechanism in its rulings *candidate*. Two PRDs found it
+independently before anyone wrote the lesson down.
+
+**The plan was off by a factor of four, and the growth was almost all self-inflicted in the good
+way.** Drafted: 3 rulings, 3 waves. Landed: **7 rulings, 11 waves, 28 issues.** Nearly every
+addition came from the verification of an earlier wave rather than from new scope — which is the
+sibling-naming discipline working exactly as prd-46 ruling 3 later stated it. But a document
+whose plan quadruples is not a plan that was wrong once, and the honest reading is that the
+original Sequencing understood the fix and not the territory.
+
+**The document's own citation convention had to be falsified twice before it was written
+down.** The rule *cite a superseded paragraph by heading, not by line* was adopted here after a
+line citation was broken by the very next amendment. It then turned out to have two failure modes
+of its own — a marker quoting a wave declaration is parsed as a second declaration and never
+supersedes anything, and a marker's pop is **positional**, so one placed beside prose silently
+deletes an unrelated wave from the count. Both were found by `#152` and hardened by `#175`, and
+one of them was found by this document doing it to itself. The convention is now written in the
+document it governs; it was not written anywhere when it was first relied on.
+
+**Six of this document's own citations resolve to nothing.** `#217`, `#228`, `#243`, `#299`,
+`#401` and `#649`, in the Status line and Evidence, are references to a previous incarnation of
+the tracker — the highest real issue was `#64` when this was drafted. The document names this
+about itself and files it rather than quietly rewriting the numbers, which is right; it is still
+a PRD whose evidentiary chain does not resolve for a reader who tries to follow it.
+
+## Residuals, with owners
+
+- **The 200-character cap and its base36 hash suffix.** `worktree-slug.ts:25-41` names the gap in
+  the code, with the shipped slugger's real behaviour read out of the binary beside it. `#124`
+  closed the character class and left the length; **no open issue owns it.** It fails in the safe
+  direction — an uncapped slug resolves to nothing rather than to something wrong — which is why
+  it was survivable, not why it is closed. **No owner.**
+- **`isInside` on case-insensitive filesystems.** Open question 3 above. Gated behind a Windows
+  test leg that does not exist. **No owner.**
+- **The six unresolvable tracker citations.** Owned — `#66`, *"the docs cite a tracker that no
+  longer exists"*, open, and carrying **no milestone**, which is its own small instance of the
+  thing this PRD is about. **Owned, unscheduled.**
+- **The eight call sites downstream of the slug encoder**, counted at drafting and never
+  individually tested. The forward-transform law now covers the *shape* at every
+  `claudeProjectsRoot` join, which is stronger than the eight would have been — but the original
+  caveat (*"if any of them caches a slug across the change, it is its own issue"*) was never
+  checked. **No owner.**
