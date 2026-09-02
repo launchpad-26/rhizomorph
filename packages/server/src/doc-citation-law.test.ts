@@ -345,6 +345,22 @@ function pinResolves(sha: string): boolean {
   return resolves
 }
 
+/**
+ * `pinResolves` asks the LOCAL object store, so it can only answer in a clone that has
+ * the history. A `--depth 1` checkout holds no sha but the tip, so every honest pin to
+ * an ancestor reads as a fake one — and the exemption inverts into its own defect: the
+ * one real pinned record, `docs/design/glance-2026-09-02.md` at `0851512`, gets reported
+ * by `badPins()` and swept as a live claim, which is exactly what #228 fixes, on CI only.
+ *
+ * `.github/workflows/ci.yml`'s suite leg therefore checks out with `fetch-depth: 0`, and
+ * the test below asserts that precondition rather than trusting it: an edit back to the
+ * default depth fails HERE, naming the cause, instead of surfacing as a bad-pin report
+ * against a document whose pin is perfectly honest (review of #229).
+ */
+function repoIsShallow(): boolean {
+  return execFileSync('git', ['rev-parse', '--is-shallow-repository'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim() === 'true'
+}
+
 /** A pinned artefact — excluded as a CITING source — only when its declared pin resolves. */
 function isPinnedArtefact(text: string): boolean {
   const sha = declaredTreePin(text)
@@ -868,6 +884,17 @@ describe('doc citation law: a path cited from a document or a comment must exist
     // The real tree carries no bad pin today — pinned like the allowlist, so a
     // fake one landing anywhere under docs/ is named here rather than absorbed.
     expect(badPins()).toEqual([])
+  })
+
+  it('the pin arm has the history it needs — in a shallow clone every honest pin reads as fake (#228, review of #229)', () => {
+    expect(
+      repoIsShallow(),
+      'this clone is SHALLOW, so `git cat-file -e <sha>^{commit}` cannot see any sha but the tip and every tree pin to an ancestor reads as a fake one — run `git fetch --unshallow`, or restore `fetch-depth: 0` on the suite leg in `.github/workflows/ci.yml`',
+    ).toBe(false)
+    // And the pin arm is not vacuous in this clone: an ancestor of HEAD resolves,
+    // which is the case a depth-1 checkout loses and a fake sha never had.
+    const parent = execFileSync('git', ['rev-parse', 'HEAD^'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim()
+    expect(pinResolves(parent), 'an ancestor sha must resolve — this is the case a shallow clone breaks').toBe(true)
   })
 
   it('a file the git listing names but that is gone from disk is skipped, not a crash — the ENOENT sibling of item 5', () => {
