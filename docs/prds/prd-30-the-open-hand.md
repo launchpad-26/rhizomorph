@@ -1,9 +1,13 @@
 # prd-30 — the open hand: every mark explains itself
 
-> **Outcome:** partially shipped — the shared disclosure card, condition selector and teach layer
-> ship. The code's own full-scope law says `MarkHoverCard`, the loupe read-out and the semantic
-> `title=` adoption sweep remain; first-glance acceptance follows that sweep. Reconciled in depth
-> 2026-08-22 at `03df141`; see `retained-prds-review-2026-08-22.md`.
+> **Outcome:** partially shipped, **groomed 2026-09-02** into #220 and #221 — the shared
+> disclosure card, condition selector and teach layer ship. What the code's own full-scope law
+> owes is a **re-seat**, not a build: `MarkHoverCard` and the loupe read-out already exist as
+> shipped card chrome in `tide/`, and retiring those idioms is what lets `one-card-law.test.ts`
+> widen to its full sentence with an empty allowlist. The `title=` adoption sweep is the bulk of
+> it — 97 native tooltips across 15 directories at `26c48c7`. First-glance acceptance follows
+> that sweep and is an operator act, not a lane. Reconciled in depth 2026-08-22 at `03df141`;
+> see `retained-prds-review-2026-08-22.md`.
 >
 > Builds the design charter's §6 rulings (`docs/design/charter.md`,
 > PR #451): one hover-disclosure vocabulary on prd-27 ruling 5's label/why/remedy triple, and
@@ -244,3 +248,28 @@ its table; the STATE surface re-seat; the per-directory `title=` sweeps.
   stateless. Open, not ruled.
 - prd-27's inherited question — how disagreement between declared and inferred renders — lands
   on this card when prd-27 wave 3 ships; whoever rules it owns both surfaces.
+
+## Grooming note — the sweep is one issue, not five (2026-09-02, #222)
+
+Groomed against `main` at `26c48c7`. Two corrections to how this PRD's remainder reads.
+
+**"MarkHoverCard remains" was the wrong word.** It reads as *absent*. It exists —
+`packages/web/src/tide/ChapterMarks.tsx` — and so does the loupe read-out (`tide/Loupe.tsx`,
+`tide/TideDock.tsx`). `disclosure/one-card-law.test.ts` says so itself, and says why the law is
+currently narrow: those idioms are *shipped card chrome in other directories right now*, so a
+law written to the full sentence would have failed on landing and wave 1 would have had to
+disable it. What is owed is the re-seat that lets the law widen. That is #221.
+
+**Wave 3's per-directory fences are not safely achievable, and the sweep is #220 as one
+issue.** The sequencing above asks for one boundary per directory. Three of this package's law
+tests are anchored across directory lines — the token law's `STATUS_RING_ALLOWLIST` into the
+status bar, the legibility law's allowlist into the conversation drawer, and the kind law's
+`HAND_SPELLED_TAGS` asserting both an exact count and an exact file set over the whole package.
+Any lane rewording an anchored line lands in those same three files, so directory-sized lanes
+overlap; lanes that exclude them hit the landing gate with work that was correct. One
+deliberately large, coherent sweep is the honest shape, and AGENTS.md's own measurement is the
+licence: PR size does not predict cycle time — unrelated code in one diff does, and this is one
+change repeated.
+
+`packages/web/src/scene/` is excluded from #220 while #39 holds `scene/palette.ts` and
+`theme/theme.css`; its three tooltips move in a later pass.

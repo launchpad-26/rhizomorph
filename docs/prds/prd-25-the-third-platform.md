@@ -1,10 +1,11 @@
 # prd-25 — the third platform: anywhere, with a gate that looks
 
 > **Status:** blessed by the operator, 2026-08-24 — rulings 1–6 accepted, the three human
-> calls answered in the amendment. Revalidated 2026-08-22 at `03df141`: no `windows-latest`
-> leg exists on the CLI/test/pack matrix (the desktop installer workflow's Windows row
-> packages the shell; it does not run the native suite). Grooming may start from the
-> amendment's re-cut waves.
+> calls answered in the amendment. **Groomed 2026-09-02** into #210, #211 and #212, which are
+> the whole of what remains; see the closing amendment for the three rulings the tree
+> discharged on its own. Revalidated at `26c48c7`: still no `windows-latest` leg on either
+> `ci.yml` job (the desktop installer workflow's Windows row packages the shell; it runs no
+> suite).
 
 ## Problem
 
@@ -173,3 +174,42 @@ Ruled on the retained-PRDs review's recommendation, against the tree at `9a26030
   above renumber as this PRD's own at grooming, and prd-15's wave 7 (PTY/L3) is now prd-20
   ruling 7's parked option — the ConPTY open question above points there, not at prd-15. The
   docker brief's rulings A and B stay proposed and untouched.
+
+## Amendment — what the tree discharged before grooming (2026-09-02, #222)
+
+Groomed against `main` at `26c48c7`. Rulings are never renumbered and none is deleted; three
+are marked discharged with the evidence that discharged them, and one keeps its conclusion
+while losing its premise.
+
+**Ruling 4's node-floor call — DISCHARGED.** It asks that the README's "Node >= 22" change so
+a first `EBADENGINE` reads as a stated requirement rather than a contradiction. `README.md`
+already reads **"Node >= 22.22.2"**, names `engines` in `package.json` as the source of truth,
+records that CI pins that exact minimum, and points at CONTRIBUTING.md for the Node 20
+behaviour. Nothing is owed. The floor itself stays `>=22.22.2`, as the 2026-08-24 amendment
+ruled.
+
+**Ruling 5's support-matrix rows — DISCHARGED.** It asks that Windows enter as an honest
+partial and that macOS's "treat it as untested" be corrected in the same pass. The matrix
+already carries four rows: macOS reads "CI-verified on every push" with its legs named, and
+Windows reads as an honest partial that cites the fixed boot defect and this PRD. Both
+corrections landed.
+
+**The Evidence bullet on the boot defect is history.** `packages/server/bin/rhizomorph.mjs`
+uses `pathToFileURL(distEntry).href`; win32 no longer parses the drive letter as a URL scheme.
+The bullet is preserved above as the record of why the leg is owed — no CI leg has still ever
+witnessed the fix — but it no longer describes the present tense.
+
+**Ruling 1 keeps its conclusion and loses its premise.** It argues the leg must start on
+`pack-smoke` because "a failed `Test` step **skips every later step on that leg**", so the
+boot smoke would never run. That has not been true since `ci.yml`'s post-`Test` steps were
+gated on `!cancelled()`; `AGENTS.md` carried the same stale claim and #215 corrects both. The
+conclusion survives on a different argument, recorded on #211: a `build-test-boot` Windows
+leg would be **permanently red** while the suite's known native failures have no committed
+expected-fail list, and a leg that is always red teaches everyone to ignore it. Giving the
+suite that list is ruling 2's job and #212's. The premise is corrected here rather than
+quietly repaired, because the repo learning that its own gate changed is the durable part.
+
+**What remains of this PRD:** #210 (the `.gitattributes` line-endings law, ruling 4's other
+half), #211 (the `windows-latest` pack-smoke leg, ruling 1) and #212 (the committed
+expected-fail list and the triage, rulings 2 and 3). Ruling 3's per-cause-class fixes are
+deliberately unminted until the triage runs. Ruling 6 is untouched.

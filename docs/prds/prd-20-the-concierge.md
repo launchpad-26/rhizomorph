@@ -1,10 +1,11 @@
 # prd-20 — the concierge: a one-stop front door
 
-> **Outcome:** re-cut 2026-08-24 — the fourth-hand fence, capability gate, harness registry,
-> local discovery, clone, launch/relaunch, transcript migration and setup wizard ship, and the
-> retarget engine ships gated and tested. Exactly two outcomes remain: the wizard invokes that
-> route (prd-42 hardens it; this PRD gives it its control), and ruling 7 narrows the no-tmux
-> launch promise. See the amendment. Reconciled 2026-08-22 at `03df141`.
+> **Outcome:** re-cut 2026-08-24, **groomed 2026-09-02** — the fourth-hand fence, capability
+> gate, harness registry, local discovery, clone, launch/relaunch, transcript migration and
+> setup wizard ship, and the retarget engine ships gated and tested. Of the amendment's two
+> remaining outcomes, **ruling 7's is already satisfied by the tree** (see the grooming note
+> below); the other is #216 — the wizard invoking the route prd-42 hardened. One issue is the
+> whole of what is left. Reconciled 2026-08-22 at `03df141`; regroomed at `26c48c7`.
 
 ## Problem
 
@@ -232,3 +233,31 @@ in, and `claude --resume` without a TTY dies asking for a prompt. The Success cl
 no-tmux terminal (a PTY; ConPTY on Windows — the option prd-15's L3 rung named and prd-25's
 open question points at) is **parked here as a named technical option behind its own
 spike**; no wave claims it until that spike is blessed.
+
+## Grooming note — ruling 7 is satisfied; one outcome remains (2026-09-02, #222)
+
+Groomed against `main` at `26c48c7`.
+
+**Ruling 7 — DISCHARGED by the tree.** It narrows the no-tmux launch promise: where tmux
+exists, launch stays one explicit click into a real window; where it does not, the product
+presents the copyable command and says plainly why. `packages/web/src/connect/wizard.tsx`'s
+`LaunchResult` already renders exactly that, as its own answer rather than compressed into a
+generic success:
+
+> started detached (pid {pid}) — there was no tmux window to put it in, so nothing is
+> attached to it. An interactive harness with no terminal may exit on its own (#532); watch
+> the rows below rather than trusting this line, and run the harness yourself in a terminal
+> if nothing arrives.
+
+The component's own doc comment records the defect it was written against — a response that
+said `launched` over a process that had already exited — and the four outcomes it refuses to
+compress. No issue is minted for ruling 7. The PTY/ConPTY tier stays parked as a named
+technical option behind its own spike, exactly as the 2026-08-24 amendment left it.
+
+**Outcome 1 — #216.** The wizard still tells the operator that switching the watched repo
+"is not built" and withholds the path for an unwatched repo. That is false twice: ruling 5
+ruled it, and `packages/server/src/api/retarget.ts` ships the route gated and tested. No file
+under `packages/web/src` calls `POST /api/retarget` today. #216 is the control, its
+consequences, and the continued setup journey in the newly watched repo.
+
+The sequencing list above remains history, not a backlog, as the amendment says.
