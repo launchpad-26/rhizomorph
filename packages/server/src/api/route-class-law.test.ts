@@ -427,14 +427,20 @@ describe('the README support matrix agrees with what ci.yml actually proves, in 
     expect(block).toMatch(/exclude:\s*\n\s*- os: macos-latest\s*\n\s*node: min/)
   })
 
-  it('pack-smoke runs the full 2x2 grid — macOS at both node legs, no exclude — matching the README claim', () => {
+  it('pack-smoke runs the full 3x2 grid — Linux, macOS and Windows at both node legs, no exclude — matching the README claim (#211)', () => {
     const block = jobBlock('pack-smoke')
-    expect(block).toMatch(/os:\s*\[ubuntu-latest, macos-latest\]/)
+    expect(block).toMatch(/os:\s*\[ubuntu-latest, macos-latest, windows-latest\]/)
     expect(block).not.toMatch(/exclude:/)
   })
 
-  it("ci.yml carries no windows-latest leg — the README's \"unverified\" claim for native Windows stays true", () => {
-    expect(CI_YML).not.toMatch(/windows-latest/)
+  it('windows-latest runs on pack-smoke and ONLY pack-smoke — build-test-boot has no Windows leg until #212 commits the expected-fail list (prd-25 ruling 1, #211)', () => {
+    // Until #211 this law asserted the ABSENCE of a windows-latest leg anywhere in
+    // ci.yml, so the README's "unverified" row stayed true. The leg now exists, on
+    // the job whose failures cannot be laundered by an untriaged suite; a Windows
+    // row on build-test-boot would be permanently red until #212's list exists,
+    // and a leg that is always red teaches everyone to ignore it.
+    expect(jobBlock('pack-smoke')).toMatch(/windows-latest/)
+    expect(jobBlock('build-test-boot')).not.toMatch(/windows-latest/)
   })
 
   /**
@@ -508,8 +514,11 @@ describe('the README support matrix agrees with what ci.yml actually proves, in 
     expect(rowFor('macOS')).toMatch(/macos-latest[^\n]*pack-smoke[^\n]*both node legs/)
   })
 
-  it("README's Windows (native) row states it is unverified, matching ci.yml's absence of a windows-latest leg", () => {
-    expect(rowFor('Windows (native)')).toMatch(/\*\*Unverified/)
+  it("README's Windows (native) row cites the leg that proves it — pack-smoke on windows-latest at both node legs — and claims no suite run, because build-test-boot has none (#211)", () => {
+    const row = rowFor('Windows (native)')
+    expect(row).toMatch(/windows-latest[^\n]*pack-smoke[^\n]*both node legs/)
+    expect(row).toMatch(/build-test-boot/)
+    expect(row).not.toMatch(/\*\*Unverified/)
   })
 
   it('build-test-boot and pack-smoke both run ubuntu-latest — the Linux row claims CI, and CI delivers it', () => {

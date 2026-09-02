@@ -206,13 +206,27 @@ jobs:
   # audit): packs the repo the way a release would, installs the tarball
   # into a project that has never heard of this checkout, and runs the CLI
   # from those installed files. The full os x node grid, because that is
-  # exactly the claim this job exists to back: Linux and macOS, the
-  # declared minimum node and the current one.
+  # exactly the claim this job exists to back: Linux, macOS and Windows,
+  # the declared minimum node and the current one.
   pack-smoke:
+    # windows-latest joined this job on 2026-09-03 (#211, prd-25 ruling 1). It
+    # bills 2x ubuntu-latest (macos-latest bills 10x — see build-test-boot's
+    # note above), measured at 1.5–3 min per leg across its first green
+    # runs (e.g. https://github.com/launchpad-26/rhizomorph/actions/runs/33689381056)
+    # against ~40s for an ubuntu leg. It joins THIS job and not build-test-boot deliberately: the
+    # suite has known native-Windows failures (#277: 130 across 15 files) and
+    # no committed expected-fail list yet, so a build-test-boot Windows leg
+    # would be permanently red, and a leg that is always red teaches everyone
+    # to ignore it. #212 commits that list; whether windows-latest then joins
+    # build-test-boot is a separate decision, made with this leg's measured
+    # cost (prd-25 amendment, 2026-08-24). This leg is the first CI witness of
+    # the pathToFileURL boot fix in packages/server/bin/rhizomorph.mjs, and the
+    # runner is what proves scripts/pack-smoke.sh's process control under Git
+    # Bash — that script's Windows notes say what POSIX cannot do there.
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         node: [current, min]
     runs-on: ${{ matrix.os }}
     steps:
@@ -238,4 +252,8 @@ jobs:
         run: npm run build
 
       - name: Pack, install into a clean project, run the installed CLI
+        # Git Bash on the Windows leg (the runner's default shell there is
+        # pwsh). The script keys its Windows branches on `uname -s`, not on
+        # the matrix, so it behaves the same run by hand from a Git Bash prompt.
+        shell: bash
         run: bash scripts/pack-smoke.sh

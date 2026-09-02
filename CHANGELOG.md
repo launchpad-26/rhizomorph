@@ -38,6 +38,23 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Added
 
+- **Native Windows enters CI — the built clone's boot is witnessed on every push
+  (prd-25 wave 2, #211).** `pack-smoke` now runs on `windows-latest` at both node
+  legs: it packs the repo, installs the tarball into a clean project and boots the
+  installed CLI under Git Bash, the first CI leg ever to exercise the
+  `pathToFileURL` fix that let a built clone boot on win32. The README's support
+  matrix row for native Windows moves from "unverified" to an honest partial —
+  installs and boots, suite not run — and cites the leg by name.
+  `scripts/pack-smoke.sh` gains a Windows branch: the run's processes are found
+  through WMI by a per-run token in their command lines, terminated if the
+  group TERM left any alive, and the leak check on that runner reports through
+  the same self-checking query instead of degrading to "pgrep unavailable".
+  The same run found a defect every platform had: `boot_and_check` read the
+  stop verdict through a subshell that could not observe the parent's jobs, so
+  every boot waited the full grace period and reported "killed" — the verdict
+  now travels in a variable, and the Linux and macOS legs dropped from about
+  60 seconds to under 40.
+
 - **The flat instrument's first wave: three costs that grew with use no longer do
   (prd-44 wave 1, #30/#31/#33).** A finished recording is now parsed **once**
   rather than once per request — `GET /api/lane-index` re-read and re-parsed every

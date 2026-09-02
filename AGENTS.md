@@ -454,13 +454,16 @@ holds this paragraph to the workflow it describes.
 
 CI is 3.5–4 minutes, against a 21-hour queue. **It is not the bottleneck — do
 not optimise it for throughput.** The valuable CI direction is coverage, not
-speed: there is still no `windows-latest` leg **in `ci.yml`** on either job, so
-Windows is absent from the test / typecheck / lint / boot grid and from
-pack-smoke alike. A built clone could not boot on Windows at all until the
-`pathToFileURL` fix in `packages/server/bin/rhizomorph.mjs`, and no CI leg has
-ever witnessed that fix. prd-25 owns the gap; #211 is the leg. The only Windows
-runner anywhere in `.github/workflows/` today is the installer-packaging leg in
-`desktop.yml`, which packages the shell and runs no suite.
+speed. Since #211 (prd-25 wave 2) `pack-smoke` runs a `windows-latest` leg at
+both node legs, so a built clone's boot on native Windows is witnessed on every
+push — the `pathToFileURL` fix in `packages/server/bin/rhizomorph.mjs` had no
+CI witness before it. `build-test-boot` still has no Windows leg: the suite's
+known native failures (#277) have no committed expected-fail list yet, and a
+leg that is always red teaches everyone to ignore it; #212 (prd-25 wave 3) is
+that list, and promotion is a separate decision made with the pack-smoke leg's
+measured cost. The only other Windows runner in `.github/workflows/` is the
+installer-packaging leg in `desktop.yml`, which packages the shell and runs no
+suite.
 
 ---
 
