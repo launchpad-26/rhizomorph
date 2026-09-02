@@ -156,16 +156,35 @@ checks), prd-41 (laboratory laws) and prd-43 (document claims as tests); much of
 shipped here — and the tree has moved past the review in one place already: the `lab/` and
 `drawer/` law walks are recursive today. Every remaining residual has a named home:
 
-1. **The recordings law still walks one directory level**
-   (`web/src/recordings/no-live-fleet-law.test.ts:31`, flat `readdirSync`) — the last flat
-   walk of the three ruling 3 named. **Described for the next groom as one small issue**;
-   the fix pattern is its own siblings' `walkSourceFiles`. Two further walks are only
-   vacuously correct today (`interaction/no-model-call-law.test.ts`,
-   `connect/index.test.tsx`) — the same issue's sweep may take them.
-2. **CI stops producing evidence after a red Test** — no `if: always()` on Typecheck, Lint,
-   the packaging guard or the boot smoke, so a red leg is four unrun gates. **Described for
-   the next groom as one small issue**; prd-25 ruling 1 already prices this defect into its
-   leg design and benefits directly.
+1. **DISCHARGED by the tree (verified 2026-09-02, #215).** This residual read: *the
+   recordings law still walks one directory level* (`web/src/recordings/no-live-fleet-law.test.ts`,
+   flat `readdirSync`), described for the next groom as one small issue. It is fixed.
+   That file now walks recursively through `walkSourceFiles` — the shape
+   `lab/no-live-fleet-law.test.ts` proved out — and computes its non-vacuity floor from a
+   separate recursive `readdirSync` in `realSourceFileNames()` rather than from a
+   remembered literal, so the expectation moves with the tree. A nested fixture is
+   committed under `recordings/recursion-fixture/`, which means the recursive branch is
+   exercised by the tracked tree rather than only in principle.
+
+   The two further walks this residual named are **still flat**, and still latent rather
+   than live: `interaction/no-model-call-law.test.ts` and `connect/index.test.tsx` both use
+   a single-level `readdirSync`, and both directories contain **zero subdirectories** today.
+   That is the same "latent, not live" state `recordings/` was in when #44 landed. They are
+   recorded here as known, not groomed — the day either directory grows a subdirectory,
+   its law goes quietly vacuous.
+2. **DISCHARGED by the tree, and better than proposed (verified 2026-09-02, #215).** This
+   residual read: *CI stops producing evidence after a red Test — no `if: always()` on
+   Typecheck, Lint, the packaging guard or the boot smoke, so a red leg is four unrun
+   gates.* All four now run. `Typecheck` and `Lint` carry `if: "!cancelled()"`; the
+   packaging guard and boot smoke carry `if: "!cancelled() && steps.build.outcome ==
+   'success'"`.
+
+   The difference from what this residual asked for is deliberate and is the better answer:
+   `always()` was **rejected** on the grounds that the packaging guard flags only unexpected
+   files and so passes vacuously over an empty `dist/`, while the boot smoke's bin falls
+   back to TS source when `dist` is absent — so on a Build-red leg `always()` would report
+   both green having verified nothing built. `AGENTS.md` carried the stale claim for as long
+   as this residual did, and #215 corrects both together.
 3. **The read-side contract policy** — owned by **prd-29 wave 3** since its 2026-08-24
    ruling: the read axis joins `packages/contract/`'s coverage law by declared enumeration,
    gated on #428 as prd-29's sequencing says. The `vite dev` token blind spot named in the

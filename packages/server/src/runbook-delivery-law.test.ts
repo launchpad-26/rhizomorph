@@ -42,9 +42,63 @@ function isIgnored(relPath: string): boolean {
   }
 }
 
+/**
+ * Every `path.ext:NN` citation in a piece of text.
+ *
+ * Deliberately NOT scoped to `.yml`. The rule the runbook now states is general
+ * — "a registry entry pinned to a number for a file that moves is a registry
+ * entry that rots by construction" — and scoping the detector to the extension
+ * that happened to rot first is the sibling case AGENTS.md warns about. It was
+ * not hypothetical: with the two CI citations corrected, `AGENTS.md` still
+ * carried `scripts/dev/issues.sh:467` for `split_targets` (really at 511) and
+ * `scripts/gate.sh:91` for the load-batches comment (really at 232), both wrong
+ * on the same tree that fixed the `.yml` ones.
+ *
+ * One definition, used by both the assertion and the rigged-input test below —
+ * two copies of a regex is how a rigged test ends up proving a regex the
+ * assertion does not use.
+ */
+function lineCitationsIn(text: string): string[] {
+  return text.match(/\b[\w./-]+\.[a-z]+:\d+/g) ?? []
+}
+
 function isTracked(relPath: string): boolean {
   const out = execFileSync('git', ['ls-files', '--', relPath], { cwd: REPO_ROOT, encoding: 'utf8' })
   return out.trim().length > 0
+}
+
+/**
+ * Step names in `ci.yml` whose `if:` mentions `!cancelled()` — i.e. the steps
+ * that still run when an earlier step went red. Derived by parsing, never by a
+ * maintained list: a list is what went stale in AGENTS.md in the first place.
+ *
+ * Deliberately a small text parse rather than a YAML dependency. It only has
+ * to see `- name:` and the `if:` that follows it before the next `- name:`,
+ * and the rigged-workflow test below proves it distinguishes a gated step from
+ * an ungated one.
+ */
+function stepsGatedOnNotCancelled(workflow: string): string[] {
+  const gated: string[] = []
+  let current: string | null = null
+  for (const raw of workflow.split('\n')) {
+    // `noUncheckedIndexedAccess` is on: a capture group is `string | undefined`
+    // even when the match succeeded, so read it through `?.[1]` and test for
+    // undefined rather than indexing a match object.
+    const name = raw.match(/^\s*-\s+name:\s*(.+?)\s*$/)?.[1]
+    if (name !== undefined) {
+      current = name.replace(/^["']|["']$/g, '')
+      continue
+    }
+    if (current === null) continue
+    const gate = raw.match(/^\s*if:\s*(.+?)\s*$/)?.[1]
+    if (gate !== undefined && gate.includes('!cancelled()')) {
+      // The runbook names the two long steps by their first two words.
+      const head = current.split(' —')[0] ?? current
+      gated.push(head.split(' -')[0]?.trim().split(/\s+/).slice(0, 2).join(' ') ?? current)
+      current = null
+    }
+  }
+  return gated
 }
 
 describe('runbook delivery law: AGENTS.md reaches every checkout and worktree', () => {
@@ -108,6 +162,82 @@ describe('runbook delivery law: AGENTS.md reaches every checkout and worktree', 
   it('the tracked-detector fires negatively on a path that is not tracked — not vacuously true', () => {
     expect(isTracked('this-path-does-not-exist-in-the-repo.md')).toBe(false)
     expect(isTracked('README.md')).toBe(true)
+  })
+
+  it('the runbook cites CI by job and step name, never by a line number that rots', () => {
+    // Both citations this section used to carry had rotted by 2026-09-02:
+    // `pack-smoke` was named 31 lines off, and the `Build` one was wrong and
+    // then drifted BACK into correctness when an unrelated PR moved the file —
+    // the worse failure, because spot-checking it says "fine". Same lesson
+    // .swarm/coupling.txt already records for scripts/gate.sh.
+    const runbook = readFileSync(`${REPO_ROOT}/AGENTS.md`, 'utf8')
+    expect(lineCitationsIn(runbook)).toEqual([])
+  })
+
+  it('the line-number detector fires on rigged text — proving it bites', () => {
+    // Without this, the assertion above passes on a typo'd regex, on an empty
+    // file, and on a runbook that stopped mentioning CI at all.
+    const rigged = 'A second job, `pack-smoke` (`.github/workflows/ci.yml:166`), packs the tarball.'
+    // The leading `.` of a dotfile path is outside the `\b`, so the reported
+    // match starts at `github`. The detector fires either way — the matched
+    // text only ever reaches a failure message.
+    expect(lineCitationsIn(rigged)).toEqual(['github/workflows/ci.yml:166'])
+    // The sibling extensions the first draft of this law did not see. Both of
+    // these were live in AGENTS.md when the .yml ones were corrected.
+    expect(lineCitationsIn('checked rather than assumed (`scripts/dev/issues.sh:467`)')).toEqual([
+      'scripts/dev/issues.sh:467',
+    ])
+    expect(lineCitationsIn('the comment calls it mandatory (`scripts/gate.sh:91`)')).toEqual([
+      'scripts/gate.sh:91',
+    ])
+    // ...and it does not convict ordinary prose, a bare filename or a ratio.
+    expect(lineCitationsIn('see `.github/workflows/ci.yml` and AGENTS.md; 8/8 at 4x')).toEqual([])
+  })
+
+  it('the runbook names exactly the steps the workflow still runs after a red Test', () => {
+    // The claim this law exists to stop: AGENTS.md said "a failing step skips
+    // every later step on its leg: if `Test` fails, typecheck, lint, packaging
+    // and boot smoke silently do not run." That has not been true since those
+    // steps were gated on !cancelled(), and prd-24's closing amendment booked
+    // the same stale fact as future work. A doc claim about a gate is only
+    // worth what re-derives it from the gate.
+    //
+    // Pinned as an equality against a DERIVED set, in the shape
+    // api/route-class-law.test.ts uses: removing a gate from ci.yml shrinks the
+    // derived set and turns this red, which is the point — the runbook would
+    // then be describing steps that no longer run.
+    const workflow = readFileSync(`${REPO_ROOT}/.github/workflows/ci.yml`, 'utf8')
+    const gated = stepsGatedOnNotCancelled(workflow)
+
+    expect(gated, 'no gated steps parsed — the parser, not the workflow, is what broke').not.toEqual([])
+    expect(gated).toEqual(['Typecheck', 'Lint', 'Packaging guard', 'Boot smoke'])
+
+    const runbook = readFileSync(`${REPO_ROOT}/AGENTS.md`, 'utf8')
+    for (const step of gated) {
+      expect(runbook.toLowerCase(), `AGENTS.md must say ${step} still runs`).toContain(step.toLowerCase())
+    }
+    // The exact sentences that were false. Their return is the regression.
+    expect(runbook).not.toContain('skips every later')
+    expect(runbook).not.toContain('silently do not run')
+    // ...and the gate that makes them false is named, so a reader can check.
+    expect(runbook).toContain('!cancelled()')
+  })
+
+  it('the gate parser fires on a rigged workflow — proving the equality above is not vacuous', () => {
+    const rigged = [
+      'jobs:',
+      '  demo:',
+      '    steps:',
+      '      - name: Test',
+      '        run: npm test',
+      '      - name: Typecheck',
+      '        if: "!cancelled()"',
+      '        run: npm run typecheck',
+      '      - name: Never Runs',
+      '        run: echo no gate',
+    ].join('\n')
+    expect(stepsGatedOnNotCancelled(rigged)).toEqual(['Typecheck'])
+    expect(stepsGatedOnNotCancelled('steps:\n      - name: Ungated\n        run: true')).toEqual([])
   })
 
   it('the workmux post_create hook does not copy AGENTS.md — a tracked file needs no hook', () => {
