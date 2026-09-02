@@ -139,12 +139,27 @@ exactly as the browser does. A value handed to a page over unauthenticated
 loopback HTTP cannot be hidden from something that can already reach that
 page.
 
-This server answers **nine** mutating routes in total, not three. Two more
+This server answers **ten** mutating routes in total, not three. Two more
 are gated exactly as the three above are: the concierge's granted powers,
 `POST /api/concierge/clone` and `POST /api/concierge/launch` (prd-20
 ruling 1 / `docs/adr/0019-the-fourth-hand.md`) — for the fourth hand the
 gate *is* the grant, so neither may ever be reached from a collector or a
-poll. The remaining four are the OTLP telemetry inbox (`POST /v1/metrics`,
+poll. The clone lands only inside the concierge's own fenced namespace,
+`~/rhizomorph/repos` by default (`concierge/paths.ts`'s `defaultClonesRoot`);
+the launch's one further write, a create-only transcript copy (ADR-0020),
+lands only under `~/.claude/projects/<watched-repo-slug>/`, never elsewhere
+under `~/.claude`.
+
+A sixth, `POST /api/retarget` (prd-20 ruling 5's repo switch, #389), is
+gated the same way but has no caller wired to it yet:
+[`connect/wizard.tsx`](packages/web/src/connect/wizard.tsx) still tells the
+operator that switching the watched repo "is not built", which prd-20's
+2026-08-24 amendment names as the one piece of that PRD still open. So the
+route is proven, structurally, reachable only by a human's explicit act and
+by nothing else (`api/retarget-law.test.ts`) — without yet being reachable
+by anything at all.
+
+The remaining four are the OTLP telemetry inbox (`POST /v1/metrics`,
 `/v1/logs`, `/v1/traces`, and the bare-path fallback `POST /` that
 `docs/adr/0018-bare-path-body-shape-routing.md` adds for an exporter which
 never appends `/v1/<signal>`), and they are **deliberately ungated**, not an

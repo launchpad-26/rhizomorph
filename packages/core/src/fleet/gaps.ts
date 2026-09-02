@@ -3,6 +3,18 @@ import type { SessionState } from '../state.js'
 import type { LaneManifest } from './fences.js'
 import type { Gap, Lane } from './types.js'
 
+/**
+ * `.swarm/lanes.json` is written by the operator's dispatch tooling, never by
+ * this repo — `buildFleet`/`buildGaps` only ever read it (`fences.ts`'s own
+ * doc comment says the same). The remedy this replaced named `dispatch.sh`,
+ * a script that has never existed anywhere in this tree (issue #63): a reader
+ * who searched for it was left worse off than if the gap had said nothing.
+ * Named once so the two gaps below that hand it out cannot drift apart the
+ * way the two copies of the old, wrong string never did either.
+ */
+const DISPATCH_TOOLING_REMEDY =
+  'your dispatch tooling — writes .swarm/lanes.json, not part of this repo (see docs/user-guide/troubleshooting.md)'
+
 // ── gap voice (law 12) ──────────────────────────────────────────────────────
 //
 // A collector speaks here in two of its four statuses: `disabled` (dead) and
@@ -36,7 +48,7 @@ export function buildGaps(
       'no-lane-manifest',
       'NO LANE MANIFEST (.swarm/lanes.json)',
       'off-fence detection unavailable',
-      'dispatch.sh (writes the fence manifest)',
+      DISPATCH_TOOLING_REMEDY,
     )
   } else {
     const unfenced = lanes.filter((lane) => !lane.fenced && !lane.telemetryOnly)
@@ -45,7 +57,7 @@ export function buildGaps(
         'unfenced-lanes',
         `NO FENCE FOR ${unfenced.length}/${lanes.length} LANES`,
         'those lanes cannot be judged off-fence',
-        'dispatch.sh (writes the fence manifest)',
+        DISPATCH_TOOLING_REMEDY,
       )
     }
   }
