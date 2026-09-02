@@ -465,11 +465,13 @@ read-only instrument. `parseLaneManifest` carries it through unchanged
 (absent, or anything other than the literal `true`, reads as not-parked —
 the same soft fallback `issue`/`model` get, rather than the flat-refusal
 treatment a malformed `fence` gets, since a bad `parked` only ever softens
-an accusation). `buildFleet` reads it onto `Lane.parked` and gives it three
-consequences, all in `packages/core/src/fleet/buildFleet.ts`: `detectFrozen`
-and the inferred half of `detectWaiting` exempt a parked lane by
-construction, alongside the exemptions those detectors already had; a
-parked lane never reaches `buildLadder`'s attention list, however many
+an accusation). `buildFleet` (`packages/core/src/fleet/buildFleet.ts`) reads
+it onto `Lane.parked` and gives it three consequences, each in the module
+that owns the surface it affects: `detectFrozen` and the inferred half of
+`detectWaiting` (`packages/core/src/fleet/diagnose.ts`) exempt a parked lane
+by construction, alongside the exemptions those detectors already had; a
+parked lane never reaches `buildLadder`'s attention list
+(`packages/core/src/fleet/ladder.ts`), however many
 pathologies it still carries; and the fleet table
 (`packages/web/src/panels/fleet/index.tsx`) renders a dimmed `PARKED` in
 the STATE column in place of the usual glyph and word, while every other
