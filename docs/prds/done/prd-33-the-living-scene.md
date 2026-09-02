@@ -456,8 +456,13 @@ instrument half of wave 0 is complete and executed. **The lay-viewer half was no
 Ruling 5 called the glance *"not skippable for schedule."* This ruling does not skip it; it moves
 it. prd-30 already owes a first-glance acceptance by a genuine layman once its adoption sweep
 (#220, #221) lands — on this same screen. Two lay sessions on one screen was never sensible, and
-the 2026-08-22 audit's finding 16 named the actual defect: *"one unrun act blocks two PRDs'
-acceptance."* That act is now one act, owned by one PRD. The Check 3 encoding list and the two
+the duplication is on the record twice over: both 2026-08-22 documents book a first-glance act,
+one per PRD, and neither notices the other. `docs/prds/reconciliation-2026-08-22.md` asks prd-30
+to *"perform first-glance acceptance"* and prd-33 to *"Run the booked first-glance operator
+act"*; `docs/prds/retained-prds-review-2026-08-22.md` tells prd-30 to *"run the first-glance
+exercise"* after its full-scope law empties its allowlist and prd-33 to *"Run the human glance
+test, record the result, then move prd-33 to `done` if it passes."* One unrun act, two PRDs'
+acceptance. That act is now one act, owned by one PRD. The Check 3 encoding list and the two
 observations the run surfaced — the fifth PATHOLOGY chip collapsing into `+1` at 1440 px, and the
 right-hand roster's activity word beside a pathology — ride with it; prd-30's matching amendment
 receives them.

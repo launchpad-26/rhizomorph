@@ -278,8 +278,11 @@ change repeated.
 
 prd-33 ruling 14 transfers the lay-viewer half of its wave-0 glance here. This PRD already owes a
 first-glance acceptance by a genuine layman once #220 and #221 land, on the same screen prd-33's
-scene occupies; two lay sessions on one screen was never sensible, and the 2026-08-22 audit named
-"one unrun act blocks two PRDs' acceptance" as the defect. That act is now one act, and it carries:
+scene occupies; two lay sessions on one screen was never sensible, and both 2026-08-22 documents
+book the act separately without noticing the other — `docs/prds/reconciliation-2026-08-22.md`
+asks this PRD to *"perform first-glance acceptance"* and prd-33 to *"Run the booked first-glance
+operator act"*, and `docs/prds/retained-prds-review-2026-08-22.md` says the same of each in
+prose. One unrun act, two PRDs' acceptance. That act is now one act, and it carries:
 
 - prd-33's **Check 3 encoding list** — threads from a mass are lanes; thicker means *produced
   more*; distance is lifecycle; green working, amber waiting, hollow red dead; a cut thread is
