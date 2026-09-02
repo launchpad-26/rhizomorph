@@ -2217,7 +2217,7 @@ marks in the TIDE) are downstream of these event types existing and are
 therefore also not yet landed.
 
 **`gate.verdict` has since found a home of its own**, and is no longer prd17's
-open item to carry: `docs/prds/prd-45-the-earned-verdict.md` was blessed by the
+open item to carry: `docs/prds/done/prd-45-the-earned-verdict.md` was blessed by the
 operator 2026-08-24 and owns it, so its shape is that milestone's to rule
 rather than this one's to restate. Two event families that were never in
 prd17's list have landed meanwhile, from the laboratory and from the judge
