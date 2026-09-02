@@ -487,4 +487,4 @@ doc is the one that is wrong or the shell is. The tracked fixture screenshots un
 tracker under prd-43: #225 (the `Esc` contradiction) and #226 (the stale screenshots, sequenced
 after #22).
 
-Rulings 1–12 stand as written. Nothing is renumbered.
+Rulings 1–13 stand as written. Nothing is renumbered.
