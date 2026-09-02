@@ -32,10 +32,53 @@ function manifest(file: string): Record<string, unknown> {
   return JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
 }
 
-/** Pulls `owner/repo` out of a `git+https://github.com/owner/repo.git`-shaped `repository.url`. */
+/**
+ * Pulls `owner/repo` out of a `git+https://github.com/owner/repo.git`-shaped
+ * `repository.url`, validating the WHOLE url rather than searching it for a
+ * `github.com/owner/repo` substring.
+ *
+ * **Review of #21, round 2 (two EXECUTED findings, both in this function):**
+ *
+ * 1. The first version's repo group was `[^/.]+`, which stops at the first
+ *    DOT — `.../launchpad-26/rhizomorph.archive.git` parsed as `rhizomorph`,
+ *    silently truncating a *legal* GitHub repo name (dots are permitted) to
+ *    a different, wrong one that happened to be a prefix of it. Fixed by a
+ *    non-greedy `[^/#?]+?` repo group with an optional trailing `.git`,
+ *    `#...` or `?...` consumed AFTER it rather than a character class that
+ *    excludes dots from the name itself.
+ * 2. The host match was a bare `github\.com\/`, unanchored — it matched just
+ *    as happily inside `https://mirror.github.com/...`, a different host
+ *    entirely (subdomain takeover, a compromised or unrelated mirror).
+ *    Fixed by anchoring the whole url from `^` through an optional `git+`
+ *    prefix straight into `https://github\.com/`, so a subdomain in front of
+ *    it can no longer match.
+ *
+ * Both are the same root cause as round 1's `toContain` finding — matching a
+ * PART of the string and treating it as if the whole string had been
+ * validated — just moved one level down, from the assertion into the parser
+ * every assertion here calls.
+ */
 function ownerRepoFrom(repositoryUrl: string): string | undefined {
-  return repositoryUrl.match(/github\.com\/([^/]+\/[^/.]+)/)?.[1]
+  const match = repositoryUrl.match(/^(?:git\+)?https:\/\/github\.com\/([^/]+)\/([^/#?]+?)(?:\.git)?(?:[#?].*)?$/)
+  return match ? `${match[1]}/${match[2]}` : undefined
 }
+
+describe('ownerRepoFrom: the exact owner/repo parser every describe block below shares (review of #21, round 2)', () => {
+  it('does not truncate the repo name at a DOT — dots are legal in GitHub repo names, and a truncated name silently resolves to a DIFFERENT repository', () => {
+    const dotted = 'git+https://github.com/launchpad-26/rhizomorph.archive.git'
+    expect(ownerRepoFrom(dotted)).toBe('launchpad-26/rhizomorph.archive')
+    expect(ownerRepoFrom(dotted)).not.toBe('launchpad-26/rhizomorph')
+  })
+
+  it('does not accept a github.com SUBDOMAIN as the real host', () => {
+    expect(ownerRepoFrom('git+https://mirror.github.com/launchpad-26/rhizomorph.git')).toBeUndefined()
+  })
+
+  it('still parses the real, unmutated repository.url, and a wrong OWNER still fails', () => {
+    expect(ownerRepoFrom('git+https://github.com/launchpad-26/rhizomorph.git')).toBe('launchpad-26/rhizomorph')
+    expect(ownerRepoFrom('git+https://github.com/reviewer-source/rhizomorph.git')).not.toBe('launchpad-26/rhizomorph')
+  })
+})
 
 describe("the shipped manifest is the product's, not a placeholder", () => {
   it("the app's version matches the repo root's — the installer's filename comes from this", () => {
@@ -93,8 +136,12 @@ describe("the shipped manifest is the product's, not a placeholder", () => {
  * a PREFIX. EXECUTED by the reviewer: `homepage` and `bugs.url` rewritten to
  * `.../rhizomorph-archive` still passed 13/13. `repository.url` is now read
  * ONCE, into `ownerRepo`, and `homepage`/`bugs.url` are asserted `toBe` the
- * exact string that derives from it — a `-archive` suffix, or any other
- * wrong-but-prefixed value, can no longer pass.
+ * exact string that derives from it, so a `-archive` suffix can no longer
+ * pass. That alone was not the whole fix: `toBe` only checks as much as
+ * `ownerRepoFrom` actually parses, and round 2 found two ways that parser
+ * still under-validated its input (the DOT-truncation and SUBDOMAIN findings
+ * on `ownerRepoFrom` itself, above) — this describe block inherits that fix
+ * rather than repeating it.
  */
 describe("the root manifest's published repository identity", () => {
   const root = manifest(ROOT_MANIFEST)
@@ -144,25 +191,38 @@ describe("every tracked clone instruction names the manifest's own repository (p
     expect(ownerRepo).toBe('launchpad-26/rhizomorph')
   })
 
-  const cloneCommand = `git clone https://github.com/${ownerRepo}`
+  const expectedUrl = `https://github.com/${ownerRepo}`
   const REPO_ROOT = path.join(HERE, '..', '..', '..', '..')
   const CLONE_SITES = ['README.md', 'docs/demo.md', 'docs/user-guide/getting-started.md']
 
   /**
-   * The sibling of review round 1's BLOCKER above: `text.toContain(cloneCommand)`
-   * would pass a doc line reading `git clone https://github.com/${ownerRepo}-archive`
-   * too, since the correct command is a PREFIX of that wrong one. Extracting the
-   * whole `git clone <url>` line and asserting it EQUALS the derived command closes
-   * the same containment gap here, not just on the manifest fields it was reported on.
+   * Every `git clone <url>` line's URL. Two review-round-2 findings, both
+   * EXECUTED, both fixed here:
+   *
+   * 1. The first version used `text.match(...)`, which returns only the
+   *    FIRST match — appending a second, wrong `git clone` block to a doc
+   *    after a correct one passed 15/15, so "every tracked clone
+   *    instruction" was only ever checked of the first one. `matchAll`
+   *    collects every line in the file, not just one.
+   * 2. The first version matched a whole line (`^git clone \S+$`), which
+   *    rejects the legitimate `git clone <url> <target-dir>` form outright —
+   *    rewriting a real doc to name an explicit clone target (not a defect)
+   *    failed with an assertion message that didn't even say why. The URL is
+   *    now captured as its own group, with an optional trailing token
+   *    consumed and ignored rather than folded into what must match exactly.
    */
-  function cloneLineIn(text: string): string | undefined {
-    return text.match(/^git clone \S+$/m)?.[0]
+  function cloneUrlsIn(text: string): string[] {
+    return [...text.matchAll(/^git clone (\S+)(?:\s+\S+)?$/gm)].map((m) => m[1]!)
   }
 
   for (const relPath of CLONE_SITES) {
-    it(`${relPath} clones EXACTLY the repository the manifest names, not a prefix or a hand-typed copy`, () => {
+    it(`${relPath}: every "git clone" line names EXACTLY the repository the manifest names`, () => {
       const text = readFileSync(path.join(REPO_ROOT, relPath), 'utf8')
-      expect(cloneLineIn(text)).toBe(cloneCommand)
+      const urls = cloneUrlsIn(text)
+      expect(urls, `${relPath} has no "git clone <url>" line — nothing for this law to check`).not.toEqual([])
+      for (const url of urls) {
+        expect(url, `${relPath} names the wrong repository in a "git clone" line`).toBe(expectedUrl)
+      }
     })
   }
 
@@ -171,10 +231,12 @@ describe("every tracked clone instruction names the manifest's own repository (p
     expect(ownerRepoFrom('git+https://github.com/a-forked-mirror/rhizomorph.git')).not.toBe(ownerRepo)
   })
 
-  it('bites: cloneLineIn rejects a doc line carrying the real command as a mere PREFIX (an archived-fork suffix) — toContain would have missed it', () => {
-    const archived = `${cloneCommand}-archive`
-    expect(cloneLineIn(archived)).toBe(archived)
-    expect(cloneLineIn(archived)).not.toBe(cloneCommand)
-    expect(archived).toContain(cloneCommand) // documents exactly the trap the old assertion fell into
+  it('bites: cloneUrlsIn reads EVERY clone line, not just the first — review round 2: a second, wrong block appended after a correct one used to pass 15/15', () => {
+    const twoBlocks = [`git clone ${expectedUrl}`, `git clone ${expectedUrl}-archive`].join('\n')
+    expect(cloneUrlsIn(twoBlocks)).toEqual([expectedUrl, `${expectedUrl}-archive`])
+  })
+
+  it('bites: a legitimate clone-target-directory argument parses correctly instead of failing an unrelated assertion — review round 2', () => {
+    expect(cloneUrlsIn(`git clone ${expectedUrl} rhizomorph`)).toEqual([expectedUrl])
   })
 })
