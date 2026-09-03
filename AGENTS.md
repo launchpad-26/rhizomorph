@@ -424,10 +424,12 @@ macOS × min-node leg is excluded — `macos-latest` bills 10x). A **second job*
 a project that has never heard of this checkout, and runs the CLI from those
 installed files, on the full 3×2 grid — ubuntu, macOS and Windows, both
 node legs, no exclude (#211). So the checklist to compare `gh pr checks <N>`
-against is two jobs long and nine legs wide, not one job. The macOS leg is the one
-that carries signal for path-shape bugs — `os.tmpdir()` is a symlink there
-(`/var` → `/private/var`) and is not on Linux, so a raw-vs-canonical path
-comparison passes vacuously on ubuntu and fails only on macOS.
+against is three jobs long and ten legs wide, not one job — the third is the
+single-leg `windows-suite` job in `.github/workflows/windows-suite.yml`
+(#212, below). The macOS leg is the one that carries signal for path-shape
+bugs — `os.tmpdir()` is a symlink there (`/var` → `/private/var`) and is not
+on Linux, so a raw-vs-canonical path comparison passes vacuously on ubuntu and
+fails only on macOS.
 
 `Build` runs **before** `Test`, and a red `Test` does **not** cost you the rest of
 the leg. `Typecheck` and `Lint` are gated on `if: "!cancelled()"`; the packaging
@@ -458,11 +460,13 @@ not optimise it for throughput.** The valuable CI direction is coverage, not
 speed. Since #211 (prd-25 wave 2) `pack-smoke` runs a `windows-latest` leg at
 both node legs, so a built clone's boot on native Windows is witnessed on every
 push — the `pathToFileURL` fix in `packages/server/bin/rhizomorph.mjs` had no
-CI witness before it. `build-test-boot` still has no Windows leg: the suite's
-known native failures (#277) have no committed expected-fail list yet, and a
-leg that is always red teaches everyone to ignore it; #212 (prd-25 wave 3) is
-that list, and promotion is a separate decision made with the pack-smoke leg's
-measured cost. The only other Windows runner in `.github/workflows/` is the
+CI witness before it. `build-test-boot` still has no Windows leg. The suite's
+known native failures live in `.windows-known-failures`, which
+`.github/workflows/windows-suite.yml` enforces per file on every push (#212,
+prd-25 wave 3): a failure outside the list is red, a listed file that passes
+is a removal candidate, and every entry names its cause class. Promotion onto
+`build-test-boot` is a separate decision made with both Windows jobs' measured
+cost. The only other Windows runner in `.github/workflows/` is the
 installer-packaging leg in `desktop.yml`, which packages the shell and runs no
 suite.
 

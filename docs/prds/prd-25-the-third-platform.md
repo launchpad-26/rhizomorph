@@ -213,3 +213,22 @@ quietly repaired, because the repo learning that its own gate changed is the dur
 half), #211 (the `windows-latest` pack-smoke leg, ruling 1) and #212 (the committed
 expected-fail list and the triage, rulings 2 and 3). Ruling 3's per-cause-class fixes are
 deliberately unminted until the triage runs. Ruling 6 is untouched.
+
+## Amendment — ruling 3 gains a seventh cause class (operator, 2026-09-03, #212)
+
+The first native `windows-latest` run of the suite (#212's measurement, run 33706746540:
+29 failing files of 405) classified 28 files into ruling 3's six classes and left one that
+fits none: `packages/server/src/server/static.test.ts`, whose two Windows failures come
+from file-open semantics — win32 ignores `O_NOFOLLOW`, so the final-component symlink is
+followed, and a wildcard tail under a real file raises no `ENOTDIR`. Neither is a path
+shape, a line ending, a process, `/proc`, or the temp dir. Ruling 3's classes are a claim
+about Windows failure causes, and the claim was one class short.
+
+**Ruled:** a seventh class, **`fs-semantics`** — open flags (`O_NOFOLLOW`), symlink
+following, `ENOTDIR` on a file-as-directory, and the other POSIX file-API semantics win32
+does not honour. It is added to `.windows-known-failures`' header and to
+`scripts/windows-triage.sh`'s accepted set; `windows-suite-law.test.ts` holds all three
+equal. Widening an existing class (`temp-dir`'s "case-insensitive FS") was considered and
+rejected: a class that means two things is not a lane. Gating the two cases with
+`skipIf(win32)` was rejected for the reason the 2026-08-24 amendment already gives — a skip
+list renders debt as health.
