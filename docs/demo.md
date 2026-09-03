@@ -38,10 +38,23 @@ telemetry and no setup beyond this:
 | `v` | the fleet surface | **organism ⇄ list** — the scene and the fleet table are one surface since prd36 ruling 1 (`fleet/TwoRepresentations.tsx:91`), so this is how you reach the table at all. The choice is not remembered yet: a reload lands back on the organism, and the component says so itself |
 | `h` | the history surface | **by session ⇄ by lane**, on `/recordings` only — that instance is mounted nowhere else, so it cannot collide with the balcony's keys |
 
-(Keys are ignored while typing in a form field.) **Esc** closes the peek if one
-is open, otherwise exits panel focus if a panel is focused, otherwise does
-nothing (shell-level precedence: peek first, then focus). Clicking a lane
-anywhere — a strip chip, a list row, a scene node; they all write the one
+(Keys are ignored while typing in a form field.) **Esc** clears the lane
+selection if one is open (closing the peek), dismisses the welcome card if it's
+still showing, and — once nothing is selected — exits a panel's full view, which
+is how you leave the fleet table after `f` (`app/panelPrefs.ts`'s
+`escapeShouldExitFocus`). On a lane page it navigates back to the balcony.
+
+What it does **not** do is hand **the scene's** keyboard focus back, and that
+is the distinction to hold: panel full-view is React state, DOM focus is not.
+(Esc does move focus in element-scoped places — a disclosure card returns it to
+its mark — but only when focus is already inside them.) Nothing in the app calls
+`.blur()`, so once the scene has captured `1`/`0`/`+`/`-`
+(see "Drive the camera" below), Esc leaves that capture in place. Click
+elsewhere on the page, or Tab, to move focus off the scene — a demo-runner who
+presses Esc expecting `1` to switch source will instead re-fit the camera,
+because the scene never released it.
+
+Clicking a lane anywhere — a strip chip, a list row, a scene node; they all write the one
 selection — opens **the peek** on the right: vitals, the latest activity line,
 one line of why, and one action, *open the run view*. Four things and one action
 is the whole of it (prd36 ruling 2 and S2, #562), and the peek issues no
@@ -236,7 +249,9 @@ the picture means.
 1. With any fixture loaded, click once inside the scene panel to give it
    focus (or tab to it) — this matters, because `1`/`0`/`+`/`-` mean
    something else on the rest of the page (switching the driving log)
-   until the scene itself has focus.
+   until the scene itself has focus. Once it has focus, **Esc will not give
+   it back** (see Setup above) — only clicking elsewhere on the page, or
+   Tab, hands focus off the scene.
 2. Drag to pan. Hold Ctrl (or Cmd on a Mac) and scroll to zoom in on
    whatever's under your pointer — the point you're pointing at stays put
    as the picture scales around it. A trackpad pinch does the same thing.

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -82,10 +83,18 @@ describe('the route-class law (prd-23 ruling 5)', () => {
 
   it('classifies every route this app registers, and only this many', async () => {
     const app = buildApp(makeCtx())
-    // `api/otel.ts`'s three routes live inside their own `app.register(...)`
+    // `api/otel.ts`'s four routes live inside their own `app.register(...)`
     // plugin — the plugin queue only actually runs its routes once `ready()`
     // resolves, so reading `registeredRoutes` any earlier would silently miss
-    // them and this law would walk vacuously over the other 14.
+    // them and this law would walk vacuously over the other 21.
+    //
+    // Both numbers are derived, not typed: the four are `ROUTE_CLASSES`'
+    // `ungated-mutation` rows, which ARE the OTLP inbox (`/v1/metrics`,
+    // `/v1/logs`, `/v1/traces` and the bare-path fallback `POST /`, ADR-0018),
+    // and 21 is the 25 asserted below minus those four. Re-derive rather than
+    // trust: the previous wording said "three" and "14", which was true before
+    // ADR-0018 added the fallback and never updated. #232's own ruling is that
+    // a count stated in prose is derived from the thing it counts.
     await app.ready()
 
     const routes = app.registeredRoutes.filter((route) => !isAutoHead(route))
@@ -144,7 +153,7 @@ describe('the route-class law (prd-23 ruling 5)', () => {
 
     // Every `gated-*` row's real route holds the capability gate, and every
     // plain `read`/`ungated-mutation` holds none. Deleting a `preHandler` from
-    // any of the nineteen gated routes turns this red — that is the law biting.
+    // any of the twenty gated routes turns this red — that is the law biting.
     expect(gatePresenceViolations(routes, ROUTE_CLASSES)).toEqual([])
 
     // A count pinned independently, so the walk cannot pass vacuously by
@@ -275,73 +284,289 @@ function expectAllAgree(stated: readonly number[], expected: number, label: stri
 
 
 /**
- * THE DERIVED-COUNTS LAW (prd-43 wave 4, #23) — every count a document states
- * is derived from `ROUTE_CLASSES`, never retyped beside it. Three separate
- * documents state route/call-site counts in prose; this file is the one place
- * fenced to touch all of them, so it is where the comparison lives.
+ * THE DERIVED-COUNTS LAW (prd-43 wave 4, #23; swept repo-wide, #232) — every
+ * occurrence of a RECOGNISED route-count claim is derived from `ROUTE_CLASSES`
+ * and never retyped beside it, in whatever file it occurs.
  *
- * A prior chain in this same PRD (waves 1–3) spent fourteen review rounds
- * closing one spelling of a check and missing its sibling axis. So every
- * claim below is its OWN anchored regex against the doc's actual current
- * wording, never a shared loose pattern — and the axes are listed here, with
- * a verdict, rather than left for a reviewer to reconstruct:
+ * The claim is deliberately bounded to a recognised vocabulary rather than to
+ * "every count stated in prose", because the second is an open set no matcher
+ * closes: a count can be phrased in a sentence nobody has written yet, or
+ * spelled in digits that `wordToNumber` structurally cannot read. A law making
+ * the unbounded claim needs a round per counter-example and never converges —
+ * #23 already learned this on the outbound-call sweep one PRD over, and
+ * narrowed that claim to a named vocabulary for the same reason.
  *
- * | # | File               | Claim (today's exact wording)                    | Derived from ROUTE_CLASSES         |
- * |---|--------------------|---------------------------------------------------|-------------------------------------|
- * | 1 | SECURITY.md        | "answers **N** mutating routes in total"          | gated-mutation + ungated-mutation   |
- * | 2 | SECURITY.md        | "remaining N are the OTLP telemetry inbox"        | ungated-mutation                    |
- * | 3 | mutation-guard.ts  | "has N mutating routes today"                     | gated-mutation + ungated-mutation   |
- * | 4 | mutation-guard.ts  | "server's N GATED mutating routes"                | gated-mutation                      |
+ * So the vocabulary IS the claim: `CLAIMS` below is the whole of what this law
+ * recognises, every one of its patterns is applied to every swept file rather
+ * than only to the file its row names, and the completeness test further down
+ * fails on any occurrence no row declares. The boundary is written out beside
+ * that test rather than left for a reader to discover.
  *
- * All four read as a scalar equality, which is inherently the both-directions
- * check the PRD asks for: a document overstating OR understating the real
- * count fails identically, and a code change that adds or removes a mutating
- * route fails the doc side without anyone retyping a digit.
+ * #23 grew one hand-written `it()` per claim, in the two files it was fenced
+ * to touch. That shape cannot notice a claim in a THIRD file — which is
+ * exactly what happened: eight further sites state the same kind of count,
+ * across files nobody had grown an anchor for, and two of them had already
+ * drifted (`security.ts` said "ten" gated reads, `lane-index.test.ts` said
+ * "eleven", both against a true fourteen). So this is a table, not a growing
+ * pile of `it()` blocks — the walk below is the ONLY place the check is
+ * written, and a thirteenth site costs one row, not one more test.
+ *
+ * `docs/adr/` and `docs/review/` are excluded by design (AGENTS.md: the ADR
+ * log is append-only and a dated record counts the tree as it stood), except
+ * the one ADR-0008 row below — that row lives inside an explicit, dated
+ * *amendment* to the original decision (see its own "Amendment" blockquote),
+ * stating the CURRENT count rather than the historical one the ADR first
+ * recorded, so it is not the append-only body the exclusion protects.
+ *
+ * Every claim is its OWN anchored regex against the doc's actual current
+ * wording, never a shared loose pattern — a prior chain in this same PRD
+ * spent fourteen review rounds closing one spelling of a check and missing
+ * its sibling axis. `captureAll`/`expectAllAgree` (below) give the
+ * both-directions, every-occurrence guarantee: a document overstating OR
+ * understating the real count fails identically, a restated claim is checked
+ * as many times as it is stated, and a code change that adds or removes a
+ * mutating route fails every doc side at once, without anyone retyping a
+ * digit.
  */
-describe('the documented mutating-route counts are derived from ROUTE_CLASSES, not retyped (#23)', () => {
+describe('every recognised route-count claim is derived from ROUTE_CLASSES, in whatever file it occurs (#23, #232)', () => {
   const gatedMutationCount = ROUTE_CLASSES.filter((entry) => entry.routeClass === 'gated-mutation').length
   const ungatedMutationCount = ROUTE_CLASSES.filter((entry) => entry.routeClass === 'ungated-mutation').length
   const totalMutationCount = gatedMutationCount + ungatedMutationCount
+  const gatedReadCount = ROUTE_CLASSES.filter((entry) => entry.routeClass === 'gated-read').length
 
-  const SECURITY_MD = readFileSync(path.join(REPO_ROOT, 'SECURITY.md'), 'utf8')
-  // mutation-guard.ts's prose lives in `/** ... */` block comments, where every
-  // continuation line carries a leading ` * ` — a literal asterisk `\s+` never
-  // strips. Left in, "six\n * GATED" normalizes to "six * GATED" and no anchor
-  // below would ever match a comment that wraps across a line, which is most
-  // of them. Strip the comment gutter first, then collapse whitespace.
-  const GUARD_TS = readFileSync(path.join(REPO_ROOT, 'packages', 'server', 'src', 'server', 'mutation-guard.ts'), 'utf8')
-    .replace(/^\s*\*\s?/gm, ' ')
+  interface RouteCountClaim {
+    /** Repo-root-relative path segments, joined with `path.join` — never a hand-typed `/`, so this reads correctly on Windows too. */
+    file: string[]
+    /** Anchored, must carry the `g` flag and exactly one capturing group — see `captureAll`. */
+    pattern: RegExp
+    label: string
+    expected: number
+    /**
+     * True only for a claim living inside a `/** ... *\/` block comment where
+     * the anchor spans a wrapped line — a continuation line's leading ` * `
+     * is not whitespace, and `captureAll`'s newline collapse leaves it
+     * in place, splitting the match. Every claim below that does NOT need
+     * this reads on a single physical line, so the flag is the exception,
+     * not the default.
+     */
+    stripCommentGutter?: true
+  }
 
-  it('SECURITY.md: every "answers N mutating routes in total" occurrence equals gated + ungated', () => {
-    expectAllAgree(
-      captureAll(SECURITY_MD, /answers \*\*(\w+)\*\* mutating routes in total/g, 'SECURITY.md total'),
-      totalMutationCount,
-      'SECURITY.md total',
+  const CLAIMS: readonly RouteCountClaim[] = [
+    // SECURITY.md (#23)
+    {
+      file: ['SECURITY.md'],
+      pattern: /answers \*\*(\w+)\*\* mutating routes in total/g,
+      label: 'SECURITY.md total',
+      expected: totalMutationCount,
+    },
+    {
+      file: ['SECURITY.md'],
+      pattern: /remaining (\w+) are the OTLP telemetry inbox/g,
+      label: 'SECURITY.md ungated',
+      expected: ungatedMutationCount,
+    },
+    // mutation-guard.ts (#23) — EXPLICITLY OUT of #232's fence: read here, never written.
+    {
+      file: ['packages', 'server', 'src', 'server', 'mutation-guard.ts'],
+      pattern: /This server has (\w+) mutating routes today/g,
+      label: 'mutation-guard.ts total',
+      expected: totalMutationCount,
+      stripCommentGutter: true,
+    },
+    {
+      file: ['packages', 'server', 'src', 'server', 'mutation-guard.ts'],
+      pattern: /this server's (\w+) GATED mutating routes/g,
+      label: 'mutation-guard.ts gated',
+      expected: gatedMutationCount,
+      stripCommentGutter: true,
+    },
+    // security.ts (#232) — wrong today: said "ten", true count is fourteen.
+    {
+      file: ['packages', 'server', 'src', 'api', 'security.ts'],
+      pattern: /puts the same token on (\w+) reads/g,
+      label: 'security.ts gated reads',
+      expected: gatedReadCount,
+    },
+    // lane-index.test.ts (#232) — wrong today: said "eleven", true count is fourteen.
+    {
+      file: ['packages', 'server', 'src', 'api', 'lane-index.test.ts'],
+      pattern: /covered once for all (\w+) gated reads/g,
+      label: 'lane-index.test.ts gated reads',
+      expected: gatedReadCount,
+    },
+    // index.ts (#232) — EXPLICITLY OUT of #232's fence: read here, never written; already correct.
+    {
+      file: ['packages', 'server', 'src', 'api', 'index.ts'],
+      pattern: /The app's (\w+) mutating routes/g,
+      label: 'index.ts total mutating',
+      expected: totalMutationCount,
+    },
+    // docs/architecture.md (#232) — already correct.
+    {
+      file: ['docs', 'architecture.md'],
+      pattern: /(\w+) reads are gated:/g,
+      label: 'architecture.md gated reads',
+      expected: gatedReadCount,
+    },
+    {
+      file: ['docs', 'architecture.md'],
+      pattern: /`gated-mutation` row among (\w+) mutating routes/g,
+      label: 'architecture.md total mutating',
+      expected: totalMutationCount,
+    },
+    // docs/adr/0008 (#232) — EXPLICITLY OUT of #232's fence: read here, never written. See
+    // this describe's own doc for why the ADR exclusion does not cover this one row.
+    {
+      file: ['docs', 'adr', '0008-localhost-only-single-origin-server.md'],
+      pattern: /`ROUTE_CLASSES` declares (\w+) gated mutations/g,
+      label: 'adr-0008 amendment gated mutations',
+      expected: gatedMutationCount,
+    },
+    // gated-reads.test.ts (#232) — EXPLICITLY OUT of #232's fence: read here, never written; already correct.
+    {
+      file: ['packages', 'server', 'src', 'api', 'gated-reads.test.ts'],
+      pattern: /\): (\w+) SPA-only reads/g,
+      label: 'gated-reads.test.ts SPA-only reads',
+      expected: gatedReadCount,
+    },
+    {
+      file: ['packages', 'server', 'src', 'api', 'gated-reads.test.ts'],
+      pattern: /the (\w+) gated reads answer only the token holder/g,
+      label: 'gated-reads.test.ts describe title',
+      expected: gatedReadCount,
+    },
+  ]
+
+  // Read once per (file, gutter-mode) pair, however many claims share it —
+  // SECURITY.md, mutation-guard.ts, architecture.md and gated-reads.test.ts
+  // each carry two.
+  const fileCache = new Map<string, string>()
+  function contentFor(claim: RouteCountClaim): string {
+    const key = `${path.join(...claim.file)}\0${claim.stripCommentGutter ? 1 : 0}`
+    const cached = fileCache.get(key)
+    if (cached !== undefined) return cached
+    const raw = readFileSync(path.join(REPO_ROOT, ...claim.file), 'utf8')
+    const text = claim.stripCommentGutter ? raw.replace(/^\s*\*\s?/gm, ' ') : raw
+    fileCache.set(key, text)
+    return text
+  }
+
+  it.each(CLAIMS.map((claim): [string, RouteCountClaim] => [claim.label, claim]))(
+    '%s: every occurrence agrees with the count ROUTE_CLASSES derives',
+    (_label, claim) => {
+      expectAllAgree(captureAll(contentFor(claim), claim.pattern, claim.label), claim.expected, claim.label)
+    },
+  )
+
+  /**
+   * COMPLETENESS. The walk above validates rows somebody already knew to add.
+   * On its own that reproduces the omission shape #232 was filed for: #23 grew
+   * one hand-written `it()` per claim and so could not notice a claim in a
+   * THIRD file, and a table of (file, pattern) pairs cannot either — it just
+   * fails one level up.
+   *
+   * Demonstrated by ciaran-slow on PR #260, and reproduced before this was
+   * written: appending the already-recognised sentence "puts the same token on
+   * thirteen reads" to `api/test-support.ts`, a file no row declares, left the
+   * law 84/84 GREEN. A false route count sat in a swept package with nothing
+   * red.
+   *
+   * So every registered pattern is applied to every swept file, not only to the
+   * file its row names. A recognised claim shape occurring anywhere no row
+   * declares it is an UNREGISTERED claim and fails here, naming the file and
+   * the pattern, so the remedy is to add a row rather than to guess.
+   *
+   * WHAT THIS DOES NOT CLOSE, stated rather than implied — the claim this law
+   * makes is bounded, and these are the boundary:
+   *
+   *  - **A novel phrasing.** A count written in a sentence no row's pattern
+   *    recognises is invisible here. Closing that needs a coarse
+   *    number-word-adjacency sweep with a committed baseline for the prose that
+   *    legitimately exists today, which is its own issue and its own decision.
+   *  - **A digit-spelled count.** `wordToNumber` is words-only and
+   *    `NUMBER_WORDS` stops at twenty, so "13 gated reads" is structurally
+   *    unreachable by this mechanism.
+   *  - **This file.** `route-class-law.test.ts` is excluded because it carries
+   *    every pattern as a regex literal and every claim in prose; sweeping
+   *    itself would match its own source. That is a real hole: a count added to
+   *    THIS file's comments escapes.
+   *  - **Dated artefacts.** `docs/adr/`, `docs/review/` and `docs/prds/` are
+   *    excluded by design — an ADR counts the tree as it stood and the log is
+   *    append-only, and a shipped PRD is the same kind of record. #232's own
+   *    scope statement names the first two; the third is named here because a
+   *    verify pass found the omission silently load-bearing.
+   */
+  const SWEPT_EXTENSIONS = ['.md', '.ts', '.tsx', '.mjs', '.js'] as const
+  const SWEEP_EXCLUDED_PREFIXES = ['docs/adr/', 'docs/review/', 'docs/prds/'] as const
+  const THIS_FILE_REL = 'packages/server/src/api/route-class-law.test.ts'
+
+  function sweptFiles(): string[] {
+    const out = execFileSync('git', ['ls-files', '-z'], { cwd: REPO_ROOT, encoding: 'utf8' })
+    return out
+      .split('\0')
+      .filter((rel) => rel.length > 0)
+      .filter((rel) => SWEPT_EXTENSIONS.some((ext) => rel.toLowerCase().endsWith(ext)))
+      .filter((rel) => !SWEEP_EXCLUDED_PREFIXES.some((p) => rel.startsWith(p)))
+      .filter((rel) => rel !== THIS_FILE_REL)
+  }
+
+  it('the completeness sweep reads a non-empty file set — a sweep matching nothing would pass vacuously', () => {
+    expect(sweptFiles().length).toBeGreaterThan(50)
+  })
+
+  /** Git emits `/` from `ls-files` on every platform, independently of `path.sep`. */
+  function claimKey(file: readonly string[], pattern: RegExp): string {
+    return `${file.join('/')}\u0000${pattern.source}`
+  }
+
+  /** Match with the same hard-wrap and block-comment-gutter tolerance as `captureAll`. */
+  function containsClaim(text: string, pattern: RegExp): boolean {
+    const normalized = text.replace(/\s+/g, ' ')
+    const gutterless = text.replace(/^\s*\*\s?/gm, ' ').replace(/\s+/g, ' ')
+    return new RegExp(pattern.source, pattern.flags).test(normalized)
+      || new RegExp(pattern.source, pattern.flags).test(gutterless)
+  }
+
+  it('the completeness probe sees a recognised claim split across a hard-wrapped block comment', () => {
+    const wrapped = [
+      '/**',
+      ' * prd-29 puts the same token on',
+      ' * thirteen reads.',
+      ' */',
+    ].join('\n')
+    const pattern = CLAIMS.find((claim) => claim.label === 'security.ts gated reads')!.pattern
+    expect(containsClaim(wrapped, pattern)).toBe(true)
+  })
+
+  it('claim keys use git\'s platform-independent path spelling', () => {
+    const claim = CLAIMS.find((entry) => entry.label === 'security.ts gated reads')!
+    expect(claimKey(claim.file, claim.pattern)).toBe(
+      `packages/server/src/api/security.ts\u0000${claim.pattern.source}`,
     )
   })
 
-  it('SECURITY.md: every "remaining N are the OTLP telemetry inbox" occurrence equals the ungated count', () => {
-    expectAllAgree(
-      captureAll(SECURITY_MD, /remaining (\w+) are the OTLP telemetry inbox/g, 'SECURITY.md ungated'),
-      ungatedMutationCount,
-      'SECURITY.md ungated',
-    )
+  it('no swept file states a recognised route-count claim that no CLAIMS row declares', () => {
+    const declared = new Set(CLAIMS.map((claim) => claimKey(claim.file, claim.pattern)))
+    const unregistered: string[] = []
+
+    for (const rel of sweptFiles()) {
+      const raw = readFileSync(path.join(REPO_ROOT, rel), 'utf8')
+      for (const claim of CLAIMS) {
+        if (declared.has(claimKey([rel], claim.pattern))) continue
+        if (containsClaim(raw, claim.pattern)) {
+          unregistered.push(`${rel} matches the pattern registered for ${claim.label}`)
+        }
+      }
+    }
+
+    expect(unregistered).toEqual([])
   })
 
-  it('mutation-guard.ts: every "has N mutating routes today" occurrence equals gated + ungated', () => {
-    expectAllAgree(
-      captureAll(GUARD_TS, /This server has (\w+) mutating routes today/g, 'mutation-guard.ts total'),
-      totalMutationCount,
-      'mutation-guard.ts total',
-    )
-  })
-
-  it("mutation-guard.ts: every \"server's N GATED mutating routes\" occurrence equals the gated count", () => {
-    expectAllAgree(
-      captureAll(GUARD_TS, /this server's (\w+) GATED mutating routes/g, 'mutation-guard.ts gated'),
-      gatedMutationCount,
-      'mutation-guard.ts gated',
-    )
+  it('every claimed file actually exists under REPO_ROOT — a moved file must fail loudly, not read as zero claims', () => {
+    for (const claim of CLAIMS) {
+      expect(() => contentFor(claim), claim.label).not.toThrow()
+    }
   })
 
   it('bites: a stale hand-typed count is told apart from the real one, not just parsed', () => {

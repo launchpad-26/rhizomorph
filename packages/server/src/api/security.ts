@@ -72,7 +72,7 @@ export function generateCapabilityToken(): string {
 /**
  * A constant-time equality check for two tokens (prd-29 ruling 5). The old
  * `===` was priced (in this module's own doc) against three rare,
- * human-initiated mutations; prd-29 puts the same token on ten reads the
+ * human-initiated mutations; prd-29 puts the same token on fourteen reads the
  * dashboard polls continuously, a different probe profile, so the comparison
  * moves to {@link timingSafeEqual}. It throws on unequal-length buffers, so
  * length is still checked first — that also refuses a shorter or longer
