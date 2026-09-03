@@ -1,12 +1,13 @@
 # prd-51 — the split: the ledger ships up, and nothing leaves the team
 
-> **Status:** proposed — drafted 2026-09-03 in session with ciaran-slow, written *from* prd-48's
+> **Status:** **BLESSED** — ciaran-slow, 2026-09-03, in session. Milestone `prd51`. Rulings 6 and 9
+> stand as written. Drafted 2026-09-03 in session with ciaran-slow, written *from* prd-48's
 > twenty research notes (`docs/research/2026-08-2*-shared-record-*.md`,
 > `2026-09-02-shared-record-*.md`, all on `main` since #254) and the synthesis at
 > `docs/research/2026-08-28-shared-record-architecture.md`. This is **the build PRD prd-48 named
 > as its output** ("the split", prd-48 status line). It carries the constitutional paperwork
-> prd-48 said must be written *with* it: three ADRs land beside this document as `proposed`
-> (rulings 2, 3 and 13), and the README Trust rewrite is a wave-2 deliverable bound to the
+> prd-48 said must be written *with* it: three ADRs landed beside this document and were accepted with the
+> blessing (rulings 2, 3 and 13), and the README Trust rewrite is a wave-2 deliverable bound to the
 > shipper's own commit (ruling 12). Consumes prd-37 (parked) as the product half and does not
 > unpark it. Absorbs prd-48's two open issues: #169 becomes a wave-3 issue here and #171 becomes
 > wave 4. **Blessing this document rules the two questions prd-48 reserved for the leads** —

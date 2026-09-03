@@ -1,6 +1,6 @@
 # 0034. The fifth hand: the shipper has a clock and holds one key, bounded — amends ADR-0001 and ADR-0019
 
-- **Status:** proposed (with prd-51; becomes accepted when prd-51 is blessed)
+- **Status:** accepted (prd-51 blessed 2026-09-03)
 - **Date:** 2026-09-03
 - **Amends:** ADR-0001 (the grant list at `0001:35-43` gains a fifth entry) and ADR-0019 (grant 3,
   *"the hand has no clock"*, and grant 5, *"it holds no secret"*, are true of the concierge and

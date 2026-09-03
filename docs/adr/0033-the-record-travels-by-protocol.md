@@ -1,6 +1,6 @@
 # 0033. The record travels by a versioned protocol, keyed on position — amends ADR-0009
 
-- **Status:** proposed (with prd-51; becomes accepted when prd-51 is blessed)
+- **Status:** accepted (prd-51 blessed 2026-09-03)
 - **Date:** 2026-09-03
 - **Amends:** ADR-0009 (its rejection of option A, "a federation protocol … or a shared database
   both instances read"), and `docs/record-format.md` Law 2 ("Nothing auto-transmits"). ADR-0009's

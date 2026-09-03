@@ -1,6 +1,6 @@
 # 0035. The watcher is never a container; the team server always is
 
-- **Status:** proposed (with prd-51; becomes accepted when prd-51 is blessed)
+- **Status:** accepted (prd-51 blessed 2026-09-03)
 - **Date:** 2026-09-03
 
 ## Context and Problem Statement
