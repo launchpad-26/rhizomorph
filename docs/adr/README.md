@@ -199,10 +199,12 @@ Numbered by when the decision was *made*, not when the record was written — th
 whole log was reconstructed in one pass on 2026-08-06, so allocation order would
 have carried no information.
 
-**That holds for 0001–0031 and breaks at 0032, deliberately.** 0032 records a
-decision made 2026-08-04 and was written 2026-09-03, so it takes the next free
-number rather than a number matching its date — numbers are never reused and the
-log is append-only, which outranks keeping this column sorted. Read the
+**The column is not sorted, and 0032 is the widest inversion, deliberately.**
+0032 records a decision made 2026-08-04 and was written 2026-09-03, so it takes
+the next free number rather than one matching its date — numbers are never
+reused and the log is append-only, which outranks keeping this column sorted.
+It is not the first inversion: 0019 (decided 2026-08-10) sits after 0017 and
+0018 (both 2026-08-13), and 0022 (2026-08-14) after 0021 (2026-08-15). Read the
 **Decided** column, not the number, when order matters. Any later reconstruction
 of an old decision will do the same thing.
 
