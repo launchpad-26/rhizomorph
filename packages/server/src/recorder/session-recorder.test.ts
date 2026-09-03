@@ -813,6 +813,7 @@ describe('SessionRecorder — the fold handed out is frozen (#69, ADR-0031)', ()
     // union IS, not by how many members it had the day it was written.
     const events = [
       f.sessionStarted(),
+      f.beaconReceived(),
       f.collectorError(),
       f.collectorDisabled(),
       f.collectorDegraded(),

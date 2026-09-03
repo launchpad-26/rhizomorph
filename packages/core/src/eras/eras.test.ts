@@ -96,6 +96,7 @@ describe('the golden era corpus', () => {
     // era-1's capture never hit.
     expect(EVENT_TYPES.filter((type) => !covered.has(type)).sort()).toEqual([
       'agent.removed',
+      'beacon.received',
       'collector.degraded',
       'collector.disabled',
       'collector.error',

@@ -61,7 +61,7 @@ runtime-validated at the collector boundary, inferred TS types everywhere
 else:
 
 ```ts
-{ id, ts, source: 'git' | 'tmux' | 'workmux' | 'system' | 'sessionlog' | 'otel', type, payload }
+{ id, ts, source: 'git' | 'tmux' | 'workmux' | 'system' | 'sessionlog' | 'otel' | 'beacon', type, payload }
 ```
 
 `eventSourceSchema` (`packages/core/src/events/common.ts`) is that union's
@@ -71,7 +71,11 @@ collector — so a reader counting sources should count them there rather than
 here. Two actors sit deliberately *outside* the enum and widen that map by
 exactly one literal each, which is how the code says they are not collectors:
 `lab`, prd12's explicitly-invoked second hand (`events/lab.ts`), and `judge`,
-prd11's semantic judge (`events/judge.ts`).
+prd11's semantic judge (`events/judge.ts`). `beacon` is the counter-example
+that shows the rule: it is a real polled collector behind the poll loop,
+tailing one rhizomorph-owned directory of one-line JSON beacons
+(`packages/server/src/collectors/beacon/`, [ADR-0036](adr/0036-a-beacon-is-a-line-in-a-watched-directory.md)),
+so it joined the enum outright as its seventh member (#217, prd-27 wave 1).
 
 v0 event types:
 
@@ -2210,11 +2214,12 @@ data the moment a lane manifest changes, closing a real gap — today a
 recording contains no fences at all, so a trespass can never be re-derived
 from the record alone); and `operator.ack` / `operator.verdict` /
 `operator.note` (the human's own acts, each stamped with the log offset
-they were decided against). Ruling 2's ingestion mechanism (a beacon
-collector tailing one-line JSON beacons `gate.sh`/`dispatch.sh` write) and
-ruling 4's timeline dividend (gate holds and summonses becoming chapter
-marks in the TIDE) are downstream of these event types existing and are
-therefore also not yet landed.
+they were decided against). Ruling 2's door — the beacon collector tailing
+one-line JSON beacons in the instrument's own data directory — **has since
+landed** (#217, prd-27 wave 1, [ADR-0036](adr/0036-a-beacon-is-a-line-in-a-watched-directory.md));
+what `gate.sh`/`dispatch.sh` will write through it, and ruling 4's timeline
+dividend (gate holds and summonses becoming chapter marks in the TIDE), are
+downstream of these event types existing and are therefore still not landed.
 
 **`gate.verdict` has since found a home of its own**, and is no longer prd17's
 open item to carry: `docs/prds/done/prd-45-the-earned-verdict.md` was blessed by the

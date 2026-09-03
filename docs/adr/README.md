@@ -245,6 +245,7 @@ of an old decision will do the same thing.
 | [0033](0033-the-record-travels-by-protocol.md) | The record travels by a versioned protocol, keyed on position — amends [0009](0009-portable-hash-chained-record.md) | 2026-09-03 | accepted |
 | [0034](0034-the-fifth-hand.md) | The fifth hand: the shipper has a clock and holds one key, bounded — amends [0001](0001-read-only-observer-as-a-constitution.md) and [0019](0019-the-fourth-hand.md) | 2026-09-03 | accepted |
 | [0035](0035-the-watcher-is-never-a-container.md) | The watcher is never a container; the team server always is | 2026-09-03 | accepted |
+| [0036](0036-a-beacon-is-a-line-in-a-watched-directory.md) | A beacon is one JSON line appended to a rhizomorph-owned directory and tailed by a collector — never a route; the event carries the occurrence and a digest, the file keeps the content | 2026-08-24 | accepted (prd-27 ruling 1 / prd-17 ruling 2, recorded on the build #217) |
 
 Records 0001–0011 were reconstructed on 2026-08-06 and say so in their Context.
 One, **ADR-0003**, has an inverted evidence shape worth knowing about: the

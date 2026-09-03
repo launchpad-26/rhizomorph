@@ -35,6 +35,7 @@ describe('event envelope', () => {
       expect.arrayContaining(
         [
           'agent.status',
+          'beacon.received',
           'branch.updated',
           'collector.disabled',
           'collector.error',
@@ -415,6 +416,18 @@ function oneOfEach() {
       id: id(),
       ts: 2,
     }),
+    createEvent(
+      'beacon.received',
+      {
+        writer: 'claude-hook',
+        kind: 'waiting',
+        lane: '2-core',
+        digest: 'a'.repeat(64),
+        file: 'claude-hook.jsonl',
+        offset: 0,
+      },
+      { id: id(), ts: 2 },
+    ),
     createEvent('collector.error', { collector: 'git', message: 'boom' }, { id: id(), ts: 2 }),
     createEvent('collector.disabled', { collector: 'workmux', reason: 'not installed' }, {
       id: id(),

@@ -2,6 +2,7 @@ import type { AnyCollector, Collector, RhizomorphEvent } from '@rhizomorph/core'
 import { reduceAll } from '@rhizomorph/core'
 import { gitCollector } from '../collectors/git/index.js'
 import { createJudgeCollector, DEFAULT_JUDGE_CADENCE_MS } from '../collectors/judge/index.js'
+import { createBeaconCollector } from '../collectors/beacon/index.js'
 import { createPiCollector, type PiCollectorConfig } from '../collectors/pi/index.js'
 import type { DisableableSnapshot } from '../collectors/resilience.js'
 import { withResilience } from '../collectors/resilience.js'
@@ -31,7 +32,7 @@ function judgeCadenceMs(): number {
 }
 
 /**
- * Registers the six collectors via static imports, so Vite/Rollup can
+ * Registers the seven collectors via static imports, so Vite/Rollup can
  * bundle them (a variable dynamic import like `import(\`./${slug}\`)` cannot be
  * statically analysed and fails at runtime). A collector whose binary is
  * missing (no tmux, no workmux) still loads fine here — it degrades to
@@ -126,5 +127,6 @@ export async function loadCollectors(
     wrap(createJudgeCollector({ cadenceMs: judgeCadenceMs() })),
     wrap(createSessionlogCollector(sessionlogConfig)),
     wrap(createPiCollector(piConfig)),
+    wrap(createBeaconCollector()),
   ]
 }

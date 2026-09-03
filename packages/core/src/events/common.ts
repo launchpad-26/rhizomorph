@@ -21,6 +21,7 @@ export const eventSourceSchema = z.enum([
   // can name itself without widening this enum per harness.
   'sessionlog',
   'otel',
+  'beacon',
 ])
 export type EventSource = z.infer<typeof eventSourceSchema>
 
