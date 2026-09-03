@@ -545,9 +545,42 @@ describe('the lab namespace law, live (prd12 ruling 1, #153)', () => {
    * refs require, worktrees the lab itself creates"), so the law allows the
    * `.git` administrivia they consist of and NOTHING else in the repo. The
    * working tree is covered separately, and absolutely, by the test above.
+   *
+   * `data` and `claude-projects` are two DIFFERENT namespaces — the lab's own
+   * data dir (worktrees, the event log) and ADR-0032's ruled destination for a
+   * synthesized session — not two spellings of the same permission. A blanket
+   * `parts[0] === 'data' || parts[0] === 'claude-projects'` can't tell them
+   * apart: a synthesized session written beside the worktrees dir instead of
+   * into `claudeProjectsRoot` (the "same data-directory posture as the event
+   * log" reading ADR-0032 retired) would still satisfy it. A synthesized
+   * session is identifiable on sight — `synthesizeSession` names it after
+   * nothing but its own session uuid, `<uuid>.jsonl`, never the lab's
+   * `session-<ts>.jsonl` event-log spelling — so that shape is pinned to its
+   * one ruled root before the blanket clause ever runs.
    */
+  const SYNTHESIZED_SESSION_FILENAME =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$/i
+
   function isAllowedWrite(relative: string): boolean {
     const parts = relative.split(path.sep)
+    const leaf = parts[parts.length - 1] ?? ''
+    // The carve-out is not a softening — it is the other half of the same
+    // fact. A synthesized session is not the only thing in this repo named
+    // `<uuid>.jsonl`: `transcriptCaptureFileName` (`log/paths.ts`) names a
+    // CAPTURED Claude Code transcript by that harness's own session uuid, and
+    // `capturedTranscriptPath` (`log/transcript-attribution.ts`) puts it under
+    // `<dataRoot>/<repoSlug>/transcripts/<recordingSessionId>/` — a shipping,
+    // legitimate write under `data`, matching the pinned shape byte for byte.
+    //
+    // Without this, the pin encodes a universal the codebase contradicts:
+    // "every `<uuid>.jsonl` outside claude-projects is illegitimate". It is
+    // green today only because nothing in this fixture rotates a recorder and
+    // no tracked file has that shape — so it would have reddened later, in
+    // somebody else's branch, reading as a namespace violation when it was a
+    // correct write. Found by review before it could.
+    if (SYNTHESIZED_SESSION_FILENAME.test(leaf) && !parts.includes('transcripts')) {
+      return parts[0] === 'claude-projects'
+    }
     if (parts[0] === 'data' || parts[0] === 'claude-projects') return true
     if (parts[0] !== 'repo') return false
     if (parts[1] !== '.git') return false // never the working tree
@@ -584,6 +617,37 @@ describe('the lab namespace law, live (prd12 ruling 1, #153)', () => {
     expect(isAllowedWrite(path.join('repo', '.git', 'refs', 'rhizomorph', 'checkpoints', 'c1'))).toBe(true)
     expect(isAllowedWrite(path.join('repo', '.git', 'worktrees', 'fork-1-arm-1', 'HEAD'))).toBe(true)
     expect(isAllowedWrite(path.join('data', 'lab', 'worktrees', 'fork-1-arm-1'))).toBe(true)
+  })
+
+  it('pins a synthesized session to claude-projects — the pre-ADR "beside the worktrees dir" spelling reddens (ADR-0032)', () => {
+    const sessionId = randomUUID()
+    const slug = worktreePathToProjectSlug(path.join('repo-root', 'fork-1-arm-1'))
+
+    // Ruling 1's own wording — "same data-directory posture as the event
+    // log" — read as a session synthesized beside the lab's worktrees dir
+    // rather than into the harness's `claudeProjectsRoot` tree. ADR-0032
+    // retired that reading; a blanket `parts[0] === 'data'` clause cannot
+    // tell this apart from the lab's own legitimate data-dir writes, so this
+    // is exactly the write a looser law would have let through.
+    expect(isAllowedWrite(path.join('data', 'lab', slug, `${sessionId}.jsonl`))).toBe(false)
+
+    // The ADR-ruled destination still passes — tightening one clause must
+    // not cost the other its permission.
+    expect(isAllowedWrite(path.join('claude-projects', slug, `${sessionId}.jsonl`))).toBe(true)
+
+    // The lab's own event-log naming (`session-<ts>.jsonl`, never a bare
+    // uuid) is untouched by the new clause — it still lives under `data`.
+    expect(isAllowedWrite(path.join('data', slug, `session-1000000.jsonl`))).toBe(true)
+
+    // A CAPTURED Claude Code transcript carries the same uuid shape and is a
+    // real, shipping write under the data root — `transcriptCaptureFileName`
+    // over `capturedTranscriptPath`. Pinning it here is what stops the clause
+    // above from encoding "every `<uuid>.jsonl` outside claude-projects is
+    // illegitimate", which the codebase contradicts.
+    expect(
+      isAllowedWrite(path.join('data', slug, 'transcripts', '1700000000000', `${randomUUID()}.jsonl`)),
+      'a captured Claude Code transcript is a legitimate uuid-named write under the data root',
+    ).toBe(true)
   })
 
   it('writes the synthesized sessions ONLY under the arms\' own project slugs, never the parent\'s', async () => {
