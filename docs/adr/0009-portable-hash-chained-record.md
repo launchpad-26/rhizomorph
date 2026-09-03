@@ -1,6 +1,7 @@
 # 0009. A session is one portable, hash-chained file — and there is no protocol
 
-- **Status:** accepted
+- **Status:** accepted (proposed amendment: [ADR-0033](0033-the-record-travels-by-protocol.md) — a
+  versioned ingest protocol carries the record; the record itself is unchanged)
 - **Date:** 2026-08-06
 
 ## Context and Problem Statement
