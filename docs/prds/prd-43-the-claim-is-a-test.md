@@ -219,6 +219,17 @@ agree` · `prd43 w4: the README's recipes are run by the suite` (ruling 5).
 
 **Wave 5 — the sweep, last.** `prd43 w5: the README states where lab sessions live` — downstream
 of wave 0's ADR, and last because it is the one correction whose *content* is decided elsewhere.
+**Amended 2026-09-04 — wave 5 is stranded, and the order out of it is forced.** `#235` is
+blocked by `#220` (prd-30 **wave 3** — the `title=` adoption sweep; prd-30's own Sequencing
+lists it as item 3 and its amendment says "the sweep is `#220` as one issue", so do not copy the
+"w1" that `#235`'s own body carries), which has no branch, no worktree and sits at Soon/Backlog: so
+wave 5 waits on another programme's issue and `#24` is effectively a one-issue wave. `#24` is
+otherwise dispatchable — PR `#250` closed and freed `README.md`, and wave 0's ADR-0032 landed. It
+is deliberately NOT re-waved to bundle elsewhere, because `#24` and wave 6's `#234` both claim
+`README.md` (fence lint: OVERLAP), so they can never be in flight together whatever wave they
+carry. That forces a sequence rather than a bundle: land wave 6's second PR, then `#24`, or the
+reverse — never both.
+
 **Amended 2026-09-03:** wave 5 holds two issues, not one. `prd43 w5: a law's file-count comment
 and its assertion say the same thing` was filed into it deliberately (its residual is recorded in
 prd-41), and it is blocked on `#220` rather than on wave 0. The README exclusivity still holds —
@@ -254,11 +265,44 @@ section naming the wrong location for lab artefacts, ADR-0005's narrowed root cl
 containment law's silent `claude-projects` clause. Filed after the ADR lands so the issue can cite
 it rather than a branch.
 
-**Wave 7 — a ruling, not a sweep, and it gates the largest file count in this PRD.** `#66` (the
-docs cite a tracker that no longer exists) is deliberately unfenced: 216 dead `#NNN` references
-across 111 files, and the shape chosen — a per-reference marker, one dated note, or a mapping to
-surviving artefacts — decides whether it touches 2 files or 111. Booked the way wave 0 is booked:
-an operator act, not dispatchable until ruled.
+**Wave 7 — ruled 2026-09-04, and it is two issues, not one.** `#66` (the docs cite a tracker
+that no longer exists) was booked the way wave 0 is booked: an operator act, not dispatchable
+until ruled. The ruling is made and recorded on the issue — **a single dated note in `AGENTS.md`
+and `docs/prds/README.md`**, with the 216 references in the other 110 files left untouched. A
+per-reference marker across 111 files and a mapping to surviving artefacts were both considered
+and rejected: the first is a 216-edit diff nobody can review whose per-site markers rot when the
+corpus moves, the second is only partially recoverable. `#66`'s fence is now groomed to those two
+files.
+
+The evidence below argued that a note alone is the *weaker* half, and the ruling agrees with it
+rather than overriding it — which is why wave 7 gained a second issue. **`#261` (a citation above
+the live maximum cannot enter the corpus)** is the guard, filed 2026-09-04 and fence-disjoint from
+`#66` (`packages/server/src/doc-citation-law.test.ts` plus a baseline file, against `#66`'s two documents), so the two
+share the wave and its PR: one writes the note that explains the existing citations, the other
+writes the law that stops more arriving. `#261` is **blocked by `#241`**, which holds
+`packages/server/src/doc-citation-law.test.ts` and is in flight — dispatch the pair once it lands.
+
+Why `#261` is a separate issue rather than a clause of `#66`: the naive form of that law fails
+immediately on all 216 existing references, so how it tolerates them — a committed baseline in the
+`.windows-known-failures` style, or a predicate scoped by document date — is a design decision
+with a rejected alternative to name. `#66`'s own Definition of done calls the guard "worth
+considering" and stops short of ruling it, correctly.
+
+**One constraint the original text could not have known, and it invalidates the obvious wording.**
+`#66` was measured on 2026-08-25, when the highest number that had ever existed in this repository
+was 64. **Measured again 2026-09-04**, because that figure expired: this repo's sequence began at 1
+on 2026-08-21 and had reached **262**, while the prior tracker's citations in this corpus reach
+**674** — so **the two sequences overlap and no numeric threshold separates them.**
+
+Both figures are given as a dated measurement rather than as current fact, deliberately. The first
+draft of this paragraph typed "260" and was stale before it was pushed — `#261` already existed
+five minutes earlier, and `#262`, the PR carrying the paragraph, was opened a minute later. A
+hand-typed live maximum in a document whose subject is that counts must be derived is the wrong
+shape twice over. Re-measure rather than trusting either number; the overlap holds at any of them. A note claiming everything below 660 refers to a prior
+tracker would disown every live citation the corpus has legitimately accumulated since August. The
+note states the ambiguity instead: above the live maximum a citation is unambiguously
+prior-tracker, at or below it the citing document's own date decides, and a sha is the durable
+citation because the commits survived the recreation even though the issues did not.
 
 Evidence for the ruling, gathered incidentally on 2026-09-03 and worth having before it is made:
 writing ADR-0032 required citing `#148`/`#153` by sha because the commits survived the 2026-08
