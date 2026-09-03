@@ -3,16 +3,23 @@
 # and 3, #212). Compares vitest's per-file JSON results against the committed
 # expected-fail list, .windows-known-failures, PER FILE — never by count.
 #
-#   usage: scripts/windows-triage.sh <vitest-json-results> <known-failures-list>
+#   usage: scripts/windows-triage.sh <vitest-json-results> <known-failures-list> <tracked-test-files>
 #
 # The suite step in .github/workflows/windows-suite.yml runs with
 # continue-on-error and its exit status is deliberately not the verdict — this
-# is. Four categories, and only two of them are red:
+# is. Five categories, and three of them are red:
 #
-#   UNEXPECTED FAILURE   failed, not on the list          -> RED
-#   expected             failed, on the list              -> reported, every run
-#   CANDIDATE FOR REMOVAL  on the list, ran, and passed    -> reported, not red
-#   listed but not run   on the list, absent from results -> RED
+#   UNEXPECTED FAILURE   failed, not on the list                 -> RED
+#   expected             failed, on the list                     -> reported, every run
+#   CANDIDATE FOR REMOVAL  on the list, ran, and passed           -> reported, not red
+#   listed but not run   on the list, absent from results        -> RED
+#   tracked, no result   tracked test file absent from results   -> RED  (#252)
+#
+# <tracked-test-files> is the floor a GREEN verdict must clear: one repo-relative
+# test path per line, derived by the workflow with `git ls-files` (never a
+# maintained list), so a results file that quietly omits files cannot read as
+# clean — ruling 2 promises red for a failure OUTSIDE the list, and a file the
+# suite never evaluated is outside every verdict.
 #
 # A count masks a swap (one fixed, one newly broken, same number); a list is
 # falsifiable per file, so the comparison below is set difference and nothing
@@ -32,16 +39,16 @@
 # it with synthetic results. Exit 1 on RED, 0 on GREEN, 2 on misuse.
 set -euo pipefail
 
-if [ "$#" -ne 2 ]; then
-  echo "usage: scripts/windows-triage.sh <vitest-json-results> <known-failures-list>" >&2
+if [ "$#" -ne 3 ]; then
+  echo "usage: scripts/windows-triage.sh <vitest-json-results> <known-failures-list> <tracked-test-files>" >&2
   exit 2
 fi
 
-node - "$1" "$2" <<'NODE_EOF'
+node - "$1" "$2" "$3" <<'NODE_EOF'
 const fs = require('node:fs')
 const { execFileSync } = require('node:child_process')
 
-const [resultsPath, listPath] = process.argv.slice(2)
+const [resultsPath, listPath, trackedPath] = process.argv.slice(2)
 
 // prd-25 ruling 3's cause classes — six at the ruling, a seventh (fs-semantics)
 // by the 2026-09-03 amendment — spelled exactly as the list must spell them. windows-suite-law.test.ts reads this literal out of this file and holds
@@ -148,17 +155,41 @@ if (!fs.existsSync(listPath)) {
   }
 }
 
+// ---- 2b. the tracked test-file set — the floor a GREEN verdict must clear --
+// Ruling 2 says a failure OUTSIDE the list turns the job red. A results file
+// that simply omits a file — vitest crashed after writing partial JSON, an
+// --include narrowed the run, a filter flag on the suite step — would make that
+// promise vacuous for every omitted file. The workflow derives this set with
+// `git ls-files` (never a maintained list) and the law holds that line.
+const trackedViolations = []
+const trackedSet = new Set()
+if (!fs.existsSync(trackedPath)) {
+  trackedViolations.push(`no tracked test-file set at ${trackedPath} — the workflow's git ls-files step produced nothing, so there is no floor to hold the verdict to`)
+} else {
+  fs.readFileSync(trackedPath, 'utf8').split(/\r?\n/).forEach((line, index) => {
+    const text = line.replace(/\s+$/, '')
+    if (text.length === 0 || text.startsWith('#')) return
+    if (!/^packages\/.+\.test\.tsx?$/.test(text)) {
+      trackedViolations.push(`${trackedPath}:${index + 1}: "${text}" is not a packages/ test file — the set names test FILES, resolved`)
+      return
+    }
+    trackedSet.add(text)
+  })
+  if (trackedSet.size === 0) trackedViolations.push(`${trackedPath}: the tracked test-file set is empty — a suite over zero files has no verdict`)
+}
+
 function summaryAndExit(counts, red) {
   say(
-    `windows-triage: ${counts.unexpected} unexpected · ${counts.expected} expected · ${counts.candidates} removal candidates · ${counts.notRun} listed-not-run · verdict ${red ? 'RED' : 'GREEN'}`,
+    `windows-triage: ${counts.unexpected} unexpected · ${counts.expected} expected · ${counts.candidates} removal candidates · ${counts.notRun} listed-not-run · ${counts.unevaluated} unevaluated · verdict ${red ? 'RED' : 'GREEN'}`,
   )
   process.exit(red ? 1 : 0)
 }
 
-const zero = { unexpected: 0, expected: 0, candidates: 0, notRun: 0 }
+const zero = { unexpected: 0, expected: 0, candidates: 0, notRun: 0, unevaluated: 0 }
 
-if (inputViolations.length > 0 || listViolations.length > 0) {
+if (inputViolations.length > 0 || listViolations.length > 0 || trackedViolations.length > 0) {
   for (const v of inputViolations) say(`RED: ${v}`)
+  for (const v of trackedViolations) say(`RED: ${v}`)
   for (const v of listViolations) say(`RED: list rejected — ${v}`)
   if (listViolations.length > 0) say('nothing compared: a list that fails its own grammar gives no verdict')
   summaryAndExit(zero, true)
@@ -238,6 +269,17 @@ expected.sort(byFile)
 candidates.sort(byFile)
 notRun.sort(byFile)
 
+// Tracked test files the suite did not evaluate — the sibling of "listed but
+// not run" for the files NOT on the list. A listed file is named once, by the
+// arm above, never twice. A result whose file is NOT in the tracked set is not
+// a category: a failing one is already an UNEXPECTED FAILURE, and a passing one
+// outside the set cannot make a verdict wrong in the direction ruling 2 guards.
+const unevaluated = []
+for (const file of trackedSet) {
+  if (!ran.has(file) && !listed.has(file)) unevaluated.push({ file })
+}
+unevaluated.sort(byFile)
+
 for (const u of unexpected) {
   say(`UNEXPECTED FAILURE (not on .windows-known-failures): ${u.file}`)
   say(`    ${u.reason}`)
@@ -245,9 +287,10 @@ for (const u of unexpected) {
 for (const e of expected) say(`expected, still failing [${e.cls}]: ${e.file}`)
 for (const c of candidates) say(`CANDIDATE FOR REMOVAL (listed, now passes): ${c.file}`)
 for (const n of notRun) say(`RED: listed but not run: ${n.file} — a list may not claim a file the suite did not evaluate`)
+for (const u of unevaluated) say(`RED: tracked test file with no result: ${u.file} — the suite did not evaluate it`)
 
 // ---- 7. the job-page summary, when asked ---------------------------------
-const red = unexpected.length > 0 || notRun.length > 0
+const red = unexpected.length > 0 || notRun.length > 0 || unevaluated.length > 0
 if (process.env.GITHUB_STEP_SUMMARY) {
   const md = []
   md.push(`## Windows suite triage — ${red ? 'RED' : 'GREEN'}`)
@@ -265,11 +308,12 @@ if (process.env.GITHUB_STEP_SUMMARY) {
   section('Expected, still failing', expected, (e) => `\`${e.file}\` [${e.cls}]`)
   section('Candidates for removal — listed, now passing', candidates, (c) => `\`${c.file}\` [${c.cls}]`)
   section('Listed but not run — RED', notRun, (n) => `\`${n.file}\` [${n.cls}]`)
+  section('Tracked test files with no result — RED', unevaluated, (u) => `\`${u.file}\``)
   fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${md.join('\n')}\n`)
 }
 
 summaryAndExit(
-  { unexpected: unexpected.length, expected: expected.length, candidates: candidates.length, notRun: notRun.length },
+  { unexpected: unexpected.length, expected: expected.length, candidates: candidates.length, notRun: notRun.length, unevaluated: unevaluated.length },
   red,
 )
 NODE_EOF

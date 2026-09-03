@@ -60,10 +60,21 @@ jobs:
         shell: bash
         run: npx vitest run --reporter=default --reporter=json --outputFile.json=windows-suite.json
 
+      # The floor a GREEN verdict must clear: every tracked test file must have
+      # a result. Derived with git ls-files, never maintained by hand — a list
+      # is what went stale in AGENTS.md once already. `packages/*.test.ts`
+      # matches at every depth (git's `*` crosses `/`); `packages/**/*.test.ts`
+      # would demand a literal extra separator and silently miss nothing today
+      # but any test file placed directly under packages/ tomorrow.
+      - name: Tracked test files — the floor a GREEN verdict must clear
+        if: "!cancelled()"
+        shell: bash
+        run: git ls-files 'packages/*.test.ts' 'packages/*.test.tsx' > windows-suite.tracked
+
       - name: Triage — compare the failing set against .windows-known-failures, per file
         if: "!cancelled()"
         shell: bash
-        run: bash scripts/windows-triage.sh windows-suite.json .windows-known-failures
+        run: bash scripts/windows-triage.sh windows-suite.json .windows-known-failures windows-suite.tracked
 
       # The raw results, for regrooming the list without re-running 2x minutes.
       - name: Upload results
@@ -71,5 +82,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-suite-results
-          path: windows-suite.json
+          path: |
+            windows-suite.json
+            windows-suite.tracked
           if-no-files-found: ignore
