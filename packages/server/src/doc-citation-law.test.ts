@@ -146,6 +146,51 @@ function sweepFiles(pattern: string): string[] {
  * deletion (#186 item 5's related finding: this used to throw ENOENT
  * straight out of `readFileSync`, crashing the run instead of failing the law
  * like any other missing citation would).
+ *
+ * ## Every read in this file, and whether it needs this guard (#203)
+ *
+ * The issue asked for the enumeration rather than the one call site it named,
+ * because #186 fixed one instance of this and left its sibling. **Nine reads,
+ * and the table is all of them**: four come through this guard — two loops in
+ * `allCitations`, one in `badPins`, and the exclusion scan that #203 moved
+ * here — and five stay bare. Exactly ONE was fed from `git ls-files` and
+ * unguarded. Verdict per row, so a later reader does not have to re-derive it,
+ * and so a tenth read has an obvious question to answer.
+ *
+ * Count the call sites, not the rows: `allCitations` reads in two loops and
+ * gets one row. Getting that number wrong is the failure this table exists to
+ * prevent, so it is stated as a count and not left to be inferred.
+ *
+ * | read | where its path comes from | verdict |
+ * |---|---|---|
+ * | `allCitations`'s two loops | `sweepFiles` (tracked + untracked) | GUARDED — `readSweptFile`, #186 item 5 |
+ * | `badPins` | `sweepFiles('docs/*.md')` — the same listing | GUARDED — `readSweptFile`. Predates #203 and was already correct; it is a row because the heading says *every* read, and it was missing (review of #242) |
+ * | the exclusion-honesty scan | `trackedFiles` — the git INDEX | **WAS THE DEFECT** — guarded now; this is #203 |
+ * | `cleanUpOrphanedFixtures` | `readdirSync(docsDir)` — a live directory listing | NOT NEEDED — the entry exists because the listing just named it, and it is wrapped in its own `try`/`catch` besides |
+ * | the allowlist-still-fails check | `ALLOWLISTED_BROKEN_CITATIONS[].file`, a literal list | NOT NEEDED — `existsSync` is asserted on the line above, with a message telling you to remove the entry |
+ * | the own-identity control | `OWN_FILE`, a constant naming this file | NOT NEEDED — if this file were gone, nothing here would be running |
+ * | the sibling-violation control | a hardcoded `packages/core/src/placeholder.ts` | NOT NEEDED — a fixed path, not a listing; deleting it is a deliberate act that SHOULD break this control loudly |
+ * | the `.mjs` scope control | a hardcoded `capture.mjs` path | NOT NEEDED — same reasoning as the row above |
+ *
+ * The distinction that matters is not "does the path exist today". It is
+ * **whether the path was produced by asking git**, because that is the only
+ * source that can name a file the disk does not have. A literal is wrong
+ * loudly; an index entry is wrong silently.
+ *
+ * The issue's own line citations were against PR #200's head and had already
+ * moved by the time this was picked up — re-derived rather than trusted, which
+ * is what its Blocked-by note asked for. **Named by symbol here, not by line,
+ * and that is the point:** the guarded read is `readSweptFile` itself, and the
+ * one that was unguarded is the exclusion-honesty scan, now
+ * `countBrokenCitationsIn`.
+ *
+ * The numbers are left out because every set of them has rotted. The issue
+ * cited `:140`/`:587`; by the time it was picked up those had become
+ * `:152`/`:709`; and `:152`/`:709` were themselves stale **inside the very
+ * commit that recorded them**, because that commit added this docblock and
+ * shifted every line below it. A pointer that reports the wrong location while
+ * looking precise is worse than no pointer — the lesson `AGENTS.md` already
+ * records for CI citations and `.swarm/coupling.txt` entries.
  */
 function readSweptFile(file: string): string | undefined {
   const filePath = path.join(REPO_ROOT, file)
@@ -610,6 +655,34 @@ function citationExists(cite: string): boolean {
 type Citation = { file: string; cite: string }
 
 /**
+ * How many citations in `files` are broken — the body of the exclusion-honesty
+ * scan, lifted out so the ENOENT guard inside it can be tested directly (#203).
+ *
+ * It was inline in the test, which left the guard unprovable without staging a
+ * deletion into the real index — and this law runs 4x concurrently, so a test
+ * that mutates git races every other copy of itself. Passing the file list in
+ * means the tracked-but-deleted case is a one-element array, not a repo
+ * mutation.
+ */
+function countBrokenCitationsIn(files: readonly string[]): number {
+  let broken = 0
+  for (const file of files) {
+    // `readSweptFile`, not a bare `readFileSync`: these paths come from
+    // `git ls-files`, which names what the INDEX holds and the disk may not —
+    // a tracked file deleted and not yet staged. #186 item 5 fixed exactly
+    // that for `allCitations`; this scan is its sibling and kept throwing
+    // ENOENT, so the run died carrying a stack trace instead of failing like
+    // a law.
+    const raw = readSweptFile(file)
+    if (raw === undefined) continue
+    for (const cite of new Set(extractCitations(stripFencedCodeBlocks(raw)))) {
+      if (!citationExists(cite)) broken += 1
+    }
+  }
+  return broken
+}
+
+/**
  * Every citation from every in-scope `docs/*.md` file and every `packages/*.ts`
  * file's comments — deduplicated per file, since existence does not depend on
  * how many times a file repeats the same citation.
@@ -704,13 +777,7 @@ describe('doc citation law: a path cited from a document or a comment must exist
       const files = [...new Set([...trackedFiles(`${dir}*.md`), ...trackedFiles(`${dir}**/*.md`)])]
       expect(files.length, `${dir} has no markdown files to check`).toBeGreaterThan(0)
 
-      let brokenCount = 0
-      for (const file of files) {
-        const text = stripFencedCodeBlocks(readFileSync(path.join(REPO_ROOT, file), 'utf8'))
-        for (const cite of new Set(extractCitations(text))) {
-          if (!citationExists(cite)) brokenCount += 1
-        }
-      }
+      const brokenCount = countBrokenCitationsIn(files)
       expect(brokenCount, `${dir} would trip nothing if scanned — the exclusion is stale`).toBeGreaterThan(0)
     }
   })
@@ -899,6 +966,33 @@ describe('doc citation law: a path cited from a document or a comment must exist
 
   it('a file the git listing names but that is gone from disk is skipped, not a crash — the ENOENT sibling of item 5', () => {
     expect(readSweptFile('docs/this-file-does-not-exist-on-disk.md')).toBeUndefined()
+  })
+
+  it('the EXCLUSION scan skips a tracked-but-deleted file too, not just the main sweep (#203)', () => {
+    // The sibling #186 left behind. `readSweptFile` was already proven above,
+    // but the exclusion-honesty scan called `readFileSync` directly, so the
+    // same tracked-but-deleted file that the main sweep skipped killed this
+    // scan with ENOENT — a stack trace where a verdict belonged.
+    //
+    // Driven through the real `countBrokenCitationsIn` rather than asserting
+    // on `readSweptFile` again: the guard being reachable FROM THE SCAN is the
+    // whole claim, and re-testing the helper would prove the thing that was
+    // never broken. Remove the `raw === undefined` guard and this throws.
+    const gone = 'docs/research/this-file-is-tracked-but-gone-from-disk.md'
+    expect(existsSync(path.join(REPO_ROOT, gone)), 'the fixture path must NOT exist for this test to mean anything').toBe(
+      false,
+    )
+    expect(() => countBrokenCitationsIn([gone])).not.toThrow()
+    expect(countBrokenCitationsIn([gone])).toBe(0)
+
+    // ...and the scan still COUNTS a file that is present, so the skip above
+    // is a skip and not a scan that silently stopped working. Uses a real
+    // excluded-directory file with at least one broken citation, which is the
+    // property the enclosing law already asserts for every excluded dir.
+    const realFiles = [...new Set([...trackedFiles('docs/research/*.md'), ...trackedFiles('docs/research/**/*.md')])]
+    expect(realFiles.length, 'docs/research/ must hold tracked markdown for this control to mean anything').toBeGreaterThan(0)
+    expect(countBrokenCitationsIn([gone, ...realFiles])).toBe(countBrokenCitationsIn(realFiles))
+    expect(countBrokenCitationsIn(realFiles)).toBeGreaterThan(0)
   })
 
   it('the allowlist is pinned — a silent addition here is exactly how a real regression gets waved through', () => {
