@@ -177,10 +177,20 @@ function sweepFiles(pattern: string): string[] {
  * source that can name a file the disk does not have. A literal is wrong
  * loudly; an index entry is wrong silently.
  *
- * The issue's own line citations (`:140` guarded, `:587` unguarded) were
- * against PR #200's head and had moved to `:152` and `:709` by the time this
- * was picked up — re-derived rather than trusted, which is what its Blocked-by
- * note asked for.
+ * The issue's own line citations were against PR #200's head and had already
+ * moved by the time this was picked up — re-derived rather than trusted, which
+ * is what its Blocked-by note asked for. **Named by symbol here, not by line,
+ * and that is the point:** the guarded read is `readSweptFile` itself, and the
+ * one that was unguarded is the exclusion-honesty scan, now
+ * `countBrokenCitationsIn`.
+ *
+ * The numbers are left out because every set of them has rotted. The issue
+ * cited `:140`/`:587`; by the time it was picked up those had become
+ * `:152`/`:709`; and `:152`/`:709` were themselves stale **inside the very
+ * commit that recorded them**, because that commit added this docblock and
+ * shifted every line below it. A pointer that reports the wrong location while
+ * looking precise is worse than no pointer — the lesson `AGENTS.md` already
+ * records for CI citations and `.swarm/coupling.txt` entries.
  */
 function readSweptFile(file: string): string | undefined {
   const filePath = path.join(REPO_ROOT, file)
