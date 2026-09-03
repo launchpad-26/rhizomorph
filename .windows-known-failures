@@ -1,0 +1,57 @@
+# .windows-known-failures — the native Windows suite result, as a committed
+# list of test FILES (prd-25 ruling 2: a count masks a swap; a list is
+# falsifiable per file). This is an expected-fail list, not a skip list
+# (prd-25 amendment, 2026-08-24): every entry is reported on every run of
+# .github/workflows/windows-suite.yml, a failure OUTSIDE it turns the job red,
+# and an entry that passes is reported as a removal candidate. Removing an
+# entry is an ordinary PR; adding one is not — it needs a cause class below
+# and the evidence beside it. Zero entries is the destination.
+#
+# The measured sha is the commit on main the run was built from, with the
+# change that landed this file applied on top. It cannot be the lane's own
+# commit: a lane commit is squashed and then cherry-picked into the wave PR,
+# so its sha never reaches main, and windows-suite-law.test.ts requires the
+# sha to resolve to a real commit in every full clone.
+#
+# measured: 295b02375293dd05e094c5a4a1ff8b0834bea2b8 node 24.19.0 windows-latest 2026-09-03 https://github.com/launchpad-26/rhizomorph/actions/runs/33706746540
+#
+# classes (prd-25 ruling 3, one per entry, exactly these seven — six at the
+# ruling, fs-semantics by the 2026-09-03 amendment):
+#   path-separator       `\` vs `/` in a comparison or a string built by hand
+#   drive-letter         C:\ absolutes, file: URLs, path.isAbsolute/resolve on win32
+#   procfs               /proc read or a probe that assumes it
+#   line-endings         CRLF in an input or an output the test compares bytewise
+#   process-signalling   spawn/exec/kill semantics, POSIX binaries, /bin/sh, signals
+#   temp-dir             os.tmpdir shape, 8.3 names, EBUSY/EPERM on cleanup, case-insensitive FS
+#   fs-semantics         open flags (O_NOFOLLOW), symlink following, ENOTDIR on a file-as-directory
+#
+# <repo-relative test file>  <class>  # evidence: <first line of the failure, no absolute prefixes>
+packages/app/src/host/layout.test.ts                         drive-letter        # evidence: expected 'D:\app\Resources\packages\web\dist' to be '\app\Resources\packages\web\dist'
+packages/app/src/host/login-item.test.ts                     path-separator      # evidence: expected the XDG autostart path in backslashes ('\home\<user>\.config\autostart\rhiz…') to be the slash-separated form the Linux branch builds
+packages/contract/src/clone.contract.test.ts                 line-endings        # evidence: expected 0 to be greater than 2 — the vocabulary regexes anchor on \n and the checkout is CRLF
+packages/contract/src/instrument.contract.test.ts            line-endings        # evidence: expected 0 to be greater than 2 — the outcome-kind regexes anchor on \n\n and the checkout is CRLF
+packages/core/src/fleet/remedy-reachability-law.test.ts      path-separator      # evidence: expected 'packages\core\src\fleet\gaps.ts' to be 'packages/core/src/fleet/gaps.ts'
+packages/server/src/api/concierge.test.ts                    drive-letter        # evidence: resume mode: expected { harness: 'claude', …(6) } to deeply equal { harness: 'claude', …(6) } — the migration plan's paths, from POSIX-absolute fixtures
+packages/server/src/api/route-class-law.test.ts              line-endings        # evidence: expected '  build-test-boot:\r\n    # macos-lat…' not to match /windows-latest/ — the job-block trim anchors on \n
+packages/server/src/api/transcript.test.ts                   path-separator      # evidence: expected 'NO SESSION LOG for the conductor (ses…' to contain '/tmp/rhizomorph-fixture/conductor'
+packages/server/src/cli/cli-surface-law.test.ts              line-endings        # evidence: failed to load: README.md has no "## CLI reference" section for this law to check — the section regex anchors on \n
+packages/server/src/cli/export-record-containment.test.ts    temp-dir            # evidence: expected the refusal to name the canonical path — os.tmpdir() is the 8.3 RUNNER~1 form, the realpath is the long form
+packages/server/src/cli/index.test.ts                        drive-letter        # evidence: Error: STACK_TRACE_ERROR wiring --extra-sessions (role: conductor) — the project slug of a drive-lettered tmpdir; class inferred from the sessionlog collector sibling
+packages/server/src/collectors/sessionlog/collector.test.ts  drive-letter        # evidence: expected { lane: 'unattributed', …(9) } to match object { tool: 'Read', …(1) } — attribution from a POSIX-absolute worktree fixture
+packages/server/src/concierge/harness/detect.test.ts         drive-letter        # evidence: expected 'absent' to be 'present' — a platform:'linux' probe splits PATH on ':' and the drive colon splits the entry
+packages/server/src/concierge/migrate.test.ts                drive-letter        # evidence: expected { kind: 'migrate', …(2) } to deeply equal { kind: 'migrate', …(2) } — destination paths from POSIX-absolute fixtures
+packages/server/src/concierge/namespace-law.test.ts          drive-letter        # evidence: expected 'D:\data\concierge' to be '\data\concierge'
+packages/server/src/concierge/paths.test.ts                  drive-letter        # evidence: expected 'D:\data\concierge' to be '\data\concierge'
+packages/server/src/concierge/repos.test.ts                  drive-letter        # evidence: expected { path: null, …(1) } to deeply equal { path: '\Users\dev\repo' } — reverseProjectSlug walks from a rootless '/'
+packages/server/src/doc-citation-law.test.ts                 path-separator      # evidence: expected 'packages\server\src\doc-citation-law.…' to be 'packages/server/src/doc-citation-law.…'
+packages/server/src/gate-honesty-law.test.ts                 line-endings        # evidence: expected 'MERGED=0\r' to be 'MERGED=0' — lines extracted from a CRLF checkout of scripts/gate.sh
+packages/server/src/lab/checkpoint.test.ts                   line-endings        # evidence: expected 'v2 modified\r\n' to be 'v2 modified\n'
+packages/server/src/lab/fork.test.ts                         line-endings        # evidence: expected 'v2 in flight\r\n' to be 'v2 in flight\n'
+packages/server/src/lab/namespace-law.test.ts                process-signalling  # evidence: npm install failed in the lab worktree: spawn npm ENOENT — npm is npm.cmd on win32 and a shell-less spawn cannot see it
+packages/server/src/lab/paths.test.ts                        drive-letter        # evidence: the /private-prefixed canonicalizer simulation: expected false to be true — POSIX-absolute fixtures resolve onto a drive
+packages/server/src/lab/restore.test.ts                      temp-dir            # evidence: expected the synthesized session to contain the 8.3 RUNNER~1 tmpdir path; it carries the long form
+packages/server/src/paths/containment.test.ts                drive-letter        # evidence: the inconsistent-realpath simulation: expected false to be true — POSIX-absolute fixtures resolve onto a drive
+packages/server/src/server/collector-wrap-boundary.test.ts   path-separator      # evidence: expected [ Array(1) ] to deeply equal [ Array(1) ] — violations name files through path.relative, which emits backslashes
+packages/server/src/server/static.test.ts                   fs-semantics        # evidence: expected 200 to be 403 — O_NOFOLLOW is undefined on win32 so the final-component symlink is followed; a wildcard tail under a real file raises no ENOTDIR
+packages/web/src/connect/wizard.test.tsx                     line-endings        # evidence: expected +0 to be 3 — the roster regexes anchor on \n and the checkout is CRLF
+packages/web/src/theme/kind.test.tsx                         path-separator      # evidence: expected Set{ 'why\WhySurface.tsx' } to deeply equal Set{ 'why/WhySurface.tsx' }

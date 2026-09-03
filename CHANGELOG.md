@@ -38,6 +38,15 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Added
 
+- **The native Windows suite result is a committed list of files, not a number
+  (prd-25 wave 3, #212).** `.github/workflows/windows-suite.yml` runs the full
+  suite on `windows-latest` on every push and holds it to
+  `.windows-known-failures`, per file: a failure outside the list turns the job
+  red, a listed file that now passes is reported as a removal candidate, and
+  every entry carries one of prd-25 ruling 3's cause classes (seven, after the
+  amendment the first run forced) with the evidence beside it. The list is expected-fail, not skip — every entry is
+  reported on every run. The README's Windows row moves accordingly.
+
 - **Native Windows enters CI — the built clone's boot is witnessed on every push
   (prd-25 wave 2, #211).** `pack-smoke` now runs on `windows-latest` at both node
   legs: it packs the repo, installs the tarball into a clean project and boots the

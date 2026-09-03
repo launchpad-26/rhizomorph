@@ -1,0 +1,75 @@
+name: Windows suite
+
+# The native Windows suite, held to a committed expected-fail list (prd-25
+# rulings 2 and 3; #212). A SEPARATE workflow from ci.yml, deliberately: ci.yml
+# is fenced to other lanes, and folding this in is a later decision made with
+# this job's measured cost (prd-25 amendment, 2026-08-24). This is NOT
+# build-test-boot on Windows — that job still has no Windows leg, and
+# route-class-law.test.ts asserts it. Promotion happens when the list is short
+# enough to be a promise rather than a ledger, and is its own issue.
+#
+# One leg, current node only: windows-latest bills 2x ubuntu and the suite is
+# the long step (~8 min on ubuntu). The min-node floor is already checked on
+# ubuntu by ci.yml; a second Windows leg would double the cost to re-prove it.
+# Measured: 13 min end to end, 12 of them the suite, on its first green run
+# (https://github.com/launchpad-26/rhizomorph/actions/runs/33709508449); the
+# measurement run before it took the same.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+jobs:
+  windows-suite:
+    runs-on: windows-latest
+    # A hung Windows suite at 2x billing is the expensive failure; the ubuntu
+    # suite is ~8 min, so 45 is generous and still bounded.
+    timeout-minutes: 45
+    steps:
+      # Full history: doc-citation-law's tree-pin check asks the object store
+      # whether a pinned sha is a real commit — see ci.yml's Checkout comment.
+      # windows-suite-law asks the same of .windows-known-failures' measured sha.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node (current, from engines)
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+
+      - name: Install (clean, lockfile-honest)
+        run: npm ci
+
+      # Same order as ci.yml: some laws read dist/ (static.test.ts).
+      - name: Build
+        run: npm run build
+
+      # The suite's own exit status is deliberately NOT the verdict — the list
+      # is. continue-on-error lets a red suite reach the triage step, which is
+      # the only step allowed to fail this job. The JSON reporter writes the
+      # per-file results the triage compares; the default reporter keeps the
+      # log readable.
+      - name: Suite (verdict deferred to the triage)
+        id: suite
+        continue-on-error: true
+        shell: bash
+        run: npx vitest run --reporter=default --reporter=json --outputFile.json=windows-suite.json
+
+      - name: Triage — compare the failing set against .windows-known-failures, per file
+        if: "!cancelled()"
+        shell: bash
+        run: bash scripts/windows-triage.sh windows-suite.json .windows-known-failures
+
+      # The raw results, for regrooming the list without re-running 2x minutes.
+      - name: Upload results
+        if: "!cancelled()"
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-suite-results
+          path: windows-suite.json
+          if-no-files-found: ignore
