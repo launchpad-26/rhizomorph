@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createEventFactory, FIXTURE_START_TS } from '../fixtures.js'
 import { reduceAll } from '../reduce.js'
 import { buildRecord } from './build.js'
-import { mergeRecords } from './merge.js'
+import { mergeRecords, type MergedEvent } from './merge.js'
 import { withLinesAt } from './read.test.js'
 
 const REPO_SLUG = 'rhizomorph-abc123'
@@ -82,8 +82,8 @@ describe('mergeRecords — an id that repeats inside one actor\'s own log (#173)
     expect(result.merged.events).toHaveLength(alice.events.length)
     // ...and the repeated ids all survive. Under `(actor.instance, event.id)`
     // this collapsed to the number of DISTINCT ids, silently.
-    expect(result.merged.events.map((event) => event.id)).toEqual(ids)
-    expect(result.merged.events).toEqual(alice.events)
+    expect(result.merged.events.map((entry) => entry.event.id)).toEqual(ids)
+    expect(result.merged.events.map((entry) => entry.event)).toEqual(alice.events)
   })
 
   it('folds two actors who BOTH resumed without losing a line of either', () => {
@@ -101,8 +101,8 @@ describe('mergeRecords — an id that repeats inside one actor\'s own log (#173)
     // so a merge that dropped either run would show it here as a short list.
     const toolsFor = (lane: string) =>
       result.merged.events
-        .filter((event) => event.type === 'tool.activity' && event.payload.lane === lane)
-        .map((event) => (event.type === 'tool.activity' ? event.payload.tool : null))
+        .filter(({ event }) => event.type === 'tool.activity' && event.payload.lane === lane)
+        .map(({ event }) => (event.type === 'tool.activity' ? event.payload.tool : null))
     expect(toolsFor('alice')).toEqual(['Write', 'Bash'])
     expect(toolsFor('bob')).toEqual(['Write', 'Bash'])
   })
@@ -126,22 +126,79 @@ describe('mergeRecords', () => {
 
     // Per-actor order survived the interleave.
     const aliceToolCalls = result.merged.events
-      .filter((e) => e.type === 'tool.activity' && e.payload.lane === 'alice-lane')
-      .map((e) => (e.type === 'tool.activity' ? e.payload.tool : null))
+      .filter(({ event }) => event.type === 'tool.activity' && event.payload.lane === 'alice-lane')
+      .map(({ event }) => (event.type === 'tool.activity' ? event.payload.tool : null))
     expect(aliceToolCalls).toEqual(['Write', 'Bash'])
     const bobToolCalls = result.merged.events
-      .filter((e) => e.type === 'tool.activity' && e.payload.lane === 'bob-lane')
-      .map((e) => (e.type === 'tool.activity' ? e.payload.tool : null))
+      .filter(({ event }) => event.type === 'tool.activity' && event.payload.lane === 'bob-lane')
+      .map(({ event }) => (event.type === 'tool.activity' ? event.payload.tool : null))
     expect(bobToolCalls).toEqual(['Write', 'Bash'])
 
-    // The merged fold's lane attribution keeps each actor distinct.
-    const state = reduceAll(result.merged.events)
+    // The merged fold's lane attribution keeps each actor distinct. `reduceAll`
+    // takes bare events, so the actor tag is unwrapped at the call site.
+    const state = reduceAll(result.merged.events.map((entry) => entry.event))
     expect(state.agents['alice-lane']?.status).toBe('working')
     expect(state.agents['bob-lane']?.status).toBe('working')
     expect(state.telemetry.lanes['alice-lane']?.lane).toBe('alice-lane')
     expect(state.telemetry.lanes['bob-lane']?.lane).toBe('bob-lane')
     // The MERGE is lossless — every event of both actors is in the stream.
     expect(result.merged.events).toHaveLength(alice.events.length + bob.events.length)
+  })
+
+  /**
+   * #204 — the asymmetry `MergedRecord` used to carry: a line this era could
+   * NOT fold named its actor (`MergedUnknownLine.actorInstance`) while a line
+   * it COULD fold did not, because `interleave` unwrapped the tag on its way
+   * out.
+   *
+   * The collision is the whole reason the tag cannot be reconstructed after
+   * the fact. `evt-NNNNNN` is a per-session counter, so two actors watching one
+   * repo mint the same ids: prd-48's #166 spike measured 22,755 of 25,000 ids
+   * shared between two actors, and 17,025–24,999 of 25,000 across all 28 actor
+   * pairs. This fixture reproduces it exactly — `actorRecord` builds a fresh
+   * factory per call, so alice and bob emit an identical id sequence — and the
+   * assertions key on nothing but `event.id` and `actorInstance`. In
+   * particular they do NOT read `payload.lane`, which every test above uses to
+   * tell the actors apart: that is a property of the fixture, not of the
+   * merge, and a test resting on it would pass against the unwrapping code.
+   */
+  it('tags every merged event with the actor it came from, even when ids collide across actors (#204)', () => {
+    const alice = actorRecord('inst-alice', 'alice', FIXTURE_START_TS, 'alice-lane')
+    const bob = actorRecord('inst-bob', 'bob', FIXTURE_START_TS + 500, 'bob-lane')
+
+    // Asserted rather than assumed: if the fixture ever stopped colliding, the
+    // loop below would pass while testing nothing this issue is about.
+    const ids = alice.events.map((event) => event.id)
+    expect(bob.events.map((event) => event.id)).toEqual(ids)
+
+    const result = mergeRecords(alice.record, bob.record)
+    if (!result.ok) throw new Error(result.reason)
+
+    for (const id of ids) {
+      const entries = result.merged.events.filter((entry) => entry.event.id === id)
+      expect(entries).toHaveLength(2)
+      expect(entries.map((entry) => entry.actorInstance).sort()).toEqual(['inst-alice', 'inst-bob'])
+    }
+
+    // And the tag is not merely present but right: each actor's own events come
+    // back, in that actor's own append order, by filtering on the tag alone.
+    const eventsOf = (events: readonly MergedEvent[], instance: string) =>
+      events.filter((entry) => entry.actorInstance === instance).map((entry) => entry.event)
+    expect(eventsOf(result.merged.events, 'inst-alice')).toEqual(alice.events)
+    expect(eventsOf(result.merged.events, 'inst-bob')).toEqual(bob.events)
+
+    // Both ways round, because `interleave` tags at FOUR push sites — two in
+    // the merge loop, one in each of its two drain loops — and no single merge
+    // reaches all four. Alice leads at every step above, so the merge loop
+    // runs the FIRST argument's stream out and the second argument's drain
+    // carries the tail; the first argument's drain never executes. Swapping
+    // the arguments is what executes it. Without this call, tagging that one
+    // push with a fabricated instance leaves the whole suite green (verified
+    // by mutation, review of #204).
+    const swapped = mergeRecords(bob.record, alice.record)
+    if (!swapped.ok) throw new Error(swapped.reason)
+    expect(eventsOf(swapped.merged.events, 'inst-alice')).toEqual(alice.events)
+    expect(eventsOf(swapped.merged.events, 'inst-bob')).toEqual(bob.events)
   })
 
   /**
@@ -181,11 +238,11 @@ describe('mergeRecords', () => {
     if (!result.ok) throw new Error(result.reason)
 
     const boundaryAt = result.merged.events.findIndex(
-      (event) => event.type === 'session.started' && event.payload.sessionId === 'sess-bob',
+      ({ event }) => event.type === 'session.started' && event.payload.sessionId === 'sess-bob',
     )
     expect(boundaryAt).toBeGreaterThan(0)
 
-    const state = reduceAll(result.merged.events)
+    const state = reduceAll(result.merged.events.map((entry) => entry.event))
     // The fold counts from the second actor's start, not from the stream's.
     expect(state.session?.sessionId).toBe('sess-bob')
     expect(state.eventCount).toBe(result.merged.events.length - boundaryAt)
@@ -200,7 +257,7 @@ describe('mergeRecords', () => {
     if (!result.ok) throw new Error(result.reason)
 
     expect(result.merged.events).toHaveLength(alice.events.length)
-    expect(result.merged.events).toEqual(alice.events)
+    expect(result.merged.events.map((entry) => entry.event)).toEqual(alice.events)
   })
 
   it('says nothing about unknowns when both records are from this era', () => {
