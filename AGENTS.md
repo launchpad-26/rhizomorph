@@ -422,8 +422,9 @@ across ubuntu + macOS, at the current node and the declared minimum (the
 macOS × min-node leg is excluded — `macos-latest` bills 10x). A **second job**,
 `pack-smoke` in `.github/workflows/ci.yml`, packs the tarball, installs it into
 a project that has never heard of this checkout, and runs the CLI from those
-installed files, on the full 2×2 grid. So the checklist to compare
-`gh pr checks <N>` against is two jobs long, not one. The macOS leg is the one
+installed files, on the full 3×2 grid — ubuntu, macOS and Windows, both
+node legs, no exclude (#211). So the checklist to compare `gh pr checks <N>`
+against is two jobs long and nine legs wide, not one job. The macOS leg is the one
 that carries signal for path-shape bugs — `os.tmpdir()` is a symlink there
 (`/var` → `/private/var`) and is not on Linux, so a raw-vs-canonical path
 comparison passes vacuously on ubuntu and fails only on macOS.

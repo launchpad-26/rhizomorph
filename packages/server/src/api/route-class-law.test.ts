@@ -403,7 +403,13 @@ describe('the README support matrix agrees with what ci.yml actually proves, in 
     if (start === -1) throw new Error(`ci.yml no longer declares a "${jobKey}" job — the law and the workflow drifted`)
     const rest = CI_YML.slice(start + 1)
     const nextJob = rest.slice(2).search(/\n {2}[a-z][\w-]*:\n/)
-    return nextJob === -1 ? rest : rest.slice(0, nextJob + 2)
+    const block = nextJob === -1 ? rest : rest.slice(0, nextJob + 2)
+    // A job ends where the NEXT job's leading comment begins, not at the next
+    // job's key. ci.yml documents every job in a comment block above it, and
+    // those lines are not part of the job above them — without this trim, a
+    // sentence written about pack-smoke is read as text inside build-test-boot,
+    // which is enough to make the windows-latest law below accuse the wrong job.
+    return block.replace(/\n(?: {2}#[^\n]*\n?)+$/, '\n')
   }
 
   const supportMatrixStart = README_MD.indexOf('## Support matrix')
