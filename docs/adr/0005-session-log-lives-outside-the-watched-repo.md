@@ -1,6 +1,6 @@
 # 0005. The session log lives outside the watched repo, and evidence is never edited in place
 
-- **Status:** accepted
+- **Status:** accepted — narrowed by [ADR-0032](0032-synthesized-sessions-live-in-the-harness-projects-tree.md) (the synthesized-session artifacts were never under this root)
 - **Date:** 2026-08-06
 
 ## Context and Problem Statement
