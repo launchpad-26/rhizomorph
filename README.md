@@ -423,7 +423,7 @@ machine.
 | Linux | CI-verified on every push (`.github/workflows/ci.yml`) |
 | WSL | The daily development platform — exercised constantly, just not by CI |
 | macOS | CI-verified on every push (`.github/workflows/ci.yml` runs build, suite, typecheck, lint and the boot smoke on `macos-latest`, and the pack-smoke job covers it at both node legs). Nobody daily-drives it, so ergonomic rough edges are likelier here than correctness ones. |
-| Windows (native) | **Unverified, and known to have failed.** #277's one native run found 130 failures across 15 files, and the built-clone boot defect it exposed is fixed (`pathToFileURL`) but witnessed by no CI leg yet. prd-25 was blessed 2026-08-24: a `windows-latest` pack-smoke leg is the ruled next step. Until it exists, treat native Windows as untested. |
+| Windows (native) | **Partial: installs and boots, suite not run.** `.github/workflows/ci.yml` runs a `windows-latest` leg on the `pack-smoke` job at both node legs, on every push: it packs the repo, installs the tarball into a clean project and boots the installed CLI under Git Bash — the first CI witness of the `pathToFileURL` built-clone boot fix. Nothing runs the native test suite on Windows: `build-test-boot` has no Windows leg, because #277's one hand run found 130 failures across 15 files and a leg that is always red teaches everyone to ignore it. prd-25 wave 3 (#212) gives the suite a committed expected-fail list first; promotion is a separate decision, made with this leg's measured cost. |
 
 **Node >= 22.22.2** — `engines` in `package.json` is the source of truth, and
 CI pins that exact minimum. Older Node warns on install and may not run at all;

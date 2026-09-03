@@ -19,6 +19,15 @@
 set -euo pipefail
 set -m
 
+# Git Bash on a Windows runner reports MINGW64_NT-*; MSYS2 proper MSYS_NT-*.
+# Everything below that says "Windows" is keyed on this, not on any CI
+# variable, so a hand run from a Git Bash prompt exercises the same branches.
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) ON_WINDOWS=1 ;;
+  *) ON_WINDOWS="" ;;
+esac
+echo "pack-smoke: $(uname -s), bash $BASH_VERSION${ON_WINDOWS:+ — Windows: process control goes through WMI, see stop_jobs}"
+
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 
@@ -28,6 +37,78 @@ cd "$ROOT"
 }
 
 WORK="$(mktemp -d)"
+
+# The one token every process this script launches carries in its command
+# line: the random basename of $WORK (…/tmp.XXXXXXXXXX). On Windows this is
+# what the process query matches — never the full path, because MSYS hands
+# node the 8.3 short-name and the long-name form of the same directory
+# interchangeably (the hosted runner's TEMP is a short-name path, and the
+# first Windows run showed both forms in one log), so a full-path match
+# would miss one of them.
+RUN_TOKEN="$(basename "$WORK")"
+
+# Windows (Git Bash), measured rather than assumed on the first windows-latest
+# run of this script (#211). The chain a boot launches there is: bash.exe (the
+# subshell) -> bash.exe (the `npx` sh shim) -> native node.exe (npx-cli) ->
+# native cmd.exe (npm runs a bin through the shell) -> native node.exe (the
+# rhizomorph server). Every one of them carries $RUN_TOKEN in its command
+# line — one of them in BOTH the 8.3 and the long form of the same temp dir at
+# once, which is why the match is on the token and not on a path.
+#
+# What the POSIX path does there: `kill -TERM -$pgid` reaches the two MSYS bash
+# processes, and the MSYS2 runtime Git for Windows ships takes their native
+# child tree down with them — observed: the query below saw itself and nothing
+# else of the run within a second of the group TERM. That is a property of the
+# runtime, not of POSIX signals; nothing in this script can send a native
+# console process a SIGTERM (`taskkill` without /F posts WM_CLOSE, which a
+# console process ignores). So the WMI branches exist for two reasons: to
+# TERMINATE whatever a runtime without that behaviour leaves behind, and to
+# PROVE on every run that nothing survived — Git for Windows ships no `pgrep`,
+# so without them verify_no_leak's "cannot verify" branch would return 0 on
+# the one runner where a leak is likeliest.
+#
+# Rejected: `taskkill //T` from the MSYS pid (not the Windows pid); matching
+# on $INSTALL_DIR's full path (8.3 vs long form, above); a pidfile or a kill
+# route in the product (ADR-0001: the observer grows no surface so a smoke can
+# kill it). Chosen: every process of THIS run carries $RUN_TOKEN, because
+# every argument path lives under $WORK — so enumerate them through WMI.
+
+# Windows only. One line per process whose command line names this run: its
+# Windows PID, or the word `self` for the PowerShell process running the query
+# — whose own command line carries the token by construction. That sentinel is
+# what makes the query SELF-CHECKING: a working query returns at least `self`,
+# so an empty result means the query itself failed (powershell.exe missing,
+# quoting mangled by the MSYS argv rewrite, WMI unavailable) and is treated by
+# every caller as a failure, never as "nothing running". The first Windows run
+# had no sentinel, matched nothing, and reported clean — the one verdict a
+# leak check must never reach by accident. stderr is folded into the output
+# so a failure's reason is in the log, not discarded.
+#
+# WQL LIKE: `%` is the wildcard; the token is alphanumeric with one dot, so it
+# needs no escaping. MSYS_NO_PATHCONV stops Git Bash rewriting anything
+# slash-shaped in the argument as a path.
+windows_run_query() {
+  MSYS_NO_PATHCONV=1 powershell.exe -NoProfile -NonInteractive -Command \
+    "Get-CimInstance Win32_Process -Filter \"CommandLine LIKE '%$RUN_TOKEN%'\" | ForEach-Object { if (\$_.ProcessId -eq \$PID) { 'self' } else { \$_.ProcessId } }" \
+    2>&1 | tr -d '\r' || true
+}
+
+# True when a query result proves the query ran (see windows_run_query).
+windows_query_ok() {
+  printf '%s\n' "$1" | grep -qx 'self'
+}
+
+# The PIDs in a query result, one per line — everything but the sentinel.
+windows_pids_in() {
+  printf '%s\n' "$1" | grep -E '^[0-9]+$' || true
+}
+
+# The same query, rendered for a LEAK report: pid, parent, image, command line.
+windows_run_report() {
+  MSYS_NO_PATHCONV=1 powershell.exe -NoProfile -NonInteractive -Command \
+    "Get-CimInstance Win32_Process -Filter \"CommandLine LIKE '%$RUN_TOKEN%'\" | Where-Object { \$_.ProcessId -ne \$PID } | Format-Table ProcessId, ParentProcessId, Name, CommandLine -AutoSize -Wrap | Out-String -Width 400" \
+    2>/dev/null | tr -d '\r' || true
+}
 
 # Every background server this script starts, killed by process group.
 #
@@ -42,23 +123,72 @@ WORK="$(mktemp -d)"
 # grace period, then KILL. A CLI that ignores TERM must not be able to hang
 # this script on an unbounded `wait`.
 #
-# Echoes `escalated` when the grace period ran out and SIGKILL was needed, so
-# a caller can report what happened instead of claiming a clean stop.
+# Leaves its verdict in STOP_VERDICT, so a caller can report what happened
+# instead of claiming a clean stop: `escalated` when the grace period ran out
+# and SIGKILL was needed; `terminated` when native Windows processes had to be
+# terminated through WMI; `unverified` when the WMI query itself failed;
+# comma-joined when several apply; empty when TERM alone did it.
+#
+# A variable, NOT stdout read through `$(stop_jobs)`: a command substitution
+# runs in a subshell, and the servers are children of the PARENT shell, so the
+# subshell's `jobs -rp` never sees them change state (no SIGCHLD reaches it)
+# and its `wait` has no children to wait on. Read that way, the grace loop
+# always ran its full 10s and every boot reported "killed" — on every platform,
+# including the runs where TERM had stopped the server in under a second.
+# Found on the first Windows run of this script (#211) and true of the macOS
+# and Linux legs before it.
 stop_jobs() {
-  local pgid waited=0 escalated=""
+  local pgid waited=0 escalated="" terminated=""
+  STOP_VERDICT=""
   for pgid in $(jobs -p); do
     kill -TERM -"$pgid" 2>/dev/null || true
   done
+  if [ -n "$ON_WINDOWS" ]; then
+    # Whatever the group TERM above left alive — on the hosted runner's Git
+    # Bash that is nothing (the MSYS2 runtime takes the native child tree
+    # down with the bash it kills; see the Windows note above
+    # windows_run_query), but a runtime without that behaviour would leave
+    # cmd.exe and the server node.exe orphaned. Stop-Process is
+    # TerminateProcess — Windows offers a console process nothing gentler
+    # from outside — so a stop that needed it is reported as `terminated`,
+    # never as clean. One PowerShell call for the whole list, not one per pid
+    # (joined with tr/sed: Git for Windows does not promise `paste`).
+    local query pids
+    query="$(windows_run_query)"
+    if ! windows_query_ok "$query"; then
+      terminated=unverified
+      echo "stop_jobs: the WMI query FAILED (it did not even see itself); nothing native was terminated. Raw output:" >&2
+      printf '%s\n' "$query" >&2
+    else
+      pids="$(windows_pids_in "$query" | tr '\n' ',' | sed 's/,$//')"
+      if [ -n "$pids" ]; then
+        terminated=terminated
+        echo "stop_jobs: WMI matched pid(s) $pids naming $RUN_TOKEN — terminating:" >&2
+        windows_run_report >&2
+        MSYS_NO_PATHCONV=1 powershell.exe -NoProfile -NonInteractive -Command \
+          "Stop-Process -Id $pids -Force -ErrorAction SilentlyContinue" >/dev/null 2>&1 || true
+      else
+        echo "stop_jobs: WMI matched no process naming $RUN_TOKEN (the query saw itself, so this is a real empty)" >&2
+      fi
+    fi
+  fi
   while [ -n "$(jobs -rp)" ] && [ "$waited" -lt 10 ]; do
     sleep 1
     waited=$((waited + 1))
   done
+  if [ -n "$ON_WINDOWS" ] && [ -n "$(jobs -rp)" ]; then
+    # Which MSYS process outlived both the group TERM and the WMI terminate:
+    # `ps -ef` here is MSYS's own table (PID PPID PGID WINPID … COMMAND).
+    echo "stop_jobs: MSYS job(s) still running after ${waited}s, sending KILL:" >&2
+    jobs -l >&2 || true
+    ps -ef >&2 || true
+  fi
   for pgid in $(jobs -rp); do
     escalated=escalated
     kill -KILL -"$pgid" 2>/dev/null || true
   done
   wait 2>/dev/null || true
-  printf '%s' "$escalated"
+  STOP_VERDICT="${terminated}${terminated:+${escalated:+,}}${escalated}"
 }
 
 # The other half of what pack-smoke promises (#225): a server that answered
@@ -81,6 +211,33 @@ verify_no_leak() {
   # one outcome a leak check must never produce.
   if [ -z "${INSTALL_DIR:-}" ]; then
     echo "nothing was installed yet, so nothing can have leaked"
+    return 0
+  fi
+  if [ -n "$ON_WINDOWS" ]; then
+    # Not pgrep: Git for Windows does not ship it, and the "cannot verify"
+    # branch below would return 0 — a leak check that did not check, on the
+    # runner where the leak is likeliest. The same WMI query stop_jobs used;
+    # clean means it returns nothing.
+    local query leaked="" i
+    for i in $(seq 1 5); do
+      query="$(windows_run_query)"
+      if ! windows_query_ok "$query"; then
+        # Not "clean" and not the pgrep branch's 0: on this runner the check
+        # is the whole point of the leg, so a check that cannot run is red.
+        echo "cannot verify: the WMI process query failed (it did not even see itself), so leaked processes were NOT checked for. Raw output:"
+        printf '%s\n' "$query"
+        return 1
+      fi
+      leaked="$(windows_pids_in "$query")"
+      [ -z "$leaked" ] && break
+      sleep 1
+    done
+    if [ -n "$leaked" ]; then
+      echo "LEAK: process(es) of this run still alive after cleanup (command lines naming $RUN_TOKEN):"
+      windows_run_report
+      return 1
+    fi
+    echo "no leaked processes: clean (WMI: nothing names $RUN_TOKEN)"
     return 0
   fi
   if ! command -v pgrep >/dev/null 2>&1; then
@@ -118,9 +275,9 @@ verify_no_leak() {
 finish() {
   local ec=$?
   trap - EXIT INT TERM
-  stop_jobs >/dev/null
+  stop_jobs
   verify_no_leak || ec=1
-  rm -rf "$WORK"
+  rm -rf "$WORK" || echo "pack-smoke: could not remove $WORK — a handle may still be held; the runner discards its temp dir with the job"
   exit "$ec"
 }
 
@@ -130,9 +287,9 @@ on_signal() {
   local sig="$1"
   trap - EXIT INT TERM
   echo "pack-smoke: caught SIG$sig — stopping servers and checking for leaks before exiting"
-  stop_jobs >/dev/null
+  stop_jobs
   verify_no_leak || true
-  rm -rf "$WORK"
+  rm -rf "$WORK" || echo "pack-smoke: could not remove $WORK — a handle may still be held; the runner discards its temp dir with the job"
   kill "-$sig" $$
 }
 
@@ -179,10 +336,20 @@ mkdir -p "$INSTALL_DIR"
 (cd "$INSTALL_DIR" && npm init -y >/dev/null && npm install "$ROOT_TARBALL" >/dev/null)
 
 BIN="$INSTALL_DIR/node_modules/.bin/rhizomorph"
-[ -x "$BIN" ] || {
-  echo "installed project has no executable rhizomorph bin at $BIN"
-  exit 1
-}
+# On Windows npm writes a sh shim (what Git Bash runs) beside a .cmd (what
+# cmd.exe and npx run); MSYS's `-x` is an emulation over a filesystem with
+# no exec bit, so the honest check there is that both shims exist.
+if [ -n "$ON_WINDOWS" ]; then
+  { [ -f "$BIN" ] && [ -f "$BIN.cmd" ]; } || {
+    echo "installed project lacks the rhizomorph sh shim and/or .cmd shim at $BIN"
+    exit 1
+  }
+else
+  [ -x "$BIN" ] || {
+    echo "installed project has no executable rhizomorph bin at $BIN"
+    exit 1
+  }
+fi
 
 echo "== rhizomorph --version, from the installed artifact, not the repo =="
 INSTALLED_VERSION="$("$BIN" --version)"
@@ -317,14 +484,32 @@ boot_and_check() {
       ;;
   esac
 
+  # On Windows, show what the process query can see while the server is
+  # provably alive (we just read /api/meta from it), so a later "matched no
+  # process" can be read against this rather than guessed at.
+  if [ -n "$ON_WINDOWS" ]; then
+    echo "process tree naming $RUN_TOKEN before the stop ($label):"
+    windows_run_report
+  fi
+
   # The same bounded stop the exit paths use, so this one cannot hang on an
   # unbounded `wait` for a CLI that ignores TERM — and so "cleanly" is only
-  # said when it was actually clean.
-  if [ -n "$(stop_jobs)" ]; then
-    echo "server did not stop on SIGTERM and was killed ($label)"
-  else
-    echo "server shut down cleanly ($label)"
-  fi
+  # said when it was actually clean. Called directly, never as `$(stop_jobs)`:
+  # see the note on stop_jobs for why a subshell cannot observe these jobs.
+  stop_jobs
+  case "$STOP_VERDICT" in
+    "")
+      if [ -n "$ON_WINDOWS" ]; then
+        echo "server stopped on the group TERM ($label) — the MSYS2 runtime took the native tree down with it, and WMI confirms nothing of this run survived"
+      else
+        echo "server shut down cleanly ($label)"
+      fi
+      ;;
+    terminated) echo "server terminated ($label) — Windows has no SIGTERM to send a console process from outside, so 'cleanly' cannot be claimed here" ;;
+    terminated,escalated) echo "server terminated ($label) — Windows has no SIGTERM to send a console process from outside — and the MSYS job wrapper outlived it and needed KILL (see stop_jobs above)" ;;
+    *unverified*) echo "server stop UNVERIFIED ($label) — the WMI query failed, see stop_jobs above; the leak check will fail on the same query" ;;
+    *) echo "server did not stop on SIGTERM and was killed ($label)" ;;
+  esac
 }
 
 # The default case, then two path-robustness cases the audit named
