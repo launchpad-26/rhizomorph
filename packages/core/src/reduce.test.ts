@@ -1698,55 +1698,65 @@ describe('reduce — the trace index is an accelerator, never an input (#184)', 
 // ---------------------------------------------------------------------------
 
 /**
- * The LIVE path's fold, spelled exactly as the live stream spells it: one
- * `reduce(state, event)` per arrival, in arrival order, no sorting
- * (`packages/web/src/app/streamState.ts`, and the server recorder's own fold).
+ * The INCREMENTAL fold, spelled exactly as a stream spells it: one
+ * `reduce(state, event)` per event, in the log's own order, no sorting. That
+ * is what `packages/web/src/app/streamState.ts` and the server recorder do as
+ * events arrive, and — since #205 — what replay's `foldFrom` does as a scrub
+ * advances. Kept beside `reduceAll` so the two spellings can be held to the
+ * same answer rather than assumed to agree.
  */
-function foldLive(events: readonly RhizomorphEvent[]): SessionState {
+function foldIncrementally(events: readonly RhizomorphEvent[]): SessionState {
   let state = initialSessionState()
   for (const event of events) state = reduce(state, event)
   return state
 }
 
 /**
- * The REPLAY path's fold, spelled exactly as replay spells it: `ts`-ascending
- * first, then folded (`packages/web/src/replay/replayFold.ts`'s `sortEvents`
- * feeding `buildSessionIndex`/`foldFrom`).
+ * The fold #205 OUTLAWED: `ts`-ascending first, then reduced.
+ *
+ * Nothing in this repo folds this way. It is here as the counterexample that
+ * gives the law its teeth — the reducer has to actually be order-sensitive, or
+ * "append order is the truth" would be a rule about nothing and every test
+ * below would pass at any ordering. Replay is where this shape used to live
+ * (`packages/web/src/replay/replayFold.ts`'s `sortEvents` once fed
+ * `buildSessionIndex`/`foldFrom`); it no longer does, and `replayFold.test.ts`
+ * is the witness for that.
  */
-function foldReplay(events: readonly RhizomorphEvent[]): SessionState {
+function foldTsSorted(events: readonly RhizomorphEvent[]): SessionState {
   return reduceAll([...events].sort((a, b) => a.ts - b.ts))
 }
 
 /**
- * THE FOLD-ORDER LAW, and the divergence it found.
+ * THE FOLD-ORDER LAW — ruled, and this is the reducer's half of it.
  *
- * The systems chair's verified finding: **live folds arrival order while replay
- * folds `ts`-sorted, through an order-sensitive reducer.** This block is the
- * fixture that pins what each path does today. It does not change either one.
+ * The systems chair's verified finding was a real divergence: live folded
+ * arrival order while replay folded a `ts`-sorted copy, through an
+ * order-sensitive reducer, so the two paths folded one log to two different
+ * states. Lane #204 pinned it and took no side. The operator ruled it on
+ * **#205 (2026-08-24, option 1): a record's append order is the truth**, and
+ * `docs/record-format.md` law 4 now states it — a reader folds the log in the
+ * order it was written and MUST NOT re-sort it by `ts` to decide what the
+ * state became; timestamps navigate time, they do not decide what happened
+ * after what.
  *
- * The reducer is order-sensitive in three distinct ways, each exercised below:
- * last-write-wins on a keyed record (`agent.status`), create-vs-delete on a key
- * (`branch.updated` / `branch.removed`), and first-sighting sequence
- * (`commits.order`, `firstEventTs`). For a log whose own append order disagrees
- * with its timestamps — which real logs do, see `foldOrderEvidence` below —
- * the two paths therefore fold the SAME log to DIFFERENT state.
+ * The ruling splits into two testable halves, and this block owns the first:
  *
- * **What order is the reducer owed?** The repo has already written this down
- * once, for the merge: `docs/record-format.md` says "order per-actor
- * append-only … never reorder two events that came from the *same* actor
- * relative to each other — even if that actor's own timestamps aren't perfectly
- * monotonic (collectors can report a source's own clock, and a tail line can
- * occasionally be older than the line above it)". By that law the log's own
- * append order is the truth and replay's `ts`-sort violates it.
- *
- * That is a ruling to make, not a change to smuggle in here: `sortEvents` also
- * feeds the scrubber's binary search (`boundaryIndex`), which *requires* a
- * `ts`-ascending array, so honouring append order in replay is a change to how
- * scrubbing addresses time, not a one-line swap. This lane therefore documents
- * and pins the divergence and prints `BLOCKED` for the conductor, per the
- * issue's own instruction.
+ * 1. **Here (core):** the reducer really is order-sensitive, so the choice of
+ *    fold order is load-bearing rather than cosmetic — in three distinct ways,
+ *    each exercised below: last-write-wins on a keyed record (`agent.status`),
+ *    create-vs-delete on a key (`branch.updated` / `branch.removed`), and
+ *    first-sighting sequence (`commits.order`, `firstEventTs`). Plus: the
+ *    committed era-1 snapshot is the append-order fold, so the golden corpus
+ *    stands on the ruled side rather than beside it.
+ * 2. **`packages/web/src/replay/replayFold.test.ts` (web):** the functions
+ *    `useReplaySession` actually calls — `buildSessionIndex`, `foldFrom`,
+ *    `foldUpTo` — honour it unconditionally, with the `ts`-sorted copy kept
+ *    for the scrubber's binary search and nothing else. Core cannot import
+ *    web, so that half is proven there against the real implementation rather
+ *    than modelled here; the model in this file is deliberately only ever used
+ *    to show what the ruled-out ordering *would* have said.
  */
-describe('reduce — the fold-order law: what order is the reducer owed? (prd17 ruling 3.4)', () => {
+describe('reduce — the fold-order law: append order is the truth (prd17 ruling 3.4, #205)', () => {
   /**
    * One log whose ARRIVAL order deliberately disagrees with its TIMESTAMP order
    * — the shape `packages/server/src/log/session-log.ts` warns about, where a
@@ -1777,79 +1787,88 @@ describe('reduce — the fold-order law: what order is the reducer owed? (prd17 
     expect(arrival).not.toEqual(sorted)
   })
 
-  describe('what BOTH paths owe — no ordering may change these', () => {
+  it('the two spellings of the one ruled fold agree, event by event and in bulk', () => {
+    const events = interleaved()
+    expect(canonicalStateJson(foldIncrementally(events))).toBe(
+      canonicalStateJson(reduceAll(events)),
+    )
+  })
+
+  describe('what no ordering may change', () => {
     it('counts every event exactly once', () => {
       const events = interleaved()
-      expect(foldLive(events).eventCount).toBe(events.length)
-      expect(foldReplay(events).eventCount).toBe(events.length)
+      expect(reduceAll(events).eventCount).toBe(events.length)
+      expect(foldTsSorted(events).eventCount).toBe(events.length)
     })
 
     it('reports the same last-seen timestamp — a max, not a sequence', () => {
       const events = interleaved()
-      expect(foldLive(events).lastEventTs).toBe(9_000)
-      expect(foldReplay(events).lastEventTs).toBe(9_000)
+      expect(reduceAll(events).lastEventTs).toBe(9_000)
+      expect(foldTsSorted(events).lastEventTs).toBe(9_000)
     })
 
     it('holds the same set of commits, whatever order they were sighted in', () => {
       const events = interleaved()
-      expect(Object.keys(foldLive(events).commits.bySha).sort()).toEqual(['sha-1', 'sha-2'])
-      expect(Object.keys(foldReplay(events).commits.bySha).sort()).toEqual(['sha-1', 'sha-2'])
+      expect(Object.keys(reduceAll(events).commits.bySha).sort()).toEqual(['sha-1', 'sha-2'])
+      expect(Object.keys(foldTsSorted(events).commits.bySha).sort()).toEqual(['sha-1', 'sha-2'])
     })
 
     it('counts the same tokens — spend is a sum, and a sum has no order', () => {
       const events = interleaved()
       const tokensOf = (state: SessionState) =>
         state.telemetry.usage.reduce((sum, record) => sum + record.totalTokens, 0)
-      expect(tokensOf(foldLive(events))).toBe(tokensOf(foldReplay(events)))
-      expect(tokensOf(foldLive(events))).toBeGreaterThan(0)
+      expect(tokensOf(reduceAll(events))).toBe(tokensOf(foldTsSorted(events)))
+      expect(tokensOf(reduceAll(events))).toBeGreaterThan(0)
     })
   })
 
-  describe('where the two paths DIVERGE today — pinned, not fixed (see BLOCKED)', () => {
-    it('disagrees about a keyed record\'s latest value: live takes the last ARRIVAL, replay the latest TIMESTAMP', () => {
+  describe('why the ruling is load-bearing: what a ts-sort would have answered instead', () => {
+    it('a keyed record\'s latest value: the last APPEND wins, not the latest TIMESTAMP', () => {
       const events = interleaved()
-      // Live: `working` then `done` arrived, so `done` is the last write.
-      expect(foldLive(events).agents.a?.status).toBe('done')
-      expect(foldLive(events).agents.a?.previousStatus).toBe('working')
-      // Replay: sorted, `done` (ts 3000) precedes `working` (ts 5000).
-      expect(foldReplay(events).agents.a?.status).toBe('working')
-      expect(foldReplay(events).agents.a?.previousStatus).toBe('done')
+      // Ruled: `working` then `done` were appended, so `done` is the last write.
+      expect(reduceAll(events).agents.a?.status).toBe('done')
+      expect(reduceAll(events).agents.a?.previousStatus).toBe('working')
+      // Outlawed: sorted, `done` (ts 3000) would precede `working` (ts 5000).
+      expect(foldTsSorted(events).agents.a?.status).toBe('working')
+      expect(foldTsSorted(events).agents.a?.previousStatus).toBe('done')
     })
 
-    it('disagrees about whether a branch still EXISTS — the sharpest form of the divergence', () => {
+    it('whether a branch still EXISTS — the sharpest form of the old divergence', () => {
       const events = interleaved()
-      // Live: created, then removed. Gone.
-      expect(foldLive(events).branches['lane-a']).toBeUndefined()
-      // Replay: the removal sorts FIRST and no-ops on a branch that isn't there
-      // yet; the update then creates it. Present, with a head.
-      expect(foldReplay(events).branches['lane-a']?.head).toBe('sha-a')
+      // Ruled: created, then removed. Gone.
+      expect(reduceAll(events).branches['lane-a']).toBeUndefined()
+      // Outlawed: the removal would sort FIRST and no-op on a branch that isn't
+      // there yet; the update would then create it. Present, with a head.
+      expect(foldTsSorted(events).branches['lane-a']?.head).toBe('sha-a')
     })
 
-    it('disagrees about the commit ticker\'s order', () => {
+    it('the commit ticker\'s order', () => {
       const events = interleaved()
-      expect(foldLive(events).commits.order).toEqual(['sha-2', 'sha-1'])
-      expect(foldReplay(events).commits.order).toEqual(['sha-1', 'sha-2'])
+      expect(reduceAll(events).commits.order).toEqual(['sha-2', 'sha-1'])
+      expect(foldTsSorted(events).commits.order).toEqual(['sha-1', 'sha-2'])
     })
 
-    it('disagrees about when the session began: live takes the first ARRIVAL, replay the earliest TIMESTAMP', () => {
+    it('when the session began: the first APPEND, not the earliest TIMESTAMP', () => {
       const events = interleaved()
-      expect(foldLive(events).firstEventTs).toBe(2_000)
-      expect(foldReplay(events).firstEventTs).toBe(1_000)
+      expect(reduceAll(events).firstEventTs).toBe(2_000)
+      expect(foldTsSorted(events).firstEventTs).toBe(1_000)
     })
 
-    it('so the two paths fold one log to two different states — stated once, plainly', () => {
+    it('so the outlawed ordering folds one log to a different state — stated once, plainly', () => {
       const events = interleaved()
-      expect(JSON.stringify(foldLive(events))).not.toBe(JSON.stringify(foldReplay(events)))
+      expect(canonicalStateJson(reduceAll(events))).not.toBe(
+        canonicalStateJson(foldTsSorted(events)),
+      )
     })
   })
 
-  describe('this is not a synthetic worry — a REAL recording diverges too', () => {
+  describe('this is not a synthetic worry — a REAL recording is non-monotonic too', () => {
     /**
      * The era-1 corpus recording (`eras/era-1/recording.jsonl`) is a contiguous
      * slice of a log this instrument actually wrote, and it is not monotonic in
      * `ts`: a `sessionlog` tail line lands beside a `tmux` poll seconds older.
-     * So the divergence above is what the live dashboard and a replay of the
-     * same recording ALREADY disagree about, today, on real data.
+     * So the divergence above is the one the live dashboard and a replay of the
+     * same recording really did disagree over, on real data, before #205.
      */
     const recording = eraCorpusEntry('era-1').recordingText
 
@@ -1859,14 +1878,17 @@ describe('reduce — the fold-order law: what order is the reducer owed? (prd17 
       expect(arrival).not.toEqual([...arrival].sort((a, b) => a - b))
     })
 
-    it('and the two paths fold it to two different states', () => {
+    it('and the outlawed ordering lands it somewhere else entirely', () => {
       const { events } = foldEraRecording(recording)
-      expect(canonicalStateJson(foldLive(events))).not.toBe(canonicalStateJson(foldReplay(events)))
+      expect(canonicalStateJson(reduceAll(events))).not.toBe(
+        canonicalStateJson(foldTsSorted(events)),
+      )
     })
 
-    it('the committed era snapshot is the LOG ORDER fold — the corpus takes no side the ruling has not taken', () => {
+    it('the committed era snapshot is the APPEND-ORDER fold — the corpus stands on the ruled side', () => {
       const { events, state } = foldEraRecording(recording)
-      expect(canonicalStateJson(state)).toBe(canonicalStateJson(foldLive(events)))
+      expect(canonicalStateJson(state)).toBe(canonicalStateJson(foldIncrementally(events)))
+      expect(canonicalStateJson(state)).not.toBe(canonicalStateJson(foldTsSorted(events)))
     })
   })
 })

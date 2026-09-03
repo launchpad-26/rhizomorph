@@ -110,10 +110,12 @@ unconditionally: `web/src/replay/replayFold.ts` folds the log's own order everyw
 and `replayFold.test.ts` proves the once-real divergence gone against the era-1 recording
 that exposed it. `docs/record-format.md` states the per-actor append-order law. This
 document's older "remains unruled" sentences are corrected above; ADR-0002's and
-`docs/architecture.md`'s stale OPEN sections are corrected in this same change. One stale
-witness remains and is named as follow-up work, not touched here: the prose and local
-`foldReplay` helper of `core/src/reduce.test.ts`'s original divergence fixture still model
-the pre-ruling world.
+`docs/architecture.md`'s stale OPEN sections are corrected in this same change. The one stale witness the
+original amendment named as follow-up — the prose and local `foldReplay` helper of
+`core/src/reduce.test.ts`'s divergence fixture, which still modelled the pre-ruling world —
+has since been corrected: that fixture now states the ruled law and keeps the ts-sorted
+fold only as the counterexample proving the reducer is order-sensitive enough for the law
+to bite.
 
 **Ruling 2's door is prd-27 ruling 1's door — one doorway, ruled 2026-08-24.** Hooks and
 scripts append one-line JSON beacons to a rhizomorph-owned watched directory; one beacon
