@@ -219,6 +219,53 @@ agree` · `prd43 w4: the README's recipes are run by the suite` (ruling 5).
 
 **Wave 5 — the sweep, last.** `prd43 w5: the README states where lab sessions live` — downstream
 of wave 0's ADR, and last because it is the one correction whose *content* is decided elsewhere.
+**Amended 2026-09-03:** wave 5 holds two issues, not one. `prd43 w5: a law's file-count comment
+and its assertion say the same thing` was filed into it deliberately (its residual is recorded in
+prd-41), and it is blocked on `#220` rather than on wave 0. The README exclusivity still holds —
+it claims two lab law tests and never `README.md`.
+
+**Wave 6 — the enforcement residue, and the first wave this PRD did not plan.** Waves 1–5 fixed
+the documents ruling 1 and ruling 2 name. Reviewing that work produced a second class: places the
+*laws themselves* are narrower than the rule they enforce, and documents the sweep never reached.
+That is not scope creep, it is what a law finds once it exists, and it belongs to this PRD rather
+than a new one — the `charter-laws` carve-out (2026-09-02) is explicit that where a live PRD owns
+the territory the issue is that PRD's, however awkward the fit.
+
+Fence-disjoint, verified with `scripts/fence-lint.sh` rather than asserted, so all of these may be
+built at once:
+
+- `prd43 w6: every route count this repo states in prose is swept by one law` (#232) — ruling 2's
+  sibling sweep. Two of its eight sites are **wrong today**.
+- `prd43 w6: a separator alone makes a remedy token a path claim` (#231) — ruling 1's own law is
+  narrower than its stated rule.
+- `prd43 w6: docs/demo.md and the shell agree about Esc` (#225) — a document stating the opposite
+  of `PanelGrid.tsx`. Decides which text is right and fixes the document only; if the answer is
+  "the shell should handle Esc", that is a shell issue with its own boundary.
+- `prd43 w6: a tracked screenshot is bound to the tree it depicts` (#226).
+- `prd43 w6: watching.md's gap list states its real provenance` (#233) — wants a judgement first:
+  enumerate the voices, or say the list samples them. Do not add a law before that is ruled.
+
+**Stacked behind, not parallel:** `prd43 w6: the outbound sweep's vocabulary covers three more
+spellings` (#234) claims `route-class-law.test.ts`, which #232 holds. It is three lines once #232
+lands.
+
+**Joining wave 6 when filed:** the corrections downstream of ADR-0032 — `README.md`'s Trust
+section naming the wrong location for lab artefacts, ADR-0005's narrowed root claim, and the
+containment law's silent `claude-projects` clause. Filed after the ADR lands so the issue can cite
+it rather than a branch.
+
+**Wave 7 — a ruling, not a sweep, and it gates the largest file count in this PRD.** `#66` (the
+docs cite a tracker that no longer exists) is deliberately unfenced: 216 dead `#NNN` references
+across 111 files, and the shape chosen — a per-reference marker, one dated note, or a mapping to
+surviving artefacts — decides whether it touches 2 files or 111. Booked the way wave 0 is booked:
+an operator act, not dispatchable until ruled.
+
+Evidence for the ruling, gathered incidentally on 2026-09-03 and worth having before it is made:
+writing ADR-0032 required citing `#148`/`#153` by sha because the commits survived the 2026-08
+recreation and the issue numbers did not, and ADR-0005's own `#243` now returns *"Could not
+resolve to an issue"*. **A dated note alone would not have helped**, because the cost fell on
+*authoring* a citation rather than reading one — which is the case that keeps producing new dead
+references. That argues the guard `#66` already suggests is the load-bearing half.
 
 **Unfiled work implied, described not numbered:** the audited clone's `origin` still points at the
 pre-rename `launchpad-26/rhizomorph.tmp`, working only through GitHub's redirect. That is local git
