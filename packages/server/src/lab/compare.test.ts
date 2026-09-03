@@ -10,6 +10,8 @@ import { exec as realExec } from '../server/exec.js'
 import { captureCheckpoint } from './checkpoint.js'
 import {
   compareFork,
+  COMPARE_EXEC_TIMEOUT_MS,
+  COMPARE_VERIFY_TIMEOUT_MS,
   MIN_ARMS_TO_RANK,
   renderComparison,
   type ForkComparison,
@@ -96,6 +98,22 @@ function execWithVerify(verdicts: Record<string, ExecResult>): Exec {
       return verdicts[String(options?.cwd ?? '')] ?? OK
     }
     return realExec(command, args, options)
+  }
+}
+
+/**
+ * Real git, a verify command that never settles unless `options.timeoutMs`
+ * is set — the shape a real `exec` produces once its native timeout kills
+ * the child (`failed: true`, `code: null`, no stderr — see
+ * `describeExecFailure`, `server/exec.ts`). Left unbounded this would hang
+ * forever, exactly like a stuck gate command; if `compareFork` did not route
+ * it through `withTimeout`, this test would hang until its own timeout.
+ */
+function neverSettlingUnlessBoundedVerify(command: string): Exec {
+  return (cmd, args, options) => {
+    if (cmd !== command) return realExec(cmd, args, options)
+    if (options?.timeoutMs === undefined) return new Promise(() => {})
+    return Promise.resolve({ stdout: '', stderr: '', code: null, failed: true })
   }
 }
 
@@ -209,6 +227,51 @@ describe('compareFork', () => {
     expect(two.rankable).toBe(false)
     expect(three.rankable).toBe(true)
     expect(MIN_ARMS_TO_RANK).toBe(3)
+  })
+
+  it('an injected never-settling verify command makes compareFork report a timeout rather than hang (#8)', async () => {
+    const forkId = await forkWith(3)
+
+    const comparison = await compareFork({
+      forkId,
+      parentWorktreePath: repoDir,
+      dataRoot,
+      verifyCommand: 'fake-gate --ci',
+      exec: neverSettlingUnlessBoundedVerify('fake-gate'),
+    })
+
+    for (const arm of comparison.arms) {
+      expect(arm.verified).toBe('fail')
+      // Not `'exit null'` — that spelling cannot tell "a hung command was
+      // correctly killed" from "every real command is killed" (PR #123
+      // review, Blocking 2), which is exactly the shape this test's mock
+      // produces (`code: null`, no stderr, no stdout). `describeExecFailure`
+      // names the timeout instead.
+      expect(arm.verifiedDetail).toBe('killed with no exit code — the exec timeout')
+    }
+  }, 2000)
+
+  it('gives the verify command COMPARE_VERIFY_TIMEOUT_MS, not the 5s git-plumbing COMPARE_EXEC_TIMEOUT_MS (#123 review, Blocking 2)', async () => {
+    const forkId = await forkWith(1)
+    const seen: Array<{ command: string; args: readonly string[]; timeoutMs: number | undefined }> = []
+
+    await compareFork({
+      forkId,
+      parentWorktreePath: repoDir,
+      dataRoot,
+      verifyCommand: 'fake-gate --ci',
+      exec: async (command, args, options) => {
+        seen.push({ command, args, timeoutMs: options?.timeoutMs })
+        if (command === 'fake-gate') return OK
+        return realExec(command, args, options)
+      },
+    })
+
+    // Both really were spawned, so this cannot pass vacuously.
+    const verifyCall = seen.find((call) => call.command === 'fake-gate')
+    const gitCall = seen.find((call) => call.command === 'git' && call.args[0] === 'rev-list')
+    expect(verifyCall?.timeoutMs, 'the verify command was not spawned').toBe(COMPARE_VERIFY_TIMEOUT_MS)
+    expect(gitCall?.timeoutMs, 'the git plumbing call was not spawned').toBe(COMPARE_EXEC_TIMEOUT_MS)
   })
 })
 

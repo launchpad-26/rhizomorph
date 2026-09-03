@@ -74,13 +74,13 @@ scripts/dev/issues.sh type     <n>... bug|feature|task
 scripts/dev/issues.sh status   <n>... backlog|ready|in-progress|in-review|done
 scripts/dev/issues.sh batch                   # '<issue> <when> <status> [priority] [type]' lines on stdin
 scripts/dev/issues.sh close    <n> "reason"   # a reason is required
-scripts/dev/issues.sh orphans                 # open issues missing from the board
+scripts/dev/issues.sh orphans                 # open issues off the board, or with no milestone
 scripts/dev/issues.sh ids                     # field/option ids, for debugging
 ```
 
 The four setters take **one or more issues, with the value last** —
 `when 548 549 550 now`, never `when now 548 549`. Which argument is which is
-checked rather than assumed (`split_targets`, `scripts/dev/issues.sh:467`): every
+checked rather than assumed (`split_targets` in `scripts/dev/issues.sh`): every
 issue argument must be a bare number and the value must not be, so a transposed
 call dies with "the value goes last, not first" instead of quietly writing
 Timeline `548` onto an issue called `now`.
@@ -131,7 +131,45 @@ Work outside a PRD uses `<area>: <what becomes true>`, e.g.
 `workmux collector: listByHandle keys on basename(path)`.
 
 Every issue must carry a milestone. `scripts/dev/issues.sh orphans` finds the
-ones that do not.
+ones that do not — and finds the ones missing from the board, which is a
+different fact and is reported on its own line. An issue with no milestone
+belongs to no programme and appears in no burndown.
+
+**That sentence was false from the day it was written until 2026-09-02.**
+`cmd_orphans` compared open issues against board membership and never read
+`milestone`, so running the named check answered a different question and then
+printed a success message — the rule read as enforced while nothing enforced
+it, and four issues had drifted milestone-less by the time anyone counted. The
+command now does what this paragraph always claimed. Kept as a note because the
+failure is the interesting part: a wrong pointer to a real command is worse
+than no pointer, since it reports success.
+
+**The one carve-out: `charter-laws`.** Every milestone this repo had was a
+`prd<NN>` until 2026-09-02, which put the rule above in direct collision with the
+naming convention above it: work outside a PRD is a named, legitimate category,
+and there was nowhere for such an issue to be milestoned. Both rules could not
+hold. `charter-laws` is where that squeeze resolves — the milestone for an issue
+that **enforces a rule the design charter already states**, where the PRD that
+set the rule has shipped and no live PRD claims the charter section it sits in.
+
+Reach for it only when all three hold, and prefer a PRD when any does not. If a
+live PRD owns the territory the issue is that PRD's, however awkward the fit; if
+the work needs a ruling made or a new value decided, it wants a PRD of its own,
+and small PRDs are ordinary: prd-49 holds a single issue and prd-50 was written
+for one orphaned residual. `charter-laws` is not the escape from writing one.
+
+`#39` is the case that opened it, and it is worth reading before reusing the
+milestone: charter law 9's greyscale rule is attributed to prd-03, which has
+shipped; the cap restating it sits in `docs/design/charter.md`'s §4 colour
+through-line, which no live PRD claims (prd-30 is the nearest, and its status
+line puts its authority at §6 and disclaims §8); and the issue's own Definition
+of done says the value decision belongs in `docs/design-notes/` rather than a
+PRD — so a PRD
+written to give it a milestone would have contradicted the issue it was homing.
+Law 9 is also the only law in the charter's table recorded as having no automated
+test, so this milestone is deliberately not a programme and holds one issue. If
+it ever holds a wave, that is the signal it has become a PRD and should be
+written as one.
 
 ### Waves and the bundle unit
 
@@ -366,22 +404,23 @@ Two habits are enough to prevent it, and both are cheap:
 
 The third argument is the one this section used not to name. `[load-batches]` is
 a batch count, and the script's own comment calls it **mandatory for anything
-touching tests** (`scripts/gate.sh:91`) — a suite green 8/8 quietly has failed
-67% at 4x concurrency. Given one, the gate runs the suite four times at once per
-batch with each run's worker pool bounded (`--maxWorkers=5`, so the probe measures
-the suite and not the scheduler), and then runs the timing tests **alone,
-serially, once** — the only condition under which a wall-clock assertion means
-anything at all. The timing set is derived rather than listed: a file opts in with
-a `// @gate-timing` marker or a `*.bench.test.ts` name (#209), and a pass that
-matches zero files fails loudly, because the failure it exists to prevent is a
-renamed timing test dropping out of the serial pass and running under load with
-nothing going red. Omit the argument on a branch that touched tests and none of
+touching tests** (the `Load gate:` comment in `scripts/gate.sh`) — a suite green
+8/8 quietly has failed 67% at 4x concurrency. Given one, the gate runs the suite
+four times at once per batch with each run's worker pool bounded
+(`--maxWorkers=5`, so the probe measures the suite and not the scheduler), and
+then runs the timing tests **alone, serially, once** — the only condition under
+which a wall-clock assertion means anything at all. The timing set is derived
+rather than listed: a file opts in with a `// @gate-timing` marker or a
+`*.bench.test.ts` name (#209), and a pass that matches zero files fails loudly,
+because the failure it exists to prevent is a renamed
+timing test dropping out of the serial pass and running under load with nothing
+going red. Omit the argument on a branch that touched tests and none of
 that runs; the landing is green on the friendlier condition.
 
 CI runs `build`, `test`, `typecheck`, `lint`, a packaging guard, and a boot smoke
 across ubuntu + macOS, at the current node and the declared minimum (the
 macOS × min-node leg is excluded — `macos-latest` bills 10x). A **second job**,
-`pack-smoke` (`.github/workflows/ci.yml:166`), packs the tarball, installs it into
+`pack-smoke` in `.github/workflows/ci.yml`, packs the tarball, installs it into
 a project that has never heard of this checkout, and runs the CLI from those
 installed files, on the full 2×2 grid. So the checklist to compare
 `gh pr checks <N>` against is two jobs long, not one. The macOS leg is the one
@@ -389,19 +428,39 @@ that carries signal for path-shape bugs — `os.tmpdir()` is a symlink there
 (`/var` → `/private/var`) and is not on Linux, so a raw-vs-canonical path
 comparison passes vacuously on ubuntu and fails only on macOS.
 
-`Build` runs **before** `Test` (`ci.yml:60`), and a failing step skips every later
-step on its leg: if `Test` fails, typecheck, lint, packaging and boot smoke
-silently do not run. A red leg is therefore worth more than one failing test;
-check `gh run list --branch main` before assuming a gate has been enforcing
-anything.
+`Build` runs **before** `Test`, and a red `Test` does **not** cost you the rest of
+the leg. `Typecheck` and `Lint` are gated on `if: "!cancelled()"`; the packaging
+guard and the boot smoke on `if: "!cancelled() && steps.build.outcome ==
+'success'"`. So a failing suite still leaves four gates' worth of evidence
+behind it, and the two that need a real `dist/` are held back only when `Build`
+itself went red.
+
+`always()` was considered and rejected deliberately — the workflow says why
+beside the packaging guard: the guard flags only *unexpected* files and so
+passes vacuously over an empty `dist/`, while the boot smoke's bin falls back to
+running TS source when `dist` is absent. On a Build-red leg `always()` would
+report both green having verified nothing built. Read a step's own `if:` before
+concluding it did or did not run, and check `gh run list --branch main` before
+assuming a gate has been enforcing anything.
+
+**Cite CI by job and step name, never by line number.** Both citations this
+section used to carry had rotted: `pack-smoke` was named 31 lines off, and the
+`Build` one was wrong and then drifted back into correctness when an unrelated
+PR moved the file — the worse failure, because spot-checking it says "fine".
+It is the lesson `.swarm/coupling.txt` already records for `scripts/gate.sh`: a
+registry entry pinned to a number for a file that moves is a registry entry that
+rots by construction. `packages/server/src/runbook-delivery-law.test.ts` now
+holds this paragraph to the workflow it describes.
 
 CI is 3.5–4 minutes, against a 21-hour queue. **It is not the bottleneck — do
 not optimise it for throughput.** The valuable CI direction is coverage, not
-speed: the `windows-latest` leg **in `ci.yml`** (prd-25) is a real gap, since a
-built clone could not boot on Windows at all until `#281`. The only Windows
-runner anywhere in `.github/workflows/` today is `desktop.yml:40`, the
-installer-packaging leg — so Windows is covered for desktop packaging and absent
-from the test / typecheck / lint / boot grid entirely.
+speed: there is still no `windows-latest` leg **in `ci.yml`** on either job, so
+Windows is absent from the test / typecheck / lint / boot grid and from
+pack-smoke alike. A built clone could not boot on Windows at all until the
+`pathToFileURL` fix in `packages/server/bin/rhizomorph.mjs`, and no CI leg has
+ever witnessed that fix. prd-25 owns the gap; #211 is the leg. The only Windows
+runner anywhere in `.github/workflows/` today is the installer-packaging leg in
+`desktop.yml`, which packages the shell and runs no suite.
 
 ---
 

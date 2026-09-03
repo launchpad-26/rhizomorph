@@ -199,6 +199,28 @@ function clauseIsEntirelyTypeSpecifiers(clause: string): boolean {
  *
  * `[^'"`]*?` spans newlines so a multi-line `import type { A,\n B,\n }` is one
  * range, and stops at the first quote so it cannot run past its own `from`.
+ *
+ * DECLARED RESIDUAL, shared with `codeOf` above (#174): neither this file nor
+ * `codeOf` is string-literal-aware, so a STRING containing the text
+ * `export function ghost() {}` is read as real source once `codeOf` strips
+ * what it thinks are comments around it. In THAT direction it fails CLOSED —
+ * it derives a phantom name that then still has to be found some other way to
+ * matter — and the CONTROL below pins exactly that case.
+ *
+ * The family does NOT fail closed in general, and this comment claimed it did
+ * until the wave-11 verify falsified it. Two members drop a REAL export:
+ *
+ *   `const url = "//x"; export function real() {}`  -> []   (control: ["real"])
+ *   a `/*` inside a string swallows to the next `*\/` ANYWHERE in the file,
+ *   because codeOf's block strip is non-greedy but crosses newlines
+ *
+ * Both need the comment token INSIDE a string literal, and the `//` form needs
+ * the export on the SAME LINE. EXECUTED at wave-11: zero occurrences of either
+ * in any non-test recorder source, so this is unreachable today rather than
+ * live. It is written down because "fails CLOSED" is what a future author
+ * reads when deciding the residual is safe to keep, and for these two forms
+ * that is false. A fix needs a string-literal-aware scanner, a materially
+ * bigger tool than the crude, legible regexes here.
  */
 function typeOnlyImportRanges(code: string): Array<readonly [number, number]> {
   const ranges: Array<readonly [number, number]> = []
@@ -286,13 +308,39 @@ function resolveRelativeSpecifier(fromFile: string, specifier: string): string |
 const BARREL_REEXPORT_RE = /export\s*\{([^}]*)\}\s*from\s*(['"`])([^'"`]*)\2/g
 
 /**
- * Whether a module specifier points at rotation's module. Factored so the name
- * derivation and the barrel-default edge below cannot drift apart: a
- * re-derived copy of a resolver one screen from its original is exactly the
- * divergence a review pass found in `resolveRelativeSpecifier`.
+ * Every `export type { … } from '…'` re-export clause in a barrel.
+ *
+ * Deliberately a SECOND constant rather than a widening of the one above:
+ * `BARREL_REEXPORT_RE` also feeds #87's door law, and perturbing a pattern two
+ * laws share to fix one of them is how a repair opens the next defect. The two
+ * are disjoint by construction — `export\s*\{` cannot match `export type {`,
+ * so nothing is counted twice.
+ *
+ * Without this, a barrel written `export type { Rotation } from './rotate.js'`
+ * — the spelling 12 of this repo's own `index.ts` barrels use, including
+ * `packages/server/src/index.ts` — reported every republished type as MISSING.
+ * A false positive whose fastest apparent fix is weakening the guard.
+ */
+const BARREL_TYPE_REEXPORT_RE = /export\s+type\s*\{([^}]*)\}\s*from\s*(['"`])([^'"`]*)\2/g
+
+/**
+ * Whether a module specifier points at rotation's module — a SIBLING match,
+ * not a basename one: `path.basename('../elsewhere/rotate.js')` is also
+ * `'rotate'`, so a basename-only check credited `export { X } from
+ * '../elsewhere/rotate.js'` as a republish of rotation's `X` (EXECUTED, #174:
+ * `barrelReexportedRotateNames` derived `["RealError"]` from exactly that
+ * clause, crediting a file two directories over as if it were `rotate.ts`
+ * itself). Every real caller — the recorder barrel, and every synthetic
+ * fixture in this file — writes rotation's module as `./rotate` from the file
+ * that imports it, so an exact match on the three spellings of that sibling
+ * reference is precise where a basename match was not, and loses no real
+ * coverage. Factored so the name derivation and the barrel-default edge below
+ * cannot drift apart: a re-derived copy of a resolver one screen from its
+ * original is exactly the divergence a review pass found in
+ * `resolveRelativeSpecifier`.
  */
 function specifierTargetsRotate(specifier: string): boolean {
-  return path.basename(specifier).replace(/\.(?:js|ts)$/, '') === 'rotate'
+  return specifier === './rotate' || specifier === './rotate.js' || specifier === './rotate.ts'
 }
 
 /**
@@ -474,6 +522,522 @@ const BARREL_SOURCE = codeOf(path.join(RECORDER_DIR, 'index.ts'))
 const ROTATION_ENTRY_RE = new RegExp(
   `\\b(?:${rotationEntryPoints(ROTATE_SOURCE, BARREL_SOURCE).map(escapeForAlternation).join('|')})\\b`,
 )
+
+/**
+ * THE BARREL COMPLETENESS GUARD (#154). `rotationEntryPoints` above is
+ * deliberately type-blind — an erased `type` export reaches nothing at
+ * runtime, so it is not a rotation door — but a TYPE drifting out of the
+ * barrel is still a completeness gap, just never a reachability one. This
+ * pair of helpers is the type-AWARE sibling: every name `rotate.ts` exports,
+ * value or type, by declaration or by local `export { … }` clause.
+ *
+ * Kept separate from `namesFromExportClause` / `rotationEntryPoints` rather
+ * than adding an `includeTypes` flag to them: those two are load-bearing for
+ * #87's law and this guard must not risk perturbing what they derive.
+ */
+function allNamesFromExportClause(clause: string): string[] {
+  const names: string[] = []
+  for (const raw of clause.split(',')) {
+    const specifier = raw.trim().replace(/^type\s+/, '')
+    if (!specifier || specifier === 'default') continue
+    const asMatch = specifier.match(/^([\w$]+)\s+as\s+([\w$]+)$/)
+    if (asMatch) {
+      const alias = asMatch[2]
+      if (alias && alias !== 'default') names.push(alias)
+      continue
+    }
+    const bare = specifier.match(/^([\w$]+)$/)
+    if (bare?.[1]) names.push(bare[1])
+  }
+  return names
+}
+
+/**
+ * Every LOCAL binding name in a `const|let|var` declarator LIST — walking at
+ * bracket/brace/paren depth 0 so `export const a = { x: 1 }, b = 2` splits
+ * after the object literal rather than inside it, the same technique
+ * `firstArguments` already uses for call arguments. Two declarator SHAPES: a
+ * plain `name = value` (or bare `name`), and destructuring — `{ a, b }` or
+ * `[a, b]` — read one level deep.
+ *
+ * A NESTED pattern (`{ a: { b } }`) contributes nothing rather than the wrong
+ * thing: `[^{}]*` cannot cross the inner `{`, so the outer match fails
+ * outright and the declarator falls through to the bare-identifier check,
+ * which also fails since it starts with `{`. Reading only the outer key would
+ * derive a name nobody can import; parsing it fully needs a real parser
+ * rather than a comma split — the same call this file already makes for a
+ * namespace default-import, in `defaultImportSpecifiers`'s own doc.
+ *
+ * Takes the RAW source and a start offset, not a pre-cut single-line string
+ * (#185). The caller used to hand this function `([^\n;]*)`'s capture — text
+ * already truncated at the first newline — so a declarator list wrapped
+ * across lines never reached the depth walk below at all: `export const a =
+ * {\n  x: 1,\n}, b = 2` derived only `["a"]`, silently dropping the real
+ * binding `b`. The depth walk already treated `\n` as a terminator ONLY at
+ * depth 0 — it was always able to span a multi-line object literal correctly,
+ * it just never got the bytes past the first line to look at. Reading from
+ * `source` directly is "change the instrument," not "widen the pattern": the
+ * outer regex now matches only the keyword, and this function finds its own
+ * terminator by walking, exactly as it already did one line at a time.
+ *
+ * CORRECTION to the issue's own framing, so it is not repeated: the issue
+ * called this "ordinary `lineWidth: 100` formatting." That premise is FALSE —
+ * `biome.json` sets `"formatter": { "enabled": false }` repo-wide, so nothing
+ * here auto-wraps at any width, and no formatter emitted this shape. The
+ * defect is real regardless: the form is legal TypeScript a person can type
+ * by hand, and the bug is in what the guard does with it, not in how it got
+ * written.
+ *
+ * A rest element (`{ a, ...rest }` / `[a, ...rest]`) is a REAL binding and is
+ * derived, not skipped (#185). It used to be the one undocumented exclusion
+ * in this function — `trimmed.startsWith('...')` skipped straight to the next
+ * entry with no comment saying why, unlike the nested-pattern case above,
+ * which explains itself. `...rest` cannot itself be a nested pattern (JS
+ * requires a rest element's target to be a plain identifier), so stripping
+ * the three dots and running the same bare-identifier check the plain
+ * declarator branch uses is exact, not a heuristic.
+ *
+ * A SECOND wrapped-list shape survived the first fix, found by #185's own
+ * review: `export const a = 1,\n  b = 2` — no bracket at all, the wrap sits
+ * right after the comma. The bracket-depth walk was never the problem for
+ * this one; `\n` at depth 0 is an unconditional terminator, and a comma
+ * immediately followed by a newline hits that terminator before consuming
+ * any of the next declarator, so `b` vanished the same way `b` vanished
+ * before the first fix — the same production, defeated twice, which is
+ * exactly the signal to change the instrument again rather than add a third
+ * bracket-shaped patch. The instrument change: a `\n` at depth 0 is a
+ * terminator UNLESS nothing but whitespace has been consumed since the last
+ * split point (the statement start, or the last top-level comma) — which is
+ * exactly the gap a trailing comma leaves before its newline, and nothing
+ * else. This is narrower than "does the line end in a continuation
+ * operator": it only ever fires in the empty space a comma just created, so
+ * it cannot mistake an ordinary statement boundary for a continuation.
+ *
+ * Declared residual, still not closed by either fix: a declarator that
+ * continues on the next line with NO preceding comma — `export const a =\n
+ * 1` — still terminates early, at the `\n` right after `=`, because the text
+ * since the last split (`a =`) is not all-whitespace. Closing it needs real
+ * ASI-awareness (a line ending in a binary/assignment operator continues),
+ * which is a materially different check from "is anything here yet" and was
+ * not the shape #185's review measured. Unreachable in `rotate.ts` today;
+ * written down because a reader who sees "wrapped lists are now handled"
+ * should not assume this sibling shape is included.
+ */
+/**
+ * An identifier is a BINDING only where a declarator can actually end or
+ * continue: at the end of the declarator, or before `:` (a type annotation),
+ * `=` (an initialiser), or `?`/`!` (optional / definite-assignment). An
+ * unanchored `^([\w$]+)` accepted anything, and the depth walk above tracks
+ * `{[(` but not `<`, quotes or a regex literal — so every comma those hide
+ * split a declarator that is not one, and its first word was minted as an
+ * export name:
+ *
+ *   `export const x: Map<string, number> = new Map()`  ->  ["x", "number"]
+ *   `export const rec: Record<string, string> = {}`    ->  ["rec", "string"]
+ *   `export const s = 'a,b'`                           ->  ["s", "b"]
+ *
+ * EXECUTED at review of #183, against 9b94ba6 and its parent: the parent
+ * derived `["x"]` for all three (the alternation captured one identifier
+ * after the keyword and stopped), so this arrived WITH the declarator-list
+ * repair. It is the same failure the `const enum` arm two screens up was
+ * written for — a phantom name the completeness guard then demands a barrel
+ * republish, which is a red nobody can repair, since `number` is not a symbol
+ * `rotate.ts` can export. Latent rather than live: `rotate.ts`'s single
+ * `export const` today puts its `=` at end of line, and the capture feeding
+ * this function stops at the newline.
+ *
+ * This is #185's "generic-type noise" row, already closed rather than a
+ * residual to leave: it was filed as fails-CLOSED before this anchor existed,
+ * and re-running the `Map<string, number>` case above (EXECUTED, wave-11)
+ * confirms this guard already derives the exact set, not the noisy one — see
+ * the exact-equality test below carrying the same source.
+ *
+ * Anchoring is the narrow half of the trade, and deliberately so: a
+ * declarator this rejects contributes NOTHING rather than a wrong name,
+ * which is the same call `declaratorListNames` already makes for a nested
+ * destructuring pattern. Tracking `<` as depth is the wider half and is
+ * wrong — `export const ok = a < b, also = 2` is a comparison, not a type
+ * argument, and no lexer-free rule tells them apart.
+ */
+const DECLARATOR_BINDING_RE = /^([\w$]+)\s*(?:[:=?!]|$)/
+
+function declaratorListNames(source: string, start: number): string[] {
+  const declarators: string[] = []
+  let depth = 0
+  let declStart = start
+  let i = start
+  for (; i < source.length; i += 1) {
+    const char = source[i]
+    if (char === '{' || char === '[' || char === '(') depth += 1
+    else if (char === '}' || char === ']' || char === ')') depth -= 1
+    else if (char === ';' && depth === 0) break
+    else if (char === '\n' && depth === 0) {
+      // Nothing but whitespace since the statement start or the last
+      // top-level comma is the gap a trailing comma leaves before its own
+      // newline — not a statement end. Anything else here (a real
+      // character already consumed) is a real terminator.
+      if (!/^\s*$/.test(source.slice(declStart, i))) break
+    } else if (char === ',' && depth === 0) {
+      declarators.push(source.slice(declStart, i))
+      declStart = i + 1
+    }
+  }
+  declarators.push(source.slice(declStart, i))
+
+  const names: string[] = []
+  for (const raw of declarators) {
+    const declarator = raw.trim()
+    if (!declarator) continue
+    const pattern = declarator.match(/^\{([^{}]*)\}/) ?? declarator.match(/^\[([^[\]]*)\]/)
+    if (pattern) {
+      for (const entry of (pattern[1] ?? '').split(',')) {
+        const trimmed = entry.trim()
+        if (!trimmed) continue
+        if (trimmed.startsWith('...')) {
+          // A rest element's target is always a plain identifier — JS syntax
+          // forbids a nested pattern here — so the bare check alone is exact.
+          const rest = trimmed.slice(3).trim().match(DECLARATOR_BINDING_RE)
+          if (rest?.[1]) names.push(rest[1])
+          continue
+        }
+        const renamed = trimmed.match(/^[\w$]+\s*:\s*([\w$]+)/)
+        const bare = trimmed.match(DECLARATOR_BINDING_RE)
+        const name = renamed?.[1] ?? bare?.[1]
+        if (name) names.push(name)
+      }
+      continue
+    }
+    const bare = declarator.match(DECLARATOR_BINDING_RE)
+    if (bare?.[1]) names.push(bare[1])
+  }
+  return names
+}
+
+/**
+ * The LOCAL name rotate.ts gives whatever it exports as its default — via
+ * `export default class D {}` / `export default function f() {}`, or the
+ * named-clause spelling `export { x as default }`. Anonymous defaults
+ * (`export default class {}`, `export default function () {}`) mint no name
+ * and are excluded on purpose: there is nothing for a barrel's bare
+ * `export { default } from './rotate.js'` to be credited AS.
+ *
+ * Feeds only the completeness guard's default-credit arm below. A `class`/
+ * `function` default is already in `rotateModuleExportNames`'s general set —
+ * the declaration regex derives its name regardless of `default` — so this
+ * exists to reach the named-clause spelling too, and so BOTH spellings are
+ * satisfied by the same barrel form rather than only one of them (#174: the
+ * clause spelling derived `[]`, and the decl spelling's real name read as
+ * missing from a barrel that in fact republished it under `default`).
+ *
+ * FIXED (#185, review round 2), not left as the narrower residual this doc
+ * first described: the decl-spelling branch used to require `\s+` between an
+ * optional generator `*` and the name (`function\s*\*?\s+`), while
+ * `rotateModuleExportNames`'s general arm accepts a zero-width gap on both
+ * sides of the star (`function\s*\*\s*`). `export default function*gen() {}`
+ * (no space anywhere) derived nothing here, and that one under-matching
+ * regex produced two OPPOSITE symptoms depending on which barrel credit path
+ * used it:
+ *
+ *  - a bare `export { default } from './rotate.js'` got no credit for `gen`
+ *    specifically, so the guard reported a gap that did not exist — fails
+ *    CLOSED, a spurious gap, which is what this doc first, narrowly,
+ *    described and the issue allowed leaving open.
+ *  - a barrel's `export * from './rotate.js'` DOES forward `gen` under the
+ *    star (real JS semantics: only a DEFAULT is excluded from `export *`),
+ *    and the star-credit arm below subtracts real defaults from what it
+ *    credits so a default isn't wrongly counted as forwarded — but with
+ *    `gen` missing from THIS function's returned set, that subtraction never
+ *    happens, and the star credits `gen` as satisfied by a barrel that (per
+ *    real semantics) does not actually forward it. Fails OPEN: the guard
+ *    reports no gap for a name that is not really reachable through that
+ *    barrel. EXECUTED, review round 2.
+ *
+ * One regex made as permissive as its own sibling already is closes both:
+ * `function\s*\*\s*` (matching the general arm exactly) rather than
+ * `function\s*\*?\s+`.
+ */
+function defaultExportLocalNames(rotateSource: string): string[] {
+  const names = new Set<string>()
+  for (const match of rotateSource.matchAll(
+    /\bexport\s+default\s+(?:async\s+)?(?:function\s*\*\s*|function\s+|class\s+)([\w$]+)/g,
+  )) {
+    if (match[1]) names.add(match[1])
+  }
+  for (const match of rotateSource.matchAll(/export\s*\{([^}]*)\}(?!\s*from)/g)) {
+    for (const raw of (match[1] ?? '').split(',')) {
+      const asMatch = raw.trim().match(/^([\w$]+)\s+as\s+default$/)
+      if (asMatch?.[1]) names.add(asMatch[1])
+    }
+  }
+  return [...names]
+}
+
+/**
+ * Every symbol — value or type — `rotate.ts` itself declares as an export.
+ *
+ * `abstract` sits BETWEEN `export` and `class`, and `enum`/`namespace` were
+ * once absent from this alternation — so `export enum X`, `export namespace
+ * X` and `export abstract class X` derived NO name, and a barrel omitting any
+ * of them passed the completeness guard whose whole job is to notice. It
+ * failed OPEN for three legal TypeScript forms. The enumerated grammar test
+ * below is what forces this list; add the row there first.
+ *
+ * `declare` sits in the same position and gets the same optional treatment:
+ * `export declare class D {}` / `export declare function f()` are ambient
+ * declarations — no runtime code, like `type` — but the NAME they declare is
+ * still public surface a barrel must carry, which is a different question
+ * from whether a caller can reach it at runtime (`rotationEntryPoints`, #87's
+ * law, is deliberately type/declare-blind for exactly that reason and is not
+ * touched here).
+ *
+ * `const enum K { A }` is NOT handled by the alternation above: `const` is
+ * followed by `enum`, and the generic `const\s+` branch would capture the
+ * KEYWORD `enum` as the name, losing `K` entirely — the guard then also
+ * demanded the barrel republish a symbol literally called `enum`, making a
+ * genuine gap unreachable to repair (#174). It gets its own arm, matched
+ * BEFORE the declarator-list arm below excludes it.
+ *
+ * `const|let|var` declarator LISTS — `export const a = 1, b = 2`, and
+ * destructuring, `export const { a, b } = obj` / `export const [a, b] = arr`
+ * — are NOT single identifiers, so they are carved out of the alternation
+ * above (which only ever captured the first token after the keyword) and
+ * read by `declaratorListNames` instead, which walks every declarator rather
+ * than assuming there is exactly one (#174: `export const a = 1, b = 2`
+ * derived only `a`, and either destructuring form derived nothing at all).
+ */
+function rotateModuleExportNames(rotateSource: string): string[] {
+  const names = new Set<string>()
+  for (const match of rotateSource.matchAll(
+    /\bexport\s+(?:declare\s+)?(?:default\s+)?(?:async\s+)?(?:abstract\s+)?(?:function\s*\*\s*|function\s+|(?:class|enum|namespace)\s+)([\w$]+)/g,
+  )) {
+    if (match[1]) names.add(match[1])
+  }
+  for (const match of rotateSource.matchAll(/\bexport\s+(?:declare\s+)?const\s+enum\s+([\w$]+)/g)) {
+    if (match[1]) names.add(match[1])
+  }
+  // `(?:declare\s+)?` for the same reason the declaration arm above carries it:
+  // `export declare const c: number` is public surface a barrel must republish,
+  // and `declare` sitting between `export` and the keyword killed the match —
+  // so it derived nothing while `declare class`/`declare function` derived.
+  // Fail-OPEN, and the doc above claimed the general case (#174 verify).
+  for (const match of rotateSource.matchAll(
+    // `const(?!\s+enum\b)\s+`, NOT `const\s+(?!enum\b)`: with the lookahead
+    // AFTER `\s+`, the quantifier backtracks — it gives one space back, the
+    // lookahead then sees whitespace rather than `enum`, and the arm matches,
+    // capturing the KEYWORD as a name. `export const  enum K {}` derived
+    // ["K","enum"] and the guard demanded a barrel republish `enum`: the exact
+    // unrepairable red state #174 was filed for, reachable from ordinary source
+    // because `codeOf` replaces an inline block comment with the empty string
+    // (`export const /* note */ enum D {}` -> two spaces). Anchoring the
+    // lookahead directly after `const` cannot backtrack past it.
+    //
+    // No trailing capture group (#185): the list itself is no longer bounded
+    // by this regex at all — `declaratorListNames` walks `rotateSource`
+    // directly from where the keyword ends, so it can see past the first
+    // newline. See that function's own doc for why.
+    /\bexport\s+(?:declare\s+)?(?:const(?!\s+enum\b)\s+|let\s+|var\s+)/g,
+  )) {
+    const start = (match.index ?? 0) + match[0].length
+    for (const name of declaratorListNames(rotateSource, start)) names.add(name)
+  }
+  // `export * as ns from '…'` mints a NAMESPACE export — a real name a barrel
+  // must still republish for completeness, distinct from the barrel-side
+  // ruling on `BARREL_STAR_REEXPORT_RE` below (#185). This arm is about
+  // rotate.ts's OWN surface: if rotate.ts forwards another module as a
+  // namespace, `ns` is a name that exists whether or not anyone credits a
+  // namespace re-export on the barrel side. Before this arm, the form derived
+  // nothing at all — not noise, an outright silent drop, since no alternation
+  // anywhere in this function reached the `* as` shape.
+  //
+  // `export type * as ns from '…'` is the same arm's own TYPE sibling and is
+  // matched by the same alternation (review of #185). It was the one form in
+  // this family left silently undeclared: the value spelling derived `['ns']`
+  // while the type spelling one keyword away derived `[]` — fails OPEN, since
+  // `ns` is a real local export name either way and this function already
+  // derives type-only names (`export type X`, `export interface X`) into the
+  // same set. One optional keyword is the whole difference; it is the arm's
+  // sibling case, not a new production. NOTE the asymmetry with bare `export type *
+  // from` in the residual table below is the SAME asymmetry the value forms
+  // already carry, and for the same reason: `as ns` names something locally,
+  // a bare star names nothing.
+  // `(?:\s*|\s+type\s+)` rather than `\s*(?:type\s+)?`: the first branch keeps
+  // the value form's original zero-whitespace tolerance byte for byte, and the
+  // second requires real whitespace BEFORE `type`, so widening cannot newly
+  // match an identifier that merely starts with the keyword (`exporttype *`).
+  for (const match of rotateSource.matchAll(
+    /\bexport(?:\s*|\s+type\s+)\*\s*as\s+([\w$]+)\s*from\s*(['"`])[^'"`]*\2/g,
+  )) {
+    if (match[1]) names.add(match[1])
+  }
+  for (const match of rotateSource.matchAll(/\bexport\s+(?:declare\s+)?(?:interface|type)\s+([\w$]+)/g)) {
+    if (match[1]) names.add(match[1])
+  }
+  for (const match of rotateSource.matchAll(/export\s*\{([^}]*)\}(?!\s*from)/g)) {
+    for (const name of allNamesFromExportClause(match[1] ?? '')) names.add(name)
+  }
+  // A SEPARATE arm, because the clause arm above cannot reach this shape: it
+  // requires `export` then optional whitespace then `{`, and `export type {`
+  // has a keyword in between. `export type { X }` therefore derived nothing —
+  // the guard failed OPEN for a form 19 files in this repo already use, and
+  // one `isolatedModules: true` actively nudges authors toward. Found by both
+  // review seats in the wave-10 reconcile; the table above carries its rows.
+  for (const match of rotateSource.matchAll(/\bexport\s+type\s*\{([^}]*)\}(?!\s*from)/g)) {
+    for (const name of allNamesFromExportClause(match[1] ?? '')) names.add(name)
+  }
+  // rotate.ts forwarding a symbol FROM ANOTHER MODULE — `export { x } from
+  // './helpers.js'` — is still part of ITS public surface: a caller reaches
+  // it as `import { x } from './rotate.js'`, so a barrel wanting full
+  // coverage still needs it. The local-clause arm above deliberately EXCLUDES
+  // `from`-clauses (`(?!\s*from)`) — that exclusion is #87's own, for
+  // reachability's `namesFromExportClause`, and completeness has no such
+  // reason, so this arm exists precisely where that lookahead stops (#174).
+  for (const match of rotateSource.matchAll(/export\s*\{([^}]*)\}\s*from\s*(['"`])([^'"`]*)\2/g)) {
+    for (const name of allNamesFromExportClause(match[1] ?? '')) names.add(name)
+  }
+  // And its type-clause sibling, for the same reason the local arm needed one:
+  // `export type { T } from './x.js'` has a keyword between `export` and `{`,
+  // so the arm above cannot reach it and the type vanished from the derived
+  // set. 15 non-test files in this repo use this spelling, 14 of them barrels
+  // (#174 verify). The barrel side already carries a dedicated constant for it.
+  for (const match of rotateSource.matchAll(
+    /\bexport\s+type\s*\{([^}]*)\}\s*from\s*(['"`])([^'"`]*)\2/g,
+  )) {
+    for (const name of allNamesFromExportClause(match[1] ?? '')) names.add(name)
+  }
+  for (const name of defaultExportLocalNames(rotateSource)) names.add(name)
+  return [...names]
+}
+
+/**
+ * The SOURCE name a barrel's `export { a, b as c } from '…'` clause
+ * republishes — the name BEFORE any `as`, which is what rotate.ts itself
+ * calls the symbol. Completeness asks "is rotate.ts's OWN name still reached
+ * through the barrel, under any spelling", the opposite question from a
+ * module's own `export { a as c }`, where `c` IS the public name and
+ * `allNamesFromExportClause` is right to derive the alias — sharing that
+ * function for both was the bug row #174 found: `export { real as alias }
+ * from './rotate.js'` derived `"alias"` and reported `"real"` MISSING from a
+ * barrel that had actually republished it (EXECUTED: `barrelReexportedRotateNames`
+ * returned `Set{"alias"}`, not `Set{"real"}`, against exactly that clause).
+ * `type` is stripped exactly as `allNamesFromExportClause` strips it — the
+ * inline mixed spelling this repo already uses is `export { realDoor, type
+ * SecretOptions } from './rotate.js'`. A bare `default` (renamed or not)
+ * passes through as the literal string `"default"`; the caller below treats
+ * that as a SIGNAL rather than a name, since "default" is a reserved word no
+ * real export can be called.
+ */
+function barrelReexportSourceNames(clause: string): string[] {
+  const names: string[] = []
+  for (const raw of clause.split(',')) {
+    const specifier = raw.trim().replace(/^type\s+/, '')
+    if (!specifier) continue
+    const asMatch = specifier.match(/^([\w$]+)\s+as\s+[\w$]+$/)
+    if (asMatch) {
+      if (asMatch[1]) names.push(asMatch[1])
+      continue
+    }
+    const bare = specifier.match(/^([\w$]+)$/)
+    if (bare?.[1]) names.push(bare[1])
+  }
+  return names
+}
+
+/**
+ * A barrel's `export * from '…'` — deliberately NOT `export * as ns from
+ * …`: that spelling mints a NAMESPACE object rather than forwarding names
+ * directly. `\s*from` sitting right after the `*` is what excludes the
+ * namespace form without a lookahead: `export * as ns from` has `as ns`
+ * between them, so this pattern simply never reaches that text.
+ *
+ * RULING (#185): a barrel's `export * as ns from './rotate.js'` does NOT
+ * satisfy completeness for the names bundled inside `ns`, and this is a
+ * decision, not an open question. Completeness means a name is reachable
+ * from the barrel under ITS OWN identifier — `import { X } from
+ * './index.js'` — which is the access path every real barrel in this repo
+ * offers and the one #87's reachability law itself sweeps for by name. A
+ * namespace object offers only `ns.X`, a structurally different access path
+ * this guard has never verified and was never asked to. Crediting it would
+ * let a barrel satisfy "complete" by wrapping rotation in a namespace nobody
+ * calls by the names this guard is checking for, which defeats the guard's
+ * own purpose more thoroughly than the gap it would be closing. The ruling
+ * is enforced, not merely assumed: `barrelReexportedRotateNames` below never
+ * reads `ns`'s contents, so `barrelCompletenessGaps` reports every rotate.ts
+ * name as still missing even when a barrel carries this clause — pinned by
+ * the CONTROL test below.
+ */
+const BARREL_STAR_REEXPORT_RE = /export\s*\*\s*from\s*(['"`])([^'"`]*)\1/g
+
+/**
+ * Every symbol — value or type — a barrel republishes from rotation's module,
+ * by any of three spellings: a named `export { … } from` / `export type { …
+ * } from` clause (credited by SOURCE name, see `barrelReexportSourceNames`
+ * above), a bare `export { default } from` (credited against whatever
+ * rotate.ts itself exports as default, see `defaultExportLocalNames` —
+ * armed only when `rotateSource` is given), and a blanket `export * from`
+ * (credited against every NON-DEFAULT name rotate.ts exports — real `export
+ * *` semantics forward every named export but not the default, so the
+ * default-credit set is subtracted rather than unioned in). `rotateSource` is
+ * optional so the direct call sites that only ever ask "is THIS ONE named
+ * export a real re-export clause" (never a bare-default or star one, #154's
+ * own two checks) do not have to thread it through for nothing.
+ */
+function barrelReexportedRotateNames(barrelSource: string, rotateSource?: string): Set<string> {
+  const names = new Set<string>()
+  let sawBareDefault = false
+  let sawStarExport = false
+
+  for (const match of barrelSource.matchAll(BARREL_REEXPORT_RE)) {
+    if (!specifierTargetsRotate(match[3] ?? '')) continue
+    for (const name of barrelReexportSourceNames(match[1] ?? '')) {
+      if (name === 'default') sawBareDefault = true
+      else names.add(name)
+    }
+  }
+  for (const match of barrelSource.matchAll(BARREL_TYPE_REEXPORT_RE)) {
+    if (!specifierTargetsRotate(match[3] ?? '')) continue
+    for (const name of barrelReexportSourceNames(match[1] ?? '')) {
+      if (name === 'default') sawBareDefault = true
+      else names.add(name)
+    }
+  }
+  for (const match of barrelSource.matchAll(BARREL_STAR_REEXPORT_RE)) {
+    if (specifierTargetsRotate(match[2] ?? '')) sawStarExport = true
+  }
+
+  if (rotateSource !== undefined) {
+    if (sawBareDefault) {
+      for (const name of defaultExportLocalNames(rotateSource)) names.add(name)
+    }
+    if (sawStarExport) {
+      const defaults = new Set(defaultExportLocalNames(rotateSource))
+      for (const name of rotateModuleExportNames(rotateSource)) {
+        if (!defaults.has(name)) names.add(name)
+      }
+    }
+  }
+  return names
+}
+
+/**
+ * Doors #87's own law protects by keeping them OUT of the barrel:
+ * `performRetarget` and `beginRetargetBoundary` are the rotation-entry points
+ * prd-42 ruling 5 guards, and `reserveInFlightForTest` is the test-only escape
+ * hatch beside them (no production code may import it — see its own doc in
+ * `rotate.ts`). Completeness cannot mean "everything rotate.ts exports": these
+ * three are exactly what that law just closed, and widening the barrel to
+ * cover them would reopen it.
+ */
+const BARREL_GUARDED_DOORS = new Set(['performRetarget', 'beginRetargetBoundary', 'reserveInFlightForTest'])
+
+/** Every rotate.ts export the barrel fails to republish, minus the guarded doors. Empty means the barrel is complete. */
+function barrelCompletenessGaps(
+  rotateSource: string,
+  barrelSource: string,
+  guardedDoors: ReadonlySet<string>,
+): string[] {
+  const republished = barrelReexportedRotateNames(barrelSource, rotateSource)
+  return rotateModuleExportNames(rotateSource).filter((name) => !guardedDoors.has(name) && !republished.has(name))
+}
 
 interface RotationViolationsConfig {
   searchRoot: string
@@ -1119,6 +1683,628 @@ describe('the recorder namespace law (prd16 ruling 2)', () => {
         }
       }
       expect(violations).toEqual([])
+    })
+  })
+
+  describe('the barrel is complete (#154)', () => {
+    it('republishes every public symbol rotate.ts exports, except the law-guarded doors', () => {
+      expect(barrelCompletenessGaps(ROTATE_SOURCE, BARREL_SOURCE, BARREL_GUARDED_DOORS)).toEqual([])
+    })
+
+    it('RotationRefusedError specifically is reachable through the barrel, and api/rotate.ts uses that door', () => {
+      expect(barrelReexportedRotateNames(BARREL_SOURCE, ROTATE_SOURCE).has('RotationRefusedError')).toBe(true)
+      const apiRotateSource = readFileSync(path.join(SERVER_SRC, 'api', 'rotate.ts'), 'utf8')
+      expect(apiRotateSource).toContain("from '../recorder/index.js'")
+      expect(apiRotateSource).not.toContain("from '../recorder/rotate.js'")
+    })
+
+    it('EXECUTED with a CONTROL: a public export removed from the barrel reddens the guard; the guarded doors staying absent does not', () => {
+      const syntheticRotate = [
+        'export function realDoor() {}',
+        'export class RealError extends Error {}',
+        'export function performRetarget() {}',
+        'export function beginRetargetBoundary() {}',
+        'export function reserveInFlightForTest() {}',
+      ].join('\n')
+
+      // CONTROL: the three guarded doors are absent from a barrel that
+      // otherwise republishes everything else rotate.ts exports — this must
+      // NOT redden. If it did, the guard would be demanding exactly the
+      // widening #87's law exists to refuse.
+      const completeBarrel = "export { realDoor, RealError } from './rotate.js'\n"
+      expect(barrelCompletenessGaps(syntheticRotate, completeBarrel, BARREL_GUARDED_DOORS)).toEqual([])
+
+      // EXECUTED: drop a real public export from the barrel — this MUST
+      // redden, and name exactly the dropped symbol. This is the shape #154
+      // found: `RetargetInFlightError` added, its sibling `RotationRefusedError`
+      // left out, and nothing caught it.
+      const incompleteBarrel = "export { realDoor } from './rotate.js'\n"
+      expect(barrelCompletenessGaps(syntheticRotate, incompleteBarrel, BARREL_GUARDED_DOORS)).toEqual(['RealError'])
+    })
+
+    it('EXECUTED — the clause axis: a local `export type { X }` is derived, and a barrel `export type { X } from` is credited', () => {
+      // Both halves failed before the wave-10 reconcile, in opposite
+      // directions, and each has its already-passing sibling here as CONTROL —
+      // the sibling is the point: the harness was always sound and the
+      // spelling was the whole difference.
+      const syntheticRotate = [
+        'export function realDoor() {}',
+        'type SecretOptions = { a: number }',
+        'export type { SecretOptions }',
+      ].join('\n')
+
+      // FAILED OPEN: a barrel omitting SecretOptions used to read as complete.
+      const barrelMissingTheType = "export { realDoor } from './rotate.js'\n"
+      expect(barrelCompletenessGaps(syntheticRotate, barrelMissingTheType, BARREL_GUARDED_DOORS)).toEqual([
+        'SecretOptions',
+      ])
+
+      // CONTROL, the sibling spelling that always worked.
+      const inlineRotate = [
+        'export function realDoor() {}',
+        'type SecretOptions = { a: number }',
+        'export { type SecretOptions }',
+      ].join('\n')
+      expect(barrelCompletenessGaps(inlineRotate, barrelMissingTheType, BARREL_GUARDED_DOORS)).toEqual([
+        'SecretOptions',
+      ])
+
+      // FALSE POSITIVE: the barrel DOES republish it, in the spelling 12 of
+      // this repo's index.ts barrels use — this must be clean, not a gap.
+      const typeOnlyBarrel =
+        "export { realDoor } from './rotate.js'\nexport type { SecretOptions } from './rotate.js'\n"
+      expect(barrelCompletenessGaps(syntheticRotate, typeOnlyBarrel, BARREL_GUARDED_DOORS)).toEqual([])
+
+      // CONTROL: the mixed inline spelling, which always was credited.
+      const inlineBarrel = "export { realDoor, type SecretOptions } from './rotate.js'\n"
+      expect(barrelCompletenessGaps(syntheticRotate, inlineBarrel, BARREL_GUARDED_DOORS)).toEqual([])
+    })
+
+    it('adding a guarded door to the barrel does not satisfy the guard while a real export stays missing', () => {
+      // The trap #154 names explicitly: a "completeness" guard satisfied by
+      // adding `performRetarget` (or either sibling) would be a wrong guard.
+      // Widening the barrel to a guarded door must not paper over a real gap.
+      const syntheticRotate = [
+        'export function realDoor() {}',
+        'export class RealError extends Error {}',
+        'export function performRetarget() {}',
+      ].join('\n')
+      const barrelWithGuardedDoorButMissingRealExport = "export { realDoor, performRetarget } from './rotate.js'\n"
+      expect(
+        barrelCompletenessGaps(syntheticRotate, barrelWithGuardedDoorButMissingRealExport, BARREL_GUARDED_DOORS),
+      ).toEqual(['RealError'])
+    })
+
+    it('a type export drifting out of the barrel is caught too, even though it is never a rotation door', () => {
+      const syntheticRotate = ['export function realDoor() {}', 'export interface RealOptions { at: number }'].join(
+        '\n',
+      )
+      // `RealOptions` is a type — `rotationEntryPoints` never derives a door
+      // from it — but it is still part of the module's public surface.
+      expect(rotationEntryPoints(syntheticRotate, '')).not.toContain('RealOptions')
+      const barrel = "export { realDoor } from './rotate.js'\n"
+      expect(barrelCompletenessGaps(syntheticRotate, barrel, BARREL_GUARDED_DOORS)).toEqual(['RealOptions'])
+    })
+
+    /**
+     * The grammar, enumerated — because for a derivation this IS the reviewable
+     * unit, and the first revision of it failed OPEN on three legal forms.
+     *
+     * `export enum`, `export namespace` and `export abstract class` all derived
+     * NO name: `enum` and `namespace` were absent from the alternation, and
+     * `abstract` sits between `export` and `class`. A barrel omitting any of the
+     * three passed a guard whose entire job is to notice — silently, because a
+     * derivation that yields nothing looks identical to a module with nothing to
+     * declare. Found by a review pass on this commit before it reached a PR.
+     *
+     * A form absent from this table is a form nobody reviewed. Add the row
+     * BEFORE the alternation, so the test is what forces the code.
+     */
+    it('derives a name from every legal export form — a missing form fails the law OPEN, so the set is pinned', () => {
+      const forms: ReadonlyArray<readonly [string, string]> = [
+        ['export function f() {}', 'f'],
+        ['export async function g() {}', 'g'],
+        ['export function* gen() {}', 'gen'],
+        ['export class C {}', 'C'],
+        ['export abstract class Base {}', 'Base'],
+        ['export const k = 1', 'k'],
+        ['export let l = 1', 'l'],
+        ['export var v = 1', 'v'],
+        ['export interface I { a: number }', 'I'],
+        ['export type T = string', 'T'],
+        ['export enum E { A }', 'E'],
+        ['export namespace N {}', 'N'],
+        // The CLAUSE axis. The rows above are all one axis — the declaration
+        // keyword — and the wave-10 review found the guard failing OPEN one
+        // axis over: `export type { X }` is a local type-only clause, legal,
+        // idiomatic under `isolatedModules`, and derived NOTHING. Its sibling
+        // `export { type X }` was already handled, so the spelling was the
+        // whole difference.
+        ['const c = 1\nexport { c }', 'c'],
+        ['const d = 1\nexport { d as renamed }', 'renamed'],
+        ['type Inline = string\nexport { type Inline }', 'Inline'],
+        ['type Local = string\nexport type { Local }', 'Local'],
+        ['type Multi = string\nexport type {\n  Multi,\n}', 'Multi'],
+        // #174's CLAUSE axis, the rest of it — every row EXECUTED at wave-10
+        // against a tree that has since moved; re-run here rather than trusted.
+        ['export const enum K { A }', 'K'],
+        ['export const a = 1, b = 2', 'a'],
+        ['export const a = 1, b = 2', 'b'],
+        ['export declare class D {}', 'D'],
+        ['export declare function f(): void', 'f'],
+        ['export const { a, b } = obj', 'a'],
+        ['export const { a, b } = obj', 'b'],
+        ['export const [a, b] = arr', 'a'],
+        ['export const [a, b] = arr', 'b'],
+        // rotate.ts forwarding a symbol from ANOTHER module — still part of
+        // its own public surface, and invisible only to the local-clause arm
+        // (deliberately, for #87's own reason — see that arm's doc).
+        ["export { helper } from './helpers.js'", 'helper'],
+        // The two forms the wave-11 verify found still uncovered, added BEFORE
+        // the arms that derive them, per this table's own contract above.
+        //
+        // Both are the SAME sibling-miss this file has now recorded three
+        // times: a keyword sitting between `export` and the thing the pattern
+        // anchors on. `export type { T } from` has `type` between `export` and
+        // `{`, exactly as the local `export type { X }` row above did — one
+        // axis over, and 15 non-test files in this repo use it, 14 of them
+        // barrels. `export declare const|let|var` has `declare` between
+        // `export` and the keyword, while `declare class`/`declare function`
+        // two rows up were already covered — so the doc claimed the general
+        // case and the code honoured two spellings of five.
+        ["export type { Forwarded } from './helpers.js'", 'Forwarded'],
+        ['export declare const ambient: string', 'ambient'],
+        ['export declare let mutableAmbient: number', 'mutableAmbient'],
+        ['export declare var legacyAmbient: number', 'legacyAmbient'],
+        // The THREE spellings the first pass at this repair missed, found by
+        // the fix re-review. `declare const|let|var` was widened and the two
+        // arms either side of it were not — the same widen-one-arm-leave-the-
+        // siblings shape this file now records four times.
+        ['export declare const enum AmbientK { A }', 'AmbientK'],
+        ['export declare interface AmbientI { a: number }', 'AmbientI'],
+        ['export declare type AmbientT = string', 'AmbientT'],
+
+        // #185's own family: fail-OPEN forms, EXECUTED against the real
+        // helper, added as this table's own contract requires — before the
+        // arms above that now derive them. NOT "ordinary lineWidth: 100
+        // formatting" — `biome.json` sets `"formatter": { "enabled": false }`
+        // repo-wide, so nothing here auto-wraps anything. Both are legal
+        // hand-written TypeScript regardless, which is why they are worth
+        // guarding.
+        //
+        // A declarator list wrapped inside an object-literal VALUE. `b` used
+        // to vanish silently; the exact-equality test below is what actually
+        // catches that (a `toContain('a')` row here cannot).
+        ['export const a = {\n  x: 1,\n}, b = 2', 'a'],
+        ['export const a = {\n  x: 1,\n}, b = 2', 'b'],
+        // The SAME production, wrapped at the comma instead of inside a
+        // bracket — found by #185's own review round 2 after the row above
+        // shipped: the bracket-depth fix never touched this one, since the
+        // wrap here has no bracket to track at all.
+        ['export const a = 1,\n  b = 2', 'a'],
+        ['export const a = 1,\n  b = 2', 'b'],
+        // A rest element is a real binding, object and array both — it was
+        // the one undocumented exclusion in `declaratorListNames`.
+        ['export const { a, ...rest } = obj', 'a'],
+        ['export const { a, ...rest } = obj', 'rest'],
+        ['export const [a, ...rest] = arr', 'a'],
+        ['export const [a, ...rest] = arr', 'rest'],
+        // `export * as ns from` mints a namespace export on rotate.ts's OWN
+        // surface — a name a barrel must still republish. Distinct from the
+        // RULING on the barrel's own `export * as ns from './rotate.js'`,
+        // recorded beside `BARREL_STAR_REEXPORT_RE` below: that ruling is
+        // about whether a barrel's namespace wrapper satisfies completeness
+        // for rotate.ts's names; this row is about rotate.ts forwarding
+        // ANOTHER module's export as a namespace of its own.
+        ["export * as ns from './helpers.js'", 'ns'],
+        // The same arm's TYPE sibling. The value spelling above derived `ns`
+        // while this one derived nothing at all — a fail-OPEN form in #185's
+        // own family, one keyword from the arm #185 added, and the only one
+        // left with no row and no verdict anywhere in this file (review of
+        // #185). `tns` is a real local export name either way.
+        ["export type * as tns from './helpers.js'", 'tns'],
+        // A TIGHT generator default — no space anywhere around the `*` — found
+        // fail-OPEN (not merely the narrower fail-closed gap first suspected)
+        // by #185's review round 2: `defaultExportLocalNames` missed it, which
+        // let a barrel's `export * from` credit it as forwarded when real `export
+        // *` semantics never forward a default at all. See that function's own
+        // doc for the two-symptom shape one regex produced.
+        ['export default function*tight() {}', 'tight'],
+      ]
+      for (const [source, expected] of forms) {
+        expect(rotateModuleExportNames(source), `no name derived from: ${source}`).toContain(expected)
+      }
+    })
+
+    /**
+     * Forms deliberately NOT rows above, with a verdict and a reason each —
+     * the table's own contract cuts both ways: a form nobody lists is a form
+     * nobody reviewed, so an exclusion has to be as visible as an inclusion.
+     * All three EXECUTED at #185 review round 2.
+     *
+     * - A NESTED destructuring pattern (`export const { outer: { nested } } =
+     *   value`) derives `[]` — fails OPEN, deliberately left. Reading only the
+     *   outer key would mint a name nobody can import; reading it correctly
+     *   needs a real parser, not a comma split. See `declaratorListNames`'s own
+     *   doc and the CONTROL test below, which pins the same verdict under a
+     *   different pair of names.
+     * - `export * from './helpers.js'` on rotate.ts's OWN surface (forwarding
+     *   ANOTHER module's exports in bulk, not the barrel's `export * from
+     *   './rotate.js'` tested elsewhere) derives `[]` — fails OPEN,
+     *   deliberately left, and asymmetric with its `as ns` sibling two rows
+     *   above on purpose: `export * as ns from` names something (`ns`) that
+     *   exists whether or not this file resolves the target module, but a
+     *   bare `export * from` has NO local name at all — the names it forwards
+     *   live in `./helpers.js`, and deriving them means resolving and reading
+     *   an arbitrary file, the same "materially bigger tool" already declared
+     *   out of scope for `codeOf`'s string-literal blindness. See the CONTROL
+     *   test below.
+     * - A barrel containing the TEXT of a re-export clause inside a string or
+     *   template literal (`const note = "export { realDoor } from
+     *   './rotate.js'"`) is credited as if it were a real re-export — fails
+     *   OPEN, on the BARREL side this time, the opposite direction from the
+     *   already-declared module-side residual beside `codeOf` (which fails
+     *   CLOSED, minting a phantom name). Same root cause — neither `codeOf`
+     *   nor the barrel regexes are string-literal-aware — different
+     *   consequence depending on which side of the guard reads the fake text.
+     *   Deliberately left: closing it needs the same string-literal-aware
+     *   scanner already declared out of scope, and widening it to only this
+     *   one shape would be another single-spelling patch on a defect this file
+     *   has already recorded as needing a different kind of tool entirely. See
+     *   the CONTROL test below.
+     * - A declarator list wrapped so the comma lands at the BEGINNING of the
+     *   continuation line (`export const a = 1\n  , b = 2`) derives `["a"]` —
+     *   fails OPEN, `b` dropped (EXECUTED, review of #185; #185's own body
+     *   names this form but the file did not, which is the silent exclusion
+     *   this issue exists to end). Deliberately left, and the reason is #185's
+     *   OWN stopping rule rather than difficulty: the wrapped-declarator-list
+     *   production has already been defeated twice and rebuilt once, and a
+     *   `\n`-at-depth-0 exception for "the next non-whitespace character is a
+     *   comma" would be a third patch on the same production by the same
+     *   method. What closes it is the same real-continuation awareness the
+     *   `export const c =\n  1` residual already names — one tool, both
+     *   shapes — not another leading-character special case. Unreachable in
+     *   `rotate.ts` today, and no formatter here emits it: `biome.json` sets
+     *   `"formatter": { "enabled": false }`. See the CONTROL test below.
+     * - `export type * from './helpers.js'` on rotate.ts's own surface derives
+     *   `[]` — the TYPE spelling of the bare-star residual two rows above, and
+     *   left for exactly the same reason: a bare star has no local name, so
+     *   deriving anything means resolving and reading another file. Recorded
+     *   because its `as ns` sibling IS now derived in both spellings, and a
+     *   reader who sees that should not have to guess which halves of the
+     *   grid are covered. See the CONTROL test below.
+     */
+    it('CONTROL: nested destructuring, a module-side `export * from`, and a barrel string literal are all fail-OPEN residuals declared above, not silently accepted', () => {
+      expect(rotateModuleExportNames('export const { outer: { nested } } = value\n')).toEqual([])
+      expect(rotateModuleExportNames("export * from './helpers.js'\n")).toEqual([])
+      // The two residuals #185's body named but its file left undeclared,
+      // now pinned so an accidental change reddens rather than passing
+      // quietly in either direction (review of #185).
+      expect(rotateModuleExportNames('export const a = 1\n  , b = 2\n')).toEqual(['a'])
+      expect(rotateModuleExportNames("export type * from './helpers.js'\n")).toEqual([])
+
+      const rotateSrc = 'export function realDoor() {}\n'
+      const barrelWithFakeReexportInAString =
+        "const note = \"export { realDoor } from './rotate.js'\"\nexport const nothing = 1\n"
+      // FAILS OPEN: the string's text is credited exactly as a real clause
+      // would be, so this reports NO gap even though the barrel does not
+      // actually republish `realDoor`.
+      expect(
+        barrelCompletenessGaps(rotateSrc, barrelWithFakeReexportInAString, BARREL_GUARDED_DOORS),
+      ).toEqual([])
+      // CONTROL: the same barrel with the fake string removed correctly
+      // reports the real gap — the string, not the guard's general logic, is
+      // what manufactures the false credit above.
+      expect(
+        barrelCompletenessGaps(rotateSrc, "export const nothing = 1\n", BARREL_GUARDED_DOORS),
+      ).toEqual(['realDoor'])
+    })
+
+    /**
+     * The table above asserts with `toContain`, which is right for it — a row
+     * says "this name must be derived" and says nothing about what else is.
+     * That makes it USELESS for the backtracking defect, where the bug IS the
+     * extra name: `export const  enum K {}` derived ["K","enum"] and a
+     * `toContain('K')` row passes on both the broken and the fixed derivation.
+     * EXECUTED — reverting the anchored lookahead left all 52 tests green with
+     * two such rows present, which is why they were replaced by this.
+     *
+     * Exact equality is the assertion the defect actually needs.
+     */
+    it('the const/enum lookahead cannot capture the KEYWORD — exact, not toContain (#174)', () => {
+      for (const source of [
+        'export const  enum SpacedK { A }',
+        'export const\n  enum SpacedK { A }',
+        'export const\tenum SpacedK { A }',
+      ]) {
+        expect(rotateModuleExportNames(source), `keyword captured from: ${JSON.stringify(source)}`).toEqual(['SpacedK'])
+      }
+      expect(rotateModuleExportNames('export declare const  enum SpacedD { A }')).toEqual(['SpacedD'])
+      // The REACHABLE path, end to end: `codeOf` replaces a block comment with
+      // the empty string, so an inline comment leaves TWO spaces behind. This
+      // models that strip rather than passing raw source, which the deriver
+      // never sees — the first draft of this row did, and correctly failed.
+      const stripped = 'export const /* note */ enum Direction { Up }'
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/[^\n]*/g, '')
+      expect(stripped).toBe('export const  enum Direction { Up }')
+      expect(rotateModuleExportNames(stripped)).toEqual(['Direction'])
+      // CONTROLS: the `\b` must still let these through, or the repair has
+      // traded a phantom for a dropped name.
+      expect(rotateModuleExportNames('export const enumerable = 1')).toEqual(['enumerable'])
+      expect(rotateModuleExportNames('export const enum2 = 1')).toEqual(['enum2'])
+      expect(rotateModuleExportNames('export const enum K2 { A }')).toEqual(['K2'])
+    })
+
+    it('CONTROL — a non-export declaration derives nothing, so the table above is not vacuous', () => {
+      for (const source of ['function notExported() {}', 'class NotExported {}', 'enum NotExported { A }']) {
+        expect(rotateModuleExportNames(source)).toEqual([])
+      }
+    })
+
+    it('EXECUTED: `const enum` derives the real name, not the keyword — the old behaviour lost K entirely and demanded the barrel republish a symbol literally called `enum`', () => {
+      const syntheticRotate = 'export const enum Direction { Up, Down }\n'
+      expect(rotateModuleExportNames(syntheticRotate)).toEqual(['Direction'])
+      expect(barrelCompletenessGaps(syntheticRotate, '', BARREL_GUARDED_DOORS)).toEqual(['Direction'])
+    })
+
+    it('EXECUTED: every declarator in `export const a = 1, b = 2` is derived, not just the first', () => {
+      expect(new Set(rotateModuleExportNames('export const a = 1, b = 2\n'))).toEqual(new Set(['a', 'b']))
+    })
+
+    it('EXECUTED: destructured export bindings are derived — object and array patterns both', () => {
+      expect(new Set(rotateModuleExportNames('export const { a, b } = obj\n'))).toEqual(new Set(['a', 'b']))
+      expect(new Set(rotateModuleExportNames('export const [c, d] = arr\n'))).toEqual(new Set(['c', 'd']))
+    })
+
+    it('CONTROL: a nested destructuring pattern derives nothing rather than a name nobody can import', () => {
+      expect(rotateModuleExportNames('export const { a: { b } } = obj\n')).toEqual([])
+    })
+
+    it('EXECUTED: a multi-line declarator list is split at the closing brace, not the first newline — every declarator derived, not just the first (#185)', () => {
+      // A hand-written wrap, not something a formatter emitted — this repo's
+      // `biome.json` disables the formatter entirely. Before the fix, the
+      // outer regex fed `declaratorListNames` text already truncated at the
+      // first `\n`, so this derived only `["a"]` — `b` is a real binding and
+      // vanished silently.
+      const multiline = 'export const a = {\n  x: 1,\n}, b = 2\n'
+      expect(new Set(rotateModuleExportNames(multiline))).toEqual(new Set(['a', 'b']))
+      // CONTROL: object VALUE spanning several lines with no sibling
+      // declarator must still yield exactly the one binding.
+      expect(rotateModuleExportNames('export const solo = {\n  x: 1,\n  y: 2,\n}\n')).toEqual(['solo'])
+    })
+
+    it('EXECUTED, end to end: a barrel omitting the second declarator of a wrapped multi-line list reddens the completeness guard by that name (#185)', () => {
+      const rotateSrc = 'export const a = {\n  x: 1,\n}, b = 2\n'
+      const barrelMissingB = "export { a } from './rotate.js'\n"
+      expect(barrelCompletenessGaps(rotateSrc, barrelMissingB, BARREL_GUARDED_DOORS)).toEqual(['b'])
+      const completeBarrel = "export { a, b } from './rotate.js'\n"
+      expect(barrelCompletenessGaps(rotateSrc, completeBarrel, BARREL_GUARDED_DOORS)).toEqual([])
+    })
+
+    it('EXECUTED: a declarator list wrapped at the COMMA, with no bracket at all, is the same production as the brace-wrapped one above and survived the first fix — round 2 (#185)', () => {
+      // The bracket-depth walk was never what bounded this one: there is no
+      // bracket to track. A comma immediately followed by `\n` hit the
+      // unconditional `\n`-at-depth-0 terminator before consuming any of the
+      // next declarator, so `b` vanished exactly as it did before the first
+      // fix — the SAME production, defeated twice.
+      const wrapped = 'export const a = 1,\n  b = 2\n'
+      expect(new Set(rotateModuleExportNames(wrapped))).toEqual(new Set(['a', 'b']))
+      // CONTROL: a blank line after the comma must not change the answer —
+      // the fix is "nothing but whitespace since the split," not "exactly
+      // one newline."
+      expect(new Set(rotateModuleExportNames('export const a = 1,\n\n  b = 2\n'))).toEqual(new Set(['a', 'b']))
+      // CONTROL, the declared residual this fix does NOT close: wrapping
+      // after `=` with no comma still terminates early, because real content
+      // (`c =`) was already consumed before the newline.
+      expect(rotateModuleExportNames('export const c =\n  1\n')).toEqual(['c'])
+    })
+
+    it('EXECUTED, end to end: a barrel omitting the second declarator of a comma-wrapped list (no bracket) reddens the completeness guard by that name (#185)', () => {
+      const rotateSrc = 'export const a = 1,\n  b = 2\n'
+      expect(
+        barrelCompletenessGaps(rotateSrc, "export { a } from './rotate.js'\n", BARREL_GUARDED_DOORS),
+      ).toEqual(['b'])
+      expect(
+        barrelCompletenessGaps(rotateSrc, "export { a, b } from './rotate.js'\n", BARREL_GUARDED_DOORS),
+      ).toEqual([])
+    })
+
+    it('EXECUTED: a rest element in a destructured export is a real binding and is derived — object and array both, not skipped silently (#185)', () => {
+      expect(new Set(rotateModuleExportNames('export const { a, ...rest } = obj\n'))).toEqual(
+        new Set(['a', 'rest']),
+      )
+      expect(new Set(rotateModuleExportNames('export const [a, ...rest] = arr\n'))).toEqual(new Set(['a', 'rest']))
+      // CONTROL: a rest-only pattern with no leading bindings still derives.
+      expect(rotateModuleExportNames('export const { ...everything } = obj\n')).toEqual(['everything'])
+    })
+
+    it('EXECUTED, end to end: a barrel omitting a rest binding reddens the completeness guard by that name (#185)', () => {
+      const rotateSrc = 'export const { a, ...rest } = obj\n'
+      expect(
+        barrelCompletenessGaps(rotateSrc, "export { a } from './rotate.js'\n", BARREL_GUARDED_DOORS),
+      ).toEqual(['rest'])
+      expect(
+        barrelCompletenessGaps(rotateSrc, "export { a, rest } from './rotate.js'\n", BARREL_GUARDED_DOORS),
+      ).toEqual([])
+    })
+
+    it("EXECUTED: `export * as ns from` mints a namespace export rotate.ts's own barrel must still republish (#185)", () => {
+      expect(rotateModuleExportNames("export * as ns from './helpers.js'\n")).toEqual(['ns'])
+      // CONTROL: a real export alongside it must not be lost or duplicated.
+      expect(new Set(rotateModuleExportNames("export function realDoor() {}\nexport * as ns from './helpers.js'\n"))).toEqual(
+        new Set(['realDoor', 'ns']),
+      )
+    })
+
+    it('EXECUTED, end to end: a barrel omitting a module-side namespace re-export reddens the completeness guard by that name (#185)', () => {
+      const rotateSrc = "export function realDoor() {}\nexport * as ns from './helpers.js'\n"
+      expect(
+        barrelCompletenessGaps(rotateSrc, "export { realDoor } from './rotate.js'\n", BARREL_GUARDED_DOORS),
+      ).toEqual(['ns'])
+      expect(
+        barrelCompletenessGaps(rotateSrc, "export { realDoor, ns } from './rotate.js'\n", BARREL_GUARDED_DOORS),
+      ).toEqual([])
+    })
+
+    it("EXECUTED: `export type * as ns from` is the value arm's own TYPE sibling and derives the same real name (review of #185)", () => {
+      // Measured on #185's head before this fix: the value spelling derived
+      // ['ns'] and the type spelling derived [] — fails OPEN, and it was the
+      // one member of #185's family carrying neither an arm nor a verdict.
+      expect(rotateModuleExportNames("export type * as tns from './helpers.js'\n")).toEqual(['tns'])
+      // CONTROL: the value spelling is unchanged by the widening.
+      expect(rotateModuleExportNames("export * as ns from './helpers.js'\n")).toEqual(['ns'])
+      // CONTROL: widening for `type` must not credit a bare `export type *`,
+      // which has no local name at all — the same asymmetry the value forms
+      // already carry, pinned so the two do not drift apart.
+      expect(rotateModuleExportNames("export type * from './helpers.js'\n")).toEqual([])
+      // CONTROL: an identifier merely STARTING with the keyword mints nothing
+      // — this is why the widening requires whitespace before `type` rather
+      // than hanging `(?:type\s+)?` off the existing `\s*`.
+      expect(rotateModuleExportNames("exporttype * as sneaky from './helpers.js'\n")).toEqual([])
+    })
+
+    it('EXECUTED, end to end: a barrel omitting a module-side TYPE namespace re-export reddens the completeness guard by that name (review of #185)', () => {
+      const rotateSrc = "export function realDoor() {}\nexport type * as tns from './helpers.js'\n"
+      expect(
+        barrelCompletenessGaps(rotateSrc, "export { realDoor } from './rotate.js'\n", BARREL_GUARDED_DOORS),
+      ).toEqual(['tns'])
+      expect(
+        barrelCompletenessGaps(rotateSrc, "export { realDoor, tns } from './rotate.js'\n", BARREL_GUARDED_DOORS),
+      ).toEqual([])
+    })
+
+    it('a declarator-list split cannot mint a name out of a type argument, a string or a regex — exact, not toContain (#183 review)', () => {
+      // The depth walk splits on `,` at `{[(` depth 0, and `<`, quotes and a
+      // regex literal are none of those — so each of these used to yield the
+      // first word AFTER the hidden comma as a second export name. `toContain`
+      // is useless here for the same reason it was useless for the `const
+      // enum` backtrack: the bug IS the extra name. EXECUTED against 9b94ba6
+      // and its parent — parent `["x"]`, 9b94ba6 `["x","number"]`.
+      expect(rotateModuleExportNames('export const x: Map<string, number> = new Map()')).toEqual(['x'])
+      expect(rotateModuleExportNames('export const rec: Record<string, string> = {}')).toEqual(['rec'])
+      expect(rotateModuleExportNames("export const s = 'a,b'")).toEqual(['s'])
+      expect(rotateModuleExportNames('export const t = `a,b`')).toEqual(['t'])
+      expect(rotateModuleExportNames('export const r = /a,b/')).toEqual(['r'])
+      // The same hole one level in: a destructured entry's default value can
+      // hide a comma exactly as an initialiser can.
+      expect(rotateModuleExportNames("export const { a = 'x,y' } = obj")).toEqual(['a'])
+      // CONTROLS — the anchor must not cost a real binding. Every declarator
+      // ending, or continuing into `:`/`=`/`?`/`!`, still derives.
+      expect(new Set(rotateModuleExportNames('export const a = 1, b = 2'))).toEqual(new Set(['a', 'b']))
+      expect(new Set(rotateModuleExportNames('export declare let p: string, q: number'))).toEqual(
+        new Set(['p', 'q']),
+      )
+      expect(rotateModuleExportNames('export declare const ambient: string')).toEqual(['ambient'])
+      expect(rotateModuleExportNames('export let bare')).toEqual(['bare'])
+      expect(rotateModuleExportNames('export const definite!: number = 1')).toEqual(['definite'])
+      // A `<` that is a COMPARISON, not a type argument — the reason `<` is
+      // not tracked as depth. Both bindings are real and both must survive.
+      expect(new Set(rotateModuleExportNames('export const lt = a < b, also = 2'))).toEqual(new Set(['lt', 'also']))
+    })
+
+    it('EXECUTED: `declare class`/`declare function` still derive a name — an ambient export is still public surface, even though it is erased at runtime', () => {
+      expect(rotateModuleExportNames('export declare class D {}\n')).toContain('D')
+      expect(rotateModuleExportNames('export declare function f(): void\n')).toContain('f')
+    })
+
+    it('EXECUTED: rotate.ts forwarding a symbol from another module is still counted as part of its public surface', () => {
+      expect(rotateModuleExportNames("export { helper } from './helpers.js'\n")).toEqual(['helper'])
+    })
+
+    it('EXECUTED, CONTROL: `codeOf`/`rotateModuleExportNames` are not string-literal-aware, so a "comment" inside a string is still read — fails CLOSED, so it is noise rather than a hole (#174)', async () => {
+      const fixtureRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-codeof-string-fixture-'))
+      try {
+        const file = path.join(fixtureRoot, 'noisy.ts')
+        await writeFile(file, 'const s = "export function ghost() {}"\n')
+        expect(rotateModuleExportNames(codeOf(file))).toEqual(['ghost'])
+      } finally {
+        await rm(fixtureRoot, { recursive: true, force: true })
+      }
+    })
+
+    it('EXECUTED: a same-named file in another directory is not credited as a republish of rotation\'s own module — the basename-only bug row #174 found', () => {
+      const syntheticRotate = 'export class RealError extends Error {}\n'
+      const barrelPointingElsewhere = "export { RealError } from '../elsewhere/rotate.js'\n"
+      expect([...barrelReexportedRotateNames(barrelPointingElsewhere)]).toEqual([])
+      expect(barrelCompletenessGaps(syntheticRotate, barrelPointingElsewhere, BARREL_GUARDED_DOORS)).toEqual([
+        'RealError',
+      ])
+    })
+
+    it('EXECUTED: a barrel republishing under a renamed alias is credited under rotate.ts\'s SOURCE name, not the barrel\'s new one', () => {
+      const syntheticRotate = 'export class RealError extends Error {}\n'
+      const renamedBarrel = "export { RealError as alias } from './rotate.js'\n"
+      expect([...barrelReexportedRotateNames(renamedBarrel)]).toEqual(['RealError'])
+      expect(barrelCompletenessGaps(syntheticRotate, renamedBarrel, BARREL_GUARDED_DOORS)).toEqual([])
+    })
+
+    it('EXECUTED — the default-credit sub-axis: a bare `export { default } from` satisfies BOTH an `export { x as default }` clause and an `export default class D`, and a barrel that omits it still reddens', () => {
+      // Direction A: the module names its default via a CLAUSE. Previously
+      // derived nothing at all — `x`'s default-ness was invisible to
+      // completeness, so a barrel omitting it stayed green.
+      const clauseDefault = ['export function realDoor() {}', 'function x() {}', 'export { x as default }'].join(
+        '\n',
+      )
+      const barrelBareDefault = "export { realDoor, default } from './rotate.js'\n"
+      expect(barrelCompletenessGaps(clauseDefault, barrelBareDefault, BARREL_GUARDED_DOORS)).toEqual([])
+
+      // Direction B: the module names its default via `export default class
+      // D`. `D` was already derived — the false positive was on the BARREL
+      // side: a bare `export { default }` was never credited to any name, so
+      // `D` read as missing from a barrel that in fact republishes it.
+      const declDefault = ['export function realDoor() {}', 'export default class D {}'].join('\n')
+      expect(barrelCompletenessGaps(declDefault, barrelBareDefault, BARREL_GUARDED_DOORS)).toEqual([])
+
+      // CONTROL: a barrel that does NOT carry the default at all still
+      // reports the real gap — the fix must not turn into "any barrel passes".
+      const barrelWithoutDefault = "export { realDoor } from './rotate.js'\n"
+      expect(barrelCompletenessGaps(declDefault, barrelWithoutDefault, BARREL_GUARDED_DOORS)).toEqual(['D'])
+    })
+
+    it('EXECUTED: `export * from` credits every non-default rotate.ts export; its own default still needs its own barrel spelling', () => {
+      const syntheticRotate = ['export function realDoor() {}', 'export interface RealOptions { at: number }'].join(
+        '\n',
+      )
+      const starBarrel = "export * from './rotate.js'\n"
+      expect(barrelCompletenessGaps(syntheticRotate, starBarrel, BARREL_GUARDED_DOORS)).toEqual([])
+
+      // A default export is NOT forwarded by `export *` — real JS/TS
+      // semantics, not a rule this guard invents — so the star form alone
+      // does not satisfy it.
+      const withDefault = `${syntheticRotate}\nexport default class Hidden {}\n`
+      expect(barrelCompletenessGaps(withDefault, starBarrel, BARREL_GUARDED_DOORS)).toEqual(['Hidden'])
+
+      // CONTROL: without the star clause, an ordinary named barrel that omits
+      // RealOptions still reports the real gap.
+      const namedBarrel = "export { realDoor } from './rotate.js'\n"
+      expect(barrelCompletenessGaps(syntheticRotate, namedBarrel, BARREL_GUARDED_DOORS)).toEqual(['RealOptions'])
+    })
+
+    it('EXECUTED: a TIGHT generator default (no space around the `*`) is excluded from `export *` credit exactly like any other default — round 2 (#185)', () => {
+      // Before the fix, `defaultExportLocalNames` missed `tight` (its regex
+      // required `\s+` around an optional `*`), so the star-credit arm's
+      // subtraction of real defaults never removed it — a barrel offering
+      // only `export * from './rotate.js'` was credited for `tight` even
+      // though real `export *` semantics never forward a default at all.
+      const syntheticRotate = 'export default function*tight() {}\n'
+      const starBarrel = "export * from './rotate.js'\n"
+      expect(barrelCompletenessGaps(syntheticRotate, starBarrel, BARREL_GUARDED_DOORS)).toEqual(['tight'])
+      // CONTROL: a barrel that DOES carry the bare default correctly clears it.
+      const bareDefaultBarrel = "export { default } from './rotate.js'\n"
+      expect(barrelCompletenessGaps(syntheticRotate, bareDefaultBarrel, BARREL_GUARDED_DOORS)).toEqual([])
+    })
+
+    it('RULING, enforced: `export * as ns from` on the barrel does NOT satisfy completeness — a namespace access path is not the same guarantee as a named one (#174, ruling recorded at #185)', () => {
+      const syntheticRotate = 'export function realDoor() {}\n'
+      const namespaceBarrel = "export * as rotationNamespace from './rotate.js'\n"
+      expect(barrelCompletenessGaps(syntheticRotate, namespaceBarrel, BARREL_GUARDED_DOORS)).toEqual(['realDoor'])
+    })
+
+    it('the guarded-door set is asserted ABSENT from the real barrel, not merely tolerated — adding one silently satisfies nothing (#174)', () => {
+      expect([...BARREL_GUARDED_DOORS].filter((door) => barrelReexportedRotateNames(BARREL_SOURCE, ROTATE_SOURCE).has(door))).toEqual(
+        [],
+      )
     })
   })
 

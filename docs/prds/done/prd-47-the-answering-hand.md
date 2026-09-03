@@ -1,6 +1,9 @@
 # prd-47 — the answering hand: the picture answers the hand, not the model
 
-> **Status:** **BLESSED** — ciaran-slow, 2026-08-28, in session. Milestone `prd47`. Drafted
+> **Status:** **SHIPPED** — 2026-09-02. Milestone `prd47`: six issues, all closed, three waves;
+> wave 4 was never groomed and its ruling was answered NO-GO. The closeout, including what the
+> plan got wrong, is the last section of this document.
+> Blessed by ciaran-slow, 2026-08-28, in session. Drafted
 > 2026-08-28 by KelliherL from `docs/review/2026-08-24-input-latency-audit.md` (six read-only
 > lanes at `4140f6b`, re-verified 2026-08-28 at `48c3476`; every cited line checked against
 > current main). Consumes prd-44's closeout lessons by name: **a ruling's stated mechanism is
@@ -170,6 +173,15 @@ variance is attributed and the tail is printed` (ruling 4's spike — `research/
 
 **Wave 4 — gated on wave 3's spike verdict.** `prd47 w4: the display list allocates on a
 free-list` — groomed only if the GC attribution holds, with the cross-PRD note for `marks/`.
+**It did not hold; wave 4 was never groomed** (see the open question below, and prd-49).
+
+> **SUPERSEDED** by ruling 4's NO-GO (closeout, 2026-09-02): the gate this wave was declared
+> behind was measured and did not open, so no issue was ever filed against it and none will be.
+> The condition under which the question is re-asked is prd-49 and issue #190, not this
+> paragraph. Marked rather than deleted, so citations to it keep resolving — and marked at all
+> because a wave left declared with no issue reads to `scripts/dev/prd-reconcile.sh` as a hole
+> where the work went missing, which is the opposite of what happened here. No issue claims w4,
+> so retiring it strands nothing.
 
 **Unfiled work implied, described not numbered:** the GPU-side harness
 (`EXT_disjoint_timer_query_webgl2` on the existing spike rigs) and everything queued behind it —
@@ -183,7 +195,119 @@ whether the camera is the instrument's claim or the operator's hand.
 
 - **What does the overlay's camera-dependent pass cost during a repaint-only frame?** Unmeasured;
   wave 1 measures before it lands. Open, not ruled.
-- **Is the variance GC?** Ruling 4 exists to answer it; the pooling never lands without it. Open,
-  not ruled.
+- **Is the variance GC?** **Answered NO, 2026-09-01** — `research/2026-08-28-variance-attribution.md`
+  (`74007f3`): 0.74 % of animation-frame time at shipped scale, 0 of 764 frames over budget, and
+  ruling 4's own falsifier not met (worst/median rose, 1.25x → 1.66x). The pooling was never
+  built. The answer is conditional on the scale the instrument renders, and that condition is now
+  **prd-49** (`docs/prds/prd-49-potential-change.md`) with issue #190 — a tripwire in the backlog
+  rather than a paragraph in a closed PRD.
 - **Does `mergeProps`-style context selection (ruling 3's deferred refactor) come here or its own
   PRD?** 25 call sites is a fence question before it is a code question. Open, not ruled.
+
+## The four rulings, as they landed
+
+**Ruling 1 — a camera change repaints; it never rebuilds.** Landed in wave 1 (#156, PR #164) as
+`ScenePainter.repaint()`. The candidate mechanism survived contact, and the reason is recorded on
+the issue: the seam already existed — `submit(frame, panel, camera)` and
+`overlay.draw(frame, panel, camera)` have always taken the camera separately, and `buildFrame`'s
+output contains zero reads of `panel.camera`, which is what makes replaying a retained frame under
+a new camera *correct* rather than approximate. Held by counting laws, not measurements
+(`useFrameLoop.test.ts:147`), including the one that matters most —
+*"five camera moves in a row still build nothing — where a rebuild would hide"*.
+
+**Ruling 2 — an identical frame is skipped at the build, proven at the inputs.** Landed across
+wave 2 (#157 and #178, PR #182): the build skip and, as its sibling, the vertex upload a repaint
+no longer re-sends. Ten laws, `L1`–`L10`. **The ruling's named residual became one of them** —
+`L8: the pin is honest at a frozen clock` is `PulseField.step()`'s idempotence, which the ruling
+required be verified before the pin included it. A residual that turns into a law is the best
+outcome available to a residual.
+
+**Ruling 3 — the beat is honoured where it is already claimed.** Landed in wave 3 (#158, PR #194).
+`FleetContext.tsx:45` cites the ruling in the file it governs. The scope discipline held: the
+25-site `useStream` selector refactor was explicitly not ruled, and was not smuggled in.
+
+**Ruling 4 — variance is measured before it is fixed.** **The only ruling in this document whose
+outcome was a NO**, and it worked exactly as written. The spike ran (#160, PR #194,
+`research/2026-08-28-variance-attribution.md` at `74007f3`), the falsifier the ruling itself
+specified was applied, and it was **not met**: worst/median *rose* under forced out-of-band
+collection, 1.25x → 1.66x, rather than collapsing. GC was 0.74 % of animation-frame time and 0 of
+764 frames missed budget. So the pooling was never built, the wave was never groomed, and the
+report line gained its `worst` column either way, as the ruling required
+(`perf.test.ts:486-489`).
+
+## The six success criteria, assessed
+
+1. **A pure camera change runs no mark builder and no tessellation — MET.** Counting laws, not a
+   wall clock, per criterion 6.
+2. **The hand is answered inside the frame it moved in — MET as specified**, which is to say as
+   counts of stage invocations. The document was careful to define it that way and the laws honour
+   it; see the open question below for what that leaves unmeasured.
+3. **A byte-identical frame is not rebuilt — MET.** `L1`–`L10`, including the frozen-clock pin.
+4. **The fleet is rebuilt on its stated beat — MET.** The 1 Hz tick is the only scheduled rebuild,
+   and while replaying the beat stops entirely (`#155`'s one-clock rule).
+5. **The tail is visible — MET.** The model-floor report prints `worst` beside its median.
+6. **Every claim is a counting law that fails when broken — MET**, and this is the criterion that
+   carried the others: ruling 4's spike is the one place a measurement appears, it is reported
+   rather than asserted, and its verdict lives in prose and on the issue rather than in a
+   wall-clock assertion. `EXECUTED` 2026-09-02: `useFrameLoop.test.ts`, `hitTest.test.ts` and
+   `fleet/` → 8 files, 125 passed.
+
+## The three open questions, answered
+
+**What does the overlay's camera-dependent pass cost during a repaint-only frame?**
+**Answered as far as it can be here, and the limit is stated.** PR #164 records it plainly: *it
+cannot be timed under jsdom* — `getContext('2d')` is null, so `overlay.draw` no-ops — **and no
+number was invented**. What was produced instead is the countable work the pass walks per repaint,
+at three scales: 30 lanes → 331 marks / 75 overlay items / 104 draw calls; 90 → 983 / 225 / 224;
+180 → 1972 / 451 / 404. A wall-clock figure for this pass still does not exist, which is the same
+gap prd-49 names from the other side: **the only browser trace this PRD produced was a dev-server
+one**. Refusing to invent the number was the right call and is why this reads as a gap rather than
+as a wrong answer.
+
+**Is the variance GC?** **NO**, and conditionally so. Answered in the Open questions section above
+with its evidence; the condition is carried by **prd-49** and issue **#190**, which is open. This
+is the whole reason prd-47 could not simply be closed out in silence.
+
+**Does `mergeProps`-style context selection come here or its own PRD?** **Still open, and still
+unowned.** Ruling 3 deferred it, wave 3 did not touch it, and nothing since has taken it. It
+remains a fence question before it is a code question — 25 `useStream` call sites.
+
+## What the plan got wrong
+
+**Almost nothing, and that is the finding.** prd-47 is the first PRD in this cohort drafted after
+prd-44's closeout lessons, and it applied them: every mechanism in its rulings is marked
+*candidate* and explicitly loses to measurement without amendment. Ruling 1's candidate mechanism
+survived; ruling 4's gate closed. **Neither outcome required an amendment**, because the document
+had already said which parts were allowed to be wrong. Compare prd-45, whose ruling 4 named
+`if: always()` as though the mechanism were the ruling and needed a superseding note when it was
+falsified. This is that lesson working.
+
+**The one thing it got wrong is the record, not the plan.** Wave 4's paragraph stayed declared
+after its gate closed, so the milestone read as having a hole in it — `prd-reconcile.sh` reported
+`VACANT wave 4` — while the truth was a decision, not an omission. The 2026-09-01 edit added the
+prose; this closeout adds the marker the corpus already has for exactly this, which is what
+actually clears the row.
+
+**And a scope note worth keeping.** Wave 3 bundled three fenced-apart issues into one PR (#194)
+and the third of them, #160, was the ruling-4 spike whose *only* deliverables were a research note
+and one report column. Bundling a spike with two behavioural fixes worked here because the fences
+were disjoint, but it means the NO-GO — the most consequential single fact this PRD produced —
+landed inside a PR whose title is about three other things. That is how it came to need a separate
+PRD to be visible at all.
+
+## Residuals, with owners
+
+- **The conditional NO-GO.** **prd-49**, issue **#190**, open, `Later` / `Low`. The trigger and
+  the re-measurement order (production build first, pooling never on the trigger alone) are on the
+  issue. **Owned.**
+- **A wall-clock cost for the overlay's camera-dependent pass**, and more generally a browser
+  measurement against a production rather than dev-server build. Named by open question 1 here and
+  by prd-49's evidence section. **No owner.**
+- **`mergeProps`-style context selection**, 25 `useStream` sites. Deferred by ruling 3, still
+  unowned, still a fence question first.
+- **The unfiled work this PRD described but never numbered** — the GPU-side harness
+  (`EXT_disjoint_timer_query_webgl2`) and everything queued behind it, the StreamContext selector
+  layer, the SSE parse-off-thread question, `content-visibility` on dock panels, `powerPreference`,
+  and input prediction, the last of which is gated on a ruling nobody has made about whether the
+  camera is the instrument's claim or the operator's hand. **No owner**, and named here rather
+  than re-described: the Sequencing paragraph above is still the list.

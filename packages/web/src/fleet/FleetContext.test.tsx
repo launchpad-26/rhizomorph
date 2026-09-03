@@ -1,11 +1,21 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { createEvent, createEventFactory, fixtureHistory, fleet20Spec, pathologySpec } from '@rhizomorph/core'
+import {
+  buildFleet,
+  createEvent,
+  createEventFactory,
+  fixtureHistory,
+  fleet20Spec,
+  initialSessionState,
+  pathologySpec,
+  reduce,
+  reduceAll,
+} from '@rhizomorph/core'
 import { ModeProvider, useReplay } from '../app/ModeContext.js'
 import { StreamProvider } from '../app/StreamContext.js'
 import type { EventSourceLike } from '../hooks/useEventStream.js'
 import type { FetchLike as ReplayFetchLike } from '../replay/api.js'
-import { FLEET_TICK_MS, FleetProvider, useFleet } from './FleetContext.js'
+import { FLEET_INPUT_SLICES, FLEET_TICK_MS, FleetProvider, useFleet } from './FleetContext.js'
 import Scene from '../scene/index.js'
 import { SelectionProvider } from './selection.js'
 import { LANES_URL, type FetchLike } from './manifest.js'
@@ -665,5 +675,187 @@ describe('the scene and the fleet share one state clock (#269)', () => {
     // meaning the replay branch never ran at all.
     expect(sceneFrames.seen.filter((seen) => seen.asOf === undefined)).toEqual([])
     expect(sceneFrames.seen.at(-1)?.asOf).toBe(range.end)
+  })
+})
+
+// ── the beat (#158) ─────────────────────────────────────────────────────────
+
+/**
+ * Ruling 3: the fleet rebuilds on its tick and on the facts `buildFleet`
+ * reads, never on `state.session`'s own reference — which `core`'s `reduce`
+ * replaces on every event via `withEnvelope`, whatever the event was. Nothing
+ * here mocks `buildFleet`: a rebuild IS a `fleet` identity change, the same
+ * probe the seek-coalescing test above already proved out (`fleet !==
+ * lastFleet` → `rebuilds++`).
+ */
+async function renderBeatChain(fetchLanes: FetchLike) {
+  let source: EmittingEventSource | undefined
+  let lastFleet: unknown = null
+  let rebuilds = 0
+
+  function BeatProbe() {
+    const fleet = useFleet()
+    if (fleet !== lastFleet) {
+      lastFleet = fleet
+      rebuilds++
+    }
+    return null
+  }
+
+  await act(async () => {
+    render(
+      <StreamProvider
+        url="/api/stream"
+        now={NOW}
+        createSource={() => {
+          source = new EmittingEventSource()
+          return source
+        }}
+      >
+        <FleetProvider now={NOW} fetchLanes={fetchLanes}>
+          <BeatProbe />
+        </FleetProvider>
+      </StreamProvider>,
+    )
+  })
+
+  return {
+    getSource: () => source as EmittingEventSource,
+    rebuilds: () => rebuilds,
+    fleet: () => lastFleet,
+  }
+}
+
+describe('the beat (#158)', () => {
+  it('does not rebuild on an event buildFleet cannot read — the falsifier (success 4)', async () => {
+    const chain = await renderBeatChain(noLaneManifest)
+    const f = createEventFactory({ startTs: NOW, idPrefix: 'beat-1' })
+    const rebuildsBefore = chain.rebuilds()
+    const fleetBefore = chain.fleet()
+
+    await act(async () => {
+      chain.getSource().emit(f.judgeFinding())
+    })
+
+    expect(chain.rebuilds()).toBe(rebuildsBefore)
+    // The stronger half: not just "the same count" but the exact same object,
+    // which is what a silently-broken rebuild counter could not fake.
+    expect(chain.fleet()).toBe(fleetBefore)
+  })
+
+  it('stays put across a run of events buildFleet cannot read (repetition)', async () => {
+    const chain = await renderBeatChain(noLaneManifest)
+    const f = createEventFactory({ startTs: NOW, idPrefix: 'beat-2' })
+    const rebuildsBefore = chain.rebuilds()
+
+    // `session.closed` is the purest case: `applyEvent` returns `state`
+    // unchanged and only `withEnvelope` moved the reference.
+    for (const event of [
+      f.judgeFinding(),
+      f.forkDispatched(),
+      f.forkCheckpoint(),
+      f.sessionClosed(),
+      f.judgeFinding(),
+    ]) {
+      await act(async () => {
+        chain.getSource().emit(event)
+      })
+      expect(chain.rebuilds()).toBe(rebuildsBefore)
+    }
+  })
+
+  it('DOES rebuild on an event buildFleet reads — the positive control', async () => {
+    // Without this, the falsifier and the repetition test above would pass on
+    // a hook that never rebuilds anything at all.
+    const chain = await renderBeatChain(noLaneManifest)
+    const f = createEventFactory({ startTs: NOW, idPrefix: 'beat-3' })
+    const rebuildsBefore = chain.rebuilds()
+
+    await act(async () => {
+      chain.getSource().emit(f.worktreeDirty({ path: '/repo-wt/beat-3' }))
+    })
+    expect(chain.rebuilds()).toBe(rebuildsBefore + 1)
+
+    await act(async () => {
+      chain.getSource().emit(f.llmUsage())
+    })
+    expect(chain.rebuilds()).toBe(rebuildsBefore + 2)
+
+    await act(async () => {
+      chain.getSource().emit(f.judgeFinding())
+    })
+    expect(chain.rebuilds()).toBe(rebuildsBefore + 2)
+  })
+
+  it('the manifest is still a key: its arrival still rebuilds the fleet', async () => {
+    // countingLanes([null, laneManifestBody]): the boot fetch (no repo named
+    // yet) answers with no manifest; `startedFor` names a repo, which
+    // `useLaneManifest` re-asks on (`repoPath` in its dep array) and this
+    // time gets one. Two things move in that one settle: `state.session`
+    // itself (a fleet input on its own) and, one microtask later, the
+    // manifest resolving — so a correctly-keyed fleet rebuilds twice, not
+    // once. If `manifest` were ever dropped from the memo's key, the second
+    // of those — the manifest's own arrival — could not produce a rebuild,
+    // and this would read `rebuildsBefore + 1` instead: the regression this
+    // guards against.
+    const lanes = countingLanes([null, laneManifestBody])
+    const chain = await renderBeatChain(lanes.impl)
+    const rebuildsBefore = chain.rebuilds()
+
+    await act(async () => {
+      chain.getSource().emit(startedFor('alpha', 's-alpha-beat-4'))
+    })
+
+    expect(chain.rebuilds()).toBe(rebuildsBefore + 2)
+  })
+
+  it('keys on eleven slices plus the clock and the manifest (thirteen in total)', () => {
+    // Do not re-prove the tick itself — the one clock rule describe above
+    // already covers `FLEET_TICK_MS` end to end. This only guards against a
+    // slice silently falling out of the constant the key is spread from.
+    expect(FLEET_INPUT_SLICES).toHaveLength(11)
+  })
+
+  /** Slices `buildFleet` provably does not read, plus the envelope fields. */
+  const SLICES_THE_FLEET_IGNORES = [
+    'checkpoints',
+    'forks',
+    'judge',
+    'refusals',
+    'eventCount',
+    'firstEventTs',
+    'lastEventTs',
+  ] as const
+
+  it('every SessionState key is either a fleet input or a declared non-input', () => {
+    // The anti-rot ratchet: this is the law that survives the file being
+    // edited by someone who has never read this issue. A new slice on
+    // `SessionState` fails here until a human decides which side it is on.
+    expect([...FLEET_INPUT_SLICES, ...SLICES_THE_FLEET_IGNORES].sort()).toEqual(
+      Object.keys(initialSessionState()).sort(),
+    )
+  })
+
+  it('an event touching only an ignored slice changes nothing buildFleet returns but eventCount', () => {
+    const f = createEventFactory({ startTs: NOW, idPrefix: 'beat-7' })
+    f.sessionStarted()
+    f.worktreeDiscovered({
+      path: '/repo-wt/beat-7',
+      branch: 'beat-7',
+      head: 'sha-0',
+      isMain: false,
+    })
+    const baseEvents = f.all()
+    const before = reduceAll(baseEvents)
+    const after = reduce(before, f.judgeFinding())
+    const opts = { now: NOW, manifest: null }
+
+    expect({ ...buildFleet(after, opts), eventCount: 0 }).toEqual({
+      ...buildFleet(before, opts),
+      eventCount: 0,
+    })
+    // Stated as a fact rather than left as a comment: this is the
+    // `eventCount` decision from the plan, not an oversight.
+    expect(buildFleet(after, opts).eventCount).toBe(before.eventCount + 1)
   })
 })

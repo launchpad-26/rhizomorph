@@ -143,17 +143,27 @@ When a fact isn't available, the UI says so in words instead of guessing or
 showing a bare zero (law 12). Exact strings you may see:
 
 - `NO COST FEED (OTel) — dollars unavailable — run: eval "$(rhizomorph env <lane>)"`
-- `NO LANE MANIFEST (.swarm/lanes.json) — off-fence detection unavailable — run: dispatch.sh (writes the fence manifest)`
-- `NO FENCE FOR N/M LANES — those lanes cannot be judged off-fence`
-- `UNATTRIBUTED SPEND (N lanes) — burn has no declared owner`
-- `CONDUCTOR NOT INSTRUMENTED — overhead ratio unknowable` (burn strip) / `— orchestration overhead unknowable` (fleet-level gap)
+- `NO LANE MANIFEST (.swarm/lanes.json) — off-fence detection unavailable — run: your dispatch tooling — writes .swarm/lanes.json, not part of this repo (see docs/user-guide/troubleshooting.md)`
+- `NO FENCE FOR N/M LANES — those lanes cannot be judged off-fence — run: your dispatch tooling — writes .swarm/lanes.json, not part of this repo (see docs/user-guide/troubleshooting.md)`
+- `UNATTRIBUTED SPEND (N lanes) — burn has no declared owner — run: eval "$(rhizomorph env <lane> --role worker)"`
+- `CONDUCTOR NOT INSTRUMENTED — overhead ratio unknowable` (burn strip, no remedy suffix — `packages/web/src/panels/burn/format.ts`) / `CONDUCTOR NOT INSTRUMENTED — orchestration overhead unknowable — run: rhizomorph --extra-sessions <dir>:conductor` (fleet-level gap)
 - `<COLLECTOR> COLLECTOR DISABLED — <reason> — run: rhizomorph doctor`
 - `<COLLECTOR> COLLECTOR DEGRADED — <last error, or "retrying after failures"> — run: rhizomorph doctor` — the honest middle (#304): a collector still trying, which is the voice a flaky feed actually speaks in
 - `NO TRACE TELEMETRY — no trace telemetry from this lane — see docs/telemetry.md.` (per-lane, wherever a trace is drawn — the run view's trace column, the dock's own trace panel)
 
-Each one names what's missing, why, and the exact command that fixes it —
-see [troubleshooting.md](troubleshooting.md) for the ones you'll hit most on
-a first run.
+Each one names what's missing, why, and what closes it — usually a command you
+can paste. Two exceptions, both deliberate. The burn strip's conductor gap has
+no remedy suffix at all, because it is a one-line cell with no room for one;
+the fleet-level gap for the same fact carries the command. And the two manifest
+gaps name *tooling* rather than a command, because `.swarm/lanes.json` is
+written by whatever dispatch tooling you run, which lives outside this repo —
+until #63 they claimed to be a command, `run: dispatch.sh`, and sent readers
+hunting for a script this repo has never contained.
+
+These are transcribed from `buildGaps` (`packages/core/src/fleet/gaps.ts`) and
+are not checked against it by any test, so treat a mismatch as this list being
+stale, not the UI being wrong. See [troubleshooting.md](troubleshooting.md) for
+the ones you'll hit most on a first run.
 
 ## The peek
 

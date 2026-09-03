@@ -3,12 +3,29 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import type { Exec } from '@rhizomorph/core'
 import { rhizomorphEventSchema } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { readSessionEvents } from '../log/session-log.js'
 import { exec as realExec } from '../server/exec.js'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
 import { captureCheckpoint } from './checkpoint.js'
+
+/**
+ * The shape a real `exec` produces once its native timeout kills the child:
+ * `failed: true`, `code: null`, no stderr — see `describeExecFailure`
+ * (`server/exec.ts`). Settling ONLY when `options.timeoutMs` is set means
+ * this exec, left unbounded, would hang forever — exactly a stuck git
+ * subprocess. If `captureCheckpoint` did not route it through `withTimeout`,
+ * this test would hang until its own timeout and fail; the timeout wiring is
+ * what turns that hang into a prompt, legible rejection instead.
+ */
+function neverSettlingUnlessBoundedExec(): Exec {
+  return (_command, _args, options) => {
+    if (options?.timeoutMs === undefined) return new Promise(() => {})
+    return Promise.resolve({ stdout: '', stderr: '', code: null, failed: true })
+  }
+}
 
 let repoDir: string
 let dataRoot: string
@@ -224,4 +241,18 @@ describe('captureCheckpoint', () => {
     const recorded = await readSessionEvents(first.recordedTo)
     expect(recorded).toHaveLength(2)
   })
+
+  it('an injected never-settling exec makes captureCheckpoint reject with a timeout rather than hang (#8)', async () => {
+    await expect(
+      captureCheckpoint({
+        lane: '148-lab-checkpoint',
+        worktreePath: repoDir,
+        capturedBy: 'operator',
+        exec: neverSettlingUnlessBoundedExec(),
+        dataRoot,
+        claudeProjectsRoot,
+        now: () => 1_000_000,
+      }),
+    ).rejects.toThrow(/git rev-parse --absolute-git-dir failed/)
+  }, 2000)
 })

@@ -29,7 +29,7 @@ and, after that, dispatch. Both have since happened.
       +4 spec sections
 - [x] `docs/prds/done/prd-36-the-fleet-surface.md` — NEW (organism ⇄ list)
 - [x] `docs/prds/prd-34-the-doorstep.md` — +5 rulings, +3 spec sections
-- [x] `docs/prds/prd-33-the-living-scene.md` — +7 rulings, +1 spec section
+- [x] `docs/prds/done/prd-33-the-living-scene.md` — +7 rulings, +1 spec section
 - [x] `docs/prds/parked/prd-37-the-shared-world.md` — NEW (the team layer; parked
       2026-08-22 pending renewed product blessing)
 - [x] charter amendments on `design-charter` (PR #451): four pending rulings

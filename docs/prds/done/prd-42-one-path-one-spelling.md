@@ -1,6 +1,9 @@
 # prd-42 — one path, one spelling: a path means the same thing everywhere it is written
 
-> **Status:** **BLESSED** — Ciaran Slow, 2026-08-22, in session. Milestone `prd42`. Drafted the same day from the reconciled audit
+> **Status:** **SHIPPED** — 2026-09-02. Milestone `prd42`: twenty-eight issues, all closed,
+> across eleven waves; the closeout, including what the plan got wrong, is the last section of
+> this document.
+> Blessed by Ciaran Slow, 2026-08-22, in session. Drafted the same day from the reconciled audit
 > at `03df141` (findings 3, 19, 20 — untracked artefact, `.gitignore`d; the sha is the anchor). Stands on `#217`/`#228`/`#299`/`#401`, whose lesson — *a duplicated path primitive gets
 > hardened in one copy and keeps the hole in the other* — is this PRD's whole thesis.
 
@@ -481,7 +484,10 @@ touched, and waves 1–4 and 8 keep their numbers.
 > **Blessed** — gabriel-canaan, 2026-08-28, in session. Ruling 7 and wave 9 only.
 > Rulings 1–6 and waves 1–8 are neither renumbered nor rewritten.
 
-**Success 1 is now met, and this supersedes the "not met" finding at :186-192.**
+**Success 1 is now met, and this supersedes the "Success 1 is not met" finding
+in the residuals amendment above** (marked superseded there in place, by name,
+not by the line range this sentence used to cite — the same fragility wave 10
+names below).
 That paragraph was true when written: encoder and walk disagreed on a colon and a
 backslash. `#47` closed those two and `#124` closed the rest — both sides are now
 byte-identical `/[^a-zA-Z0-9]/g`. The premise is no longer quoted but EXECUTED:
@@ -574,12 +580,20 @@ $ scripts/fence-lint.sh 142 143
 fence lint PASSED
 ```
 
-**Both follow wave 7.** Each claims a file PR `#144` is amending — a live fence,
-and bundling across one is forbidden.
+**Both follow wave 7.** Each claims a file wave 7 changed —
+`concierge/repos.ts`/its test and `forward-transform-law.test.ts` — which is why
+they wait, though not for the reason first given here: this sentence originally
+called `#144` "a live fence", but `#144` had already merged (`9fa9583`) by the
+time it was written — that commit is an ancestor of this one. There was no live
+fence left to bundle across. The dependency is real but is a stack, not a fence
+collision: wave 9's issues are written against the code wave 7 landed, and
+cannot exist before it does. The conclusion was already right; only the stated
+reason was not.
 
 `#143` carries a finding worth reading before anyone starts it: **the obvious
 one-line fix is a no-op.** Deleting the negated-class exclusions at
-`forward-transform-law.test.ts:393`/`:401` leaves the law green *and* leaves a
+the two `startsWith('[^')` continues in `forward-transform-law.test.ts` leaves the
+law green *and* leaves a
 verbatim copy of the canonical transform undetected, because the next guard
 (`!body.includes('/')`) filters negated classes one line later. Recorded because
 the wrong repair is cheap to try and looks exactly like a working one.
@@ -597,3 +611,283 @@ that inserts above it, which is what happened to this one's first revision.
 
 Nothing above renumbers a ruling or an earlier wave. Wave 9 is a number nothing
 else has used.
+
+## Amendment — the self-citation convention states its own hazard, and wave 10 (grooming, 2026-08-28)
+
+The convention adopted just above — cite a superseded paragraph's replacement
+by heading, not by line, because a line citation in an append-only document is
+falsified by the next amendment that inserts above it — turned out to have two
+failure modes of its own, neither previously written down. `#152` found both,
+EXECUTED against the reconciler's own rule, and this amendment is the fix.
+
+**The pop is positional, not proximity-based.** The `doc_waves` awk in
+`scripts/dev/prd-reconcile.sh` keeps a stack: a line
+matching two literal asterisks, the word Wave, and a digit pushes a
+declaration; a line matching `> **SUPERSEDED` at column 0 pops whichever
+declaration currently sits on top of that stack — not the one nearest it on
+the page, not the one it is textually beside. Two consequences follow from
+that, and this document has now produced a live instance of each:
+
+- **A marker whose own quoted text reproduces a wave declaration's bold
+  markup is parsed as a second declaration, and — because the push rule ends
+  in `next` — never reaches the pop rule on that same line at all.** It
+  mis-declares and fails to supersede in one stroke. Today's three markers
+  above, superseding the renumbered wave-5, wave-6 and wave-7 paragraphs, are
+  safe only because the amendment heading they quote never bolds a wave
+  number — luck, not design, until this paragraph: **a `> **SUPERSEDED`
+  marker never reproduces the two-asterisks-Wave-digit shape in its quoted
+  text.** Where the superseding target is itself a wave declaration rather
+  than an Amendment-section heading, the marker names it by issue number and
+  prose — never by quoting the declaration's own heading verbatim.
+- **A marker placed beside superseded prose still pops — it pops whatever the
+  stack's top happens to be, which may be an unrelated wave several
+  declarations back.** Marking the "Waves 5, 6 and 7 are each a single issue"
+  paragraph above this way, tried during this issue's own investigation,
+  silently deleted wave 4 from the count: three declarations above it were
+  already marked, so the still-pending entry the new marker consumed belonged
+  to wave 4, not to anything the marker was written beside. Reverted
+  immediately; the finding is the point. **So: a column-0 `> **SUPERSEDED`
+  marker belongs immediately below a `**Wave N` declaration and nothing
+  else** — never beside prose, and never while an earlier, unrelated
+  declaration above it still has no marker of its own, since an unmarked
+  declaration is still on the stack and is what the next marker pops,
+  regardless of what it is written beside.
+
+**Indentation is the escape hatch from that rule, used deliberately once
+already.** The anchor `^> **SUPERSEDED` matches only at column 0. The marker
+nested inside the Success-1 bullet, in the residuals amendment above, is
+indented two spaces — and that bullet is prose, not a wave declaration, so
+the marker's only job is to read as superseded for a human; it has no wave to
+pop, and popping one by accident is exactly the failure just described.
+Indentation there guarantees that: an indented `> **SUPERSEDED` is invisible
+to the anchored awk by construction, so it is provably inert to the wave
+count. **The rule, stated once for both spellings: a marker sits at column 0
+only when it supersedes an actual `**Wave N` declaration, so the reconciler
+counts the pop; anywhere else — prose, a Success bullet, non-wave text — it
+is indented, so the reconciler cannot mistake it for one.** That Success-1
+marker is the one example on file; nothing else in this document supersedes
+non-wave content.
+
+EXECUTED and pinned as CONTROLS on `#152`, not reproduced here — a live
+fixture demonstrating the hazard, embedded in the one document the hazard
+threatens, would be the hazard: both failure shapes above, run through
+`scripts/dev/prd-reconcile.sh`'s exact `doc_waves` awk, still fail exactly as described;
+a marker written the new way — naming an Amendment heading rather than
+quoting it, at column 0 beside its own declaration, never beside prose —
+resolves every wave in the fixture exactly once.
+
+**Two corrections made in place, found while re-checking this document's own
+citations for the same fragility:**
+
+- The "Success 1 is now met" paragraph above cited the superseded finding by
+  a line range — the exact fragility this convention exists to end. It now
+  cites the finding by name instead.
+- The wave-9 sequencing amendment called PR `#144` "a live fence" as the
+  reason wave 9 waits. `#144` had already merged by the time that sentence
+  was written, so there was no live fence left to bundle across; the real
+  dependency is a stack, not a fence collision. Corrected in place — the
+  conclusion was already right, only the stated reason was not.
+
+**Verified, not re-fixed: the wave-7 references.** `#151` already resolved
+the mislabeling this issue was filed against — the tracker confirms it:
+`#120` and `#124` are titled `prd42 w7`, `#53` is `prd42 w6`, `#47` is
+`prd42 w5`, all matching this document's sequencing exactly. Every "wave 7"
+mention left in this document either names that real wave or quotes the
+historical mislabeling as a quote of record; none is a live, unresolved
+claim.
+
+### Sequencing amendment — wave 10
+
+**Wave 10 — parallel, fenced apart.** `prd42 w10: the PRD's self-citations
+survive the next amendment` (`#152` — this file) · `prd42 w10: the round-trip
+law's win32 skip derives from the real rule, not two characters` (`#153` —
+`concierge/repos.test.ts`) · `prd42 w10: the recorder barrel is complete, and
+drift is caught` (`#154` — `recorder/index.ts`, `recorder/rotate.ts`,
+`recorder/namespace-law.test.ts`, `api/rotate.ts`) · `prd42 w10: the
+reconciler is in the repo, so its verdict is checkable by anyone` (`#161` —
+adds `scripts/dev/prd-reconcile.sh`, new file).
+
+```
+$ scripts/fence-lint.sh 152 153 154 161
+fence lint PASSED
+```
+
+Nothing above renumbers a ruling or an earlier wave. Wave 10 is a number
+nothing else has used.
+
+### Sequencing amendment — wave 11
+
+**Wave 11 — parallel, fenced apart.** `prd42 w11: the barrel law's grammar
+covers the clause axis, not just the keyword axis` (`#174` —
+`recorder/namespace-law.test.ts`) · `prd42 w11: the reconciler refuses a
+misplaced marker and survives a large tracker read` (`#175` —
+`scripts/dev/prd-reconcile.sh`, adds `scripts/dev/prd-reconcile.test.sh`) ·
+`prd42 w11: the win32 segment rule matches the naming rules it cites` (`#176` —
+`concierge/repos.test.ts`).
+
+All three were found by wave 10's verification and are **residuals of wave 10's
+own fixes**, not new scope: #174 carries the clause-axis forms the barrel law
+still does not derive, #175 the reconciler hardening a verbatim adoption could
+not make, and #176 the superscript device names and the hand-maintained
+non-vacuity floors. Each wave-10 commit body names the issue that carries what
+it deferred, so the enumeration is recoverable rather than lost in a commit
+message.
+
+Declared here rather than left to grooming because the reconciler compares the
+waves this document declares against the waves the tracker claims from issue
+titles — filing three `w11` issues without declaring w11 reports `UNDECLARED
+WAVE 11` and exits 1. That is the same class of drift this section exists to
+catch, arriving from the tracker side rather than the document side, and it is
+worth saying plainly that it was introduced by wave 10's own follow-up filing
+and caught by the check itself.
+
+Wave 11 is a number nothing else has used. Nothing above renumbers a ruling or
+an earlier wave.
+
+## The seven rulings, as they landed
+
+**Ruling 1 — the encoder and the reverse walk are one fact, proven by round trip.** Landed as
+wave 1's law (`#11`) and wave 2's fix (`#12`), and then **moved twice more than the ruling
+anticipated**: `#47` added the colon and the backslash, `#124` replaced the enumeration outright.
+Both sides now read `/[^a-zA-Z0-9]/g` — `worktree-slug.ts:84` and `repos.ts:268`, byte-identical,
+`EXECUTED` 2026-09-02. The ruling's *method* is why that was survivable: it required a **round
+trip** and explicitly refused a table of the class's literal contents, so the class could move
+three times without the law ever going stale-and-green. Its own sentence — *"a law asserting the
+class's literal contents would pass at any wrong-but-matching pair, which is how this survived"* —
+is the most load-bearing line in this document.
+
+**Ruling 2 — containment has one implementation, and callers import it.** The **verdict held and
+its named mechanism did not survive one call site.** The sweep landed (`#15`, `#45`) as
+`paths/prefix-comparison-law.test.ts`, a zero-tolerance law with no allowlist entry — not even
+one — and `static.ts:304` does canonicalize through the shared primitive. But `static.ts`'s
+descriptor check deliberately **does not** call `isInside`, and the reason is recorded at
+`server/static.ts:219-241`: `descriptorPath` is the kernel's own already-resolved answer, and
+`isInside` re-resolves through `realpathSync.native` every time, which **reopens the exact
+symlink-swap race the check exists to close** — EXECUTED before the function was written. It is
+spelled as a segment comparison instead, precisely so it does not trip the syntactic proxy that
+enforces the ruling. The ruling said *"a path-containment comparison written outside
+`containment.ts` is a defect regardless of whether it is currently exploitable"*; one site turned
+out to be the case where importing the primitive was the exploitable choice.
+
+**Ruling 3 — a route that moves a session holds its own boundary.** Landed in wave 2 (`#14`).
+`retargetSession` took `rotateSession`'s `WeakMap` rather than growing a second one, and refuses
+with 409 in five places. The doc comment that named an obligation and assigned it to a caller
+that did not exist was corrected in the same commit, as the ruling required.
+
+**Ruling 4 — the probe decides which side is wrong, and it runs before either fix.** Held, and it
+is the only ruling here that governs **the order of the work** rather than the code. Wave 4
+booked the colon-and-backslash probe as an operator act — not dispatchable, because "start a real
+session on a real machine" is not a fenced code change — and wave 5 waited on its answer. The
+ruling's own arithmetic is why: for a character whose behaviour is unknown the two possibilities
+carry opposite fixes, so choosing without the probe is a coin toss with a 50 % chance of
+hardening the wrong side.
+
+**Ruling 5 — a rotation refuses a retarget's boundary; coalescing stays rotation-to-rotation.**
+Landed (`#49`). The shared in-flight map learned an operation `kind`
+(`recorder/rotate.ts:298-302,343`), so the refusal is one fact rather than two routes each
+guessing. `api/rotate.ts:70` cites the ruling in the code it governs, and reuses 409 rather than
+minting a second refusal vocabulary.
+
+**Ruling 6 — a widening on the tokenless route is pinned by a test, in the commit that widens
+it.** Landed (`#51`). The ruling deliberately did not decide *which* outcome was right for the
+symlink case — only that it be chosen, stated and pinned rather than inherited from whatever the
+primitive happened to do.
+
+**Ruling 7 — an ambiguous slug is decided by evidence, and refused when there is none.** Landed
+in wave 9 (`#142`) as `concierge/slug-disambiguate.ts`. It is the one ruling drafted from a
+defect this PRD did **not** introduce: the same-slug collision was proven pre-existing by
+regressing the walk to its pre-`#120` five-character class and watching it answer silently there
+too. `#120`'s done-when was scoped to same-segment collisions on that evidence rather than left
+as an unmet bullet.
+
+## The four success criteria, assessed
+
+1. **A repo path with a space finds its transcripts — MET**, and this document said out loud that
+   it was **not** met for three days after waves 1–3 merged. The residuals amendment of
+   2026-08-25 named the live falsifier — a colon and a backslash — rather than letting merged
+   waves read as delivery. `#47` and `#124` closed it; the premise was then re-proven by `grep -ao`
+   against the shipped binary rather than quoted, with a control that returns zero hits.
+2. **Containment is decided in one place — MET.** One implementation, one importable primitive,
+   and a law that hunts the idioms rather than trusting a review. See ruling 2 above for the one
+   call site that honours the rule by not calling the primitive, and says so in fourteen lines of
+   comment.
+3. **A route that moves a session refuses to overlap with itself — MET in both directions.**
+   `#14` closed retarget-against-retarget; `#49` closed rotation-against-retarget, which the
+   residuals amendment had correctly recorded as "met in one direction only".
+4. **The slug change is stated, not slipped — MET.** PR `#54`'s body says it in its own words:
+   *"on-disk slug directory names change for any path containing a space"*, with the reason no
+   migration is needed — a spaced-path slug never resolved, so nothing exists under the old
+   spelling.
+
+`EXECUTED` 2026-09-02, Node v22.23.2: `prefix-comparison-law`, `concierge/repos`,
+`recorder/rotate`, `forward-transform-law` and `recorder/namespace-law` — 5 files, **269 passed**.
+
+## The three open questions, answered
+
+**Is 409 the right refusal for an overlapping retarget, or 423?** **409**, answered in place
+during wave 2 and adopted by ruling 5 for the other direction. 423 was never implemented and is
+not proposed.
+
+**Does any tracked fixture encode a slug by hand?** **Answered better than it was asked.** The
+question wanted an enumeration; what landed is a standing cardinality law
+(`collectors/sessionlog/forward-transform-law.test.ts`) that asserts exactly one implementation
+exists and never names the character class — deliberately, because a law that pinned the class
+would go red the moment a correct fix landed. It found a real fourth copy at
+`cli/index.test.ts:250`, which had passed only because `os.tmpdir()` happens to contain none of
+the characters the hand-rolled class was missing: a property of the platform, not of the test.
+An enumeration would have gone stale on the next fixture; the law does not.
+
+**Should `isInside` case-fold on macOS and Windows?** **Still open, still unowned.** It changes
+the primitive's meaning on two platforms and interacts with prd-25's Windows leg, which does not
+exist yet — the only `windows-latest` runner in `.github/workflows/` remains the desktop
+installer's. Correctly parked rather than answered, and it stays parked here rather than being
+smuggled into a closeout.
+
+## What the plan got wrong
+
+**Ruling 2 named a mechanism, and one call site proved the mechanism wrong.** *"`static.ts:119`
+uses `canonicalize` + `isInside`"* was written as though the ruling and the mechanism were the
+same thing. The ruling was right; `isInside` at that one site would have re-opened the race the
+check exists to close. This is the identical shape prd-45 hit with `if: always()` a week later,
+and it is why prd-47 marks every mechanism in its rulings *candidate*. Two PRDs found it
+independently before anyone wrote the lesson down.
+
+**The plan was off by a factor of four, and the growth was almost all self-inflicted in the good
+way.** Drafted: 3 rulings, 3 waves. Landed: **7 rulings, 11 waves, 28 issues.** Nearly every
+addition came from the verification of an earlier wave rather than from new scope — which is the
+sibling-naming discipline working exactly as prd-46 ruling 3 later stated it. But a document
+whose plan quadruples is not a plan that was wrong once, and the honest reading is that the
+original Sequencing understood the fix and not the territory.
+
+**The document's own citation convention had to be falsified twice before it was written
+down.** The rule *cite a superseded paragraph by heading, not by line* was adopted here after a
+line citation was broken by the very next amendment. It then turned out to have two failure modes
+of its own — a marker quoting a wave declaration is parsed as a second declaration and never
+supersedes anything, and a marker's pop is **positional**, so one placed beside prose silently
+deletes an unrelated wave from the count. Both were found by `#152` and hardened by `#175`, and
+one of them was found by this document doing it to itself. The convention is now written in the
+document it governs; it was not written anywhere when it was first relied on.
+
+**Six of this document's own citations resolve to nothing.** `#217`, `#228`, `#243`, `#299`,
+`#401` and `#649`, in the Status line and Evidence, are references to a previous incarnation of
+the tracker — the highest real issue was `#64` when this was drafted. The document names this
+about itself and files it rather than quietly rewriting the numbers, which is right; it is still
+a PRD whose evidentiary chain does not resolve for a reader who tries to follow it.
+
+## Residuals, with owners
+
+- **The 200-character cap and its base36 hash suffix.** `worktree-slug.ts:25-41` names the gap in
+  the code, with the shipped slugger's real behaviour read out of the binary beside it. `#124`
+  closed the character class and left the length; **no open issue owns it.** It fails in the safe
+  direction — an uncapped slug resolves to nothing rather than to something wrong — which is why
+  it was survivable, not why it is closed. **No owner.**
+- **`isInside` on case-insensitive filesystems.** Open question 3 above. Gated behind a Windows
+  test leg that does not exist. **No owner.**
+- **The six unresolvable tracker citations.** Owned — `#66`, *"the docs cite a tracker that no
+  longer exists"*, open, and carrying **no milestone**, which is its own small instance of the
+  thing this PRD is about. **Owned, unscheduled.**
+- **The eight call sites downstream of the slug encoder**, counted at drafting and never
+  individually tested. The forward-transform law now covers the *shape* at every
+  `claudeProjectsRoot` join, which is stronger than the eight would have been — but the original
+  caveat (*"if any of them caches a slug across the change, it is its own issue"*) was never
+  checked. **No owner.**

@@ -8,13 +8,17 @@ import { sessionFilePath } from '../log/session-log.js'
 import { buildApp } from '../server/build-app.js'
 import { SessionRecorder } from '../server/recorder.js'
 import type { LaneIndexEntryResponse } from './lane-index.js'
+import { capabilityHeaders } from './test-support.js'
 
 /**
- * The lane index's two reads (prd-31 ruling 5 · #556). The route's own job is
- * small — the assembly is `log/lane-index.ts`'s and tested there — so these
- * assert the three things only the route can be wrong about: that it answers at
- * all, that a lane resolves by every name it has, and that an unknown handle is
- * a 404 which says **what was searched** rather than a bare "not found".
+ * The lane index's two reads (prd-31 ruling 5 · #556), gated (prd-29 ruling 7
+ * / #58). The route's own job is small — the assembly is `log/lane-index.ts`'s
+ * and tested there — so these assert the three things only the route can be
+ * wrong about: that it answers at all with the token, that a lane resolves by
+ * every name it has, and that an unknown handle is a 404 which says **what was
+ * searched** rather than a bare "not found". The token gate itself (401
+ * without it, no 401 with it) is covered once for all eleven gated reads by
+ * `gated-reads.test.ts`, not repeated per route here.
  */
 
 const LANE = '556-run-view'
@@ -59,7 +63,7 @@ describe('GET /api/lane-index', () => {
   it('lists every lane every recording names', async () => {
     const app = await appWith({ '1000': laneEvents('1000'), '2000': laneEvents('2000', { removed: true }) })
 
-    const response = await app.inject({ method: 'GET', url: '/api/lane-index' })
+    const response = await app.inject({ method: 'GET', url: '/api/lane-index', headers: capabilityHeaders(app) })
     expect(response.statusCode).toBe(200)
     const body = response.json() as { lanes: { handle: string; sessions: unknown[] }[] }
     expect(body.lanes.map((lane) => lane.handle)).toEqual([LANE])
@@ -69,7 +73,11 @@ describe('GET /api/lane-index', () => {
   it('answers one lane by handle, with the recordings it spans', async () => {
     const app = await appWith({ '1000': laneEvents('1000'), '2000': laneEvents('2000', { removed: true }) })
 
-    const response = await app.inject({ method: 'GET', url: `/api/lane-index/${LANE}` })
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/lane-index/${LANE}`,
+      headers: capabilityHeaders(app),
+    })
     expect(response.statusCode).toBe(200)
     const body = response.json() as LaneIndexEntryResponse
     expect(body.lane.handle).toBe(LANE)
@@ -81,7 +89,11 @@ describe('GET /api/lane-index', () => {
   it('answers the same lane by its issue number', async () => {
     const app = await appWith({ '1000': laneEvents('1000') })
 
-    const response = await app.inject({ method: 'GET', url: '/api/lane-index/556' })
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/lane-index/556',
+      headers: capabilityHeaders(app),
+    })
     expect(response.statusCode).toBe(200)
     expect((response.json() as LaneIndexEntryResponse).lane.handle).toBe(LANE)
   })
@@ -89,7 +101,11 @@ describe('GET /api/lane-index', () => {
   it('404s an unknown handle with WHAT WAS SEARCHED, never a bare not-found', async () => {
     const app = await appWith({ '1000': laneEvents('1000') })
 
-    const response = await app.inject({ method: 'GET', url: '/api/lane-index/never-existed' })
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/lane-index/never-existed',
+      headers: capabilityHeaders(app),
+    })
     expect(response.statusCode).toBe(404)
     const { error } = response.json() as { error: string }
     expect(error).toContain('never-existed')
@@ -102,10 +118,14 @@ describe('GET /api/lane-index', () => {
   it('is calm on a session directory with nothing in it', async () => {
     const app = await appWith({})
 
-    const list = await app.inject({ method: 'GET', url: '/api/lane-index' })
+    const list = await app.inject({ method: 'GET', url: '/api/lane-index', headers: capabilityHeaders(app) })
     expect(list.json()).toEqual({ lanes: [], unreadableSessionIds: [] })
 
-    const one = await app.inject({ method: 'GET', url: `/api/lane-index/${LANE}` })
+    const one = await app.inject({
+      method: 'GET',
+      url: `/api/lane-index/${LANE}`,
+      headers: capabilityHeaders(app),
+    })
     expect(one.statusCode).toBe(404)
     expect((one.json() as { error: string }).error).toContain('no lanes at all')
   })
@@ -113,7 +133,7 @@ describe('GET /api/lane-index', () => {
   it('has no verb but GET — the read-only constitution, stated in routing', async () => {
     const app = await appWith({ '1000': laneEvents('1000') })
     for (const method of ['POST', 'PUT', 'DELETE', 'PATCH'] as const) {
-      const response = await app.inject({ method, url: `/api/lane-index/${LANE}` })
+      const response = await app.inject({ method, url: `/api/lane-index/${LANE}`, headers: capabilityHeaders(app) })
       expect(response.statusCode).toBe(404)
     }
   })

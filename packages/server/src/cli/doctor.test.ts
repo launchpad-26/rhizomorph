@@ -10,6 +10,7 @@ import { sessionDirFor } from '../log/paths.js'
 import { SessionLogWriter } from '../recorder/index.js'
 import { readResumedCount, recordResume, RESUME_WINDOW_MS, sessionFilePath } from '../log/session-log.js'
 import { writeSessionLock } from '../log/session-lock.js'
+import { CAPABILITY_TOKEN_HEADER } from '../api/security.js'
 import {
   checkClaudeProjects,
   checkHarnessRoster,
@@ -20,6 +21,7 @@ import {
   runDoctor,
   type DoctorCheck,
 } from './doctor.js'
+import { CAPABILITY_META_NAME } from './rotate.js'
 
 function okResult(stdout = ''): ExecResult {
   return { stdout, stderr: '', code: 0, failed: false }
@@ -55,9 +57,32 @@ const unreachableFetch: typeof globalThis.fetch = (async () => {
   throw new Error('fetch failed')
 }) as typeof globalThis.fetch
 
-/** A `fetch` that answers one `/api/meta`-shaped (or not) body, without a socket. */
+/** The fixture token every `metaFetch` mock hands out and demands back — arbitrary, just consistent between the two halves below. */
+const PROBE_FIXTURE_TOKEN = 'doctor-probe-fixture-token'
+
+/**
+ * A `fetch` that plays both halves of the in-band scrape `probeRhizomorphMeta`
+ * now performs (prd-29 ruling 7, #59 — `/api/meta` is a `gated-read`, so the
+ * probe goes through `capabilityAwareFetch`): `GET /` answers a dashboard
+ * shell carrying the capability meta tag, and `GET /api/meta` answers `body`
+ * (with `init`) only when the request carries the matching token header —
+ * otherwise a 401, exactly what the real gate would answer.
+ */
 function metaFetch(body: unknown, init: ResponseInit = {}): typeof globalThis.fetch {
-  return (async () => new Response(JSON.stringify(body), init)) as typeof globalThis.fetch
+  return (async (input, requestInit) => {
+    const url =
+      typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url
+    if (url.endsWith('/api/meta')) {
+      const headers = new Headers(requestInit?.headers)
+      if (headers.get(CAPABILITY_TOKEN_HEADER) !== PROBE_FIXTURE_TOKEN) {
+        return new Response(JSON.stringify({ error: 'missing or invalid capability token' }), { status: 401 })
+      }
+      return new Response(JSON.stringify(body), init)
+    }
+    return new Response(
+      `<!doctype html><html><head><meta name="${CAPABILITY_META_NAME}" content="${PROBE_FIXTURE_TOKEN}"></head><body></body></html>`,
+    )
+  }) as typeof globalThis.fetch
 }
 
 function checkFor(checks: readonly DoctorCheck[], id: string): DoctorCheck {

@@ -2,18 +2,23 @@ import type { KeyboardEvent } from 'react'
 import { ZOOM_STEP } from '../camera.js'
 
 /**
- * A grabbing hand while the scene is actually being dragged, an open one while
- * space says it is about to be, and the ordinary pointer the rest of the time —
- * because the rest of the time a click on this canvas selects a lane, and a
- * canvas that permanently advertises "grab me" is a canvas nobody clicks.
+ * An open hand while space says a drag is about to start, and the ordinary
+ * pointer the rest of the time — because the rest of the time a click on this
+ * canvas selects a lane, and a canvas that permanently advertises "grab me" is
+ * a canvas nobody clicks.
  *
  * The one exception is a pointer that is actually *over* something: a hovered
  * node or the root-mass gets the hand, which is how a canvas — the one surface
  * in the instrument that cannot advertise its own targets in markup — says that
  * this pixel does something and the one beside it does not.
+ *
+ * The grabbing cursor (mid-drag) is not here: it is an inline style written
+ * directly by `useFrameLoop`'s gesture bracket (`setPanCursor`), so that a
+ * drag's start and end cost no React render (#159). This function only ever
+ * covers the states that are already React state — do not add a `panning`
+ * case back in; the DOM inline style already wins the cascade while it is set.
  */
-export function cursorOf(panning: boolean, grabReady: boolean, overTarget: boolean): string {
-  if (panning) return 'cursor-grabbing'
+export function cursorOf(grabReady: boolean, overTarget: boolean): string {
   if (grabReady) return 'cursor-grab'
   return overTarget ? 'cursor-pointer' : 'cursor-default'
 }

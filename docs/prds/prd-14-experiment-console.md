@@ -188,6 +188,11 @@ Launch 3 arms × 2 runs from 14:22?
 
 ## Wave plan
 
+**Waves 1–4 shipped.** The console is reachable, arms launch behind an estimate, the
+branching layout renders and the comparison surface reads. They are kept verbatim below
+because a plan is also a record of what was planned; ruling 5's sequencing is the section
+after them.
+
 1. **The seam and the route** — lab tab on the existing router, server routes
    over `packages/server/src/lab/*` (routes, not new engine code), empty state
    that names what the lab is for. The no-live-fleet law lands here.
@@ -200,7 +205,66 @@ Launch 3 arms × 2 runs from 14:22?
 
 Lab events extend `packages/core/src/events/lab.ts` **additively** — prd17's
 lenient-parse and `upcast()` chokepoint apply, so an old recording containing
-lab events from an earlier era still reads.
+lab events from an earlier era still reads. That still binds on everything below.
+
+Wave 4 shipped its surface and **not** its artifact: `lab/compare/artifact.ts` landed as a
+pure serialise/parse pair with zero production callers, which is the gap ruling 5 exists to
+close. So the plan above is complete as built, not as written.
+
+### Ruling 5's sequencing — the remaining two waves (groomed 2026-09-02)
+
+Ruling 5 called itself "one bounded slice". Grooming split it at the seam the code already
+has — server storage against browser listing — because the browser half has nothing to list
+until the server can serve one. That makes them a **stack, not a bundle**: two waves cannot
+share a PR (AGENTS.md — *"never bundle across waves"*), and the toll is paid twice on
+purpose rather than pretending a dependency is not one.
+
+Milestone `prd14` numbers these **w1 and w2**. That is a fresh count, not a continuation of
+the four above — the milestone carries no closed issues, so the shipped console is not
+traceable through it. Read `w1` on a prd14 issue as ruling 5's first wave, never as the lab
+tab that shipped in 2026-08.
+
+**w1 — the storage and the routes it needs (#213).** A new
+`packages/server/src/comparisons/` module, plus save and read routes on `api/lab.ts`
+registered in `ROUTE_CLASSES` with the save token-gated as the existing
+`POST /api/lab/launch` is. The module is new rather than an addition to
+`packages/server/src/lab/` deliberately: `lab/namespace-law.test.ts` confines that module
+to its one CLI wiring point (prd12 ruling 1 — the laboratory is explicitly invoked, never
+reachable from an always-on route), and a stored comparison is recording-adjacent, not a
+second hand on the repo. The version refusal is exercised here, by storing a wrong version
+and re-reading it.
+
+**w2 — the library row and the reopen (#214).** The recordings library lists a saved
+comparison as its own kind, visibly distinct from a session recording, and selecting one
+reopens into `ComparisonSurface` rather than the replay surface. An artifact from an older
+format version puts the parser's refusal **on screen by name** — not an empty state, not a
+console error. Saving is reachable from the comparison surface itself, so a human can
+complete the round trip without a fixture.
+
+**Neither wave is dispatchable today**, and the blockers are not the ones the issues
+originally named:
+
+- **w1 waits on #23** (prd43 w4, open), which owns
+  `packages/server/src/api/route-class-law.test.ts`. Its `ROUTE_CLASSES.length` assertion
+  pins an exact count deliberately asserted independently of the array, so the walk cannot
+  pass vacuously — and so any new route reddens it. Cited by the assertion and not by line,
+  because #23's whole job is to move it. #23 makes counts derive from what they count,
+  which turns this from a fight into a one-line reconciliation.
+- **w2 waits on w1, and on a live fence it did not know about.** #220 (prd30 w1, open)
+  claims both `packages/web/src/recordings/` and `packages/web/src/lab/` for prd-30's
+  `title=` adoption sweep. `scripts/fence-lint.sh 213 214 220` reports two overlaps against
+  w2's fence — verified, executed 2026-09-02 — so w2 belongs after #220 lands, not beside
+  it.
+- **w2's own stated orderer was wrong.** The issue orders itself after "the prd43
+  recordings-law issue" holding `recordings/no-live-fleet-law.test.ts`. That file was prd-45's
+  (#44, #76), both closed, and no open issue fences it. That dependency has cleared; #220 is
+  the one that actually bites.
+
+**Out of scope for both waves**, restating ruling 5's boundary so it does not get relitigated
+mid-build: nothing reopens the shipped layout, arm-configuration, spread or estimate work; no
+migration is written for an older artifact version (it refuses, and a migration would go
+through prd17's own upcast chokepoint); and the two questions still open below — the hard
+spend cap and the scrub's scope — are not answered by either wave.
 
 ## Open, not ruled
 

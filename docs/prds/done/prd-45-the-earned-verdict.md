@@ -1,6 +1,8 @@
 # prd-45 — the earned verdict: a check that could not run says so
 
-> **Status:** **BLESSED** — operator (gabriel-canaan), 2026-08-24, in session. Drafted the
+> **Status:** **SHIPPED** — 2026-09-02. Milestone `prd45`: five issues, all closed; the
+> closeout, including what the plan got wrong, is the last section of this document.
+> Blessed by operator (gabriel-canaan), 2026-08-24, in session. Drafted the
 > same day from the prd-39 verify pass (findings on #1, PR #40, merged `51e971c`) and from
 > prd-24's closing amendment, which retired to `done/` with two residuals "described for the
 > next groom" and no owner. Milestone `prd45`. Sequencing amended at the same session's
@@ -191,6 +193,23 @@ wave only as a single issue. One lane writes both, and lands the law **shown red
 the pre-fix tree** — an ordering discipline inside one lane's commits rather than a
 dependency between two issues.
 
+**Wave 2 — filed, landed, and declared here at closeout.** Amended 2026-09-02. This
+document originally stopped at wave 1, while two issues were filed against a wave 2 that it
+never declared; both are closed and both landed in PR #83. `scripts/dev/prd-reconcile.sh 45`
+reported them as UNDECLARED WAVE rows for as long as the paragraph was missing. The document
+is the plan, so the document moves — this is the work that was already filed, not new scope.
+
+- `prd45 w2: an accidental timing enrolment cannot raise the ratchet unseen` (#48). The timing
+  ratchet at `:129` fired on a drop and nothing observed a rise, so an accidental `// @gate-timing`
+  enrolment was written into the floor unremarked. Filed by a passer-by verifying
+  prd-44 #33, offered rather than claimed, with the tolerance required to be declared data in
+  the law — the same condition ruling 3 puts on the push exemption.
+- `prd45 w2: the recordings law's recursive branch is exercised, or its silence is stated`
+  (#76). Wave 1's #44 made the recordings law walk recursively, but the governed directory has
+  no subdirectories, so the recursive branch was never taken by the committed suite. #44's own
+  DoD permitted either outcome and the lane chose removal; this issue existed so the reviewers'
+  disagreement had a home rather than because the lane erred.
+
 **Unfiled work implied, described not numbered:** a `shellcheck` job over `scripts/` — prd-39
 already named its absence, and the nine tracked shell scripts have had reading and `bash -n`
 only. The two vacuously-correct walks prd-24 named (`interaction/no-model-call-law.test.ts`,
@@ -206,3 +225,94 @@ package. prd-24's `geometry.ts` carve-out is still a decision owed to whoever ta
 - **Does ruling 3's law belong in the suite or in CI?** A vitest law runs in every lane's
   `npm test`, which is where a lane would notice breaking it; a CI-only check keeps shell
   concerns out of the web suite. The repo has precedent for both. Open, not ruled.
+
+## The four rulings, as they landed
+
+**Ruling 1 — a guard may not print a verdict it did not earn.** Landed in wave 1 (#42, PR #68)
+across the eight enumerated checks. Its second paragraph — *"a fix that closes the enumerated
+set and not the class earns this PRD a successor"* — is the only clause in this document that
+was written as a trigger, and it **fired**: PR #68's verification found a ninth instance
+(`gate.sh:82`) and six spellings the new law could not see, and **prd-46 exists because of it**.
+The ruling worked exactly as drafted, including the part that admitted it might not be enough.
+
+**Ruling 2 — a postcondition asserts the fact it claims.** Landed. `scripts/gate.sh:375-381`
+now asserts `git merge-base --is-ancestor "$LANE_SHA" main || fail`, with a comment recording
+why the old proxy could never work: `refs/heads/HEAD` never exists in a detached worktree,
+whether or not the merge happened.
+
+**Ruling 3 — the landing tool is covered by an executable check.** Landed as
+`packages/server/src/gate-honesty-law.test.ts` — in the suite, not in CI, which answers this
+document's own second open question. Now 2,975 lines and 182 tests after prd-46's widening.
+
+**Ruling 4 — a red leg still produces the evidence of its remaining gates.** The verdict stands;
+**its mechanism was falsified during wave 1's own review** and is superseded in place by the
+amendment note above it, dated 2026-08-25. `.github/workflows/ci.yml` gates by outcome rather
+than by `if: always()`: `Build` carries `id: build`, Typecheck and Lint carry `!cancelled()`,
+and the packaging guard and boot smoke carry `!cancelled() && steps.build.outcome == 'success'`.
+
+## The four success criteria, assessed
+
+1. **Every check distinguishes "could not run" from "ran and found nothing" — MET, but not by
+   this PRD alone.** Wave 1 closed the eight checks this document enumerated. It did not close
+   the criterion, because the criterion is about the file and the enumeration was about eight
+   lines of it: `gate.sh:82` was live, unchecked, and sitting between two lines wave 1 had just
+   fixed. Discharged in **prd-46 wave 1 (#70)**, which replaced the spelling list with a
+   structural predicate. Recording this as MET without naming prd-46 would be the exact defect
+   both PRDs are about.
+2. **No postcondition proves a proxy — MET.** Ruling 2's landing above.
+3. **The class cannot regress unnoticed — MET.** `gate-honesty-law.test.ts` runs in every lane's
+   `npm test`. `EXECUTED` 2026-09-02: 1 file, 182 tests, 6.5 s — 181 passed and 1 skipped,
+   the `it.skipIf(SYSTEM_BASH_GUARDS_EMPTY_ARRAYS)` case in
+   `packages/server/src/gate-honesty-law.test.ts`, which sits out wherever the system bash is 4
+   or newer. "182 passed" is the number on a bash-3.2 host only.
+4. **A red leg still reports every gate that could have run — MET**, by the superseding
+   mechanism rather than the drafted one. The two steps that genuinely cannot produce evidence
+   on a Build-red leg now say `skipped` rather than an unearned green.
+
+## The two open questions, answered
+
+**Should `gate.sh:49`'s fallback be removed rather than made fatal?** **Removed.** The
+`|| echo "$W/.git"` fallback is gone; `scripts/gate.sh:57` is now
+`GD=$(git -C "$W" rev-parse --absolute-git-dir …) || { … fail … }`, with the stderr captured and
+printed rather than discarded. The question's own reasoning held — one less branch is one less
+thing to lie.
+
+**Does ruling 3's law belong in the suite or in CI?** **The suite**, at
+`packages/server/src/gate-honesty-law.test.ts`. The consequence was not free and is worth
+naming: a vitest law that reads a shell script's text couples the server package to
+`scripts/gate.sh` at collection time, and that coupling needed its own issue in prd-46 wave 5
+(#72) before `.swarm/coupling.txt` recorded it.
+
+## What the plan got wrong
+
+**Ruling 4 named a mechanism, and the mechanism was wrong.** `if: always()` would have produced
+four green checks on a leg that built nothing — this PRD's own defect class, reintroduced by the
+ruling written to abolish it. Caught by the independent verification pass on PR #68; neither the
+lane nor two orchestrator rounds saw it. prd-47 later consumed this by name, marking every
+mechanism in its rulings *candidate*.
+
+**The Sequencing stopped at wave 1 while wave 2 was filed and landed.** Two issues (#48, #76)
+shipped in PR #83 against a wave this document never declared, and it stayed that way from
+2026-08-25 until this closeout. prd-46 hit the identical drift and amended itself for it on
+2026-08-31; prd-45 did not, because nobody was reading prd-45 any more. That is the argument for
+closing a PRD out promptly rather than leaving it `BLESSED` with an empty milestone.
+
+**Success 1 was written as though eight fixes could discharge it.** They could not, and the
+document had no way to notice: the criterion says *"every check in `gate.sh`"* and the wave
+enumerated eight. The gap between a criterion's scope and its wave's scope is the thing to check
+at grooming, and nothing here checked it.
+
+## Residuals, with owners
+
+- **A `shellcheck` job over `scripts/`.** Named as unfiled work by prd-39 and again here; still
+  unfiled. `EXECUTED` 2026-09-02: no workflow runs it — the only hits in `.github/` are two
+  `# shellcheck disable=SC2086` comments in `.github/workflows/desktop.yml`, in a file nothing
+  lints. The repo's only other one is `scripts/pack-smoke.sh:100`. **No owner.**
+- **prd-24 ruling 3's tail.** `packages/web/src/interaction/no-model-call-law.test.ts:82` still
+  carries a hardcoded `toBeGreaterThan(2)` floor, and `packages/web/src/connect/index.test.tsx`
+  is the other walk prd-24 named. Deliberately excluded here (folding them in would widen the
+  recordings fence to the whole web package) and still excluded. prd-24's `geometry.ts` carve-out
+  is still a decision owed to whoever takes them. **No owner.**
+- **Ruling 1's successor condition, discharged.** prd-46 took the class. Its own residual —
+  whether the structural predicate's false-positive rate is tolerable — is **prd-46's**, and open
+  there.

@@ -342,7 +342,7 @@ Two tensions were named here and **both have since resolved** (2026-08-24):
    (the lane canvas is _n_ organisms — amends the metaphor) sat against its ruling 8
    (the observability frame scene is one organism via the `scene/` renderer — asked
    for full reversal). **Resolved by the operator's coexist-by-surface ruling
-   (2026-08-13, recorded at `docs/prds/prd-33-the-living-scene.md`): different
+   (2026-08-13, recorded at `docs/prds/done/prd-33-the-living-scene.md`): different
    surfaces, different pictures, both lawful** — the lab's arms strip is _n_ small
    organisms; the frame's scene is one organism through `scene/`. prd-14 was itself
    ruled 2026-08-24 (ruling 5, the persistence seam). PR #431 is dead-repo

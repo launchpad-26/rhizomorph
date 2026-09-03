@@ -143,19 +143,22 @@ mutation is, with a gate-presence law that fails the build the day a row loses
 its gate. `read` therefore now means specifically a *tokenless* read.
 
 **Where the boundary actually stands** — as opposed to where it is ruled to
-stand — is worth stating plainly, because the two differ today. Seven reads are
-gated: `/api/sessions`, `/api/sessions/:id/events`, `/api/lanes`,
-`/api/transcript/:lane`, and the laboratory's `/api/lab/checkpoints`,
-`/api/lab/experiments`, `/api/lab/estimate`. Seven are still tokenless, and
-three of those — `/api/meta`, `/api/doctor` and `/api/stream` — are **ruled to
-gate and not yet gated**, deferred to prd-29's wave 2 so that no consumer
-outside the SPA breaks mid-milestone. `GET /*` stays tokenless *forever*
-(prd-29 ruling 1): it is the bootstrap the browser's first paint and
-`rhizomorph rotate`'s scrape both read the in-band token from (ADR-0012), so
-gating it could not stop a local process and would break the delivery the token
-itself depends on. Ruled 2026-08-24 and not yet in code: the late reads gate
-too, which leaves `GET /*` alone outside the gate once they do. Read the
-table's own `routeClass` values for the state of the boundary, never this
+stand — is worth stating plainly. Since prd-29's wave 2b landed the two no
+longer differ. Fourteen reads are gated: `/api/sessions`,
+`/api/sessions/:id/events`, `/api/lanes`, `/api/transcript/:lane`, the
+laboratory's `/api/lab/checkpoints`, `/api/lab/experiments`,
+`/api/lab/estimate`, the four reads that postdated the route arithmetic —
+`/api/lane-index`, `/api/lane-index/:handle`,
+`/api/session-preview/:sessionId`, `/api/concierge/repos` (prd-29 ruling 7,
+#58) — then, as of wave 2a, `/api/meta` and `/api/doctor` (prd-29 ruling 7,
+#59), and as of wave 2b `/api/stream` (prd-29 ruling 4, #60), which carries the
+same gate but additionally accepts the token from an HttpOnly, SameSite=Strict
+cookie, since `EventSource` cannot set a header at all. `GET /*` is the only
+tokenless read left, and stays tokenless *forever* (prd-29 ruling 1): it is
+the bootstrap the browser's first paint and `rhizomorph rotate`'s scrape both
+read the in-band token from (ADR-0012), so gating it could not stop a local
+process and would break the delivery the token itself depends on. Nothing is ruled to gate and still missing from code. Read
+the table's own `routeClass` values for the state of the boundary, never this
 paragraph's tense.
 
 ### Lane manifest (prd3 ruling 19)
@@ -193,7 +196,7 @@ one optional field the Rhizomorph *does* read: an operator's own declaration
 that a lane is parked, absent meaning `false`. It is written only by
 whatever wrote `.swarm/lanes.json` in the first place — this read-only
 instrument never sets it — and it is not dispatch metadata like the rest:
-`buildFleet` (`packages/web/src/fleet/buildFleet.ts`) uses it to exempt a
+`buildFleet` (`packages/core/src/fleet/buildFleet.ts`) uses it to exempt a
 parked lane from the FROZEN and inferred-WAITING alarms and to keep it off
 the ladder, while leaving every other fact about the lane (its output, its
 age, its fence compliance) exactly as true as it would be unparked — parked
@@ -344,7 +347,7 @@ so the wording here can be checked against the rulings that required it.
 
 ### The derived fleet object — one object, four surfaces
 
-`buildFleet` (`packages/web/src/fleet/buildFleet.ts`) is the single function
+`buildFleet` (`packages/core/src/fleet/buildFleet.ts`) is the single function
 the attention strip, fleet table, burn strip, and scene all read — and read
 *only*, never re-deriving their own count of "how many lanes are working" or
 their own collision total. Its own doc comment states the reason directly:
@@ -431,7 +434,7 @@ scene never turns into uncapped light spam.
 The wire contract — `.swarm/lanes.json`, served at `GET /api/lanes` — is
 specified once, under [Server](#lane-manifest-prd3-ruling-19) above; this is
 where the web side of that contract is reconciled, not re-specified.
-`packages/web/src/fleet/fences.ts` owns the consumer: `parseLaneManifest`
+`packages/core/src/fleet/fences.ts` owns the consumer: `parseLaneManifest`
 turns whatever `/api/lanes` served into a `LaneManifest` (`handle →
 LaneFence`), or `null` on anything malformed — a fence is an accusation, so a
 half-parsed manifest (fencing some lanes, silently un-fencing others) is
@@ -447,7 +450,7 @@ array shape was rejected outright — a live manifest read as absent even
 though both the server and the consumer's own tests were green, because the
 consumer's test had hand-rolled an object-shaped approximation of the payload
 instead of copying the real one. The regression test
-(`packages/web/src/fleet/fences.test.ts`) now pins the exact envelope
+(`packages/core/src/fleet/fences.test.ts`) now pins the exact envelope
 `packages/server/src/api/lanes.test.ts` asserts the server serves, so the two
 sides of the contract can't drift apart silently again.
 
@@ -462,11 +465,13 @@ read-only instrument. `parseLaneManifest` carries it through unchanged
 (absent, or anything other than the literal `true`, reads as not-parked —
 the same soft fallback `issue`/`model` get, rather than the flat-refusal
 treatment a malformed `fence` gets, since a bad `parked` only ever softens
-an accusation). `buildFleet` reads it onto `Lane.parked` and gives it three
-consequences, all in `packages/web/src/fleet/buildFleet.ts`: `detectFrozen`
-and the inferred half of `detectWaiting` exempt a parked lane by
-construction, alongside the exemptions those detectors already had; a
-parked lane never reaches `buildLadder`'s attention list, however many
+an accusation). `buildFleet` (`packages/core/src/fleet/buildFleet.ts`) reads
+it onto `Lane.parked` and gives it three consequences, each in the module
+that owns the surface it affects: `detectFrozen` and the inferred half of
+`detectWaiting` (`packages/core/src/fleet/diagnose.ts`) exempt a parked lane
+by construction, alongside the exemptions those detectors already had; a
+parked lane never reaches `buildLadder`'s attention list
+(`packages/core/src/fleet/ladder.ts`), however many
 pathologies it still carries; and the fleet table
 (`packages/web/src/panels/fleet/index.tsx`) renders a dimmed `PARKED` in
 the STATE column in place of the usual glyph and word, while every other
@@ -2212,7 +2217,7 @@ marks in the TIDE) are downstream of these event types existing and are
 therefore also not yet landed.
 
 **`gate.verdict` has since found a home of its own**, and is no longer prd17's
-open item to carry: `docs/prds/prd-45-the-earned-verdict.md` was blessed by the
+open item to carry: `docs/prds/done/prd-45-the-earned-verdict.md` was blessed by the
 operator 2026-08-24 and owns it, so its shape is that milestone's to rule
 rather than this one's to restate. Two event families that were never in
 prd17's list have landed meanwhile, from the laboratory and from the judge
@@ -2327,13 +2332,13 @@ stale before (#238), and it drifted again since.
   from `sessionlog --extra-sessions` tagging an unrelated probe session
   `role: conductor`, tokens with no dollars attached. That number was worse
   than absent: it looked like a real measurement of orchestration overhead
-  and was not one. `SpendPanel` (`packages/web/src/panels/spend/`) now
-  computes its own cost-only overhead (`selectCostOverhead`/
-  `formatCostOverhead`, `packages/web/src/panels/spend/format.ts`) straight
+  and was not one. `SpendPanel` (packages/web/src/panels/spend/, deleted
+  outright by `b1cb3d5` once the burn strip superseded it) computed its own
+  cost-only overhead (`selectCostOverhead`/`formatCostOverhead`) straight
   from `RoleSpend.costUsd`/`costEventCount` — fields `selectRoleSpend` already
-  exposed — and renders `conductor not instrumented — see docs/telemetry.md`
-  whenever `conductor.costEventCount === 0`, regardless of what its tokens
-  say. **Rejected alternative:** keeping the token-based ratio alive as a
+  exposed — and rendered `conductor not instrumented` whenever
+  `conductor.costEventCount === 0`, regardless of what its tokens said.
+  **Rejected alternative:** keeping the token-based ratio alive as a
   fallback so historical, un-instrumented sessions (this project's own build
   day) would still produce a number. Rejected because that fallback fits one
   accident of this project's own history — a conductor that was, in fact,

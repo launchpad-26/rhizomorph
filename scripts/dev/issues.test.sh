@@ -51,10 +51,24 @@ print(json.dumps({"items": [{"id": "PVTI_%d" % i, "content": {"number": i, "titl
                             for i in range(1, n + 1)], "totalCount": n}))' "$n_items"
     exit 0 ;;
   "issue list")
+    # MOCK_NO_MILESTONE is a space-separated set of issue numbers whose
+    # `milestone` comes back null; every other issue carries one. Default: all
+    # carry one, so a test that does not opt in cannot accidentally depend on a
+    # drifted issue existing.
+    # MOCK_DROP_MILESTONE omits the key altogether, which is what an older gh
+    # or a trimmed --json list does. Distinct from a null value on purpose.
     python3 -c '
-import json, sys
+import json, sys, os
 n = int(sys.argv[1])
-print(json.dumps([{"number": i, "title": "issue %d" % i} for i in range(1, n + 1)]))' "$n_open"
+none = set(os.environ.get("MOCK_NO_MILESTONE", "").split())
+drop = os.environ.get("MOCK_DROP_MILESTONE")
+out = []
+for i in range(1, n + 1):
+    row = {"number": i, "title": "issue %d" % i}
+    if not drop:
+        row["milestone"] = None if str(i) in none else {"title": "prd99"}
+    out.append(row)
+print(json.dumps(out))' "$n_open"
     exit 0 ;;
   "issue view")
     echo "I_issue_$3"; exit 0 ;;
@@ -166,6 +180,51 @@ fresh orph
 out=$(MOCK_OPEN_ISSUES=1000 "$SCRIPT" orphans 2>&1); rc=$?
 is  "truncated issue list: orphans exits non-zero" 1 "$rc"
 has "truncated issue list: names the limit"        "at or above the --limit of 1000" "$out"
+
+# The milestone half of `orphans`, added 2026-09-02. AGENTS.md had claimed this
+# command found issues with no milestone since before it could; the claim went
+# unchecked because nothing here exercised it. These assertions are the check
+# that claim never had.
+#
+# Each is written so it FAILS if the milestone arm is deleted — that is the
+# mutation to run against them. Asserting only the clean case would pass with
+# the arm removed, since the off-board line prints either way.
+fresh ms_clean
+out=$("$SCRIPT" orphans 2>&1)
+has "orphans: says so when every issue carries a milestone" "all open issues carry a milestone" "$out"
+
+fresh ms_drift
+out=$(MOCK_NO_MILESTONE="2 3" "$SCRIPT" orphans 2>&1)
+has "orphans: names an issue with no milestone"    "no milestone:" "$out"
+has "orphans: lists the drifted issue by number"   "#2 issue 2" "$out"
+has "orphans: lists every drifted issue, not one"  "#3 issue 3" "$out"
+
+# The two findings are different facts and must not collapse into one verdict:
+# an issue can be off the board AND milestone-less, and a merged count would
+# hide which rule it broke. Board-clean while milestone-dirty is the case that
+# proves the lines are independent — the old command printed only the first and
+# a reader would have taken it for the whole answer.
+fresh ms_split
+out=$(MOCK_NO_MILESTONE="1" "$SCRIPT" orphans 2>&1)
+has "orphans: board-clean and milestone-dirty are both reported" "all open issues are on the board" "$out"
+has "orphans: ...and the milestone finding is not swallowed by it" "no milestone:" "$out"
+
+# A gh that does not return the field must not be read as "no issue has one".
+# The mock drops `milestone` entirely here, which is what an older gh or a
+# trimmed --json list does; "not read" is not the same fact as "read, and null".
+fresh ms_absent
+out=$(MOCK_DROP_MILESTONE=1 "$SCRIPT" orphans 2>&1)
+has "orphans: an unread milestone field claims nothing" "milestone not read" "$out"
+
+# Zero open issues is the fourth state, and the branch ordering hides it: with
+# the list empty `field_read` is False, so deleting the empty-list line does not
+# fall through to silence — it falls through to "milestone not read", a claim
+# about gh that nothing observed. Deleting that line was a SILENT mutation, 41/41
+# green, until this assertion existed. Same species as the dead guard `cmd_orphans`
+# describes deleting: the arm that keeps a verdict honest was itself unheld.
+fresh ms_none
+out=$(MOCK_OPEN_ISSUES=0 "$SCRIPT" orphans 2>&1)
+has "orphans: an empty issue list claims nothing about the field" "no open issues" "$out"
 
 # cmd_list's reconciliation: the board walk and the open-issue list are
 # different APIs, and when they disagree the table must say so rather than

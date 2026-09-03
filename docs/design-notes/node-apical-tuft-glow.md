@@ -37,7 +37,7 @@ owns the band.
 
 When a lane finishes, the cord-cut carried a law forward from before ruling
 13: "no glow anywhere on a retiring lane; matter, not light." Ruling 13's
-transformation (see `docs/decisions/retire-transformation-not-deletion.md`)
+transformation (see `docs/design-notes/retire-transformation-not-deletion.md`)
 gave the tail and seal back to every finished lane, but this law survives
 unweakened — a finishing apex gets a *flare*, not a glow. A flare doesn't need
 a halo to be a flare: the apex's own substance goes bright once, tracking the

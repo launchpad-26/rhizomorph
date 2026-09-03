@@ -7,7 +7,7 @@
 The operator's review of the "gorgeous round" asked for more vibrancy live,
 including a deeper tissue undertone in the heart's interior. `DEPTH_TISSUE`
 was raised from 0.32 to 0.44 in response — the sibling dial to the vibrancy
-work `docs/decisions/palette-vibrancy-dials.md` covers for `palette.ts`, but
+work `docs/design-notes/palette-vibrancy-dials.md` covers for `palette.ts`, but
 scoped to this file's own depth stack.
 
 ## Why this is the cheapest vibrancy available in the scene

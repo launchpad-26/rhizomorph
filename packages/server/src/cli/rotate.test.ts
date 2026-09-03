@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { CAPABILITY_TOKEN_HEADER } from '../api/security.js'
 import {
   CAPABILITY_META_NAME,
+  capabilityAwareFetch,
   dashboardUrl,
   fetchCapabilityToken,
   parseRotateArgs,
@@ -204,6 +205,102 @@ describe('requestRotation', () => {
     await expect(requestRotation(4321, { fetch: fetchImpl })).rejects.toThrow(
       /answered something other than a rotation/,
     )
+  })
+})
+
+/**
+ * THE SHARED SCRAPE HELPER (prd-29 ruling 7, #59). `rhizomorph env`'s
+ * instance-id read and `rhizomorph doctor`'s own-server probe both reach a
+ * `gated-read` route through this — one place that fetches the token and
+ * attaches it, rather than each growing its own copy of `fetchCapabilityToken`
+ * plus a header. `requestRotation` above is exercised separately and is left
+ * as-is (not refactored onto this helper) so its own pinned assertions about
+ * the exact two-call conversation stay exactly what they were.
+ */
+describe('capabilityAwareFetch (prd-29 ruling 7, #59)', () => {
+  it('attaches the capability header to a request made through it', async () => {
+    const fetchImpl = serving(SHELL, { ok: true })
+
+    const rhizomorphFetch = capabilityAwareFetch(4321, { fetch: fetchImpl })
+    const response = await rhizomorphFetch('http://127.0.0.1:4321/api/rotate')
+
+    expect(response.ok).toBe(true)
+    expect(fetchImpl).toHaveBeenNthCalledWith(1, 'http://127.0.0.1:4321/')
+    const [secondUrl, secondInit] = vi.mocked(fetchImpl).mock.calls[1] ?? []
+    expect(secondUrl).toBe('http://127.0.0.1:4321/api/rotate')
+    expect(new Headers(secondInit?.headers).get(CAPABILITY_TOKEN_HEADER)).toBe(TOKEN)
+  })
+
+  it('caches the token across multiple calls through the SAME returned function — one GET / for many requests', async () => {
+    const fetchImpl = serving(SHELL, { ok: true })
+    const rhizomorphFetch = capabilityAwareFetch(4321, { fetch: fetchImpl })
+
+    await rhizomorphFetch('http://127.0.0.1:4321/api/meta')
+    await rhizomorphFetch('http://127.0.0.1:4321/api/doctor')
+    await rhizomorphFetch('http://127.0.0.1:4321/api/lanes')
+
+    const dashboardCalls = vi
+      .mocked(fetchImpl)
+      .mock.calls.filter((call) => String(call[0]) === 'http://127.0.0.1:4321/')
+    // Three requests through the same returned function, one token scrape —
+    // that reuse is this helper's whole reason to cache at all.
+    expect(dashboardCalls).toHaveLength(1)
+    expect(fetchImpl).toHaveBeenCalledTimes(4)
+  })
+
+  it("a fresh capabilityAwareFetch(port) call pays the extra request again — nothing survives across separate calls", async () => {
+    const fetchImpl = serving(SHELL, { ok: true })
+
+    await capabilityAwareFetch(4321, { fetch: fetchImpl })('http://127.0.0.1:4321/api/meta')
+    await capabilityAwareFetch(4321, { fetch: fetchImpl })('http://127.0.0.1:4321/api/meta')
+
+    const dashboardCalls = vi
+      .mocked(fetchImpl)
+      .mock.calls.filter((call) => String(call[0]) === 'http://127.0.0.1:4321/')
+    expect(dashboardCalls).toHaveLength(2)
+  })
+
+  it("preserves the caller's other init fields and headers — the token is added, not a replacement", async () => {
+    const fetchImpl = serving(SHELL, { ok: true })
+    const rhizomorphFetch = capabilityAwareFetch(4321, { fetch: fetchImpl })
+
+    await rhizomorphFetch('http://127.0.0.1:4321/api/rotate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    const [, init] = vi.mocked(fetchImpl).mock.calls[1] ?? []
+    expect(init?.method).toBe('POST')
+    const headers = new Headers(init?.headers)
+    expect(headers.get('Content-Type')).toBe('application/json')
+    expect(headers.get(CAPABILITY_TOKEN_HEADER)).toBe(TOKEN)
+  })
+
+  it('does not cache a failed token fetch — the next call through the same function retries rather than replaying the rejection', async () => {
+    let dashboardCallCount = 0
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+      const s = String(url)
+      if (s.endsWith('/api/meta')) return jsonResponse({ ok: true })
+      dashboardCallCount++
+      if (dashboardCallCount === 1) throw new Error('fetch failed')
+      return htmlResponse(SHELL)
+    }) as unknown as typeof globalThis.fetch
+
+    const rhizomorphFetch = capabilityAwareFetch(4321, { fetch: fetchImpl })
+
+    await expect(rhizomorphFetch('http://127.0.0.1:4321/api/meta')).rejects.toThrow(
+      /cannot rotate the session on port 4321/,
+    )
+    const response = await rhizomorphFetch('http://127.0.0.1:4321/api/meta')
+    expect(response.ok).toBe(true)
+    expect(dashboardCallCount).toBe(2)
+  })
+
+  it('refuses with the same "what is missing" sentence when the server has no dashboard to hand the token out through', async () => {
+    const fetchImpl = vi.fn(async () => htmlResponse(SHELL_WITHOUT_TOKEN)) as unknown as typeof globalThis.fetch
+    const rhizomorphFetch = capabilityAwareFetch(4321, { fetch: fetchImpl })
+
+    await expect(rhizomorphFetch('http://127.0.0.1:4321/api/meta')).rejects.toThrow(/carries no capability token/)
   })
 })
 

@@ -51,8 +51,25 @@ export interface ScenePaintOptions {
   lightBlend?: 'add' | 'cover'
 }
 
+/** What a repaint needs, and nothing more. No `marks`, because the marks are
+ * the retained frame's; no `ground` or `lightBlend`, because both are already
+ * baked into it by the build that produced it — which is exactly why a theme
+ * change must invalidate rather than repaint. */
+export interface SceneRepaintOptions {
+  width: number
+  height: number
+  camera?: Camera
+  dpr?: number
+}
+
 export interface ScenePainter {
   paint(options: ScenePaintOptions): GlFrame
+  /**
+   * Re-submit the retained frame under a new camera, building nothing
+   * (prd-47 ruling 1). False when nothing is retained yet, so the caller falls
+   * back to a full paint rather than dropping the frame.
+   */
+  repaint(options: SceneRepaintOptions): boolean
   /** Both backing stores have been resized; the viewport follows. */
   resize(): void
   dispose(): void
@@ -73,6 +90,35 @@ export interface ScenePainterOptions {
   onLost?: () => void
   onRestored?: () => void
   capture?: boolean
+}
+
+/**
+ * BUILD VS. REPAINT, COUNTED — how prd-47 success 1 is asserted without a wall
+ * clock, and without reaching outside this lane's fence.
+ *
+ * Success 1 is about the MODEL stage: a pure camera change must run no
+ * `layoutScene`, no `sceneMarks` and no `buildFrame`. The first two live in
+ * `scene/geometry.ts` and `scene/marks/`, which are prd-33's territory — so the
+ * count is taken here instead, and it is equivalent by the call graph rather
+ * than by luck: `paint()` below is the only production caller of `buildFrame`,
+ * `drawFrame` (`view/useFrameLoop.ts`) is the only caller of `paint()`, and
+ * `layoutScene`/`sceneMarks` run only inside `drawFrame`. So `builds` unchanged
+ * across a frame IS "no model stage ran".
+ *
+ * Read as a delta, the way `settledRibbonCacheCounts()` is (`gl/frame.ts`).
+ * NOT because the counters outlive a test file — vitest's `isolate` defaults to
+ * true and `packages/web/vitest.config.ts` does not override it, so each file
+ * gets its own module registry and these start at zero — but because many laws
+ * run against them WITHIN one file, and an absolute is then a law that passes
+ * on whatever ran before it in the same file.
+ */
+let builds = 0
+let repaints = 0
+
+/** {@link builds}/{@link repaints}, for a counting law. Read as a delta across
+ * the frames under test. */
+export function scenePaintCounts(): { builds: number; repaints: number } {
+  return { builds, repaints }
 }
 
 export function createScenePainter(
@@ -99,6 +145,7 @@ export function createScenePainter(
         height: request.height,
         dpr: request.dpr ?? 1,
       }
+      builds += 1
       const frame = buildFrame(
         request.marks,
         {
@@ -114,6 +161,25 @@ export function createScenePainter(
       gl?.submit(frame, panel, camera)
       overlay?.draw(frame, panel, camera)
       return frame
+    },
+    repaint(request: SceneRepaintOptions): boolean {
+      // Nothing retained yet — the caller falls back to a full paint. This is
+      // the only way `repaint` can decline, and the loop depends on it for the
+      // frames between mount and the first build.
+      if (last === null) return false
+      const camera = request.camera ?? IDENTITY
+      const panel: Panel = {
+        width: request.width,
+        height: request.height,
+        dpr: request.dpr ?? 1,
+      }
+      repaints += 1
+      // `last` is READ, never replaced: the retained frame outlives any number
+      // of repaints, and the two submits below are exactly the two `paint` makes
+      // after its build — same order, same arguments, one camera later.
+      gl?.submit(last, panel, camera)
+      overlay?.draw(last, panel, camera)
+      return true
     },
     resize: () => gl?.resize(),
     dispose: () => gl?.dispose(),

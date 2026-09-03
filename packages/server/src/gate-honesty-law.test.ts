@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync, chmodSync, mkdirSync, readFileSync, symlinkSync, unlinkSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, chmodSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 /**
@@ -57,6 +57,53 @@ const GATE_PATH = 'scripts/gate.sh'
  */
 const SOURCE = readFileSync(join(REPO_ROOT, GATE_PATH), 'utf8')
 const LINES = SOURCE.split('\n')
+
+/**
+ * A handful of proofs below make a real file unwritable and assert the write
+ * fails. `chmod 0444` cannot do that for root — `CAP_DAC_OVERRIDE` ignores
+ * the permission bit — so a test that only chmods would go red under root
+ * for a reason it never claimed (#74). Where the write target can be freely
+ * relocated, the fix is structural (an ENOTDIR obstruction, which no
+ * privilege bypasses) and needs no root check at all. Where the target must
+ * already exist as a well-formed, readable file — as `lanes.json` must, for
+ * `[ -f ... ]` and `JSON.parse` to see it — no setup step available to an
+ * unprivileged test process holds against root either (a directory's write
+ * bit is the same CAP_DAC_OVERRIDE-bypassable check; `chattr +i` needs
+ * `CAP_LINUX_IMMUTABLE` against the filesystem's owning namespace, which a
+ * user namespace's mapped root does not have). That case skips itself under
+ * root instead, with the reason on the test.
+ *
+ * #179's sweep re-checked this class file-wide rather than trusting the two
+ * `it.skipIf(RUNNING_AS_ROOT)` sites already here (the lane-manifest
+ * "unwritable lanes.json" test and its "read-only, no entry for this handle"
+ * sibling): every `chmod 0o444` in this file is one of those two, and
+ * EXECUTED under `unshare -r` (mapped uid 0), the whole suite reads 134
+ * passed / 3 skipped (the two above plus the pre-existing bash-3.2-only
+ * empty-array test) / 0 failed — no third chmod-based proof degrades to
+ * vacuity under root. The one OLD-form control that chmods without a root
+ * skip (the "malformed OR unwritable lanes.json" comparison a few screens
+ * down) does not need one: its assertion never inspects the file's final
+ * content, only that the OLD script's `catch {}` prints "pruned" either way,
+ * which is true whether or not the chmod actually holds — recorded on that
+ * test, and reconfirmed by the same `unshare -r` run.
+ */
+const RUNNING_AS_ROOT = process.getuid?.() === 0
+
+/**
+ * `/bin/bash`'s major version — NOT the `bash` on PATH.
+ *
+ * `gate.sh`'s shebang is `#!/bin/bash`, so that interpreter is the one its
+ * guards actually run under, and it is the only one whose quirks can hold a
+ * landing. The two differ in practice: macOS ships 3.2.57 at `/bin/bash` while
+ * Homebrew puts 5.x first on PATH, which is exactly how a proof written for
+ * 3.2 comes to run under 5.x and pass without exercising anything.
+ */
+const SYSTEM_BASH_MAJOR = Number(
+  (spawnSync('/bin/bash', ['-c', 'echo "${BASH_VERSINFO[0]}"'], { encoding: 'utf8' }).stdout ?? '')
+    .trim(),
+)
+/** Empty-array expansion under `set -u` stopped being an error in bash 4.4. */
+const SYSTEM_BASH_GUARDS_EMPTY_ARRAYS = !Number.isNaN(SYSTEM_BASH_MAJOR) && SYSTEM_BASH_MAJOR >= 4
 
 /** The one line containing `needle`. Throws if zero or more than one match — an ambiguous anchor is worse than a missing one. */
 function uniqueLineIndex(needle: string): number {
@@ -142,10 +189,10 @@ interface FragmentResult {
 }
 
 /** Runs an assembled bash script and returns its outcome without throwing — a fail()'s exit 1 is an expected result here, not a test-harness error. Syntax-checks first, so a broken extraction fails with a clear parse error instead of a confusing runtime one. */
-function runFragment(script: string, cwd: string): FragmentResult {
-  execFileSync('bash', ['-n'], { input: script, encoding: 'utf8' })
+function runFragment(script: string, cwd: string, shell = 'bash'): FragmentResult {
+  execFileSync(shell, ['-n'], { input: script, encoding: 'utf8' })
   try {
-    const stdout = execFileSync('bash', ['-c', script], { cwd, encoding: 'utf8' })
+    const stdout = execFileSync(shell, ['-c', script], { cwd, encoding: 'utf8' })
     return { status: 0, stdout, stderr: '' }
   } catch (err) {
     const e = err as { status?: number; stdout?: string; stderr?: string }
@@ -199,15 +246,15 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
   /**
    * Ruling 1 (prd-46 #70) — the sweep is REPLACED by a STRUCTURAL predicate
    * over the script's shape, not a hand-maintained list of spellings. The
-   * reference form: a `$(...)` assignment whose exit status is never read
-   * before a verdict prints — either on the SAME line (`) || fail ...`,
-   * `) || exit N` with N != 0, or a `|| { ... }` rescue block that itself
-   * calls `fail`/a nonzero `exit`), or on the NEXT line (a bare
-   * `SOMETHING=$?` capture). `isCheckedProducer` below (via
-   * `findUncheckedProducers`) classifies a line by this SHAPE, not by
-   * scanning for known-bad substrings, so a NEW guard written with a
-   * spelling nobody has thought of yet still reddens this law — Success 1
-   * of prd-46.
+   * reference form: an assignment whose value comes from running a command —
+   * `$(...)`, `` `...` ``, or a quoted string wrapping either — whose exit
+   * status is never read before a verdict prints — either on the SAME line
+   * (`) || fail ...`, `) || exit N` with N != 0, or a `|| { ... }` rescue
+   * block that itself calls `fail`/a nonzero `exit`), or on the NEXT line (a
+   * bare `SOMETHING=$?` capture). `findUncheckedProducers` classifies a line
+   * by this SHAPE, not by scanning for known-bad substrings, so a NEW guard
+   * written with a spelling nobody has thought of yet still reddens this law
+   * — Success 1 of prd-46.
    *
    * Six evasions measured during #68's verification passed the OLD
    * three-idiom sweep silently: `|| :`, `2> /dev/null`, `&>/dev/null`,
@@ -221,36 +268,73 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    * it (the OLD non-vacuity control's own defect, per the issue this
    * closes).
    *
-   * SCOPE, stated rather than silently assumed: this predicate targets
-   * `VAR=$(...)` assignments specifically — the shape ruling 1's reference
-   * form names, and the shape :82's own bug had. A bare, unassigned
-   * pipeline used only to print (gate.sh's own
-   * `workmux merge "$H" | grep ...` at its merge step) or a backgrounded
-   * `cmd &` are structurally DIFFERENT shapes this predicate does not parse
-   * for — the former already has an adjacent, independent, RC-checked
-   * verdict (the `:287 branch containment` postcondition a few lines below
-   * it) that does not depend on its own exit status at all, and no live
-   * instance of the latter exists in this file. Widening the predicate to
-   * parse arbitrary pipelines risked flagging exactly that print-only line,
-   * which is honest by construction and already documented in gate.sh
-   * itself; narrowing to the reference form's own shape avoids inventing a
-   * new false positive to chase a hypothetical one. Proven, not just
-   * asserted, in the 'predicate is honest about its own remaining scope
-   * limit' test below.
+   * #179 — "the class, not the enumeration" a second time: the predicate
+   * above convicted exactly one SPELLING of that reference form
+   * (`VAR=$(...)`, bare, single line). It was blind to a quoted wrap, an
+   * `export`/`local`/`declare`/`typeset`/`readonly` prefix, the legacy
+   * backtick form, and the multi-line `$(` ... `)` shape. Per the issue's
+   * method, the FULL production table comes before the widened predicate, so
+   * a reader can see which spellings were considered — a spelling nobody
+   * listed is a spelling nobody reviewed:
    *
-   * MEASURED FALSE-POSITIVE RATE (EXECUTED, run against every real
-   * `VAR=$(...)` line in scripts/gate.sh — prd-46's own open question):
-   * 16 such assignments exist. Exactly 1 is flagged as structurally
-   * unchecked — :23 (`W=$(workmux path ...)`), declared before this issue
-   * and still declared, because the very next line's existence check is
-   * the verdict rather than the redirect. 0 of the 16 are undeclared: the
-   * predicate does not convict a single honest line on this file.
+   * | # | spelling | example | convicted when unchecked? | verdict |
+   * |---|---|---|---|---|
+   * | 1 | bare `$(...)` | `VAR=$(cmd)` | yes | pre-existing (#70), unchanged |
+   * | 2 | quoted `$(...)` | `VAR="$(cmd)"` | yes | WIDENED (#179) |
+   * | 3 | quoted, substitution mixed with literal text | `VAR="prefix-$(cmd)-suffix"` | yes | WIDENED (#179) — same scanner as row 2; this is gate.sh:24's own shape (`W="$(dirname "$root")/$(basename "$root")__worktrees/$H"`), see row 11 |
+   * | 4 | keyword-prefixed | `export VAR=$(cmd)`, `local VAR=$(cmd)`, `declare VAR=$(cmd)`, `typeset VAR=$(cmd)`, `readonly VAR=$(cmd)` | **ALWAYS — unconditionally, regardless of a `|| fail` tail or a next-line `_RC=$?`** | WIDENED (#179), REVISED after verification review: recognised, but never treated as checkable. Bash gives `$?` from the KEYWORD BUILTIN, not the substitution — `export V=$(false)` exits 0 even though `false` failed (EXECUTED, see the dedicated test below). A same-line `|| fail` or next-line `_RC=$?` on a keyword-prefixed producer therefore checks the WRONG thing and can never fire; treating it as "checked" (round 1 of this fix did) made the law WORSE than before — invisible became seen-and-excused. `hasKeywordPrefix` on each producer forces this row's population straight into `findUncheckedProducers` regardless of tail shape. |
+   * | 5 | backtick | `` VAR=`cmd` `` | yes | WIDENED (#179) |
+   * | 6 | quoted backtick | `` VAR="`cmd`" `` | yes | WIDENED (#179) — same scanner as row 2 |
+   * | 7 | multi-line `$(...)` | `VAR=$(`⏎`  cmd`⏎`)` | yes | WIDENED (#179) — the paren-depth scan now crosses line boundaries, so a producer that closes several lines down is still found, and the lines in between are not re-scanned as fresh assignment starts |
+   * | 8 | single-quoted | `VAR='$(cmd)'` | no — not a producer | EXCLUDED — bash expands NOTHING inside single quotes; the value IS the four-character-plus text `$(cmd)`, no command ever runs, so there is no exit status to check |
+   * | 9 | quoted, no substitution inside | `VAR="just text"` | no — not a producer | EXCLUDED — no command runs; `export PATH="$HOME/.local/bin:$PATH"` (gate.sh:14) is a live instance, correctly never flagged |
+   * | 10 | escaped `\$(` or `` \` `` inside a quoted string | `VAR="literal \$(not a command)"` | no — not a producer | EXCLUDED — the backslash suppresses expansion, same reasoning as row 8 |
+   * | 11 | assignment mid-statement, not the first token on the line | `[ -d "$X" ] || W="$(...)"` (gate.sh:24, verbatim) | not parsed | DECLARED OUT OF SCOPE — the predicate anchors on a (keyword-prefixed) `VAR=` starting the line, matching ruling 1's own reference form; gate.sh's one live instance is :24, and its correctness is instead proven by the very next `[ -d "$W" ]` existence check a few lines down, the same shape already declared for :23's DECLARED_TOLERANCES entry below |
+   * | 12 | multiple assignments on one line, target not the first token | `A=1 VAR=$(cmd)` | not parsed | DECLARED OUT OF SCOPE — no live instance in gate.sh; scanning every token on a line for a trailing `VAR=$(...)` would also convict an ordinary `FOO=bar some_cmd` env-prefix invocation, a false positive nobody asked for |
+   * | 13 | array assignment | `ARR=($(cmd))` | not parsed | N/A — an array literal (`VAR=(...)`) is a different shape from the scalar `VAR=$(...)` ruling 1 names; `=(` never matches the scanner's `=$(` / `` =` `` / `="` starts |
+   * | 14 | unassigned pipeline / substitution used only as an argument | `some_cmd "$(risky)"`, `cmd \| grep x` | not parsed | pre-existing scope note, unaffected by #179 — see "predicate is honest about its own remaining scope limit" below |
+   * | 15 | a literal paren inside a quoted string inside a NESTED `$(...)`, inside the assignment being scanned | `VAR=$(cmd "$(echo ')')")` | correctly parsed | HANDLED — the scanner tracks quote state and recurses into nested `$(...)`, so a paren that is only DATA inside a quoted string never perturbs the depth count (EXECUTED below) |
+   * | 16 | append assignment | `V+=$(cmd)` | yes | WIDENED (verification review) — `+=` is still plain assignment syntax, not a builtin call, so unlike row 4 its exit status DOES reflect the substitution's (EXECUTED, same dedicated test as row 4) |
+   * | 17 | a flag between a keyword and the variable | `declare -r V=$(cmd)` | ALWAYS (row 4's rule) | WIDENED (verification review) — the keyword-prefix consumer is a small loop over (keyword\|flag)\* tokens, not a fixed one-keyword regex, so a flag in between does not hide the keyword from `hasKeywordPrefix` |
+   * | 18 | stacked keywords | `export readonly V=$(cmd)` | ALWAYS (row 4's rule) | WIDENED (verification review) — same loop as row 17; `export` treats a second bare word as another export target, which is syntactically legal and still masks the substitution's status via `export`'s own exit code |
+   * | 19 | arithmetic expansion | `V=$((1+2))`, `V=$(( a > b ))` | no — not a producer | EXCLUDED (verification review) — `$((` is arithmetic, not command substitution: no external command runs, so there is no process exit status to check at all. The dispatch on `$` + `(` alone (rows 1-3's original shape) could not tell `$(` from `$((`; the third character is now checked before committing to the `$(...)` scanner. gate.sh uses `$((...))` three times today, none line-initial, which is the only reason this stayed silent |
+   * | 20 | a `#` comment inside a multi-line `$(...)` or backtick body | `VAR=$(`⏎`  cmd  # note`⏎`)` | correctly parsed | HANDLED (verification review) — an UNBALANCED apostrophe in the comment (`# don't`) used to open a phantom single-quoted string that swallowed the real closing `)`, vanishing the whole producer; a `)` in the comment used to close the substitution early, turning a checked producer's real tail into unrelated later text and convicting it falsely. The scanner now recognises a `#` at a word boundary (start-of-scan or after whitespace, the same convention `stripQuotedRunsAndComments` already uses) and skips to end of line before resuming depth/quote tracking |
+   * | 21 | `VAR=$(...)`-shaped TEXT inside a heredoc body | `cat <<'EOF'`⏎`X=$(cmd)`⏎`EOF` | no — not a producer | HANDLED (verification review) — heredoc body lines (quoted or unquoted delimiter, `<<`/`<<-`) are DATA being piped to a command, not executable assignments; a quoted delimiter's body cannot even expand `$(...)` if it somehow were code. Body lines between the opener and the matching terminator are excluded from producer-scanning entirely. `findHeredocStart` tracks quote state and comments itself (rather than reusing `stripQuotedRunsAndComments`, which DISCARDS quoted text and so cannot see a QUOTED delimiter) so a `<<EOF`-looking substring inside a message or comment (`echo "example: cmd <<EOF"`) is not mistaken for a real opener — that direction of mistake is the dangerous one, since it would hide every real producer between the false opener and wherever a same-named terminator line next happens to occur. Declared, not fully closed: two heredocs opened on the same line is not disambiguated further than "first one found, scanned greedily" — no such line exists in gate.sh today |
+   * | 22 | a `<<` that is NOT a heredoc opener — the `<<<` here-string, and the `<<` LEFT-SHIFT operator inside an arithmetic `((...))` | `grep -q x <<< foo`, `if (( a << b ))` | no — neither opens a heredoc | HANDLED (review of #191) — row 21's opener scan matched any `<<` whose next word looked like a delimiter, so both of these were read as heredoc openers whose terminator never arrives, marking EVERY remaining line of the script as body. That is row 21's own stated dangerous direction, reached by two spellings its CONTROL (a `<<EOF` inside a quoted message) did not cover. EXECUTED against the real scripts/gate.sh: inserting one `grep -q x <<< foo` line — or one `if (( a << b ))` line — above the first producer took the producer count from **17 to 0**. The pinned-count test does redden on that, so the law never went silently blind; it reddened with a count that points nowhere near the offending line, and a re-derive of the pin to the new smaller number would have blinded it for real. `findHeredocStart` now skips all three characters of `<<<` (retrying at `i + 1` would re-find the trailing `<<`) and skips an arithmetic `((...))` span by paren depth |
    *
-   * The other 15 pass structurally on their own merits: 9 same-line forms
-   * (:17's `|| exit 2`, written before `fail` is even defined; 7 `|| fail`;
-   * 1 `|| { ...; fail ...; }` rescue block) and 6 next-line `_RC=$?`
-   * captures (:74/:77's `DIFF_RC`/`GREP_RC`, :100's `STATUS_RC`, :212's
-   * `CAT_RC`, :96's `N_RC` and the `DIRTY_RC` added beside it).
+   * MEASURED FALSE-POSITIVE RATE (EXECUTED, run against every real producer
+   * of ANY spelling above in scripts/gate.sh — prd-46's own open question,
+   * re-run after #179's widening rather than retyped): 17 such assignments
+   * exist — UNCHANGED from before the widening, because gate.sh currently
+   * contains no live instance of rows 2-7; every producer in the file today
+   * is still the bare, single-line form of row 1. Exactly 1 is flagged as
+   * structurally unchecked — :23 (`W=$(workmux path ...)`), declared before
+   * this issue and still declared, because the very next line's existence
+   * check is the verdict rather than the redirect. 0 of the 17 are
+   * undeclared: the predicate does not convict a single honest line on this
+   * file.
+   *
+   * The other 16 pass structurally on their own merits: 11 same-line forms
+   * (:17's `|| exit 2`, written before `fail` is even defined; 9 `|| fail`
+   * at :41 :56 :116 :210 :220 :284 :370 :410 :411; 1 `|| { ...; fail ...; }`
+   * rescue block at :57) and 5 next-line `_RC=$?` captures (:73's
+   * `ANCESTOR_RC`, :153's `N_RC`, :157's `STATUS_RC`, :184's `DIRTY_RC`,
+   * :285's `CAT_RC`).
+   *
+   * These counts moved with #71, and the reason is structural rather than
+   * arithmetic: `DIFF_RC` and `GREP_RC` used to be next-line captures of
+   * `VAR=$(...)` producers. #71 replaced those producers with a redirect
+   * (`git diff -z ... >"$FENCE_LIST"`) and a pipeline (`printf '' | grep`),
+   * so both leave this predicate's population by construction rather than
+   * by becoming unchecked — their statuses are still read, one line later,
+   * exactly as before. They moved again with #73: the rebase-ancestry check
+   * (`ANCESTOR_ERR`/`ANCESTOR_RC`, prd46 instance 1) and the lane-manifest
+   * prune's shape guard (`MANIFEST_OUT_LOG`, instance 2) each added one real
+   * producer, deliberately written so the predicate can see it is checked —
+   * `MANIFEST_OUT_LOG` is a same-line `|| fail` on its own `mktemp`, and the
+   * multi-line `node -e` itself is run as a bare command (never captured via
+   * `VAR=$(...)`) precisely so a multi-line assignment never enters this
+   * predicate's blind spot (see the comment beside it in gate.sh).
    *
    * These counts are PINNED below rather than left as prose. The revision
    * that introduced this paragraph said "the remaining 12 ... 9 same-line
@@ -265,24 +349,254 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    * dated KNOWN GAP entries are untouched by this issue and remain
    * declared, not fixed, exactly as before.
    */
-  function matchDollarParenAssignment(line: string): { varName: string; tail: string } | null {
-    const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)=\$\(/)
-    if (!m) return null
-    const openIdx = m[0].length - 1
-    let depth = 0
-    let close = -1
-    for (let i = openIdx; i < line.length; i++) {
-      if (line[i] === '(') depth++
-      else if (line[i] === ')') {
-        depth--
-        if (depth === 0) {
-          close = i
-          break
-        }
+
+  /** Bash never expands anything inside single quotes — no escapes, no `$(...)`, no backticks (row 8 of the table above). Scans from the opening `'` at `text[pos]` to the next `'`. Returns the index just past it, or -1 if unterminated. */
+  function skipSingleQuoted(text: string, pos: number): number {
+    const i = text.indexOf("'", pos + 1)
+    return i === -1 ? -1 : i + 1
+  }
+
+  /** Is `text[i] === '#'` a shell COMMENT start — a word boundary (the scan's own start, or preceded by whitespace)? Mirrors `stripQuotedRunsAndComments`'s identical convention above, applied here so a `#` inside a multi-line `$(...)`/backtick body (row 20) is recognised the same way. */
+  function isCommentStart(text: string, i: number, scanStart: number): boolean {
+    return i === scanStart || /\s/.test(text[i - 1]!)
+  }
+
+  /** The index just past the end of the line containing `text[i]` — a `#` comment runs to end of line, never past it. */
+  function skipToEndOfLine(text: string, i: number): number {
+    const nl = text.indexOf('\n', i)
+    return nl === -1 ? text.length : nl + 1
+  }
+
+  /**
+   * Skips a `` `...` `` backtick-delimited (legacy) command substitution
+   * starting at `text[pos] === '`'`. A backslash escapes the next character,
+   * matching bash's own rule inside backticks. A `#` comment (row 20) is
+   * skipped to end of line BEFORE it can be mistaken for a stray backtick or
+   * have its own `` ` `` end the substitution early — the same bug row 20
+   * fixes for `$(...)`, in its sibling function. Returns the index just past
+   * the closing backtick, or -1 if unterminated.
+   */
+  function skipBacktick(text: string, pos: number): number {
+    let i = pos + 1
+    while (i < text.length) {
+      const c = text[i]
+      if (c === '\\') {
+        i += 2
+        continue
       }
+      if (c === '#' && isCommentStart(text, i, pos + 1)) {
+        i = skipToEndOfLine(text, i)
+        continue
+      }
+      if (c === '`') return i + 1
+      i++
     }
-    if (close === -1) return null
-    return { varName: m[1]!, tail: line.slice(close + 1) }
+    return -1
+  }
+
+  /**
+   * Skips a `$(...)` command substitution, `text[pos]` pointing at the `(`
+   * right after the `$`. Tracks paren depth AND quote state TOGETHER, and
+   * recurses into any further-nested `$(...)` it meets (row 15 of the table
+   * above) — the reason a literal `)` inside a quoted argument
+   * (`$(cmd "(")`) never miscounts the depth. This is also what makes a
+   * MULTI-LINE `$(` ... `)` reachable (row 7): it walks the whole script
+   * joined into one string, not one line at a time, so it crosses a `\n`
+   * exactly like every other character. A `#` comment (row 20) is skipped to
+   * end of line before its contents can be read as quotes or parens — an
+   * unbalanced apostrophe in a comment (`# don't`) used to open a phantom
+   * single-quoted string that swallowed the real closing `)` (vanishing the
+   * whole producer), and a `)` in a comment used to close the substitution
+   * early (falsely convicting a producer that really was checked, just
+   * further down than the fake close). Returns the index just past the
+   * matching `)`, or -1 if unterminated.
+   */
+  function skipDollarParen(text: string, pos: number): number {
+    let i = pos + 1
+    let depth = 1
+    while (i < text.length) {
+      const c = text[i]
+      if (c === '\\') {
+        i += 2
+        continue
+      }
+      if (c === '#' && isCommentStart(text, i, pos + 1)) {
+        i = skipToEndOfLine(text, i)
+        continue
+      }
+      if (c === "'") {
+        const j = skipSingleQuoted(text, i)
+        if (j === -1) return -1
+        i = j
+        continue
+      }
+      if (c === '"') {
+        const j = skipDoubleQuoted(text, i).end
+        if (j === -1) return -1
+        i = j
+        continue
+      }
+      if (c === '`') {
+        const j = skipBacktick(text, i)
+        if (j === -1) return -1
+        i = j
+        continue
+      }
+      if (c === '(') {
+        depth++
+        i++
+        continue
+      }
+      if (c === ')') {
+        depth--
+        i++
+        if (depth === 0) return i
+        continue
+      }
+      i++
+    }
+    return -1
+  }
+
+  /**
+   * Skips a `"..."` double-quoted string starting at `text[pos] === '"'`.
+   * Unlike single quotes, bash still expands `$(...)` and `` `...` `` INSIDE
+   * double quotes — this is what gate.sh:24's
+   * `W="$(dirname "$root")/$(basename "$root")__worktrees/$H"` depends on —
+   * so both are recursed into rather than treated as opaque text, and each
+   * one found flips `hasSubstitution`, which is how the caller tells a real
+   * producer (`VAR="$(cmd)"`, row 2/3/6) apart from an ordinary quoted
+   * literal (`VAR="hi"`, row 9): the two are indistinguishable by outer
+   * shape alone. Returns the index just past the closing `"` together with
+   * that flag, or `end: -1` if unterminated.
+   */
+  function skipDoubleQuoted(text: string, pos: number): { end: number; hasSubstitution: boolean } {
+    let i = pos + 1
+    let hasSubstitution = false
+    while (i < text.length) {
+      const c = text[i]
+      if (c === '\\') {
+        i += 2
+        continue
+      }
+      if (c === '"') return { end: i + 1, hasSubstitution }
+      if (c === '$' && text[i + 1] === '(') {
+        hasSubstitution = true
+        const j = skipDollarParen(text, i + 1)
+        if (j === -1) return { end: -1, hasSubstitution }
+        i = j
+        continue
+      }
+      if (c === '`') {
+        hasSubstitution = true
+        const j = skipBacktick(text, i)
+        if (j === -1) return { end: -1, hasSubstitution }
+        i = j
+        continue
+      }
+      i++
+    }
+    return { end: -1, hasSubstitution }
+  }
+
+  /** Declaration keywords that may precede `VAR=` — row 4. Every one of them is a BUILTIN COMMAND, not shell assignment syntax, and that distinction is the whole reason row 4 is treated specially below: bash reports the exit status of the BUILTIN, never of a `$(...)` embedded in its argument (EXECUTED, see the dedicated test near the bottom of this describe block). */
+  const ASSIGNMENT_KEYWORDS = ['export', 'local', 'declare', 'typeset', 'readonly'] as const
+
+  /**
+   * Consumes a leading run of declaration keywords AND their flags from the
+   * start of `line` — a LOOP over (keyword|flag)* tokens, not a fixed
+   * one-keyword regex, so `declare -r V=...` (row 17, a flag BETWEEN the
+   * keyword and the variable) and `export readonly V=...` (row 18, stacked
+   * keywords — legal bash: `export` accepts any number of NAME or
+   * NAME=value arguments, so a second bare word is simply another export
+   * target) are both consumed by the SAME mechanism a verification review
+   * found the original fixed-prefix regex could not see at all. A bare flag
+   * with no keyword ever preceding it (`-r V=$(cmd)` on its own) is not
+   * valid bash to begin with — consuming it here is harmless because
+   * `hasKeyword` only turns true when an actual keyword token is seen, and
+   * the caller still requires what is left over to start with `VAR=`.
+   */
+  function consumeKeywordPrefix(line: string): { rest: string; hasKeyword: boolean } {
+    let rest = line.replace(/^\s*/, '')
+    let hasKeyword = false
+    for (;;) {
+      const m = rest.match(/^([A-Za-z_][A-Za-z0-9_]*|-[A-Za-z]+)\s+/)
+      if (!m) break
+      const token = m[1]!
+      const isKeyword = (ASSIGNMENT_KEYWORDS as readonly string[]).includes(token)
+      const isFlag = token.startsWith('-')
+      if (!isKeyword && !isFlag) break
+      if (isKeyword) hasKeyword = true
+      rest = rest.slice(m[0].length)
+    }
+    return { rest, hasKeyword }
+  }
+
+  /**
+   * Does `line` (the physical line at `lineStartOffset` inside `text`, the
+   * whole script joined by `\n`) open a `VAR=` assignment — optionally
+   * keyword/flag-prefixed, optionally `+=` (row 16, append) — whose value is
+   * a command substitution of ANY spelling in the production table above?
+   * Returns the variable name, whether a declaration keyword was seen
+   * anywhere in the prefix (`hasKeywordPrefix` — row 4's masking applies
+   * regardless of which token in a stacked/flagged prefix carried it), and
+   * the absolute offset in `text` just past the value's closing delimiter —
+   * or `null` if this line does not open a producer. A single-quoted RHS
+   * (row 8), a plain quoted string with no substitution inside it (row 9), a
+   * bare word with no `$(`/backtick/quote at all, and arithmetic expansion
+   * `$((...))` (row 19 — no external command runs) all return `null`.
+   */
+  function matchProducerAt(text: string, lineStartOffset: number, line: string): { varName: string; endOffset: number; hasKeywordPrefix: boolean } | null {
+    const { rest, hasKeyword } = consumeKeywordPrefix(line)
+    const varMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_]*)\+?=/)
+    if (!varMatch) return null
+    const rhsStart = lineStartOffset + (line.length - rest.length) + varMatch[0].length
+    const c0 = text[rhsStart]
+    if (c0 === '$' && text[rhsStart + 1] === '(') {
+      // `$((` is ARITHMETIC expansion (row 19), not command substitution —
+      // no process runs, so there is no exit status for this law to demand
+      // a check on. Checked here, before committing to skipDollarParen,
+      // which a verification review found dispatches on `$` + `(` alone and
+      // so could not tell the two apart.
+      if (text[rhsStart + 2] === '(') return null
+      const end = skipDollarParen(text, rhsStart + 1)
+      return end === -1 ? null : { varName: varMatch[1]!, endOffset: end, hasKeywordPrefix: hasKeyword }
+    }
+    if (c0 === '`') {
+      const end = skipBacktick(text, rhsStart)
+      return end === -1 ? null : { varName: varMatch[1]!, endOffset: end, hasKeywordPrefix: hasKeyword }
+    }
+    if (c0 === '"') {
+      const { end, hasSubstitution } = skipDoubleQuoted(text, rhsStart)
+      return end === -1 || !hasSubstitution ? null : { varName: varMatch[1]!, endOffset: end, hasKeywordPrefix: hasKeyword }
+    }
+    return null
+  }
+
+  /** Cumulative start offset of each line inside `scriptLines.join('\n')` — lets a character offset be mapped back to the line it falls on. */
+  function lineStartOffsets(scriptLines: readonly string[]): number[] {
+    const starts: number[] = []
+    let offset = 0
+    for (const l of scriptLines) {
+      starts.push(offset)
+      offset += l.length + 1
+    }
+    return starts
+  }
+
+  /** The index of the line containing absolute offset `pos` (binary search over the ascending `starts`). */
+  function lineIndexForOffset(starts: readonly number[], pos: number): number {
+    let lo = 0
+    let hi = starts.length - 1
+    let ans = 0
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1
+      if (starts[mid]! <= pos) {
+        ans = mid
+        lo = mid + 1
+      } else hi = mid - 1
+    }
+    return ans
   }
 
   /** The largest literal bash will accept for `exit`; beyond it bash prints "numeric argument required" and exits 2 — itself an honest abort. */
@@ -393,18 +707,151 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     return /^\s*[A-Za-z_][A-Za-z0-9_]*=\$\?\s*$/.test(nextLine)
   }
 
-  /** The structural predicate itself (ruling 1): every `VAR=$(...)` line whose exit status is checked neither on the same line nor on the next. */
-  function findUncheckedProducers(scriptLines: readonly string[]): { index: number; line: string }[] {
-    const out: { index: number; line: string }[] = []
-    scriptLines.forEach((line, i) => {
-      if (line.trim().startsWith('#')) return
-      const m = matchDollarParenAssignment(line)
-      if (!m) return
-      if (tailChecksStatus(m.tail)) return
-      if (nextLineCapturesRC(scriptLines[i + 1])) return
-      out.push({ index: i, line })
-    })
+  /**
+   * Finds a heredoc opener (`<<`, optionally `-` to strip leading tabs, an
+   * optional matching quote around the delimiter, then the delimiter word)
+   * in `line`, tracking quote state and comments ITSELF rather than reusing
+   * `stripQuotedRunsAndComments` — that helper DISCARDS quoted content
+   * entirely (it exists to feed `tailChecksStatus`'s spelling checks, which
+   * never need the text back), so it silently ate the delimiter of a
+   * QUOTED heredoc (`<<'EOF'`) and broke detection of exactly that form.
+   * This scanner keeps the delimiter text; it stops at an unquoted `#`
+   * (nothing real follows) and never fires while inside a `'...'`/`"..."`
+   * span, so a `<<EOF`-looking substring sitting inside a message
+   * (`echo "example: cmd <<EOF"`) is not mistaken for a real opener — that
+   * mistake is the dangerous direction, since it would hide every real
+   * producer between the false opener and wherever a same-named terminator
+   * line next happens to occur.
+   */
+  function findHeredocStart(line: string): { delimiter: string; stripLeadingTabs: boolean } | null {
+    let quote: "'" | '"' | null = null
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i]!
+      if (quote === null) {
+        if (c === '#' && (i === 0 || /\s/.test(line[i - 1]!))) return null
+        if (c === "'" || c === '"') {
+          quote = c
+          continue
+        }
+        if (c === '\\') {
+          i++
+          continue
+        }
+        if (c === '(' && line[i + 1] === '(') {
+          // `((...))` is an ARITHMETIC context, where `<<` is the LEFT-SHIFT
+          // OPERATOR, not a heredoc opener (row 22). The whole span is
+          // skipped by paren depth so `(( a << b ))` cannot name `b` as a
+          // delimiter. An unbalanced `((` runs the scan to end of line and
+          // returns null — the safe direction, since a false opener hides
+          // producers while a missed one only leaves them visible.
+          let depth = 0
+          let j = i
+          for (; j < line.length; j++) {
+            if (line[j] === '(') depth++
+            else if (line[j] === ')') {
+              depth--
+              if (depth === 0) break
+            }
+          }
+          i = j
+          continue
+        }
+        if (c === '<' && line[i + 1] === '<') {
+          // `<<<` is a HERE-STRING (row 22): its operand is a word fed on
+          // stdin, never a delimiter naming a body. All THREE characters are
+          // skipped deliberately — letting the loop retry at `i + 1` would
+          // find the trailing `<<` and read the operand as a delimiter,
+          // which is exactly the bug this guards.
+          if (line[i + 2] === '<') {
+            i += 2
+            continue
+          }
+          const m = line.slice(i).match(/^<<([-~]?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/)
+          if (m) return { delimiter: m[3]!, stripLeadingTabs: m[1] === '-' }
+        }
+      } else {
+        if (quote === '"' && c === '\\') i++
+        else if (c === quote) quote = null
+      }
+    }
+    return null
+  }
+
+  /**
+   * Which lines of `scriptLines` are heredoc BODY content (row 21) — DATA
+   * being piped to a command, never executable assignments, so
+   * `findAllProducers` must not scan them at all.
+   */
+  function computeHeredocBodyLines(scriptLines: readonly string[]): boolean[] {
+    const isBody = new Array<boolean>(scriptLines.length).fill(false)
+    let i = 0
+    while (i < scriptLines.length) {
+      const found = findHeredocStart(scriptLines[i]!)
+      if (!found) {
+        i++
+        continue
+      }
+      let j = i + 1
+      while (j < scriptLines.length) {
+        isBody[j] = true
+        const body = found.stripLeadingTabs ? scriptLines[j]!.replace(/^\t+/, '') : scriptLines[j]!
+        if (body === found.delimiter) break
+        j++
+      }
+      i = j + 1
+    }
+    return isBody
+  }
+
+  /**
+   * Every producer (any spelling in the table above) in `scriptLines`,
+   * paired with its TAIL — the text right after its closing delimiter, on
+   * whichever physical line that delimiter falls on (the same line as the
+   * start for every spelling except row 7, the multi-line form) — and
+   * whether a declaration keyword prefixed it (row 4). A producer that spans
+   * multiple lines advances the scan past its own close, so an intermediate
+   * or closing line is never re-scanned as a fresh assignment start, and a
+   * heredoc body line (row 21) is skipped outright.
+   */
+  function findAllProducers(scriptLines: readonly string[]): { index: number; line: string; tail: string; endLineIndex: number; hasKeywordPrefix: boolean }[] {
+    const text = scriptLines.join('\n')
+    const starts = lineStartOffsets(scriptLines)
+    const heredocBody = computeHeredocBodyLines(scriptLines)
+    const out: { index: number; line: string; tail: string; endLineIndex: number; hasKeywordPrefix: boolean }[] = []
+    let i = 0
+    while (i < scriptLines.length) {
+      const line = scriptLines[i]!
+      if (line.trim().startsWith('#') || heredocBody[i]) {
+        i++
+        continue
+      }
+      const m = matchProducerAt(text, starts[i]!, line)
+      if (!m) {
+        i++
+        continue
+      }
+      const endLineIndex = lineIndexForOffset(starts, m.endOffset - 1)
+      const tail = scriptLines[endLineIndex]!.slice(m.endOffset - starts[endLineIndex]!)
+      out.push({ index: i, line, tail, endLineIndex, hasKeywordPrefix: m.hasKeywordPrefix })
+      i = endLineIndex + 1
+    }
     return out
+  }
+
+  /**
+   * The structural predicate itself (ruling 1): every producer (any spelling
+   * in the table above) whose exit status is checked neither on its tail nor
+   * on the line right after its close — with row 4's rule applied FIRST and
+   * unconditionally: a keyword-prefixed producer's `$?` comes from the
+   * KEYWORD BUILTIN, never from the substitution, so no tail shape and no
+   * next-line capture can ever legitimately check it (EXECUTED, see the
+   * dedicated test below) — it is always reported unchecked, regardless of
+   * how safe the line looks to a human reader.
+   */
+  function findUncheckedProducers(scriptLines: readonly string[]): { index: number; line: string }[] {
+    return findAllProducers(scriptLines)
+      .filter((p) => p.hasKeywordPrefix || (!tailChecksStatus(p.tail) && !nextLineCapturesRC(scriptLines[p.endLineIndex + 1])))
+      .map((p) => ({ index: p.index, line: p.line }))
   }
 
   const DECLARED_TOLERANCES = [
@@ -413,7 +860,6 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     { needle: 'git push origin main 2>&1 | tail -1 || echo', count: 1, reason: 'push_or_warn(): the one documented non-fatal check in the file (prd-39 ruling 1)' },
     { needle: 'workmux path "$H" 2>/dev/null | tail -1', count: 1, reason: 'resolves $W; the very next line ([ -d "${W:-}" ] on :24) checks the result and falls back to a constructed path — the verdict is the existence check, not this redirect. Structural predicate: an UNCHECKED $(...) assignment, exempted here rather than by spelling.' },
     { needle: 'rev-parse --abbrev-ref HEAD 2>/dev/null) || fail', count: 1, reason: "stderr text is discarded, but the command's own exit code is still routed through fail() via || — structurally CHECKED, kept here for the historical record only." },
-    { needle: 'merge-base --is-ancestor main HEAD 2>/dev/null || fail', count: 1, reason: 'same — stderr discarded, exit code still routed through fail(); not a $(...) assignment at all, so out of the structural predicate\'s scope regardless.' },
     {
       // This needle deliberately avoids gate.sh's timing-opt-in marker
       // comment text as a contiguous substring. An earlier version of this
@@ -450,25 +896,42 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     expect(undeclared.map((u) => `${u.index + 1}: ${u.line.trim()}`), 'undeclared unchecked producer(s) in scripts/gate.sh — fix the shape (see the :82 commit-count fix below) or add a DECLARED_TOLERANCES entry with a reason').toEqual([])
   })
 
-  it('EXECUTED — the measured false-positive rate on the real file, pinned: 1 of 16 $(...) assignments flagged, it is declared, 0 undeclared', () => {
-    const allAssignmentLines = codeLines().filter((l) => matchDollarParenAssignment(l))
+  it('EXECUTED — the measured false-positive rate on the real file, RE-DERIVED after #179 widened the predicate to every spelling in the table above: still 1 of 17 flagged, it is declared, 0 undeclared', () => {
+    // findAllProducers, not a codeLines()+regex filter: the widened predicate
+    // recognises multi-line producers that a per-line filter cannot even
+    // represent (row 7), so the count of "producers" and the count of
+    // "unchecked producers" must come from the SAME walk that does the real
+    // scanning, not two different notions of "a $(...) line" that could
+    // silently drift apart.
+    const allProducers = findAllProducers(LINES)
     const unchecked = findUncheckedProducers(LINES)
     const undeclared = unchecked.filter((u) => !DECLARED_TOLERANCES.some((t) => u.line.includes(t.needle)))
-    expect(allAssignmentLines.length, 'total $(...) assignments in scripts/gate.sh drifted — the doc comment above cites this count').toBe(16)
+    // UNCHANGED from before #179's widening: gate.sh contains no live
+    // instance of the four newly-recognised spellings (rows 2-7 of the
+    // table above) today, so widening the predicate finds nothing NEW here —
+    // it only means a FUTURE line written that way would now be seen. Proven
+    // by count, not assumed: this would move the moment such a line landed.
+    expect(allProducers.length, 'total producers (any spelling) in scripts/gate.sh drifted — the doc comment above cites this count').toBe(17)
     expect(unchecked.length, 'flagged (structurally unchecked) count drifted — the doc comment above cites this count').toBe(1)
     expect(undeclared.length).toBe(0)
 
     // The doc comment's OTHER numbers, pinned for the first time. The
     // revision before this one got all three wrong precisely because only
     // the totals were pinned.
-    const sameLine = allAssignmentLines.filter((l) => tailChecksStatus(matchDollarParenAssignment(l)!.tail))
-    const nextLine = allAssignmentLines.filter((l) => {
-      const i = LINES.indexOf(l)
-      return !tailChecksStatus(matchDollarParenAssignment(l)!.tail) && nextLineCapturesRC(LINES[i + 1])
-    })
-    expect(sameLine.length, 'same-line-checked count drifted — the doc comment above cites it').toBe(9)
-    expect(nextLine.length, 'next-line _RC=$? count drifted — the doc comment above cites it').toBe(6)
-    expect(sameLine.length + nextLine.length + unchecked.length).toBe(allAssignmentLines.length)
+    //
+    // `!p.hasKeywordPrefix` on both buckets: a keyword-prefixed producer
+    // whose TAIL merely LOOKS like `|| fail` (or is followed by a `_RC=$?`
+    // capture) is never actually checked — see findUncheckedProducers — so
+    // counting it as "same-line" or "next-line" here would double-book it
+    // against `unchecked` below and break the invariant on the last line.
+    // No live instance changes today (gate.sh has no keyword-prefixed
+    // producer), but the filters must agree with the real classification
+    // rather than happen to agree by the accident of an empty case.
+    const sameLine = allProducers.filter((p) => !p.hasKeywordPrefix && tailChecksStatus(p.tail))
+    const nextLine = allProducers.filter((p) => !p.hasKeywordPrefix && !tailChecksStatus(p.tail) && nextLineCapturesRC(LINES[p.endLineIndex + 1]))
+    expect(sameLine.length, 'same-line-checked count drifted — the doc comment above cites it').toBe(11)
+    expect(nextLine.length, 'next-line _RC=$? count drifted — the doc comment above cites it').toBe(5)
+    expect(sameLine.length + nextLine.length + unchecked.length).toBe(allProducers.length)
   })
 
   describe("ruling 2 — the structural predicate's own controls run the REAL predicate, not a restatement of it", () => {
@@ -506,6 +969,49 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       { label: 'BEYOND THE SIX — swallowing rescue block whose trailing COMMENT names fail', lines: ['SOME_NEW_CHECK=$(some_new_check) || { echo "  soft"; }  # fail is handled elsewhere', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
       { label: 'BEYOND THE SIX — swallowing rescue block whose trailing COMMENT names exit 2', lines: ['SOME_NEW_CHECK=$(some_new_check) || { echo "  soft"; }  # would exit 2 if this were fatal', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
       { label: 'BEYOND THE SIX — comment carrying a semicolon, so a segment-splitting cut would resurrect the token a whole-comment cut removes', lines: ['SOME_NEW_CHECK=$(some_new_check) || { echo "  soft"; }  # not fatal; fail comes later', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      // #179 — the four spellings the OLD (bare-`VAR=$(`-only) predicate was
+      // blind to (production table rows 2, 3, 4, 5, 6, 7 above). Each one
+      // runs the SAME `some_new_check` unchecked; only the assignment's
+      // spelling differs.
+      { label: '#179 — quoted $(...): VAR="$(cmd)"', lines: ['SOME_NEW_CHECK="$(some_new_check)"', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: '#179 — quoted, substitution mixed with literal text: VAR="prefix-$(cmd)-suffix" (gate.sh:24\'s own shape)', lines: ['SOME_NEW_CHECK="prefix-$(some_new_check)-suffix"', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: '#179 — export-prefixed: export VAR=$(cmd)', lines: ['export SOME_NEW_CHECK=$(some_new_check)', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: '#179 — local-prefixed: local VAR=$(cmd)', lines: ['local SOME_NEW_CHECK=$(some_new_check)', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: '#179 — declare-prefixed: declare VAR=$(cmd)', lines: ['declare SOME_NEW_CHECK=$(some_new_check)', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: '#179 — typeset-prefixed: typeset VAR=$(cmd)', lines: ['typeset SOME_NEW_CHECK=$(some_new_check)', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: '#179 — readonly-prefixed: readonly VAR=$(cmd)', lines: ['readonly SOME_NEW_CHECK=$(some_new_check)', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: "#179 — backtick (legacy substitution): VAR=`cmd`", lines: ['SOME_NEW_CHECK=`some_new_check`', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: '#179 — quoted backtick: VAR="`cmd`"', lines: ['SOME_NEW_CHECK="`some_new_check`"', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: '#179 — multi-line $(...): VAR=$(\\n  cmd\\n)', lines: ['SOME_NEW_CHECK=$(', '  some_new_check', ')', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      // Row 15 of the production table: a literal paren, only DATA because it
+      // sits inside a quoted string inside a NESTED $(...), must not confuse
+      // the depth count into closing early (or never).
+      { label: "#179 — a literal ')' inside a quoted string inside a nested $(...) does not miscount the outer depth", lines: [`SOME_NEW_CHECK=$(some_new_check "$(echo ')')")`, '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      // Row 4, REVISED after verification review — the single most dishonest
+      // shape in the whole grammar: a same-line `|| fail` or next-line
+      // `_RC=$?` on a KEYWORD-PREFIXED producer reads $? from the KEYWORD
+      // BUILTIN, never from the substitution (EXECUTED against real bash, see
+      // the dedicated test below), so it can NEVER fire and must still
+      // convict — moved here from HONEST_LINES, where round 1 of this fix
+      // wrongly shipped them as "the real predicate stays SILENT on an
+      // honest form".
+      { label: '#179 — export-prefixed producer with a same-line || fail that CANNOT actually check it', lines: ['export SOME_NEW_CHECK=$(some_new_check) || fail "problem"'] },
+      { label: '#179 — export-prefixed producer with a next-line _RC=$? that CANNOT actually check it (captures export\'s own $?, always 0)', lines: ['export SOME_NEW_CHECK=$(some_new_check)', 'SOME_NEW_CHECK_RC=$?', '[ "$SOME_NEW_CHECK_RC" -ne 0 ] && fail "problem"'] },
+      { label: '#179 — local-prefixed producer with a same-line || fail that CANNOT actually check it', lines: ['local SOME_NEW_CHECK=$(some_new_check) || fail "problem"'] },
+      { label: '#179 — declare-prefixed producer with a same-line || fail that CANNOT actually check it', lines: ['declare SOME_NEW_CHECK=$(some_new_check) || fail "problem"'] },
+      { label: '#179 — typeset-prefixed producer with a same-line || fail that CANNOT actually check it', lines: ['typeset SOME_NEW_CHECK=$(some_new_check) || fail "problem"'] },
+      { label: '#179 — readonly-prefixed producer with a same-line || fail that CANNOT actually check it', lines: ['readonly SOME_NEW_CHECK=$(some_new_check) || fail "problem"'] },
+      // Rows 17 and 18 — a flag between the keyword and the variable, and
+      // stacked keywords — both consumed by the same (keyword|flag)* loop
+      // `consumeKeywordPrefix` runs, so both are recognised AND masked.
+      { label: '#179 row 17 — a flag between the keyword and the variable: declare -r VAR=$(cmd)', lines: ['declare -r SOME_NEW_CHECK=$(some_new_check)', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: '#179 row 17 — same, WITH a same-line || fail that still cannot check it', lines: ['declare -r SOME_NEW_CHECK=$(some_new_check) || fail "problem"'] },
+      { label: '#179 row 18 — stacked keywords: export readonly VAR=$(cmd)', lines: ['export readonly SOME_NEW_CHECK=$(some_new_check)', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: '#179 row 18 — same, WITH a same-line || fail that still cannot check it', lines: ['export readonly SOME_NEW_CHECK=$(some_new_check) || fail "problem"'] },
+      // Row 16 — append assignment. Unlike row 4, `+=` is plain assignment
+      // syntax (no builtin involved), so it is checkable exactly like bare
+      // `=` and belongs in RIGGED_LINES only when genuinely unchecked.
+      { label: '#179 row 16 — append assignment: VAR+=$(cmd), unchecked', lines: ['SOME_NEW_CHECK+=$(some_new_check)', '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
     ]
 
     it.each(RIGGED_LINES)('EXECUTED — the real predicate FIRES on: $label', ({ lines }) => {
@@ -534,10 +1040,143 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       { label: 'rescue block whose ${VAR#pat} expansion contains a # that does NOT open a comment — bash starts one only at a word start', lines: ['SOME_NEW_CHECK=$(some_new_check) || { rm -f ${LOG#/tmp/}; fail "cannot go on"; }'] },
       { label: 'rescue block where the # is glued to a closing quote (echo "x"# is one word, not a comment) and a real fail follows', lines: ['SOME_NEW_CHECK=$(some_new_check) || { echo "x"#y; fail "cannot go on"; }'] },
       { label: 'next-line _RC=$? capture — the form :74/:77 and :100 use', lines: ['SOME_NEW_CHECK=$(some_new_check)', 'SOME_NEW_CHECK_RC=$?', '[ "$SOME_NEW_CHECK_RC" -ne 0 ] && fail "problem"'] },
+      // #179 — the same four new spellings, this time CHECKED, both ways
+      // (same-line `|| fail` and next-line `_RC=$?`) — DoD: "EXECUTED both
+      // directions per spelling".
+      { label: '#179 — quoted $(...), checked same-line', lines: ['SOME_NEW_CHECK="$(some_new_check)" || fail "problem"'] },
+      { label: '#179 — quoted $(...), checked next-line', lines: ['SOME_NEW_CHECK="$(some_new_check)"', 'SOME_NEW_CHECK_RC=$?', '[ "$SOME_NEW_CHECK_RC" -ne 0 ] && fail "problem"'] },
+      { label: '#179 — quoted, mixed literal + substitution, checked same-line (gate.sh:24\'s own shape)', lines: ['SOME_NEW_CHECK="prefix-$(some_new_check)-suffix" || fail "problem"'] },
+      { label: "#179 — backtick, checked same-line", lines: ['SOME_NEW_CHECK=`some_new_check` || fail "problem"'] },
+      { label: "#179 — backtick, checked next-line", lines: ['SOME_NEW_CHECK=`some_new_check`', 'SOME_NEW_CHECK_RC=$?', '[ "$SOME_NEW_CHECK_RC" -ne 0 ] && fail "problem"'] },
+      { label: '#179 — quoted backtick, checked same-line', lines: ['SOME_NEW_CHECK="`some_new_check`" || fail "problem"'] },
+      { label: '#179 — multi-line $(...), checked on the CLOSING line', lines: ['SOME_NEW_CHECK=$(', '  some_new_check', ') || fail "problem"'] },
+      { label: '#179 — multi-line $(...), checked on the line AFTER the close', lines: ['SOME_NEW_CHECK=$(', '  some_new_check', ')', 'SOME_NEW_CHECK_RC=$?', '[ "$SOME_NEW_CHECK_RC" -ne 0 ] && fail "problem"'] },
+      { label: "#179 — a literal ')' inside a quoted string inside a nested $(...), checked", lines: [`SOME_NEW_CHECK=$(some_new_check "$(echo ')')") || fail "problem"`] },
+      // Rows 8-10 of the production table: never producers at all, so the
+      // predicate must be SILENT on them too — not because they are
+      // "checked", but because there is nothing to check.
+      { label: "row 8 — single-quoted: VAR='$(cmd)' is a literal string, not a command; never a producer", lines: ["SOME_NEW_CHECK='$(some_new_check)'", '[ -n "$SOME_NEW_CHECK" ] && fail "new problem"'] },
+      { label: 'row 9 — a quoted string with no substitution inside is not a producer', lines: ['SOME_NEW_CHECK="just text"'] },
+      { label: 'row 10 — an escaped \\$( inside a quoted string is not a producer (the backslash suppresses expansion)', lines: ['SOME_NEW_CHECK="literal \\$(not a command)"'] },
+      { label: 'row 9, live in gate.sh — export PATH="$HOME/.local/bin:$PATH" (:14) is a plain quoted string, not a producer', lines: ['export PATH="$HOME/.local/bin:$PATH"'] },
+      // Row 16 — append assignment, checked both ways (no keyword involved,
+      // so unlike row 4 this genuinely IS checkable).
+      { label: '#179 row 16 — append assignment, checked same-line', lines: ['SOME_NEW_CHECK+=$(some_new_check) || fail "problem"'] },
+      { label: '#179 row 16 — append assignment, checked next-line', lines: ['SOME_NEW_CHECK+=$(some_new_check)', 'SOME_NEW_CHECK_RC=$?', '[ "$SOME_NEW_CHECK_RC" -ne 0 ] && fail "problem"'] },
     ]
 
     it.each(HONEST_LINES)('EXECUTED — the real predicate stays SILENT on an honest form: $label', ({ lines }) => {
       expect(findUncheckedProducers(lines)).toEqual([])
+    })
+
+    /**
+     * Row 4's whole justification, asserted against bash itself rather than
+     * against this file's own model of it — a verification review found the
+     * distinction and verified it exactly this way. `export`, `local`,
+     * `declare`, `typeset` and `readonly` are all BUILTIN COMMANDS: writing
+     * `KEYWORD V=$(cmd)` hands the assignment to that builtin as an
+     * argument, and the exit status of the whole simple command becomes the
+     * BUILTIN's own — `export` succeeds (name is valid) regardless of
+     * whether `cmd` failed. A bare `V=$(cmd)` has no command name at all, so
+     * bash's assignment-expansion rule applies instead: the exit status IS
+     * the substitution's. Round 1 of this fix treated all keyword-prefixed
+     * forms as checkable, which is what made three HONEST_LINES fixtures
+     * (now moved to RIGGED_LINES) wrong.
+     */
+    it("EXECUTED — bash reports a keyword-prefixed assignment's OWN exit status, never the substitution's — every ASSIGNMENT_KEYWORDS entry, both `|| echo` and `_RC=$?` shapes", () => {
+      const bareGuard = spawnSync('bash', ['-c', 'V=$(false) || echo GUARD_RAN'], { encoding: 'utf8' })
+      expect(bareGuard.stdout, 'CONTROL: the bare form must still let the guard run, or this test proves nothing').toContain('GUARD_RAN')
+      const bareRc = spawnSync('bash', ['-c', 'V=$(false); echo "RC=$?"'], { encoding: 'utf8' })
+      expect(bareRc.stdout, "CONTROL: the bare form must report the substitution's own nonzero status").toContain('RC=1')
+
+      for (const kw of ASSIGNMENT_KEYWORDS) {
+        // `local` is only legal inside a function.
+        const guardScript = kw === 'local' ? 'f() { local V=$(false) || echo GUARD_RAN; }; f' : `${kw} V=$(false) || echo GUARD_RAN`
+        const guardRes = spawnSync('bash', ['-c', guardScript], { encoding: 'utf8' })
+        expect(guardRes.stdout, `${kw} V=$(false) || echo GUARD_RAN must print NOTHING — ${kw}'s own exit status (0) masks false's`).not.toContain('GUARD_RAN')
+
+        const rcScript = kw === 'local' ? 'f() { local V=$(false); echo "RC=$?"; }; f' : `${kw} V=$(false); echo "RC=$?"`
+        const rcRes = spawnSync('bash', ['-c', rcScript], { encoding: 'utf8' })
+        expect(rcRes.stdout, `${kw} V=$(false) must leave $?=0, not false's 1`).toContain('RC=0')
+      }
+    })
+
+    /** Row 19 — arithmetic expansion never runs a command, so it is never a producer, and the boundary with an ordinary $(...) is exact rather than over-broad. */
+    it('EXECUTED — #179 row 19: arithmetic expansion $((...)) is never treated as a producer', () => {
+      expect(findUncheckedProducers(['SOME_NEW_CHECK=$((1+2))'])).toEqual([])
+      expect(findUncheckedProducers(['SOME_NEW_CHECK=$(( (1+2) * (3-1) ))'])).toEqual([])
+      // CONTROL: the third-character check must not swallow an ORDINARY
+      // command substitution — the boundary is exact, not over-broad.
+      expect(findUncheckedProducers(['SOME_NEW_CHECK=$(some_new_check)'])).toHaveLength(1)
+    })
+
+    /** Row 20 — a `#` comment inside a multi-line $(...) used to either vanish the producer (an apostrophe) or falsely convict it (a paren), depending on what the comment happened to contain. */
+    it('EXECUTED — #179 row 20: a comment inside a multi-line $(...) neither vanishes an unchecked producer nor falsely convicts a checked one', () => {
+      const vanishing = findUncheckedProducers(['SOME_NEW_CHECK=$(', "  some_new_check  # don't lose this line", ')'])
+      expect(vanishing, 'an unbalanced apostrophe in the comment used to open a phantom single-quoted string that ate the real closing )').toHaveLength(1)
+      expect(vanishing[0]!.line).toBe('SOME_NEW_CHECK=$(')
+
+      const falseConviction = findUncheckedProducers(['SOME_NEW_CHECK=$(', '  some_new_check  # this looks like a close )', ') || fail "problem"'])
+      expect(falseConviction, "a ')' in the comment used to close the substitution EARLY, hiding the real || fail two lines later").toEqual([])
+    })
+
+    /** Row 21 — heredoc body lines are DATA, not code; scanning must both skip them and correctly resume right after the terminator. */
+    it('EXECUTED — #179 row 21: heredoc body lines are not producers (quoted and unquoted delimiter), and scanning resumes correctly after the terminator', () => {
+      expect(findUncheckedProducers(["cat <<'EOF'", 'SOME_NEW_CHECK=$(some_new_check)', 'EOF'])).toEqual([])
+      expect(findUncheckedProducers(['cat <<EOF', 'SOME_NEW_CHECK=$(some_new_check)', 'EOF'])).toEqual([])
+
+      const afterHeredoc = findUncheckedProducers(["cat <<'EOF'", 'SOME_NEW_CHECK=$(some_new_check)', 'EOF', 'REAL_CHECK=$(some_new_check)'])
+      expect(afterHeredoc, 'the producer INSIDE the heredoc must stay invisible, and the REAL one right after the terminator must still be found').toHaveLength(1)
+      expect(afterHeredoc[0]!.line).toBe('REAL_CHECK=$(some_new_check)')
+
+      // CONTROL: a `<<WORD`-looking substring sitting inside a STRING (not a
+      // real heredoc) must not be mistaken for one — that direction of
+      // mistake would hide every real producer after it.
+      const inQuotedMessage = findUncheckedProducers(['echo "example: cmd <<EOF"', 'SOME_NEW_CHECK=$(some_new_check)'])
+      expect(inQuotedMessage).toHaveLength(1)
+      expect(inQuotedMessage[0]!.line).toBe('SOME_NEW_CHECK=$(some_new_check)')
+    })
+
+    /**
+     * Row 22 — the sibling of row 21's CONTROL. That control proved a
+     * `<<EOF` inside a QUOTED MESSAGE is not mistaken for an opener; these
+     * are the two spellings where the `<<` is real text, not inside any
+     * quote, and still does not open a heredoc. Both hid every producer
+     * below them, which is the failure direction row 21 itself names as the
+     * dangerous one.
+     */
+    it('EXECUTED — #179 row 22: a `<<<` here-string and an arithmetic `<<` left-shift do not open a heredoc, so producers below them stay visible', () => {
+      const afterHereString = findUncheckedProducers(['grep -q x <<< foo', 'SOME_NEW_CHECK=$(some_new_check)'])
+      expect(afterHereString, 'a `<<<` here-string used to be read as a heredoc opener with delimiter "foo", hiding every line after it').toHaveLength(1)
+      expect(afterHereString[0]!.line).toBe('SOME_NEW_CHECK=$(some_new_check)')
+
+      // The quoted-operand spelling took the same path to the same place.
+      expect(findUncheckedProducers(['grep -q x <<< "foo"', 'SOME_NEW_CHECK=$(some_new_check)'])).toHaveLength(1)
+
+      const afterShift = findUncheckedProducers(['if (( a << b )); then :; fi', 'SOME_NEW_CHECK=$(some_new_check)'])
+      expect(afterShift, 'an arithmetic left-shift with an IDENTIFIER right operand used to name that identifier as a heredoc delimiter').toHaveLength(1)
+      expect(afterShift[0]!.line).toBe('SOME_NEW_CHECK=$(some_new_check)')
+
+      // CONTROL 1: a REAL heredoc on a line that also carries an arithmetic
+      // span must still be found — the new skip must not eat the opener.
+      expect(findUncheckedProducers(['if (( a > 1 )); then cat <<EOF', 'SOME_NEW_CHECK=$(some_new_check)', 'EOF', 'fi'])).toEqual([])
+
+      // CONTROL 2: `<<` on its own is still a heredoc opener. Without this
+      // the fix could pass by disabling heredoc detection altogether.
+      expect(findUncheckedProducers(['cat <<EOF', 'SOME_NEW_CHECK=$(some_new_check)', 'EOF'])).toEqual([])
+    })
+
+    /**
+     * The blast radius, measured on the REAL file rather than on fixtures:
+     * one line of either row-22 spelling above the first producer used to
+     * take gate.sh's producer population from 17 to 0.
+     */
+    it('EXECUTED — #179 row 22: one here-string or left-shift line in the REAL scripts/gate.sh does not blind the scan', () => {
+      const firstProducer = findAllProducers(LINES)[0]!.index
+      for (const intruder of ['grep -q x <<< foo', 'if (( a << b )); then :; fi']) {
+        const mutated = [...LINES.slice(0, firstProducer), intruder, ...LINES.slice(firstProducer)]
+        expect(findAllProducers(mutated).length, `inserting ${JSON.stringify(intruder)} above the first producer must not change how many producers gate.sh has`).toBe(findAllProducers(LINES).length)
+      }
     })
 
     it('EXECUTED — the predicate tells apart || exit 2 (honest abort) from || exit 0 (fake success) — same verb, opposite honesty', () => {
@@ -634,6 +1273,36 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(findUncheckedProducers(['some_new_check &'])).toEqual([])
       expect(findUncheckedProducers(['some_new_check | grep pattern'])).toEqual([])
       expect(SOURCE).toContain('workmux merge "$H" 2>&1 | grep')
+    })
+
+    /**
+     * #179's remaining scope limits (production table rows 11-13), proven
+     * the same way as the pre-existing ones above: each shape genuinely
+     * carries an unchecked producer if read as PROSE, and the predicate
+     * stays silent on all three anyway, because none of them opens with a
+     * (keyword-prefixed) `VAR=` at the start of the line — the anchor ruling
+     * 1's own reference form sets. Declaring this rather than silently
+     * matching it avoids inventing a new false positive (a `FOO=bar
+     * some_cmd` env-prefix invocation, row 12) to chase a hypothetical one
+     * (row 11 has exactly one live instance, gate.sh:24, and it is proven
+     * checked structurally below rather than by this predicate).
+     */
+    it('EXECUTED — an assignment that is not the first token on the line (after `||`, or preceded by another VAR=) is declared out of scope, not silently matched', () => {
+      // Row 11: gate.sh:24's own shape — `[ -d ... ] || W="$(...)"`.
+      expect(findUncheckedProducers(['[ -d "$X" ] || W="$(some_new_check)"'])).toEqual([])
+      // Row 12: a leading env-prefix assignment before the real target.
+      expect(findUncheckedProducers(['A=1 SOME_NEW_CHECK=$(some_new_check)'])).toEqual([])
+      // gate.sh:24 itself, verbatim, is exactly row 11 — proven live, not
+      // hypothetical — and its correctness is NOT this predicate's job: an
+      // independent existence check on $W (:40) is the actual verdict,
+      // further down in the file than :24 itself.
+      const w24 = uniqueLineIndex('W="$(dirname "$root")/$(basename "$root")__worktrees/$H"')
+      const w40 = uniqueLineIndex('[ -d "$W" ] || fail "worktree missing')
+      expect(w40).toBeGreaterThan(w24)
+    })
+
+    it('EXECUTED — an array assignment (`ARR=($(cmd))`) is a different shape entirely, not a degraded case of the scalar producer (row 13)', () => {
+      expect(findUncheckedProducers(['ARR=($(some_new_check))'])).toEqual([])
     })
   })
 
@@ -841,8 +1510,8 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     })
   })
 
-  describe(':74 fence regex — an invalid FENCE holds, it does not print "fence OK"', () => {
-    const NEW_BLOCK = sliceLines('DIFF_FILES=$(git -C "$W" diff main...HEAD --name-only)', 'fence OK: $(printf')
+  describe(':98 fence audit — an invalid FENCE holds, and a hostile path is compared as bytes, not as text', () => {
+    const NEW_BLOCK = sliceLines('printf \'\' | grep -E "$FENCE"', 'fence OK: ${DIFF_FILES')
 
     it('the old masking form ( grep -vE "$FENCE" || true ) is gone from the file', () => {
       expect(SOURCE).not.toContain('grep -vE "$FENCE" || true')
@@ -852,6 +1521,140 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(NEW_BLOCK).toContain('DIFF_RC=$?')
       expect(NEW_BLOCK).toMatch(/GREP_RC=\$\?/)
       expect(NEW_BLOCK).toContain('-gt 1')
+    })
+
+    it('the fix reads a NUL-delimited listing via -z / read -r -d \'\', not line-delimited `read -r`', () => {
+      expect(NEW_BLOCK).toContain('diff -z main...HEAD --name-only')
+      expect(NEW_BLOCK).toContain("read -r -d ''")
+    })
+
+    /**
+     * The two pairs below close the two gaps the review of #155 EXECUTED against
+     * the merged shape of this block. Both follow the standard the café.ts pair
+     * one screen down already sets — a text assertion AND a real fixture — and
+     * each fixture is run through the SUPERSEDED form too, so it is shown to
+     * discriminate rather than merely to pass.
+     */
+
+    it('the fence match is whole-string (`[[ =~ ]]`), not the line-by-line `grep -qE` it replaced', () => {
+      expect(NEW_BLOCK).toContain('[[ $f =~ $FENCE ]]')
+      expect(NEW_BLOCK).not.toContain('grep -qE "$FENCE"')
+    })
+
+    /** An OUT-of-fence path whose name contains a newline, one line of which looks in-fence. */
+    function fixtureWithNewlineInName(): string {
+      const dir = scratchDir('fence-newline')
+      initRepo(dir)
+      mkdirSync(join(dir, 'src', 'foo'), { recursive: true })
+      writeFileSync(join(dir, 'src', 'foo', 'plain.ts'), 'a\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'init')
+      git(dir, 'checkout', '-q', '-b', 'feature')
+      const hostile = join(dir, 'evil/a\nsrc/foo/b.ts')
+      mkdirSync(dirname(hostile), { recursive: true })
+      writeFileSync(hostile, 'b\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'add an OUT-OF-FENCE file whose name contains a newline')
+      return dir
+    }
+
+    it('EXECUTED — the per-file `grep -qE` form ADMITS an out-of-fence name containing an in-fence-looking line', () => {
+      const dir = fixtureWithNewlineInName()
+      const GREP_BLOCK =
+        'viol=()\n' +
+        "while IFS= read -r -d '' f; do\n" +
+        '  printf \'%s\' "$f" | grep -qE "$FENCE" || viol+=("$f")\n' +
+        'done < <(git diff -z main...HEAD --name-only)\n' +
+        '[ "${#viol[@]}" -gt 0 ] && { echo "VERDICT: fence violated"; fail "fence violated"; }\n' +
+        'echo "VERDICT: fence OK"\n'
+      const script = preludeScript(0, "FENCE='^src/foo/'\nW=.\n") + `cd "$W"\n` + GREP_BLOCK
+      const res = runFragment(script, dir)
+      // grep matches LINE BY LINE, so the "src/foo/b.ts" line of the NAME matches
+      // the fence and the file is waved through — a fail-OPEN fence bypass.
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('VERDICT: fence OK')
+    })
+
+    it('EXECUTED — the real, extracted form HOLDS that same out-of-fence name', () => {
+      const dir = fixtureWithNewlineInName()
+      const script = preludeScript(0, "FENCE='^src/foo/'\nW=.\n") + NEW_BLOCK + '\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('fence violated')
+    })
+
+    it('the fence-OK line survives an empty array under `set -u` (bash < 4.4 — /bin/bash on macOS is 3.2)', () => {
+      // extractLine, not NEW_BLOCK: the block also carries the comment that
+      // explains this fix, and that comment quotes the literal — asserting over
+      // the whole block would pass with the CODE reverted. EXECUTED: it did.
+      expect(extractLine('echo "  fence OK: ${DIFF_FILES')).toContain('${DIFF_FILES[*]-}')
+    })
+
+    it.skipIf(SYSTEM_BASH_GUARDS_EMPTY_ARRAYS)(
+      `EXECUTED — a branch with an empty diff prints "fence OK" and exits 0, rather than aborting past fail() (skipped: /bin/bash here is ${SYSTEM_BASH_MAJOR}.x, and empty-array expansion under \`set -u\` stopped being an error in 4.4, so this fragment cannot fail for the reason it claims — it is a proof only on bash < 4.4, which is what macOS ships)`,
+      () => {
+      const dir = scratchDir('fence-emptydiff')
+      initRepo(dir)
+      mkdirSync(join(dir, 'src', 'foo'), { recursive: true })
+      writeFileSync(join(dir, 'src', 'foo', 'plain.ts'), 'a\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'init')
+      git(dir, 'checkout', '-q', '-b', 'feature')
+      const script = preludeScript(0, "FENCE='^src/foo/'\nW=.\n") + NEW_BLOCK + '\n'
+      // `/bin/bash`, not PATH's bash: gate.sh's own shebang, and the only
+      // interpreter whose empty-array behaviour can hold a real landing.
+      const res = runFragment(script, dir, '/bin/bash')
+      // Without the `-` default this aborts "DIFF_FILES[*]: unbound variable" on
+      // bash 3.2 WITHOUT reaching fail() — no "GATE FAILED", no ">>> HOLDING" —
+      // on the very path :142 has a dedicated diagnosis for.
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('fence OK')
+      expect(res.stderr).not.toContain('unbound variable')
+    })
+
+
+    /**
+     * The pair below is the half this describe was missing, and its absence was
+     * found by reverting #71 wholesale and watching this file stay green: the
+     * four tests above pin the rc separation and plain-ASCII paths, so both of
+     * #71's central edits could be undone without a single assertion moving.
+     * The NUL-guard describe below already carries both halves for the same
+     * shape — a text assertion AND a real café.ts fixture — and #71 reused that
+     * shape here deliberately (`gate.sh:79`). This makes the standard the same
+     * on both sides of the file.
+     */
+    function fixtureWithNonAsciiInFenceName(): string {
+      const dir = scratchDir('fence-nonascii')
+      initRepo(dir)
+      mkdirSync(join(dir, 'src', 'foo'), { recursive: true })
+      writeFileSync(join(dir, 'src', 'foo', 'plain.ts'), 'a\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'init')
+      git(dir, 'checkout', '-q', '-b', 'feature')
+      writeFileSync(join(dir, 'src', 'foo', 'caf\u00e9.ts'), 'b\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'add an IN-FENCE file with a non-ASCII name')
+      return dir
+    }
+
+    it('EXECUTED — the OLD (line-delimited) form convicts an IN-FENCE caf\u00e9.ts, because git quotes the name', () => {
+      const dir = fixtureWithNonAsciiInFenceName()
+      const OLD_BLOCK =
+        'viol=$(git diff main...HEAD --name-only | grep -vE "$FENCE" || true)\n' +
+        '[ -n "$viol" ] && { echo "VERDICT: fence violated"; fail "fence violated"; }\n' +
+        'echo "VERDICT: fence OK"\n'
+      const script = preludeScript(0, "FENCE='^src/foo/'\nW=.\n") + `cd "$W"\n` + OLD_BLOCK
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('fence violated')
+    })
+
+    it('EXECUTED — the NEW (real, extracted) form passes that same IN-FENCE caf\u00e9.ts', () => {
+      const dir = fixtureWithNonAsciiInFenceName()
+      const script = preludeScript(0, "FENCE='^src/foo/'\nW=.\n") + NEW_BLOCK + '\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('fence OK')
     })
 
     function fixture(): string {
@@ -1178,6 +1981,76 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     })
   })
 
+  describe(':73 rebase-ancestry check — a corrupt ref is told apart from an honest "not an ancestor"', () => {
+    /**
+     * `git merge-base --is-ancestor` returns 1 for the ordinary "not an
+     * ancestor" and 128 for a bad object (a missing/corrupt ref). The OLD
+     * form discarded stderr and routed both through the same `|| fail`, so
+     * an operator whose ref was corrupt was told "the rebase did not take"
+     * — a verdict about the rebase this line never established. The NEW
+     * form captures stderr and branches on the exit code instead.
+     */
+    const NEW_BLOCK = sliceLines('ANCESTOR_ERR=$(git -C "$W" merge-base --is-ancestor main HEAD 2>&1 >/dev/null)', 'a ref may be corrupt (see stderr above)', 1)
+
+    it('the old undifferentiated form (stderr discarded, both exit codes routed through one fail) is gone from the file', () => {
+      expect(SOURCE).not.toMatch(/merge-base --is-ancestor main HEAD 2>\/dev\/null \|\| fail/)
+      expect(NEW_BLOCK).toContain('ANCESTOR_RC')
+    })
+
+    function repoOn(branch: string): string {
+      const dir = scratchDir('ancestry')
+      initRepo(dir)
+      git(dir, 'checkout', '-q', '-b', branch)
+      writeFileSync(join(dir, 'a.txt'), 'a\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'init')
+      return dir
+    }
+
+    it('EXECUTED — the honest case (branch not on top of main) still holds with the ORIGINAL message', () => {
+      const dir = repoOn('main')
+      git(dir, 'checkout', '-q', '-b', 'feature')
+      writeFileSync(join(dir, 'a.txt'), 'a\nfeature\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'feature work')
+      // main moves ahead too, so feature is genuinely not an ancestor of it —
+      // exit 1, the ordinary case — rather than the trivial "no divergence".
+      git(dir, 'checkout', '-q', 'main')
+      writeFileSync(join(dir, 'a.txt'), 'a\nmain\n')
+      git(dir, 'add', '-A')
+      git(dir, 'commit', '-q', '-m', 'main moves too')
+      git(dir, 'checkout', '-q', 'feature')
+      const script = preludeScript(0, 'BRANCH=feature\nW=.\n') + NEW_BLOCK + '\necho "VERDICT: on top of main"\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('branch feature is not on top of main (the rebase did not take)')
+      expect(res.stdout + res.stderr).not.toContain('exited 128')
+    })
+
+    it('EXECUTED — a corrupt/missing ref (128, not the ordinary 1) is reported as its own thing, not as "the rebase did not take"', () => {
+      // No branch named "main" exists at all here — the same shape a
+      // corrupt or unpushed ref produces: --is-ancestor cannot resolve the
+      // name and exits 128, distinct from the ordinary "not an ancestor" 1.
+      const dir = repoOn('trunk')
+      const script = preludeScript(0, 'BRANCH=trunk\nW=.\n') + NEW_BLOCK + '\necho "VERDICT: on top of main"\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      const out = res.stdout + res.stderr
+      expect(out).toContain('exited 128')
+      expect(out).not.toContain('the rebase did not take')
+      // stderr from the failed git call is surfaced, not swallowed.
+      expect(out).toMatch(/Not a valid object name|fatal:/)
+    })
+
+    it('EXECUTED — the honest case still passes when the branch genuinely IS on top of main (no false hold)', () => {
+      const dir = repoOn('main')
+      const script = preludeScript(0, 'BRANCH=main\nW=.\n') + NEW_BLOCK + '\necho "VERDICT: on top of main"\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('VERDICT: on top of main')
+    })
+  })
+
   describe(':190 timing-count ratchet — a corrupt or oversized count holds, it does not coerce to 0 or silently proceed', () => {
     const NEW_BLOCK = sliceLines('TIMINGCOUNT_LOG=$(mktemp "/tmp/gate-timingcount-$H.XXXXXX")', 'a timing test silently fell out (if this is deliberate, a human clears $COUNT_FILE)')
 
@@ -1298,6 +2171,41 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     const REPORT_LINE = extractLine('timing-count ratchet:$RISE_NOTE')
     const DISCOVERY_AND_COUNT_BLOCK = sliceLines('TIMING_FILES=()', 'TCOUNT=${#TIMING_FILES[@]}')
 
+    /**
+     * The four rise fixtures below (the plain rise, the canonical
+     * no-leading-zero rise, and both near-miss reproductions) used to
+     * hardcode a delta of 1 (or, for the plain rise, a delta of 2 that
+     * happened to survive only tolerances of 0 and 1) and assume
+     * RISE_TOLERANCE=0, so raising the tolerance turned at least one of
+     * them red with a diff naming neither the tolerance nor the change —
+     * the exact defect this issue exists to close. A verification pass
+     * found the plain-rise fixture specifically: EXECUTED at
+     * RISE_TOLERANCE=2 it reddened with "expected 'RISE_NOTE=[]' to
+     * contain 'ROSE from 5 to 7'". They now parse the real value out of
+     * SOURCE and derive RISE_DELTA (the smallest delta guaranteed to rise
+     * whatever the tolerance is) from it, so a raised tolerance moves their
+     * expected numbers instead of reddening them silently. The plain-rise
+     * fixture additionally sweeps RISE_TOLERANCE 0/1/2 directly (not just
+     * whatever value happens to be committed in gate.sh right now), via
+     * `ratchetBlockWithTolerance` substituting the literal value inside the
+     * real, extracted RATCHET_BLOCK text rather than a re-typed stand-in.
+     */
+    const RISE_TOLERANCE = (() => {
+      const m = SOURCE.match(/^\s*RISE_TOLERANCE=(\d+)\s*$/m)
+      if (!m) throw new Error(`cannot find a bare RISE_TOLERANCE=<n> assignment in ${GATE_PATH} — the rise fixtures below derive their expected delta from this value`)
+      return Number(m[1])
+    })()
+    const RISE_DELTA = RISE_TOLERANCE + 1
+
+    /** RATCHET_BLOCK with its own `RISE_TOLERANCE=<n>` line's value swapped for `n` — the real extracted block, still, just at a tolerance other than whatever is currently committed. Throws rather than silently no-op'ing if the real block's shape ever stops matching the substitution regex. */
+    function ratchetBlockWithTolerance(n: number): string {
+      const replaced = RATCHET_BLOCK.replace(/^(\s*RISE_TOLERANCE=)\d+\s*$/m, `$1${n}`)
+      if (replaced === RATCHET_BLOCK && n !== RISE_TOLERANCE) {
+        throw new Error('could not substitute RISE_TOLERANCE inside RATCHET_BLOCK — the sliced text no longer contains a bare RISE_TOLERANCE=<n> line')
+      }
+      return replaced
+    }
+
     it('the tolerance is a named, declared variable — not a magic number folded into the -gt condition it feeds', () => {
       // Anchored on the ASSIGNMENT, not a pinned value: a verification pass
       // found `toContain('RISE_TOLERANCE=0')` reddened at COLLECTION the
@@ -1305,13 +2213,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       // neither the tolerance nor the variable. 'RISE_TOLERANCE=' no longer
       // breaks collection when the value changes (still matches exactly one
       // line — the comment above it says "RISE_TOLERANCE is", no `=`; the
-      // comparison below reads `"$RISE_TOLERANCE"`, no `=` either). That is
-      // ALL this fixes: three fixtures a few tests below (the plain rise,
-      // and both near-miss reproductions) still hardcode a delta of 1 and
-      // assume a tolerance of 0, so raising RISE_TOLERANCE still turns them
-      // red — at RUNTIME now, with a real assertion diff, rather than at
-      // collection with an opaque "found 0" error. Updating those fixtures
-      // for a non-zero tolerance is tracked separately, not done here.
+      // comparison below reads `"$RISE_TOLERANCE"`, no `=` either).
       expect(SOURCE).toContain('RISE_TOLERANCE=')
       expect(RATCHET_BLOCK).toContain('"$RISE_TOLERANCE"')
     })
@@ -1334,13 +2236,15 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(res.stdout).toContain('RISE_NOTE=[]')
     })
 
-    it('EXECUTED — a count that RISES is distinguished from a hold: RISE_NOTE names old and new counts, and the gate does not fail', () => {
-      const dir = scratchDir('rise-up')
-      writeFileSync(join(dir, 'timing-count'), '5\n')
-      const script = preludeScript(0, `TCOUNT=7\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + RATCHET_BLOCK + '\necho "RISE_NOTE=[$RISE_NOTE]"\n'
+    it.each([0, 1, 2])('EXECUTED — a count that RISES is distinguished from a hold at RISE_TOLERANCE=%d: RISE_NOTE names old and new counts, and the gate does not fail', (tolerance) => {
+      const dir = scratchDir(`rise-up-tol${tolerance}`)
+      const prev = 5
+      const tcount = prev + tolerance + 1 // smallest delta guaranteed to rise at THIS tolerance
+      writeFileSync(join(dir, 'timing-count'), `${prev}\n`)
+      const script = preludeScript(0, `TCOUNT=${tcount}\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + ratchetBlockWithTolerance(tolerance) + '\necho "RISE_NOTE=[$RISE_NOTE]"\n'
       const res = runFragment(script, dir)
       expect(res.status).toBe(0)
-      expect(res.stdout).toContain('ROSE from 5 to 7')
+      expect(res.stdout).toContain(`ROSE from ${prev} to ${tcount}`)
     })
 
     it('EXECUTED — a FIRST RUN (no prior timing-count file) is reported as establishing the floor, not silently adopted', () => {
@@ -1426,13 +2330,15 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(res.stdout + res.stderr).toContain('non-canonical leading-zero')
     })
 
-    it('EXECUTED — the NEW ratchet still reports a CANONICAL rise correctly (8 -> 9, no leading zero) — the guard does not overreach', () => {
+    it('EXECUTED — the NEW ratchet still reports a CANONICAL rise correctly (no leading zero) — the guard does not overreach', () => {
       const dir = scratchDir('rise-octal-new-canonical')
-      writeFileSync(join(dir, 'timing-count'), '8\n')
-      const script = preludeScript(0, `TCOUNT=9\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + RATCHET_BLOCK + '\necho "RISE_NOTE=[$RISE_NOTE]"\n'
+      const prev = 8
+      const tcount = prev + RISE_DELTA // smallest delta guaranteed to rise, whatever RISE_TOLERANCE is
+      writeFileSync(join(dir, 'timing-count'), `${prev}\n`)
+      const script = preludeScript(0, `TCOUNT=${tcount}\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + RATCHET_BLOCK + '\necho "RISE_NOTE=[$RISE_NOTE]"\n'
       const res = runFragment(script, dir)
       expect(res.status).toBe(0)
-      expect(res.stdout).toContain('ROSE from 8 to 9')
+      expect(res.stdout).toContain(`ROSE from ${prev} to ${tcount}`)
     })
 
     it("EXECUTED — bash's `test` builtin (the comparison #42 hardened) reads a leading zero as DECIMAL, unlike arithmetic expansion — the two consumers disagree", () => {
@@ -1464,6 +2370,15 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
      * prd-45's own thesis. The fix ties the report to the write with `||
      * fail()`, the same shape the sibling `:293 lane manifest prune` describe
      * below already holds `scripts/gate.sh` to.
+     *
+     * The two proofs below no longer make the floor unwritable with `chmod
+     * 0444` (#74): `CAP_DAC_OVERRIDE` lets root ignore that bit, so as root
+     * the write would silently succeed and both would go red for a reason
+     * neither claims. Instead a plain FILE sits where the floor's parent
+     * directory is expected, so the write fails with ENOTDIR — a structural
+     * impossibility no privilege level bypasses. Verified both ways: as the
+     * invoking user, and under `unshare -r` (mapped uid 0, on a machine with
+     * `kernel.apparmor_restrict_unprivileged_userns=0`) — exit 1 either way.
      */
     const WRITE_BLOCK = sliceLines('mkdir -p "$root/.swarm" && printf', 'timing-count ratchet:$RISE_NOTE')
 
@@ -1476,33 +2391,33 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(readFileSync(join(dir, '.swarm', 'timing-count'), 'utf8')).toBe('7\n')
     })
 
-    it('EXECUTED — a READ-ONLY floor HOLDS: fail() fires, the floor does not advance, and the unearned claim is never printed', () => {
+    it('EXECUTED — an UNWRITABLE floor HOLDS: fail() fires, the floor is never created, and the unearned claim is never printed', () => {
       const dir = scratchDir('write-readonly')
       mkdirSync(join(dir, '.swarm'), { recursive: true })
-      const countFile = join(dir, '.swarm', 'timing-count')
-      writeFileSync(countFile, '5\n')
-      chmodSync(countFile, 0o444)
+      const obstruction = join(dir, '.swarm', 'timing-count')
+      writeFileSync(obstruction, 'not a directory\n')
+      const countFile = join(obstruction, 'floor')
       const script = preludeScript(0, `root=${dir}\nTCOUNT=7\nCOUNT_FILE=${countFile}\nRISE_NOTE=" ROSE from 5 to 7"\n`) + WRITE_BLOCK + '\n'
       const res = runFragment(script, dir)
       expect(res.status).toBe(1)
       expect(res.stdout + res.stderr).toContain('cannot write the timing-count floor')
       expect(res.stdout + res.stderr).toContain('HOLDING')
       expect(res.stdout).not.toContain('ratchet:')
-      expect(readFileSync(countFile, 'utf8')).toBe('5\n')
+      expect(existsSync(countFile)).toBe(false)
     })
 
-    it('EXECUTED — the OLD (unchecked) write silently prints the same claim on the same read-only floor — the exact defect this fix removes', () => {
+    it('EXECUTED — the OLD (unchecked) write silently prints the same claim even though the floor was never created — the exact defect this fix removes', () => {
       const dir = scratchDir('write-readonly-old')
       mkdirSync(join(dir, '.swarm'), { recursive: true })
-      const countFile = join(dir, '.swarm', 'timing-count')
-      writeFileSync(countFile, '5\n')
-      chmodSync(countFile, 0o444)
+      const obstruction = join(dir, '.swarm', 'timing-count')
+      writeFileSync(obstruction, 'not a directory\n')
+      const countFile = join(obstruction, 'floor')
       const OLD_BLOCK = 'mkdir -p "$root/.swarm" && printf \'%s\\n\' "$TCOUNT" >"$COUNT_FILE"\n' + '[ -n "$RISE_NOTE" ] && echo "  timing-count ratchet:$RISE_NOTE"\n'
       const script = preludeScript(0, `root=${dir}\nTCOUNT=7\nCOUNT_FILE=${countFile}\nRISE_NOTE=" ROSE from 5 to 7"\n`) + OLD_BLOCK
       const res = runFragment(script, dir)
       expect(res.status).toBe(0)
       expect(res.stdout).toContain('timing-count ratchet: ROSE from 5 to 7')
-      expect(readFileSync(countFile, 'utf8')).toBe('5\n')
+      expect(existsSync(countFile)).toBe(false)
     })
 
     /**
@@ -1542,11 +2457,13 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
 
     it('EXECUTED — the NEW (real, extracted) ratchet catches the same near-miss: TCOUNT still rises to 3, but it is now named and reported', () => {
       const dir = waveOneNearMissFixture()
-      writeFileSync(join(dir, 'timing-count'), '2\n')
+      const tcount = 3 // fixed by the fixture: three files match the fixed-string discovery
+      const prev = tcount - RISE_DELTA // smallest PREV guaranteed to rise, whatever RISE_TOLERANCE is
+      writeFileSync(join(dir, 'timing-count'), `${prev}\n`)
       const script = preludeScript(0, `W=${dir}\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + DISCOVERY_AND_COUNT_BLOCK + '\n' + RATCHET_BLOCK + '\necho "RISE_NOTE=[$RISE_NOTE]"\n'
       const res = runFragment(script, dir)
       expect(res.status).toBe(0)
-      expect(res.stdout).toContain('ROSE from 2 to 3')
+      expect(res.stdout).toContain(`ROSE from ${prev} to ${tcount}`)
     })
 
     /**
@@ -1571,11 +2488,13 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
 
     it("EXECUTED — a bare RENAME into '*.bench.test.ts' (no marker at all) rises and reports the same way as the marker/prose near-miss", () => {
       const dir = benchFilenameNearMissFixture()
-      writeFileSync(join(dir, 'timing-count'), '2\n')
+      const tcount = 3 // fixed by the fixture: two marker files plus one *.bench.test.ts
+      const prev = tcount - RISE_DELTA // smallest PREV guaranteed to rise, whatever RISE_TOLERANCE is
+      writeFileSync(join(dir, 'timing-count'), `${prev}\n`)
       const script = preludeScript(0, `W=${dir}\nCOUNT_FILE=${join(dir, 'timing-count')}\n`) + DISCOVERY_AND_COUNT_BLOCK + '\n' + RATCHET_BLOCK + '\necho "RISE_NOTE=[$RISE_NOTE]"\n'
       const res = runFragment(script, dir)
       expect(res.status).toBe(0)
-      expect(res.stdout).toContain('ROSE from 2 to 3')
+      expect(res.stdout).toContain(`ROSE from ${prev} to ${tcount}`)
     })
   })
 
@@ -1609,6 +2528,11 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(res.status).toBe(0)
       expect(res.stdout).toContain('lane manifest pruned')
 
+      // This chmod does not need the #74 fix: the OLD script's `catch {}`
+      // swallows a permission error the same as it swallows malformed JSON,
+      // so it prints "pruned" (exit 0) whether or not the write actually
+      // lands — the assertion below never checks the file's final content.
+      // Confirmed unaffected under `unshare -r`: this case does not flip.
       const unwritable = scratchDir('manifest-old-unwritable')
       mkdirSync(join(unwritable, '.swarm'), { recursive: true })
       const lanesFile = join(unwritable, '.swarm', 'lanes.json')
@@ -1630,7 +2554,17 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(res.stdout + res.stderr).toContain('lane manifest prune failed')
     })
 
-    it('EXECUTED — the NEW form HOLDS on an unwritable lanes.json', () => {
+    // Unlike the timing-count floor above, lanes.json cannot be made
+    // unwritable by an ENOTDIR obstruction: `[ -f ... ]` and `JSON.parse`
+    // both need it to exist as a well-formed, readable regular file, and no
+    // setup step open to an unprivileged test process holds a write off an
+    // *existing* file against `CAP_DAC_OVERRIDE` (a directory's write bit is
+    // the same bypassable check; `chattr +i` needs `CAP_LINUX_IMMUTABLE`
+    // against the filesystem's owning namespace, not a user namespace's
+    // mapped root — the setup itself would already fail as an unprivileged
+    // user, let alone hold against one). So this proof skips itself as root,
+    // per #74's done-when, rather than assert something false there.
+    it.skipIf(RUNNING_AS_ROOT)('EXECUTED — the NEW form HOLDS on an unwritable lanes.json (skipped as root: chmod 0444 does not hold against CAP_DAC_OVERRIDE, and no reachable setup here holds an already-existing file unwritable against it)', () => {
       const dir = scratchDir('manifest-new-unwritable')
       mkdirSync(join(dir, '.swarm'), { recursive: true })
       const lanesFile = join(dir, '.swarm', 'lanes.json')
@@ -1663,6 +2597,263 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(res.status).toBe(0)
       expect(res.stdout).toContain('DONE')
       expect(res.stdout).not.toContain('pruned')
+    })
+
+    /**
+     * The shape half of the defect, distinct from the swallowed-catch half
+     * above: a lanes.json that parses fine but is not shaped as
+     * `{lanes: [...]}` used to write back unchanged (or gain an empty
+     * `.lanes` it never had) and still print "pruned" — the file parsed
+     * and was rewritten, which is not the fact the line claims. Each shape
+     * below EXECUTED against the OLD (pre-#73) filter-only body first, to
+     * show it really does print the false "pruned" line, then against the
+     * real NEW_BLOCK to show it now holds.
+     */
+    const OLD_FILTER_ONLY = 'const m = JSON.parse(fs.readFileSync(p, "utf8"));\n    m.lanes = (m.lanes || []).filter(l => l.handle !== process.env.H);\n    fs.writeFileSync(p, JSON.stringify(m, null, 2) + "\\n");\n'
+
+    function oldScriptFor(body: string): string {
+      return (
+        'if [ -f "$root/.swarm/lanes.json" ]; then\n' +
+        '  H="$H" ROOT="$root" node -e \'\n' +
+        '    const fs = require("fs");\n' +
+        '    const p = process.env.ROOT + "/.swarm/lanes.json";\n' +
+        `    ${body}` +
+        "  ' 2>/dev/null && echo \"  lane manifest pruned: $H\"\n" +
+        'fi\n'
+      )
+    }
+
+    it('EXECUTED — a JSON-ARRAY lanes.json: the OLD filter-only body prints "pruned" though nothing shaped as {lanes:[...]} existed; the NEW form HOLDS', () => {
+      const oldDir = scratchDir('manifest-shape-array-old')
+      mkdirSync(join(oldDir, '.swarm'), { recursive: true })
+      writeFileSync(join(oldDir, '.swarm', 'lanes.json'), JSON.stringify([{ handle: 't42' }]))
+      const oldRes = runFragment(preludeScript(0, `root=${oldDir}\n`) + oldScriptFor(OLD_FILTER_ONLY), oldDir)
+      expect(oldRes.status).toBe(0)
+      expect(oldRes.stdout).toContain('lane manifest pruned')
+
+      const dir = scratchDir('manifest-shape-array-new')
+      mkdirSync(join(dir, '.swarm'), { recursive: true })
+      writeFileSync(join(dir, '.swarm', 'lanes.json'), JSON.stringify([{ handle: 't42' }]))
+      const script = preludeScript(1, `root=${dir}\n`) + NEW_BLOCK + '\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('lane manifest prune failed')
+      // Pinned to the SPECIFIC thrown message, not just fail()'s generic
+      // line: a verify pass found the shape guard's own message never
+      // reached the operator (buried a few lines into node's stack trace,
+      // past `tail -6`'s window) — PROVEN INERT by deleting the entire
+      // guard and finding every shape test here still passed on the
+      // generic fail() line alone. This assertion is what makes deleting
+      // the guard fail this test instead of leaving it green.
+      expect(res.stdout + res.stderr).toContain('Error: lanes.json is not shaped as {lanes: [...]}')
+    })
+
+    it('EXECUTED — an object with NO `.lanes` key: the OLD filter-only body prints "pruned" after silently CREATING an empty .lanes; the NEW form HOLDS instead of guessing', () => {
+      const oldDir = scratchDir('manifest-shape-nokey-old')
+      mkdirSync(join(oldDir, '.swarm'), { recursive: true })
+      writeFileSync(join(oldDir, '.swarm', 'lanes.json'), JSON.stringify({ other: 1 }))
+      const oldRes = runFragment(preludeScript(0, `root=${oldDir}\n`) + oldScriptFor(OLD_FILTER_ONLY), oldDir)
+      expect(oldRes.status).toBe(0)
+      expect(oldRes.stdout).toContain('lane manifest pruned')
+      const oldAfter = JSON.parse(readFileSync(join(oldDir, '.swarm', 'lanes.json'), 'utf8'))
+      expect(oldAfter.lanes).toEqual([]) // fabricated a key that was never there
+
+      const dir = scratchDir('manifest-shape-nokey-new')
+      mkdirSync(join(dir, '.swarm'), { recursive: true })
+      writeFileSync(join(dir, '.swarm', 'lanes.json'), JSON.stringify({ other: 1 }))
+      const script = preludeScript(1, `root=${dir}\n`) + NEW_BLOCK + '\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('lane manifest prune failed')
+      expect(res.stdout + res.stderr).toContain('Error: lanes.json is not shaped as {lanes: [...]}')
+      const after = JSON.parse(readFileSync(join(dir, '.swarm', 'lanes.json'), 'utf8'))
+      expect(after).toEqual({ other: 1 }) // held before ever touching the file
+    })
+
+    it('EXECUTED — `.lanes` present but the WRONG TYPE (a string): the NEW form HOLDS rather than filtering a string as if it were an array', () => {
+      const dir = scratchDir('manifest-shape-wrongtype')
+      mkdirSync(join(dir, '.swarm'), { recursive: true })
+      writeFileSync(join(dir, '.swarm', 'lanes.json'), JSON.stringify({ lanes: 'nope' }))
+      const script = preludeScript(1, `root=${dir}\n`) + NEW_BLOCK + '\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain('lane manifest prune failed')
+      expect(res.stdout + res.stderr).toContain('Error: lanes.json is not shaped as {lanes: [...]}')
+    })
+
+    it("EXECUTED — `.lanes` an array of NON-OBJECT entries (strings, numbers): the NEW form HOLDS rather than silently filtering elements with no `.handle`", () => {
+      const stringsDir = scratchDir('manifest-shape-elemstrings')
+      mkdirSync(join(stringsDir, '.swarm'), { recursive: true })
+      writeFileSync(join(stringsDir, '.swarm', 'lanes.json'), JSON.stringify({ lanes: ['t42'] }))
+      const stringsScript = preludeScript(1, `root=${stringsDir}\n`) + NEW_BLOCK + '\n'
+      const stringsRes = runFragment(stringsScript, stringsDir)
+      expect(stringsRes.status).toBe(1)
+      expect(stringsRes.stdout + stringsRes.stderr).toContain('Error: lanes.json .lanes contains a non-object entry')
+      const stringsAfter = JSON.parse(readFileSync(join(stringsDir, '.swarm', 'lanes.json'), 'utf8'))
+      expect(stringsAfter).toEqual({ lanes: ['t42'] }) // held before ever touching the file
+
+      const numsDir = scratchDir('manifest-shape-elemnums')
+      mkdirSync(join(numsDir, '.swarm'), { recursive: true })
+      writeFileSync(join(numsDir, '.swarm', 'lanes.json'), JSON.stringify({ lanes: [1, 2] }))
+      const numsScript = preludeScript(1, `root=${numsDir}\n`) + NEW_BLOCK + '\n'
+      const numsRes = runFragment(numsScript, numsDir)
+      expect(numsRes.status).toBe(1)
+      expect(numsRes.stdout + numsRes.stderr).toContain('Error: lanes.json .lanes contains a non-object entry')
+    })
+
+    it('EXECUTED — a well-shaped manifest that legitimately has no entry for this handle succeeds QUIETLY: not a failure, and not printed as a prune that did not happen', () => {
+      const dir = scratchDir('manifest-shape-noentry')
+      mkdirSync(join(dir, '.swarm'), { recursive: true })
+      writeFileSync(join(dir, '.swarm', 'lanes.json'), JSON.stringify({ lanes: [{ handle: 'other' }] }))
+      const script = preludeScript(1, `root=${dir}\n`) + NEW_BLOCK + '\necho DONE\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('DONE')
+      expect(res.stdout).not.toContain('pruned')
+      const after = JSON.parse(readFileSync(join(dir, '.swarm', 'lanes.json'), 'utf8'))
+      expect(after.lanes).toEqual([{ handle: 'other' }])
+    })
+
+    /**
+     * MUST-FIX 1 (verify pass): the ORIGINAL fix still wrote lanes.json
+     * back unconditionally on every run, even a NOOP where nothing
+     * changed. EXECUTED, control pair on a real read-only lanes.json:
+     *   writable,  handle absent -> rc=0 "NOOP"   (correct)
+     *   read-only, handle absent -> rc=1 EACCES   ("lane manifest prune
+     *   failed") — a VALID manifest failing the exact case this issue's
+     *   own criterion protects ("a manifest that legitimately has no
+     *   entry for this handle still succeeds quietly; that is not an
+     *   error"). The fix makes the write conditional on
+     *   `after.length !== before`, so a NOOP never touches the file.
+     */
+    it.skipIf(RUNNING_AS_ROOT)('EXECUTED — a well-shaped, READ-ONLY manifest with no entry for this handle still succeeds quietly (skipped as root: chmod 0444 does not hold against CAP_DAC_OVERRIDE)', () => {
+      const dir = scratchDir('manifest-readonly-noentry')
+      mkdirSync(join(dir, '.swarm'), { recursive: true })
+      const lanesFile = join(dir, '.swarm', 'lanes.json')
+      const before = JSON.stringify({ lanes: [{ handle: 'other' }] })
+      writeFileSync(lanesFile, before)
+      chmodSync(lanesFile, 0o444)
+      const script = preludeScript(1, `root=${dir}\n`) + NEW_BLOCK + '\necho DONE\n'
+      const res = runFragment(script, dir)
+      chmodSync(lanesFile, 0o644)
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('DONE')
+      expect(res.stdout).not.toContain('pruned')
+      expect(res.stdout + res.stderr).not.toContain('EACCES')
+      expect(readFileSync(lanesFile, 'utf8')).toBe(before) // never written at all
+    })
+
+    /**
+     * MUST-FIX 2 (verify pass): the ORIGINAL fix read the result with
+     * `grep -qF PRUNED` — a SUBSTRING match. EXECUTED, controls against the
+     * real bash logic (`case` on the file's exact content, mirroring what
+     * the real NEW_BLOCK's `grep -qxF` line does):
+     *   "PRUNED"     -> prints "pruned"   (correct)
+     *   "NOOP"       -> quiet             (correct)
+     *   "NOT_PRUNED" -> the OLD `-F` form PRINTS "pruned" (a false claim:
+     *                   "PRUNED" is a substring of "NOT_PRUNED"); the NEW
+     *                   `-x` (exact whole-line) form correctly HOLDS.
+     * gate.sh runs `set -uo pipefail` with no `-e`, so node writing
+     * anything other than exactly "PRUNED" or "NOOP" — corrupted output, a
+     * truncated write — used to be indistinguishable from a genuine NOOP
+     * once `-F`'s substring match was fooled. This is the same "verdict
+     * outruns what was established" shape the rest of this issue closes.
+     */
+    it("EXECUTED — the PRUNED/NOOP protocol requires an EXACT match on BOTH arms: a corrupted result containing \"PRUNED\" or \"NOOP\" as a substring does not fail open", () => {
+      const oldProtocolLine = 'grep -qF PRUNED "$MANIFEST_OUT_LOG" && echo "  lane manifest pruned: $H"'
+      const newProtocolLines = sliceLines('if grep -qxF PRUNED "$MANIFEST_OUT_LOG"; then', 'echo "  lane manifest pruned: $H"')
+      expect(SOURCE).not.toContain(oldProtocolLine) // the substring-matching form is gone
+      expect(NEW_BLOCK).toContain('grep -qxF PRUNED')
+      expect(newProtocolLines).toContain('grep -qxF PRUNED')
+      // The NOOP arm is anchored too, and this is not symmetry for its own
+      // sake: the harness below is a RETYPED copy of the protocol, so the
+      // only thing tying it to the real file is an assertion like this one.
+      // Reviewed 2026-08-31 by MUTATION — rewriting gate.sh's NOOP arm to
+      // the substring form (`grep -qxF NOOP` -> `grep -qF NOOP`) left this
+      // whole file green at 137/137, because nothing read the real NOOP
+      // line and no fixture fed a NOOP-substring result through it. The
+      // PRUNED arm was already anchored, which is why the same mutation
+      // there DOES redden. Same defect, one arm quieter.
+      expect(NEW_BLOCK).toContain('grep -qxF NOOP')
+
+      function protocolResultFor(content: string): FragmentResult {
+        const dir = scratchDir('manifest-protocol')
+        const outLog = join(dir, 'out.log')
+        mkdirSync(dir, { recursive: true })
+        writeFileSync(outLog, content)
+        const script =
+          preludeScript(0, `MANIFEST_OUT_LOG=${outLog}\nH=t42\n`) +
+          'if grep -qxF PRUNED "$MANIFEST_OUT_LOG"; then\n' +
+          '  echo "  lane manifest pruned: $H"\n' +
+          'elif grep -qxF NOOP "$MANIFEST_OUT_LOG"; then\n' +
+          '  :\n' +
+          'else\n' +
+          '  fail "lane manifest prune produced an unrecognized result — refusing to guess whether $H was pruned"\n' +
+          'fi\n' +
+          'echo DONE\n'
+        return runFragment(script, dir)
+      }
+
+      const pruned = protocolResultFor('PRUNED')
+      expect(pruned.status).toBe(0)
+      expect(pruned.stdout).toContain('lane manifest pruned: t42')
+
+      const noop = protocolResultFor('NOOP')
+      expect(noop.status).toBe(0)
+      expect(noop.stdout).not.toContain('pruned')
+      expect(noop.stdout).toContain('DONE')
+
+      const corrupted = protocolResultFor('NOT_PRUNED')
+      expect(corrupted.status).toBe(1)
+      expect(corrupted.stdout + corrupted.stderr).toContain('unrecognized result')
+      expect(corrupted.stdout).not.toContain('lane manifest pruned:') // the false success line, specifically
+
+      // The sibling: a NOOP-substring corruption is the QUIET version of the
+      // same failure. It prints no false line, so it is easy to miss — the
+      // gate simply proceeds as though the manifest had been read and found
+      // to need nothing, which is a verdict it never established.
+      const corruptedNoop = protocolResultFor('NOT_NOOP')
+      expect(corruptedNoop.status).toBe(1)
+      expect(corruptedNoop.stdout + corruptedNoop.stderr).toContain('unrecognized result')
+      expect(corruptedNoop.stdout).not.toContain('DONE') // it must HOLD, not proceed silently
+    })
+
+    /**
+     * WORTH-DOING (verify pass): if MANIFEST_OUT_LOG's own mktemp fails,
+     * MANIFEST_LOG — already created by the mktemp just before it — was
+     * never removed before fail(). A fake `mktemp` on PATH ahead of the
+     * real one lets the FIRST call (MANIFEST_LOG) succeed and the SECOND
+     * (MANIFEST_OUT_LOG) fail, and logs the one real path it created, so
+     * this checks the EXACT file rather than a racy /tmp glob (this file's
+     * fixtures share H=t42, so many tests create `gate-manifest-t42.*`
+     * paths; a glob-based "nothing leaked" check would be flaky under
+     * concurrent test runs).
+     */
+    it('EXECUTED — an mktemp failure on MANIFEST_OUT_LOG does not leak MANIFEST_LOG', () => {
+      const dir = scratchDir('manifest-mktemp-leak')
+      mkdirSync(join(dir, '.swarm'), { recursive: true })
+      writeFileSync(join(dir, '.swarm', 'lanes.json'), JSON.stringify({ lanes: [{ handle: 't42' }] }))
+      const fakeBin = scratchDir('manifest-mktemp-fakebin')
+      const counterFile = join(fakeBin, 'count')
+      const pathLog = join(fakeBin, 'created-path')
+      const mktempScript =
+        '#!/bin/bash\n' +
+        `n=$(cat ${JSON.stringify(counterFile)} 2>/dev/null || echo 0)\n` +
+        'n=$((n+1))\n' +
+        `echo "$n" > ${JSON.stringify(counterFile)}\n` +
+        'if [ "$n" -eq 2 ]; then echo "mktemp: fake failure" >&2; exit 1; fi\n' +
+        'p=$(/usr/bin/mktemp "$@")\n' +
+        `echo "$p" >> ${JSON.stringify(pathLog)}\n` +
+        'echo "$p"\n'
+      writeFileSync(join(fakeBin, 'mktemp'), mktempScript)
+      chmodSync(join(fakeBin, 'mktemp'), 0o755)
+      const script = preludeScript(1, `root=${dir}\nexport PATH=${JSON.stringify(fakeBin)}:$PATH\n`) + NEW_BLOCK + '\n'
+      const res = runFragment(script, dir)
+      expect(res.status).toBe(1)
+      expect(res.stdout + res.stderr).toContain("cannot create a scratch file for the lane-manifest prune's result")
+      const createdPaths = readFileSync(pathLog, 'utf8').trim().split('\n').filter(Boolean)
+      expect(createdPaths.length).toBe(1) // only MANIFEST_LOG's mktemp succeeded
+      expect(existsSync(createdPaths[0]!)).toBe(false) // and it was cleaned up before fail(), not leaked
     })
   })
 

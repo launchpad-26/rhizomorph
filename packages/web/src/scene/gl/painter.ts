@@ -79,6 +79,10 @@ export function createGlPainter(
   const context = gl
 
   let resources: Resources | null = createResources(context)
+  /** The frame whose bytes are currently on the GPU, and the buffers they went
+   * into. Both terms are needed — see the note on {@link submit}. */
+  let uploadedFrame: GlFrame | null = null
+  let uploadedInto: Resources | null = null
   let lost = false
 
   const onLost = (event: Event): void => {
@@ -114,7 +118,26 @@ export function createGlPainter(
     context.clearStencil(0)
     context.clear(context.COLOR_BUFFER_BIT | context.STENCIL_BUFFER_BIT)
 
-    upload(context, own, frame)
+    // A REPAINT RE-SENDS NOTHING (prd-47 #178). `repaint()` hands us the
+    // retained frame OBJECT (`gl/index.ts`), and a frame object is minted fresh
+    // by every `buildFrame` — so `frame === uploadedFrame` is exactly "the
+    // Batch has not been rewritten since we last uploaded it". Identity, never
+    // content: comparing forty thousand floats to discover they match costs
+    // more than the upload it would save, which is the same discipline ruling 2
+    // states for the build.
+    //
+    // `uploadedInto` is the second term and it is not belt-and-braces. A
+    // context restore rebuilds `resources` from nothing (`onRestored`), so the
+    // new buffers are EMPTY while `uploadedFrame` still names a frame we
+    // uploaded into the dead ones — the frame would draw from an empty buffer.
+    // Keying on the record we actually uploaded into means every future path
+    // that replaces `resources` invalidates this cache without having to
+    // remember to.
+    if (frame !== uploadedFrame || own !== uploadedInto) {
+      upload(context, own, frame)
+      uploadedFrame = frame
+      uploadedInto = own
+    }
     walk(context, own, frame, panel, camera)
   }
 

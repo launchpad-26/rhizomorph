@@ -37,23 +37,31 @@ dynamic `import()` calls, so the gap is the indirection rather than the
 syntax. Nothing in the tree enforces the boundary itself today, and #245
 tracks building something that would.
 
-**One live gap in that confinement, stated plainly because this document
-invites you to report exactly this class of escape.** Restoring a
-checkpoint into a fork worktree runs `npm install` in it, and it does so
-*without* `--ignore-scripts` (`packages/server/src/lab/restore.ts`, whose
-`install` option defaults to true). So a checkpointed tree carrying a
-`preinstall`, `postinstall` or `prepare` hook executes that hook as you,
-outside the ref-and-worktree namespace everything above describes — and
-the namespace law never catches it, because its own fixtures only ever
-exercise the `{install: false}` path. The confinement claim in this
-section is therefore true of what the laboratory *writes* and not yet true
-of what a restore can *run*. This is not news to the project: it is the
-first Evidence item in
-[`docs/prds/prd-41-the-laboratory-is-confined-in-fact.md`](docs/prds/prd-41-the-laboratory-is-confined-in-fact.md)
-(blessed 2026-08-22), and closing it is a boarded issue in that
-milestone's wave 2 — *a restored tree's install runs no scripts*. Until
-that lands, treat `lab fork` on a checkpoint of a repo you do not trust as
-running that repo's install hooks, because that is what it does.
+**A gap that was live here until 2026-08-26, recorded rather than deleted
+because this document invites you to report exactly this class of escape.**
+Restoring a checkpoint into a fork worktree runs `npm install` in it, and
+it used to do so *without* `--ignore-scripts` — so a checkpointed tree
+carrying a `preinstall`, `postinstall` or `prepare` hook executed that hook
+as you, outside the ref-and-worktree namespace everything above describes.
+The namespace law could not catch it, because its own fixtures only ever
+exercised the `{install: false}` path: a fence asserted on the one route
+the default never takes.
+
+**Both halves are closed.** `packages/server/src/lab/restore.ts` now passes
+`--ignore-scripts` on every install it runs, and
+`packages/server/src/lab/namespace-law.test.ts` now exercises
+`{install: true}` — the default path — against a fixture whose
+`postinstall` attempts a write outside `refs/rhizomorph/` and fails if it
+lands. Both shipped in prd-41 wave 2 and are on `main`; the account,
+including what the plan got wrong, is in
+[`docs/prds/done/prd-41-the-laboratory-is-confined-in-fact.md`](docs/prds/done/prd-41-the-laboratory-is-confined-in-fact.md).
+
+Note what did *not* change: `install` still defaults to true, so a restore
+still installs dependencies. What it no longer does is execute the
+checkpointed tree's own lifecycle scripts. The confinement claim in this
+section is now true of what the laboratory writes **and** of what a restore
+can run.
+
 Since #234, the launch route requires the same `x-rhizomorph-capability`
 token `POST /api/label` does, on top of the Origin/Host/Content-Type guard
 below. See the [Trust section](README.md#trust) for the full account.
@@ -131,12 +139,27 @@ exactly as the browser does. A value handed to a page over unauthenticated
 loopback HTTP cannot be hidden from something that can already reach that
 page.
 
-This server answers **nine** mutating routes in total, not three. Two more
+This server answers **ten** mutating routes in total, not three. Two more
 are gated exactly as the three above are: the concierge's granted powers,
 `POST /api/concierge/clone` and `POST /api/concierge/launch` (prd-20
 ruling 1 / `docs/adr/0019-the-fourth-hand.md`) — for the fourth hand the
 gate *is* the grant, so neither may ever be reached from a collector or a
-poll. The remaining four are the OTLP telemetry inbox (`POST /v1/metrics`,
+poll. The clone lands only inside the concierge's own fenced namespace,
+`~/rhizomorph/repos` by default (`concierge/paths.ts`'s `defaultClonesRoot`);
+the launch's one further write, a create-only transcript copy (ADR-0020),
+lands only under `~/.claude/projects/<watched-repo-slug>/`, never elsewhere
+under `~/.claude`.
+
+A sixth, `POST /api/retarget` (prd-20 ruling 5's repo switch, #389), is
+gated the same way but has no caller wired to it yet:
+[`connect/wizard.tsx`](packages/web/src/connect/wizard.tsx) still tells the
+operator that switching the watched repo "is not built", which prd-20's
+2026-08-24 amendment names as the one piece of that PRD still open. So the
+route is proven, structurally, reachable only by a human's explicit act and
+by nothing else (`api/retarget-law.test.ts`) — without yet being reachable
+by anything at all.
+
+The remaining four are the OTLP telemetry inbox (`POST /v1/metrics`,
 `/v1/logs`, `/v1/traces`, and the bare-path fallback `POST /` that
 `docs/adr/0018-bare-path-body-shape-routing.md` adds for an exporter which
 never appends `/v1/<signal>`), and they are **deliberately ungated**, not an
@@ -171,17 +194,24 @@ the strength of a `Host` header any caller writes freely. A read that requires
 the token is now its own class, `gated-read`, and these `GET` routes carry the
 same `requireCapabilityToken` the mutations do: `/api/sessions`,
 `/api/sessions/:id/events`, `/api/lanes`, `/api/transcript/:lane`,
-`/api/lab/checkpoints`, `/api/lab/experiments` and `/api/lab/estimate`.
+`/api/lab/checkpoints`, `/api/lab/experiments`, `/api/lab/estimate`, the four
+reads that postdate the route arithmetic — `/api/lane-index`,
+`/api/lane-index/:handle`, `/api/session-preview/:sessionId` and
+`/api/concierge/repos` (prd-29 ruling 7, #58) — then, as of wave 2a (prd-29
+ruling 7, #59), `/api/meta` and `/api/doctor` themselves, and as of wave 2b
+(prd-29 ruling 4, #60), `/api/stream`. The stream carries the same gate as the
+rest, with one addition: because `EventSource` cannot set a custom header at
+all, its `preHandler` also accepts the token from an HttpOnly, SameSite=Strict
+cookie the HTML serve sets beside the meta tag. That cookie is an alternate
+credential on `gated-read` routes ONLY — no mutation honours it, and
+`api/security.test.ts` asserts that refusal against the very default gate every
+mutation uses, rather than trusting the wiring to stay right.
 
-What is *not* gated yet, stated here rather than left to be discovered:
-`/api/meta`, `/api/doctor` and `/api/stream` are deferred to prd-29's wave 2, so
-no consumer outside the dashboard breaks mid-milestone; and the four reads that postdate
-that route arithmetic — `/api/lane-index`, `/api/lane-index/:handle`,
-`/api/session-preview/:sessionId` and `/api/concierge/repos` — were ruled into
-`gated-read` on 2026-08-24 (prd-29 ruling 7) and are still classed `read` in
-code. `GET /*` stays tokenless **forever**, named that way in its own row: it
-is the bootstrap the in-band `<meta>` delivery above depends on, and gating it
-would break both the browser's first paint and `rhizomorph rotate`'s scrape.
+What is *not* gated, stated here rather than left to be discovered: `GET /*`,
+and now only `GET /*`. It stays tokenless **forever**, named that way in its
+own row: it is the bootstrap the in-band `<meta>` delivery above depends on,
+and gating it would break both the browser's first paint and
+`rhizomorph rotate`'s scrape.
 The ceiling stated above applies to all of this without exception — read-gating
 cannot stop a local process that can already fetch the page, and nothing here
 should be read as claiming otherwise.

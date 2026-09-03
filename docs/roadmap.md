@@ -191,11 +191,15 @@
   door is the file drop shared with prd17, configured-but-silent reads `partial` with its
   reason, and the lapse mechanism is ruled with its interval bound to a measured design
   note. The beacon and staleness waves are groomable.
-- **prd29 — the identity seam** (`docs/prds/prd-29-the-identity-seam.md`, ruled 2026-08-24):
-  the gated-read seam and its first seven browser reads ship. The policy is ruled — all six
-  rulings accepted and ruling 7 gates the four late reads; `GET /*` alone stays tokenless,
-  forever, as the named bootstrap. prd43 #23 is unblocked; waves 2a/2b and the four-read
-  slice are groomable.
+- **prd29 — the identity seam** (`docs/prds/done/prd-29-the-identity-seam.md`, shipped): every
+  `/api` read answers only the token's holder. Seven rulings — a fourth route class,
+  `gated-read`; a gate-presence law that fails the build when "gated" is fiction; the CLI
+  scrapes the credential rather than storing it; the stream authenticates by an HttpOnly
+  SameSite=Strict cookie, never a query param; `timingSafeEqual`; both web laws grown by
+  tightening; and the four reads that arrived after the route math was written. Fourteen
+  `gated-read` rows today against exactly one `read` — `GET /*`, the named bootstrap, tokenless
+  forever. prd43 #23 unblocked. The closeout records what the plan got wrong, including the
+  route arithmetic that went stale between drafting and grooming with no law able to notice.
 - **prd30 — the open hand** (`docs/prds/prd-30-the-open-hand.md`, BLESSED 2026-08-08,
   partially shipped): the shared card, condition selector and teach layer ship, but the code's
   own law still names `MarkHoverCard`, the loupe read-out and the semantic `title=` adoption
@@ -207,15 +211,16 @@
   local Inter and JetBrains Mono faces, a build-policed type and colour ramp,
   computed contrast in both themes, one focus token, and a persisted light/dark
   switch whose chrome never impersonates status.
-- **prd33 — the living scene** (`docs/prds/prd-33-the-living-scene.md`, BLESSED 2026-08-08,
-  acceptance pending): the scene work and recorded before/after frame measurements ship. The
-  remaining gate is the first-glance operator act. Success criterion 1's blanket *"not met
-  while any older cap has moved"* is historical and superseded by ruling 10, which raises the
-  concurrent-**motion** cap — `EVENT.maxConcurrent` from 5 to 7, derived from the recorded
-  load rather than guessed, with the alarm class exempt and always winning (the PRD's own
-  amendment, 2026-08-22). The instrument's supported size is a different ruling and a stated
-  number: ruling 13's 90 threads at 60 fps — three colonies of thirty — with 180 threads
-  rendering correctly at 30 fps and *"not a bug to be closed by relaxing this table"*.
+- **prd33 — the living scene** (`docs/prds/done/prd-33-the-living-scene.md`, shipped 2026-09-02):
+  growth as its own motion class, the ambient family under "ambient never means", the dials,
+  the fruiting material, the light-theme carrier, and recorded before/after frame measurements.
+  Success criterion 1's blanket *"not met while any older cap has moved"* is historical and
+  superseded by ruling 10 (`EVENT.maxConcurrent` 5 → 7 from the recorded load, alarms exempt).
+  The wave-0 glance ran on 2026-09-02 (`docs/design/glance-2026-09-02.md`); its lay-viewer half
+  transfers to prd-30's first-glance acceptance by ruling 14, which also records what that
+  transfer gives up. The instrument's supported size is ruling 13's stated number: 90 threads at 60 fps —
+  three colonies of thirty — with 180 threads rendering correctly at 30 fps and *"not a bug to
+  be closed by relaxing this table"*.
 - **prd34 — the doorstep** (`docs/prds/prd-34-the-doorstep.md`, ruled 2026-08-24, release
   acceptance parked): the Electron shell, tray, first run, three-platform installer workflow
   and update gate ship; rulings 1–9 accepted and Success 3 reconciled with ruling 9's signing
@@ -254,14 +259,30 @@
   success criteria assessed against counting laws, what the plan got wrong, and the open
   question whose premise turned out to be false: there is no exporter caller to narrow
   `eventsSoFar()` to, because both exporters read the recording back from disk.
-- **prd41–43 — current blessed programme**
-  (`docs/prds/prd-41-the-laboratory-is-confined-in-fact.md` through
-  `docs/prds/prd-43-the-claim-is-a-test.md`): the laboratory is confined in fact, one path has
-  one spelling, and a document's factual claim fails the build when it goes false. These PRDs
-  are blessed and actively represented by the GitHub backlog. **Per-milestone issue counts are
-  deliberately not restated here** — a hand-maintained number in this file goes false the same
-  day and reads as live state; the board is the source, via `scripts/dev/issues.sh list` and the
-  `prd41`–`prd43` milestones.
+- **prd41 — the laboratory is confined in fact**
+  (`docs/prds/done/prd-41-the-laboratory-is-confined-in-fact.md`, shipped): the fence prd-12
+  described is now the fence that holds. Four rulings — a restored tree is data and never code,
+  every lab subprocess is bounded and the lock refuses rather than hangs, a request may not
+  silence the process, and a ceiling that spends money is declared. The closeout is the last
+  section of the PRD itself, including the two defects its own review found after wave 3
+  (`#109`, `#196`): `withTimeout` always overrides, so composing two wraps let the innermost
+  5 s ceiling govern an `npm install` that needed 120 s, and a single ceiling bounded both git
+  plumbing and `npm test` so every verify reported failure. The ceiling family and the
+  composition trap live in `docs/design-notes/lab-launch-ceilings.md`.
+- **prd42 — one path, one spelling**
+  (`docs/prds/done/prd-42-one-path-one-spelling.md`, shipped): a path means the same thing
+  everywhere it is written. Seven rulings and eleven waves, most of them filed by the
+  verification of an earlier wave rather than by new scope. The encoder and the reverse walk are
+  now byte-identical, containment has one implementation with a zero-tolerance law, and an
+  ambiguous slug is decided by the transcript's own `cwd` rather than guessed. The closeout
+  records what the plan got wrong, including the one call site that honours ruling 2 by *not*
+  importing the primitive: re-resolving a kernel-already-resolved path reopens the symlink race
+  the check exists to close.
+- **prd43 — current blessed programme** (`docs/prds/prd-43-the-claim-is-a-test.md`): a
+  document's factual claim fails the build when it goes false. Blessed and actively represented
+  by the GitHub backlog. **Per-milestone issue counts are deliberately not restated here** — a
+  hand-maintained number in this file goes false the same day and reads as live state; the board
+  is the source, via `scripts/dev/issues.sh list` and the `prd43` milestone.
 - **prd44 — the flat instrument** (`docs/prds/done/prd-44-the-flat-instrument.md`, shipped):
   what it costs to watch tracks the swarm, not the session's age. Five rulings — a finished
   recording is parsed once rather than once per request, the log is opened once per session
@@ -276,8 +297,8 @@
   measurement while the claim survived. What it left behind has owners rather than a residual
   paragraph here: the honesty cost of bounding the server's window, the transcript capture a
   bounded window can no longer complete, and a doc note ruling 3's three consumers each needed.
-- **prd45 — the earned verdict** (`docs/prds/prd-45-the-earned-verdict.md`, BLESSED
-  2026-08-24): a check that could not run says so. Drafted from prd39's verify pass and from
+- **prd45 — the earned verdict** (`docs/prds/done/prd-45-the-earned-verdict.md`, SHIPPED
+  2026-09-02): a check that could not run says so. Drafted from prd39's verify pass and from
   prd24's closing amendment, which retired to `done/` leaving two residuals with no owner.
   Four rulings — a guard in the landing tool may not print a verdict it did not earn, a
   postcondition asserts the fact it claims, the landing tool is covered by an executable

@@ -36,8 +36,22 @@ jobs:
             node: min
     runs-on: ${{ matrix.os }}
     steps:
+      # FULL history, not the default depth-1 shallow checkout: `Test` below runs
+      # `doc-citation-law`, whose tree-pin exclusion (#228) asks the local object
+      # store whether a dated artefact's declared sha is a real commit
+      # (`git cat-file -e <sha>^{commit}`). In a shallow clone every sha but the
+      # tip is absent, so an HONEST pin reads as a fake one: the one real pinned
+      # record, `docs/design/glance-2026-09-02.md` at `0851512`, is reported by
+      # `badPins()` and swept as a live claim — the defect #228 fixes, reappearing
+      # on CI only. Proved both directions in a depth-1 clone of this tree: 1
+      # failed there, 29 passed after `git fetch --unshallow` (review of #229).
+      # `pack-smoke` below runs no suite and stays shallow. The law asserts this
+      # precondition itself, so an edit back to the default fails with a sentence
+      # rather than a mystery bad-pin report.
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node (current, from engines)
         if: matrix.node == 'current'
@@ -133,9 +147,32 @@ jobs:
           fi
           echo "server listening at $URL"
 
+          # /api/meta is a gated-read (prd-29 ruling 7, #59) — a bare curl now
+          # 401s. Scrape the capability token off the served shell first, the
+          # same way `rhizomorph rotate`/`rhizomorph env` do (`cli/rotate.ts`'s
+          # `readCapabilityTokenFromHtml`: same attribute, same meta name),
+          # then carry it as the header the gate requires
+          # (`api/security.ts`'s `CAPABILITY_TOKEN_HEADER`).
+          TOKEN=""
+          for _ in $(seq 1 30); do
+            SHELL_HTML=$(curl -sf "$URL/" || true)
+            TOKEN=$(printf '%s' "$SHELL_HTML" | grep -o '<meta[^>]*name="rhizomorph-capability"[^>]*>' | grep -o 'content="[^"]*"' | sed -E 's/^content="(.*)"$/\1/')
+            if [ -n "$TOKEN" ]; then
+              break
+            fi
+            sleep 1
+          done
+
+          if [ -z "$TOKEN" ]; then
+            echo "the page served at $URL/ never carried a rhizomorph-capability token within 30s:"
+            cat server.log
+            exit 1
+          fi
+          echo "scraped the capability token off the served shell"
+
           META_OK=""
           for _ in $(seq 1 30); do
-            if curl -sf "$URL/api/meta" -o meta.json; then
+            if curl -sf -H "x-rhizomorph-capability: $TOKEN" "$URL/api/meta" -o meta.json; then
               META_OK=1
               break
             fi
@@ -143,13 +180,11 @@ jobs:
           done
 
           if [ -z "$META_OK" ]; then
-            echo "/api/meta never answered within 30s:"
+            echo "/api/meta never answered within 30s (with the capability token attached):"
             cat server.log
             exit 1
           fi
-          echo "/api/meta responded:"
-          cat meta.json
-          echo
+          echo "/api/meta responded 200"
 
           ROOT_CONTENT_TYPE=$(curl -sI "$URL/" | grep -i '^content-type:' | tr -d '\r\n')
           echo "/ responded with: $ROOT_CONTENT_TYPE"

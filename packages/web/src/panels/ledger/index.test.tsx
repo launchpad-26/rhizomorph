@@ -6,7 +6,7 @@ import {
   reduceAll,
   selectSpendByBranch,
 } from '@rhizomorph/core'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ModeProvider, useReplay } from '../../app/ModeContext.js'
 import { requestPanelFocus } from '../../app/panelPrefs.js'
 import { StreamProvider } from '../../app/StreamContext.js'
@@ -17,6 +17,49 @@ import type { EventSourceLike } from '../../hooks/useEventStream.js'
 import { formatTokenBreakdown, formatTokens, formatUsd } from '../../lib/format.js'
 import type { FetchLike as ReplayFetchLike } from '../../replay/api.js'
 import LedgerPanel from './index.js'
+
+/**
+ * #158's counting law: how many times each selector actually ran, wrapped
+ * rather than mocked away — `vi.mock`'s factory is hoisted above the imports
+ * above, so the counters live in `vi.hoisted` and every module (this file's
+ * own top-level imports included) sees the same wrapped function.
+ */
+const calls = vi.hoisted(() => ({ spend: 0, usage: 0, exemplar: 0 }))
+
+vi.mock('@rhizomorph/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@rhizomorph/core')>()
+  return {
+    ...actual,
+    selectSpendByBranch: (...args: Parameters<typeof actual.selectSpendByBranch>) => {
+      calls.spend++
+      return actual.selectSpendByBranch(...args)
+    },
+  }
+})
+
+vi.mock('./sparkline.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./sparkline.js')>()
+  return {
+    ...actual,
+    usageEventsByBranch: (...args: Parameters<typeof actual.usageEventsByBranch>) => {
+      calls.usage++
+      return actual.usageEventsByBranch(...args)
+    },
+  }
+})
+
+vi.mock('./exemplar.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./exemplar.js')>()
+  return {
+    ...actual,
+    heaviestLlmRequestSpanByLane: (
+      ...args: Parameters<typeof actual.heaviestLlmRequestSpanByLane>
+    ) => {
+      calls.exemplar++
+      return actual.heaviestLlmRequestSpanByLane(...args)
+    },
+  }
+})
 
 afterEach(cleanup)
 
@@ -68,7 +111,15 @@ async function renderPanel(events: readonly unknown[] = [], open = true) {
   await act(async () => {
     for (const event of events) source?.emit(event)
   })
-  return utils
+  return {
+    ...utils,
+    /** Emits one more event after mount — for tests that measure a render caused by a single event. */
+    emit: async (event: unknown) => {
+      await act(async () => {
+        source?.emit(event)
+      })
+    },
+  }
 }
 
 describe('LedgerPanel', () => {
@@ -591,5 +642,165 @@ describe('LedgerPanel — replay clock', () => {
     // read as years stale ("…d ago"), never "just now".
     expect(row).toHaveTextContent('just now')
     expect(row).not.toHaveTextContent('ago')
+  })
+})
+
+// ── selector keys (#158) ─────────────────────────────────────────────────────
+
+describe('LedgerPanel — selector keys (#158)', () => {
+  /** Spend across two branches, plus one trace span so the exemplar map is non-empty. */
+  function selectorKeyEvents(idPrefix: string) {
+    const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix })
+    f.sessionStarted()
+    f.llmUsage({
+      lane: 'branch-a',
+      branch: 'branch-a',
+      tokens: { input: 1, output: 100, cacheRead: 0, cacheCreation: 0 },
+    })
+    f.llmCost({ lane: 'branch-a', branch: 'branch-a', costUsd: 0.1, authoritative: true })
+    f.llmUsage({
+      lane: 'branch-b',
+      branch: 'branch-b',
+      tokens: { input: 1, output: 200, cacheRead: 0, cacheCreation: 0 },
+    })
+    f.llmCost({ lane: 'branch-b', branch: 'branch-b', costUsd: 0.2, authoritative: true })
+    // Its own traceId/spanId: the factory's default trace.span payload reuses
+    // the same ids on every call, and the reducer treats a repeat spanId as
+    // already-seen — returning `state` untouched rather than a fresh
+    // `state.traces` reference. Every span emitted in this describe block
+    // needs an id no other span here shares, or the exemplar memo has nothing
+    // to actually recompute against.
+    f.traceSpan({
+      lane: 'branch-a',
+      traceId: `${idPrefix}-trace-0`,
+      spanId: `${idPrefix}-span-0`,
+      tokens: { input: 1, output: 50, cacheRead: 0, cacheCreation: 0 },
+    })
+    return f
+  }
+
+  /** Row branch names and total-tokens text, for the "nothing on screen moved" check. */
+  function tableSnapshot() {
+    return screen.getAllByTestId('ledger-row').map((row) => row.textContent)
+  }
+
+  it('a trace.span moves only the exemplars', async () => {
+    const f = selectorKeyEvents('key-1')
+    const panel = await renderPanel(f.all())
+    calls.spend = 0
+    calls.usage = 0
+    calls.exemplar = 0
+
+    await panel.emit(
+      f.traceSpan({
+        lane: 'branch-b',
+        traceId: 'key-1-trace-1',
+        spanId: 'key-1-span-1',
+        tokens: { input: 1, output: 60, cacheRead: 0, cacheCreation: 0 },
+      }),
+    )
+
+    expect(calls.exemplar).toBe(1)
+    expect(calls.spend).toBe(0)
+    expect(calls.usage).toBe(0)
+  })
+
+  it('a tool.activity moves the spend rows (toolCounts is part of BranchSpend) but not the sparklines or the exemplars', async () => {
+    // The plan's own draft expected tool.activity to skip the spend scan too —
+    // wrong: `groupSpendBy` (`spend-cursor.ts:624-638`) folds `state.telemetry
+    // .tools` into every `BranchSpend.toolCounts`, so a tool call genuinely is
+    // spend input, and `state.telemetry`'s own reference moves on every
+    // telemetry event regardless of which nested array changed
+    // (`withTelemetry`, `reduce.ts:1108`, always rebuilds the outer object).
+    // What tool.activity actually leaves alone is `telemetry.usage` — the
+    // *nested* array `withTelemetry`'s `tools` append never touches — and
+    // `traces`, untouched by definition. That is the real skip this test
+    // proves; see the positive control below for what a genuine miss looks
+    // like on `calls.spend` itself.
+    const f = selectorKeyEvents('key-2')
+    const panel = await renderPanel(f.all())
+    calls.spend = 0
+    calls.usage = 0
+    calls.exemplar = 0
+
+    await panel.emit(f.toolActivity({ lane: 'branch-a', branch: 'branch-a' }))
+
+    expect(calls.spend).toBe(1)
+    expect(calls.usage).toBe(0)
+    expect(calls.exemplar).toBe(0)
+  })
+
+  it('an llm.usage moves the spend rows and the sparklines, not the exemplars — the positive control', async () => {
+    // Without this, every skip assertion above would pass on a panel that
+    // never recomputes anything at all.
+    const f = selectorKeyEvents('key-3')
+    const panel = await renderPanel(f.all())
+    calls.spend = 0
+    calls.usage = 0
+    calls.exemplar = 0
+
+    await panel.emit(
+      f.llmUsage({
+        lane: 'branch-a',
+        branch: 'branch-a',
+        tokens: { input: 1, output: 10, cacheRead: 0, cacheCreation: 0 },
+      }),
+    )
+
+    expect(calls.spend).toBe(1)
+    expect(calls.usage).toBe(1)
+    expect(calls.exemplar).toBe(0)
+  })
+
+  it('the skip is per event, not a one-shot (repetition)', async () => {
+    const f = selectorKeyEvents('key-4')
+    const panel = await renderPanel(f.all())
+    calls.spend = 0
+    calls.usage = 0
+    calls.exemplar = 0
+
+    // 'rep-' rather than reusing 'key-4-trace-0': `selectorKeyEvents` already
+    // seeded a span under that exact id, and a repeated id is exactly the
+    // no-op the reducer's dedup returns `state` unchanged for (the trap this
+    // whole `describe` had to learn once already, in the trace.span test above).
+    for (let i = 0; i < 3; i++) {
+      await panel.emit(
+        f.traceSpan({
+          lane: 'branch-a',
+          traceId: `key-4-rep-trace-${i}`,
+          spanId: `key-4-rep-span-${i}`,
+          tokens: { input: 1, output: 10 + i, cacheRead: 0, cacheCreation: 0 },
+        }),
+      )
+    }
+
+    expect(calls.exemplar).toBe(3)
+    expect(calls.spend).toBe(0)
+  })
+
+  it('nothing on screen moved across any of the ignorable events above', async () => {
+    const f = selectorKeyEvents('key-5')
+    const panel = await renderPanel(f.all())
+    const before = tableSnapshot()
+
+    await panel.emit(f.traceSpan({ lane: 'branch-a', tokens: { input: 1, output: 5, cacheRead: 0, cacheCreation: 0 } }))
+    await panel.emit(f.toolActivity({ lane: 'branch-a', branch: 'branch-a' }))
+
+    // A memo key that is too narrow is a stale-render bug, and this is the
+    // case that would catch it: the rows and their totals must read exactly
+    // as they did before, not merely "the same count of rows".
+    expect(tableSnapshot()).toEqual(before)
+  })
+
+  it('an ignorable event does not disturb the empty state (failure path)', async () => {
+    const f = createEventFactory({ startTs: FIXTURE_START_TS, idPrefix: 'key-6' })
+    f.sessionStarted()
+    const panel = await renderPanel(f.all())
+
+    expect(screen.getByText('No branch spend recorded yet this session.')).toBeInTheDocument()
+
+    await panel.emit(f.traceSpan({ lane: 'nobody', tokens: { input: 1, output: 5, cacheRead: 0, cacheCreation: 0 } }))
+
+    expect(screen.getByText('No branch spend recorded yet this session.')).toBeInTheDocument()
   })
 })

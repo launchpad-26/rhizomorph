@@ -63,22 +63,79 @@ rm -f "$GITDIR_LOG"
 # tree that is not the one landing. Verified: this holds a stale branch and
 # false-holds nothing — an already-current branch, a fresh zero-commit branch
 # and HEAD == main all have main as an ancestor.
-git -C "$W" merge-base --is-ancestor main HEAD 2>/dev/null || fail "branch $BRANCH is not on top of main (the rebase did not take) — rebase it, then re-run"
+#
+# `--is-ancestor` returns 1 for the ordinary "not an ancestor" and 128 for a
+# bad object (a corrupt ref, history missing from a shallow clone) — two
+# different facts. The old form discarded stderr and routed both through the
+# same `|| fail "the rebase did not take"`, telling an operator with a
+# corrupt ref that their rebase failed. stderr is captured instead so the 128
+# case can say what it actually is.
+ANCESTOR_ERR=$(git -C "$W" merge-base --is-ancestor main HEAD 2>&1 >/dev/null)
+ANCESTOR_RC=$?
+if [ "$ANCESTOR_RC" -eq 1 ]; then
+  fail "branch $BRANCH is not on top of main (the rebase did not take) — rebase it, then re-run"
+elif [ "$ANCESTOR_RC" -ne 0 ]; then
+  echo "$ANCESTOR_ERR"
+  fail "git merge-base --is-ancestor exited $ANCESTOR_RC on $BRANCH — not the ordinary 1 for 'not an ancestor'; a ref may be corrupt (see stderr above)"
+fi
 
-# The producer (git diff) and the consumer's normal exit (grep -vE) are two
+# The producer (git diff) and the consumer's normal exit (grep) are two
 # different facts and are checked separately. `|| true` cannot simply be
 # deleted: grep -v exits 1 on the ordinary "everything matched the fence, no
 # violations" path, so treating any nonzero as failure would hold every clean
 # landing. Only a producer failure, or grep itself erroring (an invalid
 # regex — FENCE='[' exits 2, not 1), holds.
-DIFF_FILES=$(git -C "$W" diff main...HEAD --name-only)
-DIFF_RC=$?
-[ "$DIFF_RC" -ne 0 ] && fail "git diff main...HEAD failed (rc=$DIFF_RC) — cannot audit the fence"
-viol=$(printf '%s' "$DIFF_FILES" | grep -vE "$FENCE")
+#
+# -z / read -r -d '', not --name-only line-delimited: git quotes a non-ASCII
+# name by default ("caf\303\251.ts"), so a line-based read compares an
+# escaped literal against FENCE instead of the bytes on disk, and an in-fence
+# file with such a name is reported as a violation (prd-46 #71). This is the
+# same defect the NUL-byte guard below already fixed at its own producer —
+# reusing that shape here rather than inventing a third. The file listing is
+# written to a real file, not a pipe or process substitution, so the
+# producer's own exit status is captured directly.
+#
+# The regex is validated separately from the per-file matching below: it is
+# checked ONCE, against empty input, so its rc means only "does this pattern
+# compile" and is never conflated with "did this filename match" (which is
+# always 0 or 1 once the pattern is known-valid).
+#
+# Matching is `[[ =~ ]]`, not `grep -qE`: grep matches LINE BY LINE, so a name
+# containing a newline was admitted whenever ANY line of it matched FENCE —
+# `evil/a<NL>src/foo/b.ts` passed a fence of '^src/foo/'. EXECUTED: the
+# line-delimited form this replaces CONVICTED that file, so per-file grep was a
+# fail-OPEN reversal of the very guard #71 exists to harden. `[[ =~ ]]` matches
+# the whole string (no REG_NEWLINE), so `^` anchors at the name, not at a line.
+# Validation above stays on grep -E: both are POSIX ERE, and if they ever did
+# disagree the disagreement lands as rc 2 from [[ ]], which reads as no-match
+# and CONVICTS — a false hold, never a false pass.
+printf '' | grep -E "$FENCE" >/dev/null 2>&1
 GREP_RC=$?
 [ "$GREP_RC" -gt 1 ] && fail "fence regex '$FENCE' is invalid (grep rc=$GREP_RC) — cannot audit the fence"
-[ -n "$viol" ] && { echo "  outside fence:"; echo "$viol" | sed 's/^/    /'; fail "fence violated (widen it deliberately, with the diff as justification, or send it back)"; }
-echo "  fence OK: $(printf '%s' "$DIFF_FILES" | tr '\n' ' ')"
+
+FENCE_LIST=$(mktemp "/tmp/gate-fence-list-$H.XXXXXX") || fail "cannot create a scratch file for the fence file listing"
+git -C "$W" diff -z main...HEAD --name-only >"$FENCE_LIST"
+DIFF_RC=$?
+[ "$DIFF_RC" -ne 0 ] && { rm -f "$FENCE_LIST"; fail "git diff main...HEAD failed (rc=$DIFF_RC) — cannot audit the fence"; }
+
+DIFF_FILES=()
+viol=()
+while IFS= read -r -d '' f; do
+  DIFF_FILES+=("$f")
+  [[ $f =~ $FENCE ]] || viol+=("$f")
+done <"$FENCE_LIST"
+rm -f "$FENCE_LIST"
+
+[ "${#viol[@]}" -gt 0 ] && { echo "  outside fence:"; printf '    %s\n' "${viol[@]}"; fail "fence violated (widen it deliberately, with the diff as justification, or send it back)"; }
+# ${DIFF_FILES[*]-}, not ${DIFF_FILES[*]}: an empty array under `set -u` (:13)
+# is an unbound variable on bash < 4.4, and /bin/bash on macOS is 3.2. EXECUTED
+# there: a branch whose diff against main is empty aborted with a bare
+# "DIFF_FILES[*]: unbound variable", rc 1, WITHOUT passing through fail() — so
+# no "GATE FAILED" and no ">>> HOLDING" line, on the one code path the script
+# has a dedicated diagnosis for eighteen lines further down ("no commits on the
+# branch (a worker may have left work uncommitted)", :142). The old
+# line-delimited form printed "fence OK: " and reached it; this restores that.
+echo "  fence OK: ${DIFF_FILES[*]-}"
 
 # These two compare ARITHMETICALLY, not as text: BSD wc -l right-aligns its
 # count in an eight-char field ("       0"), and command substitution strips
@@ -217,10 +274,10 @@ if [ "$LOAD" != "0" ]; then
   # is never silently absorbed into the new floor unseen. RISE_TOLERANCE is
   # declared data (prd-45 ruling 3: tolerances are data, not a condition
   # folded into a regex) — a human changes the VALUE by editing this one
-  # line without re-deriving the comparison below, and without breaking test
-  # collection in gate-honesty-law.test.ts. Three fixtures there still
-  # hardcode a delta of 1 and assume a tolerance of 0, though, so changing
-  # this value means updating those fixtures too (tracked separately).
+  # line. gate-honesty-law.test.ts's rise fixtures parse this value out of
+  # this file and derive their own expected delta from it, so raising it
+  # moves their expected numbers instead of reddening them with a diff that
+  # names neither the tolerance nor the change.
   RISE_TOLERANCE=0
   RISE_NOTE=""
   if [ -f "$COUNT_FILE" ]; then
@@ -334,20 +391,83 @@ if [ -f "$root/.swarm/lanes.json" ]; then
   # JSON.parse / writeFileSync throw makes node's own exit code the fact
   # that decides which line prints, routed through the same fail() as
   # everything else past the merge.
+  #
+  # That closed the swallowed-catch half but not the shape half: a
+  # lanes.json that is a JSON ARRAY, an object with no `.lanes` key, or a
+  # `.lanes` holding non-object entries, all parse and (without a shape
+  # guard) write back fine — node exits 0 either way — even though "the
+  # file parsed and was rewritten" is not "this handle was removed". A
+  # shape this code does not understand now throws too, same route as
+  # malformed JSON. A manifest that legitimately has no entry for this
+  # handle is a different, honest outcome (NOOP) and is not an error — it
+  # is reported as neither a prune nor a failure.
+  #
+  # The write itself only runs when something actually changed (verify
+  # review, MUST-FIX 1): writing lanes.json back unconditionally on every
+  # run — even a NOOP — made a VALID manifest with no entry for this
+  # handle FAIL on a read-only lanes.json (EACCES), which is exactly the
+  # case this issue's own criterion protects: "a manifest that legitimately
+  # has no entry for this handle still succeeds quietly; that is not an
+  # error." A NOOP now never touches the file at all.
+  #
+  # The result crosses the shell/node boundary through a file, read back
+  # with `grep -qxF` — EXACT whole-line match, not `grep -qF`'s substring
+  # match (verify review, MUST-FIX 2: a corrupted result like "NOT_PRUNED"
+  # contains "PRUNED" as a substring and the old `-F` form printed the
+  # false "pruned" line for it) — rather than captured via
+  # VAR=$(node -e '<multi-line>'): a multi-line $(...) is invisible to
+  # ruling 1's own structural predicate (it only matches a producer whose
+  # closing paren is on the SAME line), so capturing this multi-line
+  # script that way would add a checked producer the law itself cannot see
+  # is checked — exactly the blind spot prd46 w5 (#179) names. Anything
+  # other than an exact "PRUNED" or "NOOP" line — truncated output, a
+  # missing file, garbage — holds rather than guessing either way.
   MANIFEST_LOG=$(mktemp "/tmp/gate-manifest-$H.XXXXXX") || fail "cannot create a scratch log for the lane-manifest prune"
-  if H="$H" ROOT="$root" node -e '
+  MANIFEST_OUT_LOG=$(mktemp "/tmp/gate-manifest-out-$H.XXXXXX") || { rm -f "$MANIFEST_LOG"; fail "cannot create a scratch file for the lane-manifest prune's result"; }
+  H="$H" ROOT="$root" node -e '
     const fs = require("fs");
     const p = process.env.ROOT + "/.swarm/lanes.json";
     const m = JSON.parse(fs.readFileSync(p, "utf8"));
-    m.lanes = (m.lanes || []).filter(l => l.handle !== process.env.H);
-    fs.writeFileSync(p, JSON.stringify(m, null, 2) + "\n");
-  ' 2>"$MANIFEST_LOG"; then
-    echo "  lane manifest pruned: $H"
-    rm -f "$MANIFEST_LOG"
+    if (m === null || typeof m !== "object" || Array.isArray(m) || !Array.isArray(m.lanes)) {
+      throw new Error("lanes.json is not shaped as {lanes: [...]}");
+    }
+    if (!m.lanes.every(l => l !== null && typeof l === "object" && !Array.isArray(l))) {
+      throw new Error("lanes.json .lanes contains a non-object entry");
+    }
+    const before = m.lanes.length;
+    const after = m.lanes.filter(l => l.handle !== process.env.H);
+    if (after.length === before) {
+      process.stdout.write("NOOP");
+    } else {
+      m.lanes = after;
+      fs.writeFileSync(p, JSON.stringify(m, null, 2) + "\n");
+      process.stdout.write("PRUNED");
+    }
+  ' >"$MANIFEST_OUT_LOG" 2>"$MANIFEST_LOG"
+  MANIFEST_RC=$?
+  if [ "$MANIFEST_RC" -eq 0 ]; then
+    if grep -qxF PRUNED "$MANIFEST_OUT_LOG"; then
+      echo "  lane manifest pruned: $H"
+    elif grep -qxF NOOP "$MANIFEST_OUT_LOG"; then
+      :
+    else
+      rm -f "$MANIFEST_LOG" "$MANIFEST_OUT_LOG"
+      fail "lane manifest prune produced an unrecognized result — refusing to guess whether $H was pruned"
+    fi
+    rm -f "$MANIFEST_LOG" "$MANIFEST_OUT_LOG"
   else
-    tail -6 "$MANIFEST_LOG"
-    rm -f "$MANIFEST_LOG"
-    fail "lane manifest prune failed — .swarm/lanes.json is malformed or unwritable"
+    # The thrown message (what a human needs) sits a few lines INTO node's
+    # stack trace, not in the last 6 lines of it (verify review: a shape
+    # guard's message never reached this point — PROVEN INERT by deleting
+    # the whole guard and finding every shape test still passed on the
+    # `tail -6` fallback's generic fail() line alone). Node always prints
+    # the error's own class + message on a line starting `Error:`,
+    # `TypeError:`, or `SyntaxError:` before the "at ..." frames; that line
+    # is grepped for first, and `tail -6` stays as the fallback for
+    # anything that error class list does not cover.
+    grep -m1 -E '^(Error|SyntaxError|TypeError):' "$MANIFEST_LOG" || tail -6 "$MANIFEST_LOG"
+    rm -f "$MANIFEST_LOG" "$MANIFEST_OUT_LOG"
+    fail "lane manifest prune failed — .swarm/lanes.json is malformed, unwritable, or not shaped as {lanes: [...]}"
   fi
 fi
 
