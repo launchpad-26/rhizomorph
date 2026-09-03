@@ -16,6 +16,29 @@ export interface MergedUnknownLine extends UnknownEventLine {
 }
 
 /**
+ * One folded event, tagged with whose record it came from — the same
+ * attribution {@link MergedUnknownLine} carries, on the half of the merge this
+ * era *could* parse. Nothing else recovers it: the envelope is
+ * `{ id, ts, source, type, payload }`, `source` names the collector kind rather
+ * than the actor, `actors` names only the participants, and a ts-ordered
+ * interleave makes position say nothing either (#204).
+ *
+ * A **wrapper**, where the unknown line is a **flattening**, and the asymmetry
+ * is forced rather than chosen: `UnknownEventLine` is a plain interface so
+ * `extends` is safe, while `RhizomorphEvent` is a zod-inferred discriminated
+ * union over `type` with no interface to extend — and `rhizomorphEventSchema`
+ * is built from non-strict `z.object(...)`, so a flattened
+ * `{ ...event, actorInstance }` re-parsed through the schema would come back
+ * with the tag silently stripped off. Also rejected: a parallel
+ * `eventActors: string[]`, whose index alignment no type enforces and which
+ * desyncs the moment a caller filters `events`.
+ */
+export interface MergedEvent {
+  actorInstance: string
+  event: RhizomorphEvent
+}
+
+/**
  * Two (or more) actors' records for one repo, folded into a single coherent
  * event stream — prd11 ruling 3's "mergeable by construction". Not a new
  * signed `SessionRecord`: a hash chain is one actor's own artifact, so a
@@ -25,8 +48,13 @@ export interface MergedUnknownLine extends UnknownEventLine {
 export interface MergedRecord {
   repoSlug: string
   actors: Actor[]
-  /** Deduped, per-actor-append-only, cross-actor-by-timestamp-with-actor-tiebreak ordered. */
-  events: RhizomorphEvent[]
+  /**
+   * Deduped, per-actor-append-only, cross-actor-by-timestamp-with-actor-tiebreak
+   * ordered. Every entry names the actor it came from, exactly as a line this
+   * era could *not* fold does (#204) — both halves of a merged record say whose
+   * line each one was.
+   */
+  events: MergedEvent[]
   /**
    * Lines this era could not fold (prd17 ruling 3, item 1) — actor `a`'s in
    * body order, then actor `b`'s. Deduped on the chain link exactly as events
@@ -56,13 +84,8 @@ export interface MergedRecord {
 
 export type MergeResult = { ok: true; merged: MergedRecord } | { ok: false; reason: string }
 
-interface TaggedEvent {
-  actorInstance: string
-  event: RhizomorphEvent
-}
-
 type ExtractResult =
-  | { ok: true; events: TaggedEvent[]; unknown: MergedUnknownLine[] }
+  | { ok: true; events: MergedEvent[]; unknown: MergedUnknownLine[] }
   | { ok: false; reason: string }
 
 /**
@@ -142,7 +165,7 @@ function extractEvents(record: SessionRecord, seen: Set<string>): ExtractResult 
       .map((entry) => entry.lineNumber)
       .filter((lineNumber): lineNumber is number => lineNumber !== null),
   )
-  const events: TaggedEvent[] = []
+  const events: MergedEvent[] = []
   let next = 0
   for (let index = 0; index < record.body.length; index += 1) {
     const lineNumber = index + 1
@@ -169,8 +192,8 @@ function extractEvents(record: SessionRecord, seen: Set<string>): ExtractResult 
  * perfectly monotonic (the tail-ordering quirk `session-log.ts` documents)
  * still never has its own events reordered relative to each other.
  */
-function interleave(a: readonly TaggedEvent[], b: readonly TaggedEvent[]): RhizomorphEvent[] {
-  const merged: RhizomorphEvent[] = []
+function interleave(a: readonly MergedEvent[], b: readonly MergedEvent[]): MergedEvent[] {
+  const merged: MergedEvent[] = []
   let i = 0
   let j = 0
   while (i < a.length && j < b.length) {
@@ -180,19 +203,19 @@ function interleave(a: readonly TaggedEvent[], b: readonly TaggedEvent[]): Rhizo
       left.event.ts < right.event.ts ||
       (left.event.ts === right.event.ts && left.actorInstance <= right.actorInstance)
     if (takeLeft) {
-      merged.push(left.event)
+      merged.push(left)
       i += 1
     } else {
-      merged.push(right.event)
+      merged.push(right)
       j += 1
     }
   }
   while (i < a.length) {
-    merged.push(a[i]!.event)
+    merged.push(a[i]!)
     i += 1
   }
   while (j < b.length) {
-    merged.push(b[j]!.event)
+    merged.push(b[j]!)
     j += 1
   }
   return merged

@@ -279,6 +279,20 @@ replayable event stream:
   actor's own timestamps aren't perfectly monotonic (collectors can report
   a source's own clock, and a tail line can occasionally be older than the
   line above it).
+- **Every merged event names the actor it came from.** The folded stream is a
+  list of `MergedEvent` — `{ actorInstance, event }` — not a bare array of
+  events, so it is symmetric with the unfoldable lines beside it
+  (`MergedUnknownLine`, which carries `actorInstance` too): both halves of a
+  merged record say whose line each one was.
+
+  The tag has to be carried because nothing reconstructs it. An event's own id
+  is no attribution proxy for exactly the per-run-counter reason the dedup rule
+  above gives — two actors watching one repo mint the same ids, 22,755 of
+  25,000 shared between one pair in the ledger prd-48's #166 spike measured.
+  The envelope's `source` names the collector kind rather than the actor,
+  `actors` names only the participants, and the ordering rule above is by
+  timestamp, so an event's position in the stream says nothing about who
+  recorded it either.
 
 This repo's reference implementation is
 `packages/core/src/record/merge.ts`'s `mergeRecords`; a merge does not mint a
