@@ -199,6 +199,15 @@ Numbered by when the decision was *made*, not when the record was written — th
 whole log was reconstructed in one pass on 2026-08-06, so allocation order would
 have carried no information.
 
+**The column is not sorted, and 0032 is the widest inversion, deliberately.**
+0032 records a decision made 2026-08-04 and was written 2026-09-03, so it takes
+the next free number rather than one matching its date — numbers are never
+reused and the log is append-only, which outranks keeping this column sorted.
+It is not the first inversion: 0019 (decided 2026-08-10) sits after 0017 and
+0018 (both 2026-08-13), and 0022 (2026-08-14) after 0021 (2026-08-15). Read the
+**Decided** column, not the number, when order matters. Any later reconstruction
+of an old decision will do the same thing.
+
 | # | Decision | Decided | Status |
 |---|---|---|---|
 | [0001](0001-read-only-observer-as-a-constitution.md) | Read-only observer, amendable only by explicit invocation | 2026-07-30 | accepted, amended ×4 (latest: [0020](0020-transcript-migration-is-a-create-only-copy.md)) |
@@ -232,6 +241,7 @@ have carried no information.
 | [0029](0029-a-recording-may-repeat-a-fact.md) | A recording may repeat a fact: at-least-once on the poll path, no read-side dedupe — amends [0011](0011-recordings-never-rot.md) | 2026-08-25 | accepted |
 | [0030](0030-the-alarm-may-outrun-the-record.md) | The alarm may outrun the record: the degrade `collector.error` is emitted whether or not its own append lands | 2026-08-26 | accepted |
 | [0031](0031-the-recorder-hands-out-a-frozen-fold.md) | The recorder hands out a frozen fold: deep-frozen on assignment, return type unchanged | 2026-08-26 | accepted |
+| [0032](0032-synthesized-sessions-live-in-the-harness-projects-tree.md) | A synthesized session lives in the harness's own projects tree, widening the lab's write surface by one named root — narrows [0005](0005-session-log-lives-outside-the-watched-repo.md) | 2026-08-04 | accepted (reconstructed 2026-09-03) |
 
 Records 0001–0011 were reconstructed on 2026-08-06 and say so in their Context.
 One, **ADR-0003**, has an inverted evidence shape worth knowing about: the
