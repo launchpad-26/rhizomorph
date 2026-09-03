@@ -152,7 +152,7 @@ function sweepFiles(pattern: string): string[] {
  *
  * The issue asked for the enumeration rather than the one call site it named,
  * because #186 fixed one instance of this and left its sibling. There are six
- * bare `readFileSync` calls here besides the two guarded sweeps; exactly ONE
+ * bare `readFileSync` calls here besides the three guarded sweeps; exactly ONE
  * was fed from `git ls-files` and unguarded. Verdict per row, so a later reader
  * does not have to re-derive it — and so adding a seventh has an obvious
  * question to answer.
@@ -160,6 +160,7 @@ function sweepFiles(pattern: string): string[] {
  * | read | where its path comes from | verdict |
  * |---|---|---|
  * | `allCitations`'s two loops | `sweepFiles` (tracked + untracked) | GUARDED — `readSweptFile`, #186 item 5 |
+ * | `badPins` | `sweepFiles('docs/*.md')` — the same listing | GUARDED — `readSweptFile`, and the third sweep, which is why the count above is three and not two |
  * | the exclusion-honesty scan | `trackedFiles` — the git INDEX | **WAS THE DEFECT** — guarded now; this is #203 |
  * | `cleanUpOrphanedFixtures` | `readdirSync(docsDir)` — a live directory listing | NOT NEEDED — the entry exists because the listing just named it, and it is wrapped in its own `try`/`catch` besides |
  * | the allowlist-still-fails check | `ALLOWLISTED_BROKEN_CITATIONS[].file`, a literal list | NOT NEEDED — `existsSync` is asserted on the line above, with a message telling you to remove the entry |
