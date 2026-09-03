@@ -132,8 +132,35 @@ function remedyStrings(source: string): string[] {
   return extractCallArgs(source, 'add').map((args) => resolveArg(args[3]!, constants))
 }
 
-/** A path-shaped token needs one of these extensions. A directory separator alone is NOT enough: an extensionless token is not extracted at all, so an extensionless dead remedy passes this law. Widening to "separator OR extension" — which this comment used to claim outright — is `#231`. No example is spelled out here because a backticked path that deliberately does not exist is itself a dead citation, and prd-43 ruling 1 rightly reddens for it. See the input table's "bare command name" and ".json data file" rows for why `.json` is not here. */
-const PATH_TOKEN_RE = /^[A-Za-z0-9_.\-/]+\.(?:sh|ts|tsx|js|mjs|md)$/
+/** Extensions that make a token a path claim on their own, with no directory separator required — `dispatch.sh` is a path claim with nothing before the name. */
+const PATH_EXTENSION_RE = /\.(?:sh|ts|tsx|js|mjs|md)$/
+
+/** `.json` is a recognised file extension but deliberately NOT a path-claiming one — see the input table's ".json data file" row: a manifest named for context, not a location the reader is told to open. Excluded here so a directory separator can't smuggle it back in below. */
+const EXCLUDED_EXTENSION_RE = /\.(?:json)$/
+
+/** The character set a path-shaped token is made of. Anything outside it (an angle bracket, say) is filtered before this check runs; this just keeps the shape check from matching something wilder. */
+const PATH_CHARS_RE = /^[A-Za-z0-9_.\-/]+$/
+
+/**
+ * A path-shaped token needs a directory separator OR one of the extensions
+ * above — either alone is enough, per the input table's "bare command name"
+ * row. A token like scripts/dev/dispatch qualifies on its separator with no
+ * extension; `dispatch.sh` qualifies on its extension with no separator.
+ * (The first example is deliberately not backticked: it is a fabricated path
+ * that does not exist, and a backtick-delimited `scripts/`-rooted span is
+ * exactly what `doc-citation-law.test.ts` sweeps as a live citation —
+ * `dispatch.sh` is safe to backtick because it has no leading `scripts/`,
+ * `packages/` or `docs/` for that law's `CITATION_RE` to match.) Before
+ * `#231` this function's regex required the extension unconditionally — the
+ * docblock already claimed "separator or extension" while the code checked
+ * only the extension half, so an extensionless dead remedy with a real
+ * directory in it (scripts/dev/this-script-was-never-written, no `.sh`)
+ * passed this law silently.
+ */
+function isPathShaped(token: string): boolean {
+  if (!PATH_CHARS_RE.test(token) || EXCLUDED_EXTENSION_RE.test(token)) return false
+  return token.includes('/') || PATH_EXTENSION_RE.test(token)
+}
 
 /** Every path-like token a remedy string names, per the input table above. */
 function extractPathLikeTokens(command: string): string[] {
@@ -141,11 +168,27 @@ function extractPathLikeTokens(command: string): string[] {
     .split(/\s+/)
     .map((token) => token.replace(/^[`("']+/, '').replace(/[`)"'.,:;]+$/, ''))
     .filter((token) => !token.includes('<') && !token.includes('>'))
-    .filter((token) => PATH_TOKEN_RE.test(token))
+    .filter((token) => isPathShaped(token))
 }
 
+/**
+ * Whether `token` names a file that actually exists *inside* the repo — not
+ * merely a file that exists somewhere once `token` is glued onto REPO_ROOT.
+ * `path.join(REPO_ROOT, token)` used to do exactly that gluing, and
+ * `path.join` treats a leading `/` as an ordinary path segment rather than an
+ * anchor, so an absolute token like `/README.md` got rebased onto the repo's
+ * own README and reported as reachable — a reader running `ls /README.md` on
+ * a fresh clone gets "No such file or directory". `path.resolve` respects an
+ * absolute second argument instead of concatenating it, and the
+ * `path.relative` check below rejects anything — an absolute token, `../`
+ * traversal — that resolves outside REPO_ROOT rather than silently folding it
+ * back in.
+ */
 function tokenResolves(token: string): boolean {
-  return existsSync(path.join(REPO_ROOT, token))
+  const resolved = path.resolve(REPO_ROOT, token)
+  const relativeToRoot = path.relative(REPO_ROOT, resolved)
+  if (relativeToRoot.startsWith('..') || path.isAbsolute(relativeToRoot)) return false
+  return existsSync(resolved)
 }
 
 describe('remedy reachability law: a gap remedy names something a reader can reach (issue #63)', () => {
@@ -195,6 +238,7 @@ describe('remedy reachability law: a gap remedy names something a reader can rea
     ['inside parens', '(see docs/architecture.md)', ['docs/architecture.md']],
     ['trailing period', 'run dispatch.sh.', ['dispatch.sh']],
     ['trailing comma', 'run dispatch.sh, then retry', ['dispatch.sh']],
+    ['a directory but no recognised extension', 'run scripts/dev/dispatch-fix to correct it', ['scripts/dev/dispatch-fix']],
     ['a bare command name, no slash or extension', 'rhizomorph doctor', []],
     ['an eval one-liner naming no path', 'eval "$(rhizomorph env <lane>)"', []],
     ['an angle-bracket placeholder', 'rhizomorph --extra-sessions <dir>:conductor', []],
@@ -215,6 +259,36 @@ describe('remedy reachability law: a gap remedy names something a reader can rea
     const realRemedy = 'run scripts/dev/issues.sh list'
     const [real] = extractPathLikeTokens(realRemedy)
     expect(tokenResolves(real!)).toBe(true)
+  })
+
+  it('EXTENSIONLESS defect: a directory separator alone is enough to redden — the extension was never the thing that should have mattered (#231)', () => {
+    // Same fabricated path as the issue's EXECUTED evidence, with no
+    // extension at all — the separator is the only thing making this a path
+    // claim. Before #231, isPathShaped required a recognised extension
+    // unconditionally, so this token was never extracted and this remedy
+    // passed the law 17/17; appending `.sh` was the only way to redden it.
+    const fabricatedRemedy = 'run scripts/dev/this-script-was-never-written to fix it'
+    const [missing] = extractPathLikeTokens(fabricatedRemedy)
+    expect(missing).toBe('scripts/dev/this-script-was-never-written')
+    expect(tokenResolves(missing!)).toBe(false)
+  })
+
+  it('ESCAPE defect: an absolute token or parent traversal is rejected, not rebased into the repo (#231)', () => {
+    // `/README.md` and the repo's own `README.md` are different files.
+    // `path.join(REPO_ROOT, '/README.md')` used to fold the leading `/` away
+    // and resolve to the repo's README, reporting a path a reader could never
+    // open on a fresh clone as reachable.
+    expect(existsSync(path.join(REPO_ROOT, 'README.md'))).toBe(true)
+    expect(tokenResolves('/README.md')).toBe(false)
+
+    // Parent traversal that would land outside REPO_ROOT is rejected the same
+    // way — not because the target happens not to exist (it doesn't, either
+    // way), but because escaping the repo root is itself disqualifying.
+    expect(tokenResolves('../../etc/hosts.md')).toBe(false)
+
+    // Control: an ordinary repo-relative token, with no leading-`/` or `..`
+    // trickery, still resolves exactly as before.
+    expect(tokenResolves('README.md')).toBe(true)
   })
 
   it('the honest remedy this fix writes resolves to a real file', () => {
