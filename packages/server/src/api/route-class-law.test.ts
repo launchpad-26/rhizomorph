@@ -515,21 +515,48 @@ describe('every recognised route-count claim is derived from ROUTE_CLASSES, in w
     expect(sweptFiles().length).toBeGreaterThan(50)
   })
 
+  /** Git emits `/` from `ls-files` on every platform, independently of `path.sep`. */
+  function claimKey(file: readonly string[], pattern: RegExp): string {
+    return `${file.join('/')}\u0000${pattern.source}`
+  }
+
+  /** Match with the same hard-wrap and block-comment-gutter tolerance as `captureAll`. */
+  function containsClaim(text: string, pattern: RegExp): boolean {
+    const normalized = text.replace(/\s+/g, ' ')
+    const gutterless = text.replace(/^\s*\*\s?/gm, ' ').replace(/\s+/g, ' ')
+    return new RegExp(pattern.source, pattern.flags).test(normalized)
+      || new RegExp(pattern.source, pattern.flags).test(gutterless)
+  }
+
+  it('the completeness probe sees a recognised claim split across a hard-wrapped block comment', () => {
+    const wrapped = [
+      '/**',
+      ' * prd-29 puts the same token on',
+      ' * thirteen reads.',
+      ' */',
+    ].join('\n')
+    const pattern = CLAIMS.find((claim) => claim.label === 'security.ts gated reads')!.pattern
+    expect(containsClaim(wrapped, pattern)).toBe(true)
+  })
+
+  it('claim keys use git\'s platform-independent path spelling', () => {
+    const claim = CLAIMS.find((entry) => entry.label === 'security.ts gated reads')!
+    expect(claimKey(claim.file, claim.pattern)).toBe(
+      `packages/server/src/api/security.ts\u0000${claim.pattern.source}`,
+    )
+  })
+
   it('no swept file states a recognised route-count claim that no CLAIMS row declares', () => {
-    const declared = new Set(CLAIMS.map((claim) => `${path.join(...claim.file)}\u0000${claim.pattern.source}`))
+    const declared = new Set(CLAIMS.map((claim) => claimKey(claim.file, claim.pattern)))
     const unregistered: string[] = []
 
     for (const rel of sweptFiles()) {
       const raw = readFileSync(path.join(REPO_ROOT, rel), 'utf8')
-      const gutterless = raw.replace(/^\s*\*\s?/gm, ' ')
       for (const claim of CLAIMS) {
-        if (declared.has(`${rel}\u0000${claim.pattern.source}`)) continue
-        // A fresh RegExp per test: the rows' own patterns carry /g and are
-        // stateful, so reusing them here would leak `lastIndex` into the walk
-        // above and skip matches depending on iteration order.
-        const probe = new RegExp(claim.pattern.source, claim.pattern.flags)
-        const hit = probe.test(raw) || new RegExp(claim.pattern.source, claim.pattern.flags).test(gutterless)
-        if (hit) unregistered.push(`${rel} matches the pattern registered for ${claim.label}`)
+        if (declared.has(claimKey([rel], claim.pattern))) continue
+        if (containsClaim(raw, claim.pattern)) {
+          unregistered.push(`${rel} matches the pattern registered for ${claim.label}`)
+        }
       }
     }
 
