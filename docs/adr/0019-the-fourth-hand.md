@@ -1,6 +1,7 @@
 # 0019. The concierge: a fourth hand, granted two powers by explicit invocation
 
-- **Status:** accepted
+- **Status:** accepted (proposed amendment: [ADR-0034](0034-the-fifth-hand.md) scopes grants 3
+  and 5 to this hand and grants a fifth)
 - **Date:** 2026-08-10
 
 ## Context and Problem Statement
