@@ -206,6 +206,22 @@ const FILE_A = 'packages/server/src/runbook-delivery-law.test.ts'
 const FILE_B = 'packages/server/src/doc-citation-law.test.ts'
 const FILE_C = 'packages/server/src/api/route-class-law.test.ts'
 const UNTRACKED = 'packages/server/src/not-a-real-file.test.ts'
+const FILE_D = 'packages/server/src/gate-honesty-law.test.ts'
+const FILE_E = 'packages/server/src/no-personal-paths-law.test.ts'
+
+/** The tracked test-file set the workflow derives — read the same way, so law B's real-size case cannot drift from the job. */
+function trackedTestFiles(): string[] {
+  return execFileSync('git', ['ls-files', 'packages/*.test.ts', 'packages/*.test.tsx'], { cwd: REPO_ROOT, encoding: 'utf8' })
+    .split('\n')
+    .filter((line) => line.length > 0)
+}
+
+/** Place a synthetic result name the way the script does — either separator, from the last "/packages/". */
+function placed(name: string): string {
+  const slashed = name.replace(/\\/g, '/')
+  const idx = slashed.lastIndexOf('/packages/')
+  return idx === -1 ? slashed : slashed.slice(idx + 1)
+}
 
 const WIN_ROOT = 'D:\\a\\rhizomorph\\rhizomorph\\'
 function winName(file: string): string {
@@ -272,20 +288,42 @@ function scratch(): string {
   return dir
 }
 
-function triage(results: unknown, list: string, extraEnv: Record<string, string> = {}): Verdict {
+interface TriageOptions {
+  /** The tracked test-file set; when omitted, exactly the files the results and the list already name. */
+  tracked?: string[]
+  env?: Record<string, string>
+}
+
+function triage(results: unknown, list: string, options: TriageOptions = {}): Verdict {
   const dir = scratch()
   const resultsPath = path.join(dir, 'windows-suite.json')
   const listPath = path.join(dir, 'known-failures')
+  const trackedPath = path.join(dir, 'tracked')
   writeFileSync(resultsPath, typeof results === 'string' ? results : JSON.stringify({ testResults: results }))
   writeFileSync(listPath, list)
-  return triageAt(resultsPath, listPath, extraEnv)
+  const tracked = options.tracked ?? deriveTracked(results, list)
+  writeFileSync(trackedPath, `${tracked.join('\n')}\n`)
+  return triageAt(resultsPath, listPath, trackedPath, options.env)
 }
 
-function triageAt(resultsPath: string, listPath: string, extraEnv: Record<string, string> = {}): Verdict {
+/** The union of every file the results name and every entry path in the list — so an existing case's floor is exactly the files it talks about. */
+function deriveTracked(results: unknown, list: string): string[] {
+  const files = new Set<string>()
+  if (Array.isArray(results)) {
+    for (const r of results as SyntheticResult[]) files.add(placed(r.name))
+  }
+  for (const line of list.split('\n')) {
+    const file = line.match(/^(packages\/\S+)\s/)?.[1]
+    if (file !== undefined) files.add(file)
+  }
+  return [...files]
+}
+
+function triageAt(resultsPath: string, listPath: string, trackedPath: string, extraEnv: Record<string, string> = {}): Verdict {
   const env: Record<string, string | undefined> = { ...process.env }
   delete env.GITHUB_STEP_SUMMARY
   Object.assign(env, extraEnv)
-  const run = spawnSync('bash', [SCRIPT_PATH, resultsPath, listPath], { cwd: REPO_ROOT, encoding: 'utf8', env })
+  const run = spawnSync('bash', [SCRIPT_PATH, resultsPath, listPath, trackedPath], { cwd: REPO_ROOT, encoding: 'utf8', env })
   return { status: run.status, stdout: run.stdout, stderr: run.stderr }
 }
 
@@ -300,7 +338,7 @@ describe('windows suite law B: the triage compares per file, never by count (prd
     expect(v.stdout).toContain(`expected, still failing [path-separator]: ${FILE_A}`)
     expect(v.stdout).toContain(`expected, still failing [line-endings]: ${FILE_B}`)
     expect(v.stdout).not.toContain('UNEXPECTED')
-    expect(summaryLine(v.stdout)).toBe('windows-triage: 0 unexpected · 2 expected · 0 removal candidates · 0 listed-not-run · verdict GREEN')
+    expect(summaryLine(v.stdout)).toBe('windows-triage: 0 unexpected · 2 expected · 0 removal candidates · 0 listed-not-run · 0 unevaluated · verdict GREEN')
   })
 
   it('a failure outside the list is RED, named, with its first failing assertion', () => {
@@ -322,7 +360,7 @@ describe('windows suite law B: the triage compares per file, never by count (prd
     expect(v.status).toBe(1)
     expect(v.stdout).toContain(`UNEXPECTED FAILURE (not on .windows-known-failures): ${FILE_C}`)
     expect(v.stdout).toContain(`CANDIDATE FOR REMOVAL (listed, now passes): ${FILE_A}`)
-    expect(summaryLine(v.stdout)).toBe('windows-triage: 1 unexpected · 0 expected · 1 removal candidates · 0 listed-not-run · verdict RED')
+    expect(summaryLine(v.stdout)).toBe('windows-triage: 1 unexpected · 0 expected · 1 removal candidates · 0 listed-not-run · 0 unevaluated · verdict RED')
   })
 
   it('a listed file that now passes is a removal candidate, not RED', () => {
@@ -330,14 +368,14 @@ describe('windows suite law B: the triage compares per file, never by count (prd
     expect(v.status, v.stdout + v.stderr).toBe(0)
     expect(v.stdout).toContain(`CANDIDATE FOR REMOVAL (listed, now passes): ${FILE_B}`)
     expect(v.stdout).toContain(`expected, still failing [procfs]: ${FILE_A}`)
-    expect(summaryLine(v.stdout)).toContain('1 removal candidates · 0 listed-not-run · verdict GREEN')
+    expect(summaryLine(v.stdout)).toContain('1 removal candidates · 0 listed-not-run · 0 unevaluated · verdict GREEN')
   })
 
   it('a listed file the suite never ran is RED — a list may not claim a file the suite did not evaluate', () => {
     const v = triage([failed(winName(FILE_A))], syntheticList([[FILE_A, 'procfs'], [FILE_B, 'drive-letter']]))
     expect(v.status).toBe(1)
     expect(v.stdout).toContain(`listed but not run: ${FILE_B}`)
-    expect(summaryLine(v.stdout)).toContain('1 listed-not-run · verdict RED')
+    expect(summaryLine(v.stdout)).toContain('1 listed-not-run · 0 unevaluated · verdict RED')
   })
 
   it('a file that failed to LOAD counts as failing, and its message is printed', () => {
@@ -352,7 +390,9 @@ describe('windows suite law B: the triage compares per file, never by count (prd
     const dir = scratch()
     const listPath = path.join(dir, 'known-failures')
     writeFileSync(listPath, syntheticList([]))
-    const v = triageAt(path.join(dir, 'never-written.json'), listPath)
+    const trackedPath = path.join(dir, 'tracked')
+    writeFileSync(trackedPath, `${FILE_A}\n`)
+    const v = triageAt(path.join(dir, 'never-written.json'), listPath, trackedPath)
     expect(v.status).toBe(1)
     expect(v.stdout).toContain('no vitest results at')
     expect(summaryLine(v.stdout)).toContain('verdict RED')
@@ -412,7 +452,9 @@ describe('windows suite law B: the triage compares per file, never by count (prd
   })
 
   it('a result name with no packages/ segment is RED — the script cannot place it and says so', () => {
-    const v = triage([failed('D:\\a\\repo\\other\\x.test.ts')], syntheticList([]))
+    // An explicit floor: the derived one would be the unplaceable name itself,
+    // which the set's own validation rejects before placement is reached.
+    const v = triage([failed('D:\\a\\repo\\other\\x.test.ts')], syntheticList([]), { tracked: [FILE_A] })
     expect(v.status).toBe(1)
     expect(v.stdout).toContain('cannot place result')
     expect(v.stdout).toContain('other\\x.test.ts')
@@ -421,9 +463,9 @@ describe('windows suite law B: the triage compares per file, never by count (prd
   it('is pure — the same inputs give the same output and exit, three runs over', () => {
     const results = [failed(winName(FILE_A)), failed(winName(FILE_B))]
     const list = syntheticList([[FILE_A, 'path-separator'], [FILE_B, 'line-endings']])
-    const first = triage(results, list)
+    const first = triage(results, list, { tracked: [FILE_A, FILE_B, FILE_C] })
     for (let i = 0; i < 2; i += 1) {
-      const again = triage(results, list)
+      const again = triage(results, list, { tracked: [FILE_A, FILE_B, FILE_C] })
       expect(again.status).toBe(first.status)
       expect(again.stdout).toBe(first.stdout)
     }
@@ -435,7 +477,7 @@ describe('windows suite law B: the triage compares per file, never by count (prd
     const v = triage(
       [failed(winName(FILE_A)), passed(winName(FILE_B))],
       syntheticList([[FILE_A, 'path-separator'], [FILE_B, 'line-endings']]),
-      { GITHUB_STEP_SUMMARY: summaryPath },
+      { env: { GITHUB_STEP_SUMMARY: summaryPath } },
     )
     expect(v.status, v.stdout + v.stderr).toBe(0)
     const summary = readFileSync(summaryPath, 'utf8')
@@ -443,6 +485,96 @@ describe('windows suite law B: the triage compares per file, never by count (prd
     expect(summary).toContain(`- \`${FILE_A}\` [path-separator]`)
     expect(summary).toContain(`- \`${FILE_B}\` [line-endings]`)
     expect(summary).toMatch(/## Windows suite triage — GREEN/)
+    expect(summary).toContain('### Tracked test files with no result — RED (0)')
+  })
+
+  it('the job-page summary carries the fifth section, naming each tracked file with no result (#252)', () => {
+    const dir = scratch()
+    const summaryPath = path.join(dir, 'summary.md')
+    const v = triage(
+      [failed(winName(FILE_A)), failed(winName(FILE_B))],
+      syntheticList([[FILE_A, 'path-separator'], [FILE_B, 'line-endings']]),
+      { tracked: [FILE_A, FILE_B, FILE_D], env: { GITHUB_STEP_SUMMARY: summaryPath } },
+    )
+    expect(v.status).toBe(1)
+    const summary = readFileSync(summaryPath, 'utf8')
+    expect(summary).toMatch(/## Windows suite triage — RED/)
+    expect(summary).toContain('### Tracked test files with no result — RED (1)')
+    expect(summary).toContain(`- \`${FILE_D}\``)
+  })
+
+  describe('a GREEN verdict proves the suite ran — the tracked test-file set is the floor (prd-25 ruling 2, #252)', () => {
+    it('a tracked test file with no result is RED, and each one is named', () => {
+      const v = triage(
+        [failed(winName(FILE_A)), failed(winName(FILE_B)), passed(winName(FILE_C))],
+        syntheticList([[FILE_A, 'path-separator'], [FILE_B, 'line-endings']]),
+        { tracked: [FILE_A, FILE_B, FILE_C, FILE_D, FILE_E] },
+      )
+      expect(v.status).toBe(1)
+      expect(v.stdout).toContain(`tracked test file with no result: ${FILE_D}`)
+      expect(v.stdout).toContain(`tracked test file with no result: ${FILE_E}`)
+      expect(v.stdout).not.toContain('UNEXPECTED')
+      expect(summaryLine(v.stdout)).toContain('2 unevaluated · verdict RED')
+    })
+
+    it('a listed file absent from results is named once, as listed-but-not-run, never twice', () => {
+      const v = triage([failed(winName(FILE_A))], syntheticList([[FILE_A, 'procfs'], [FILE_B, 'drive-letter']]), { tracked: [FILE_A, FILE_B] })
+      expect(v.status).toBe(1)
+      const naming = v.stdout.split('\n').filter((line) => line.includes(FILE_B))
+      expect(naming).toHaveLength(1)
+      expect(naming[0]).toContain('listed but not run')
+      expect(v.stdout).not.toContain('tracked test file with no result')
+      expect(summaryLine(v.stdout)).toContain('1 listed-not-run · 0 unevaluated')
+    })
+
+    it('GREEN is reachable at the real size — every tracked test file, Windows-shaped, passing', () => {
+      const tracked = trackedTestFiles()
+      expect(tracked.length, 'a broken pathspec would make this case vacuous').toBeGreaterThan(300)
+      expect(tracked.some((f) => f.endsWith('.test.tsx')), 'the .tsx half of the set must be present').toBe(true)
+      const v = triage(tracked.map((f) => passed(winName(f))), syntheticList([]), { tracked })
+      expect(v.status, v.stdout + v.stderr).toBe(0)
+      expect(summaryLine(v.stdout)).toBe('windows-triage: 0 unexpected · 0 expected · 0 removal candidates · 0 listed-not-run · 0 unevaluated · verdict GREEN')
+    })
+
+    it('the same real set with three results deleted is RED naming exactly those three — a count floor would pass a swap', () => {
+      const tracked = trackedTestFiles()
+      const firstTsx = tracked.find((f) => f.endsWith('.test.tsx')) ?? ''
+      const dropped = [tracked[0] ?? '', tracked[tracked.length - 1] ?? '', firstTsx]
+      expect(new Set(dropped).size).toBe(3)
+      const results = tracked.filter((f) => !dropped.includes(f)).map((f) => passed(winName(f)))
+      const v = triage(results, syntheticList([]), { tracked })
+      expect(v.status).toBe(1)
+      const named = v.stdout
+        .split('\n')
+        .filter((line) => line.startsWith('RED: tracked test file with no result: '))
+        .map((line) => line.replace('RED: tracked test file with no result: ', '').split(' — ')[0] ?? '')
+      expect(named.sort()).toEqual([...dropped].sort())
+      expect(summaryLine(v.stdout)).toContain('3 unevaluated · verdict RED')
+    })
+
+    it('a missing tracked set is RED and nothing is compared', () => {
+      const dir = scratch()
+      const resultsPath = path.join(dir, 'windows-suite.json')
+      const listPath = path.join(dir, 'known-failures')
+      writeFileSync(resultsPath, JSON.stringify({ testResults: [failed(winName(FILE_A))] }))
+      writeFileSync(listPath, syntheticList([[FILE_A, 'path-separator']]))
+      const v = triageAt(resultsPath, listPath, path.join(dir, 'never-written'))
+      expect(v.status).toBe(1)
+      expect(v.stdout).toContain('no tracked test-file set')
+      expect(v.stdout).not.toContain('expected, still failing')
+    })
+
+    it('an empty tracked set is RED', () => {
+      const v = triage([failed(winName(FILE_A))], syntheticList([[FILE_A, 'path-separator']]), { tracked: ['# nothing', '# here'] })
+      expect(v.status).toBe(1)
+      expect(v.stdout).toContain('is empty')
+    })
+
+    it('a non-test path in the set is RED', () => {
+      const v = triage([failed(winName(FILE_A))], syntheticList([[FILE_A, 'path-separator']]), { tracked: [FILE_A, 'packages/server/src/index.ts'] })
+      expect(v.status).toBe(1)
+      expect(v.stdout).toContain('is not a packages/ test file')
+    })
   })
 })
 
@@ -456,8 +588,8 @@ describe('windows suite law C: the workflow has the shape the README row claims 
   })
 
   /** The text of one step, from its `- name:` to the next step's. */
-  function stepBlock(namePrefix: string): string {
-    const steps = workflow.split(/\n(?= {6}- name: )/)
+  function stepBlock(text: string, namePrefix: string): string {
+    const steps = text.split(/\n(?= {6}- name: )/)
     const block = steps.find((s) => s.trimStart().startsWith(`- name: ${namePrefix}`))
     if (block === undefined) throw new Error(`windows-suite.yml has no step named "${namePrefix}…"`)
     return block
@@ -467,14 +599,56 @@ describe('windows suite law C: the workflow has the shape the README row claims 
     // Scoped to the step, not the file: moved onto the triage step, the same
     // line would make the only step allowed to fail unable to fail, and the
     // job permanently green whatever the list says (review of #212).
-    const suite = stepBlock('Suite')
+    const suite = stepBlock(workflow, 'Suite')
     expect(suite).toMatch(/continue-on-error: true/)
     expect(suite).toMatch(/--reporter=json --outputFile\.json=windows-suite\.json/)
-    expect(stepBlock('Triage')).not.toMatch(/continue-on-error/)
+    expect(stepBlock(workflow, 'Triage')).not.toMatch(/continue-on-error/)
   })
 
-  it('the triage step compares those results against the committed list', () => {
-    expect(workflow).toContain('bash scripts/windows-triage.sh windows-suite.json .windows-known-failures')
+  it('the triage step compares those results against the committed list, held to the tracked test-file floor (#252)', () => {
+    expect(stepBlock(workflow, 'Tracked test files')).toContain("run: git ls-files 'packages/*.test.ts' 'packages/*.test.tsx' > windows-suite.tracked")
+    expect(stepBlock(workflow, 'Triage')).toContain('bash scripts/windows-triage.sh windows-suite.json .windows-known-failures windows-suite.tracked')
+    expect(stepBlock(workflow, 'Upload results')).toContain('windows-suite.tracked')
+  })
+
+  /** The text of one top-level key's block, from `key:` to the next top-level key. */
+  function topLevelBlock(text: string, key: string): string {
+    const blocks = text.split(/\n(?=\S)/)
+    const block = blocks.find((b) => b.startsWith(`${key}:`))
+    if (block === undefined) throw new Error(`windows-suite.yml has no top-level "${key}:" block`)
+    return block
+  }
+
+  /**
+   * The trigger checks, over any rendering of the workflow text. Anchored at
+   * line start with the exact indent: a trigger moved into a comment
+   * ("  # pull_request:") does not satisfy it, and branches: [main] is read
+   * under push:, not anywhere in the file. Line endings are `\r?\n` because Git
+   * for Windows checks the workflow out CRLF and this law runs on that runner
+   * — the first version of this case anchored on a bare \n and was the one
+   * unexpected failure on the wave PR's Windows run (#253).
+   */
+  function assertTriggers(text: string): void {
+    const on = topLevelBlock(text, 'on')
+    expect(on).toMatch(/^ {2}pull_request:\r?$/m)
+    expect(on).toMatch(/^ {2}push:\r?\n {4}branches: \[main\]\r?$/m)
+    // "Every push" also means unfiltered: a paths/paths-ignore/branches-ignore
+    // or types filter under either trigger narrows the job while both keys
+    // stay present (review of #252).
+    expect(on).not.toMatch(/^ {4}(paths|paths-ignore|branches-ignore|types):/m)
+  }
+
+  it('runs on every pull request and on every push to main — the "every push" the README and AGENTS.md claim (#252)', () => {
+    assertTriggers(workflow)
+  })
+
+  it('reads the workflow the way Git for Windows checks it out — CRLF — and still holds every shape above (#253)', () => {
+    const crlf = workflow.replace(/\r?\n/g, '\r\n')
+    expect(crlf).toContain('\r\n')
+    assertTriggers(crlf)
+    expect(stepBlock(crlf, 'Suite')).toMatch(/continue-on-error: true/)
+    expect(stepBlock(crlf, 'Triage')).not.toMatch(/continue-on-error/)
+    expect(stepBlock(crlf, 'Tracked test files')).toContain("run: git ls-files 'packages/*.test.ts' 'packages/*.test.tsx' > windows-suite.tracked")
   })
 
   it("never mentions a Linux-userland Windows — the same rule route-class-law holds every workflow to, named here so the failure names this file", () => {
