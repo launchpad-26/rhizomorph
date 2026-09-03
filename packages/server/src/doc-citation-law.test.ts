@@ -146,21 +146,25 @@ function sweepFiles(pattern: string): string[] {
  * deletion (#186 item 5's related finding: this used to throw ENOENT
  * straight out of `readFileSync`, crashing the run instead of failing the law
  * like any other missing citation would).
- */
-/**
+ *
  * ## Every read in this file, and whether it needs this guard (#203)
  *
  * The issue asked for the enumeration rather than the one call site it named,
- * because #186 fixed one instance of this and left its sibling. There are six
- * bare `readFileSync` calls here besides the three guarded sweeps; exactly ONE
- * was fed from `git ls-files` and unguarded. Verdict per row, so a later reader
- * does not have to re-derive it — and so adding a seventh has an obvious
- * question to answer.
+ * because #186 fixed one instance of this and left its sibling. **Nine reads,
+ * and the table is all of them**: four come through this guard — two loops in
+ * `allCitations`, one in `badPins`, and the exclusion scan that #203 moved
+ * here — and five stay bare. Exactly ONE was fed from `git ls-files` and
+ * unguarded. Verdict per row, so a later reader does not have to re-derive it,
+ * and so a tenth read has an obvious question to answer.
+ *
+ * Count the call sites, not the rows: `allCitations` reads in two loops and
+ * gets one row. Getting that number wrong is the failure this table exists to
+ * prevent, so it is stated as a count and not left to be inferred.
  *
  * | read | where its path comes from | verdict |
  * |---|---|---|
  * | `allCitations`'s two loops | `sweepFiles` (tracked + untracked) | GUARDED — `readSweptFile`, #186 item 5 |
- * | `badPins` | `sweepFiles('docs/*.md')` — the same listing | GUARDED — `readSweptFile`, and the third sweep, which is why the count above is three and not two |
+ * | `badPins` | `sweepFiles('docs/*.md')` — the same listing | GUARDED — `readSweptFile`. Predates #203 and was already correct; it is a row because the heading says *every* read, and it was missing (review of #242) |
  * | the exclusion-honesty scan | `trackedFiles` — the git INDEX | **WAS THE DEFECT** — guarded now; this is #203 |
  * | `cleanUpOrphanedFixtures` | `readdirSync(docsDir)` — a live directory listing | NOT NEEDED — the entry exists because the listing just named it, and it is wrapped in its own `try`/`catch` besides |
  * | the allowlist-still-fails check | `ALLOWLISTED_BROKEN_CITATIONS[].file`, a literal list | NOT NEEDED — `existsSync` is asserted on the line above, with a message telling you to remove the entry |
