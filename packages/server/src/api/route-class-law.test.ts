@@ -521,11 +521,37 @@ describe('every recognised route-count claim is derived from ROUTE_CLASSES, in w
   }
 
   /** Match with the same hard-wrap and block-comment-gutter tolerance as `captureAll`. */
-  function containsClaim(text: string, pattern: RegExp): boolean {
+  /**
+   * The two readings of one file, computed ONCE. This used to live inside
+   * `containsClaim`, which the sweep calls per (file, claim) pair — so the same
+   * three whole-file replaces ran once per CLAIMS row rather than once per
+   * file. At 1109 swept files and 15 rows that is 16,635 calls doing ~50,000
+   * whole-file normalisations where 3,300 do, and it cost the sweep 7490 ms on
+   * `macos-latest` against vitest's 5000 ms default — a timeout, on other
+   * people's branches, pointing at their diff rather than at this sweep
+   * (#266; caught on PR #263, an approved and unrelated change).
+   *
+   * The normalisation depends only on the TEXT, never on the pattern. Hoisting
+   * it is behaviour-preserving by construction: same inputs, same two strings,
+   * same probes run against them.
+   */
+  function readingsOf(text: string): readonly [string, string] {
     const normalized = text.replace(/\s+/g, ' ')
     const gutterless = text.replace(/^\s*\*\s?/gm, ' ').replace(/\s+/g, ' ')
-    return new RegExp(pattern.source, pattern.flags).test(normalized)
-      || new RegExp(pattern.source, pattern.flags).test(gutterless)
+    return [normalized, gutterless]
+  }
+
+  /**
+   * A claim's probe, compiled once. The rows' own patterns carry `/g` and are
+   * stateful, so they cannot be reused for `.test` across files without leaking
+   * `lastIndex`; a non-global copy has no such state and is safe to share.
+   */
+  function probeFor(pattern: RegExp): RegExp {
+    return new RegExp(pattern.source, pattern.flags.replace('g', ''))
+  }
+
+  function containsClaim(readings: readonly [string, string], probe: RegExp): boolean {
+    return probe.test(readings[0]) || probe.test(readings[1])
   }
 
   it('the completeness probe sees a recognised claim split across a hard-wrapped block comment', () => {
@@ -536,7 +562,7 @@ describe('every recognised route-count claim is derived from ROUTE_CLASSES, in w
       ' */',
     ].join('\n')
     const pattern = CLAIMS.find((claim) => claim.label === 'security.ts gated reads')!.pattern
-    expect(containsClaim(wrapped, pattern)).toBe(true)
+    expect(containsClaim(readingsOf(wrapped), probeFor(pattern))).toBe(true)
   })
 
   it('claim keys use git\'s platform-independent path spelling', () => {
@@ -548,20 +574,28 @@ describe('every recognised route-count claim is derived from ROUTE_CLASSES, in w
 
   it('no swept file states a recognised route-count claim that no CLAIMS row declares', () => {
     const declared = new Set(CLAIMS.map((claim) => claimKey(claim.file, claim.pattern)))
+    const probes = CLAIMS.map((claim) => ({ claim, probe: probeFor(claim.pattern) }))
     const unregistered: string[] = []
 
     for (const rel of sweptFiles()) {
-      const raw = readFileSync(path.join(REPO_ROOT, rel), 'utf8')
-      for (const claim of CLAIMS) {
+      const readings = readingsOf(readFileSync(path.join(REPO_ROOT, rel), 'utf8'))
+      for (const { claim, probe } of probes) {
         if (declared.has(claimKey([rel], claim.pattern))) continue
-        if (containsClaim(raw, claim.pattern)) {
+        if (containsClaim(readings, probe)) {
           unregistered.push(`${rel} matches the pattern registered for ${claim.label}`)
         }
       }
     }
 
     expect(unregistered).toEqual([])
-  })
+    // Explicit, not the 5000 ms default: this sweep's cost grows with the repo,
+    // and the default left it 270 ms of headroom on the machine it was written
+    // on while exceeding the budget on `macos-latest` (#266). Measured here
+    // after hoisting the normalisation: 735 ms of test time for 1109 files x 15
+    // rows, down from 4.73 s. 30 s is deliberate slack — if a future reader
+    // sees this test near it again, the answer is to make the sweep cheaper,
+    // not to raise the number.
+  }, 30_000)
 
   it('every claimed file actually exists under REPO_ROOT — a moved file must fail loudly, not read as zero claims', () => {
     for (const claim of CLAIMS) {
