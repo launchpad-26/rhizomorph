@@ -520,12 +520,48 @@ describe('every recognised route-count claim is derived from ROUTE_CLASSES, in w
     return `${file.join('/')}\u0000${pattern.source}`
   }
 
-  /** Match with the same hard-wrap and block-comment-gutter tolerance as `captureAll`. */
-  function containsClaim(text: string, pattern: RegExp): boolean {
+  /**
+   * The two readings of one file — plain, and with block-comment gutters
+   * stripped — carrying the same hard-wrap tolerance as `captureAll`, and
+   * computed ONCE per file.
+   *
+   * This used to live inside `containsClaim`, which the sweep calls per
+   * (file, claim) pair, so the three whole-file replaces below ran once per
+   * CLAIMS row rather than once per file — `CLAIMS.length` times the work the
+   * sweep actually needs, since the normalisation depends only on the TEXT and
+   * never on the pattern. That cost the sweep 7490 ms on `macos-latest`
+   * against vitest's 5000 ms default: a timeout on other people's branches,
+   * pointing at their diff rather than at this sweep (#266; caught on PR #263,
+   * an approved and unrelated change).
+   *
+   * Deliberately NO file or row counts in this prose. Both figures grow with
+   * the repo, and a count stated in prose drifting from the thing it counts is
+   * the exact defect this whole file exists to catch — the first draft of this
+   * docblock said 1109 files and 15 rows against a real 979 and 12, and every
+   * figure derived from them was wrong. The ratio is the durable fact, and the
+   * structural test below asserts it against the live corpus rather than
+   * restating it. Measured 2026-09-04: 4.73 s to 783 ms.
+   *
+   * Hoisting is behaviour-preserving by construction: same inputs, same two
+   * strings, same probes run against them.
+   */
+  function readingsOf(text: string): readonly [string, string] {
     const normalized = text.replace(/\s+/g, ' ')
     const gutterless = text.replace(/^\s*\*\s?/gm, ' ').replace(/\s+/g, ' ')
-    return new RegExp(pattern.source, pattern.flags).test(normalized)
-      || new RegExp(pattern.source, pattern.flags).test(gutterless)
+    return [normalized, gutterless]
+  }
+
+  /**
+   * A claim's probe, compiled once. The rows' own patterns carry `/g` and are
+   * stateful, so they cannot be reused for `.test` across files without leaking
+   * `lastIndex`; a non-global copy has no such state and is safe to share.
+   */
+  function probeFor(pattern: RegExp): RegExp {
+    return new RegExp(pattern.source, pattern.flags.replace('g', ''))
+  }
+
+  function containsClaim(readings: readonly [string, string], probe: RegExp): boolean {
+    return probe.test(readings[0]) || probe.test(readings[1])
   }
 
   it('the completeness probe sees a recognised claim split across a hard-wrapped block comment', () => {
@@ -536,7 +572,7 @@ describe('every recognised route-count claim is derived from ROUTE_CLASSES, in w
       ' */',
     ].join('\n')
     const pattern = CLAIMS.find((claim) => claim.label === 'security.ts gated reads')!.pattern
-    expect(containsClaim(wrapped, pattern)).toBe(true)
+    expect(containsClaim(readingsOf(wrapped), probeFor(pattern))).toBe(true)
   })
 
   it('claim keys use git\'s platform-independent path spelling', () => {
@@ -546,22 +582,73 @@ describe('every recognised route-count claim is derived from ROUTE_CLASSES, in w
     )
   })
 
-  it('no swept file states a recognised route-count claim that no CLAIMS row declares', () => {
+  /**
+   * The completeness sweep, with its normaliser injected so the structural test
+   * below can count the calls. `normalise` is the only thing here that reads a
+   * file's text, so anything computed per (file, claim) rather than per file
+   * shows up directly as a call count above `sweptFiles().length`.
+   */
+  function sweepUnregistered(
+    normalise: (text: string) => readonly [string, string] = readingsOf,
+  ): string[] {
     const declared = new Set(CLAIMS.map((claim) => claimKey(claim.file, claim.pattern)))
+    const probes = CLAIMS.map((claim) => ({ claim, probe: probeFor(claim.pattern) }))
     const unregistered: string[] = []
 
     for (const rel of sweptFiles()) {
-      const raw = readFileSync(path.join(REPO_ROOT, rel), 'utf8')
-      for (const claim of CLAIMS) {
+      const readings = normalise(readFileSync(path.join(REPO_ROOT, rel), 'utf8'))
+      for (const { claim, probe } of probes) {
         if (declared.has(claimKey([rel], claim.pattern))) continue
-        if (containsClaim(raw, claim.pattern)) {
+        if (containsClaim(readings, probe)) {
           unregistered.push(`${rel} matches the pattern registered for ${claim.label}`)
         }
       }
     }
 
-    expect(unregistered).toEqual([])
-  })
+    return unregistered
+  }
+
+  it('no swept file states a recognised route-count claim that no CLAIMS row declares', () => {
+    expect(sweepUnregistered()).toEqual([])
+    // Explicit, not the 5000 ms default: this sweep's cost grows with the repo,
+    // and the default left it 270 ms of headroom on the machine it was written
+    // on while exceeding the budget on `macos-latest` (#266). 30 s is a
+    // catastrophe backstop and NOT the regression guard — reverting the hoist
+    // lands near 3.2 s, which clears this ceiling silently. The test below is
+    // the guard. If a future reader sees this test near 30 s again, the answer
+    // is to make the sweep cheaper, not to raise the number.
+  }, 30_000)
+
+  /**
+   * The regression guard for the hoist, structural rather than wall-clock.
+   *
+   * The verify pass on #266 established that the 30 s ceiling above could not
+   * fail for the reason it claimed: moving the normalisation back inside the
+   * (file, claim) loop left every semantic test green at roughly 3.2 s, so the
+   * exact regression the fix exists to prevent survived its own timeout. A
+   * wall-clock ceiling can only catch a catastrophe, and it catches that one
+   * differently on every machine.
+   *
+   * Counting the calls fails on that mutation deterministically, under any
+   * load, on any runner: once per file is `sweptFiles().length`; once per
+   * (file, claim) pair is up to `CLAIMS.length` times that.
+   */
+  it('the sweep normalises each swept file once, not once per claim — the hoist is load-bearing', () => {
+    // With a single row the two shapes coincide and the count below would prove
+    // nothing, so the assertion states the condition it needs rather than
+    // assuming it.
+    expect(CLAIMS.length).toBeGreaterThan(1)
+
+    const expected = sweptFiles().length
+    let calls = 0
+    const counted = (text: string): readonly [string, string] => {
+      calls += 1
+      return readingsOf(text)
+    }
+
+    expect(sweepUnregistered(counted)).toEqual([])
+    expect(calls).toBe(expected)
+  }, 30_000)
 
   it('every claimed file actually exists under REPO_ROOT — a moved file must fail loudly, not read as zero claims', () => {
     for (const claim of CLAIMS) {
