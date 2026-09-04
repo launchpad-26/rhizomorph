@@ -41,6 +41,26 @@ mirror of Claude Code's own slugger. The containment law permits it explicitly
 === 'claude-projects'`) and asserts it against a real `captureCheckpoint` +
 `dispatchFork` run, so the permission is tested rather than incidental.
 
+> **Amendment — the writer named is wrong, and so is the subject (2026-09-04).**
+> The decision above is unchanged: a synthesized session belongs in the
+> harness's own projects tree. But the paragraph above misnames both the module
+> and the artifact. The write happens in `packages/server/src/lab/restore.ts`'s
+> `synthesizeSession`, at `path.join(projectDir, sessionId + '.jsonl')` — not in
+> `checkpoint.ts`. `checkpoint.ts`'s only contact with
+> `~/.claude/projects/<slug>/` is `cutSession`, which opens the parent's active
+> session file to hash it (`readFile` + a sha256 digest of the cut prefix) and
+> never writes there; its one `copyFile` is the temp git index `snapshotWorkspace`
+> uses for the checkpoint's own commit recipe, unrelated to this tree entirely.
+> And a checkpoint's own artifacts — the git ref under
+> `refs/rhizomorph/checkpoints/<checkpointId>` plus the `fork.checkpoint` event
+> `captureCheckpoint` appends to the event log under the data root — never touch
+> the harness tree at all; only a session *synthesized from* one, on restore,
+> does. Found during #264's review. `README.md`'s Trust section describes the
+> same two writes and was checked in the same pass: it already assigns them
+> correctly, naming the checkpoint's ref and event-log entry beside the
+> recording directory and only the synthesized session under
+> `~/.claude/projects/<slug>/`. The error is confined to this record.
+
 So the decision was made, is enforced, and was never written down. What forces
 were at play:
 
