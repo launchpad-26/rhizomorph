@@ -23,21 +23,27 @@ import { hoverThresholdMs, timeScale } from './scale.js'
  * a 9px diamond, and its who/what/when now lives in a styled hover card
  * instead of the platform's own `title` tooltip.
  *
- * **The wrack line (prd-13 amendment, operator-directed 2026-08-20).** The
- * uniform 2px tick grew into a glyph vocabulary, one shape per chapter kind:
- * a filled sprout dot for `lane-born`, a hollow ring for `lane-landed`, a
- * thorn for `gate-held`, a double bar for `session-boundary`, and a braided
- * stem with a count for a coalesced cluster. **Shape is the legend, hue only
- * reinforces it** — each glyph wears the *existing* status ink its fact
- * already means everywhere else (born/working green, landed/done green,
- * gate/needs-you amber; boundaries and clusters are structure and wear
- * structural ink), so law 9's greyscale-survival clause holds on shape alone
- * and "no new hue" holds by construction. Ruling 12's original cut kept every
- * mark in one ink to avoid an implicit legend; the amendment records why the
- * glyphs supersede that: a shape a hover card names is self-legending the
- * same way `×N` already was. The hover card's ~150ms delay is a *timing*
- * choice about when to reveal it, never an animated reveal of the card
- * itself — nothing here transitions or slides.
+ * **The wrack line (prd-13 amendment, operator-directed 2026-08-20; widened
+ * for prd17 ruling 4 by issue #277).** The uniform 2px tick grew into a glyph
+ * vocabulary, one shape per chapter kind: a filled sprout dot for
+ * `lane-born`, a hollow ring for `lane-landed`, a thorn for `gate-held`, a
+ * double bar for `session-boundary`, a filled diamond for `summons-raised`,
+ * a hollow diamond for `summons-cleared`, a filled square (amber when held,
+ * green when merged) for `gate-verdict`, a downward thorn for
+ * `operator-verdict`, and a braided stem with a count for a coalesced
+ * cluster. **Shape is the legend, hue only reinforces it** — each glyph
+ * wears the *existing* status ink its fact already means everywhere else
+ * (born/working green, landed/done green, gate/needs-you amber, a summons
+ * amber-when-raised/green-when-cleared the same fill-vs-hollow way
+ * born/landed already read open-vs-closed, a verdict's own operator ink;
+ * boundaries and clusters are structure and wear structural ink), so law 9's
+ * greyscale-survival clause holds on shape alone and "no new hue" holds by
+ * construction. Ruling 12's original cut kept every mark in one ink to avoid
+ * an implicit legend; the amendment records why the glyphs supersede that: a
+ * shape a hover card names is self-legending the same way `×N` already was.
+ * The hover card's ~150ms delay is a *timing* choice about when to reveal
+ * it, never an animated reveal of the card itself — nothing here transitions
+ * or slides.
  *
  * **Hit target grown with the lane.** The visible glyph is ≤8px wide;
  * `px-[7px]` on the button around it brings the actual click/hover target to
@@ -182,6 +188,13 @@ function glyphKindOf(group: MarkGroup): Chapter['kind'] | 'cluster' {
   return member.kind
 }
 
+/** `gate-verdict`'s own `held` flag, when the group is a single such mark — the one glyph whose ink depends on more than its kind. */
+function glyphHeldOf(group: MarkGroup): boolean | null {
+  if (group.members.length > 1) return null
+  const [member] = group.members as [Chapter]
+  return member.held
+}
+
 /**
  * THE GLYPHS — one shape per chapter kind, drawn in CSS so the whole lane
  * stays a handful of spans. Every shape rises from the lane's floor on a
@@ -190,7 +203,7 @@ function glyphKindOf(group: MarkGroup): Chapter['kind'] | 'cluster' {
  * greyscale (law 9). All spans are `aria-hidden` — the button's own
  * `aria-label` already carries every member's who/what/when in words.
  */
-function MarkGlyph({ kind }: { kind: Chapter['kind'] | 'cluster' }): ReactElement {
+function MarkGlyph({ kind, held }: { kind: Chapter['kind'] | 'cluster'; held: boolean | null }): ReactElement {
   switch (kind) {
     case 'lane-born':
       return (
@@ -218,6 +231,40 @@ function MarkGlyph({ kind }: { kind: Chapter['kind'] | 'cluster' }): ReactElemen
         <span aria-hidden="true" className="pointer-events-none">
           <span className="absolute inset-y-0 left-1/2 w-0.5 -translate-x-[3px] bg-(--ink-dim)" />
           <span className="absolute inset-y-0 left-1/2 w-0.5 translate-x-px bg-(--ink-dim)" />
+        </span>
+      )
+    case 'summons-raised':
+      return (
+        <span aria-hidden="true" className="pointer-events-none">
+          <span className="absolute bottom-0 left-1/2 h-2.5 w-0.5 -translate-x-1/2 bg-(--color-needs-you) opacity-40" />
+          <span className="absolute bottom-2 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-(--color-needs-you)" />
+        </span>
+      )
+    case 'summons-cleared':
+      return (
+        <span aria-hidden="true" className="pointer-events-none">
+          <span className="absolute bottom-0 left-1/2 h-2.5 w-0.5 -translate-x-1/2 bg-(--color-done) opacity-40" />
+          <span className="absolute bottom-2 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 border-2 border-(--color-done)" />
+        </span>
+      )
+    case 'gate-verdict':
+      return (
+        <span aria-hidden="true" className="pointer-events-none">
+          <span
+            className="absolute bottom-0 left-1/2 h-2.5 w-0.5 -translate-x-1/2 opacity-40"
+            style={{ backgroundColor: held ? 'var(--color-needs-you)' : 'var(--color-done)' }}
+          />
+          <span
+            className="absolute bottom-2 left-1/2 h-2 w-2 -translate-x-1/2"
+            style={{ backgroundColor: held ? 'var(--color-needs-you)' : 'var(--color-done)' }}
+          />
+        </span>
+      )
+    case 'operator-verdict':
+      return (
+        <span aria-hidden="true" className="pointer-events-none">
+          <span className="absolute bottom-0 left-1/2 h-2.5 w-0.5 -translate-x-1/2 bg-(--ink-primary) opacity-40" />
+          <span className="absolute bottom-2 left-1/2 h-0 w-0 -translate-x-1/2 border-x-4 border-t-8 border-x-transparent border-t-(--ink-primary)" />
         </span>
       )
     case 'cluster':
@@ -328,7 +375,7 @@ function MarkView({
         className="relative flex h-full w-2 items-end justify-center enabled:cursor-pointer disabled:cursor-default disabled:opacity-70"
         style={{ padding: `0 ${MARK_HIT_PADDING_PX}px`, boxSizing: 'content-box' }}
       >
-        <MarkGlyph kind={glyphKindOf(group)} />
+        <MarkGlyph kind={glyphKindOf(group)} held={glyphHeldOf(group)} />
         {showLabel && (
           <span
             aria-hidden="true"

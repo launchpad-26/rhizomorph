@@ -421,6 +421,61 @@ describe('ChapterMarks — no marks, no glyphs', () => {
   })
 })
 
+describe('ChapterMarks — the new mark kinds (prd17 ruling 4, issue #277)', () => {
+  it('renders and labels a summons raised, and a summons cleared, distinctly', () => {
+    const events = log((fx) => {
+      fx.at(100).summonsRaised({ lane: 'ke5', kind: 'awaiting-reply' })
+      fx.at(9_000).summonsCleared({ lane: 'ke5', kind: 'awaiting-reply' })
+    })
+
+    render(<ChapterMarks events={events} start={T0} end={T_END} width={900} onSeek={() => {}} seekEnabled />)
+
+    const marks = screen.getAllByTestId('chapter-mark')
+    expect(marks).toHaveLength(2)
+    expect(marks[0]).toHaveAccessibleName(/ke5 raised/)
+    expect(marks[1]).toHaveAccessibleName(/ke5 cleared/)
+  })
+
+  it('labels a gate verdict "held" or "merged" — never the same word for both', () => {
+    const events = log((fx) => {
+      fx.at(100).gateVerdict({ handle: 'ke5', held: true })
+      fx.at(9_000).gateVerdict({ handle: 'w1', held: false })
+    })
+
+    render(<ChapterMarks events={events} start={T0} end={T_END} width={900} onSeek={() => {}} seekEnabled />)
+
+    const marks = screen.getAllByTestId('chapter-mark')
+    expect(marks[0]).toHaveAccessibleName(/ke5 held/)
+    expect(marks[1]).toHaveAccessibleName(/w1 merged/)
+  })
+
+  it("carries the operator's own verdict word into the accessible name, verbatim", () => {
+    const events = log((fx) => {
+      fx.at(100).operatorVerdict({ subject: '219', verdict: 'approved' })
+    })
+
+    render(<ChapterMarks events={events} start={T0} end={T_END} width={900} onSeek={() => {}} seekEnabled />)
+
+    expect(screen.getByTestId('chapter-mark')).toHaveAccessibleName(/219 approved/)
+  })
+
+  it('a flood of summonses still coalesces into one counted cluster — no kind is exempt from the density law', () => {
+    // Same 6px/≈67ms hover budget as the existing coalescing law's own test,
+    // now proven for a kind that did not exist when that law was written.
+    const events = log((fx) => {
+      fx.at(5_000).summonsRaised({ lane: 'a', kind: 'stalled' })
+      fx.at(5_010).summonsRaised({ lane: 'b', kind: 'stalled' })
+      fx.at(5_020).summonsRaised({ lane: 'c', kind: 'stalled' })
+    })
+
+    render(<ChapterMarks events={events} start={T0} end={T_END} width={900} onSeek={() => {}} seekEnabled />)
+
+    const marks = screen.getAllByTestId('chapter-mark')
+    expect(marks).toHaveLength(1)
+    expect(marks[0]?.dataset.count).toBe('3')
+  })
+})
+
 describe('ChapterMarks — row height (prd13 ruling 13: one height, not mode-dependent)', () => {
   it('always renders at the compact row height', () => {
     const events = log((fx) => {

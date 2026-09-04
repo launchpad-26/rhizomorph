@@ -5,7 +5,7 @@ import { coalesceMarks } from './markCoalesce.js'
 const T0 = Date.UTC(2026, 7, 4, 14, 0, 0)
 
 function born(lane: string, ts: number): Chapter {
-  return { kind: 'lane-born', ts, lane, toolName: null }
+  return { kind: 'lane-born', ts, lane, toolName: null, held: null, verdict: null }
 }
 
 describe('coalesceMarks — every input mark survives, in exactly one group', () => {
