@@ -140,7 +140,9 @@ something is broken.
 ## Honest-gap voices
 
 When a fact isn't available, the UI says so in words instead of guessing or
-showing a bare zero (law 12). Exact strings you may see:
+showing a bare zero (law 12). A representative sample, not an enumeration —
+the fleet speaks more of these than are listed here, and an unlisted string
+is not a bug:
 
 - `NO COST FEED (OTel) — dollars unavailable — run: eval "$(rhizomorph env <lane>)"`
 - `NO LANE MANIFEST (.swarm/lanes.json) — off-fence detection unavailable — run: your dispatch tooling — writes .swarm/lanes.json, not part of this repo (see docs/user-guide/troubleshooting.md)`
@@ -160,10 +162,14 @@ written by whatever dispatch tooling you run, which lives outside this repo —
 until #63 they claimed to be a command, `run: dispatch.sh`, and sent readers
 hunting for a script this repo has never contained.
 
-These are transcribed from `buildGaps` (`packages/core/src/fleet/gaps.ts`) and
-are not checked against it by any test, so treat a mismatch as this list being
-stale, not the UI being wrong. See [troubleshooting.md](troubleshooting.md) for
-the ones you'll hit most on a first run.
+Most of these are transcribed from `buildGaps`
+(`packages/core/src/fleet/gaps.ts`); the conductor gap's burn-strip form comes
+from `CONDUCTOR_NOT_INSTRUMENTED_GAP`
+(`packages/web/src/panels/burn/format.ts`), and the trace gap from
+`packages/web/src/trace/EmptyTrace.tsx`. None of the three are checked against
+this list by any test, so treat a mismatch as this list being stale, not the
+UI being wrong. See [troubleshooting.md](troubleshooting.md) for the ones
+you'll hit most on a first run.
 
 ## The peek
 
