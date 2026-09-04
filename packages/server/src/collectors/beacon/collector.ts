@@ -113,8 +113,17 @@ export function createBeaconCollector(config: BeaconCollectorConfig = {}): Colle
         try {
           result = await readBeaconLines(path.join(dir, file), prior?.offset ?? 0, prior?.identity)
         } catch {
-          // The file vanished between readdir and open: drop it from the
-          // snapshot this tick, emit nothing for it. Not a tick failure.
+          // Not a tick failure either way, but the two reasons a read fails
+          // here need different cursors. A file that **vanished** between
+          // readdir and open is gone from the next readdir too, so dropping
+          // it is right and it drops out one tick later with no events. Any
+          // **transient** fault — EACCES while a writer re-permissions its
+          // file, EMFILE, a Windows share lock — leaves the file exactly
+          // where it was, and dropping its cursor makes the next successful
+          // tick read it from byte 0 and re-emit every beacon already on the
+          // log. Carrying the prior cursor forward covers both: the vanished
+          // file still disappears, the readable one resumes where it stopped.
+          if (prior !== undefined) nextFiles[file] = prior
           continue
         }
 

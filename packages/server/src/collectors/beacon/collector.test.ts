@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { mkdir, mkdtemp, readdir, readFile, rm, unlink, writeFile } from 'node:fs/promises'
+import { appendFile, chmod, mkdir, mkdtemp, readdir, readFile, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -225,6 +225,33 @@ describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
       const second = await collector.poll(first.nextSnapshot, context())
       expect(second.events).toEqual([])
       expect(second.nextSnapshot.files).toEqual({})
+    })
+
+    it('a file that is present but unreadable for one tick keeps its cursor, so nothing is re-emitted', async () => {
+      // The sibling of the case above. A vanished file and a file that merely
+      // could not be opened this tick both land in the same catch, but only
+      // one of them is gone: dropping the cursor for the other made the next
+      // successful tick read from byte 0 and re-emit every beacon already on
+      // the log. EXECUTED before the fix: three duplicates beside the one new
+      // beacon.
+      const file = path.join(dir, 'claude-hook.jsonl')
+      const collector = createBeaconCollector({ dataRoot: root })
+      const first = await collector.poll(collector.initialSnapshot(), context())
+      expect(ofType(first.events, 'beacon.received')).toHaveLength(3)
+
+      const fourth = '{"v":1,"at":1725000003000,"writer":"claude-hook","kind":"landed"}'
+      await appendFile(file, `${fourth}\n`)
+      await chmod(file, 0o000)
+      const second = await collector.poll(first.nextSnapshot, context())
+      expect(second.events).toEqual([])
+      expect(second.nextSnapshot.files['claude-hook.jsonl']?.offset).toBe(first.nextSnapshot.files['claude-hook.jsonl']?.offset)
+
+      await chmod(file, 0o644)
+      const third = await collector.poll(second.nextSnapshot, context())
+      const beacons = ofType(third.events, 'beacon.received')
+      expect(beacons).toHaveLength(1)
+      expect(beacons[0]?.payload.kind).toBe('landed')
+      expect(beacons[0]?.payload.offset).toBe(Buffer.byteLength(FIXTURE))
     })
   })
 
