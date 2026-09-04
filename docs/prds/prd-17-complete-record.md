@@ -221,12 +221,13 @@ unchanged, so nothing downstream was broken by defining them. Declared here afte
 and the tracker held two answers while it was undeclared: #219's title says `w1` and #217's
 blocked-by paragraph records it as `prd17 w2`. The title is right.
 
-**Wave 2 — parallel, fenced apart:** `prd17 w2: an operator act is recorded with the offset
-it was decided against` (`packages/server/src/api/operator.ts` and its test, both new, plus
-one import, one `registerApiRoutes` call and one `ROUTE_CLASSES` row in
-`packages/server/src/api/index.ts`) · `prd17 w2: a gate verdict, a summons and an operator
-act are marks on the tide` (ruling 4 — `packages/web/src/tide/chapters.ts`,
-`chapters.test.ts`, `ChapterMarks.tsx`, `ChapterMarks.test.tsx`, `packages/web/src/tide/index.ts`).
+**Wave 2 — parallel, fenced apart** (groomed 2026-09-05)**:** **#276** `prd17 w2: an operator
+act is recorded with the offset it was decided against` (`packages/server/src/api/operator.ts`
+and its test, both new, plus one import, one `registerApiRoutes` call and one `ROUTE_CLASSES`
+row in `packages/server/src/api/index.ts`) · **#277** `prd17 w2: a gate verdict, a summons and
+an operator act are marks on the tide` (ruling 4 — `packages/web/src/tide/chapters.ts`,
+`chapters.test.ts`, `ChapterMarks.tsx`, `ChapterMarks.test.tsx`,
+`packages/web/src/tide/index.ts`).
 
 Two notes the grooming must carry, because each is a fence fact discovered rather than
 assumed:
@@ -242,6 +243,13 @@ assumed:
   Both must be fenced up front, and the sweep in that same law file then carries every other
   count claim in any tracked `.md`, `.ts`, `.tsx`, `.mjs` or `.js` file. That is why this
   issue cannot be bundled with anything else claiming documents.
+- **The wave is peers, not a stack — checked, not assumed.** `wave-coupling.sh` reports eight
+  content hits between #276 and #277. Six are basename collisions (an `index.ts` and a
+  `fixtures.ts` exist in both trees). The two real ones are `docs/architecture.md`'s mention of
+  the mark lane, which #276 owns for its route counts — and it is **not** a forced edit: that
+  enumeration sits inside the historical account of prd-13 ruling 12 and already names
+  `attention-summons`, which the shipped code has never had, so it states what the ruling
+  decided rather than what the code emits. Recorded on #277.
 - **Ruling 4 is cheaper than it reads.** `chaptersFor` takes `readonly RhizomorphEvent[]`, not
   `SessionState`, so no reducer arm needs filling to mark these families; `tide/fixtures.ts`
   is enough to prove the marks before any emitter exists. The same commit corrects the two
@@ -249,8 +257,8 @@ assumed:
   onset has no event"* and *"there is no `session.ended` type"* (`session.closed` has existed
   since prd-40).
 
-**Wave 3 — the summons pair, now that ruling 5 exists.** `prd17 w3: a summons the instrument
-raised says so in the record`. Fence: `packages/server/src/server/poll-loop.ts` (the tick
+**Wave 3 — the summons pair, now that ruling 5 exists.** **#278** `prd17 w3: a summons the
+instrument raised says so in the record`. Fence: `packages/server/src/server/poll-loop.ts` (the tick
 hook), a new module beside it holding the pure edge-trigger — last tick's rungs plus this
 tick's fleet in, `summons.raised`/`cleared` out — and its test, plus `docs/adr/` for the ADR
 ruling 5 owes. It reads `foldSoFar()` from the recorder and `parseLaneManifest` from core,
@@ -261,7 +269,7 @@ It is **parallel with wave 2** (`server/server/` and `docs/adr/` against wave 2'
 on 2026-09-04, so the collision is historical. The pure edge-trigger module is the thing to
 fence carefully: put the diff in the tick and there is nothing to test without a running loop.
 
-**Wave 4 — the capture, last.** `prd17 w4: an era recording contains the instrument's
+**Wave 4 — the capture, last.** **#279** `prd17 w4: an era recording contains the instrument's
 judgements and the operator's decisions`. `packages/core/src/eras/eras.test.ts` already states
 this wave's exit condition in its own gap list — all eight new families sit in it, with the
 note *"each should leave it in the wave that starts emitting it"* — so era-2 is captured
@@ -318,8 +326,9 @@ This is also the one wave that edits the operator's landing tool, so its verific
 exactly the split AGENTS.md already draws: the lane runs `npm run typecheck`, `npm run lint`
 and the suite; the operator runs the gate, because running it *is* the landing.
 
-**Wave 6 — `gate.verdict` is derived from the sidecar.** `prd17 w6: a landing's verdict is a
-gate.verdict event, not only a beacon`. Declared by ruling 6 and not yet groomed. Once wave 5
+**Wave 6 — `gate.verdict` is derived from the sidecar.** **#280** `prd17 w6: a landing's
+verdict is a gate.verdict event, not only a beacon`. Declared by ruling 6, groomed
+2026-09-05. Once wave 5
 writes the line, `beacon.received` carries `file`, `offset` and the line's `digest`, which is
 everything needed to read the verdict back out of the sidecar and prove it unaltered. This is
 where ruling 1's `gate.verdict` finally emits, and where the reducer's arm for it stops
