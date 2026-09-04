@@ -148,6 +148,35 @@ route's shape.
 The summons *vocabulary* — which rungs raise, under what `kind` — is deliberately not ruled
 here. `kind` is an open string by ruling 1's design, and wave 3 chooses the first entries.
 
+## Ruling 6 — the gate's verdict travels as extra keys on a beacon line (operator, 2026-09-05)
+
+**RULED in session**, after ADR-0036 landed with #217 and made the second open question below
+answerable.
+
+The door emits one event and it is not `gate.verdict`. `beacon.received`'s payload is
+`writer`, `kind`, `lane`, `detail` — a *string*, capped at 512 — plus `digest`, `file` and
+`offset`, and `packages/server/src/collectors/beacon/collector.ts` has exactly one emit site.
+Ruling 1's verdict wants `handle`, `held`, `reason`, a digest of the gate's own output, and
+`loadBatches`. Those two shapes do not meet.
+
+So: `scripts/gate.sh` writes a v1 line whose `kind` comes from **prd-17's decision
+vocabulary** — the vocabulary ADR-0036 explicitly leaves to this PRD's next wave — with
+`lane` the handle and **the verdict's own fields as extra keys**. ADR-0036 already provides
+for this in terms: extra keys are ignored by the collector and covered by the digest, and the
+file is the sidecar. `beacon.received` therefore records that a landing was judged, when, by
+whom, about which lane, with a pointer to the bytes; `file` + `offset` + `digest` recover the
+full verdict from the sidecar, provably unaltered. **Deriving `gate.verdict` from that
+sidecar is wave 6.**
+
+Rejected: packing the verdict into `detail` as an encoded string, which would put a
+hand-rolled parser between a landing and its typed event — the shape ADR-0002 exists to
+prevent. Also rejected: retiring `gate.verdict`, which would withdraw part of a blessed
+ruling that #219 has already landed, and would need ruling 1 amended rather than quietly left
+unemitted.
+
+This ruling changes no other PRD's territory. The collector is prd-27's and is untouched: it
+already ignores keys it does not know, which is the whole reason this works.
+
 ## Non-goals
 
 No approval workflow, ever — recording decisions is not routing them. No
@@ -170,12 +199,13 @@ territory; no wave of this PRD enters them. The richer UI — digest, inspectabl
 pins, calibration display, jump box, drill — is prd18's; ruling 4's "no new surface" holds,
 so no wave here adds one. Every wave below consumes wave 1's event families.
 
-**One live overlap to respect, and it is not a wave boundary.** #217's fence was widened on
-2026-09-04 to `packages/core/src/events/common.ts`, `events/index.ts`, `events/events.test.ts`,
-`fixtures.ts`, `reduce.ts`, `reduce.test.ts` and `eras/eras.test.ts`. Wave 4 claims the last of
-those. So wave 4 and #217 may never be in flight together — sequence them, never bundle.
-Waves 2 and 3 are clear of it: #217's own Definition of done forbids it to touch
-`packages/server/src/api/`, and it names nothing under `packages/web/`.
+**The overlap this section used to warn about is gone.** #217 held a widened fence over
+`packages/core/src/events/`, `reduce.ts` and `eras/eras.test.ts`, and wave 4 claims the last
+of those — so the two could never have been in flight together. It **merged on 2026-09-04 in
+PR #267**, bringing the beacon collector, `beacon.received`, and ADR-0036. Nothing in this
+PRD is fenced against a live lane today. What #217 leaves behind is not a conflict but a
+contract: ruling 6 above, and wave 5 below, are written against ADR-0036 rather than against
+a door that had not been built.
 
 **Wave 0 — operator act, booked not skipped. DISCHARGED 2026-09-05.** *Who raises a summons,
 and against whose clock* is **ruling 5**: the instrument raises it server-side on the poll
@@ -226,11 +256,10 @@ tick's fleet in, `summons.raised`/`cleared` out — and its test, plus `docs/adr
 ruling 5 owes. It reads `foldSoFar()` from the recorder and `parseLaneManifest` from core,
 neither of which it edits.
 
-Two sequencing facts: it is **parallel with wave 2** (`server/server/` and `docs/adr/` against
-wave 2's `server/api/` and `web/tide/`), but it **collides with #217 on `docs/adr/`**, which
-that issue also claims for the beacon ADR — so wave 3 and #217 are a sequence, not a bundle,
-for the same reason wave 4 is. The pure edge-trigger module is the thing to fence carefully:
-put the diff in the tick and there is nothing to test without a running loop.
+It is **parallel with wave 2** (`server/server/` and `docs/adr/` against wave 2's
+`server/api/` and `web/tide/`). It once collided with #217 over `docs/adr/`; that issue merged
+on 2026-09-04, so the collision is historical. The pure edge-trigger module is the thing to
+fence carefully: put the diff in the tick and there is nothing to test without a running loop.
 
 **Wave 4 — the capture, last.** `prd17 w4: an era recording contains the instrument's
 judgements and the operator's decisions`. `packages/core/src/eras/eras.test.ts` already states
@@ -245,23 +274,24 @@ true of these families rather than merely of the ones era-1 happened to hold.
 emitter that lives in this repo: `scripts/gate.sh` is the instrument's own judgement on a
 lane, and the log has never heard of it. The other two are in the unfiled tail below.
 
-**Amended 2026-09-05 — wave 5 holds two issues, in a forced order, and the first is not
-blocked.** The wave was declared as one issue on the emitter boundary (gate tooling versus
-dispatch tooling). Reading `scripts/gate.sh` against `gateVerdictPayloadSchema` moved the
-boundary again: the payload asks for `handle`, `held`, `reason`, `digest` and optional
-`loadBatches`, and the script already holds every one of them — `$1`, the `MERGED` flag, which
-check failed, and `$3`. **Only the write is blocked.** So:
+**Amended 2026-09-05 — wave 5 holds two issues, in a forced order, and neither is blocked.**
+The wave was first declared as one issue on the emitter boundary (gate tooling versus dispatch
+tooling). Reading `scripts/gate.sh` against `gateVerdictPayloadSchema` moved the boundary
+again — the script already holds every field the payload asks for, so only the write was
+blocked — and then #217 merged the same day in PR #267, which removed even that. Ruling 6
+fixes the shape both issues build to. So:
 
-- `prd17 w5: the landing gate says what it decided` — derives the whole verdict and prints it
-  as one line of JSON. Dispatchable now. Fence: `scripts/gate.sh` and
+- **#273** `prd17 w5: the landing gate says what it decided` — derives the whole verdict and
+  prints the v1 beacon line it will be written as: `kind` from the decision vocabulary, `lane`
+  the handle, the verdict's fields as extra keys, per ruling 6. Fence: `scripts/gate.sh` and
   `packages/server/src/gate-honesty-law.test.ts`, the second not optional for the reasons
   below. Where the size lives: 42 `fail "` sites collapse into a declared category
   vocabulary, and the gate's own output has to become a hashable artefact.
-- `prd17 w5: the gate's verdict reaches the beacon directory` — the write. Blocked on #217
-  and the ADR that lands with it, which fixes where beacons are written and what one line
-  *is*; the second Open question below, who turns a line into ruling 1's families, cannot be
-  answered before that ADR exists. Deliberately not started, because inventing a directory or
-  an envelope here would fork the one door the 2026-08-24 amendment exists to keep single.
+- **#274** `prd17 w5: the gate's verdict reaches the beacon directory` — appends that line to
+  `beaconDirFor()`'s directory (`packages/server/src/collectors/beacon/paths.ts`), as
+  `gate.jsonl`. ADR-0036 is explicit that **the collector never creates the directory** — the
+  writer that appends is the one that must — so creating it is this issue's job, not
+  something to discover at the first landing after a fresh install.
 
 **They are a stack, not a bundle** — both claim `scripts/gate.sh`, so `fence-lint` sees an
 OVERLAP and they may never be in flight together whatever wave they carry. The order is
@@ -287,6 +317,15 @@ than "add an echo":
 This is also the one wave that edits the operator's landing tool, so its verification is
 exactly the split AGENTS.md already draws: the lane runs `npm run typecheck`, `npm run lint`
 and the suite; the operator runs the gate, because running it *is* the landing.
+
+**Wave 6 — `gate.verdict` is derived from the sidecar.** `prd17 w6: a landing's verdict is a
+gate.verdict event, not only a beacon`. Declared by ruling 6 and not yet groomed. Once wave 5
+writes the line, `beacon.received` carries `file`, `offset` and the line's `digest`, which is
+everything needed to read the verdict back out of the sidecar and prove it unaltered. This is
+where ruling 1's `gate.verdict` finally emits, and where the reducer's arm for it stops
+returning state unchanged. It is declared after ship-out deliberately: the record already
+holds the landing at the end of wave 5 — as an occurrence with a recoverable payload — and
+this wave upgrades how it is read, not whether it was kept.
 
 Unfiled work implied, described not numbered: **the other two thirds of ruling 1's gate trio** —
 `dispatch.brief` and `fence.declared` would be written by dispatch tooling, and no such file
@@ -316,11 +355,14 @@ and wave 2 does not build; prd18's whole dividend.
   the manifest (`packages/server/src/api/lanes.ts`), so nothing is duplicated and the real
   cost is a clock and an edge. The objection that nearly decided this question against the
   answer was an artefact of not checking.
-- **Who turns a beacon line into ruling 1's families.** #217 adds a `beacon.*` family of its
-  own, in a file that does not exist yet, so a gate beacon could fold as a beacon event
-  with `gate.verdict` derived later, or the collector could map the line straight onto ruling
-  1's families. The ADR that lands with #217 fixes what one line is, and that answer
-  constrains this one. **Open, not ruled.**
+- **Who turns a beacon line into ruling 1's families.** — **ANSWERED (operator, in session,
+  2026-09-05): ruling 6** — nobody at the door. #217 merged on 2026-09-04 with ADR-0036 and
+  `packages/core/src/events/beacon.ts`, and the collector emits `beacon.received` and nothing
+  else. The gate's verdict rides as extra keys on the line, and `gate.verdict` is derived
+  from the sidecar in wave 6. The question was put as "the collector could map the line
+  straight onto ruling 1's families"; the built collector cannot, and that is the answer
+  rather than a limitation to work around — a collector that mapped kinds would be a second
+  place where an event's identity is decided.
 - **Whether the nine additive arms in `reduce.ts` stay no-ops.** Ruling 4 does not need them
   filled — `chaptersFor` reads events. Nothing else has asked yet. **Open, not ruled.**
 
