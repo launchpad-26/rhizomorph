@@ -3,6 +3,7 @@ import type {
   RhizomorphEvent,
 } from './events/index.js'
 import { totalTokens } from './events/index.js'
+import { upcast } from './events/upcast.js'
 import type {
   ActiveTimeRecord,
   AgentState,
@@ -131,6 +132,12 @@ export function opensNewSession(state: SessionState, event: RhizomorphEvent): bo
  * The same function folds the live SSE stream and a replayed history slice —
  * that identity is the whole reason replay is free.
  *
+ * `event` passes through {@link upcast} first, above everything else in this
+ * function — prd17 ruling 3, item 3's chokepoint. `opensNewSession` reads the
+ * event before `applyEvent` does, so upcasting only for `applyEvent` would
+ * leave it reading a pre-upcast value; upcasting here means every read below,
+ * that one included, sees the same upcasted event.
+ *
  * The reset lands **before** the envelope bookkeeping, so a `session.started`
  * that opens a new recording ({@link opensNewSession}) is itself the first
  * event of the new fold: `eventCount` comes back as 1, and `firstEventTs` is
@@ -139,8 +146,9 @@ export function opensNewSession(state: SessionState, event: RhizomorphEvent): bo
  * handed, and this is simply a different one.
  */
 export function reduce(state: SessionState, event: RhizomorphEvent): SessionState {
-  const base = opensNewSession(state, event) ? initialSessionState() : state
-  return applyEvent(withEnvelope(base, event), event)
+  const upcasted = upcast(event)
+  const base = opensNewSession(state, upcasted) ? initialSessionState() : state
+  return applyEvent(withEnvelope(base, upcasted), upcasted)
 }
 
 /** Fold a whole log. Handy for replay slices and for tests. */
@@ -225,6 +233,42 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
       return forkDispatched(state, event)
     case 'judge.finding':
       return judgeFinding(state, event)
+    case 'summons.raised':
+      // Additive only (prd17 ruling 1, #219): this issue defines the family
+      // and does not fold it. The sibling case lives here, not in the
+      // schema — a raise with no later clear (a session ending mid-alarm) is
+      // a real state of the world, so nothing below may assume the pair
+      // completes.
+      return state
+    case 'summons.cleared':
+      // Same rule, other half of the pair: a clear with no preceding raise
+      // must fold exactly like a paired one. Whatever eventually joins the
+      // two is later work, over (lane, kind), and belongs here — never at
+      // the schema, which validates each half alone.
+      return state
+    case 'gate.verdict':
+      // Additive only (prd17 ruling 1, #219) — the landing gate's verdicts
+      // are not emitted yet, so there is nothing to fold into state.
+      return state
+    case 'dispatch.brief':
+      // Additive only (prd17 ruling 1, #219) — same as above, for the brief
+      // a lane is dispatched with.
+      return state
+    case 'fence.declared':
+      // Additive only (prd17 ruling 1, #219) — the declared boundary is
+      // recorded on the log now; reading it back into state (e.g. for a
+      // live trespass check) is later work.
+      return state
+    case 'operator.ack':
+      // Additive only (prd17 ruling 1, #219) — the operator acts are not
+      // emitted yet, so there is nothing to fold into state.
+      return state
+    case 'operator.verdict':
+      // Additive only (prd17 ruling 1, #219) — same as above.
+      return state
+    case 'operator.note':
+      // Additive only (prd17 ruling 1, #219) — same as above.
+      return state
     default: {
       // Exhaustive today, and — the systems chair's finding, prd17 ruling 3 —
       // UNREACHABLE, not merely unexercised: an event only reaches this

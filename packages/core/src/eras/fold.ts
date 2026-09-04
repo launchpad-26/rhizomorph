@@ -91,12 +91,13 @@ export interface EraFold {
  *
  * **Log order, not timestamp order, and that is the point.** A recording is an
  * append-only artifact; its own order is the only order that is a recorded fact
- * about it. Sorting it by `ts` before folding would bake one of the two
- * candidate answers to prd17 ruling 3's item-4 question into the very snapshot
- * that is supposed to be neutral evidence about it — and this recording is
- * genuinely non-monotonic, so the two answers differ (see the fold-order law in
- * `../reduce.test.ts`). The corpus pins the log's own order and leaves the
- * ruling to the conductor.
+ * about it — and that is now the law, not just the cautious choice: prd17
+ * ruling 3's item-4 question was ruled on #205 (append order is the truth) and
+ * `docs/record-format.md` law 4 states it. This corpus predates the ruling and
+ * already folded that way, which is why the committed snapshots needed no
+ * re-blessing when it landed. Sorting by `ts` before folding would land
+ * somewhere else — the recording is genuinely non-monotonic, so the two answers
+ * differ (see the fold-order law in `../reduce.test.ts`).
  */
 export function foldEraRecording(text: string): EraFold {
   const events: RhizomorphEvent[] = []

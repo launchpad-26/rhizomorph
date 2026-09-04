@@ -85,3 +85,25 @@ until #205 is ruled" — no longer binds: the guarantee exists and is stated. Th
 divergence fixture in `core/src/reduce.test.ts` still describes the pre-ruling world in
 its prose; correcting that witness is named follow-up work in prd17's 2026-08-24
 amendment.
+
+## Note — that follow-up is done (2026-09-04)
+
+Appended rather than folded into the section above, per `README.md`: a dated
+record says what was true on its date, and the sentence about the stale witness
+was true on 2026-08-24. It is no longer.
+
+> The witness named in the closing sentence — the prose and local `foldReplay`
+> helper of `core/src/reduce.test.ts`'s divergence fixture — has been corrected
+> under #268. That fixture now states the ruled law: core owns the reducer's
+> half (the reducer is order-sensitive on three axes, so the fold-order choice
+> is load-bearing, and the committed era-1 snapshot is the append-order fold),
+> while `replayFold.test.ts` owns the implementation's. The `ts`-sorted fold
+> survives only as the named counterexample that keeps the law from being a
+> rule about nothing — mutation-proven: making `reduceAll` ts-sort reddens
+> twelve tests, nine of them in that block.
+>
+> An earlier attempt at this note rewrote the 2026-08-24 section in place,
+> putting 2026-09-04 work inside a dated record. Review caught it. This is what
+> `README.md` asks for instead, and the mistake is recorded here because the
+> log is the only place it would otherwise be invisible.
+
