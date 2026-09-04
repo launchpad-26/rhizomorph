@@ -9,7 +9,7 @@ const REPO_SLUG = 'rhizomorph-abc123'
 
 /** A line the way a NEWER era's instrument would write it — prd17 ruling 1's own families. */
 const FUTURE_LINE =
-  '{"id":"evt-future-1","ts":1785930000000,"source":"system","type":"summons.raised","payload":{"lane":"a"}}'
+  '{"id":"evt-future-1","ts":1785930000000,"source":"system","type":"attention.paged","payload":{"lane":"a"}}'
 
 function actorRecord(instance: string, handle: string, startTs: number, lane: string) {
   const f = createEventFactory({ idPrefix: 'evt', startTs, stepMs: 1000 })
@@ -309,7 +309,7 @@ describe('mergeRecords — a newer actor is folded, and its unknowns counted', (
     expect(result.merged.unknown[0]?.actorInstance).toBe('inst-bob')
     expect(result.merged.unknown[0]?.line).toBe(FUTURE_LINE)
     expect(result.merged.unknownVoice).toBe(
-      '1 event from a newer era was preserved but not understood (summons.raised)',
+      '1 event from a newer era was preserved but not understood (attention.paged)',
     )
   })
 
@@ -322,7 +322,7 @@ describe('mergeRecords — a newer actor is folded, and its unknowns counted', (
     const bobAhead = withLinesAt(
       actorRecord('inst-bob', 'bob', FIXTURE_START_TS + 500, 'bob-lane').record,
       1,
-      [FUTURE_LINE.replace('evt-future-1', 'evt-b-1').replace('summons.raised', 'operator.ack')],
+      [FUTURE_LINE.replace('evt-future-1', 'evt-b-1').replace('attention.paged', 'ledger.settled')],
     )
 
     const result = mergeRecords(aliceAhead, bobAhead)
@@ -332,7 +332,7 @@ describe('mergeRecords — a newer actor is folded, and its unknowns counted', (
       'inst-bob',
     ])
     expect(result.merged.unknownVoice).toBe(
-      '2 events from a newer era were preserved but not understood (operator.ack, summons.raised)',
+      '2 events from a newer era were preserved but not understood (attention.paged, ledger.settled)',
     )
   })
 

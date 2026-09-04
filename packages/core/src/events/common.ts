@@ -21,7 +21,36 @@ export const eventSourceSchema = z.enum([
   // can name itself without widening this enum per harness.
   'sessionlog',
   'otel',
+  // prd-27 wave 1 (#217), landing prd17 ruling 2's door: a collector that
+  // tails one rhizomorph-owned directory of one-line JSON beacons
+  // (ADR-0036, collectors/beacon/). It runs behind the poll loop and reports
+  // what it saw, so it is a collector in exactly the sense this enum has
+  // always meant — which is why it joins outright where `lab` and `judge`
+  // deliberately do not.
   'beacon',
+  // prd17 ruling 1: the landing gate and the dispatch tooling around it —
+  // events/gate.ts's three families and the summons pair. Collector-shaped in
+  // the sense this enum has always meant: something that watches the swarm and
+  // reports what it saw, the way `git`, `tmux` and `workmux` do.
+  'gate',
+  // prd17 ruling 1: the operator's own hand — events/operator.ts.
+  //
+  // **This member widens what the enum MEANS, and saying so is the point.**
+  // The doc above and `index.ts`'s `source` comment both describe it as "which
+  // collector saw it", and `lab.ts` cites exactly that wording as its reason
+  // for staying OUT: the lab is explicitly invoked and "never runs unattended
+  // behind a poll loop the way a collector does" (prd12 ruling 1). The operator
+  // has that same disqualifying property. So this is not a case of `lab` being
+  // wrong, and it is NOT the reason `judge` is absent either — `judge.ts` gives
+  // its own, narrower one (prd11 ruling 6b, phase 1).
+  //
+  // What changed is the enum: prd17 ruling 1 puts the operator's decisions in
+  // the record as first-class events, and an event has to name the actor that
+  // produced it. The enum is therefore an ACTOR union that happens to be mostly
+  // collectors, rather than a collector roster. A later lane wanting to fold
+  // `lab` in on this precedent should reopen prd12 ruling 1 deliberately, not
+  // read this comment as having already done it.
+  'operator',
 ])
 export type EventSource = z.infer<typeof eventSourceSchema>
 

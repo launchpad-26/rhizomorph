@@ -468,17 +468,18 @@ describe('no personal paths law: no tracked file names a real home directory, us
  * above SCREENSHOT BINDING — a hand-forged pair still passes every check
  * here, on purpose, and this table does not change that.
  */
+/** Shared with the SCREENSHOT FRESHNESS law below — one classifier, not two. */
+const SCREENSHOT_DIR = 'docs/screenshots/'
+
+function isTrackedScreenshot(file: string): boolean {
+  return file.startsWith(SCREENSHOT_DIR) && BINARY_EXTENSIONS.some((ext) => hasExtension(file, ext))
+}
+
+function manifestPathFor(pngFile: string): string {
+  return `${pngFile}.manifest.json`
+}
+
 describe('screenshot binding: a tracked PNG cannot ship unmanifested or be re-paired with different bytes', () => {
-  const SCREENSHOT_DIR = 'docs/screenshots/'
-
-  function isTrackedScreenshot(file: string): boolean {
-    return file.startsWith(SCREENSHOT_DIR) && BINARY_EXTENSIONS.some((ext) => hasExtension(file, ext))
-  }
-
-  function manifestPathFor(pngFile: string): string {
-    return `${pngFile}.manifest.json`
-  }
-
   interface BindingResult {
     ok: boolean
     reason?: string
@@ -734,6 +735,220 @@ describe('screenshot binding: a tracked PNG cannot ship unmanifested or be re-pa
       const manifestFile = manifestPathFor(file)
       const manifestContents = isTracked(manifestFile) ? readFileSync(`${REPO_ROOT}/${manifestFile}`, 'utf8') : null
       const result = verifyScreenshotBinding(pngBytes, manifestContents)
+      if (!result.ok) violations.push(`${file}: ${result.reason}`)
+    }
+    expect(violations).toEqual([])
+  })
+})
+
+/**
+ * SCREENSHOT FRESHNESS — #226, prd43 w6. Binding (above) proves a manifest
+ * cannot be silently re-paired with different bytes; it says nothing about
+ * whether those bytes still depict the tree HEAD is at. All ten tracked
+ * screenshots carried the same manifest shape — no `capturedAt` at all —
+ * from `3bd1c5a` (2026-08-03) until this law: 84 commits had landed under
+ * `packages/web/src/scene/` by the time prd-33's wave-0 glance run
+ * (`docs/design/glance-2026-09-02.md`) noticed growth, directional light, the
+ * fruiting material, the reactive ground, the light theme and the canvas
+ * floor were all missing from the pixels every reader was being shown.
+ *
+ * This law reads `capturedAt` — the commit `visit.mjs --capture` recorded
+ * itself (`git rev-parse HEAD`, never typed by hand — see that script's own
+ * doc comment) — and counts commits between it and HEAD on the paths the
+ * screenshot depicts. Over {@link N_COMMITS}, it fails, naming the image and
+ * the gap. A HAND-TYPED `capturedAt` could always be forged to read as fresh
+ * regardless of how stale the bytes beside it actually are; the digest above
+ * already proves the bytes and the manifest weren't silently re-paired, so a
+ * truthful `capturedAt` at the moment of capture is what makes this
+ * reasoning hold, the same way `visit.mjs`'s synthetic-root substitution
+ * makes the binding law's own provenance claim hold (or rather, the
+ * documented LIMIT of it — see that law's own module comment).
+ *
+ * WHAT "DEPICTS" MEANS, AND WHY IT IS NOT THE FILENAME: a check scoped to
+ * `fixture-*` names would have swept `fixture-20-lane.png` and
+ * `fixture-pathology.png` and missed `live.png` (no "fixture" in its name,
+ * same scene package) entirely, and missed the real sibling case worse:
+ * `drawer.png` / `main-drawer.png` depict a DIFFERENT package
+ * (`packages/web/src/drawer/`) and were equally undated. AGENTS.md already
+ * records this exact shape of failure — a hygiene guard scoped by name
+ * rather than by what a file IS missed three older captures. {@link
+ * SCREENSHOT_DEPICTED_PATHS} is a pinned, human-reasoned map from every
+ * tracked screenshot to the package it actually shows — the same style
+ * `NON_SCREENSHOT_BINARY_ASSETS` above already uses for its own "no third,
+ * silent category" guarantee — not a filename pattern.
+ *
+ * WHY N_COMMITS = 40: measured against the exact drift that filed #226.
+ * `packages/web/src/scene/` took 84 commits over the 30 days between the
+ * original capture (`3bd1c5a`) and the glance re-run that caught it stale
+ * (2026-09-02) — roughly 2.8 commits/day, arriving in single-day bursts of a
+ * wave landing (12–18 commits measured on this same range) rather than
+ * smoothly. 40 comfortably absorbs two such bursts landing back to back — an
+ * ordinary one- or two-wave gap between captures does not trip the ratchet —
+ * while staying under half of the 84-commit gap that shipped as a false
+ * document: it would have caught #226 with margin, not on a technicality.
+ * It is ONE constant, applied identically regardless of which package a
+ * screenshot depicts — `packages/web/src/drawer/`'s slower churn (29 commits
+ * over the same 30 days) just means its own screenshots carry more
+ * real-world days of headroom under the same commit-count bar, not a
+ * different bar to tune per package.
+ */
+const N_COMMITS = 40
+
+/**
+ * Every tracked screenshot's own answer to "what does this actually show" —
+ * pinned, not derived from its filename (see the module comment above).
+ * Completeness (every tracked screenshot has exactly one entry, and no
+ * entry names an untracked one) is asserted below, the same shape as
+ * `NON_SCREENSHOT_BINARY_ASSETS`'s own completeness test.
+ */
+const SCREENSHOT_DEPICTED_PATHS: Readonly<Record<string, readonly string[]>> = {
+  'docs/screenshots/fixture-20-lane.png': ['packages/web/src/scene/'],
+  'docs/screenshots/fixture-pathology.png': ['packages/web/src/scene/'],
+  'docs/screenshots/live.png': ['packages/web/src/scene/'],
+  'docs/screenshots/organic-centre.png': ['packages/web/src/scene/'],
+  'docs/screenshots/paused.png': ['packages/web/src/scene/'],
+  // The REPLAY banner spans the full width — "viewing a recorded past", the
+  // timestamps and "Exit to live" are all `replay/Banner.tsx`, and the TIDE
+  // dock is `replay/index.tsx`. The scene is the minor element here, so a
+  // replay-only regression would otherwise consume none of this shot's budget.
+  'docs/screenshots/replay.png': ['packages/web/src/scene/', 'packages/web/src/replay/'],
+  'docs/screenshots/ribbon-taper.png': ['packages/web/src/scene/'],
+  'docs/screenshots/scars.png': ['packages/web/src/scene/'],
+  // Both drawer shots are ~60% SCENE by area — the organism, the MAIN root
+  // mass and the labelled lane nodes — with the drawer as a right-hand
+  // overlay. Pinning them to the drawer package alone let the exact 84-commit
+  // scene drift that filed #226 pass on these two: measured from `3bd1c5a`,
+  // `packages/web/src/scene/` moved 84 commits against `drawer/`'s 29, so a
+  // drawer-only entry sits under the 40 bound while the scene it shows is two
+  // bounds past it. A shot is pinned to every package it DEPICTS, not to the
+  // one that names it.
+  'docs/screenshots/drawer.png': ['packages/web/src/drawer/', 'packages/web/src/scene/'],
+  'docs/screenshots/main-drawer.png': ['packages/web/src/drawer/', 'packages/web/src/scene/'],
+}
+
+/** How many commits separate `capturedAt` from HEAD, on `paths` only. */
+function commitsBehind(capturedAt: string, paths: readonly string[]): number {
+  const out = execFileSync('git', ['rev-list', '--count', `${capturedAt}..HEAD`, '--', ...paths], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  })
+  return Number.parseInt(out.trim(), 10)
+}
+
+interface FreshnessResult {
+  ok: boolean
+  reason?: string
+}
+
+/** The check itself, as a pure function over a manifest's own text — so the "detector bites" tests below need no tracked fixture files. */
+function verifyScreenshotFreshness(manifestContents: string | null, paths: readonly string[]): FreshnessResult {
+  if (manifestContents === null) return { ok: false, reason: 'no sidecar manifest' }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(manifestContents)
+  } catch {
+    return { ok: false, reason: 'sidecar manifest is not valid JSON' }
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    return { ok: false, reason: 'sidecar manifest is not a JSON object' }
+  }
+  const { capturedAt } = parsed as Record<string, unknown>
+  if (typeof capturedAt !== 'string' || capturedAt.length === 0) {
+    return { ok: false, reason: 'sidecar manifest has no capturedAt — re-capture via `visit.mjs --capture`' }
+  }
+  const gap = commitsBehind(capturedAt, paths)
+  if (gap > N_COMMITS) {
+    return {
+      ok: false,
+      reason: `capturedAt ${capturedAt} is ${gap} commits behind HEAD on ${paths.join(', ')} — over the ${N_COMMITS}-commit bound, re-capture via \`visit.mjs --capture\``,
+    }
+  }
+  return { ok: true }
+}
+
+describe('screenshot freshness: a tracked screenshot is bound to the tree it depicts', () => {
+  it('SCREENSHOT_DEPICTED_PATHS covers exactly the tracked screenshots — no third, silent category, in either direction', () => {
+    const screenshots = trackedFiles().filter(isTrackedScreenshot).sort()
+    const pinned = Object.keys(SCREENSHOT_DEPICTED_PATHS).sort()
+    expect(pinned).toEqual(screenshots)
+  })
+
+  it('the tracked-screenshot sweep is non-empty — the checks below would pass vacuously otherwise', () => {
+    expect(Object.keys(SCREENSHOT_DEPICTED_PATHS).length).toBeGreaterThan(0)
+  })
+
+  /**
+   * Every depicted path is a directory this repo actually tracks. Without this,
+   * the map's failure mode is SILENCE: `commitsBehind` hands its strings to
+   * `git rev-list -- <paths>`, and git returns 0 for a path matching nothing.
+   * So a one-letter typo does not error, it just stops counting — measured,
+   * with a control: `scene/` -> `scenex/` turned a RED stale-capture assertion
+   * (110 commits behind on drawer + scene) GREEN at 39/39, because the count
+   * fell back to drawer's 29 and slipped under the bound. The registry then
+   * reads as enforcing while enforcing nothing, which is the rot AGENTS.md
+   * already records for pinned citations in `scripts/gate.sh`.
+   *
+   * Scope this map honestly claims: the packages whose surface DOMINATES a
+   * shot, not every package a pixel of which appears. A full-window capture
+   * inevitably shows peripheral chrome from half the app, and the broad path
+   * is not a usable substitute — `packages/web/src/` moved 319 commits in 30
+   * days against this law's 40-commit bound, so pinning full-window shots
+   * there would redden within about four days and teach everyone to ignore it.
+   */
+  it('every depicted path is a directory this repo tracks — a typo must not silently stop the count', () => {
+    const tracked = trackedFiles()
+    const dead = [...new Set(Object.values(SCREENSHOT_DEPICTED_PATHS).flat())]
+      .filter((dir) => !tracked.some((file) => file.startsWith(dir)))
+    expect(dead).toEqual([])
+  })
+
+  it('commitsBehind is 0 from HEAD to itself — the gap a just-taken capture actually has', () => {
+    expect(commitsBehind('HEAD', ['packages/web/src/scene/'])).toBe(0)
+  })
+
+  it('the freshness check goes red when the manifest has no capturedAt at all', () => {
+    const manifest = JSON.stringify({ syntheticRoot: FIXTURE_REPO_PATH, sha256: 'irrelevant-to-this-check' })
+    const result = verifyScreenshotFreshness(manifest, ['packages/web/src/scene/'])
+    expect(result.ok).toBe(false)
+    expect(result.reason).toMatch(/no capturedAt/)
+  })
+
+  it('the freshness check passes when capturedAt is HEAD itself', () => {
+    const manifest = JSON.stringify({
+      syntheticRoot: FIXTURE_REPO_PATH,
+      sha256: 'irrelevant-to-this-check',
+      capturedAt: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim(),
+    })
+    expect(verifyScreenshotFreshness(manifest, ['packages/web/src/scene/'])).toEqual({ ok: true })
+  })
+
+  /**
+   * PINS THE CASE #226 WAS FILED FOR, reproduced directly:
+   * `fixture-20-lane.png`'s own former capture commit (`3bd1c5a`,
+   * 2026-08-03) against the CURRENT tree. 84 commits had landed under
+   * `packages/web/src/scene/` by the glance re-run that caught it
+   * (`docs/design/glance-2026-09-02.md`) — comfortably over `N_COMMITS`. If
+   * this assertion ever goes green on its own — not because HEAD moved and
+   * this literal needs updating, but because the detector stopped firing —
+   * the ratchet has silently stopped doing its job.
+   */
+  it('the check is shown to fire: a manifest with capturedAt from 3bd1c5a is red on the current tree', () => {
+    const manifest = JSON.stringify({
+      syntheticRoot: FIXTURE_REPO_PATH,
+      sha256: 'irrelevant-to-this-check',
+      capturedAt: '3bd1c5a38d78626b5c79eb58969244a0526bfed5',
+    })
+    const result = verifyScreenshotFreshness(manifest, SCREENSHOT_DEPICTED_PATHS['docs/screenshots/fixture-20-lane.png']!)
+    expect(result.ok).toBe(false)
+    expect(result.reason).toMatch(/commits behind HEAD/)
+  })
+
+  it("every tracked screenshot's capturedAt is within N_COMMITS of HEAD on the paths it depicts", () => {
+    const violations: string[] = []
+    for (const [file, paths] of Object.entries(SCREENSHOT_DEPICTED_PATHS)) {
+      const manifestFile = manifestPathFor(file)
+      const manifestContents = isTracked(manifestFile) ? readFileSync(`${REPO_ROOT}/${manifestFile}`, 'utf8') : null
+      const result = verifyScreenshotFreshness(manifestContents, paths)
       if (!result.ok) violations.push(`${file}: ${result.reason}`)
     }
     expect(violations).toEqual([])

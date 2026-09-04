@@ -93,7 +93,12 @@ describe('the golden era corpus', () => {
     // happened in it. `worktree.dirtyStatusFailed`/`.dirtyStatusRecovered`
     // (#429) are newer still and need a worktree's `git status --porcelain`
     // to actually cross the failure bound and recover mid-recording, which
-    // era-1's capture never hit.
+    // era-1's capture never hit. prd17 ruling 1's eight families (#219) are
+    // newer than every capture in the corpus and none of them has an emitter
+    // yet — this issue defines their contracts and deliberately does not emit
+    // them — so a recording cannot contain one until the gate, dispatch and
+    // operator surfaces that raise them exist. They join the gap list for that
+    // reason, and each should leave it in the wave that starts emitting it.
     expect(EVENT_TYPES.filter((type) => !covered.has(type)).sort()).toEqual([
       'agent.removed',
       'beacon.received',
@@ -101,11 +106,19 @@ describe('the golden era corpus', () => {
       'collector.disabled',
       'collector.error',
       'collector.recovered',
+      'dispatch.brief',
+      'fence.declared',
       'fork.checkpoint',
       'fork.dispatched',
+      'gate.verdict',
       'judge.finding',
+      'operator.ack',
+      'operator.note',
+      'operator.verdict',
       'session.closed',
       'session.started',
+      'summons.cleared',
+      'summons.raised',
       'telemetry.refused',
       'worktree.dirtyStatusFailed',
       'worktree.dirtyStatusRecovered',

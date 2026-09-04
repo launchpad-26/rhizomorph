@@ -111,6 +111,44 @@ export interface EventFactory {
     payload?: Partial<PayloadOf<'judge.finding'>>,
     init?: Init<'judge.finding'>,
   ): EventOf<'judge.finding'>
+
+  /** prd17 ruling 1: the summons pair, source `gate`. */
+  summonsRaised(
+    payload?: Partial<PayloadOf<'summons.raised'>>,
+    init?: Init<'summons.raised'>,
+  ): EventOf<'summons.raised'>
+  summonsCleared(
+    payload?: Partial<PayloadOf<'summons.cleared'>>,
+    init?: Init<'summons.cleared'>,
+  ): EventOf<'summons.cleared'>
+
+  /** prd17 ruling 1: the instrument's own judgements, source `gate`. */
+  gateVerdict(
+    payload?: Partial<PayloadOf<'gate.verdict'>>,
+    init?: Init<'gate.verdict'>,
+  ): EventOf<'gate.verdict'>
+  dispatchBrief(
+    payload?: Partial<PayloadOf<'dispatch.brief'>>,
+    init?: Init<'dispatch.brief'>,
+  ): EventOf<'dispatch.brief'>
+  fenceDeclared(
+    payload?: Partial<PayloadOf<'fence.declared'>>,
+    init?: Init<'fence.declared'>,
+  ): EventOf<'fence.declared'>
+
+  /** prd17 ruling 1: the operator's own hand, source `operator`. */
+  operatorAck(
+    payload?: Partial<PayloadOf<'operator.ack'>>,
+    init?: Init<'operator.ack'>,
+  ): EventOf<'operator.ack'>
+  operatorVerdict(
+    payload?: Partial<PayloadOf<'operator.verdict'>>,
+    init?: Init<'operator.verdict'>,
+  ): EventOf<'operator.verdict'>
+  operatorNote(
+    payload?: Partial<PayloadOf<'operator.note'>>,
+    init?: Init<'operator.note'>,
+  ): EventOf<'operator.note'>
 }
 
 const defaults = {
@@ -279,6 +317,41 @@ const defaults = {
     severity: 'log',
     detectedAt: FIXTURE_START_TS,
   },
+  // prd17 ruling 1: a believable alarm — a lane awaiting a reply, raised then
+  // cleared. Independent fixtures on purpose (see events/summons.ts): neither
+  // references the other.
+  'summons.raised': { lane: 'feature', kind: 'awaiting-reply', raisedAt: FIXTURE_START_TS },
+  'summons.cleared': { lane: 'feature', kind: 'awaiting-reply', clearedAt: FIXTURE_START_TS + 1000 },
+  // prd17 ruling 1: a clean release — held is false, the common case.
+  'gate.verdict': {
+    handle: 'feature',
+    held: false,
+    reason: 'clean',
+    digest: 'c'.repeat(64),
+    loadBatches: 2,
+  },
+  'dispatch.brief': { handle: 'feature', issue: 219, digest: 'd'.repeat(64), model: 'sonnet' },
+  'fence.declared': {
+    handle: 'feature',
+    paths: ['packages/core/src/events/summons.ts', 'packages/core/src/events/summons.test.ts'],
+  },
+  'operator.ack': {
+    sessionId: 'session-fixture',
+    offset: 42,
+    subject: 'summons:feature:awaiting-reply',
+  },
+  'operator.verdict': {
+    sessionId: 'session-fixture',
+    offset: 43,
+    subject: '219',
+    verdict: 'approved',
+  },
+  'operator.note': {
+    sessionId: 'session-fixture',
+    offset: 44,
+    subject: '219',
+    text: 'Looks correct; landing.',
+  },
 } as const satisfies { [T in EventType]: PayloadOf<T> }
 
 export function createEventFactory(options: EventFactoryOptions = {}): EventFactory {
@@ -358,6 +431,14 @@ export function createEventFactory(options: EventFactoryOptions = {}): EventFact
     forkCheckpoint: sugar('fork.checkpoint'),
     forkDispatched: sugar('fork.dispatched'),
     judgeFinding: sugar('judge.finding'),
+    summonsRaised: sugar('summons.raised'),
+    summonsCleared: sugar('summons.cleared'),
+    gateVerdict: sugar('gate.verdict'),
+    dispatchBrief: sugar('dispatch.brief'),
+    fenceDeclared: sugar('fence.declared'),
+    operatorAck: sugar('operator.ack'),
+    operatorVerdict: sugar('operator.verdict'),
+    operatorNote: sugar('operator.note'),
   }
 
   return factory

@@ -26,24 +26,37 @@
  *                           screenshot (prd-43 ruling 4): requires --repo,
  *                           substitutes a synthetic root for it before the
  *                           shutter, and writes `<path.png>.manifest.json`
- *                           recording that root and the shot's own SHA-256.
+ *                           recording that root, the shot's own SHA-256, and
+ *                           (#226) `capturedAt` — `git rev-parse HEAD` in
+ *                           this checkout, not typed by hand.
  *                           `no-personal-paths-law.test.ts` recomputes the
  *                           digest and fails a tracked PNG that lacks one or
- *                           whose manifest names different bytes. THIS DOES
- *                           NOT STOP FORGERY — see `substituteSyntheticRoot`
- *                           below and the law's own module doc comment for
- *                           what the digest actually proves.
+ *                           whose manifest names different bytes, and fails
+ *                           one whose `capturedAt` is too many commits behind
+ *                           HEAD on the paths it depicts. THIS DOES NOT STOP
+ *                           FORGERY — see `substituteSyntheticRoot` below and
+ *                           the law's own module doc comment for what the
+ *                           digest actually proves.
  *     --theme dark|light    set data-theme before the shot
  *     --fixture 2|3         press the fixture key (20-lane / pathology)
  *     --repo <path>         RHIZOMORPH_REPO (omit = true first-run)
  *     --size WxH            window size (default the shell's own)
+ *     --interact <file.mjs> default-export async ({ app, window, setClip })
+ *                           => {} — runs BEFORE the shot/capture, to drive UI
+ *                           state (press a button, scrub a replay) into the
+ *                           frame the shutter is about to bind a manifest
+ *                           to; `setClip(rect)` clips every following shot
+ *                           to a `DOMRect`-shaped region (a close-up on the
+ *                           canvas alone, not the whole window)
  *     --script <file.mjs>   default-export async ({ app, window, shot }) => {}
+ *                           — runs AFTER, for additional shots of your own
  *     --keep                leave the app running (default: close)
  *
  * Console messages and page errors are collected and printed; a page error
  * makes the exit code 1 so a loop cannot mistake a broken surface for a quiet
  * one.
  */
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -141,6 +154,18 @@ await window.waitForLoadState('domcontentloaded')
 // The SPA boots, the server answers, the first frame settles.
 await window.waitForTimeout(2500)
 
+/**
+ * The first-run onboarding dialog ("WELCOME TO THE OBSERVATORY") covers the
+ * scene on a fresh `XDG_CONFIG_HOME` — which every `--capture` run gets, by
+ * this harness's own design (ADR-0026: "first-run stays first"). Its own
+ * copy names `esc` as the way out. Dismissing it here, unconditionally and
+ * before route/fixture handling, means every capture shows the surface it
+ * asked for rather than the dialog sitting on top of it; a run with nothing
+ * to dismiss is unaffected; `Escape` doing nothing is not an error.
+ */
+await window.keyboard.press('Escape').catch(() => {})
+await window.waitForTimeout(300)
+
 const size = flag('size')
 if (size) {
   const [w, h] = size.split('x').map(Number)
@@ -179,8 +204,36 @@ if (theme) {
   await window.waitForTimeout(600)
 }
 
+/**
+ * Drives UI state BEFORE the shutter, unlike `--script` below (which runs
+ * after — see its own doc line, "repeatable via --script"). #226 needs this:
+ * `paused.png` requires the "Pause motion" button actually pressed, and
+ * `replay.png` requires a recording selected and scrubbed, both before the
+ * pixels a `--capture` binds a manifest to are the ones on screen.
+ */
+/**
+ * A close-up on the scene canvas alone, no chrome around it (#226:
+ * `organic-centre.png`, `ribbon-taper.png` are cropped to the artwork, not
+ * the shell). An `--interact` script calls this with a `DOMRect`-shaped
+ * object (from `canvas.getBoundingClientRect()`, evaluated in-page — the
+ * scene has two stacked canvases and other panels have canvases of their
+ * own, so a bare `canvas` selector cannot tell them apart) to clip every
+ * following shot to it; hiding an overlapping sibling drawn on top is the
+ * script's own job first (a clip only crops, it does not un-draw anything).
+ */
+let clipRect = null
+const setClip = (rect) => {
+  clipRect = rect
+}
+
+const interactPath = flag('interact')
+if (interactPath) {
+  const mod = await import(pathToFileURL(path.resolve(interactPath)).href)
+  await mod.default({ app, window, setClip })
+}
+
 const shot = async (to) => {
-  await window.screenshot({ path: to })
+  await window.screenshot({ path: to, ...(clipRect ? { clip: clipRect } : {}) })
   console.log('shot:', to)
 }
 
@@ -190,8 +243,18 @@ if (shotPath) await shot(shotPath)
 if (capturePath) {
   await shot(capturePath)
   const sha256 = createHash('sha256').update(readFileSync(capturePath)).digest('hex')
+  /**
+   * The commit this capture was taken at (#226) — `git rev-parse HEAD` in
+   * THIS checkout, never typed by hand. `no-personal-paths-law.test.ts`
+   * reads it back to measure how many commits, on the paths a screenshot
+   * depicts, separate its manifest from the tree it now claims to show;
+   * a hand-typed value could always be forged to read as fresh regardless
+   * of how stale the bytes beside it actually are (see that law's own
+   * SCREENSHOT FRESHNESS comment for the mutation this closes).
+   */
+  const capturedAt = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim()
   const manifestPath = `${capturePath}.manifest.json`
-  writeFileSync(manifestPath, `${JSON.stringify({ syntheticRoot: env.RHIZOMORPH_REPO, sha256 }, null, 2)}\n`)
+  writeFileSync(manifestPath, `${JSON.stringify({ syntheticRoot: env.RHIZOMORPH_REPO, sha256, capturedAt }, null, 2)}\n`)
   console.log('manifest:', manifestPath)
 }
 

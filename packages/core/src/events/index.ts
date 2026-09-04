@@ -1,9 +1,12 @@
 import { z } from 'zod'
 import { nonEmptyString, timestampSchema, type EventSource } from './common.js'
 import { beaconEventSchemas } from './beacon.js'
+import { gateEventSchemas } from './gate.js'
 import { gitEventSchemas } from './git.js'
 import { judgeEventSchemas } from './judge.js'
 import { labEventSchemas } from './lab.js'
+import { operatorEventSchemas } from './operator.js'
+import { summonsEventSchemas } from './summons.js'
 import { systemEventSchemas } from './system.js'
 import { telemetryEventSchemas } from './telemetry.js'
 import { tmuxEventSchemas } from './tmux.js'
@@ -12,9 +15,12 @@ import { workmuxEventSchemas } from './workmux.js'
 
 export * from './common.js'
 export * from './beacon.js'
+export * from './gate.js'
 export * from './git.js'
 export * from './judge.js'
 export * from './lab.js'
+export * from './operator.js'
+export * from './summons.js'
 export * from './system.js'
 export * from './telemetry.js'
 export * from './tmux.js'
@@ -32,6 +38,9 @@ export const rhizomorphEventSchema = z.discriminatedUnion('type', [
   ...labEventSchemas,
   ...judgeEventSchemas,
   ...beaconEventSchemas,
+  ...summonsEventSchemas,
+  ...gateEventSchemas,
+  ...operatorEventSchemas,
 ])
 
 export type RhizomorphEvent = z.infer<typeof rhizomorphEventSchema>
@@ -99,6 +108,19 @@ export const EVENT_SOURCE_BY_TYPE = {
   // `events/common.ts`. See the doc comment on `judgeFindingEventSchema`
   // (events/judge.ts) for the full story.
   'judge.finding': 'judge',
+  // prd17 ruling 1: the summons pair — see events/summons.ts. Source 'gate'
+  // is a real member of eventSourceSchema now (common.ts), so this needs no
+  // satisfies-clause widening the way 'lab' and 'judge' above do.
+  'summons.raised': 'gate',
+  'summons.cleared': 'gate',
+  // prd17 ruling 1: the instrument's own judgements — events/gate.ts.
+  'gate.verdict': 'gate',
+  'dispatch.brief': 'gate',
+  'fence.declared': 'gate',
+  // prd17 ruling 1: the operator's own hand — events/operator.ts.
+  'operator.ack': 'operator',
+  'operator.verdict': 'operator',
+  'operator.note': 'operator',
 } as const satisfies Record<EventType, EventSource | 'lab' | 'judge'>
 
 export const EVENT_TYPES = Object.keys(EVENT_SOURCE_BY_TYPE) as EventType[]

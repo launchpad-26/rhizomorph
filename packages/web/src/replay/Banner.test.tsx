@@ -33,8 +33,8 @@ function jsonResponse(body: unknown): Response {
 
 /** Entries the way a NEWER instrument would serve them — prd17 ruling 1's own families. */
 const FUTURE_ENTRIES = [
-  { id: 'evt-future-1', ts: 2_000, source: 'system', type: 'summons.raised', payload: { lane: 'a' } },
-  { id: 'evt-future-2', ts: 3_000, source: 'system', type: 'operator.ack', payload: { at: 12 } },
+  { id: 'evt-future-1', ts: 2_000, source: 'system', type: 'attention.paged', payload: { lane: 'a' } },
+  { id: 'evt-future-2', ts: 3_000, source: 'system', type: 'ledger.settled', payload: { at: 12 } },
 ]
 
 function makeFetch(extra: readonly unknown[] = []): FetchLike {
@@ -131,7 +131,7 @@ describe('ReplayBanner — the unknown-era voice', () => {
   it('voices the honest gap, counting the events and naming their families', async () => {
     await renderBanner(FUTURE_ENTRIES)
     expect(screen.getByTestId('replay-unknown-era')).toHaveTextContent(
-      '2 events from a newer era were preserved but not understood (operator.ack, summons.raised)',
+      '2 events from a newer era were preserved but not understood (attention.paged, ledger.settled)',
     )
   })
 

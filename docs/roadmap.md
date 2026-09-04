@@ -133,10 +133,12 @@
   **#205 was ruled: append order is the truth**, honoured unconditionally by
   `replayFold` and stated in `record-format.md`. See
   [docs/architecture.md](architecture.md#the-fold-order-divergence--resolved-by-205-append-order-is-the-truth)
-  for the three axes the fixture once proved diverged. **Ruled but not yet
-  landed:** ruling 1's new event families beyond `session.closed` (summons
-  raised/cleared, gate/dispatch/fence, operator ack/verdict/note), ruling 2's
-  beacon ingestion — its doorway ruled 2026-08-24, shared with prd27 (the
+  for the three axes the fixture once proved diverged. **Ruling 1's nine event
+  families all exist as of #219 (2026-09-04)** — summons raised/cleared,
+  gate/dispatch/fence and operator ack/verdict/note joined the already-landed
+  `session.closed` — but they are DEFINED, not emitted: nothing raises one yet,
+  so no recording contains one. **Ruled but not yet landed:** the emitters for
+  those families, ruling 2's beacon ingestion — its doorway ruled 2026-08-24, shared with prd27 (the
   file drop, one collector) — and ruling 4's timeline dividend (chapter
   marks for gate holds, summonses, and operator verdicts) — the richer UI
   built on top of all of it is a separate prd (prd18), not yet a doc in this

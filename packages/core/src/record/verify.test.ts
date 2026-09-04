@@ -8,7 +8,7 @@ const ACTOR = { instance: 'session-alice-1', handle: 'alice', declared: true }
 
 /** A line the way a NEWER era's instrument would write it — prd17 ruling 1's own families. */
 const FUTURE_LINE =
-  '{"id":"evt-future-1","ts":1785930000000,"source":"system","type":"summons.raised","payload":{"lane":"a"}}'
+  '{"id":"evt-future-1","ts":1785930000000,"source":"system","type":"attention.paged","payload":{"lane":"a"}}'
 
 function tamperedRecord() {
   return buildRecord(fixtureSession(), { repoSlug: 'rhizomorph-abc123', actor: ACTOR })
@@ -93,7 +93,7 @@ describe('verifyRecord — a newer era is voiced, not refused', () => {
     expect(result.unknown ?? []).toHaveLength(1)
     expect(result.unknown?.[0]?.line).toBe(FUTURE_LINE)
     expect(result.unknownVoice).toBe(
-      '1 event from a newer era was preserved but not understood (summons.raised)',
+      '1 event from a newer era was preserved but not understood (attention.paged)',
     )
   })
 
