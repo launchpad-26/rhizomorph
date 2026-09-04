@@ -3,6 +3,9 @@ import { mkdtempSync, rmSync, writeFileSync, chmodSync, mkdirSync, readFileSync,
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { createHash } from 'node:crypto'
+import { beaconReceivedPayloadSchema } from '@rhizomorph/core'
+import { parseBeaconLine } from './collectors/beacon/parse-beacon-line.js'
 
 /**
  * #42's law — a guard in the landing tool may not print a verdict it did not
@@ -304,22 +307,30 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    *
    * MEASURED FALSE-POSITIVE RATE (EXECUTED, run against every real producer
    * of ANY spelling above in scripts/gate.sh — prd-46's own open question,
-   * re-run after #179's widening rather than retyped): 17 such assignments
-   * exist — UNCHANGED from before the widening, because gate.sh currently
-   * contains no live instance of rows 2-7; every producer in the file today
-   * is still the bare, single-line form of row 1. Exactly 1 is flagged as
-   * structurally unchecked — :23 (`W=$(workmux path ...)`), declared before
-   * this issue and still declared, because the very next line's existence
-   * check is the verdict rather than the redirect. 0 of the 17 are
-   * undeclared: the predicate does not convict a single honest line on this
-   * file.
+   * re-run after #179's widening rather than retyped, and again after prd17
+   * w5 (#273) added the verdict's own output-capture producer): 18 such
+   * assignments exist — UP from 17 by exactly that one new producer, because
+   * gate.sh still contains no live instance of rows 2-7; every producer in
+   * the file today is still the bare, single-line form of row 1. Exactly 1
+   * is flagged as structurally unchecked — :23 (`W=$(workmux path ...)`),
+   * declared before this issue and still declared, because the very next
+   * line's existence check is the verdict rather than the redirect. 0 of the
+   * 18 are undeclared: the predicate does not convict a single honest line on
+   * this file.
    *
-   * The other 16 pass structurally on their own merits: 11 same-line forms
-   * (:17's `|| exit 2`, written before `fail` is even defined; 9 `|| fail`
-   * at :41 :56 :116 :210 :220 :284 :370 :410 :411; 1 `|| { ...; fail ...; }`
-   * rescue block at :57) and 5 next-line `_RC=$?` captures (:73's
-   * `ANCESTOR_RC`, :153's `N_RC`, :157's `STATUS_RC`, :184's `DIRTY_RC`,
-   * :285's `CAT_RC`).
+   * The other 17 pass structurally on their own merits: 12 same-line forms
+   * (:17's `|| exit 2`, written before `fail` is even defined; 9 `|| fail` at
+   * :88 (#273's `GATE_OUTFILE`) :95 :110 :170 :264 :274 :338 :424 :479; 2
+   * `|| { ...; fail ...; }` rescue blocks at :111 :480) and 5 next-line
+   * `_RC=$?` captures (:127's `ANCESTOR_RC`, :207's `N_RC`, :211's
+   * `STATUS_RC`, :238's `DIRTY_RC`, :339's `CAT_RC`).
+   *
+   * (This paragraph's line citations had already drifted once before #273
+   * touched it — the previous revision cited :41 :56 :116 :210 :220 :284
+   * :370 :410 :411 and one rescue block at :57, none of which matched the
+   * file by the time this issue landed. Re-derived against the current file
+   * rather than nudged, the same trap the citations themselves are prose
+   * about.)
    *
    * These counts moved with #71, and the reason is structural rather than
    * arithmetic: `DIFF_RC` and `GREP_RC` used to be next-line captures of
@@ -896,7 +907,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     expect(undeclared.map((u) => `${u.index + 1}: ${u.line.trim()}`), 'undeclared unchecked producer(s) in scripts/gate.sh — fix the shape (see the :82 commit-count fix below) or add a DECLARED_TOLERANCES entry with a reason').toEqual([])
   })
 
-  it('EXECUTED — the measured false-positive rate on the real file, RE-DERIVED after #179 widened the predicate to every spelling in the table above: still 1 of 17 flagged, it is declared, 0 undeclared', () => {
+  it('EXECUTED — the measured false-positive rate on the real file, RE-DERIVED after #179 widened the predicate and #273 added the verdict output-capture producer: still 1 of 18 flagged, it is declared, 0 undeclared', () => {
     // findAllProducers, not a codeLines()+regex filter: the widened predicate
     // recognises multi-line producers that a per-line filter cannot even
     // represent (row 7), so the count of "producers" and the count of
@@ -911,7 +922,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     // table above) today, so widening the predicate finds nothing NEW here —
     // it only means a FUTURE line written that way would now be seen. Proven
     // by count, not assumed: this would move the moment such a line landed.
-    expect(allProducers.length, 'total producers (any spelling) in scripts/gate.sh drifted — the doc comment above cites this count').toBe(17)
+    expect(allProducers.length, 'total producers (any spelling) in scripts/gate.sh drifted — the doc comment above cites this count').toBe(18)
     expect(unchecked.length, 'flagged (structurally unchecked) count drifted — the doc comment above cites this count').toBe(1)
     expect(undeclared.length).toBe(0)
 
@@ -929,7 +940,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     // rather than happen to agree by the accident of an empty case.
     const sameLine = allProducers.filter((p) => !p.hasKeywordPrefix && tailChecksStatus(p.tail))
     const nextLine = allProducers.filter((p) => !p.hasKeywordPrefix && !tailChecksStatus(p.tail) && nextLineCapturesRC(LINES[p.endLineIndex + 1]))
-    expect(sameLine.length, 'same-line-checked count drifted — the doc comment above cites it').toBe(11)
+    expect(sameLine.length, 'same-line-checked count drifted — the doc comment above cites it').toBe(12)
     expect(nextLine.length, 'next-line _RC=$? count drifted — the doc comment above cites it').toBe(5)
     expect(sameLine.length + nextLine.length + unchecked.length).toBe(allProducers.length)
   })
@@ -2971,5 +2982,152 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
   it('bash -n scripts/gate.sh passes and the header still describes what the script does', () => {
     execFileSync('bash', ['-n'], { input: SOURCE, encoding: 'utf8' })
     expect(SOURCE).toContain('a landing gate that BLOCKS')
+  })
+
+  /**
+   * prd17 w5 (#273) — the gate derives its own verdict and prints it as one
+   * v1 beacon line (ADR-0036) on its own final line. `emit_gate_verdict` and
+   * its two callers (`fail()`, and the clean end of the script) are extracted
+   * WHOLE — from the real `MERGED=0` through the real `GATE_TEE_PID=$!` — and
+   * run against real scratch files, the same "reuse, never reimplement"
+   * discipline as every other describe block in this file.
+   */
+  describe('prd17 w5 (#273) — the gate prints one v1 verdict beacon line, held correct on both sides of the merge', () => {
+    const VERDICT_MACHINERY = sliceLines('MERGED=0', 'GATE_TEE_PID=$!')
+
+    it('the vocabulary is declared once, and every fail() call site names one of its members', () => {
+      const vocabLine = extractLine('GATE_VERDICT_VOCAB=')
+      const vocabMatch = vocabLine.match(/GATE_VERDICT_VOCAB="([^"]+)"/)
+      expect(vocabMatch, 'GATE_VERDICT_VOCAB must be a plain space-separated quoted string').not.toBeNull()
+      const vocab = new Set(vocabMatch![1]!.split(/\s+/).filter(Boolean))
+      expect(vocab.size).toBeGreaterThan(0)
+      expect(vocab.has('clean'), 'the clean end of the script names this category — it must be declared').toBe(true)
+
+      // Every real fail() call site (never a comment merely mentioning fail,
+      // and never fail()'s own definition), matched the same way :39-:538
+      // were tagged: `fail "<message>" <category>` or a rescue-block `fail
+      // "<message>" <category>; }`, category the LAST bareword before the
+      // statement ends.
+      const failCallSites = LINES.filter(
+        (l) => !l.trim().startsWith('#') && /\bfail "(?:[^"\\]|\\.)*"\s+[A-Za-z0-9-]+\s*(?:;|$)/.test(l) && !l.includes('fail()  {'),
+      )
+      expect(failCallSites.length, 'no real fail() call sites matched — the tagging regex drifted from the real spelling').toBeGreaterThan(30)
+      const untagged: string[] = []
+      const badCategory: string[] = []
+      for (const line of failCallSites) {
+        const m = line.match(/\bfail "(?:[^"\\]|\\.)*"\s+([A-Za-z0-9-]+)\s*(?:;|$)/)
+        if (!m) {
+          untagged.push(line.trim())
+          continue
+        }
+        if (!vocab.has(m[1]!)) badCategory.push(`${m[1]}: ${line.trim()}`)
+      }
+      expect(untagged, 'fail() call site(s) with no category argument').toEqual([])
+      expect(badCategory, 'fail() call site(s) naming a category outside GATE_VERDICT_VOCAB').toEqual([])
+    })
+
+    it('every category is a short slug, never prose, and fits the v1 line\'s own 64-char cap', () => {
+      const vocabLine = extractLine('GATE_VERDICT_VOCAB=')
+      const vocab = vocabLine.match(/GATE_VERDICT_VOCAB="([^"]+)"/)![1]!.split(/\s+/).filter(Boolean)
+      for (const word of vocab) {
+        expect(word.length, `"${word}" is too long for a category`).toBeLessThanOrEqual(64)
+        expect(word).toMatch(/^[a-z][a-z0-9-]*$/)
+      }
+    })
+
+    /** H unique per test — GATE_OUTFILE and the tee pipe are named from it, and tests run concurrently. */
+    function runVerdict(setup: string): FragmentResult & { dir: string; h: string } {
+      const dir = scratchDir('verdict')
+      const h = `verdict-${process.pid}-${Math.random().toString(36).slice(2, 8)}`
+      const script = `#!/bin/bash\n${SHELL_OPTS}\nH=${h}\n${VERDICT_MACHINERY}\n${setup}\n`
+      const res = runFragment(script, dir)
+      return { ...res, dir, h }
+    }
+
+    /** The exact bytes fail() itself prints before calling emit_gate_verdict — independently re-derived so the digest assertions below cannot be satisfied by a hardcoded or empty capture. */
+    function expectedPreVerdictOutput(handle: string, message: string, merged: 0 | 1): string {
+      const secondLine =
+        merged === 0
+          ? `>>> HOLDING ${handle} — not merged`
+          : '>>> MERGED to local main, NOT pushed — fix forward on main immediately, then push'
+      return `GATE FAILED: ${message}\n${secondLine}\n`
+    }
+
+    function lastLine(stdout: string): string {
+      const lines = stdout.split('\n').filter((l) => l.length > 0)
+      return lines[lines.length - 1] ?? ''
+    }
+
+    it('EXECUTED — a pre-merge fail() prints exactly one v1 beacon line as its FINAL line, held true, reason the declared category', () => {
+      const { stdout, h } = runVerdict('fail "boom" suite-red')
+      const line = lastLine(stdout)
+      const parsed = JSON.parse(line)
+      expect(parsed).toMatchObject({ v: 1, writer: 'gate', kind: 'gate.verdict', lane: h, held: true, reason: 'suite-red' })
+      expect(typeof parsed.at).toBe('number')
+      expect(parsed.outputDigest).toMatch(/^[0-9a-f]{64}$/)
+      expect(parsed.loadBatches).toBeUndefined()
+    })
+
+    it('EXECUTED — held is FALSE on the post-merge failure path (MERGED=1) — the flip this issue exists to prove, not just the pre-merge default', () => {
+      const { stdout } = runVerdict('MERGED=1\nfail "build broke" build-broken')
+      const parsed = JSON.parse(lastLine(stdout))
+      expect(parsed.held).toBe(false)
+      expect(parsed.reason).toBe('build-broken')
+    })
+
+    it('EXECUTED — the clean end of the script emits held:false, reason:clean, with real output captured beforehand', () => {
+      const { stdout, h } = runVerdict('echo "  build OK"\nMERGED=1\nemit_gate_verdict clean')
+      const parsed = JSON.parse(lastLine(stdout))
+      expect(parsed).toMatchObject({ v: 1, writer: 'gate', kind: 'gate.verdict', lane: h, held: false, reason: 'clean' })
+    })
+
+    it('EXECUTED — loadBatches rides the line only when the run had any', () => {
+      const withLoad = JSON.parse(lastLine(runVerdict('LOAD=3\nfail "flaky" load-flake').stdout))
+      expect(withLoad.loadBatches).toBe(3)
+      const withoutLoad = JSON.parse(lastLine(runVerdict('fail "flaky" load-flake').stdout))
+      expect(withoutLoad.loadBatches).toBeUndefined()
+    })
+
+    it('MUTATION — outputDigest is bound to the run\'s ACTUAL captured output, not a placeholder: pointing it at the empty string would pass a shape-only check and must fail this one', () => {
+      const { stdout, h } = runVerdict('fail "boom" suite-red')
+      const parsed = JSON.parse(lastLine(stdout))
+      const expected = createHash('sha256').update(expectedPreVerdictOutput(h, 'boom', 0), 'utf8').digest('hex')
+      expect(parsed.outputDigest).toBe(expected)
+      // The mutation this guards against: emptyDigest below is what a
+      // `GATE_DIGEST=""` placeholder (or a digest of "" via a broken capture)
+      // would produce — a schema-shape check alone cannot tell the two apart.
+      const emptyDigest = createHash('sha256').update('', 'utf8').digest('hex')
+      expect(parsed.outputDigest).not.toBe(emptyDigest)
+    })
+
+    it('EXECUTED — a different message/category changes the digest: it is a real hash of real content, not a fixed constant', () => {
+      const a = JSON.parse(lastLine(runVerdict('fail "first failure" suite-red').stdout))
+      const b = JSON.parse(lastLine(runVerdict('fail "a completely different failure" typecheck-red').stdout))
+      expect(a.outputDigest).not.toBe(b.outputDigest)
+    })
+
+    it('EXECUTED — the printed line survives the REAL collector parser (parseBeaconLine) and the closed v1 schema (beaconReceivedPayloadSchema), extra keys intact in the raw text', () => {
+      const { stdout, h } = runVerdict('fail "boom" suite-red')
+      const line = lastLine(stdout)
+      const parsedLine = parseBeaconLine(line)
+      expect(parsedLine.kind).toBe('beacon')
+      if (parsedLine.kind !== 'beacon') throw new Error('unreachable')
+      expect(parsedLine.payload.writer).toBe('gate')
+      expect(parsedLine.payload.kind).toBe('gate.verdict')
+      expect(parsedLine.payload.lane).toBe(h)
+      // The collector attaches digest/file/offset once it tails a real
+      // directory (ADR-0036) — supplied here as placeholders so the CLOSED
+      // v1 fields validate; this issue prints the line, #274 writes it.
+      const received = { ...parsedLine.payload, digest: '0'.repeat(64), file: 'gate.jsonl', offset: 0 }
+      const result = beaconReceivedPayloadSchema.safeParse(received)
+      expect(result.success, result.success ? '' : JSON.stringify(result.error?.issues)).toBe(true)
+      // Extra keys (held/reason/outputDigest) are stripped by the closed
+      // schema above (ADR-0036: "extra keys are ignored") but must still be
+      // present in the RAW line the collector's digest actually covers.
+      const raw = JSON.parse(line)
+      expect(raw.held).toBe(true)
+      expect(raw.reason).toBe('suite-red')
+      expect(typeof raw.outputDigest).toBe('string')
+    })
   })
 })

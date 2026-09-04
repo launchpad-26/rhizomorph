@@ -33,12 +33,66 @@ MERGED=0
 fail()  { echo "GATE FAILED: $1"
           if [ "$MERGED" = 0 ]; then echo ">>> HOLDING $H — not merged"
           else echo ">>> MERGED to local main, NOT pushed — fix forward on main immediately, then push"; fi
+          command -v emit_gate_verdict >/dev/null 2>&1 && emit_gate_verdict "${2:-uncategorized}"
           exit 1; }
 
+# prd17 w5 (#273): the gate's own decision vocabulary. Every fail() call below
+# names one of these as its second argument, and the same string becomes this
+# run's `reason` in the verdict line emit_gate_verdict prints — the short
+# category gate.ts's own gateVerdictPayloadSchema doc comment already
+# illustrates with 'suite-red' and 'clean'. Declared here, once, so a new
+# failure mode cannot invent a fresh spelling nobody reviewed.
+GATE_VERDICT_VOCAB="clean setup git-error mid-rebase rebase-stale fence-invalid off-boundary-file empty-branch stranded-work nul-byte suite-red typecheck-red timing-config timing-regression load-flake timing-red merge-failed lane-manifest install-broken build-broken"
+
+# prd17 w5 (#273): the gate derives its own verdict — one v1 beacon line
+# (ADR-0036; packages/core/src/events/beacon.ts) printed to the REAL stdout
+# (fd 3, restored below), never into GATE_OUTFILE itself, so the digest this
+# prints is never asked to cover its own line. fail() calls this right before
+# every `exit 1`, and the clean end of the script calls it once more — the
+# sibling case this issue names: a verdict wired only into fail() records
+# every hold and no merge, never the landings that go right.
+#
+# A `trap ... EXIT` was the obvious way to write this, and the obvious miss:
+# this script already sets one below (the NUL_LIST cleanup) and later CLEARS
+# it with `trap - EXIT`, which would silently disarm a verdict trap sharing
+# the same signal. Called explicitly from both exit points instead, so
+# neither reset ever touches it.
+emit_gate_verdict() {
+  [ -n "${GATE_OUTFILE:-}" ] || return 0
+  local reason=$1
+  # Closes this process's end of the tee pipe below (fd 1/2 move back to the
+  # real terminal saved as fd 3/4) and waits for tee to drain it, so
+  # GATE_OUTFILE is complete and flushed before its digest is taken — reading
+  # it any earlier would race tee's own buffering.
+  exec 1>&3 2>&4
+  wait "${GATE_TEE_PID:-}" 2>/dev/null
+  local held=false
+  [ "$MERGED" = 0 ] && held=true
+  local digest=""
+  read -r digest < <(python3 -c 'import hashlib,sys
+print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$GATE_OUTFILE" 2>/dev/null)
+  python3 -c 'import json,sys,time
+lane, held, reason, digest, load = sys.argv[1:6]
+line = {"v": 1, "at": int(time.time() * 1000), "writer": "gate", "kind": "gate.verdict",
+        "lane": lane, "held": held == "true", "reason": reason, "outputDigest": digest}
+if load != "0":
+    line["loadBatches"] = int(load)
+print(json.dumps(line, separators=(",", ":")))' "$H" "$held" "$reason" "$digest" "${LOAD:-0}" 2>/dev/null
+}
+
+# Everything printed from here on is captured into GATE_OUTFILE too — fd 3/4
+# above keep the real terminal reachable once emit_gate_verdict restores them
+# — so the verdict's outputDigest is a hash of what this run actually
+# printed, never of an empty or partial capture.
+exec 3>&1 4>&2
+GATE_OUTFILE=$(mktemp "/tmp/gate-output-$H.XXXXXX") || fail "cannot create a scratch file for capturing gate output" setup
+exec > >(tee "$GATE_OUTFILE") 2>&1
+GATE_TEE_PID=$!
+
 echo "════════ GATE: $H ════════"
-command -v python3 >/dev/null 2>&1 || fail "python3 not found — the NUL-byte guard cannot run without it"
-[ -d "$W" ] || fail "worktree missing (resolved: ${W:-none})"
-BRANCH=$(git -C "$W" rev-parse --abbrev-ref HEAD 2>/dev/null) || fail "cannot read branch"
+command -v python3 >/dev/null 2>&1 || fail "python3 not found — the NUL-byte guard cannot run without it" setup
+[ -d "$W" ] || fail "worktree missing (resolved: ${W:-none})" setup
+BRANCH=$(git -C "$W" rev-parse --abbrev-ref HEAD 2>/dev/null) || fail "cannot read branch" setup
 echo "  worktree: $W (branch $BRANCH)"
 
 # lockfile churn from per-worktree installs blocks merges on either side
@@ -53,10 +107,10 @@ workmux rebase "$H" >/dev/null 2>&1 || echo "  (rebase reported an issue — the
 #
 # mktemp, not a predictable "/tmp/gate-gitdir-$H.log" — a fixed path a
 # symlink can occupy before this runs, same class as :116's NUL_LIST.
-GITDIR_LOG=$(mktemp "/tmp/gate-gitdir-$H.XXXXXX") || fail "cannot create a scratch log for the git-dir probe"
-GD=$(git -C "$W" rev-parse --absolute-git-dir 2>"$GITDIR_LOG") || { cat "$GITDIR_LOG"; rm -f "$GITDIR_LOG"; fail "cannot resolve the real git dir for $W — the mid-rebase guard below cannot run without it"; }
+GITDIR_LOG=$(mktemp "/tmp/gate-gitdir-$H.XXXXXX") || fail "cannot create a scratch log for the git-dir probe" setup
+GD=$(git -C "$W" rev-parse --absolute-git-dir 2>"$GITDIR_LOG") || { cat "$GITDIR_LOG"; rm -f "$GITDIR_LOG"; fail "cannot resolve the real git dir for $W — the mid-rebase guard below cannot run without it" setup; }
 rm -f "$GITDIR_LOG"
-{ [ -d "$GD/rebase-merge" ] || [ -d "$GD/rebase-apply" ]; } && fail "worktree is mid-rebase (conflict) — resolve on the branch first"
+{ [ -d "$GD/rebase-merge" ] || [ -d "$GD/rebase-apply" ]; } && fail "worktree is mid-rebase (conflict) — resolve on the branch first" mid-rebase
 # workmux's exit code is not the check — the STATE is. A rebase that never ran
 # (workmux absent, unknown handle) or aborted cleanly leaves the branch on an
 # old base, where the three-dot fence audit and the suite below both measure a
@@ -73,10 +127,10 @@ rm -f "$GITDIR_LOG"
 ANCESTOR_ERR=$(git -C "$W" merge-base --is-ancestor main HEAD 2>&1 >/dev/null)
 ANCESTOR_RC=$?
 if [ "$ANCESTOR_RC" -eq 1 ]; then
-  fail "branch $BRANCH is not on top of main (the rebase did not take) — rebase it, then re-run"
+  fail "branch $BRANCH is not on top of main (the rebase did not take) — rebase it, then re-run" rebase-stale
 elif [ "$ANCESTOR_RC" -ne 0 ]; then
   echo "$ANCESTOR_ERR"
-  fail "git merge-base --is-ancestor exited $ANCESTOR_RC on $BRANCH — not the ordinary 1 for 'not an ancestor'; a ref may be corrupt (see stderr above)"
+  fail "git merge-base --is-ancestor exited $ANCESTOR_RC on $BRANCH — not the ordinary 1 for 'not an ancestor'; a ref may be corrupt (see stderr above)" git-error
 fi
 
 # The producer (git diff) and the consumer's normal exit (grep) are two
@@ -111,12 +165,12 @@ fi
 # and CONVICTS — a false hold, never a false pass.
 printf '' | grep -E "$FENCE" >/dev/null 2>&1
 GREP_RC=$?
-[ "$GREP_RC" -gt 1 ] && fail "fence regex '$FENCE' is invalid (grep rc=$GREP_RC) — cannot audit the fence"
+[ "$GREP_RC" -gt 1 ] && fail "fence regex '$FENCE' is invalid (grep rc=$GREP_RC) — cannot audit the fence" fence-invalid
 
-FENCE_LIST=$(mktemp "/tmp/gate-fence-list-$H.XXXXXX") || fail "cannot create a scratch file for the fence file listing"
+FENCE_LIST=$(mktemp "/tmp/gate-fence-list-$H.XXXXXX") || fail "cannot create a scratch file for the fence file listing" setup
 git -C "$W" diff -z main...HEAD --name-only >"$FENCE_LIST"
 DIFF_RC=$?
-[ "$DIFF_RC" -ne 0 ] && { rm -f "$FENCE_LIST"; fail "git diff main...HEAD failed (rc=$DIFF_RC) — cannot audit the fence"; }
+[ "$DIFF_RC" -ne 0 ] && { rm -f "$FENCE_LIST"; fail "git diff main...HEAD failed (rc=$DIFF_RC) — cannot audit the fence" git-error; }
 
 DIFF_FILES=()
 viol=()
@@ -126,7 +180,7 @@ while IFS= read -r -d '' f; do
 done <"$FENCE_LIST"
 rm -f "$FENCE_LIST"
 
-[ "${#viol[@]}" -gt 0 ] && { echo "  outside fence:"; printf '    %s\n' "${viol[@]}"; fail "fence violated (widen it deliberately, with the diff as justification, or send it back)"; }
+[ "${#viol[@]}" -gt 0 ] && { echo "  outside fence:"; printf '    %s\n' "${viol[@]}"; fail "fence violated (widen it deliberately, with the diff as justification, or send it back)" off-boundary-file; }
 # ${DIFF_FILES[*]-}, not ${DIFF_FILES[*]}: an empty array under `set -u` (:13)
 # is an unbound variable on bash < 4.4, and /bin/bash on macOS is 3.2. EXECUTED
 # there: a branch whose diff against main is empty aborted with a bare
@@ -152,11 +206,11 @@ echo "  fence OK: ${DIFF_FILES[*]-}"
 # reading green over exactly this line.
 n=$(git -C "$W" log --oneline main..HEAD | wc -l)
 N_RC=$?
-[ "$N_RC" -ne 0 ] && fail "git log/wc -l failed (rc=$N_RC) — cannot count commits on the branch"
-[ "$n" -eq 0 ] && fail "no commits on the branch (a worker may have left work uncommitted — check git status in the worktree)"
+[ "$N_RC" -ne 0 ] && fail "git log/wc -l failed (rc=$N_RC) — cannot count commits on the branch" git-error
+[ "$n" -eq 0 ] && fail "no commits on the branch (a worker may have left work uncommitted — check git status in the worktree)" empty-branch
 STATUS_OUT=$(git -C "$W" status --porcelain)
 STATUS_RC=$?
-[ "$STATUS_RC" -ne 0 ] && fail "git status failed in $W (rc=$STATUS_RC) — cannot verify the worktree is clean"
+[ "$STATUS_RC" -ne 0 ] && fail "git status failed in $W (rc=$STATUS_RC) — cannot verify the worktree is clean" git-error
 # SIBLING of the same shape (a $(...) pipeline whose own exit status feeds
 # no check), FIXED here rather than declared — the :96 fix above is its
 # twin (prd-46 #70 ruling 3). The guard is `-gt 1`, not `-ne 0`, and the
@@ -183,8 +237,8 @@ STATUS_RC=$?
 # $STATUS_OUT, the other fallible input, is already RC-checked two lines up.
 dirty=$(printf '%s' "$STATUS_OUT" | grep -v package-lock.json | wc -l)
 DIRTY_RC=$?
-[ "$DIRTY_RC" -gt 1 ] && fail "the dirty-count pipeline failed (rc=$DIRTY_RC) — cannot verify the worktree is clean"
-[ "$dirty" -ne 0 ] && { printf '%s\n' "$STATUS_OUT" | head -5; fail "uncommitted work stranded in the worktree"; }
+[ "$DIRTY_RC" -gt 1 ] && fail "the dirty-count pipeline failed (rc=$DIRTY_RC) — cannot verify the worktree is clean" git-error
+[ "$dirty" -ne 0 ] && { printf '%s\n' "$STATUS_OUT" | head -5; fail "uncommitted work stranded in the worktree" stranded-work; }
 echo "  commits: $n, worktree clean"
 
 # NUL check guards TEXT files (one stray NUL makes them binary to git —
@@ -207,25 +261,25 @@ echo "  commits: $n, worktree clean"
 # there is no window between "name chosen" and "file exists" for a symlink
 # to occupy. The trap clears it even if fail() exits mid-loop below, so a
 # held NUL check does not leak a listing into /tmp.
-NUL_LIST=$(mktemp "/tmp/gate-nul-list-$H.XXXXXX") || fail "cannot create a scratch file for the NUL-byte file listing"
+NUL_LIST=$(mktemp "/tmp/gate-nul-list-$H.XXXXXX") || fail "cannot create a scratch file for the NUL-byte file listing" setup
 trap 'rm -f "$NUL_LIST"' EXIT
 git -C "$W" diff -z main...HEAD --name-only >"$NUL_LIST"
 NUL_LIST_RC=$?
-[ "$NUL_LIST_RC" -ne 0 ] && fail "git diff (file listing) failed (rc=$NUL_LIST_RC) — cannot verify NUL bytes"
+[ "$NUL_LIST_RC" -ne 0 ] && fail "git diff (file listing) failed (rc=$NUL_LIST_RC) — cannot verify NUL bytes" git-error
 while IFS= read -r -d '' f; do
   [ -f "$W/$f" ] || continue
   case "$f" in
     *.png|*.jpg|*.jpeg|*.gif|*.ico|*.webp|*.woff|*.woff2|*.ttf|*.pdf|*.zip|*.gz) continue ;;
   esac
-  c=$(python3 -c "import sys;print(open(sys.argv[1],'rb').read().count(b'\x00'))" "$W/$f" 2>/tmp/gate-nul-$H.log) || fail "$f unreadable — cannot verify NUL bytes (see /tmp/gate-nul-$H.log)"
-  [ "$c" != "0" ] && fail "$f contains $c NUL byte(s) — git treats it as binary: undiffable, unmergeable"
+  c=$(python3 -c "import sys;print(open(sys.argv[1],'rb').read().count(b'\x00'))" "$W/$f" 2>/tmp/gate-nul-$H.log) || fail "$f unreadable — cannot verify NUL bytes (see /tmp/gate-nul-$H.log)" nul-byte
+  [ "$c" != "0" ] && fail "$f contains $c NUL byte(s) — git treats it as binary: undiffable, unmergeable" nul-byte
 done <"$NUL_LIST"
 trap - EXIT
 rm -f "$NUL_LIST"
 echo "  no NUL bytes (text files; binary assets exempt)"
 
-( cd "$W" && npm test >/tmp/gate-$H.log 2>&1 ) || { tail -8 /tmp/gate-$H.log; fail "test suite red"; }
-( cd "$W" && npm run typecheck >/dev/null 2>&1 ) || fail "typecheck red"
+( cd "$W" && npm test >/tmp/gate-$H.log 2>&1 ) || { tail -8 /tmp/gate-$H.log; fail "test suite red" suite-red; }
+( cd "$W" && npm run typecheck >/dev/null 2>&1 ) || fail "typecheck red" typecheck-red
 echo "  quiet gate GREEN: $(grep -aoE 'Tests.*passed' /tmp/gate-$H.log | tail -1)"
 
 # Load gate: a suite green 8/8 quietly has failed 67% at 4x concurrency.
@@ -261,7 +315,7 @@ if [ "$LOAD" != "0" ]; then
                         find packages -name '*.bench.test.ts' 2>/dev/null; } | sort -u)
 
   TCOUNT=${#TIMING_FILES[@]}
-  [ "$TCOUNT" = "0" ] && fail "timing pass matches ZERO files — a renamed/moved timing test fell out of the gate (the #209 trap: it would still run, silently, under 4x load); restore its '// @gate-timing' marker or '.bench.test.ts' name"
+  [ "$TCOUNT" = "0" ] && fail "timing pass matches ZERO files — a renamed/moved timing test fell out of the gate (the #209 trap: it would still run, silently, under 4x load); restore its '// @gate-timing' marker or '.bench.test.ts' name" timing-config
 
   COUNT_FILE="$root/.swarm/timing-count"
   # A RISE is not the mirror image of a DROP. A dropped timing test is a
@@ -281,17 +335,17 @@ if [ "$LOAD" != "0" ]; then
   RISE_TOLERANCE=0
   RISE_NOTE=""
   if [ -f "$COUNT_FILE" ]; then
-    TIMINGCOUNT_LOG=$(mktemp "/tmp/gate-timingcount-$H.XXXXXX") || fail "cannot create a scratch log for reading $COUNT_FILE"
+    TIMINGCOUNT_LOG=$(mktemp "/tmp/gate-timingcount-$H.XXXXXX") || fail "cannot create a scratch log for reading $COUNT_FILE" setup
     PREV=$(cat "$COUNT_FILE" 2>"$TIMINGCOUNT_LOG")
     CAT_RC=$?
-    [ "$CAT_RC" -ne 0 ] && { cat "$TIMINGCOUNT_LOG"; rm -f "$TIMINGCOUNT_LOG"; fail "cannot read $COUNT_FILE (rc=$CAT_RC) — cannot verify the timing-count ratchet"; }
+    [ "$CAT_RC" -ne 0 ] && { cat "$TIMINGCOUNT_LOG"; rm -f "$TIMINGCOUNT_LOG"; fail "cannot read $COUNT_FILE (rc=$CAT_RC) — cannot verify the timing-count ratchet" timing-config; }
     rm -f "$TIMINGCOUNT_LOG"
     # A corrupt count used to coerce silently to 0, which makes "$TCOUNT -lt
     # $PREV" unfireable (TCOUNT can't be negative) — the ratchet goes dead
     # instead of holding. A human clearing the file on purpose still produces
     # a MISSING file, which the outer `if` already treats as "no ratchet yet".
     case "$PREV" in
-      ('' | *[!0-9]*) fail "$COUNT_FILE contains '$PREV', not a whole number — a corrupt ratchet must not be silently trusted as 0; a human clears or fixes it" ;;
+      ('' | *[!0-9]*) fail "$COUNT_FILE contains '$PREV', not a whole number — a corrupt ratchet must not be silently trusted as 0; a human clears or fixes it" timing-config ;;
     esac
     # All-digit still isn't safe: bash arithmetic below (:$((TCOUNT - PREV)))
     # reads a leading zero as an OCTAL prefix, not decimal — '08' is not even
@@ -307,7 +361,7 @@ if [ "$LOAD" != "0" ]; then
     # just as easily sit above — the guard holds regardless of order, and
     # keeping it here needs no such dependency.
     case "$PREV" in
-      (0[0-9]*) fail "$COUNT_FILE contains '$PREV', a non-canonical leading-zero number — bash arithmetic (not the '-lt' comparison below, which reads it correctly as decimal) would treat it as octal. This guard fires BEFORE the drop check below can, so a hand-written value here can be hiding a real drop: before touching $COUNT_FILE, compare $TCOUNT (the current timing-set count, above) against the DECIMAL number '$PREV' was meant to hold — if $TCOUNT is lower, that is a genuine drop, and clearing this file (rather than correcting it) would silently absorb the drop into a fresh floor instead of reporting it. A human corrects the VALUE (writes the intended decimal number to $COUNT_FILE); clearing it is only safe once that comparison is done." ;;
+      (0[0-9]*) fail "$COUNT_FILE contains '$PREV', a non-canonical leading-zero number — bash arithmetic (not the '-lt' comparison below, which reads it correctly as decimal) would treat it as octal. This guard fires BEFORE the drop check below can, so a hand-written value here can be hiding a real drop: before touching $COUNT_FILE, compare $TCOUNT (the current timing-set count, above) against the DECIMAL number '$PREV' was meant to hold — if $TCOUNT is lower, that is a genuine drop, and clearing this file (rather than correcting it) would silently absorb the drop into a fresh floor instead of reporting it. A human corrects the VALUE (writes the intended decimal number to $COUNT_FILE); clearing it is only safe once that comparison is done." timing-config ;;
     esac
     # An all-digit but oversized value (e.g. 20 digits) passes the case guard
     # above and then breaks the comparison itself: bash's `[ -lt ]` errors
@@ -317,8 +371,8 @@ if [ "$LOAD" != "0" ]; then
     # (2) is distinguished from false (1) and true (0).
     [ "$TCOUNT" -lt "$PREV" ]
     CMP_RC=$?
-    [ "$CMP_RC" -gt 1 ] && fail "cannot compare timing counts — $COUNT_FILE contains '$PREV', which is too large to compare against TCOUNT=$TCOUNT; a human clears or fixes it"
-    [ "$CMP_RC" -eq 0 ] && fail "timing pass matches $TCOUNT file(s), fewer than the $PREV last recorded — a timing test silently fell out (if this is deliberate, a human clears $COUNT_FILE)"
+    [ "$CMP_RC" -gt 1 ] && fail "cannot compare timing counts — $COUNT_FILE contains '$PREV', which is too large to compare against TCOUNT=$TCOUNT; a human clears or fixes it" timing-config
+    [ "$CMP_RC" -eq 0 ] && fail "timing pass matches $TCOUNT file(s), fewer than the $PREV last recorded — a timing test silently fell out (if this is deliberate, a human clears $COUNT_FILE)" timing-regression
     # CMP_RC is 1 here — both 0 and >1 fail() above — so TCOUNT >= PREV always.
     [ "$((TCOUNT - PREV))" -gt "$RISE_TOLERANCE" ] && RISE_NOTE=" ROSE from $PREV to $TCOUNT — confirm the new file(s) belong in the timing set rather than an accidental marker match (#48); this becomes the new floor below"
   else
@@ -342,7 +396,7 @@ if [ "$LOAD" != "0" ]; then
     for c in 1 2 3 4; do [ "$(cat /tmp/g-$H-$b-$c.rc)" != "0" ] && { lf=$((lf+1)); grep -aE '×' /tmp/g-$H-$b-$c.log | head -1 | sed 's/^/    /'; }; done
   done
   echo "  under 4x load (timing tests excluded): $lf failures / $((LOAD*4))"
-  [ "$lf" != "0" ] && fail "flaky under load — remove the race (never widen a timeout)"
+  [ "$lf" != "0" ] && fail "flaky under load — remove the race (never widen a timeout)" load-flake
 
   # The timing tests, alone, once — the honest measurement condition.
   # Positional args are FILTERS (substring match), not globs — verified
@@ -356,18 +410,18 @@ if [ "$LOAD" != "0" ]; then
     # $COUNT_FILE, used to fall through silently: the fragment still exited 0
     # and RISE_NOTE still printed, a verdict about a floor that never moved.
     mkdir -p "$root/.swarm" && printf '%s\n' "$TCOUNT" >"$COUNT_FILE" \
-      || fail "cannot write the timing-count floor at $COUNT_FILE — the ratchet did not advance; a human fixes its permissions"
+      || fail "cannot write the timing-count floor at $COUNT_FILE — the ratchet did not advance; a human fixes its permissions" setup
     [ -n "$RISE_NOTE" ] && echo "  timing-count ratchet:$RISE_NOTE"
   else
     grep -aE '×' /tmp/g-$H-timing.log | head -3 | sed 's/^/    /'
-    fail "timing tests red when run ALONE — this one is real (budget regression, not contention)"
+    fail "timing tests red when run ALONE — this one is real (budget regression, not contention)" timing-red
   fi
 fi
 
 # Captured before the merge touches the branch ref at all — the fact this
 # gate must prove is that THIS commit is now in main, not that some ref of a
 # given name is gone.
-LANE_SHA=$(git -C "$W" rev-parse HEAD) || fail "cannot resolve $BRANCH's tip commit before merging"
+LANE_SHA=$(git -C "$W" rev-parse HEAD) || fail "cannot resolve $BRANCH's tip commit before merging" git-error
 clean
 workmux merge "$H" 2>&1 | grep -E "Merged '|Error|Caused by" | head -2
 # Branch-ref absence is workmux merge's SIDE EFFECT, not the landing's
@@ -378,7 +432,7 @@ workmux merge "$H" 2>&1 | grep -E "Merged '|Error|Caused by" | head -2
 # checked against the `main` REF, not $root's checked-out HEAD: this repo's
 # own dispatch preflight exists because the root checkout is routinely
 # parked on a feature or audit branch, and HEAD there is not main.
-git merge-base --is-ancestor "$LANE_SHA" main || fail "commit $LANE_SHA (branch $BRANCH) is not contained in main — the merge did not complete"
+git merge-base --is-ancestor "$LANE_SHA" main || fail "commit $LANE_SHA (branch $BRANCH) is not contained in main — the merge did not complete" merge-failed
 MERGED=1   # every fail() past this point reports the post-merge truth
 
 # The lane manifest (ruling 19, written by dispatch.sh) describes CURRENT
@@ -422,8 +476,8 @@ if [ -f "$root/.swarm/lanes.json" ]; then
   # is checked — exactly the blind spot prd46 w5 (#179) names. Anything
   # other than an exact "PRUNED" or "NOOP" line — truncated output, a
   # missing file, garbage — holds rather than guessing either way.
-  MANIFEST_LOG=$(mktemp "/tmp/gate-manifest-$H.XXXXXX") || fail "cannot create a scratch log for the lane-manifest prune"
-  MANIFEST_OUT_LOG=$(mktemp "/tmp/gate-manifest-out-$H.XXXXXX") || { rm -f "$MANIFEST_LOG"; fail "cannot create a scratch file for the lane-manifest prune's result"; }
+  MANIFEST_LOG=$(mktemp "/tmp/gate-manifest-$H.XXXXXX") || fail "cannot create a scratch log for the lane-manifest prune" setup
+  MANIFEST_OUT_LOG=$(mktemp "/tmp/gate-manifest-out-$H.XXXXXX") || { rm -f "$MANIFEST_LOG"; fail "cannot create a scratch file for the lane-manifest prune's result" setup; }
   H="$H" ROOT="$root" node -e '
     const fs = require("fs");
     const p = process.env.ROOT + "/.swarm/lanes.json";
@@ -452,7 +506,7 @@ if [ -f "$root/.swarm/lanes.json" ]; then
       :
     else
       rm -f "$MANIFEST_LOG" "$MANIFEST_OUT_LOG"
-      fail "lane manifest prune produced an unrecognized result — refusing to guess whether $H was pruned"
+      fail "lane manifest prune produced an unrecognized result — refusing to guess whether $H was pruned" lane-manifest
     fi
     rm -f "$MANIFEST_LOG" "$MANIFEST_OUT_LOG"
   else
@@ -467,7 +521,7 @@ if [ -f "$root/.swarm/lanes.json" ]; then
     # anything that error class list does not cover.
     grep -m1 -E '^(Error|SyntaxError|TypeError):' "$MANIFEST_LOG" || tail -6 "$MANIFEST_LOG"
     rm -f "$MANIFEST_LOG" "$MANIFEST_OUT_LOG"
-    fail "lane manifest prune failed — .swarm/lanes.json is malformed, unwritable, or not shaped as {lanes: [...]}"
+    fail "lane manifest prune failed — .swarm/lanes.json is malformed, unwritable, or not shaped as {lanes: [...]}" lane-manifest
   fi
 fi
 
@@ -476,12 +530,12 @@ fi
 # boot with "Failed to resolve module specifier". Reconcile here, then prove
 # the thing actually builds — a gate that never builds is a gate that ships
 # a broken bundle behind a green suite.
-npm install --no-audit --no-fund >/tmp/gate-install-$H.log 2>&1 || fail "npm install after merge broke — see /tmp/gate-install-$H.log"
+npm install --no-audit --no-fund >/tmp/gate-install-$H.log 2>&1 || fail "npm install after merge broke — see /tmp/gate-install-$H.log" install-broken
 if npm run build >/tmp/gate-build-$H.log 2>&1; then
   echo "  build OK"
 else
   tail -6 /tmp/gate-build-$H.log
-  fail "BUILD BROKEN ON MAIN after merging $H"
+  fail "BUILD BROKEN ON MAIN after merging $H" build-broken
 fi
 echo "  MERGED, main now at $(git log --oneline -1)"
 
@@ -496,3 +550,4 @@ push_or_warn() {
   git push origin main 2>&1 | tail -1 || echo "  ! push FAILED — main is LOCAL-ONLY until pushed by hand"
 }
 push_or_warn
+emit_gate_verdict clean
