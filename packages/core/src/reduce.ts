@@ -3,6 +3,7 @@ import type {
   RhizomorphEvent,
 } from './events/index.js'
 import { totalTokens } from './events/index.js'
+import { upcast } from './events/upcast.js'
 import type {
   ActiveTimeRecord,
   AgentState,
@@ -131,6 +132,12 @@ export function opensNewSession(state: SessionState, event: RhizomorphEvent): bo
  * The same function folds the live SSE stream and a replayed history slice —
  * that identity is the whole reason replay is free.
  *
+ * `event` passes through {@link upcast} first, above everything else in this
+ * function — prd17 ruling 3, item 3's chokepoint. `opensNewSession` reads the
+ * event before `applyEvent` does, so upcasting only for `applyEvent` would
+ * leave it reading a pre-upcast value; upcasting here means every read below,
+ * that one included, sees the same upcasted event.
+ *
  * The reset lands **before** the envelope bookkeeping, so a `session.started`
  * that opens a new recording ({@link opensNewSession}) is itself the first
  * event of the new fold: `eventCount` comes back as 1, and `firstEventTs` is
@@ -139,8 +146,9 @@ export function opensNewSession(state: SessionState, event: RhizomorphEvent): bo
  * handed, and this is simply a different one.
  */
 export function reduce(state: SessionState, event: RhizomorphEvent): SessionState {
-  const base = opensNewSession(state, event) ? initialSessionState() : state
-  return applyEvent(withEnvelope(base, event), event)
+  const upcasted = upcast(event)
+  const base = opensNewSession(state, upcasted) ? initialSessionState() : state
+  return applyEvent(withEnvelope(base, upcasted), upcasted)
 }
 
 /** Fold a whole log. Handy for replay slices and for tests. */
