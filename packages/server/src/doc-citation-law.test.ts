@@ -202,6 +202,13 @@ function readSweptFile(file: string): string | undefined {
   // "ENOENT ... citation-law-untracked-fixture-<pid>-<n>.md" out of
   // `allCitations()`, alongside the TRACKED-guard race this commit fixes.
   //
+  // To watch it fire on demand rather than at 8x, widen the window instead of
+  // the load — an `Atomics.wait(…, 5)` between the check and the read, for
+  // fixture-named paths only. EXECUTED in review of #263, 4 simultaneous runs
+  // of this file over five rounds, the two arms differing in NOTHING but this
+  // `try`: uncaught read 2 failing legs of 20, this catch 0 of 20. Both ENOENT
+  // paths carried a LIVE pid, which is the point below.
+  //
   // The live-pid argument that makes `:839` and `:959` safe does NOT cover
   // this, and that is the sibling case the first enumeration missed: those
   // verdicts answer "can a sibling's cleanup delete MY fixture", while this
@@ -334,7 +341,20 @@ function isFixtureContent(content: string): boolean {
  * `cleanUpOrphanedFixtures()` sweep is, correctly, going to delete out from
  * under this test's assertion, by these exact rules, the instant that sibling
  * calls `readdirSync` on the same directory. 20 runs of 4x-concurrent on
- * `main` at `6b5f70f` failed 1/20 this way. The fix mirrors #203's own —
+ * `main` at `6b5f70f` failed 1/20 this way.
+ *
+ * "4x-concurrent" names two different experiments, and the cheaper one is far
+ * louder — worth knowing before anyone rebuilds an 8x harness to watch this
+ * fire. Four concurrent WHOLE-SUITE runs (the gate's load pass) stagger this
+ * file against everything else, so the overlap window is thin and the race
+ * reads as ~1% per leg. Four simultaneous runs of THIS FILE ALONE overlap
+ * maximally and reproduce it at 30%: EXECUTED in review of #263 — pre-fix
+ * tree 6 failing legs of 20, this commit's tree 0 of 20, same harness and
+ * machine, `for i in 1 2 3 4; do npx vitest run <this file> & done; wait`
+ * over five rounds. So the issue's "20 runs of 4x-concurrent are 20/20" IS a
+ * falsifiable criterion under the single-file reading, and this commit meets
+ * it against a pre-fix tree that visibly does not.
+ * The fix mirrors #203's own —
  * `countBrokenCitationsIn` took its file list as a parameter rather than
  * reading shared state, because "a test that touches shared state races every
  * other copy of itself" — one level up: this function now takes the
