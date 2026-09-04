@@ -948,14 +948,27 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
    *
    * `(?<!typeof\s)` is not used, for the reason round 6 recorded: a lookbehind
    * is fixed-width and misses `typeof  globalThis.fetch`.
+   *
+   * `typeof\s+` alone (#234) required at least one whitespace character
+   * between the keyword and its operand — but `typeof` is a unary operator,
+   * not a call, so `typeof(globalThis.fetch)` is valid JavaScript with no
+   * space at all, and `TYPEOF_PREFIX`'s `\s+` never matched it. The capture
+   * then failed to fire, the unprefixed alternative matched `globalThis.fetch`
+   * on its own, and a capability probe counted as a request (EXECUTED,
+   * `typeof(globalThis.fetch)` counted 1) — the same false-positive shape
+   * round 7 already fixed for the no-parens form, in the one spelling that
+   * form didn't reach. `\(?` after the optional whitespace, and another `\s*`
+   * after that, admits `typeof(x)`, `typeof (x)`, and `typeof  (  x)` alike
+   * without giving up any of the whitespace-only forms above.
    */
+  const TYPEOF_PREFIX = String.raw`typeof\s*\(?\s*`
   const ALIAS_ACCESS_PATTERNS: readonly RegExp[] = [
-    new RegExp(String.raw`(typeof\s+)?${GLOBAL_OBJECTS}${DOT}fetch(?!\s*(?:\?\.\s*)?\()`, 'g'),
+    new RegExp(String.raw`(${TYPEOF_PREFIX})?${GLOBAL_OBJECTS}${DOT}fetch(?!\s*(?:\?\.\s*)?\()`, 'g'),
     // Bracket access takes NO dot (`globalThis['fetch']`) or an optional-chained
     // one (`globalThis?.['fetch']`), so the dot is `\.?` here where `DOT`
     // requires it. Substituting `DOT` for consistency would stop matching the
     // commoner plain form.
-    new RegExp(String.raw`(typeof\s+)?${GLOBAL_OBJECTS}\s*\??\.?\s*\[\s*['"\`]fetch['"\`]\s*\]`, 'g'),
+    new RegExp(String.raw`(${TYPEOF_PREFIX})?${GLOBAL_OBJECTS}\s*\??\.?\s*\[\s*['"\`]fetch['"\`]\s*\]`, 'g'),
   ]
   const DESTRUCTURE_INNER = String.raw`(?:[^{}]|\{[^{}]*\})*`
   const ALIAS_PATTERNS: readonly RegExp[] = [
@@ -1145,6 +1158,36 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     ['a let-declared renamed destructure still counts', 'let { fetch: send } = globalThis', 1],
     ['a type member named fetch', 'type T = { fetch: typeof fetch }', 0],
     ['a destructuring function parameter', 'function f({ fetch: impl }: Deps) { return impl }', 0],
+    // #234. Three spellings outside the README's exhaustiveness claim (#23
+    // narrowed that claim to a named vocabulary precisely so a candidate could
+    // be decided rather than chased forever) — decided here, not merely noted.
+    //
+    // 1. A quoted destructure key. `ALIAS_PATTERNS` requires `fetch` adjacent
+    //    to its colon (`\bfetch\s*:`), and a quote sits between the word and
+    //    the colon here, so it does not match — correctly, since biome's
+    //    `useLiteralKeys` flags an unnecessary quote on an identifier-safe
+    //    property name and this spelling cannot pass this repo's own lint.
+    //    Recorded OUT of the vocabulary: it is not a shape this codebase can
+    //    ship, not a gap in the pattern.
+    [
+      'a quoted destructure key cannot ship past this repo\'s lint, so it stays out of the vocabulary (#234)',
+      "const { 'fetch': send } = globalThis",
+      0,
+    ],
+    // 2. A dynamic import of a module the vocabulary never named. `http2` has
+    //    no request/get/sendBeacon surface this law recognises and README's
+    //    paragraph promises `http`/`https` only — recorded OUT, not a miss.
+    [
+      'import of a module outside the vocabulary is genuinely outside it, not a gap (#234)',
+      "await import('node:http2')",
+      0,
+    ],
+    // 3. `typeof(x)` — the false positive the TYPEOF_PREFIX comment above
+    //    describes. Decided IN: it is the same capability-probe shape every
+    //    other `typeof` row here already excludes, just spelled with parens
+    //    instead of a space. Revert `TYPEOF_PREFIX` to `typeof\s+` alone and
+    //    this row goes from 0 to 1 — the mutation this issue asks for.
+    ['typeof with parens and no space is still a capability probe, not a call (#234)', 'typeof(globalThis.fetch)', 0],
   ])(
     'counts %s exactly %i time(s) — the COUNT, not merely red-or-green',
     (_label, source, expected) => {
