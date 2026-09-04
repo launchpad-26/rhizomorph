@@ -281,9 +281,20 @@ with no wave — `prd43:` and `route-class-law:` respectively. The bundle unit i
 so an issue carrying a milestone and no wave is structurally unbundleable and becomes its own PR
 before anyone decides anything. Nothing caught it: `issues.sh orphans` checks milestone and board
 membership, and answered "all open issues carry a milestone" — true, and useless here, which is
-the same shape that command's own history already records. Retitled and folded into wave 6's
-second PR on 2026-09-04; `#270`'s branch is superseded by that fold rather than landed on its own,
-and its timeout-only fix survives inside it.
+the same shape that command's own history already records. Both were retitled into wave 6 on
+2026-09-04.
+
+**The fold caught one of the pair, not both, and that is the durable part.** `#266` landed on its
+own as PR `#269`, merged 2026-09-04 21:30 from the other session — about fifteen hours after wave
+6's second PR was opened carrying a byte-identical fix for it. So a bundling rule enforced at the
+issue level did not prevent the same collision one level up, where nothing was checking: two PRs,
+not two issues. It cost nothing here, because the duplicate commits were patch-identical: the
+review merge of `main` into this branch (`3e4dd93`) reconciled all three conflicts, every one of
+them this branch's `SWEEP_TIMEOUT_MS` superseding main's `30_000` literals. `#270` is the half the fold did keep, and it was not
+redundant — `#266` raised the budget on two of the three sweeping tests and left the third, `the
+completeness sweep reads a non-empty file set`, on the 5000 ms default while calling the same
+`sweptFiles()`. Its branch is superseded by the fold rather than landed on its own, and its fix —
+one `SWEEP_TIMEOUT_MS` held by all three — survives inside it.
 
 **Wave 7 — ruled 2026-09-04, and it is two issues, not one.** `#66` (the docs cite a tracker
 that no longer exists) was booked the way wave 0 is booked: an operator act, not dispatchable
