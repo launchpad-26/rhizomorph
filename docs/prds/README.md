@@ -37,6 +37,24 @@ standard adds those going forward rather than rewriting history backwards —
 a PRD rewritten after shipping to look like it was planned that way is a
 [named anti-pattern][cagan-prd], not an improvement.
 
+## A note on `#NNN` citations in these documents
+
+Added 2026-09-04 (#66). Many PRDs here — in Status lines, Evidence sections,
+and rulings — cite `#NNN` issue numbers from this repo's original tracker,
+deleted 2026-08-21. Those numbers do not resolve. `AGENTS.md` carries the
+fuller note on why, and the current measurement of how far the dead tracker's
+citations reach into this corpus, since that number moves and belongs in one
+place rather than two that can drift apart.
+
+The short version: this repo's tracker restarted from `#1`, so the two
+sequences overlap and no single number separates them. Above this repo's
+current live maximum, a citation is unambiguously prior-tracker. At or below
+it, the document's own date decides — anything dated before 2026-08-21
+predates this tracker regardless of the number it names.
+
+The citations stay as written. They are the provenance for a decision that was
+actually made, in a tracker this repo no longer has.
+
 ## The template
 
 ```markdown
