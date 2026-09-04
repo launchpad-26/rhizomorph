@@ -19,9 +19,16 @@ import {
  * many. The law: counted, preserved byte-for-byte, and voiced.
  */
 
-/** A line the way a NEWER era's instrument would have written it — prd17 ruling 1's own families. */
+/**
+ * A line the way an EVEN NEWER era's instrument would have written it. #219
+ * built prd17 ruling 1's own families (`summons.raised`, `gate.verdict`,
+ * `operator.ack` among them) into THIS era's union, so a fictional type name
+ * is what stands in for "a newer era" here now — see the describe block below
+ * this file's original placeholders, which proves leniency against the real
+ * new families directly instead.
+ */
 const FUTURE_LINE =
-  '{"id":"evt-000042","ts":1785930000000,"source":"system","type":"summons.raised","payload":{"lane":"a","kind":"awaiting-reply","raisedAt":1785930000000}}'
+  '{"id":"evt-000042","ts":1785930000000,"source":"system","type":"attention.paged","payload":{"lane":"a","kind":"awaiting-reply","raisedAt":1785930000000}}'
 
 function unknownFrom(line: string, lineNumber: number | null = null): UnknownEventLine {
   const parsed = readEventLineLenient(line, lineNumber)
@@ -51,7 +58,7 @@ describe('parseEventLenient — an unrecognized type is counted, never dropped',
   it('reads a newer era\'s event family as an honest unknown', () => {
     const unknown = unknownFrom(FUTURE_LINE, 7)
     expect(unknown.reason).toBe('unknown-type')
-    expect(unknown.type).toBe('summons.raised')
+    expect(unknown.type).toBe('attention.paged')
     expect(unknown.ts).toBe(1785930000000)
     expect(unknown.lineNumber).toBe(7)
   })
@@ -64,16 +71,16 @@ describe('parseEventLenient — an unrecognized type is counted, never dropped',
     // Spaces after the colons, keys out of our own order: a stranger's emitter,
     // or an older version of ours. `JSON.stringify` would normalise both away,
     // and then the record's hash chain would no longer cover what we kept.
-    const oddly = '{"type": "gate.verdict", "ts": 5, "id": "x", "source": "gate", "payload": {"held": true}}'
+    const oddly = '{"type": "trespass.flagged", "ts": 5, "id": "x", "source": "gate", "payload": {"held": true}}'
     expect(unknownFrom(oddly).line).toBe(oddly)
   })
 
   it('reads an unknown SOURCE without objecting — a newer era may have grown a collector', () => {
     const unknown = unknownFrom(
-      '{"id":"e1","ts":9,"source":"beacon","type":"gate.verdict","payload":{}}',
+      '{"id":"e1","ts":9,"source":"beacon","type":"ledger.settled","payload":{}}',
     )
     expect(unknown.reason).toBe('unknown-type')
-    expect(unknown.type).toBe('gate.verdict')
+    expect(unknown.type).toBe('ledger.settled')
   })
 
   it('reads a KNOWN type whose payload a later era widened as unknown-shape, not corruption', () => {
@@ -85,6 +92,43 @@ describe('parseEventLenient — an unrecognized type is counted, never dropped',
     expect(isKnownEventType(unknown.type)).toBe(true)
     // The union's own objection is kept, for a human reading a verifier's output.
     expect(unknown.detail.length).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * #219's Definition of done, stated verbatim: "adding families is the case
+ * [the lenient-parse contract] exists for, so prove it against one of the new
+ * ones." Both of these are now KNOWN types (`isKnownEventType` is true for
+ * both), so the honest gap here is `unknown-shape`, not `unknown-type`: a
+ * malformed line of a real family is exactly as leniently handled as a line
+ * from a genuinely future era — counted and preserved, never fatal.
+ */
+describe('parseEventLenient — a newly real family with a bad shape is leniently unknown (#219)', () => {
+  it('summons.raised, once real, is still lenient when its payload does not validate', () => {
+    const unknown = unknownFrom(
+      '{"id":"e1","ts":9,"source":"gate","type":"summons.raised","payload":{"lane":"feature"}}',
+    )
+    expect(unknown.reason).toBe('unknown-shape')
+    expect(unknown.type).toBe('summons.raised')
+    expect(isKnownEventType(unknown.type)).toBe(true)
+  })
+
+  it('gate.verdict, once real, is still lenient when its digest does not validate', () => {
+    const unknown = unknownFrom(
+      '{"id":"e2","ts":10,"source":"gate","type":"gate.verdict","payload":{"handle":"feature","held":false,"reason":"clean","digest":"not-hex"}}',
+    )
+    expect(unknown.reason).toBe('unknown-shape')
+    expect(unknown.type).toBe('gate.verdict')
+    expect(isKnownEventType(unknown.type)).toBe(true)
+  })
+
+  it('operator.ack, once real, is still lenient when its offset is missing', () => {
+    const unknown = unknownFrom(
+      '{"id":"e3","ts":11,"source":"operator","type":"operator.ack","payload":{"subject":"219"}}',
+    )
+    expect(unknown.reason).toBe('unknown-shape')
+    expect(unknown.type).toBe('operator.ack')
+    expect(isKnownEventType(unknown.type)).toBe(true)
   })
 })
 
@@ -130,7 +174,7 @@ describe('parseEventLenient — a value without its own line text', () => {
       id: 'e1',
       ts: 9,
       source: 'system',
-      type: 'operator.ack',
+      type: 'roster.updated',
       payload: {},
     })
     if (parsed.kind !== 'unknown') throw new Error('expected an unknown')
@@ -138,7 +182,7 @@ describe('parseEventLenient — a value without its own line text', () => {
       id: 'e1',
       ts: 9,
       source: 'system',
-      type: 'operator.ack',
+      type: 'roster.updated',
       payload: {},
     })
   })
@@ -159,24 +203,24 @@ describe('voiceUnknownEvents — the honest gap, in one sentence', () => {
 
   it('speaks the ruling\'s own sentence, in the singular', () => {
     expect(voiceUnknownEvents([unknownFrom(FUTURE_LINE)])).toBe(
-      '1 event from a newer era was preserved but not understood (summons.raised)',
+      '1 event from a newer era was preserved but not understood (attention.paged)',
     )
   })
 
   it('speaks it in the plural, naming the types', () => {
     const voice = voiceUnknownEvents([
       unknownFrom(FUTURE_LINE),
-      unknownFrom('{"id":"e2","ts":6,"source":"system","type":"operator.ack","payload":{}}'),
-      unknownFrom('{"id":"e3","ts":7,"source":"system","type":"operator.ack","payload":{}}'),
+      unknownFrom('{"id":"e2","ts":6,"source":"system","type":"roster.updated","payload":{}}'),
+      unknownFrom('{"id":"e3","ts":7,"source":"system","type":"roster.updated","payload":{}}'),
     ])
     expect(voice).toBe(
-      '3 events from a newer era were preserved but not understood (operator.ack, summons.raised)',
+      '3 events from a newer era were preserved but not understood (attention.paged, roster.updated)',
     )
   })
 
   it('is deterministic — the same unknowns in any read order voice the same sentence', () => {
     const a = unknownFrom(FUTURE_LINE)
-    const b = unknownFrom('{"id":"e2","ts":6,"source":"system","type":"operator.ack","payload":{}}')
+    const b = unknownFrom('{"id":"e2","ts":6,"source":"system","type":"roster.updated","payload":{}}')
     expect(voiceUnknownEvents([a, b])).toBe(voiceUnknownEvents([b, a]))
   })
 

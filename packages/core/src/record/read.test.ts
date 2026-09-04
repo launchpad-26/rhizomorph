@@ -10,7 +10,7 @@ const REPO_SLUG = 'rhizomorph-abc123'
 
 /** A line the way a NEWER era's instrument would write it — prd17 ruling 1's own families. */
 const FUTURE_LINE =
-  '{"id":"evt-future-1","ts":1785930000000,"source":"system","type":"summons.raised","payload":{"lane":"a"}}'
+  '{"id":"evt-future-1","ts":1785930000000,"source":"system","type":"attention.paged","payload":{"lane":"a"}}'
 
 function record(): SessionRecord {
   return buildRecord(fixtureSession(), { repoSlug: REPO_SLUG, actor: ACTOR })
@@ -60,18 +60,18 @@ describe('readRecordBody', () => {
     expect(read.events).toHaveLength(fixtureSession().length)
     expect(read.unknown).toHaveLength(1)
     expect(read.unknown[0]?.line).toBe(FUTURE_LINE)
-    expect(read.unknown[0]?.type).toBe('summons.raised')
+    expect(read.unknown[0]?.type).toBe('attention.paged')
     expect(read.unknown[0]?.lineNumber).toBe(3)
     expect(read.malformed).toBeNull()
   })
 
   it('keeps events and unknowns each in body order', () => {
     const second = FUTURE_LINE.replace('evt-future-1', 'evt-future-2').replace(
-      'summons.raised',
-      'summons.cleared',
+      'attention.paged',
+      'attention.settled',
     )
     const read = readRecord(withLinesAt(withLinesAt(record(), 1, [FUTURE_LINE]), 4, [second]))
-    expect(read.unknown.map((entry) => entry.type)).toEqual(['summons.raised', 'summons.cleared'])
+    expect(read.unknown.map((entry) => entry.type)).toEqual(['attention.paged', 'attention.settled'])
     expect(read.unknown.map((entry) => entry.lineNumber)).toEqual([2, 5])
   })
 

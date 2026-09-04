@@ -129,6 +129,18 @@ function allFamilies(f: EventFactory) {
     f.forkCheckpoint(),
     f.forkDispatched(),
     f.judgeFinding(),
+    // prd17 ruling 1's families (#219), added under that issue's recorded fence
+    // widening. This law set-equates against EVENT_TYPES precisely so a new
+    // family cannot evade the identity check — so eight new families reddening
+    // it was the law working, not a defect in it.
+    f.summonsRaised(),
+    f.summonsCleared(),
+    f.gateVerdict(),
+    f.dispatchBrief(),
+    f.fenceDeclared(),
+    f.operatorAck(),
+    f.operatorVerdict(),
+    f.operatorNote(),
     f.make('telemetry.refused', {
       instance: 'other-rhizomorph',
       expectedInstance: 'fixture-instance',

@@ -233,6 +233,42 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
       return forkDispatched(state, event)
     case 'judge.finding':
       return judgeFinding(state, event)
+    case 'summons.raised':
+      // Additive only (prd17 ruling 1, #219): this issue defines the family
+      // and does not fold it. The sibling case lives here, not in the
+      // schema — a raise with no later clear (a session ending mid-alarm) is
+      // a real state of the world, so nothing below may assume the pair
+      // completes.
+      return state
+    case 'summons.cleared':
+      // Same rule, other half of the pair: a clear with no preceding raise
+      // must fold exactly like a paired one. Whatever eventually joins the
+      // two is later work, over (lane, kind), and belongs here — never at
+      // the schema, which validates each half alone.
+      return state
+    case 'gate.verdict':
+      // Additive only (prd17 ruling 1, #219) — the landing gate's verdicts
+      // are not emitted yet, so there is nothing to fold into state.
+      return state
+    case 'dispatch.brief':
+      // Additive only (prd17 ruling 1, #219) — same as above, for the brief
+      // a lane is dispatched with.
+      return state
+    case 'fence.declared':
+      // Additive only (prd17 ruling 1, #219) — the declared boundary is
+      // recorded on the log now; reading it back into state (e.g. for a
+      // live trespass check) is later work.
+      return state
+    case 'operator.ack':
+      // Additive only (prd17 ruling 1, #219) — the operator acts are not
+      // emitted yet, so there is nothing to fold into state.
+      return state
+    case 'operator.verdict':
+      // Additive only (prd17 ruling 1, #219) — same as above.
+      return state
+    case 'operator.note':
+      // Additive only (prd17 ruling 1, #219) — same as above.
+      return state
     default: {
       // Exhaustive today, and — the systems chair's finding, prd17 ruling 3 —
       // UNREACHABLE, not merely unexercised: an event only reaches this

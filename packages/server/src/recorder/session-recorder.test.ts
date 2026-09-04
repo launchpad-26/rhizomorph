@@ -808,8 +808,8 @@ describe('SessionRecorder — the fold handed out is frozen (#69, ADR-0031)', ()
     // every `collector.*`, `fork.*`, `judge.finding` and `telemetry.refused`.
     // Their arms are clean today (verified), but nothing held them there.
     //
-    // Anchored on EVENT_TYPES rather than a count, so a 29th event type fails
-    // this law until someone folds it here — the guard is scoped by what the
+    // Anchored on EVENT_TYPES rather than a count, so a newly added event type
+    // fails this law until someone folds it here — the guard is scoped by what the
     // union IS, not by how many members it had the day it was written.
     const events = [
       f.sessionStarted(),
@@ -840,6 +840,19 @@ describe('SessionRecorder — the fold handed out is frozen (#69, ADR-0031)', ()
       f.judgeFinding(),
       f.make('telemetry.refused', { instance: 'other', expectedInstance: 'fixture-instance', count: 1 }),
       f.sessionClosed(),
+      // prd17 ruling 1 (#219). Their arms return state unchanged today, which
+      // is exactly the shape this law exists to keep honest: an arm that later
+      // starts folding one of these into state must not write to its frozen
+      // input, and it is checked here from the day the family exists rather
+      // than from the day something emits it.
+      f.summonsRaised(),
+      f.summonsCleared(),
+      f.gateVerdict(),
+      f.dispatchBrief(),
+      f.fenceDeclared(),
+      f.operatorAck(),
+      f.operatorVerdict(),
+      f.operatorNote(),
     ]
     // Exhaustive by construction, and it stays that way.
     expect([...new Set(events.map((event) => event.type))].sort()).toEqual([...EVENT_TYPES].sort())
