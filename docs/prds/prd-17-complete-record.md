@@ -241,18 +241,38 @@ whatever now emits. Last because a capture is only worth taking once the emitter
 to witness exist, and because it is what makes the Success criterion's byte-for-byte clause
 true of these families rather than merely of the ones era-1 happened to hold.
 
-**Wave 5 — the gate's own verdict, behind #217.** `prd17 w5: the landing gate's verdict
-reaches the log`. **One issue, not three:** of ruling 1's gate trio only `gate.verdict` has an
-emitter that lives in this repo. `scripts/gate.sh` writes one beacon line per landing — the
-verdict, the fence audit result, the load-batch tallies, hold-or-merge, and any widening — and
-the collector #217 builds tails it. Blocked on #217 and on the ADR that lands with it, which
-fixes what one beacon line *is*; the second Open question below, who turns a line into
-ruling 1's families, cannot be answered before that ADR exists.
+**Wave 5 — the gate's own verdict.** Of ruling 1's gate trio only `gate.verdict` has an
+emitter that lives in this repo: `scripts/gate.sh` is the instrument's own judgement on a
+lane, and the log has never heard of it. The other two are in the unfiled tail below.
 
-Fence: `scripts/gate.sh` **and** `packages/server/src/gate-honesty-law.test.ts`, and the
-second is not optional — `.swarm/coupling.txt` carries both ends of that coupling, with the
-standing instruction to cite anchor text and never a line number. Two specifics from it, each
-of which makes this more than "add an echo":
+**Amended 2026-09-05 — wave 5 holds two issues, in a forced order, and the first is not
+blocked.** The wave was declared as one issue on the emitter boundary (gate tooling versus
+dispatch tooling). Reading `scripts/gate.sh` against `gateVerdictPayloadSchema` moved the
+boundary again: the payload asks for `handle`, `held`, `reason`, `digest` and optional
+`loadBatches`, and the script already holds every one of them — `$1`, the `MERGED` flag, which
+check failed, and `$3`. **Only the write is blocked.** So:
+
+- `prd17 w5: the landing gate says what it decided` — derives the whole verdict and prints it
+  as one line of JSON. Dispatchable now. Fence: `scripts/gate.sh` and
+  `packages/server/src/gate-honesty-law.test.ts`, the second not optional for the reasons
+  below. Where the size lives: 42 `fail "` sites collapse into a declared category
+  vocabulary, and the gate's own output has to become a hashable artefact.
+- `prd17 w5: the gate's verdict reaches the beacon directory` — the write. Blocked on #217
+  and the ADR that lands with it, which fixes where beacons are written and what one line
+  *is*; the second Open question below, who turns a line into ruling 1's families, cannot be
+  answered before that ADR exists. Deliberately not started, because inventing a directory or
+  an envelope here would fork the one door the 2026-08-24 amendment exists to keep single.
+
+**They are a stack, not a bundle** — both claim `scripts/gate.sh`, so `fence-lint` sees an
+OVERLAP and they may never be in flight together whatever wave they carry. The order is
+forced: the derivation lands, then the redirect. That is the same shape prd-43's wave 6
+records for its own stacked pair, and it is why the split does not make this two waves.
+
+Fence, for the first issue: `scripts/gate.sh` **and**
+`packages/server/src/gate-honesty-law.test.ts`, and the second is not optional —
+`.swarm/coupling.txt` carries both ends of that coupling, with the standing instruction to
+cite anchor text and never a line number. Two specifics from it, each of which makes this more
+than "add an echo":
 
 - the law anchors its assertions on **exact line text** pulled from the tracked `gate.sh`, so
   rewording an anchored line throws at *collection* — "expected exactly one line … found 0" —
@@ -260,8 +280,9 @@ of which makes this more than "add an echo":
 - it also **pins derived counts** over `gate.sh`'s `VAR=$(...)` command-substitution
   assignments: how many exist, how many are flagged structurally unchecked, and how the
   checked ones split between the same-line `|| fail` form and the next-line `_RC=$?` capture.
-  A beacon write that introduces a command substitution moves those pins, and the doc comment
-  beside them is corrected in the same edit — not just the numbers.
+  Capturing the gate's output for a digest introduces exactly such an assignment, so those
+  pins move and the doc comment beside them is corrected in the same edit — not just the
+  numbers.
 
 This is also the one wave that edits the operator's landing tool, so its verification is
 exactly the split AGENTS.md already draws: the lane runs `npm run typecheck`, `npm run lint`
@@ -386,7 +407,8 @@ events rather than folded state, which is why this is a wave and not a programme
 dispatchable the day this amendment lands — ruling 5 discharged wave 0, so wave 3 is no
 longer blocked on a decision; wave 4's era-2 capture, which is what makes the Success
 criterion's byte-for-byte
-clause true of these families; and wave 5, one in-repo issue that waits on #217.
+clause true of these families; and wave 5, whose first issue is dispatchable now and whose
+second waits on #217.
 
 **Ship-out is at wave 4 (operator, 2026-09-05).** This PRD closes when waves 2, 3 and 4 land;
 **wave 5 stays declared and blocked and does not hold it open.** The rejected alternative was
