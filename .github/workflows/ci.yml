@@ -76,6 +76,18 @@ jobs:
         run: npm run build
 
       - name: Test
+        # `doc-citation-law.test.ts`'s ceiling law needs the EXACT tracker
+        # maximum (#261). It cannot be derived from git: merged-PR subjects see
+        # only merged PRs (265 against a true 266, measured), and widening to
+        # commit subjects or ref names reads 252 in a fresh clone — worse, and
+        # clone-dependent. Headroom is unavailable too: live citations end at
+        # 266 and prior-tracker ones begin at 267 with no gap.
+        #
+        # Without this token the law SKIPS with a stated reason rather than
+        # comparing against a bound it knows is low, so the suite stays green on
+        # a fork; the token is what makes the check actually run here.
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: npm test
 
       - name: Typecheck
