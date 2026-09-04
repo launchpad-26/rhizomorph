@@ -292,15 +292,35 @@ considering" and stops short of ruling it, correctly.
 `#66` was measured on 2026-08-25, when the highest number that had ever existed in this repository
 was 64. **Measured again 2026-09-04**, because that figure expired: this repo's sequence began at 1
 on 2026-08-21 and had reached **262**, while the prior tracker's citations in this corpus reach
-**674** — so **the two sequences overlap and no numeric threshold separates them.**
+**655** — so **the two sequences overlap and no numeric threshold separates them.**
 
 Both figures are given as a dated measurement rather than as current fact, deliberately. The first
 draft of this paragraph typed "260" and was stale before it was pushed — `#261` already existed
 five minutes earlier, and `#262`, the PR carrying the paragraph, was opened a minute later. A
 hand-typed live maximum in a document whose subject is that counts must be derived is the wrong
-shape twice over. Re-measure rather than trusting either number; the overlap holds at any of them. A note claiming everything below 660 refers to a prior
-tracker would disown every live citation the corpus has legitimately accumulated since August. The
-note states the ambiguity instead: above the live maximum a citation is unambiguously
+shape twice over.
+
+The prior-tracker figure was hand-derived too, and it was wrong in the more instructive way. It
+first read **674**, and 674 is not a citation at all: the sweep that produced it matched
+`#674c63`, the `--color-paper-600` hex in `packages/web/src/theme/theme.css`, because the pattern
+had no boundary after the digits. The highest genuine citation in this corpus is **655**
+(`packages/web/src/app/shell-bounds-law.test.ts`), which is what two narrower sweeps had already
+reported and what the wider one overrode. Derive it, do not read it off this page:
+
+```sh
+# 1-3 digits: this corpus's own tracker has never exceeded three. The only
+# four-digit tokens present cite other projects (jupyter/notebook 1831, tmux
+# 3064), and a sweep that admits them reports those instead. Re-check past 999.
+# Note the sweep reads THIS file too: writing a hash-number token into the prose
+# below moves the number the command returns.
+git grep -hoE '(^|[^0-9a-zA-Z#])#[0-9]{1,3}([^0-9a-zA-Z]|$)' \
+  | grep -oE '#[0-9]+' | tr -d '#' | sort -n | tail -1
+```
+
+Re-measure rather than trusting any of these numbers; the overlap holds at all of them. A note
+claiming everything below 660 refers to a prior tracker would disown every live citation the
+corpus has legitimately accumulated since August. The note states the ambiguity instead: above
+the live maximum a citation is unambiguously
 prior-tracker, at or below it the citing document's own date decides, and a sha is the durable
 citation because the commits survived the recreation even though the issues did not.
 
