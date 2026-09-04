@@ -266,6 +266,25 @@ section naming the wrong location for lab artefacts, ADR-0005's narrowed root cl
 containment law's silent `claude-projects` clause. Filed after the ADR lands so the issue can cite
 it rather than a branch.
 
+**Joined wave 6 after the fact (amendment, 2026-09-04).** `prd43 w6: the route-count completeness
+sweep fits its timeout on the slowest runner` (#266) and `prd43 w6: the sweeping tests have a
+budget they can actually meet under load` (#270) are the same defect — the completeness sweep in
+`route-class-law.test.ts` timing out on vitest's 5000 ms default — filed twice within hours and
+built twice in parallel, by two sessions that could not see each other's lane.
+
+They belong to wave 6 because `#234` claims the same file, and because wave 6's gate could not go
+green without them: its red was `#266`, measured at 4.54 s with the wave applied against 4.78 s on
+plain `main`, so the wave was never the cause.
+
+**Why they were not bundled in the first place, which is the part worth keeping.** Both were filed
+with no wave — `prd43:` and `route-class-law:` respectively. The bundle unit is (milestone, wave),
+so an issue carrying a milestone and no wave is structurally unbundleable and becomes its own PR
+before anyone decides anything. Nothing caught it: `issues.sh orphans` checks milestone and board
+membership, and answered "all open issues carry a milestone" — true, and useless here, which is
+the same shape that command's own history already records. Retitled and folded into wave 6's
+second PR on 2026-09-04; `#270`'s branch is superseded by that fold rather than landed on its own,
+and its timeout-only fix survives inside it.
+
 **Wave 7 — ruled 2026-09-04, and it is two issues, not one.** `#66` (the docs cite a tracker
 that no longer exists) was booked the way wave 0 is booked: an operator act, not dispatchable
 until ruled. The ruling is made and recorded on the issue — **a single dated note in `AGENTS.md`
