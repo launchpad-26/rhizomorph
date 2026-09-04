@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -194,7 +195,38 @@ function sweepFiles(pattern: string): string[] {
  */
 function readSweptFile(file: string): string | undefined {
   const filePath = path.join(REPO_ROOT, file)
-  return existsSync(filePath) ? readFileSync(filePath, 'utf8') : undefined
+  // `existsSync` then `readFileSync` is a CHECK-then-USE, not a guard: a
+  // sibling concurrent run lists this path, passes the existence check, and
+  // then the owning run's own `finally` removes the fixture before the read
+  // lands. EXECUTED on the pre-fix tree at 8x: two legs died here with
+  // "ENOENT ... citation-law-untracked-fixture-<pid>-<n>.md" out of
+  // `allCitations()`, alongside the TRACKED-guard race this commit fixes.
+  //
+  // To watch it fire on demand rather than at 8x, widen the window instead of
+  // the load — an `Atomics.wait(…, 5)` between the check and the read, for
+  // fixture-named paths only. EXECUTED in review of #263, 4 simultaneous runs
+  // of this file over five rounds, the two arms differing in NOTHING but this
+  // `try`: uncaught read 2 failing legs of 20, this catch 0 of 20. Both ENOENT
+  // paths carried a LIVE pid, which is the point below.
+  //
+  // The live-pid argument that makes `:839` and `:959` safe does NOT cover
+  // this, and that is the sibling case the first enumeration missed: those
+  // verdicts answer "can a sibling's cleanup delete MY fixture", while this
+  // is "can MY fixture's deletion break a SIBLING". The pid on this path
+  // belongs to the sibling and is alive, which is exactly why the alive check
+  // never fires.
+  //
+  // Catching is the whole fix. A file that vanishes between the listing and
+  // the read is precisely the case this function's docblock above says it
+  // exists to absorb — "a file the git listing still names but that is gone
+  // from disk" — and `existsSync` cannot close it because the window is
+  // AFTER it returns.
+  try {
+    return readFileSync(filePath, 'utf8')
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw err
+  }
 }
 
 /**
@@ -301,9 +333,43 @@ function isFixtureContent(content: string): boolean {
  * reproducible; `trackedFiles` and the real index it reads are already
  * exercised elsewhere in this file (`an untracked doc is swept too` asserts
  * `trackedFiles(fixtureRel)` is empty before relying on the same default).
+ *
+ * `docsDir` takes a fourth-attempt fix for the SAME reason, one directory up
+ * the same ladder (#241): injecting `isTracked` closed the staging race above
+ * but left the fixture itself sitting in the real, shared `docs/`, dead-pid-
+ * named and content-matching — bait a SIBLING run's own default (uninjected)
+ * `cleanUpOrphanedFixtures()` sweep is, correctly, going to delete out from
+ * under this test's assertion, by these exact rules, the instant that sibling
+ * calls `readdirSync` on the same directory. 20 runs of 4x-concurrent on
+ * `main` at `6b5f70f` failed 1/20 this way.
+ *
+ * "4x-concurrent" names two different experiments, and the cheaper one is far
+ * louder — worth knowing before anyone rebuilds an 8x harness to watch this
+ * fire. Four concurrent WHOLE-SUITE runs (the gate's load pass) stagger this
+ * file against everything else, so the overlap window is thin and the race
+ * reads as ~1% per leg. Four simultaneous runs of THIS FILE ALONE overlap
+ * maximally and reproduce it at 30%: EXECUTED in review of #263 — pre-fix
+ * tree 6 failing legs of 20, this commit's tree 0 of 20, same harness and
+ * machine, `for i in 1 2 3 4; do npx vitest run <this file> & done; wait`
+ * over five rounds. So the issue's "20 runs of 4x-concurrent are 20/20" IS a
+ * falsifiable criterion under the single-file reading, and this commit meets
+ * it against a pre-fix tree that visibly does not.
+ * The fix mirrors #203's own —
+ * `countBrokenCitationsIn` took its file list as a parameter rather than
+ * reading shared state, because "a test that touches shared state races every
+ * other copy of itself" — one level up: this function now takes the
+ * directory it sweeps, defaulting to the real `docs/` for every production
+ * call, so the TRACKED-guard test alone can point it at a fresh `mkdtemp`
+ * directory instead. No sibling run's sweep of the real `docs/` ever lists a
+ * `mkdtemp` directory, so nothing but this test's own (still-injected)
+ * `isTracked` decides the fixture's fate — the guard under test stays exactly
+ * as real as before, and the race is closed by removing the shared directory
+ * rather than by weakening what is asserted.
  */
-function cleanUpOrphanedFixtures(isTracked: (rel: string) => boolean = (rel) => trackedFiles(rel).length > 0): void {
-  const docsDir = path.join(REPO_ROOT, 'docs')
+function cleanUpOrphanedFixtures(
+  isTracked: (rel: string) => boolean = (rel) => trackedFiles(rel).length > 0,
+  docsDir: string = path.join(REPO_ROOT, 'docs'),
+): void {
   for (const entry of readdirSync(docsDir)) {
     const match = entry.match(UNTRACKED_FIXTURE_RE)
     if (!match) continue
@@ -316,7 +382,15 @@ function cleanUpOrphanedFixtures(isTracked: (rel: string) => boolean = (rel) => 
     }
     if (alive) continue
 
-    const rel = `docs/${entry}`
+    // Relative to REPO_ROOT, not `docsDir` — the real default call needs
+    // exactly `docs/${entry}`, the shape `trackedFiles` (a `git ls-files`
+    // pathspec, matched against the index from REPO_ROOT) expects; deriving
+    // it from `docsDir` rather than hardcoding the `docs/` prefix is what
+    // lets a test-only `mkdtemp` directory (#241) pass a real, if
+    // repo-external, relative path through to its own injected `isTracked`
+    // without that default ever needing to understand a directory outside
+    // `docs/`.
+    const rel = path.relative(REPO_ROOT, path.join(docsDir, entry))
     const filePath = path.join(docsDir, entry)
     let content: string
     try {
@@ -845,7 +919,7 @@ describe('doc citation law: a path cited from a document or a comment must exist
     }
   })
 
-  it('cleanUpOrphanedFixtures never deletes a file its caller reports as TRACKED, even with a dead-pid name and byte-identical content (#186, review round 4)', () => {
+  it('cleanUpOrphanedFixtures never deletes a file its caller reports as TRACKED, even with a dead-pid name and byte-identical content (#186, review round 4; #241)', () => {
     // `isTracked` is INJECTED here, not answered by staging into the real
     // index (review round 4): three separate attempts to prove this by
     // actually running `git add`/`update-index` from the test each raced
@@ -867,14 +941,56 @@ describe('doc citation law: a path cited from a document or a comment must exist
     // this test's job is only to prove `cleanUpOrphanedFixtures` respects
     // whatever `isTracked` reports, which the injected function lets it do
     // with zero flakiness.
-    const rel = `docs/citation-law-untracked-fixture-999997-${process.hrtime.bigint()}.md`
-    const filePath = path.join(REPO_ROOT, rel)
-    writeFileSync(filePath, UNTRACKED_FIXTURE_CONTENT)
+    //
+    // `docsDir` is ALSO injected now, into a fresh `mkdtemp` directory rather
+    // than the real `docs/` (#241): the fourth race, found by this file's own
+    // mandatory 4x-concurrent run (1/20) rather than by review, was never in
+    // this test's own body — it was a SIBLING run's unrelated, default
+    // `cleanUpOrphanedFixtures()` call sweeping the SAME real `docs/`,
+    // finding this same dead-pid-named, content-matching file genuinely
+    // untracked (which it is — the injected `isTracked` above protects only
+    // the call this test itself makes), and correctly deleting it by its own
+    // rules before this test's assertion ran. Naming the fixture for the
+    // current (live) pid instead would dodge that race by never reaching the
+    // content check at all, making the TRACKED guard itself unexercised — the
+    // trap the issue names explicitly. `mkdtemp` closes the race the other
+    // way: no sibling run's sweep of the real `docs/` ever lists a directory
+    // it was never told about, so the file's fate is decided by nothing but
+    // the injected `isTracked` above, which is the one thing under test.
+    const tmpDocsDir = mkdtempSync(path.join(tmpdir(), 'citation-law-tracked-guard-'))
     try {
-      cleanUpOrphanedFixtures((candidate) => candidate === rel)
+      const entry = `citation-law-untracked-fixture-999997-${process.hrtime.bigint()}.md`
+      const filePath = path.join(tmpDocsDir, entry)
+      const rel = path.relative(REPO_ROOT, filePath)
+      writeFileSync(filePath, UNTRACKED_FIXTURE_CONTENT)
+
+      // POSITIVE CONTROL, and it is load-bearing rather than decorative.
+      // Isolating this test into a tmpdir removed the race, and in doing so
+      // made its own setup silently optional: with `tmpDocsDir` NOT passed,
+      // the sweep runs over the real `docs/`, never lists this fixture, and
+      // the survival assertion below passes because nothing ever looked at
+      // the file. EXECUTED: deleting that one argument left the file 31/31
+      // green. Before this commit the equivalent one-token deletion — the
+      // injected `isTracked` — reddened it, so isolation traded a
+      // self-enforcing setup for a vacuous one.
+      //
+      // This second fixture is identical in every respect the sweep tests —
+      // dead pid, byte-identical content, same directory — and differs only
+      // in the answer `isTracked` gives for it. So the pair cannot both come
+      // out right unless the sweep actually VISITED `tmpDocsDir`, and unless
+      // `isTracked`'s verdict is the only thing separating them.
+      const controlEntry = `citation-law-untracked-fixture-999998-${process.hrtime.bigint()}.md`
+      const controlPath = path.join(tmpDocsDir, controlEntry)
+      writeFileSync(controlPath, UNTRACKED_FIXTURE_CONTENT)
+
+      cleanUpOrphanedFixtures((candidate) => candidate === rel, tmpDocsDir)
       expect(existsSync(filePath), 'a file reported TRACKED was deleted by a cleanup step meant only for untracked orphans').toBe(true)
+      expect(
+        existsSync(controlPath),
+        'the control fixture — same directory, same dead pid, same bytes, reported UNTRACKED — was NOT deleted, so the sweep never visited tmpDocsDir and the assertion above proved nothing',
+      ).toBe(false)
     } finally {
-      rmSync(filePath, { force: true })
+      rmSync(tmpDocsDir, { recursive: true, force: true })
     }
   })
 
