@@ -19,7 +19,9 @@
 > #217; and ruling 4's timeline dividend — `packages/web/src/tide/chapters.ts` still
 > carries four chapter kinds, none of them a summons, a gate verdict or an operator act,
 > and its module note still reads as though no event existed for them. The `prd17`
-> milestone holds no open issue, so none of that residual is groomed.
+> milestone holds no open issue, so none of that residual is groomed. **Ship-out is at wave 4
+> (operator, 2026-09-05):** this PRD closes when waves 2–4 land, with wave 5 declared and
+> blocked.
 > Reconciled 2026-09-05 at `612df45`; previously 2026-08-22 at `03df141`. The
 > residual is sequenced by the closing amendment at the foot of this document.
 
@@ -329,17 +331,14 @@ sidecar-for-content / event-for-occurrence split governs both PRDs' payloads. Th
 families of ruling 1 remain this PRD's build; the collector and its lapse voice are
 prd-27's.
 
-## Amendment — ruling 5, and the four waves that close this PRD (2026-09-05; ruling 5 blessed, the rest DRAFT)
+## Amendment — ruling 5, and the four waves that close this PRD (operator, 2026-09-05)
 
-> **DRAFT.** Drafted in session on 2026-09-05 against the tree at `612df45`, from a
-> ruling-by-ruling read of the working tree rather than of the commit subjects. The operator
-> blesses it; **wave 0 of the new Sequencing section is a decision only they can make**, and
-> nothing in that section is groomable until this amendment lands. No ruling is renumbered
-> and none is withdrawn.
->
-> **Wave 0 was put to the operator and ruled while this was being drafted**, so the amendment
-> carries **ruling 5** and its own wave 0 is already discharged. That ruling is blessed; the
-> rest of this section and the Sequencing above are not.
+> **BLESSED** — operator, in session, 2026-09-05. Drafted the same day against the tree at
+> `612df45`, from a ruling-by-ruling read of the working tree rather than of the commit
+> subjects. Three decisions were taken in that session and are recorded here: **ruling 5**
+> (wave 0, put to the operator and ruled while this was being drafted, so wave 0 is already
+> discharged); **wave 5 is one issue rather than three**; and **ship-out is at wave 4**. No
+> ruling is renumbered and none is withdrawn.
 
 Written because this PRD reached the state a Status line exists to prevent: the `prd17`
 milestone holds **no open issue** while two of four rulings are unbuilt, so the board reads
@@ -387,13 +386,20 @@ events rather than folded state, which is why this is a wave and not a programme
 dispatchable the day this amendment lands — ruling 5 discharged wave 0, so wave 3 is no
 longer blocked on a decision; wave 4's era-2 capture, which is what makes the Success
 criterion's byte-for-byte
-clause true of these families; and wave 5, one in-repo issue that waits on #217. Ship-out is
-therefore not available at wave 4: the PRD either sits at *partially shipped* until wave 5
-lands, or ships on waves 2–4 with wave 5 declared and blocked. **That choice is the
-operator's and is deliberately not made here.** What is settled is that wave 5 is one issue
-rather than three — `dispatch.brief` and `fence.declared` have no emitter in this repo to
-build, and the Sequencing's unfiled tail says so rather than booking a wave that cannot
-close.
+clause true of these families; and wave 5, one in-repo issue that waits on #217.
+
+**Ship-out is at wave 4 (operator, 2026-09-05).** This PRD closes when waves 2, 3 and 4 land;
+**wave 5 stays declared and blocked and does not hold it open.** The rejected alternative was
+sitting at *partially shipped* until wave 5 lands, which would have made this PRD's closure
+depend on an issue in another programme — the same shape as prd-44's five commits reading as
+done while `main` had never heard of them, and the reason a PRD's own status must be
+answerable from its own waves. So a shipped prd-17 will carry one declared, unbuilt wave, and
+that is deliberate rather than an oversight: the wave is where the gate's own verdict will be
+recorded when the door it writes through exists.
+
+Wave 5 is also one issue rather than three — `dispatch.brief` and `fence.declared` have no
+emitter in this repo to build, and the Sequencing's unfiled tail says so rather than booking
+a wave that cannot close.
 
 **On how this lands:** an amendment rides in the next wave PR rather than taking the queue's
 per-PR toll alone. This PRD has no wave PR open or imminent and wave 2 cannot dispatch until
