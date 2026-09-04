@@ -42,7 +42,7 @@ const FUTURE_ENTRY = {
   id: 'evt-future-1',
   ts: 5,
   source: 'system',
-  type: 'summons.raised',
+  type: 'attention.paged',
   payload: { lane: 'a' },
 }
 
@@ -93,7 +93,7 @@ describe('fetchSessionEvents', () => {
     const read = await fetchSessionEvents('s1', fetchImpl)
     expect(read.events).toEqual([event])
     expect(read.unknown).toHaveLength(1)
-    expect(read.unknown[0]?.type).toBe('summons.raised')
+    expect(read.unknown[0]?.type).toBe('attention.paged')
     expect(read.unknown[0]?.ts).toBe(5)
     // Preserved — what the API served, which is all this surface ever had.
     expect(JSON.parse(read.unknown[0]?.line ?? 'null')).toEqual(FUTURE_ENTRY)
@@ -104,7 +104,7 @@ describe('fetchSessionEvents', () => {
       jsonResponse({
         events: [
           FUTURE_ENTRY,
-          { ...FUTURE_ENTRY, id: 'evt-future-2', type: 'operator.ack' },
+          { ...FUTURE_ENTRY, id: 'evt-future-2', type: 'ledger.settled' },
           { ...FUTURE_ENTRY, id: 'evt-future-3' },
         ],
       }),
@@ -113,9 +113,9 @@ describe('fetchSessionEvents', () => {
     const read = await fetchSessionEvents('s1', fetchImpl)
     expect(read.events).toEqual([])
     expect(read.unknown.map((entry) => entry.type)).toEqual([
-      'summons.raised',
-      'operator.ack',
-      'summons.raised',
+      'attention.paged',
+      'ledger.settled',
+      'attention.paged',
     ])
   })
 })

@@ -646,8 +646,8 @@ describe('ReplayControls · end session · start fresh', () => {
 describe('ReplayControls — the unknown-era voice in the session listing', () => {
   /** Entries the way a NEWER instrument would serve them — prd17 ruling 1's own families. */
   const FUTURE_ENTRIES = [
-    { id: 'evt-future-1', ts: 2_500, source: 'system', type: 'summons.raised', payload: { lane: 'a' } },
-    { id: 'evt-future-2', ts: 2_600, source: 'system', type: 'operator.ack', payload: { at: 12 } },
+    { id: 'evt-future-1', ts: 2_500, source: 'system', type: 'attention.paged', payload: { lane: 'a' } },
+    { id: 'evt-future-2', ts: 2_600, source: 'system', type: 'ledger.settled', payload: { at: 12 } },
   ]
 
   it('says nothing about unknowns before a session is even selected', async () => {
@@ -668,7 +668,7 @@ describe('ReplayControls — the unknown-era voice in the session listing', () =
     await fireAndFlush(() => fireEvent.change(select, { target: { value: 's1' } }))
 
     expect(screen.getByTestId('replay-listing-unknown-era')).toHaveTextContent(
-      '2 events from a newer era were preserved but not understood (operator.ack, summons.raised)',
+      '2 events from a newer era were preserved but not understood (attention.paged, ledger.settled)',
     )
     // And the rest of the recording still replays — the gap is a caveat, not a refusal.
     expect(screen.getByText('Replay mode')).toBeInTheDocument()

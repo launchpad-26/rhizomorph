@@ -2192,42 +2192,42 @@ time navigation only, with `replayFold.test.ts` proving the divergence gone
 against the era-1 recording that exposed it. `docs/record-format.md` states
 the per-actor append-order law. Cross-actor ordering for a future
 multi-instrument "forest" stays anchored on the commit DAG
-(`commit.landed.parents`) rather than wall clocks. One stale witness
-remains: the original divergence fixture's prose in `reduce.test.ts` still
-describes the pre-ruling world — named as follow-up in prd17's 2026-08-24
-amendment.
+(`commit.landed.parents`) rather than wall clocks. The fixture in `reduce.test.ts` states the
+ruled world too, and the law's two halves are split where they can each be
+proven: core holds the reducer's half — that the reducer really is
+order-sensitive on those three axes, so the choice is load-bearing, and that
+the committed era-1 snapshot is the append-order fold — while
+`replayFold.test.ts` holds the implementation's. The ts-sorted fold survives
+in core only as the named counterexample that keeps the law from being a rule
+about nothing.
 
 ### Ruling 1 — the new event families (ruled, landing)
 
-Nine additive event types are ruled but only one has landed in code so far:
-`session.closed` (landed, prd16's own durability fact — a session's end is
-an event, not an absence). **Ruled, not yet landed:** `summons.raised` /
-`summons.cleared` (the instrument's own attention judgements, becoming
-events — without them, summons precision and time-in-alarm are
-uncomputable, exactly what alarm-management practice audits an alarm system
-on); `gate.verdict` / `dispatch.brief` / `fence.declared` (a fence becomes
-data the moment a lane manifest changes, closing a real gap — today a
-recording contains no fences at all, so a trespass can never be re-derived
-from the record alone); and `operator.ack` / `operator.verdict` /
-`operator.note` (the human's own acts, each stamped with the log offset
-they were decided against). Ruling 2's ingestion mechanism (a beacon
-collector tailing one-line JSON beacons `gate.sh`/`dispatch.sh` write) and
-ruling 4's timeline dividend (gate holds and summonses becoming chapter
-marks in the TIDE) are downstream of these event types existing and are
-therefore also not yet landed.
+All nine of ruling 1's event types now exist in `packages/core/src/events/`.
+`session.closed` landed first (prd16's own durability fact — a session's end is
+an event, not an absence). The other eight landed together under #219
+(2026-09-04): `summons.raised` / `summons.cleared` in `events/summons.ts`,
+`gate.verdict` / `dispatch.brief` / `fence.declared` in `events/gate.ts`, and
+`operator.ack` / `operator.verdict` / `operator.note` in `events/operator.ts`.
 
-**`gate.verdict` has since found a home of its own**, and is no longer prd17's
-open item to carry: `docs/prds/done/prd-45-the-earned-verdict.md` was blessed by the
-operator 2026-08-24 and owns it, so its shape is that milestone's to rule
-rather than this one's to restate. Two event families that were never in
-prd17's list have landed meanwhile, from the laboratory and from the judge
-rather than from this milestone: `fork.checkpoint` / `fork.dispatched` (source
-`lab`, `packages/core/src/events/lab.ts` — prd12's second hand at checkpoint
-and at dispatch) and `judge.finding` (source `judge`,
-`packages/core/src/events/judge.ts` — prd11's semantic judge, a real polled
-collector rather than a hand). See the note
-under the event envelope at the top of this file for why neither source sits
-in `eventSourceSchema`.
+**Defined, not emitted.** #219 ruled the contracts and deliberately shipped no
+emitter, so a recording cannot contain one of these yet — `eras.test.ts` lists
+all eight in its corpus gap list for that reason, and each should leave that
+list in the wave that starts emitting it. The gate and dispatch emitters, the
+UI's operator acts, and the timeline dividend (ruling 4) are all still open.
+
+The operator families carry `sessionId` plus a record LINE index rather than a
+fold count, because `eventCount` restarts at a session boundary and counts only
+events the reducer understood — see `events/operator.ts`, which states why.
+
+**A correction, 2026-09-04.** This paragraph used to say `gate.verdict` "has
+since found a home of its own" in `docs/prds/done/prd-45-the-earned-verdict.md`,
+"so its shape is that milestone's to rule rather than this one's to restate."
+That was false and nothing checked it: prd-45 rules `scripts/gate.sh`'s shell
+guards and contains no event content at all (`grep -ci event` over it returns
+0). `doc-citation-law.test.ts` could not catch it, because the law checks that a
+cited path EXISTS and that path does exist. Operator ruling, 2026-09-04: prd-17
+owns `gate.verdict`, and #219 shipped its shape accordingly.
 
 ## Testing
 

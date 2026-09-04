@@ -553,5 +553,42 @@ function oneOfEach() {
       severity: 'log',
       detectedAt: 22,
     }, { id: id(), ts: 22 }),
+    // prd17 ruling 1: the summons pair, source 'gate'.
+    createEvent('summons.raised', { lane: 'feat', kind: 'awaiting-reply', raisedAt: 23 }, {
+      id: id(),
+      ts: 23,
+    }),
+    createEvent('summons.cleared', { lane: 'feat', kind: 'awaiting-reply', clearedAt: 24 }, {
+      id: id(),
+      ts: 24,
+    }),
+    // prd17 ruling 1: the instrument's own judgements, source 'gate'.
+    createEvent('gate.verdict', {
+      handle: 'feat',
+      held: false,
+      reason: 'clean',
+      digest: 'a'.repeat(64),
+    }, { id: id(), ts: 25 }),
+    createEvent('dispatch.brief', { handle: 'feat', issue: 219, digest: 'b'.repeat(64) }, {
+      id: id(),
+      ts: 26,
+    }),
+    createEvent('fence.declared', { handle: 'feat', paths: ['packages/core/src/events/gate.ts'] }, {
+      id: id(),
+      ts: 27,
+    }),
+    // prd17 ruling 1: the operator's own hand, source 'operator'.
+    createEvent('operator.ack', { sessionId: 'sess-a', offset: 27, subject: 'feat' }, {
+      id: id(),
+      ts: 28,
+    }),
+    createEvent('operator.verdict', { sessionId: 'sess-a', offset: 28, subject: '219', verdict: 'approved' }, {
+      id: id(),
+      ts: 29,
+    }),
+    createEvent('operator.note', { sessionId: 'sess-a', offset: 29, subject: '219', text: 'landing' }, {
+      id: id(),
+      ts: 30,
+    }),
   ]
 }
