@@ -7,12 +7,24 @@
 #
 # This is an EXPECTED-VIOLATION list, not a skip list: every entry is swept
 # on every run, a new violation outside this file turns the law red, and an
-# entry whose citation no longer exceeds the live maximum (or is no longer
-# present in its file) is itself a failure — "remove this baseline entry" —
-# so the list cannot silently drift out of date. Removing an entry is an
-# ordinary PR; adding one who isn't wave-7's own #66 coupling (see the
-# docblock) should be rare enough to warrant asking why a document just
-# cited a number above the live maximum at all.
+# entry whose citation is no longer present in its file — or never exceeded
+# the ceiling below in the first place — is itself a failure, so the list
+# cannot silently drift out of date. Adding an entry that isn't wave-7's own
+# #66 coupling (see the docblock) should be rare enough to warrant asking why
+# a document just cited a number above the live maximum at all.
+#
+# The `live-maximum=` field below is LOAD-BEARING, not a note: it is the
+# ceiling these rows were measured against, and it is what the staleness
+# check compares them to. It is deliberately NOT the current ceiling. A row
+# records that a citation exceeded the ceiling on the date it was taken, and
+# that is a historical fact which does not expire when this repo files its
+# next issue. Checking it against a ceiling that climbs made an unmodified
+# tree go red — `#267 no longer exceeds the live maximum (268)` — and the
+# remedy it prescribed was wrong: `docs/roadmap.md` cites `#267` meaning the
+# prior tracker's issue, while live `#267` is an unrelated beacon collector,
+# so deleting the row would have made the corpus permanently accept a
+# citation that now resolves to something else. Re-measure the field
+# deliberately, in a reviewed commit; never edit it to make a run go green.
 #
 # Format: <repo-relative file>  #<number>, one per (file, number) pair —
 # duplicate citations of the same number in the same file collapse to one

@@ -1566,73 +1566,69 @@ function livePrMergeNumbers(subjects: string): number[] {
   return [...subjects.matchAll(/^Merge pull request #([0-9]+) from/gm)].map((m) => Number(m[1]))
 }
 
-// Memoised, not eager: a throw here (no post-reset merge found — a shallow
-// clone, or a fresh mirror with rewritten history) should fail the tests
-// that actually need the live maximum, not crash module load and take the
-// unrelated path-citation law above down with it.
 /**
- * THE EXACT live maximum, from the tracker — or `undefined`, never a guess.
+ * The ceiling this law compares against, derived offline and never asked of the network.
  *
- * WHY NOT GIT. The first version of this derived the maximum from
- * `Merge pull request #N` subjects. That is a LOWER BOUND by construction: it
- * sees merged PRs and nothing else, so an issue filed minutes ago — no pushed
- * branch, no landed commit — leaves no trace anywhere in a clone. Measured
- * 2026-09-04: git said 265, the tracker said 266, and the corpus assertion
- * failed on a legitimate live citation.
+ * TWO NUMBERS, DELIBERATELY, because they answer different questions.
  *
- * Two repairs were tried against that measurement and both are worse:
+ * `recordedMaximum()` is the ceiling the committed baseline was MEASURED against, read
+ * from `.citation-prior-tracker`'s own `live-maximum=` field. It is frozen by
+ * construction, and it has to be: a citation that exceeded the ceiling on the day it was
+ * recorded is a prior-tracker citation forever, so re-checking that historical fact
+ * against a ceiling that climbs guarantees the baseline rots out from under itself.
  *
- *  - **Widening the git evidence is not reproducible.** `(#N)` in commit
- *    subjects and numeric ref prefixes read 266 in a clone that happens to hold
- *    an unpushed branch and **252** in a fresh clone of origin. A law that
- *    passes locally and fails in CI is worse than one that under-counts
- *    consistently.
- *  - **Headroom is not available.** Citations in tracked markdown run 260, 261,
- *    262, 264, 265, 266 — live — and then 267, 269, 270, 271, 272 — prior
- *    tracker — with NO GAP. A margin of even +1 stops flagging `#267`, which
- *    occurs nine times and is exactly what this law exists to catch.
+ * `liveMaximum()` is the ceiling a NEW citation is judged against, so it must climb. It is
+ * derived every run from something the corpus being checked cannot move: every commit
+ * dated on or after the reset carries a `Merge pull request #N from <owner>/<branch>`
+ * subject when it lands a real, numbered PR. It is floored at `recordedMaximum()`, so a
+ * shallow clone or a rewritten mirror falls back to the committed measurement rather than
+ * to zero. There is no environment in which it returns nothing — that total absence of a
+ * skip path is the property the rest of this describe depends on.
  *
- * So the boundary sits precisely where git cannot see, and the number has to
- * come from the tracker.
+ * WHY NOT `gh`, MEASURED. A version of this shelled out to `gh issue list` / `gh pr list`
+ * for an exact ceiling. Two independent review seats rejected it, and both were right:
  *
- * WHY IT MAY RETURN UNDEFINED, AND WHY THAT IS NOT A HOLE. `gh` needs auth. In
- * a fork's CI, an offline checkout, or a sandbox without a token, there is no
- * honest maximum to compare against — and the one thing this function must
- * never do is hand back a bound it knows is low, because the caller would then
- * flag live citations as prior-tracker on somebody else's branch. The caller
- * SKIPS with a stated reason instead. A check that cannot be made honest is not
- * run; it is not quietly run wrong.
+ *  - **It tied an assertion to a clock nobody controls.** The head went red with no commit
+ *    and no edit, because somebody filed an issue: `#267 no longer exceeds the live
+ *    maximum (268)`. Re-measured a day later, the same tree failed on `#269` against 272 —
+ *    272 being the number of the PR that would have landed the wave. A law that reddens on
+ *    other people's activity is not a law.
+ *  - **It failed OPEN, and silently.** `gh` needs auth, and every caller met its absence
+ *    with a bare `return`, not `ctx.skip()`. EXECUTED against a `gh` shim exiting 4: this
+ *    file reported **44 passed, exit 0**, with the word "skip" appearing nowhere in the
+ *    output — the entire law vacuous and indistinguishable from a green run. The `ci.yml`
+ *    `GH_TOKEN` added to feed it declared no `permissions:` block, so a restricted default
+ *    would have bought precisely that green in CI.
+ *
+ * The section above already rejected asking GitHub at test time, for those same reasons,
+ * before it was tried. This restores that ruling rather than arguing with it.
+ *
+ * What the git derivation costs, stated plainly: it is a CONSERVATIVE LOWER BOUND. It sees
+ * merged PRs and nothing else, so a number that exists but has not landed reads as above
+ * the ceiling and needs a baseline row until it does. Erring toward rejecting a citation
+ * that happens to be current is the safe direction for a law whose whole purpose is
+ * refusing the ones that are not.
  */
-let cachedLiveMaximum: number | undefined | null
-function liveMaximum(): number | undefined {
-  if (cachedLiveMaximum !== undefined) return cachedLiveMaximum ?? undefined
-  try {
-    const out = execFileSync('gh', ['issue', 'list', '--state', 'all', '--limit', '1', '--json', 'number', '--jq', '.[0].number'], {
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-    const n = Number(out.trim())
-    // Issues and PRs share one sequence, but `issue list` does not report a PR.
-    // Take whichever is higher rather than assuming the last number filed was
-    // an issue — on this repo it is as often a PR.
-    const prOut = execFileSync('gh', ['pr', 'list', '--state', 'all', '--limit', '1', '--json', 'number', '--jq', '.[0].number'], {
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-    const p = Number(prOut.trim())
-    const max = Math.max(Number.isFinite(n) ? n : 0, Number.isFinite(p) ? p : 0)
-    if (max <= 0) {
-      cachedLiveMaximum = null
-      return undefined
-    }
-    cachedLiveMaximum = max
-    return max
-  } catch {
-    cachedLiveMaximum = null
-    return undefined
-  }
+function recordedMaximum(): number {
+  const { measured } = parseBaseline(readFileSync(BASELINE_PATH, 'utf8'))
+  const m = BASELINE_MEASURED_RE.exec(measured[0] ?? '')
+  if (m === null) throw new Error('.citation-prior-tracker has no parseable "# measured:" line')
+  return Number(m[2])
+}
+
+// Memoised, not eager: reading the baseline and shelling out to git at module
+// load would take the unrelated path-citation law above down with it on a
+// malformed file, rather than failing the tests that actually need the ceiling.
+let cachedLiveMaximum: number | undefined
+function liveMaximum(): number {
+  if (cachedLiveMaximum !== undefined) return cachedLiveMaximum
+  const subjects = execFileSync('git', ['log', '--all', `--since=${TRACKER_RESET_DATE}`, '--format=%s'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  })
+  const merged = livePrMergeNumbers(subjects)
+  cachedLiveMaximum = Math.max(merged.length > 0 ? Math.max(...merged) : 0, recordedMaximum())
+  return cachedLiveMaximum
 }
 
 interface CeilingViolation {
@@ -1760,32 +1756,10 @@ describe('citation ceiling law: a #NNN citation above the live maximum cannot en
     expect(livePrMergeNumbers(subjects)).toEqual([265, 12])
   })
 
-  /**
-   * The git lower bound is no longer the derivation, but it is still a fact,
-   * and it makes a genuine cross-check: the tracker's maximum can never be
-   * BELOW the highest PR this repo has merged. If it is, `gh` answered about
-   * the wrong repository, or auth silently fell back to something else — a
-   * failure that would otherwise present as a mysteriously permissive law
-   * rather than as an error.
-   */
-  it('the tracker maximum is never below the highest merged PR — a wrong-repo or wrong-auth answer is caught here', () => {
+  it('the derived ceiling is sane, and never below the measurement the baseline was taken at', () => {
     const max = liveMaximum()
-    if (max === undefined) return
-    const subjects = execFileSync('git', ['log', 'origin/main', `--since=${TRACKER_RESET_DATE}`, '--format=%s'], {
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-    })
-    const merged = livePrMergeNumbers(subjects)
-    if (merged.length === 0) return // shallow clone or rewritten history — the floor is unavailable, not violated
-    expect(max, `the tracker says ${max} but this repo has merged PR #${Math.max(...merged)} — gh is answering about the wrong repository`).toBeGreaterThanOrEqual(
-      Math.max(...merged),
-    )
-  })
-
-  it('the derived live maximum looks sane against the real tracker, or is honestly absent', () => {
-    const max = liveMaximum()
-    if (max === undefined) return // tracker unreachable — see the skip note below
     expect(max).toBeGreaterThan(0)
+    expect(max, 'the floor wiring is what makes a shallow clone fall back rather than read zero').toBeGreaterThanOrEqual(recordedMaximum())
     expect(max).toBeLessThan(1000) // this corpus's tracker has never exceeded three digits — see the digits note in the docblock above
   })
 
@@ -1795,7 +1769,6 @@ describe('citation ceiling law: a #NNN citation above the live maximum cannot en
 
   it('every excluded directory still trips the detector when the exclusion is bypassed — the exclusion is doing real work, not vacuous', () => {
     const liveMax = liveMaximum()
-    if (liveMax === undefined) return
     for (const dir of EXCLUDED_DIRS) {
       const files = [...new Set([...trackedFiles(`${dir}*.md`), ...trackedFiles(`${dir}**/*.md`)])]
       expect(files.length, `${dir} has no markdown files to check`).toBeGreaterThan(0)
@@ -1817,17 +1790,20 @@ describe('citation ceiling law: a #NNN citation above the live maximum cannot en
   })
 
   /**
-   * The skip is the honest branch, not a hole. `liveMaximum()` returns
-   * `undefined` only when the tracker is unreachable — no `gh`, no auth, an
-   * offline checkout. There is then no exact ceiling, and the one thing this
-   * law must not do is compare against a bound it knows is low: git's own
-   * lower bound said 265 against a true 266, and the citations either side of
-   * that line are adjacent with no gap. Flagging a live citation as
-   * prior-tracker on somebody else's branch is the failure this skip prevents.
+   * Against `recordedMaximum()`, NOT `liveMaximum()`, and that is the whole finding.
+   *
+   * A baseline row records a historical fact — "this citation exceeded the ceiling on the
+   * date this file was measured" — and that fact does not expire when the repo files its
+   * next issue. Checked against a climbing ceiling it does expire, on a timer nobody set:
+   * `#267 no longer exceeds the live maximum (268)` reddened an unmodified tree, and the
+   * remedy the message prescribed ("remove this baseline entry") was WRONG. `docs/roadmap.md`
+   * cites `#267` meaning the prior tracker's issue; live `#267` is an unrelated beacon
+   * collector. Dropping the row would have made the corpus permanently accept a citation
+   * that now resolves to something else — the exact ambiguity `#66`'s note exists to warn
+   * about, written into the law as an instruction.
    */
   it('every baseline entry is still a genuine violation — a stale entry would silently widen the law', () => {
-    const liveMax = liveMaximum()
-    if (liveMax === undefined) return
+    const recordedMax = recordedMaximum()
     const { entries } = parseBaseline(readFileSync(BASELINE_PATH, 'utf8'))
     for (const { file, num } of entries) {
       const filePath = path.join(REPO_ROOT, file)
@@ -1836,13 +1812,15 @@ describe('citation ceiling law: a #NNN citation above the live maximum cannot en
       const raw = readFileSync(filePath, 'utf8')
       const text = stripFencedCodeBlocks(raw)
       expect(extractIssueCitations(text), `${file} no longer cites #${num} — this baseline entry is stale`).toContain(num)
-      expect(num, `#${num} no longer exceeds the live maximum (${liveMax}) — remove this baseline entry, ${file} is fixed`).toBeGreaterThan(liveMax)
+      expect(
+        num,
+        `#${num} does not exceed the ceiling this baseline was measured at (${recordedMax}) — it was never a violation, so this row is wrong and ${file} needs re-measuring, NOT the row deleted`,
+      ).toBeGreaterThan(recordedMax)
     }
   })
 
   it('the corpus, swept for real, carries no ceiling violation outside the committed baseline', () => {
     const liveMax = liveMaximum()
-    if (liveMax === undefined) return
     const { entries: baselineEntries } = parseBaseline(readFileSync(BASELINE_PATH, 'utf8'))
     const violations = ceilingViolationsIn(issueCitationEntries(), liveMax, baselineSet(baselineEntries))
     expect(violations, JSON.stringify(violations)).toEqual([])
