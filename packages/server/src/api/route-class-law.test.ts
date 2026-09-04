@@ -86,12 +86,12 @@ describe('the route-class law (prd-23 ruling 5)', () => {
     // `api/otel.ts`'s four routes live inside their own `app.register(...)`
     // plugin — the plugin queue only actually runs its routes once `ready()`
     // resolves, so reading `registeredRoutes` any earlier would silently miss
-    // them and this law would walk vacuously over the other 21.
+    // them and this law would walk vacuously over the other 22.
     //
     // Both numbers are derived, not typed: the four are `ROUTE_CLASSES`'
     // `ungated-mutation` rows, which ARE the OTLP inbox (`/v1/metrics`,
     // `/v1/logs`, `/v1/traces` and the bare-path fallback `POST /`, ADR-0018),
-    // and 21 is the 25 asserted below minus those four. Re-derive rather than
+    // and 22 is the 26 asserted below minus those four. Re-derive rather than
     // trust: the previous wording said "three" and "14", which was true before
     // ADR-0018 added the fallback and never updated. #232's own ruling is that
     // a count stated in prose is derived from the thing it counts.
@@ -108,9 +108,10 @@ describe('the route-class law (prd-23 ruling 5)', () => {
     // 23 -> 25: the lane index's two reads (prd-31 ruling 5, #556) —
     // `/api/lane-index` and `/api/lane-index/:handle`. prd-29 ruling 7 (#58,
     // #59) reclassifies six existing rows to `gated-read` and adds none, so
-    // the count is unchanged.
-    expect(routes.length).toBe(25)
-    expect(ROUTE_CLASSES.length).toBe(25)
+    // the count is unchanged. 25 -> 26: prd-17 ruling 1's operator door
+    // (#276), `POST /api/operator/:act` — one route, three acts.
+    expect(routes.length).toBe(26)
+    expect(ROUTE_CLASSES.length).toBe(26)
 
     await app.close()
   })
@@ -153,20 +154,22 @@ describe('the route-class law (prd-23 ruling 5)', () => {
 
     // Every `gated-*` row's real route holds the capability gate, and every
     // plain `read`/`ungated-mutation` holds none. Deleting a `preHandler` from
-    // any of the twenty gated routes turns this red — that is the law biting.
+    // any of the twenty-one gated routes turns this red — that is the law
+    // biting.
     expect(gatePresenceViolations(routes, ROUTE_CLASSES)).toEqual([])
 
     // A count pinned independently, so the walk cannot pass vacuously by
-    // matching zero gated routes: six gated mutations + seven gated reads
-    // (prd-29 wave 1) + four gated reads (prd-29 wave 1b, ruling 7, #58) +
-    // two gated reads (prd-29 wave 2a, ruling 7, #59) + one gated read
-    // (prd-29 wave 2b, ruling 4, #60 — `/api/stream`). If this number and the
-    // walk above disagree with the table, they cannot both pass.
+    // matching zero gated routes: seven gated mutations (six plus prd-17
+    // ruling 1's operator door, #276) + seven gated reads (prd-29 wave 1) +
+    // four gated reads (prd-29 wave 1b, ruling 7, #58) + two gated reads
+    // (prd-29 wave 2a, ruling 7, #59) + one gated read (prd-29 wave 2b,
+    // ruling 4, #60 — `/api/stream`). If this number and the walk above
+    // disagree with the table, they cannot both pass.
     const gatedFound = routes.filter((route) => {
       const entry = classify(route, ROUTE_CLASSES)
       return entry !== undefined && isGated(entry) && route.hasCapabilityGate
     })
-    expect(gatedFound.length).toBe(20)
+    expect(gatedFound.length).toBe(21)
 
     await app.close()
   })
