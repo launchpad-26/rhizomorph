@@ -1284,13 +1284,31 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     //
     // 1. A quoted destructure key. `ALIAS_PATTERNS` requires `fetch` adjacent
     //    to its colon (`\bfetch\s*:`), and a quote sits between the word and
-    //    the colon here, so it does not match — correctly, since biome's
-    //    `useLiteralKeys` flags an unnecessary quote on an identifier-safe
-    //    property name and this spelling cannot pass this repo's own lint.
-    //    Recorded OUT of the vocabulary: it is not a shape this codebase can
-    //    ship, not a gap in the pattern.
+    //    the colon here, so it does not match. Recorded OUT because the
+    //    vocabulary #23 named does not include quoted or computed keys — a
+    //    boundary decision, NOT a claim that the spelling is unreachable.
+    //
+    //    This row said until review of #272 that biome's `useLiteralKeys`
+    //    would reject the quote and so the spelling "cannot ship past this
+    //    repo's own lint". That was false, and it is the failure this file
+    //    exists to catch — prose asserting something about the repo that the
+    //    repo does not do. `biome.json` sets `"preset": "none"` and enables
+    //    only `correctness` and `suspicious`; `useLiteralKeys` lives in
+    //    `complexity`, which is enabled nowhere, and the one `overrides` entry
+    //    only turns a correctness rule OFF for test files. EXECUTED: biome
+    //    reports no diagnostic on this spelling, and a real aliased outbound
+    //    call written this way under a swept root leaves this law GREEN where
+    //    the bare-key form reddens it.
+    //
+    //    So this row pins a genuine blind spot rather than an impossible
+    //    shape, and it has two siblings in the same position — `{ "fetch":
+    //    send }` and `{ ['fetch']: send }` — which `\bfetch\s*:` misses for
+    //    the identical reason and which lint does not stop either. Whether to
+    //    bring all three IN by widening the key fragment is #234's open
+    //    question, deliberately not decided here; what changed is only that
+    //    the stated reason is now true.
     [
-      'a quoted destructure key cannot ship past this repo\'s lint, so it stays out of the vocabulary (#234)',
+      'a quoted destructure key is outside the named vocabulary — recorded OUT by decision, not because lint forbids it (#234)',
       "const { 'fetch': send } = globalThis",
       0,
     ],
