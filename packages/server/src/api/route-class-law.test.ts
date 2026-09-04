@@ -1091,6 +1091,30 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     new RegExp(String.raw`(${TYPEOF_PREFIX})?${GLOBAL_OBJECTS}\s*\??\.?\s*\[\s*['"\`]fetch['"\`]\s*\]`, 'g'),
   ]
   const DESTRUCTURE_INNER = String.raw`(?:[^{}]|\{[^{}]*\})*`
+  /**
+   * The KEY half of a renamed destructure, all five spellings of it (#234, review of #272).
+   *
+   * This was `\bfetch` alone until the review, which pinned the bare key and missed every
+   * other way of writing the same construct. That is not a vocabulary boundary, it is a
+   * hole: EXECUTED, a real aliased outbound call written `const { 'fetch': send } =
+   * globalThis` under a swept root left this law GREEN, while the identical call with a
+   * bare key reddened it. The law backs README's exhaustiveness claim — "exactly these ten
+   * modules and thirteen call sites" — so a shippable spelling it cannot see is a count
+   * that can go silently wrong in a trust document.
+   *
+   * #23 narrowed the README's claim to a NAMED VOCABULARY, and that boundary still holds
+   * and still excludes things: a `node:http2` import, a type member, a destructuring
+   * parameter. But the vocabulary names CONSTRUCTS, not spellings. A quoted or computed
+   * key is the same construct as the bare one — a renamed destructure of `globalThis.fetch`
+   * — so excluding a spelling of an included construct is exactly what makes the count
+   * wrong. The three spellings come IN.
+   *
+   * Quote pairs are alternated rather than written `['"]fetch['"]`, which would match the
+   * mismatched `'fetch"`. Alternation, not a backreference: `\1` would bind to whatever
+   * group `DESTRUCTURE_INNER` happens to open, the coupling that rots when that constant
+   * changes.
+   */
+  const DESTRUCTURE_KEY = String.raw`(?:\bfetch|'fetch'|"fetch"|\[\s*'fetch'\s*\]|\[\s*"fetch"\s*\])`
   const ALIAS_PATTERNS: readonly RegExp[] = [
     new RegExp(
       // `\b(?:const|let|var)\s*` — a destructure begins at a DECLARATION.
@@ -1114,7 +1138,7 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
       // this row's neighbourhood a formatter can actually produce.
       // Measured: a pathological 4,000-key input matches in 1ms, so the
       // nested alternation carries no backtracking risk at file scale.
-      String.raw`\b(?:const|let|var)\s*\{${DESTRUCTURE_INNER}\bfetch\s*:\s*\w+${DESTRUCTURE_INNER}\}\s*(?::[^=;{}]*)?=\s*${GLOBAL_OBJECTS}\b`,
+      String.raw`\b(?:const|let|var)\s*\{${DESTRUCTURE_INNER}${DESTRUCTURE_KEY}\s*:\s*\w+${DESTRUCTURE_INNER}\}\s*(?::[^=;{}]*)?=\s*${GLOBAL_OBJECTS}\b`,
       'g',
     ),
   ]
@@ -1282,36 +1306,32 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     // narrowed that claim to a named vocabulary precisely so a candidate could
     // be decided rather than chased forever) — decided here, not merely noted.
     //
-    // 1. A quoted destructure key. `ALIAS_PATTERNS` requires `fetch` adjacent
-    //    to its colon (`\bfetch\s*:`), and a quote sits between the word and
-    //    the colon here, so it does not match. Recorded OUT because the
-    //    vocabulary #23 named does not include quoted or computed keys — a
-    //    boundary decision, NOT a claim that the spelling is unreachable.
+    // 1. A quoted or computed destructure key is IN — all three spellings
+    //    (#234, decided on review of #272; the open question that review left
+    //    is closed here rather than carried).
     //
-    //    This row said until review of #272 that biome's `useLiteralKeys`
-    //    would reject the quote and so the spelling "cannot ship past this
-    //    repo's own lint". That was false, and it is the failure this file
-    //    exists to catch — prose asserting something about the repo that the
-    //    repo does not do. `biome.json` sets `"preset": "none"` and enables
-    //    only `correctness` and `suspicious`; `useLiteralKeys` lives in
-    //    `complexity`, which is enabled nowhere, and the one `overrides` entry
-    //    only turns a correctness rule OFF for test files. EXECUTED: biome
-    //    reports no diagnostic on this spelling, and a real aliased outbound
-    //    call written this way under a swept root leaves this law GREEN where
-    //    the bare-key form reddens it.
+    //    The row asserted 0 twice, on two different reasons. The FIRST said
+    //    biome's `useLiteralKeys` made the spelling unshippable; that was
+    //    false — `biome.json` sets `"preset": "none"` and enables only
+    //    `correctness` and `suspicious`, while `useLiteralKeys` lives in
+    //    `complexity`, enabled nowhere. The SECOND, honest, said the spelling
+    //    sits outside the vocabulary #23 named, and recorded underneath that
+    //    this pinned a real blind spot.
     //
-    //    So this row pins a genuine blind spot rather than an impossible
-    //    shape, and it has two siblings in the same position — `{ "fetch":
-    //    send }` and `{ ['fetch']: send }` — which `\bfetch\s*:` misses for
-    //    the identical reason and which lint does not stop either. Whether to
-    //    bring all three IN by widening the key fragment is #234's open
-    //    question, deliberately not decided here; what changed is only that
-    //    the stated reason is now true.
-    [
-      'a quoted destructure key is outside the named vocabulary — recorded OUT by decision, not because lint forbids it (#234)',
-      "const { 'fetch': send } = globalThis",
-      0,
-    ],
+    //    It did, and that is why it is now IN. EXECUTED on review: a real
+    //    aliased outbound call written `const { 'fetch': send } = globalThis`
+    //    under a swept root left this law GREEN, while the identical call with
+    //    a bare key reddened it. #23's vocabulary names CONSTRUCTS, not
+    //    spellings — a quoted or computed key is the same renamed destructure
+    //    of `globalThis.fetch` — so excluding one spelling of an included
+    //    construct is what makes README's "ten modules and thirteen call
+    //    sites" able to go quietly wrong. See `DESTRUCTURE_KEY` above.
+    //
+    //    Revert `DESTRUCTURE_KEY` to `\bfetch` and all three rows below go
+    //    from 1 to 0 — the mutation this decision rests on.
+    ['a single-quoted destructure key is the same call site (#234)', "const { 'fetch': send } = globalThis", 1],
+    ['a double-quoted destructure key is the same call site (#234)', 'const { "fetch": send } = globalThis', 1],
+    ['a computed destructure key is the same call site (#234)', "const { ['fetch']: send } = globalThis", 1],
     // 2. A dynamic import of a module the vocabulary never named. `http2` has
     //    no request/get/sendBeacon surface this law recognises and README's
     //    paragraph promises `http`/`https` only — recorded OUT, not a miss.
