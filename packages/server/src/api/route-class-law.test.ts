@@ -501,6 +501,45 @@ describe('every recognised route-count claim is derived from ROUTE_CLASSES, in w
   const SWEEP_EXCLUDED_PREFIXES = ['docs/adr/', 'docs/review/', 'docs/prds/'] as const
   const THIS_FILE_REL = 'packages/server/src/api/route-class-law.test.ts'
 
+  /**
+   * THE SWEEPING TESTS' BUDGET — #270, #266.
+   *
+   * `sweptFiles()` shells out to `git ls-files` and then reads EVERY tracked
+   * file with a swept extension. That is hundreds of synchronous reads inside
+   * one `it`, and vitest's default 5000 ms was never enough for it under load.
+   * Measured on one machine, one commit, 2026-09-04 (#270):
+   *
+   *   run alone                     ~4.2 s   88/88 pass
+   *   under VITEST_MAX_WORKERS=6     5.8 s   timeout
+   *   under the same load            8.1 s   timeout
+   *   under the same load           11.1 s   timeout
+   *
+   * So the default was marginal even in isolation. One failing run named the
+   * cause in its own output — `Preparing worktree (detached HEAD ...)`, a
+   * concurrent law test creating git worktrees while this one shells out to
+   * git.
+   *
+   * **Read the failure, not the test name, if this ever goes red.** The failure
+   * was `Error: Test timed out in 5000ms`, never an assertion — but the test is
+   * named for an undeclared route-count claim, so twice in one session a reader
+   * concluded the sweep had FOUND one and went looking for it. It had not.
+   *
+   * EVERY sweeping test carries this, not just the slow one. Raising one and
+   * leaving its sibling on the default to time out next month is the shape this
+   * repo names most often, and it is the shape #266's first draft had: it
+   * raised the completeness sweep and left `reads a non-empty file set` — which
+   * calls the same `sweptFiles()` — on 5000 ms.
+   *
+   * WHAT THIS IS NOT. It is a catastrophe backstop, never the regression guard.
+   * #266 cut the sweep's cost roughly six-fold, and a verify pass then showed
+   * that reverting that fix left every semantic test green well inside this
+   * ceiling — so a wall-clock bound cannot be what protects it. The structural
+   * assertion below ("the sweep normalises each swept file once") is the guard.
+   * If a future reader sees these tests near 30 s again, the answer is to make
+   * the sweep cheaper, not to raise the number.
+   */
+  const SWEEP_TIMEOUT_MS = 30_000
+
   function sweptFiles(): string[] {
     const out = execFileSync('git', ['ls-files', '-z'], { cwd: REPO_ROOT, encoding: 'utf8' })
     return out
@@ -513,7 +552,7 @@ describe('every recognised route-count claim is derived from ROUTE_CLASSES, in w
 
   it('the completeness sweep reads a non-empty file set — a sweep matching nothing would pass vacuously', () => {
     expect(sweptFiles().length).toBeGreaterThan(50)
-  })
+  }, SWEEP_TIMEOUT_MS)
 
   /** Git emits `/` from `ls-files` on every platform, independently of `path.sep`. */
   function claimKey(file: readonly string[], pattern: RegExp): string {
@@ -610,19 +649,13 @@ describe('every recognised route-count claim is derived from ROUTE_CLASSES, in w
 
   it('no swept file states a recognised route-count claim that no CLAIMS row declares', () => {
     expect(sweepUnregistered()).toEqual([])
-    // Explicit, not the 5000 ms default: this sweep's cost grows with the repo,
-    // and the default left it 270 ms of headroom on the machine it was written
-    // on while exceeding the budget on `macos-latest` (#266). 30 s is a
-    // catastrophe backstop and NOT the regression guard — reverting the hoist
-    // lands near 3.2 s, which clears this ceiling silently. The test below is
-    // the guard. If a future reader sees this test near 30 s again, the answer
-    // is to make the sweep cheaper, not to raise the number.
-  }, 30_000)
+    // Budget and its rationale: SWEEP_TIMEOUT_MS above.
+  }, SWEEP_TIMEOUT_MS)
 
   /**
    * The regression guard for the hoist, structural rather than wall-clock.
    *
-   * The verify pass on #266 established that the 30 s ceiling above could not
+   * The verify pass on #266 established that `SWEEP_TIMEOUT_MS` could not
    * fail for the reason it claimed: moving the normalisation back inside the
    * (file, claim) loop left every semantic test green at roughly 3.2 s, so the
    * exact regression the fix exists to prevent survived its own timeout. A
@@ -648,7 +681,7 @@ describe('every recognised route-count claim is derived from ROUTE_CLASSES, in w
 
     expect(sweepUnregistered(counted)).toEqual([])
     expect(calls).toBe(expected)
-  }, 30_000)
+  }, SWEEP_TIMEOUT_MS)
 
   it('every claimed file actually exists under REPO_ROOT — a moved file must fail loudly, not read as zero claims', () => {
     for (const claim of CLAIMS) {
