@@ -275,12 +275,11 @@ objects those refs require, worktrees it creates itself under
 `~/.local/share/rhizomorph/lab/worktrees/` (a sibling of the recording
 directory above, never inside the repo you're watching), the checkpoint's ref
 and its event-log entry alongside that recording directory, and — not beside
-the worktrees directory, but into the harness's own `~/.claude/projects/<slug>/`
-tree — the synthesized session, so a forked arm is a session Claude Code itself
-can resume
+the worktrees directory, but into the harness's own
+`~/.claude/projects/<slug>/` tree — the synthesized session, so a forked arm
+is a session Claude Code itself can resume
 ([ADR-0032](docs/adr/0032-synthesized-sessions-live-in-the-harness-projects-tree.md)).
-It never
-pushes, never merges, and never checks out or rewrites a branch that
+It never pushes, never merges, and never checks out or rewrites a branch that
 already exists. The one write that lands outside those namespaces is never
 silent or automatic: pass `lab fork --launch` (or click the dashboard's
 launch button, which always sets it) and it hands the dispatch off to
