@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { appendFile, chmod, mkdir, mkdtemp, readdir, readFile, rm, unlink, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, readdir, readFile, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -12,11 +12,41 @@ import {
   mergeCapabilities,
   type RhizomorphEvent,
 } from '@rhizomorph/core'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { withResilience } from '../resilience.js'
 import { SESSIONLOG_CAPABILITIES } from '../sessionlog/collector.js'
 import { BEACON_CAPABILITIES, createBeaconCollector } from './collector.js'
 import { beaconDirFor } from './paths.js'
+
+/**
+ * One injectable read fault, for the "present but unreadable this tick" case.
+ *
+ * The first form of that test made the file unreadable with `chmod 0o000`,
+ * which proves nothing on win32: Node's chmod there toggles the read-only
+ * attribute and the file opens fine, so the leg read four beacons where the
+ * test expected none (EXECUTED on #267's windows-suite run). The fault class
+ * the collector guards against — EACCES while a writer re-permissions, EMFILE,
+ * a share lock — is a *failed open of a file that is still there*, and the
+ * honest way to produce exactly that on every OS is to fail the read once at
+ * the seam the collector already goes through. Everything else in this file
+ * reaches the real filesystem; the passthrough below is the real function.
+ */
+const readFault = vi.hoisted(() => ({ armed: false }))
+vi.mock('./read-beacon-lines.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./read-beacon-lines.js')>()
+  return {
+    ...actual,
+    readBeaconLines: async (...args: Parameters<typeof actual.readBeaconLines>) => {
+      if (readFault.armed) {
+        readFault.armed = false
+        const error = new Error('EMFILE: too many open files') as NodeJS.ErrnoException
+        error.code = 'EMFILE'
+        throw error
+      }
+      return actual.readBeaconLines(...args)
+    },
+  }
+})
 
 const FIXTURE_PATH = path.join(import.meta.dirname, 'fixtures', 'claude-hook.jsonl')
 const FIXTURE = readFileSync(FIXTURE_PATH, 'utf8')
@@ -241,12 +271,12 @@ describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
 
       const fourth = '{"v":1,"at":1725000003000,"writer":"claude-hook","kind":"landed"}'
       await appendFile(file, `${fourth}\n`)
-      await chmod(file, 0o000)
+      readFault.armed = true // the next open of a beacon file fails, once — see the mock at the top of this file
       const second = await collector.poll(first.nextSnapshot, context())
+      expect(readFault.armed).toBe(false) // the fault was actually consumed by this tick
       expect(second.events).toEqual([])
       expect(second.nextSnapshot.files['claude-hook.jsonl']?.offset).toBe(first.nextSnapshot.files['claude-hook.jsonl']?.offset)
 
-      await chmod(file, 0o644)
       const third = await collector.poll(second.nextSnapshot, context())
       const beacons = ofType(third.events, 'beacon.received')
       expect(beacons).toHaveLength(1)
