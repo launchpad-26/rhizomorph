@@ -38,6 +38,22 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Added
 
+- **The beacon door exists (prd-27 ruling 1 / prd-17 ruling 2, #217).** A seventh
+  collector, `beacon`, tails every `*.jsonl` file in the watched repo's own beacon
+  directory — `<data root>/<repo slug>/beacons/`, beside its recordings — and
+  records each one-line JSON beacon as a `beacon.received` event carrying who
+  wrote it, what kind, which lane, when (the writer's own clock), and a sha256
+  digest pointing back at the line. A malformed line — a blank one included — is
+  skipped, counted and named in one `collector.error` per file per tick, never
+  fatal, and every event's byte offset points at the bytes it digests. No route,
+  no token, no server needed at the moment a hook writes
+  ([ADR-0036](docs/adr/0036-a-beacon-is-a-line-in-a-watched-directory.md)
+  records the directory and line contract, and why a file beat a route).
+  Nothing folds a beacon yet and no emitter writes one yet: the collector's own
+  manifest says `attention: absent` with the reason, and the provenance bar still
+  lists five sources — declared attention, its lapse and the hook emitter are
+  prd-27's next waves (#218).
+
 - **The native Windows suite result is a committed list of files, not a number
   (prd-25 wave 3, #212).** `.github/workflows/windows-suite.yml` runs the full
   suite on `windows-latest` on every push and holds it to

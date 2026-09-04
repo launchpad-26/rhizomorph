@@ -61,7 +61,8 @@ runtime-validated at the collector boundary, inferred TS types everywhere
 else:
 
 ```ts
-{ id, ts, source: 'git' | 'tmux' | 'workmux' | 'system' | 'sessionlog' | 'otel', type, payload }
+{ id, ts, source: 'git' | 'tmux' | 'workmux' | 'system' | 'sessionlog' | 'otel' | 'beacon'
+        | 'gate' | 'operator', type, payload }
 ```
 
 `eventSourceSchema` (`packages/core/src/events/common.ts`) is that union's
@@ -71,7 +72,16 @@ collector — so a reader counting sources should count them there rather than
 here. Two actors sit deliberately *outside* the enum and widen that map by
 exactly one literal each, which is how the code says they are not collectors:
 `lab`, prd12's explicitly-invoked second hand (`events/lab.ts`), and `judge`,
-prd11's semantic judge (`events/judge.ts`).
+prd11's semantic judge (`events/judge.ts`). `beacon` is the counter-example
+that shows the rule: it is a real polled collector behind the poll loop,
+tailing one rhizomorph-owned directory of one-line JSON beacons
+(`packages/server/src/collectors/beacon/`, [ADR-0036](adr/0036-a-beacon-is-a-line-in-a-watched-directory.md)),
+so it joined the enum outright as its seventh member (#217, prd-27 wave 1).
+`operator` (#219) is the one member that is *not* a collector: prd17 ruling 1
+puts the human's own acts in the record, and an event has to name the actor
+that produced it, so the enum is an actor union that is mostly collectors
+rather than a collector roster — `events/common.ts` states why, and why that
+is not a precedent for folding `lab` in.
 
 v0 event types:
 
@@ -2209,6 +2219,13 @@ an event, not an absence). The other eight landed together under #219
 (2026-09-04): `summons.raised` / `summons.cleared` in `events/summons.ts`,
 `gate.verdict` / `dispatch.brief` / `fence.declared` in `events/gate.ts`, and
 `operator.ack` / `operator.verdict` / `operator.note` in `events/operator.ts`.
+
+Ruling 2's door has landed alongside them: the beacon collector tails one-line
+JSON beacons in one rhizomorph-owned directory (#217, prd-27 wave 1,
+[ADR-0036](adr/0036-a-beacon-is-a-line-in-a-watched-directory.md)), and
+`beacon` is a member of `eventSourceSchema` rather than a widening literal
+because it is a real polled collector. What `gate.sh`/`dispatch.sh` will write
+through that door is still nobody's — the door exists, no writer uses it yet.
 
 **Defined, not emitted.** #219 ruled the contracts and deliberately shipped no
 emitter, so a recording cannot contain one of these yet — `eras.test.ts` lists

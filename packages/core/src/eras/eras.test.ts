@@ -101,6 +101,7 @@ describe('the golden era corpus', () => {
     // reason, and each should leave it in the wave that starts emitting it.
     expect(EVENT_TYPES.filter((type) => !covered.has(type)).sort()).toEqual([
       'agent.removed',
+      'beacon.received',
       'collector.degraded',
       'collector.disabled',
       'collector.error',

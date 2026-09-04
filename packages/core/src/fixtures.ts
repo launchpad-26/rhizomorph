@@ -50,6 +50,7 @@ export interface EventFactory {
   sessionStarted(payload?: Partial<PayloadOf<'session.started'>>, init?: Init<'session.started'>): EventOf<'session.started'>
   /** prd16 ruling 2 / prd17 ruling 1: the last line of a rotated-away log. */
   sessionClosed(payload?: Partial<PayloadOf<'session.closed'>>, init?: Init<'session.closed'>): EventOf<'session.closed'>
+  beaconReceived(payload?: Partial<PayloadOf<'beacon.received'>>, init?: Init<'beacon.received'>): EventOf<'beacon.received'>
   collectorError(payload?: Partial<PayloadOf<'collector.error'>>, init?: Init<'collector.error'>): EventOf<'collector.error'>
   collectorDisabled(payload?: Partial<PayloadOf<'collector.disabled'>>, init?: Init<'collector.disabled'>): EventOf<'collector.disabled'>
   collectorDegraded(payload?: Partial<PayloadOf<'collector.degraded'>>, init?: Init<'collector.degraded'>): EventOf<'collector.degraded'>
@@ -158,6 +159,14 @@ const defaults = {
     mainBranch: 'main',
   },
   'session.closed': { sessionId: 'session-fixture', reason: 'rotated', eventCount: 12 },
+  'beacon.received': {
+    writer: 'claude-hook',
+    kind: 'waiting',
+    lane: '2-core',
+    digest: '0'.repeat(64),
+    file: 'claude-hook.jsonl',
+    offset: 0,
+  },
   'collector.error': { collector: 'git', message: 'git worktree list exited 128' },
   'collector.disabled': { collector: 'workmux', reason: 'workmux not found on PATH' },
   'collector.degraded': {
@@ -396,6 +405,7 @@ export function createEventFactory(options: EventFactoryOptions = {}): EventFact
     make,
     sessionStarted: sugar('session.started'),
     sessionClosed: sugar('session.closed'),
+    beaconReceived: sugar('beacon.received'),
     collectorError: sugar('collector.error'),
     collectorDisabled: sugar('collector.disabled'),
     collectorDegraded: sugar('collector.degraded'),

@@ -181,6 +181,10 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
       // ruling 1 may give the close a home in state; until something needs to
       // read it, inventing one would be a field with no reader.
       return state
+    // ADR-0036: beacon occurrences are preserved in the log. #218 decides
+    // which of them becomes a folded attention signal.
+    case 'beacon.received':
+      return state
     case 'collector.error':
       return collectorError(state, event)
     case 'collector.disabled':

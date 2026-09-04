@@ -1892,3 +1892,39 @@ describe('reduce — the fold-order law: append order is the truth (prd17 ruling
     })
   })
 })
+
+describe('reduce — beacon.received is recorded, not yet folded (prd-27 w1, #217; ADR-0036)', () => {
+  // The arm returns `state` on purpose: a beacon's meaning is a per-lane,
+  // per-kind reading that #218 (declared attention and its lapse) and #219
+  // (the conduct tooling's decisions) own. Until a reader exists, the fold
+  // must not invent a home — `session.closed`'s own reasoning. This law pins
+  // that: a beacon changes only the envelope bookkeeping every event changes.
+  it('changes nothing but the envelope bookkeeping', () => {
+    const base = reduceAll(fixtureSession())
+    const after = reduce(base, f.beaconReceived({ kind: 'waiting', lane: '2-core' }, { ts: (base.lastEventTs ?? 0) + 1 }))
+    expect(after.eventCount).toBe(base.eventCount + 1)
+    expect(after.lastEventTs).toBe((base.lastEventTs ?? 0) + 1)
+    expect({ ...after, eventCount: base.eventCount, lastEventTs: base.lastEventTs }).toEqual(base)
+  })
+
+  it('folds to the same canonical state with or without a run of beacons, envelope aside', () => {
+    const events = fixtureSession()
+    const beacons = [
+      f.beaconReceived({ kind: 'waiting' }, { ts: 10 }),
+      f.beaconReceived({ kind: 'working', lane: null }, { ts: 11 }),
+      f.beaconReceived({ kind: 'landed', writer: 'gate', detail: 'prd27 w1' }, { ts: 12 }),
+    ]
+    const alone = reduceAll(events)
+    const both = reduceAll([...events, ...beacons])
+    expect(both.eventCount).toBe(alone.eventCount + beacons.length)
+    expect(canonicalStateJson({ ...both, eventCount: alone.eventCount, lastEventTs: alone.lastEventTs })).toBe(canonicalStateJson(alone))
+  })
+
+  it('is pure for this arm too — the input state is untouched and no reference is shared into the fold', () => {
+    const before = reduceAll(fixtureSession())
+    const snapshot = JSON.parse(JSON.stringify(before)) as unknown
+    const after = reduce(before, f.beaconReceived())
+    expect(before).toEqual(snapshot)
+    expect(after).not.toBe(before)
+  })
+})

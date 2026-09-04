@@ -1,0 +1,3 @@
+{"v":1,"at":1725000000000,"writer":"claude-hook","kind":"waiting","lane":"2-core","detail":"permission: Bash"}
+{"v":1,"at":1725000001000,"writer":"claude-hook","kind":"working","lane":"2-core","extra":"ignored but digested"}
+{"v":1,"at":1725000002000,"writer":"claude-hook","kind":"stopped"}

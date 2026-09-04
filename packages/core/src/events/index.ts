@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { nonEmptyString, timestampSchema, type EventSource } from './common.js'
+import { beaconEventSchemas } from './beacon.js'
 import { gateEventSchemas } from './gate.js'
 import { gitEventSchemas } from './git.js'
 import { judgeEventSchemas } from './judge.js'
@@ -13,6 +14,7 @@ import { traceEventSchemas } from './trace.js'
 import { workmuxEventSchemas } from './workmux.js'
 
 export * from './common.js'
+export * from './beacon.js'
 export * from './gate.js'
 export * from './git.js'
 export * from './judge.js'
@@ -35,6 +37,7 @@ export const rhizomorphEventSchema = z.discriminatedUnion('type', [
   ...traceEventSchemas,
   ...labEventSchemas,
   ...judgeEventSchemas,
+  ...beaconEventSchemas,
   ...summonsEventSchemas,
   ...gateEventSchemas,
   ...operatorEventSchemas,
@@ -77,6 +80,7 @@ export const EVENT_SOURCE_BY_TYPE = {
   // prd16 ruling 2 / prd17 ruling 1: the recorder's own hand closing a log.
   // `system`, like the start it terminates — no collector ever emits it.
   'session.closed': 'system',
+  'beacon.received': 'beacon',
   'collector.error': 'system',
   'collector.disabled': 'system',
   'collector.degraded': 'system',

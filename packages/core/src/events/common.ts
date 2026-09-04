@@ -21,6 +21,13 @@ export const eventSourceSchema = z.enum([
   // can name itself without widening this enum per harness.
   'sessionlog',
   'otel',
+  // prd-27 wave 1 (#217), landing prd17 ruling 2's door: a collector that
+  // tails one rhizomorph-owned directory of one-line JSON beacons
+  // (ADR-0036, collectors/beacon/). It runs behind the poll loop and reports
+  // what it saw, so it is a collector in exactly the sense this enum has
+  // always meant — which is why it joins outright where `lab` and `judge`
+  // deliberately do not.
+  'beacon',
   // prd17 ruling 1: the landing gate and the dispatch tooling around it —
   // events/gate.ts's three families and the summons pair. Collector-shaped in
   // the sense this enum has always meant: something that watches the swarm and

@@ -129,6 +129,10 @@ function allFamilies(f: EventFactory) {
     f.forkCheckpoint(),
     f.forkDispatched(),
     f.judgeFinding(),
+    // prd-27 wave 1's family (#217). The same law caught it: this branch added
+    // `beacon.received` to the union while #219 was adding its eight, and the
+    // set-equality below reddened on the merge rather than after it.
+    f.beaconReceived(),
     // prd17 ruling 1's families (#219), added under that issue's recorded fence
     // widening. This law set-equates against EVENT_TYPES precisely so a new
     // family cannot evade the identity check — so eight new families reddening
