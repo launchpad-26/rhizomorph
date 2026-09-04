@@ -219,6 +219,7 @@ agree` · `prd43 w4: the README's recipes are run by the suite` (ruling 5).
 
 **Wave 5 — the sweep, last.** `prd43 w5: the README states where lab sessions live` — downstream
 of wave 0's ADR, and last because it is the one correction whose *content* is decided elsewhere.
+
 **Amended 2026-09-04 — wave 5 is stranded, and the order out of it is forced.** `#235` is
 blocked by `#220` (prd-30 **wave 3** — the `title=` adoption sweep; prd-30's own Sequencing
 lists it as item 3 and its amendment says "the sweep is `#220` as one issue", so do not copy the
@@ -277,10 +278,11 @@ files.
 The evidence below argued that a note alone is the *weaker* half, and the ruling agrees with it
 rather than overriding it — which is why wave 7 gained a second issue. **`#261` (a citation above
 the live maximum cannot enter the corpus)** is the guard, filed 2026-09-04 and fence-disjoint from
-`#66` (`packages/server/src/doc-citation-law.test.ts` plus a baseline file, against `#66`'s two documents), so the two
-share the wave and its PR: one writes the note that explains the existing citations, the other
-writes the law that stops more arriving. `#261` is **blocked by `#241`**, which holds
-`packages/server/src/doc-citation-law.test.ts` and is in flight — dispatch the pair once it lands.
+`#66` (`packages/server/src/doc-citation-law.test.ts` plus a baseline file, against `#66`'s two
+documents), so the two share the wave and its PR: one writes the note that explains the existing
+citations, the other writes the law that stops more arriving. `#261` is **blocked by `#241`**,
+which holds `packages/server/src/doc-citation-law.test.ts` and is in flight — dispatch the pair
+once it lands.
 
 Why `#261` is a separate issue rather than a clause of `#66`: the naive form of that law fails
 immediately on all 216 existing references, so how it tolerates them — a committed baseline in the
