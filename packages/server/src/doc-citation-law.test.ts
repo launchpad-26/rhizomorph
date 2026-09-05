@@ -151,16 +151,27 @@ function sweepFiles(pattern: string): string[] {
  * ## Every read in this file, and whether it needs this guard (#203)
  *
  * The issue asked for the enumeration rather than the one call site it named,
- * because #186 fixed one instance of this and left its sibling. **Nine reads,
- * and the table is all of them**: four come through this guard — two loops in
- * `allCitations`, one in `badPins`, and the exclusion scan that #203 moved
- * here — and five stay bare. Exactly ONE was fed from `git ls-files` and
- * unguarded. Verdict per row, so a later reader does not have to re-derive it,
- * and so a tenth read has an obvious question to answer.
+ * because #186 fixed one instance of this and left its sibling. Four reads come
+ * through this guard — two loops in `allCitations`, one in `badPins`, and the
+ * exclusion scan that #203 moved here — and five stay bare. Exactly ONE was fed
+ * from `git ls-files` and unguarded. Verdict per row, so a later reader does not
+ * have to re-derive it, and so a new read has an obvious question to answer.
  *
- * Count the call sites, not the rows: `allCitations` reads in two loops and
- * gets one row. Getting that number wrong is the failure this table exists to
- * prevent, so it is stated as a count and not left to be inferred.
+ * **SCOPE: the path-citation law only, and that had to be said out loud.** This
+ * table read "Every read in this file" and claimed "**Nine reads, and the table
+ * is all of them**" until #261 added the citation ceiling law to the same file,
+ * with seven reads of its own that the table never learned about. The completeness
+ * claim was the load-bearing half, and it went false the moment a second law moved
+ * in. The ceiling law's own reads are enumerated in its docblock below; this table
+ * covers the law it was written for.
+ *
+ * The count is gone rather than corrected, and that is this docblock's own ruling
+ * applied to itself: it closes by explaining that every set of numbers it carried
+ * has rotted, listing three line-citations that went stale — one of them stale
+ * inside the very commit that wrote it. It then opened with a number, which
+ * rotted, for exactly the reason given. The rows are the enumeration; a reader
+ * checking completeness counts them against the code, which is the check a typed
+ * total was standing in for.
  *
  * | read | where its path comes from | verdict |
  * |---|---|---|
@@ -1500,10 +1511,14 @@ describe('doc citation law: a path cited from a document or a comment must exist
  * filtered by exactly two things that are properties of the FILE, not its name: the three
  * `EXCLUDED_DIRS` the sibling law above already established and justifies at length
  * (`docs/research/`, `docs/review/`, `docs/prds/` -- dated artefacts making historical
- * claims, not live ones; re-running this law's own sweep with that filter removed finds
- * 75 additional files there, so the exclusion is doing real work, not standing in for
- * nothing, and the empty-exclusion control test below pins that number's sign, not its
- * exact value), and `isPinnedArtefact` (a document that declares a resolving `**Tree:**`
+ * claims, not live ones; re-running this law's own sweep with that filter removed reaches
+ * 129 additional files there -- MEASURED 2026-09-05, and dated because it moves every time
+ * a PRD or a review lands, which is why the empty-exclusion control test below pins the
+ * number's sign and not its exact value. It read "75" from this line's first draft until
+ * review of #272 measured it: 36 under `docs/research/`, 40 under `docs/review/`, 53 under
+ * `docs/prds/`. Either figure supports the point -- the exclusion is doing real work, not
+ * standing in for nothing -- which is precisely why nothing caught the wrong one), and
+ * `isPinnedArtefact` (a document that declares a resolving `**Tree:**`
  * pin, established above for the identical reason). A THIRD directory -- a top-level
  * `research/` tree, distinct from `docs/research/`, holding the same shape of dated spike
  * write-ups -- is deliberately NOT added to that list here: it was never named by any

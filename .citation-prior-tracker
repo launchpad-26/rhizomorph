@@ -14,8 +14,12 @@
 # a document just cited a number above the live maximum at all.
 #
 # The `live-maximum=` field below is LOAD-BEARING, not a note: it is the
-# ceiling these rows were measured against, and it is what the staleness
-# check compares them to. It is deliberately NOT the current ceiling. A row
+# ceiling these rows were SELECTED against, and it is what the staleness
+# check compares them to. It is not a claim about what the tracker's true
+# counter read that day — #261's own commit body says the true figure was
+# 266 where this says 265, and that discrepancy is immaterial here because
+# no row is #266: the row set is identical at either ceiling. Read the field
+# as "the number these rows were chosen by", which is what the check needs. It is deliberately NOT the current ceiling. A row
 # records that a citation exceeded the ceiling on the date it was taken, and
 # that is a historical fact which does not expire when this repo files its
 # next issue. Checking it against a ceiling that climbs made an unmodified
@@ -30,7 +34,22 @@
 # duplicate citations of the same number in the same file collapse to one
 # entry, since existence does not depend on repeat count.
 #
-# measured: 2026-09-04 live-maximum=265 violations=150
+# RE-SWEEP THE BASELINE AGAINST THE `main` THE LAW LANDS ON, not the one it
+# was written on. This file was measured 2026-09-04 against a `main` that did
+# not yet have `docs/adr/0036-a-beacon-is-a-line-in-a-watched-directory.md`,
+# which arrived with #217 carrying a genuine prior-tracker `#609`. Rebasing
+# wave 7 onto the merged trunk turned the law red on its first contact with
+# that document — correctly, and this row is the fix. Every document that
+# lands between a measurement and the law landing is a row this file does not
+# know about, so the sweep belongs at landing time; the law reports the gap
+# rather than hiding it, which is the behaviour to keep.
+#
+# `#609` itself is a real defect in ADR-0036 by this repo's own rule — ADR-0032
+# rules that anything pre-recreation is cited by SHA, because the commits
+# survived and the issue numbers did not. Grandfathered here rather than
+# corrected, because that file belongs to prd-27, not to prd-43.
+#
+# measured: 2026-09-04 live-maximum=265 violations=151
 AGENTS.md  #275
 AGENTS.md  #362
 AGENTS.md  #396
@@ -89,6 +108,7 @@ docs/adr/0023-a-transcript-dialect-names-itself-with-harness.md  #538
 docs/adr/0024-a-gated-read-is-the-fourth-route-class.md  #374
 docs/adr/0025-a-native-otlp-harness-gets-a-mapping-profile.md  #323
 docs/adr/0033-the-record-travels-by-protocol.md  #292
+docs/adr/0036-a-beacon-is-a-line-in-a-watched-directory.md  #609
 docs/architecture.md  #370
 docs/architecture.md  #552
 docs/architecture.md  #555
