@@ -395,7 +395,17 @@ table of twelve. `#275` is the same defect one table over.
 The count in that sentence is stated carefully, because the first draft of it got the arithmetic
 wrong in the way this PRD exists to catch: it read "two of the eight rows it then had", which
 conflates the **eight sites discovered** with the **twelve rows the table then held**. Caught by a
-review seat against `9f020e2`'s own commit body, not by a reader of this document.
+review seat re-deriving it from `9f020e2` itself, not by any gate.
+
+**And "no gate" is the precise claim, because the looser one is false and was caught the same
+way.** The first wording said no test reads this file. It is excluded from the enforcement
+sweeps — `EXCLUDED_DIRS` in the citation law and the route-count sweep both list `docs/prds/` —
+but the citation law's *exclusion-honesty* control does read it: it globs `docs/prds/**/*.md`,
+passes every file through `readSweptFile`, and asserts the directory **would** trip the law if
+scanned, so that a stale exclusion cannot sit here unnoticed. This document is therefore read by
+the suite and enforced by none of it, which is a narrower and stranger position than "unread", and
+the two are worth telling apart. Two seats split on exactly this: one checked `EXCLUDED_DIRS`
+membership and concluded the file was unread; the other ran the control and found it reading.
 
 **`#275` is unblocked and still not dispatchable, and the reason is outside this PRD.** Its stated
 blockers — `#234` and `#270`, both wave 6 — landed in PR `#272`. Its fence is a single file,
