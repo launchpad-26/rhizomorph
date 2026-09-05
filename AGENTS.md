@@ -31,6 +31,33 @@ personal content in `CLAUDE.md`; it is tracked and shared.
 
 ---
 
+## A note on `#NNN` citations in this file
+
+Added 2026-09-04 (#66). This repo's tracker was deleted and rebuilt from `#1`
+on 2026-08-21. Numbers this file and the wider `docs/` corpus cite for work
+before that date — `#399` two paragraphs down among them — point at the
+tracker that no longer exists, not this one; `gh issue view` on any of them
+returns nothing.
+
+The two sequences overlap, so no single number cleanly separates old from new
+— both start at 1. This repo's own sequence is in the low hundreds and climbs
+daily; citations into the old tracker found in this corpus reach into the six
+hundreds. Neither figure is written here on purpose: a stated maximum is stale
+the moment the next issue is filed, and `packages/server/src/doc-citation-law.test.ts`
+derives the live one from the tracker rather than from prose. So:
+
+- a citation **above** the current live maximum can only be prior-tracker —
+  this repo hasn't reached that number yet;
+- a citation **at or below** it is ambiguous from the number alone; check the
+  citing text's own date instead — anything from before 2026-08-21 predates
+  this tracker regardless of what number it names;
+- issues and PRs did not survive the deletion, but commits did. Cite a SHA,
+  not an issue number, in anything written from here on.
+
+The citations themselves are left as they stand, here and everywhere else
+they appear: they are real provenance for work that happened, just not in a
+tracker this repo still has.
+
 ## The working agreement
 
 Adopted 2026-08-11 (#399), from measurement over the 45 PRs merged 08-09 → 08-11:

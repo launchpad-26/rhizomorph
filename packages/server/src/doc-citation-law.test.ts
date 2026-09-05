@@ -151,16 +151,27 @@ function sweepFiles(pattern: string): string[] {
  * ## Every read in this file, and whether it needs this guard (#203)
  *
  * The issue asked for the enumeration rather than the one call site it named,
- * because #186 fixed one instance of this and left its sibling. **Nine reads,
- * and the table is all of them**: four come through this guard — two loops in
- * `allCitations`, one in `badPins`, and the exclusion scan that #203 moved
- * here — and five stay bare. Exactly ONE was fed from `git ls-files` and
- * unguarded. Verdict per row, so a later reader does not have to re-derive it,
- * and so a tenth read has an obvious question to answer.
+ * because #186 fixed one instance of this and left its sibling. Four reads come
+ * through this guard — two loops in `allCitations`, one in `badPins`, and the
+ * exclusion scan that #203 moved here — and five stay bare. Exactly ONE was fed
+ * from `git ls-files` and unguarded. Verdict per row, so a later reader does not
+ * have to re-derive it, and so a new read has an obvious question to answer.
  *
- * Count the call sites, not the rows: `allCitations` reads in two loops and
- * gets one row. Getting that number wrong is the failure this table exists to
- * prevent, so it is stated as a count and not left to be inferred.
+ * **SCOPE: the path-citation law only, and that had to be said out loud.** This
+ * table read "Every read in this file" and claimed "**Nine reads, and the table
+ * is all of them**" until #261 added the citation ceiling law to the same file,
+ * with seven reads of its own that the table never learned about. The completeness
+ * claim was the load-bearing half, and it went false the moment a second law moved
+ * in. The ceiling law's own reads are enumerated in its docblock below; this table
+ * covers the law it was written for.
+ *
+ * The count is gone rather than corrected, and that is this docblock's own ruling
+ * applied to itself: it closes by explaining that every set of numbers it carried
+ * has rotted, listing three line-citations that went stale — one of them stale
+ * inside the very commit that wrote it. It then opened with a number, which
+ * rotted, for exactly the reason given. The rows are the enumeration; a reader
+ * checking completeness counts them against the code, which is the check a typed
+ * total was standing in for.
  *
  * | read | where its path comes from | verdict |
  * |---|---|---|
@@ -1396,5 +1407,540 @@ describe('doc citation law: a path cited from a document or a comment must exist
       .filter(({ cite }) => !citationExists(cite))
       .map(({ file, cite }) => `${file} -> ${cite}`)
     expect(violations).toEqual([])
+  })
+})
+
+/**
+ * #261's law — a `#NNN` citation in a tracked markdown file may not exceed this repo's
+ * LIVE tracker maximum. Wave 7's second half: `#66` is a dated note in `AGENTS.md` and
+ * `docs/prds/README.md` explaining the 216 references this audit found; this is the guard
+ * that stops a 217th arriving. It catches a dead ISSUE NUMBER the same way the law above
+ * catches a dead PATH, but it is a different mechanism end to end — a different
+ * character (`#` vs a backtick), a different notion of "exists" (a numeric ceiling, not a
+ * filesystem check), and a different tolerance problem, which is the reason it is a
+ * second law in this file rather than a clause of the first.
+ *
+ * ## The decision this law exists to make: a committed baseline, not a date-scoped predicate
+ *
+ * The naive form — "a `#NNN` citation above the live maximum reddens" — fails immediately
+ * on every one of the 216 references the audit found, so how it tolerates them is the
+ * design decision, and the issue that filed this law named two candidate shapes rather
+ * than handing one down:
+ *
+ *   1. a committed baseline, in the `.windows-known-failures` style: new violations
+ *      redden, recorded ones do not, and the file is the visible statement of what is
+ *      owed; or
+ *   2. a predicate scoped by document DATE, so only prose written after the 2026-08-21
+ *      migration is held to the live maximum.
+ *
+ * (2) is rejected. A document's date is not reliably recoverable from its content — most
+ * of this corpus carries no front-matter date at all, `git log --follow`'s "when was this
+ * LINE last touched" answers a different question than "when was this citation first
+ * written" (a file touched yesterday for an unrelated reason does not make its five-year-
+ * old citations current), and the one place this corpus DOES carry a reliable date --
+ * `isPinnedArtefact`'s `**Tree:** \`ref\` at \`sha\`` marker, established for the sibling law
+ * above -- is deliberately rare (a handful of pinned run-records), not a property most
+ * documents have or should be made to adopt just so this law can read them. A predicate
+ * that can only date a handful of files is not a predicate that scopes the corpus.
+ *
+ * (1) is what ships. `.citation-prior-tracker` (repo root, alongside
+ * `.windows-known-failures`, the pattern the issue named) is the committed list --
+ * `<file>  #<number>` pairs, one per currently-existing violation, honesty-checked below
+ * the same way `ALLOWLISTED_BROKEN_CITATIONS` already is: a listed pair that stops being
+ * cited, or stops exceeding the live maximum, fails its own test ("remove this baseline
+ * entry") rather than silently going stale. `git blame` on that file is then a genuine
+ * record of when each debt was recorded, which a date-scoped predicate would not give you
+ * either -- it would just quietly refuse to catch anything written by an author who never
+ * added the date field.
+ *
+ * ## Deriving the live maximum, not typing it
+ *
+ * This repo's issue/PR tracker restarted at 1 on 2026-08-21 (`TRACKER_RESET_DATE` below;
+ * README.md and prd-43 both record the date) after the pre-recreation repository was
+ * deleted -- the commits survived, replayed into the fresh tree, but the OLD tracker's
+ * issue and PR numbers did not, and its own counter reached at least 655
+ * (`packages/web/src/app/shell-bounds-law.test.ts`, prd-43's own re-derivation; an
+ * earlier hand read of 674 was `#674c63`, a CSS hex colour, not a citation at all -- the
+ * exact false-positive `ISSUE_CITATION_RE`'s lookaround below is built to avoid). The two
+ * sequences OVERLAP: a citation above the live maximum is unambiguously prior-tracker; at
+ * or below it, the number alone cannot say, which is why this law only ever guards the
+ * unambiguous side and leaves the rest to `#66`'s note.
+ *
+ * The live maximum climbs daily, so it is derived, every run, from something this repo
+ * cannot fake by editing prose: every commit dated on or after the reset carries a
+ * `Merge pull request #N from <owner>/<branch>` subject when it lands a real, numbered
+ * GitHub PR (`scripts/gate.sh`'s local-merge-then-push landing produces exactly that
+ * subject; verified against this clone's own history, where every such subject after the
+ * reset date names a PR in the 1-3-digit range this corpus's tracker has stayed in so
+ * far, and every one below it is dated BEFORE the reset). Two alternatives considered and
+ * rejected:
+ *
+ *   - re-deriving it from every `#NNN` citation already IN the corpus (mirroring the
+ *     shell one-liner prd-43 used to measure it by hand): self-defeating for a LAW rather
+ *     than a one-off measurement, because the sweep would include the very documents it
+ *     is about to check -- the first document that ever cites a new high number would
+ *     raise the ceiling to admit itself, and a citation that is actually wrong would
+ *     raise the ceiling to admit itself too. The measurement in prd-43 is a snapshot; a
+ *     law needs a source the corpus being checked cannot move.
+ *   - asking GitHub directly (`gh issue list` / the REST API) at test time: correct in
+ *     principle, but network-dependent, requires a token in every environment this suite
+ *     runs (including a bare clone with no `gh` auth), and is not reproducible against a
+ *     past commit the way a git-log-derived answer is -- checking out an old commit and
+ *     re-running the suite would ask GitHub about TODAY, not about the tree's own date.
+ *
+ * `git log <LANDING_REF> --since=<reset date> --format=%s`, filtered to that one subject
+ * shape, is local, offline, reproducible against any full clone (the CI suite leg already
+ * runs `fetch-depth: 0` for `isPinnedArtefact`'s sha resolution above, and that same
+ * checkout is what supplies the `origin/main` remote ref this derivation reads, so the
+ * precondition is already paid for), and -- because it counts only PRs that actually
+ * LANDED -- is a
+ * deliberately CONSERVATIVE lower bound on the tracker's true current counter: an issue or
+ * an open, unmerged PR can already hold a higher number than any merge this clone has seen
+ * yet (a lane's own branch is frequently named after such a number). A citation to that
+ * kind of very-recent, real, not-yet-merged number reads as "above the live maximum" here
+ * and needs a baseline row until it lands -- erring toward rejecting a citation that
+ * happens to be current is the safe direction for a law whose entire purpose is refusing
+ * ones that are not.
+ *
+ * ## Scope: tracked, and markdown -- nothing else
+ *
+ * `AGENTS.md` records the failure mode this law must not repeat: a fixture-hygiene guard
+ * scoped by a NAMING convention (`startsWith('claude-code-')`) never saw the older
+ * captures sitting beside the ones it checked, and reported truthfully and uselessly that
+ * nothing was wrong. This law's citing-file predicate is `trackedFiles('*.md')` --
+ * every tracked markdown file in the repo, at any depth (the same bare-star form the
+ * sibling law's own docblock already proves crosses directories where `**` does not) --
+ * filtered by exactly two things that are properties of the FILE, not its name: the three
+ * `EXCLUDED_DIRS` the sibling law above already established and justifies at length
+ * (`docs/research/`, `docs/review/`, `docs/prds/` -- dated artefacts making historical
+ * claims, not live ones; re-running this law's own sweep with that filter removed reaches
+ * 129 additional files there -- MEASURED 2026-09-05, and dated because it moves every time
+ * a PRD or a review lands, which is why the empty-exclusion control test below pins the
+ * number's sign and not its exact value. It read "75" from this line's first draft until
+ * review of #272 measured it: 36 under `docs/research/`, 40 under `docs/review/`, 53 under
+ * `docs/prds/`. Either figure supports the point -- the exclusion is doing real work, not
+ * standing in for nothing -- which is precisely why nothing caught the wrong one), and
+ * `isPinnedArtefact` (a document that declares a resolving `**Tree:**`
+ * pin, established above for the identical reason). A THIRD directory -- a top-level
+ * `research/` tree, distinct from `docs/research/`, holding the same shape of dated spike
+ * write-ups -- is deliberately NOT added to that list here: it was never named by any
+ * existing law or ruling as a recognised dated-artefact location, and inventing a new
+ * directory exclusion on this law's own say-so is exactly the kind of scope-by-surface-
+ * resemblance judgement call the fixture-hygiene failure warns against, one level up from
+ * a naming convention. Its four current citations are in the baseline like anything else;
+ * if that directory is ever formally recognised, `isExcludedCitingFile` gains a row and a
+ * cited ruling, not a guess made here.
+ *
+ * `AGENTS.md` is IN scope, not excluded, even though it is `#66`'s fence and this issue
+ * must not edit it -- reading is not editing. See the coupling note below for what that
+ * means for the baseline.
+ *
+ * ## The wave-7 coupling with `#66`, and why the baseline is not hand-pinned against it
+ *
+ * `#66` and this issue share a fence-disjoint PR: `#66` writes a dated note INTO
+ * `AGENTS.md` explaining the 216 references audited there; this law reads `AGENTS.md`
+ * (never writes it) as part of the ordinary sweep. Per `#66`'s own definition of done the
+ * 216 existing references are left UNTOUCHED -- so the six `AGENTS.md` entries already in
+ * `.citation-prior-tracker` remain genuine violations after `#66` lands and the honesty
+ * check below stays green without hand-tracking that lane's edits. The risk that remains
+ * is additive, not corrective: if `#66`'s own new note cites a number above the live
+ * maximum (likely, given its subject is the prior tracker's own high numbers), that is a
+ * NEW citation this law has never seen, and the merged wave will not go green until
+ * whoever assembles it re-runs this law's sweep and adds that row -- which is the
+ * "regenerate at assembly" half of the ruling that filed this issue, made concrete rather
+ * than assumed. This file does not special-case `AGENTS.md`'s content to pre-empt that;
+ * doing so would bake in a guess about text `#66` had not written yet.
+ *
+ * ## Digits, and the bound this law inherits from the sibling measurement
+ *
+ * `ISSUE_CITATION_RE` matches 1-3 digits only, for the same reason prd-43's own
+ * measurement did: this corpus's tracker has never exceeded three digits, and admitting a
+ * fourth would re-open the `#674c63` hex-colour false positive from the other direction.
+ * The day the live maximum crosses 999, this regex stops matching legitimate four-digit
+ * citations at all (silently under-sweeping, not over-matching) and needs widening in the
+ * same commit as whatever raises this comment's own three-digit assumption -- noted here
+ * so that day does not rediscover the tradeoff from scratch.
+ */
+
+/** The day this repo's tracker restarted at 1 (README.md, prd-43) — a fixed historical fact, not the live maximum itself, so pinning it here types nothing this law is supposed to derive. */
+const TRACKER_RESET_DATE = '2026-08-21'
+
+/**
+ * A `#NNN` citation, 1-3 digits, bounded on both sides so it cannot fire inside a hex
+ * colour (`#674c63` — the digits are followed by a letter, not a boundary) or a heading
+ * anchor (`#some-heading` — no digit follows the `#` at all). Lookaround, not a captured
+ * boundary character, so the matched group is exactly the digits with nothing to strip
+ * afterward (unlike `stripCitationSuffix` above, which has a real suffix to remove).
+ */
+const ISSUE_CITATION_RE = /(?<![0-9A-Za-z#])#([0-9]{1,3})(?![0-9A-Za-z])/g
+
+function extractIssueCitations(text: string): number[] {
+  return [...text.matchAll(ISSUE_CITATION_RE)].map((m) => Number(m[1]))
+}
+
+/** Every `Merge pull request #N from <owner>/<branch>` subject in `subjects` — pure, so the derivation is testable on rigged git output without a real repo. */
+function livePrMergeNumbers(subjects: string): number[] {
+  return [...subjects.matchAll(/^Merge pull request #([0-9]+) from/gm)].map((m) => Number(m[1]))
+}
+
+/**
+ * The ceiling this law compares against, derived offline and never asked of the network.
+ *
+ * TWO NUMBERS, DELIBERATELY, because they answer different questions.
+ *
+ * `recordedMaximum()` is the ceiling the committed baseline was MEASURED against, read
+ * from `.citation-prior-tracker`'s own `live-maximum=` field. It is frozen by
+ * construction, and it has to be: a citation that exceeded the ceiling on the day it was
+ * recorded is a prior-tracker citation forever, so re-checking that historical fact
+ * against a ceiling that climbs guarantees the baseline rots out from under itself.
+ *
+ * `liveMaximum()` is the ceiling a NEW citation is judged against, so it must climb. It is
+ * derived every run from something the corpus being checked cannot move: every commit
+ * dated on or after the reset and reachable from `LANDING_REF` carries a
+ * `Merge pull request #N from <owner>/<branch>` subject when it lands a real, numbered PR.
+ * The ref is pinned rather than `--all` for the reason `LANDING_REF`'s own comment gives,
+ * and its presence is a PRECONDITION with a test of its own: a clone where it does not
+ * resolve makes this law refuse to certify, naming the missing ref, rather than falling
+ * back to a lower ceiling and reporting honest citations as prior-tracker
+ * (`landingRefResolves()` below carries the measurement). Where the ref IS present the
+ * result is floored at `recordedMaximum()`, so a derivation that legitimately sees no
+ * post-reset merge returns the committed measurement rather than zero. What the law never
+ * does is go quietly green: there is no skip path, which is the property the rest of this
+ * describe depends on.
+ *
+ * WHY NOT `gh`, MEASURED. A version of this shelled out to `gh issue list` / `gh pr list`
+ * for an exact ceiling. Two independent review seats rejected it, and both were right:
+ *
+ *  - **It tied an assertion to a clock nobody controls.** The head went red with no commit
+ *    and no edit, because somebody filed an issue: `#267 no longer exceeds the live
+ *    maximum (268)`. Re-measured a day later, the same tree failed on `#269` against 272 —
+ *    272 being the number of the PR that would have landed the wave. A law that reddens on
+ *    other people's activity is not a law.
+ *  - **It failed OPEN, and silently.** `gh` needs auth, and every caller met its absence
+ *    with a bare `return`, not `ctx.skip()`. EXECUTED against a `gh` shim exiting 4: this
+ *    file reported **44 passed, exit 0**, with the word "skip" appearing nowhere in the
+ *    output — the entire law vacuous and indistinguishable from a green run. The `ci.yml`
+ *    `GH_TOKEN` added to feed it declared no `permissions:` block, so a restricted default
+ *    would have bought precisely that green in CI.
+ *
+ * The section above already rejected asking GitHub at test time, for those same reasons,
+ * before it was tried. This restores that ruling rather than arguing with it.
+ *
+ * What the git derivation costs, stated plainly: it is a CONSERVATIVE LOWER BOUND. It sees
+ * PRs merged into `LANDING_REF` and nothing else, so a number that exists but has not landed reads as above
+ * the ceiling and needs a baseline row until it does. Erring toward rejecting a citation
+ * that happens to be current is the safe direction for a law whose whole purpose is
+ * refusing the ones that are not.
+ */
+function recordedMaximum(): number {
+  const { measured } = parseBaseline(readFileSync(BASELINE_PATH, 'utf8'))
+  const m = BASELINE_MEASURED_RE.exec(measured[0] ?? '')
+  if (m === null) throw new Error('.citation-prior-tracker has no parseable "# measured:" line')
+  return Number(m[2])
+}
+
+// Memoised, not eager: reading the baseline and shelling out to git at module
+// load would take the unrelated path-citation law above down with it on a
+// malformed file, rather than failing the tests that actually need the ceiling.
+let cachedLiveMaximum: number | undefined
+/**
+ * The ref the ceiling is derived from, and it is deliberately ONE ref rather than `--all`.
+ *
+ * `--all` walks every ref the object store holds — every local branch, every
+ * `refs/remotes/*`, and the refs of every linked worktree sharing this `.git`. None of
+ * those is evidence that a number landed. EXECUTED in this repo, no fabrication needed:
+ * `comm -13` between the two derivations returns `96 97 101 102`, all four carried by
+ * `refs/remotes/origin/prd44` — the abandoned integration branch AGENTS.md documents as an
+ * incident, still pushed and still fetched by an ordinary clone. A scratch local commit
+ * with a merge-shaped subject moved the ceiling from 272 to 999 while the `origin/main`
+ * derivation stayed at 272.
+ *
+ * That is the clone-dependence this law's own history already rejected once, in the
+ * paragraph the `gh` removal deleted: a ceiling that reads one number in a clone holding
+ * an unpushed branch and another in a fresh clone. Above the ceiling is supposed to mean
+ * "unambiguously prior-tracker"; a ceiling any stale branch can inflate cannot mean it.
+ */
+const LANDING_REF = 'origin/main'
+
+/**
+ * Whether `LANDING_REF` resolves here — a PRECONDITION of the derivation, asserted by its
+ * own test below rather than absorbed, for the reason `repoIsShallow()` above already
+ * gives about `fetch-depth: 0`: an environment that cannot meet it should fail HERE,
+ * naming the cause, "instead of surfacing as a bad-pin report against a document whose pin
+ * is perfectly honest". This is the identical failure one precondition over, and it was
+ * absorbed instead (review of #261).
+ */
+function landingRefResolves(): boolean {
+  try {
+    execFileSync('git', ['rev-parse', '--verify', '--quiet', `${LANDING_REF}^{commit}`], {
+      cwd: REPO_ROOT,
+      stdio: 'ignore',
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * WHY A MISSING REF THROWS RATHER THAN FALLING BACK TO THE FLOOR.
+ *
+ * This absorbed the absence — `origin/main` gone (a fork clone, a CI checkout that fetched
+ * only the PR ref, a mirror under another remote name) left `merged` empty, and the
+ * comment claimed "the floor below does the rest". It does not, and the gap is structural
+ * rather than a stale number: `recordedMaximum()` is the ceiling the baseline was SELECTED
+ * against, so every citation that landed legitimately between that measurement and today
+ * sits above the floor with no baseline row, because at the derived ceiling it never
+ * needed one. Falling back to the floor reports those honest citations as violations.
+ *
+ * EXECUTED on this branch, clean tree, `git update-ref -d refs/remotes/origin/main`:
+ * `docs/adr/0002-one-reducer-for-live-and-replay.md #268` — added by `8d249b4`, the same
+ * day the baseline was measured at 265. One file today; the gap is
+ * `recordedMaximum()`..`liveMaximum()` and widens with every PR that lands.
+ *
+ * So the two directions were: fall back HIGHER (derive from `HEAD` instead), which
+ * re-opens what `323ea6d` closed by letting the branch under test move its own ceiling;
+ * or fall back LOWER, which is the false-positive above. Neither is a ceiling. The third
+ * option is the one this file already took for its other precondition — refuse to certify
+ * and say which thing is missing — and it is strictly better than what was here, which
+ * went red anyway and blamed the wrong document while doing it.
+ *
+ * `recordedMaximum()` keeps its floor role for the ordinary path: it is what makes a
+ * derivation that legitimately sees no post-reset merge return the measurement rather than
+ * zero.
+ */
+function liveMaximum(): number {
+  if (cachedLiveMaximum !== undefined) return cachedLiveMaximum
+  if (!landingRefResolves()) {
+    throw new Error(
+      `${LANDING_REF} does not resolve in this clone, so the live tracker maximum cannot be derived — ` +
+        'this law cannot certify the corpus without it. Fetch it (`git fetch origin main:refs/remotes/origin/main`), ' +
+        'or check out with `fetch-depth: 0`. NOT a corpus violation: falling back to the baseline\'s own ' +
+        'recorded maximum would report every citation that landed since it was measured as prior-tracker.',
+    )
+  }
+  const subjects = execFileSync('git', ['log', LANDING_REF, `--since=${TRACKER_RESET_DATE}`, '--format=%s'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  })
+  const merged = livePrMergeNumbers(subjects)
+  cachedLiveMaximum = Math.max(merged.length > 0 ? Math.max(...merged) : 0, recordedMaximum())
+  return cachedLiveMaximum
+}
+
+interface CeilingViolation {
+  file: string
+  num: number
+}
+
+/**
+ * Pure: every `#NNN` above `liveMax` in `entries`, deduplicated per file (existence does
+ * not depend on repeat count), minus whatever `baseline` already carries. `baseline` keys
+ * are `${file}\t${num}` — a plain Set rather than a nested structure, since every lookup
+ * is an exact (file, number) pair and nothing here needs to iterate one file's numbers on
+ * their own.
+ */
+function ceilingViolationsIn(
+  entries: readonly { file: string; text: string }[],
+  liveMax: number,
+  baseline: ReadonlySet<string>,
+): CeilingViolation[] {
+  const out: CeilingViolation[] = []
+  for (const { file, text } of entries) {
+    for (const num of new Set(extractIssueCitations(text))) {
+      if (num <= liveMax) continue
+      if (baseline.has(`${file}\t${num}`)) continue
+      out.push({ file, num })
+    }
+  }
+  return out
+}
+
+const BASELINE_PATH = path.join(REPO_ROOT, '.citation-prior-tracker')
+
+interface BaselineEntry {
+  line: number
+  file: string
+  num: number
+}
+
+const BASELINE_MEASURED_RE = /^# measured: (\d{4}-\d{2}-\d{2}) live-maximum=(\d+) violations=(\d+)$/
+
+function parseBaseline(text: string): { measured: string[]; entries: BaselineEntry[] } {
+  const measured: string[] = []
+  const entries: BaselineEntry[] = []
+  text.split(/\r?\n/).forEach((raw, index) => {
+    const line = raw.replace(/\s+$/, '')
+    if (line.length === 0) return
+    if (line.startsWith('#')) {
+      if (/^# measured:/.test(line)) measured.push(line)
+      return
+    }
+    const m = /^(\S+)\s+#([0-9]+)$/.exec(line)
+    if (m === null) throw new Error(`.citation-prior-tracker:${index + 1} does not match "<file>  #<number>": ${line}`)
+    entries.push({ line: index + 1, file: m[1] ?? '', num: Number(m[2]) })
+  })
+  return { measured, entries }
+}
+
+function baselineSet(entries: readonly BaselineEntry[]): Set<string> {
+  return new Set(entries.map(({ file, num }) => `${file}\t${num}`))
+}
+
+/**
+ * Every tracked markdown file's post-fence text, in scope for the ceiling sweep — the
+ * real-tree counterpart to `ceilingViolationsIn`'s rigged-input tests. `trackedFiles`
+ * (the git INDEX), not `sweepFiles`: the issue's own wording is "a tracked markdown file",
+ * and unlike the path-citation law above, nothing here needs to see a brand-new untracked
+ * doc before `git add` — this law's tolerance mechanism is the committed baseline, not a
+ * pre-stage check.
+ */
+function issueCitationEntries(): { file: string; text: string }[] {
+  const out: { file: string; text: string }[] = []
+  for (const file of trackedFiles('*.md')) {
+    if (isExcludedCitingFile(file)) continue
+    const raw = readSweptFile(file)
+    if (raw === undefined) continue
+    const text = stripFencedCodeBlocks(raw)
+    if (isPinnedArtefact(text)) continue
+    out.push({ file, text })
+  }
+  return out
+}
+
+// Measured against this file's own history: 234 tracked markdown files, none
+// heavier than a few hundred lines, one `git ls-files` call and no
+// per-claim-row re-normalisation (`route-class-law.test.ts`'s wave-6 defect,
+// recorded in this issue's own brief) — comfortably inside vitest's 5000ms
+// default even under `gate.sh`'s 4x load-batches concurrency, so no explicit
+// timeout is set on the sweep test below.
+describe('citation ceiling law: a #NNN citation above the live maximum cannot enter the corpus (#261)', () => {
+  it('the clone is not shallow — required for the live-maximum sweep, the same precondition sha-pin resolution above already needs', () => {
+    expect(repoIsShallow()).toBe(false)
+  })
+
+  it('`origin/main` resolves — the derivation\'s second precondition, asserted rather than absorbed', () => {
+    expect(
+      landingRefResolves(),
+      `${LANDING_REF} does not resolve here, so the ceiling cannot be derived. Fetch it: git fetch origin main:refs/remotes/origin/main`,
+    ).toBe(true)
+  })
+
+  it('the recorded floor is not a usable ceiling — falling back to it reports honest citations as prior-tracker, which is why a missing ref throws', () => {
+    // The mechanism, on rigged input so it stays true when the baseline is re-measured:
+    // #268 is cited in `docs/adr/0002-one-reducer-for-live-and-replay.md`, landed on main
+    // by `8d249b4`, and carries no baseline row because at the DERIVED ceiling it needs
+    // none. Judge the same citation at the floor the absent-ref path used to fall back to
+    // and it becomes a violation naming a document that is telling the truth.
+    const entries = [{ file: 'docs/adr/0002-one-reducer-for-live-and-replay.md', text: 'ruled under #268.' }]
+    expect(ceilingViolationsIn(entries, 272, new Set())).toEqual([])
+    expect(ceilingViolationsIn(entries, 265, new Set())).toEqual([
+      { file: 'docs/adr/0002-one-reducer-for-live-and-replay.md', num: 268 },
+    ])
+  })
+
+  it('a hex colour and a heading anchor are not mistaken for a citation', () => {
+    expect(extractIssueCitations('background: #674c63; see [x](#some-heading) and #12ab.')).toEqual([])
+  })
+
+  it('a real citation, at a word boundary, IS extracted — the control the rows above would be vacuous without', () => {
+    expect(extractIssueCitations('closes #261, see also (#66) and #6.')).toEqual([261, 66, 6])
+  })
+
+  it('fenced code examples are stripped before extraction, mirroring the path-citation law\'s own exemption', () => {
+    const text = '```\nSee #9999 in the example output.\n```\nReal text cites #12.'
+    expect(extractIssueCitations(stripFencedCodeBlocks(text))).toEqual([12])
+  })
+
+  it('the pure checker: above the ceiling reddens, at or below it does not, and a baselined pair is silenced — the mutation this law exists to catch', () => {
+    const liveMax = 300
+    const entries = [
+      { file: 'docs/example.md', text: 'See #301 for details. #301 again — the same number, must not double-count.' },
+      { file: 'docs/at-ceiling.md', text: 'See #300 for details.' },
+      { file: 'docs/below.md', text: 'See #299 for details.' },
+    ]
+    expect(ceilingViolationsIn(entries, liveMax, new Set())).toEqual([{ file: 'docs/example.md', num: 301 }])
+    expect(ceilingViolationsIn(entries, liveMax, new Set(['docs/example.md\t301']))).toEqual([])
+  })
+
+  it('the live maximum derives from a real "Merge pull request" subject and ignores an ordinary merge-from-main one', () => {
+    const subjects = [
+      'Merge pull request #265 from launchpad-26/24-readme-lab-sessions',
+      'Merge pull request #12 from launchpad-26/some-other-lane',
+      'Merge remote-tracking branch \'origin/main\' into some-lane',
+      'chore: unrelated commit mentioning #999 in prose, not a merge subject',
+    ].join('\n')
+    expect(livePrMergeNumbers(subjects)).toEqual([265, 12])
+  })
+
+  it('the derived ceiling is sane, and never below the measurement the baseline was taken at', () => {
+    const max = liveMaximum()
+    expect(max).toBeGreaterThan(0)
+    expect(max, 'the floor wiring is what makes a shallow clone fall back rather than read zero').toBeGreaterThanOrEqual(recordedMaximum())
+    expect(max).toBeLessThan(1000) // this corpus's tracker has never exceeded three digits — see the digits note in the docblock above
+  })
+
+  it('the sweep is non-empty — the checks below would pass vacuously otherwise', () => {
+    expect(issueCitationEntries().length).toBeGreaterThan(100)
+  })
+
+  it('every excluded directory still trips the detector when the exclusion is bypassed — the exclusion is doing real work, not vacuous', () => {
+    const liveMax = liveMaximum()
+    for (const dir of EXCLUDED_DIRS) {
+      const files = [...new Set([...trackedFiles(`${dir}*.md`), ...trackedFiles(`${dir}**/*.md`)])]
+      expect(files.length, `${dir} has no markdown files to check`).toBeGreaterThan(0)
+      const entries = files.map((file) => ({ file, text: stripFencedCodeBlocks(readSweptFile(file) ?? '') }))
+      const violations = ceilingViolationsIn(entries, liveMax, new Set())
+      expect(violations.length, `${dir} would trip nothing if scanned — the exclusion is stale`).toBeGreaterThan(0)
+    }
+  })
+
+  it('the baseline file parses, has no duplicate entries, and its measured line matches its own entry count', () => {
+    const { measured, entries } = parseBaseline(readFileSync(BASELINE_PATH, 'utf8'))
+    expect(measured).toHaveLength(1)
+    const m = BASELINE_MEASURED_RE.exec(measured[0] ?? '')
+    expect(m, `the measured line does not match the grammar: ${measured[0]}`).not.toBeNull()
+    expect(Number(m?.[3])).toBe(entries.length)
+
+    const keys = entries.map(({ file, num }) => `${file}\t${num}`)
+    expect(new Set(keys).size, 'a duplicate (file, number) pair in the baseline is dead weight').toBe(keys.length)
+  })
+
+  /**
+   * Against `recordedMaximum()`, NOT `liveMaximum()`, and that is the whole finding.
+   *
+   * A baseline row records a historical fact — "this citation exceeded the ceiling on the
+   * date this file was measured" — and that fact does not expire when the repo files its
+   * next issue. Checked against a climbing ceiling it does expire, on a timer nobody set:
+   * `#267 no longer exceeds the live maximum (268)` reddened an unmodified tree, and the
+   * remedy the message prescribed ("remove this baseline entry") was WRONG. `docs/roadmap.md`
+   * cites `#267` meaning the prior tracker's issue; live `#267` is an unrelated beacon
+   * collector. Dropping the row would have made the corpus permanently accept a citation
+   * that now resolves to something else — the exact ambiguity `#66`'s note exists to warn
+   * about, written into the law as an instruction.
+   */
+  it('every baseline entry is still a genuine violation — a stale entry would silently widen the law', () => {
+    const recordedMax = recordedMaximum()
+    const { entries } = parseBaseline(readFileSync(BASELINE_PATH, 'utf8'))
+    for (const { file, num } of entries) {
+      const filePath = path.join(REPO_ROOT, file)
+      expect(existsSync(filePath), `${file} no longer exists — remove its .citation-prior-tracker entries`).toBe(true)
+
+      const raw = readFileSync(filePath, 'utf8')
+      const text = stripFencedCodeBlocks(raw)
+      expect(extractIssueCitations(text), `${file} no longer cites #${num} — this baseline entry is stale`).toContain(num)
+      expect(
+        num,
+        `#${num} does not exceed the ceiling this baseline was measured at (${recordedMax}) — it was never a violation, so this row is wrong and ${file} needs re-measuring, NOT the row deleted`,
+      ).toBeGreaterThan(recordedMax)
+    }
+  })
+
+  it('the corpus, swept for real, carries no ceiling violation outside the committed baseline', () => {
+    const liveMax = liveMaximum()
+    const { entries: baselineEntries } = parseBaseline(readFileSync(BASELINE_PATH, 'utf8'))
+    const violations = ceilingViolationsIn(issueCitationEntries(), liveMax, baselineSet(baselineEntries))
+    expect(violations, JSON.stringify(violations)).toEqual([])
   })
 })
