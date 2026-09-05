@@ -358,26 +358,30 @@ describe('chaptersFor — a flood of summonses is still one mark under density',
   })
 
   /**
-   * THE SWEEP — the level above the fixture, added after four rounds of the
-   * same defect (review of #277, round 3).
+   * THE SWEEP — the level above the fixture (review of #277, round 4).
    *
-   * Rounds 1-3 each hand-picked a fixture, hand-wrote the expected list, and
-   * each time a seat found one more spelling the fixture could not see:
-   * ascending arrival order hid "never sort"; a max-ts `session-boundary` hid
-   * its own append-hoist; a min-ts `gate-held` hid its prepend-hoist. Every
-   * repair was correct about the case that prompted it. Patching the next cell
-   * would have found cell N+1 — so this stops asserting cases and asserts the
-   * PROPERTY instead.
+   * Four earlier rounds each hand-picked a fixture, hand-wrote the expected
+   * list, and each time a seat found one more spelling the fixture could not
+   * see: ascending arrival order hid "never sort at all"; a `kind` tiebreak was
+   * satisfied by V8's stability rather than by the comparator; a max-ts
+   * `session-boundary` hid its own append-hoist; a min-ts `gate-held` hid its
+   * prepend-hoist. Every repair was correct about the case that prompted it.
+   * Patching the next cell would have found cell N+1 — so this stops asserting
+   * cases and asserts the PROPERTY instead.
    *
    * Three clauses, each of which fails on its own:
    *
    * 1. **Every kind in `CHAPTER_KINDS` is exercised.** A kind added later with
    *    no witness fails here rather than shipping unwitnessed — which is what
    *    happened to `gate-verdict` and `summons-cleared`, two of #277's own four.
-   * 2. **Every kind appears at two DISTINCT timestamps.** This is what makes
-   *    clause 3 total: a kind sitting alone at an extreme cannot be moved by a
-   *    hoist in that direction, so no fixture where that is true can witness it.
-   *    Enforcing it here means no future fixture author has to know the rule.
+   * 2. **Every kind is INTERLEAVED with the rest** — it has an instance before
+   *    some other kind's instance, and one after. Multiplicity is not enough,
+   *    and the first version of this block claimed it was: two timestamps that
+   *    happen to be the two LARGEST still form the sorted suffix, so appending
+   *    that kind moves nothing and the hoist goes unwitnessed. Both review
+   *    seats found that independently, each with a fixture edit that kept
+   *    clauses 1 and 3 green while a real hoist survived. Interleaving is the
+   *    property that actually makes clause 3 total, so it is what is asserted.
    * 3. **The output is already in comparator order.** Any hoist of any kind, in
    *    either direction, breaks this — no per-kind assertion needed. The
    *    comparator is spelled out locally rather than imported, so a change to
@@ -424,13 +428,26 @@ describe('chaptersFor — a flood of summonses is still one mark under density',
       expect([...timestampsByKind.keys()].sort()).toEqual([...CHAPTER_KINDS].sort())
     })
 
-    it('gives every kind two distinct timestamps, so none sits alone at an extreme', () => {
+    it('interleaves every kind with the rest, so no kind is hoistable unnoticed', () => {
       for (const kind of CHAPTER_KINDS) {
-        expect(timestampsByKind.get(kind)?.size ?? 0, kind).toBeGreaterThan(1)
+        const mine = swept.filter((chapter) => chapter.kind === kind).map((chapter) => chapter.ts)
+        const others = swept.filter((chapter) => chapter.kind !== kind).map((chapter) => chapter.ts)
+        expect(mine.length, `${kind} is absent`).toBeGreaterThan(0)
+        expect(Math.min(...mine), `${kind} is hoistable to the END unnoticed`).toBeLessThan(Math.max(...others))
+        expect(Math.max(...mine), `${kind} is hoistable to the START unnoticed`).toBeGreaterThan(Math.min(...others))
       }
     })
 
-    it('returns them already in (ts, kind, lane) order — any hoist, either direction, breaks this', () => {
+    /**
+     * Scoped deliberately to `ts`. This fixture has ts ties only where the kinds
+     * already differ in push order, and no two chapters share `(ts, kind)` at
+     * all — so the local comparator's `kind` and `lane` branches barely fire
+     * here, and dropping either from PRODUCTION leaves this clause green. That
+     * is not a hole in the module: the hand-written fixture above witnesses
+     * `kind`, and the two-lane tie test below witnesses `lane`. It is a limit
+     * of THIS clause, and the title says so rather than claiming all three.
+     */
+    it('returns them already in ts order — any hoist of any kind, either direction, breaks this', () => {
       expect(swept).toEqual([...swept].sort(inComparatorOrder))
     })
   })

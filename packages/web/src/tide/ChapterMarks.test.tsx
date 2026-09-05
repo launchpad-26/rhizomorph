@@ -507,7 +507,7 @@ describe('ChapterMarks — a gate verdict is inked by its own held flag (#277)',
   /**
    * EVERY inline-painted span, not one of them. The `gate-verdict` branch
    * renders TWO — the faded stem and the head square — each carrying its own
-   * copy of the same ternary, eleven lines apart. The first version of this
+   * copy of the same ternary, four lines apart. The first version of this
    * helper used `querySelector`, which returns the first in document order: the
    * STEM. Inverting only the head's ink then rendered a held gate GREEN while
    * all three tests below passed, 191/191 (found by an independent seat, review
