@@ -298,7 +298,15 @@ one `SWEEP_TIMEOUT_MS` held by all three — survives inside it.
 
 **Wave 7 — ruled 2026-09-04, and it is two issues, not one.** `#66` (the docs cite a tracker
 that no longer exists) was booked the way wave 0 is booked: an operator act, not dispatchable
-until ruled. The ruling is made and recorded on the issue — **a single dated note in `AGENTS.md`
+until ruled.
+
+> **SUPERSEDED 2026-09-06** — by *"Wave 7 gained `#264`"* below, which corrects the count to
+> three. Kept in place because citations to this paragraph must keep resolving, and because the
+> ruling it records about `#66` and `#261` is still the ruling. Only the count is wrong here.
+> Flagged by `scripts/dev/prd-reconcile.sh 43` as DOUBLE-DECLARED after the amendment landed in
+> PR 284 — the amendment declared wave 7 a second time and did not mark this one, which is the
+> defect the reconciler exists to catch and which no reviewer caught before the merge.
+ The ruling is made and recorded on the issue — **a single dated note in `AGENTS.md`
 and `docs/prds/README.md`**, with the 216 references in the other 110 files left untouched. A
 per-reference marker across 111 files and a mapping to surviving artefacts were both considered
 and rejected: the first is a 216-edit diff nobody can review whose per-site markers rot when the
@@ -447,6 +455,28 @@ PR-opening script **and** the PreToolUse approval guard then all reported the ra
 Three layers that look independent were reading one exit status the session under review had
 itself written. A bare `check` exits 0 on a forced row. The operator-side repair — a `--strict`
 mode, and both callers using it — is not in this repo; `#285` is the half that is.
+
+**Wave 10 — declared 2026-09-06, two issues, both enforcement residue found by reviewing wave 7
+rather than by any gate.** Fence-disjoint, verified with the fence lint rather than asserted, so
+both may be built at once.
+
+- `prd43 w10: a pinned sha is evidence only if it landed` (`#288`). `isPinnedArtefact` grants a
+  document total exemption from the citation law when its `**Tree:**` pin "resolves", tested with
+  `git cat-file -e` — the object store, not reachability. EXECUTED: a locally created, orphaned
+  commit is reachable from no ref and still resolves, so a document can exempt itself with a sha
+  that never landed. It is the sibling of the `--all` ceiling defect wave 7 spent two rounds on:
+  local git state is not evidence that something landed. The corpus carries exactly one pinned
+  artefact today and it is honest, so tightening the check costs no migration — which is why this
+  is filed now rather than after a second pin arrives.
+- `prd43 w10: every docs/prds exclusion proves it is not vacuous` (`#289`). Three sweeps exclude
+  `docs/prds/`; one asserts the exclusion would trip if scanned. Ruling 1 states that principle
+  for the citation law and the two later sweeps inherited the shape without the proof. Both
+  exclusions are honest today — measured, not assumed — so each control passes when written and
+  earns its keep only as the corpus moves.
+
+**`#289` cannot be dispatched beside `#275` or beside prd-17's open operator-door issue**: all
+three claim the route-count law file. The fence lint calls that an OVERLAP whatever wave they
+carry, so it forces a sequence, exactly as wave 5's `#24` and wave 6's `#234` did.
 
 **Unfiled work implied, described not numbered:** the audited clone's `origin` still points at the
 pre-rename `launchpad-26/rhizomorph.tmp`, working only through GitHub's redirect. That is local git
