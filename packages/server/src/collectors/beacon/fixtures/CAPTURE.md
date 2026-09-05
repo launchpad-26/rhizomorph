@@ -1,11 +1,11 @@
 # Beacon fixtures — provenance and recipe
 
 `claude-hook.jsonl` pins the ADR-0036 v1 line contract the way every other
-`CAPTURE.md` in this tree does: a hand-written fixture proves our reading of
-the contract, not the tool. #217 shipped a hand-written one because nothing
-existed yet to capture from — `rhizomorph env <lane> --hooks claude` (#282) is
-the first emitter, and this file replaces that hand-written fixture with a real
-capture of it.
+`CAPTURE.md` in this tree does: with a real capture, so the fixture witnesses
+the emitter rather than only our reading of the contract. #217 shipped a
+hand-written one because nothing existed yet to capture from —
+`rhizomorph env <lane> --hooks claude` (#282) is the first emitter, and this
+file replaces that hand-written fixture with a capture of it.
 
 **Do not hand-write a single line of this file.** If the recipe below cannot be
 completed — no TTY, or a hook that never fires — stop and report; do not
