@@ -1598,10 +1598,15 @@ function livePrMergeNumbers(subjects: string): number[] {
  * derived every run from something the corpus being checked cannot move: every commit
  * dated on or after the reset and reachable from `LANDING_REF` carries a
  * `Merge pull request #N from <owner>/<branch>` subject when it lands a real, numbered PR.
- * The ref is pinned rather than `--all` for the reason `LANDING_REF`'s own comment gives. It is floored at `recordedMaximum()`, so a
- * shallow clone or a rewritten mirror falls back to the committed measurement rather than
- * to zero. There is no environment in which it returns nothing — that total absence of a
- * skip path is the property the rest of this describe depends on.
+ * The ref is pinned rather than `--all` for the reason `LANDING_REF`'s own comment gives,
+ * and its presence is a PRECONDITION with a test of its own: a clone where it does not
+ * resolve makes this law refuse to certify, naming the missing ref, rather than falling
+ * back to a lower ceiling and reporting honest citations as prior-tracker
+ * (`landingRefResolves()` below carries the measurement). Where the ref IS present the
+ * result is floored at `recordedMaximum()`, so a derivation that legitimately sees no
+ * post-reset merge returns the committed measurement rather than zero. What the law never
+ * does is go quietly green: there is no skip path, which is the property the rest of this
+ * describe depends on.
  *
  * WHY NOT `gh`, MEASURED. A version of this shelled out to `gh issue list` / `gh pr list`
  * for an exact ceiling. Two independent review seats rejected it, and both were right:
@@ -1657,23 +1662,69 @@ let cachedLiveMaximum: number | undefined
  */
 const LANDING_REF = 'origin/main'
 
+/**
+ * Whether `LANDING_REF` resolves here — a PRECONDITION of the derivation, asserted by its
+ * own test below rather than absorbed, for the reason `repoIsShallow()` above already
+ * gives about `fetch-depth: 0`: an environment that cannot meet it should fail HERE,
+ * naming the cause, "instead of surfacing as a bad-pin report against a document whose pin
+ * is perfectly honest". This is the identical failure one precondition over, and it was
+ * absorbed instead (review of #261).
+ */
+function landingRefResolves(): boolean {
+  try {
+    execFileSync('git', ['rev-parse', '--verify', '--quiet', `${LANDING_REF}^{commit}`], {
+      cwd: REPO_ROOT,
+      stdio: 'ignore',
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * WHY A MISSING REF THROWS RATHER THAN FALLING BACK TO THE FLOOR.
+ *
+ * This absorbed the absence — `origin/main` gone (a fork clone, a CI checkout that fetched
+ * only the PR ref, a mirror under another remote name) left `merged` empty, and the
+ * comment claimed "the floor below does the rest". It does not, and the gap is structural
+ * rather than a stale number: `recordedMaximum()` is the ceiling the baseline was SELECTED
+ * against, so every citation that landed legitimately between that measurement and today
+ * sits above the floor with no baseline row, because at the derived ceiling it never
+ * needed one. Falling back to the floor reports those honest citations as violations.
+ *
+ * EXECUTED on this branch, clean tree, `git update-ref -d refs/remotes/origin/main`:
+ * `docs/adr/0002-one-reducer-for-live-and-replay.md #268` — added by `8d249b4`, the same
+ * day the baseline was measured at 265. One file today; the gap is
+ * `recordedMaximum()`..`liveMaximum()` and widens with every PR that lands.
+ *
+ * So the two directions were: fall back HIGHER (derive from `HEAD` instead), which
+ * re-opens what `323ea6d` closed by letting the branch under test move its own ceiling;
+ * or fall back LOWER, which is the false-positive above. Neither is a ceiling. The third
+ * option is the one this file already took for its other precondition — refuse to certify
+ * and say which thing is missing — and it is strictly better than what was here, which
+ * went red anyway and blamed the wrong document while doing it.
+ *
+ * `recordedMaximum()` keeps its floor role for the ordinary path: it is what makes a
+ * derivation that legitimately sees no post-reset merge return the measurement rather than
+ * zero.
+ */
 function liveMaximum(): number {
   if (cachedLiveMaximum !== undefined) return cachedLiveMaximum
-  let merged: number[] = []
-  try {
-    const subjects = execFileSync('git', ['log', LANDING_REF, `--since=${TRACKER_RESET_DATE}`, '--format=%s'], {
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-    merged = livePrMergeNumbers(subjects)
-  } catch {
-    // `origin/main` absent — a fork clone, a CI checkout that fetched only the PR ref, a
-    // mirror under another remote name. EXECUTED: `git log no-such-ref/main` exits 128, so
-    // without this the swap away from `--all` would trade a clone-dependent ceiling for a
-    // thrown law, which is the environment-sensitivity the `gh` version was rejected for.
-    // Falling through leaves `merged` empty and the floor below does the rest.
+  if (!landingRefResolves()) {
+    throw new Error(
+      `${LANDING_REF} does not resolve in this clone, so the live tracker maximum cannot be derived — ` +
+        'this law cannot certify the corpus without it. Fetch it (`git fetch origin main:refs/remotes/origin/main`), ' +
+        'or check out with `fetch-depth: 0`. NOT a corpus violation: falling back to the baseline\'s own ' +
+        'recorded maximum would report every citation that landed since it was measured as prior-tracker.',
+    )
   }
+  const subjects = execFileSync('git', ['log', LANDING_REF, `--since=${TRACKER_RESET_DATE}`, '--format=%s'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  })
+  const merged = livePrMergeNumbers(subjects)
   cachedLiveMaximum = Math.max(merged.length > 0 ? Math.max(...merged) : 0, recordedMaximum())
   return cachedLiveMaximum
 }
@@ -1767,6 +1818,26 @@ function issueCitationEntries(): { file: string; text: string }[] {
 describe('citation ceiling law: a #NNN citation above the live maximum cannot enter the corpus (#261)', () => {
   it('the clone is not shallow — required for the live-maximum sweep, the same precondition sha-pin resolution above already needs', () => {
     expect(repoIsShallow()).toBe(false)
+  })
+
+  it('`origin/main` resolves — the derivation\'s second precondition, asserted rather than absorbed', () => {
+    expect(
+      landingRefResolves(),
+      `${LANDING_REF} does not resolve here, so the ceiling cannot be derived. Fetch it: git fetch origin main:refs/remotes/origin/main`,
+    ).toBe(true)
+  })
+
+  it('the recorded floor is not a usable ceiling — falling back to it reports honest citations as prior-tracker, which is why a missing ref throws', () => {
+    // The mechanism, on rigged input so it stays true when the baseline is re-measured:
+    // #268 is cited in `docs/adr/0002-one-reducer-for-live-and-replay.md`, landed on main
+    // by `8d249b4`, and carries no baseline row because at the DERIVED ceiling it needs
+    // none. Judge the same citation at the floor the absent-ref path used to fall back to
+    // and it becomes a violation naming a document that is telling the truth.
+    const entries = [{ file: 'docs/adr/0002-one-reducer-for-live-and-replay.md', text: 'ruled under #268.' }]
+    expect(ceilingViolationsIn(entries, 272, new Set())).toEqual([])
+    expect(ceilingViolationsIn(entries, 265, new Set())).toEqual([
+      { file: 'docs/adr/0002-one-reducer-for-live-and-replay.md', num: 268 },
+    ])
   })
 
   it('a hex colour and a heading anchor are not mistaken for a citation', () => {
