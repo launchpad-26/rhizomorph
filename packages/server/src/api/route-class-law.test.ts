@@ -693,10 +693,17 @@ describe('every recognised route-count claim is derived from ROUTE_CLASSES, in w
   })
 
   it('bites: a stale hand-typed count is told apart from the real one, not just parsed', () => {
-    // Todays real count is ten; "nine" is the exact defect this issue was
-    // filed over. If a revert ever restores that word, this proves the
-    // extractor still reads it as 9, distinct from the derived 10 — the
-    // comparison above is what turns that into a red build.
+    // "nine" is the exact defect this issue was filed over. If a revert ever
+    // restores that word, this proves the extractor still reads it as 9,
+    // distinct from whatever `totalMutationCount` derives — the comparison
+    // above is what turns that into a red build.
+    //
+    // The real total is deliberately NOT restated here. It was written in as
+    // "ten" and went stale the moment prd17 ruling 1's operator door made it
+    // eleven (#276) — and this file is excluded from the sweep that catches
+    // exactly that kind of rot, so nothing could tell us. A fixture's own prose
+    // is the one place a hand-typed count has no guard at all, so the count
+    // goes through `totalMutationCount` and the sentence stops claiming it.
     const stale = 'This server has nine mutating routes today, all POST.'
     const stated = captureAll(stale, /This server has (\w+) mutating routes today/g, 'fixture')
     expect(stated).toEqual([9])
@@ -706,8 +713,10 @@ describe('every recognised route-count claim is derived from ROUTE_CLASSES, in w
   it('bites: a wrong count in a SECOND occurrence is caught even when the first occurrence is correct', () => {
     // The exact shape round 2 asked for: two occurrences of the identical
     // claim, only one mutated. A first-match-only reader — this law's own
-    // shape before this round — would see the correct first "ten" and never
-    // read as far as the second, wrong "nine".
+    // shape before this round — would see the plausible first "ten" and never
+    // read as far as the second, differing "nine". Both are literals of this
+    // fixture and neither is asserted to be the app's real total; what is
+    // asserted is that the extractor returns BOTH.
     const fixture =
       'This server answers **ten** mutating routes in total, not three. ' +
       'Reminder, three paragraphs later: this server answers **nine** mutating routes in total, not three.'
