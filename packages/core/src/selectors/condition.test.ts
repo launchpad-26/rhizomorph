@@ -26,6 +26,7 @@ function baseLane(overrides: Partial<Lane> = {}): Lane {
     present: true,
     slot: 0,
     agentStatus: null,
+    agentStatusWitness: null,
     activity: 'working',
 
     tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, total: 0 },
@@ -134,6 +135,33 @@ describe('selectLaneCondition — the five pathologies', () => {
     expect(condition.why.reason).not.toBe('stopped')
     expect(condition.why.evidence.fact).toContain('workmux reports waiting')
     expect(condition.remedy.kind).toBe('action')
+    expectHonest(condition)
+  })
+
+  it('WAITING, inferred from transcript shape: the fact is the organ\'s reading and the remedy still exists', () => {
+    // #281 / ADR-0037. A transcript-shape WAITING is a real summons — the
+    // operator still has something to do — so it must keep an actionable
+    // remedy while wearing the inferred mark. Rendering it as a bare
+    // observation would be the #133 false summons inverted: a raised hand the
+    // instrument declines to act on.
+    const p = pathology({
+      kind: 'waiting',
+      since: NOW - 45_000,
+      evidence: 'transcript shape: WAITING — tail turn-complete, quiet 45s, threshold 30s',
+      inferred: true,
+    })
+    const lane = baseLane({
+      pathologies: [p],
+      rank: 'needs-you',
+      agentStatus: 'waiting',
+      agentStatusWitness: 'sessionlog',
+    })
+    const condition = selectLaneCondition(lane, NOW)
+
+    expect(condition.label).toBe('WAITING')
+    expect(condition.why.reason).not.toBe('stopped')
+    expect(condition.why.evidence.fact).toContain('transcript shape')
+    expect(condition.remedy.kind).toBeDefined()
     expectHonest(condition)
   })
 

@@ -91,7 +91,7 @@ v0 event types:
   before commits exist)
 - **tmux:** `pane.discovered/closed` · `pane.activity` (content-hash delta
   per poll — never the pane's text)
-- **workmux:** `agent.status` (working/waiting/done)
+- **workmux:** `agent.status` (working/waiting/done) — since [ADR-0037](adr/0037-agent-status-names-its-witness.md) the transcript organ also signs this type as `sessionlog`; the envelope's `source` names the witness.
 - **system:** `session.started` · `collector.error/disabled`
 
 `core` also owns the **`Collector` interface**, so collectors and the server

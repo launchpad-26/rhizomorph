@@ -1,11 +1,13 @@
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rename, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { CollectorContext, Exec, ExecResult } from '@rhizomorph/core'
-import { createEvent } from '@rhizomorph/core'
+import { UNATTRIBUTED_LANE, createEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createSessionlogCollector } from './collector.js'
+import { TRANSCRIPT_STALL_MS, TURN_SETTLE_MS } from './lane-state.js'
+import type { ProcessLiveness, ProcessProbe } from './process-probe.js'
 import type { AssistantLineFacts, TurnGrammar } from './turn-grammar.js'
 import { worktreePathToProjectSlug } from './worktree-slug.js'
 
@@ -216,12 +218,12 @@ describe('createSessionlogCollector', () => {
 
     // prd15's capability law: `telemetry`/`activity: provided` need a real
     // path that emits them — `llm.usage`/`tool.activity` above just proved
-    // it. `attention` stays `partial` (inferred, not declared) since this
-    // poll never emits `agent.status` — see `lane-state.ts`'s BLOCKED note.
+    // it. The organ publishes (#281); attention stays `partial` because a
+    // published inference is still one.
     expect(collector.capabilities?.telemetry).toEqual({ level: 'provided' })
     expect(collector.capabilities?.activity).toEqual({ level: 'provided' })
     expect(collector.capabilities?.attention.level).toBe('partial')
-    expect(result.events.some((e) => e.type === 'agent.status')).toBe(false)
+    expect(result.events.some((e) => e.type === 'agent.status')).toBe(true)
   })
 
   it('normalizes filePath to repo-relative when it sits under the lane\'s own worktree (prd11 ruling 2)', async () => {
@@ -1016,5 +1018,216 @@ describe('createSessionlogCollector', () => {
     const lanes = result.nextSnapshot.lanes ?? {}
     const laneStates = Object.values(lanes).map((lane) => lane.state)
     expect(laneStates).toEqual(['working'])
+  })
+})
+
+// ── the organ publishes (#281, ADR-0037) ────────────────────────────────────
+
+/**
+ * prd-27 ruling 2's keystone: the transcript organ signs `agent.status` with
+ * its own name. Everything asserted here is a property of *publication*, not
+ * of the derivation — `lane-state.test.ts` owns the four states themselves,
+ * and this suite owns which of them reach the log, how often, and under whose
+ * signature.
+ *
+ * The fixtures are the same real captures `tmuxless-boot.test.ts` reads, aged
+ * the same mechanical way (timestamps shifted by one constant per file, lane
+ * identity rewritten, shapes never edited).
+ */
+describe('the organ publishes agent.status, edge-triggered and signed (#281, ADR-0037)', () => {
+  const ORGAN_NOW = 1_800_000_000_000
+  const CAPTURED_VERSION = 'claude-code-2.1.222'
+  const TURN_COMPLETE = `${CAPTURED_VERSION}-tail-turn-complete.jsonl`
+  const PENDING_TOOL = `${CAPTURED_VERSION}-tail-pending-tool.jsonl`
+
+  let root: string
+
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'sessionlog-organ-'))
+  })
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  const worktreeOf = (lane: string): string => `/fake/organ-worktrees/${lane}`
+
+  /**
+   * Plants one captured transcript as `lane`'s session, aged so its last
+   * conversational entry sits `ageMs` before `ORGAN_NOW`, with the file's own
+   * mtime pinned too — otherwise the evidence string carries a wall-clock
+   * "last write" span and stops being deterministic.
+   */
+  async function plant(
+    worktreePath: string,
+    lane: string | null,
+    fixture: string,
+    ageMs: number,
+  ): Promise<void> {
+    const raw = await readFixture(fixture)
+    const lines = raw.split('\n').filter((line) => line.length > 0)
+    const stamps = lines
+      .map((line) => (JSON.parse(line) as { timestamp?: string }).timestamp)
+      .filter((stamp): stamp is string => typeof stamp === 'string')
+      .map((stamp) => Date.parse(stamp))
+      .filter((stamp) => Number.isFinite(stamp))
+    const shift = ORGAN_NOW - ageMs - Math.max(...stamps)
+
+    const aged = lines.map((line) => {
+      const entry = JSON.parse(line) as Record<string, unknown>
+      if (typeof entry.timestamp === 'string') {
+        entry.timestamp = new Date(Date.parse(entry.timestamp) + shift).toISOString()
+      }
+      if (typeof entry.cwd === 'string') entry.cwd = worktreePath
+      if (typeof entry.gitBranch === 'string' && lane !== null) entry.gitBranch = lane
+      return JSON.stringify(entry)
+    })
+
+    const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))
+    await mkdir(projectDir, { recursive: true })
+    const filePath = path.join(projectDir, 'session-1.jsonl')
+    await writeFile(filePath, `${aged.join('\n')}\n`, 'utf8')
+    const written = new Date(ORGAN_NOW - 1_000)
+    await utimes(filePath, written, written)
+  }
+
+  /** A probe that answers from a table — no real process anywhere. */
+  function stubProbe(alive: Readonly<Record<string, ProcessLiveness>>): ProcessProbe {
+    return {
+      name: 'stub',
+      async probe(worktreePaths) {
+        return new Map(worktreePaths.map((worktreePath) => [worktreePath, alive[worktreePath] ?? false]))
+      },
+    }
+  }
+
+  function organCollector(probe: ProcessProbe = stubProbe({})) {
+    return createSessionlogCollector({ claudeProjectsRoot: root, backfill: true, processProbe: probe })
+  }
+
+  const gitFor =
+    (worktreePaths: readonly string[]): Exec =>
+    async () =>
+      success(worktreeListOutput(['/repo', ...worktreePaths]))
+
+  const statuses = <T extends { type: string }>(events: readonly T[]): T[] =>
+    events.filter((e) => e.type === 'agent.status')
+
+  it('three polls, one event: the first sighting publishes, an unchanged state does not', async () => {
+    // buildFleet folds `agent.status` into `lastWorkTs`, so an organ that
+    // re-announced a lane's state every poll would refresh the very silence
+    // FROZEN and inferred-WAITING are measured against — the prd3 keystone
+    // bug, through a new door. Only a change of state speaks.
+    const lane = 'organ-a'
+    await plant(worktreeOf(lane), lane, TURN_COMPLETE, 5_000)
+    const collector = organCollector()
+    const exec = gitFor([worktreeOf(lane)])
+
+    const first = await collector.poll(collector.initialSnapshot(), makeContext(exec, '/repo', ORGAN_NOW))
+    const second = await collector.poll(first.nextSnapshot, makeContext(exec, '/repo', ORGAN_NOW))
+    const third = await collector.poll(second.nextSnapshot, makeContext(exec, '/repo', ORGAN_NOW))
+
+    expect(statuses(first.events)).toHaveLength(1)
+    expect(statuses(second.events)).toHaveLength(0)
+    expect(statuses(third.events)).toHaveLength(0)
+
+    expect(statuses(first.events)[0]).toMatchObject({
+      source: 'sessionlog',
+      type: 'agent.status',
+      payload: { handle: lane, status: 'working' },
+    })
+    // The payload's `detail` is the organ's own reading, not a paraphrase of
+    // it: the same string the snapshot carries.
+    expect((statuses(first.events)[0]?.payload as { detail: string }).detail).toBe(
+      first.nextSnapshot.lanes?.[lane]?.evidence,
+    )
+  })
+
+  it('a transition publishes once, with the new word', async () => {
+    const lane = 'organ-b'
+    await plant(worktreeOf(lane), lane, TURN_COMPLETE, 5_000)
+    const collector = organCollector(stubProbe({ [worktreeOf(lane)]: true }))
+    const exec = gitFor([worktreeOf(lane)])
+
+    const first = await collector.poll(collector.initialSnapshot(), makeContext(exec, '/repo', ORGAN_NOW))
+    expect(statuses(first.events)).toHaveLength(1)
+    expect(statuses(first.events)[0]?.payload).toMatchObject({ status: 'working' })
+
+    // Past TURN_SETTLE_MS the completed turn has stayed completed: a raised hand.
+    const settled = ORGAN_NOW + TURN_SETTLE_MS
+    const second = await collector.poll(first.nextSnapshot, makeContext(exec, '/repo', settled))
+    const reading = second.nextSnapshot.lanes?.[lane]
+    expect(reading?.state).toBe('waiting')
+    expect(statuses(second.events)).toHaveLength(1)
+    expect(statuses(second.events)[0]?.payload).toMatchObject({
+      handle: lane,
+      status: 'waiting',
+      elapsedSeconds: Math.floor((reading?.quietMs ?? 0) / 1000),
+    })
+
+    const third = await collector.poll(second.nextSnapshot, makeContext(exec, '/repo', settled))
+    expect(statuses(third.events)).toHaveLength(0)
+  })
+
+  it('frozen and gone publish nothing', async () => {
+    // FROZEN: silence *is* the signal downstream, and an event announcing the
+    // freeze would postpone the alarm it announces. GONE: the union's only
+    // candidate word is `done`, which would convert a crash into a success.
+    const lane = 'organ-c'
+    const stalled = ORGAN_NOW + TRANSCRIPT_STALL_MS
+
+    await plant(worktreeOf(lane), lane, PENDING_TOOL, 30_000)
+    const exec = gitFor([worktreeOf(lane)])
+
+    const frozenCollector = organCollector(stubProbe({ [worktreeOf(lane)]: true }))
+    const frozen = await frozenCollector.poll(
+      frozenCollector.initialSnapshot(),
+      makeContext(exec, '/repo', stalled),
+    )
+    expect(frozen.nextSnapshot.lanes?.[lane]?.state).toBe('frozen')
+    expect(statuses(frozen.events)).toHaveLength(0)
+
+    const goneCollector = organCollector(stubProbe({ [worktreeOf(lane)]: false }))
+    const gone = await goneCollector.poll(goneCollector.initialSnapshot(), makeContext(exec, '/repo', stalled))
+    expect(gone.nextSnapshot.lanes?.[lane]?.state).toBe('gone')
+    expect(statuses(gone.events)).toHaveLength(0)
+  })
+
+  it('every agent.status the organ emits is signed sessionlog — never workmux', async () => {
+    // ADR-0037's named guard. `createEvent('agent.status', …)` STILL defaults
+    // `source` to `workmux`, and no schema catches a collector that forgets to
+    // pass its own: forged provenance by omission. This assertion is the only
+    // thing standing there. Do not weaken it.
+    const lane = 'organ-d'
+    await plant(worktreeOf(lane), lane, TURN_COMPLETE, 5_000)
+    const collector = organCollector(stubProbe({ [worktreeOf(lane)]: true }))
+    const exec = gitFor([worktreeOf(lane)])
+
+    const first = await collector.poll(collector.initialSnapshot(), makeContext(exec, '/repo', ORGAN_NOW))
+    const second = await collector.poll(
+      first.nextSnapshot,
+      makeContext(exec, '/repo', ORGAN_NOW + TURN_SETTLE_MS),
+    )
+    const emitted = statuses([...first.events, ...second.events])
+
+    // Non-vacuous: an organ that published nothing at all would satisfy
+    // `every` trivially.
+    expect(emitted.length).toBeGreaterThan(0)
+    expect(emitted.every((e) => e.source === 'sessionlog')).toBe(true)
+  })
+
+  it('the unattributed main tree publishes no agent.status', async () => {
+    // `deriveLanes` gives the main working tree's session the lane
+    // `unattributed` — a setup gap, never worker spend (#62). Minting an
+    // agent record for it would hand the fleet a lane it deliberately does
+    // not have.
+    await plant('/repo', null, TURN_COMPLETE, 5_000)
+    const collector = organCollector()
+    const exec: Exec = async () => success(worktreeListOutput(['/repo']))
+
+    const result = await collector.poll(collector.initialSnapshot(), makeContext(exec, '/repo', ORGAN_NOW))
+
+    expect(result.nextSnapshot.lanes?.[UNATTRIBUTED_LANE]).toBeDefined()
+    expect(statuses(result.events)).toHaveLength(0)
   })
 })
