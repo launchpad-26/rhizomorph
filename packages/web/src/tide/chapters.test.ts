@@ -293,9 +293,9 @@ describe('chaptersFor — a flood of summonses is still one mark under density',
    * title claimed the second. Re-using the one mutation that found a defect as
    * the proof its fix works is how that happened; the class was never probed.
    *
-   * So the log below arrives OUT of ts order — by ts rank, (2nd, 1st, 1st, 1st,
-   * 2nd, 3rd, 3rd) — which is the only shape that can tell a real sort from no
-   * sort at all.
+   * So the log below arrives OUT of ts order — eight events whose ts ranks are
+   * (4th, 1st, 1st, 2nd, 2nd, 2nd, 3rd, 3rd) — which is the only shape that can
+   * tell a real sort from no sort at all.
    *
    * **Every chapter kind appears, and that is a rule rather than thoroughness**
    * (review of #277, round 3). A hoist can be written per kind, so a fixture
@@ -304,12 +304,15 @@ describe('chaptersFor — a flood of summonses is still one mark under density',
    * all 188 tide tests green while the all-four spelling reddened. Two of
    * #277's own four new kinds had no ordering witness anywhere in the repo.
    *
-   * **A kind that sorts LAST is structurally invisible to a solo hoist**, since
-   * appending something already last cannot move it — so such a kind must also
-   * appear at a second, earlier ts. That is why `session.started` is emitted
-   * twice. The round-2 fixture put it at the maximum ts alone, which silently
-   * gave up a witness the round-1 fixture had: the only axis on which that
-   * version was WEAKER than the one it replaced.
+   * **A kind sitting alone at an EXTREME ts is structurally invisible to a solo
+   * hoist in that direction**: appending something already last cannot move it,
+   * and neither can prepending something already first. That is why
+   * `session.started` is emitted twice here. Both halves of that rule were
+   * learned the hard way — round 2 put `session.started` at the maximum ts
+   * alone and silently gave up a witness round 1 had, and round 3 fixed that
+   * while leaving `gate-held`, alphabetically first at `T0`, open to the
+   * mirror. Neither is load-bearing any more: the sweep below enforces the rule
+   * for EVERY kind instead of this fixture being trusted to remember it.
    */
   it('orders every kind by ts, whatever order the log arrived in', () => {
     const events = log((fx) => {
@@ -324,8 +327,8 @@ describe('chaptersFor — a flood of summonses is still one mark under density',
       fx.at(T0 + MINUTE).summonsCleared({ lane: 'ke5', kind: 'stalled' })
       fx.at(T0 + MINUTE).gateVerdict({ handle: 'ke5', held: true })
       fx.at(T0 + MINUTE).summonsRaised({ lane: 'ke5', kind: 'stalled' })
-      // the only lane-bearing event, so `bornAt`/`landedAt` both resolve here:
-      // two DEFERRED kinds at one ts, pushed AFTER the main loop.
+      // `landedAt` resolves here. (`bornAt` resolved at T0, on the span above —
+      // that is lane-bearing too.) A DEFERRED kind, pushed after the main loop.
       fx.at(T0 + 2 * MINUTE).agentStatus({ handle: 'ke5', status: 'done' })
       // deliberately at the SAME ts and the SAME lane as those two, and pushed
       // BEFORE them — so insertion order and `kind` order actively disagree.
@@ -345,14 +348,91 @@ describe('chaptersFor — a flood of summonses is still one mark under density',
       ['summons-raised', MINUTE],
       // one ts, two chapters, and the `kind` tiebreak alone decides them:
       // `operator.verdict` is pushed in the main loop and `lane-landed` after
-      // it, so insertion order and `kind` order actively DISAGREE. (They are
-      // not simply reversed — only `operator-verdict` moves — but disagreeing
-      // is the whole requirement: without it V8's stable sort would satisfy
-      // this assertion while the clause was removable.)
+      // it, so insertion order and `kind` order DISAGREE. That disagreement is
+      // the whole requirement — without it V8's stable sort would satisfy this
+      // assertion while the clause was removable.
       ['lane-landed', 2 * MINUTE],
       ['operator-verdict', 2 * MINUTE],
       ['session-boundary', 3 * MINUTE],
     ])
+  })
+
+  /**
+   * THE SWEEP — the level above the fixture, added after four rounds of the
+   * same defect (review of #277, round 3).
+   *
+   * Rounds 1-3 each hand-picked a fixture, hand-wrote the expected list, and
+   * each time a seat found one more spelling the fixture could not see:
+   * ascending arrival order hid "never sort"; a max-ts `session-boundary` hid
+   * its own append-hoist; a min-ts `gate-held` hid its prepend-hoist. Every
+   * repair was correct about the case that prompted it. Patching the next cell
+   * would have found cell N+1 — so this stops asserting cases and asserts the
+   * PROPERTY instead.
+   *
+   * Three clauses, each of which fails on its own:
+   *
+   * 1. **Every kind in `CHAPTER_KINDS` is exercised.** A kind added later with
+   *    no witness fails here rather than shipping unwitnessed — which is what
+   *    happened to `gate-verdict` and `summons-cleared`, two of #277's own four.
+   * 2. **Every kind appears at two DISTINCT timestamps.** This is what makes
+   *    clause 3 total: a kind sitting alone at an extreme cannot be moved by a
+   *    hoist in that direction, so no fixture where that is true can witness it.
+   *    Enforcing it here means no future fixture author has to know the rule.
+   * 3. **The output is already in comparator order.** Any hoist of any kind, in
+   *    either direction, breaks this — no per-kind assertion needed. The
+   *    comparator is spelled out locally rather than imported, so a change to
+   *    the production comparator cannot silently move the goalposts.
+   */
+  describe('the ordering law, swept over every kind', () => {
+    const inComparatorOrder = (a: Chapter, b: Chapter) =>
+      a.ts - b.ts ||
+      (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0) ||
+      ((a.lane ?? '') < (b.lane ?? '') ? -1 : (a.lane ?? '') > (b.lane ?? '') ? 1 : 0)
+
+    const SECOND = 1_000
+
+    // Two lanes, because `lane-born`/`lane-landed` are one-per-lane: a second
+    // timestamp for them exists only if a second lane does. Emitted in an order
+    // unrelated to ts throughout.
+    const swept = chaptersFor(
+      log((fx) => {
+        fx.at(T0 + 90 * SECOND).sessionStarted()
+        fx.at(T0 + 20 * SECOND).summonsRaised({ lane: 'alpha', kind: 'stalled' })
+        fx.at(T0 + 55 * SECOND).gateVerdict({ handle: 'ke5', held: false })
+        fx.at(T0 + 10 * SECOND).traceSpan({ lane: 'alpha', kind: 'tool_blocked', toolName: 'Bash', decision: 'accept' })
+        fx.at(T0 + 65 * SECOND).operatorVerdict({ subject: 'ke5', verdict: 'approved' })
+        fx.at(T0 + 30 * SECOND).summonsCleared({ lane: 'alpha', kind: 'stalled' })
+        fx.at(T0 + 100 * SECOND).agentStatus({ handle: 'ke5', status: 'done' })
+        fx.at(T0 + 25 * SECOND).gateVerdict({ handle: 'alpha', held: true })
+        fx.at(T0 + 40 * SECOND).traceSpan({ lane: 'ke5', kind: 'tool_blocked', toolName: 'Edit', decision: 'accept' })
+        fx.at(T0).sessionStarted()
+        fx.at(T0 + 60 * SECOND).summonsCleared({ lane: 'ke5', kind: 'stalled' })
+        fx.at(T0 + 35 * SECOND).operatorVerdict({ subject: 'alpha', verdict: 'rejected' })
+        fx.at(T0 + 70 * SECOND).agentStatus({ handle: 'alpha', status: 'done' })
+        fx.at(T0 + 50 * SECOND).summonsRaised({ lane: 'ke5', kind: 'stalled' })
+      }),
+    )
+
+    const timestampsByKind = new Map<string, Set<number>>()
+    for (const chapter of swept) {
+      const seen = timestampsByKind.get(chapter.kind) ?? new Set<number>()
+      seen.add(chapter.ts)
+      timestampsByKind.set(chapter.kind, seen)
+    }
+
+    it('exercises every kind the module declares — a new kind arrives here unwitnessed and fails', () => {
+      expect([...timestampsByKind.keys()].sort()).toEqual([...CHAPTER_KINDS].sort())
+    })
+
+    it('gives every kind two distinct timestamps, so none sits alone at an extreme', () => {
+      for (const kind of CHAPTER_KINDS) {
+        expect(timestampsByKind.get(kind)?.size ?? 0, kind).toBeGreaterThan(1)
+      }
+    })
+
+    it('returns them already in (ts, kind, lane) order — any hoist, either direction, breaks this', () => {
+      expect(swept).toEqual([...swept].sort(inComparatorOrder))
+    })
   })
 
   /**
