@@ -490,7 +490,7 @@ describe('ChapterMarks — row height (prd13 ruling 13: one height, not mode-dep
  * `glyphHeldOf` is the ONLY new view logic whose ink depends on data rather
  * than on the chapter's kind — a `gate-verdict` is amber while the gate holds
  * and green once it merges. Nothing reached it: forcing it to `return null`
- * unconditionally left all 187 tests in `tide/` green (review of #277). The
+ * unconditionally left the whole `tide/` suite green at the time it was found (review of #277). The
  * new-kinds suite above asserts the accessible NAME, which comes from
  * `chapterLabel` and not from the glyph, so it cannot see this.
  *
@@ -504,26 +504,41 @@ describe('ChapterMarks — row height (prd13 ruling 13: one height, not mode-dep
  * the class list instead would pass for both states.
  */
 describe('ChapterMarks — a gate verdict is inked by its own held flag (#277)', () => {
-  function inkOfLoneMark(held: boolean): string {
+  /**
+   * EVERY inline-painted span, not one of them. The `gate-verdict` branch
+   * renders TWO — the faded stem and the head square — each carrying its own
+   * copy of the same ternary, eleven lines apart. The first version of this
+   * helper used `querySelector`, which returns the first in document order: the
+   * STEM. Inverting only the head's ink then rendered a held gate GREEN while
+   * all three tests below passed, 191/191 (found by an independent seat, review
+   * of #277). The local was even named `head`.
+   *
+   * That is this repo's named #1 defect shape — a fix that handles the case its
+   * author considered and misses a structurally identical sibling. Returning
+   * every span makes the count itself part of the assertion, so a third painted
+   * span added later is caught rather than ignored.
+   */
+  function inksOfLoneMark(held: boolean): string[] {
     const events = log((fx) => {
       fx.at(3_000).gateVerdict({ handle: 'ke5', held })
     })
     render(<ChapterMarks events={events} start={T0} end={T_END} width={900} onSeek={() => {}} seekEnabled />)
-    const head = screen.getByTestId('chapter-mark').querySelector<HTMLElement>('span[style*="background-color"]')
-    return head?.style.backgroundColor ?? ''
+    return [...screen.getByTestId('chapter-mark').querySelectorAll<HTMLElement>('span[style*="background-color"]')].map(
+      (span) => span.style.backgroundColor,
+    )
   }
 
-  it('inks a held verdict with the needs-you colour', () => {
-    expect(inkOfLoneMark(true)).toBe('var(--color-needs-you)')
+  it('inks every painted span of a held verdict with the needs-you colour', () => {
+    expect(inksOfLoneMark(true)).toEqual(['var(--color-needs-you)', 'var(--color-needs-you)'])
   })
 
-  it('inks a merged verdict with the done colour', () => {
-    expect(inkOfLoneMark(false)).toBe('var(--color-done)')
+  it('inks every painted span of a merged verdict with the done colour', () => {
+    expect(inksOfLoneMark(false)).toEqual(['var(--color-done)', 'var(--color-done)'])
   })
 
   it('reads the two states differently — the assertion pair cannot pass for one reason', () => {
-    const held = inkOfLoneMark(true)
+    const held = inksOfLoneMark(true)
     cleanup()
-    expect(inkOfLoneMark(false)).not.toBe(held)
+    expect(inksOfLoneMark(false)).not.toEqual(held)
   })
 })
