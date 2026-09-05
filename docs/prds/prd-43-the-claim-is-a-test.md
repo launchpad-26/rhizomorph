@@ -387,8 +387,15 @@ all three share the wave and its PR.
 states its real expected count*. It was filed carrying `w8` while this Sequencing declared waves
 0–7, so `fence-lint` and the board both accepted an issue whose wave existed nowhere. Wave 8 is
 the residue of ruling 2's sweep in the same sense wave 6 was of ruling 1: `#232` swept every route
-count this repo states in prose, and two of the eight rows it then had were wrong — `#275` is the
-same defect one table over.
+count this repo states in prose, and **two of the eight sites it newly found were already wrong** —
+`security.ts` said "ten" gated reads and `lane-index.test.ts` said "eleven", both against a true
+fourteen. It folded those eight together with the four `#23` already guarded into one `CLAIMS`
+table of twelve. `#275` is the same defect one table over.
+
+The count in that sentence is stated carefully, because the first draft of it got the arithmetic
+wrong in the way this PRD exists to catch: it read "two of the eight rows it then had", which
+conflates the **eight sites discovered** with the **twelve rows the table then held**. Caught by a
+review seat against `9f020e2`'s own commit body, not by a reader of this document.
 
 **`#275` is unblocked and still not dispatchable, and the reason is outside this PRD.** Its stated
 blockers — `#234` and `#270`, both wave 6 — landed in PR `#272`. Its fence is a single file,
