@@ -114,8 +114,10 @@ Options:
                           $env:NAME = "value", cmd: set NAME=value)
   --hooks <cli>           claude — print, instead of the env block, the Claude Code
                           settings.json "hooks" fragment whose commands append an
-                          attention beacon (ADR-0036) for this lane to the running
-                          instance's beacon directory. --role and --shell are ignored.
+                          attention beacon (ADR-0036) for this lane to the beacon
+                          directory of the running instance's repo — resolved under
+                          this shell's RHIZOMORPH_DATA_DIR, which must therefore
+                          match the server's. --role and --shell are ignored.
   --help, -h              Show this help and exit
 `
 }
