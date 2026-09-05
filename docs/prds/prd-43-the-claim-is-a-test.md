@@ -425,6 +425,29 @@ missing wave from a present one — and that is the durable half: **a milestone 
 invisible to both guards this repo has**, which is the same shape the `#266`/`#270` pair recorded
 above at the bundling level.
 
+**Wave 9 — declared 2026-09-05, one issue, and it is the runbook half of an enforcement that
+already exists.** `prd43 w9: the runbook states what a PR requires before it is opened` (`#285`).
+`AGENTS.md` never states that a PR needs an independent review pass over every commit and the
+operator's word for that specific PR: `grep -c '/verify' AGENTS.md` returned 0. The rule lived
+only in a project memory and in the verify skill's own text, both of which load conditionally — a
+session that never invokes the skill never meets the rule.
+
+It belongs to this PRD rather than to `charter-laws` on that milestone's own test: the carve-out
+is for a rule the **design charter** already states, and this is process, not design. It is its
+own wave rather than joining wave 8 because `#275` is held behind another programme's fence and
+would hold this hostage, and because the two share no file.
+
+**It is fence-blocked by wave 7's own PR.** `AGENTS.md` sits inside `#66`'s fence, so `#285` and
+wave 7 can never be in flight together — the branch carrying it is based on the wave-7 head for
+exactly that reason. Land wave 7, then this.
+
+The failure that produced it is this PRD's thesis pointed at the PRD's own toolchain: on
+2026-09-05 two commits were recorded with `verify-ledger.sh record --force`, and the ledger, the
+PR-opening script **and** the PreToolUse approval guard then all reported the range verified.
+Three layers that look independent were reading one exit status the session under review had
+itself written. A bare `check` exits 0 on a forced row. The operator-side repair — a `--strict`
+mode, and both callers using it — is not in this repo; `#285` is the half that is.
+
 **Unfiled work implied, described not numbered:** the audited clone's `origin` still points at the
 pre-rename `launchpad-26/rhizomorph.tmp`, working only through GitHub's redirect. That is local git
 config, not a tracked file, so it has no issue — but it belongs in the operator's own checklist

@@ -288,6 +288,48 @@ needs "and" in its subject is two commits.
 Both questions are cheap to answer and would have caught most of what review
 caught, at authoring time.
 
+### Opening a PR — two conditions, and no gate you run yourself is either of them
+
+A PR is opened, undrafted or merged only when **both** are true. They are separate
+conditions and each has been broken on its own:
+
+1. **Every commit in the range has been read by an independent review pass** — the
+   `verify` seats, recorded in the ledger. Check it rather than remembering it:
+
+   ```
+   ~/.claude/skills/verify/scripts/verify-ledger.sh check --strict --range <base>..<branch>
+   ```
+
+2. **The operator has asked for this specific PR, in this session.** "Do it", "go
+   ahead" or "carry on" said about something else earlier is not that instruction, and
+   a clean verdict is a reason to *report*, not to act.
+
+**A green suite is not condition 1.** Neither is a clean fence audit, a passing
+`lane-precommit.sh --repair`, or a certified mutation. Those validate an artefact;
+only the ledger records that the review *happened*. That distinction is the whole
+rule: every other gate in this toolchain checks a thing, and the two steps with no
+artefact — running the review, and asking — are the two that go missing.
+
+**`--strict` is not decoration.** A bare `check` exits 0 on a `FORCED` row, and a
+forced row is a reason typed by whoever wants the PR opened. Measured 2026-09-05 on the wave-7
+PR (number 284, written without the usual hash on purpose: it had not merged, so the
+citation law correctly reads a hash-prefixed 284 as above the derived ceiling, and
+this sentence would otherwise redden the very law the PR was landing): two commits
+were recorded with `record --force`, after which the ledger,
+`pr-open.sh` and the `pr-approval-guard` hook *all* reported the range verified —
+three independent-looking layers reading one exit status the same session had just
+written. A guard whose evidence the guarded party can author is not a guard. The
+honest escape is `pr-open.sh --unverified "<why>"`, which writes the gap into the PR
+body where a reviewer sees it.
+
+**This paragraph is not the enforcement, and must not be relied on as it.** The rule
+already existed in three places on 2026-09-04 — this file, the
+`pr-is-a-wave-verified-first` memory, and `verify/SKILL.md` §9 — and three PRs were
+opened against it in one session anyway. What enforces it is a `PreToolUse` hook that
+fires on the tool call regardless of what the session concludes. If you are reading
+this and the hook did not fire, that is a defect in the hook worth reporting, not
+permission to proceed on the strength of having read the paragraph.
+
 ---
 
 ## Review
