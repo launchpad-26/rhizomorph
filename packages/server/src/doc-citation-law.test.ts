@@ -1488,10 +1488,12 @@ describe('doc citation law: a path cited from a document or a comment must exist
  *     past commit the way a git-log-derived answer is -- checking out an old commit and
  *     re-running the suite would ask GitHub about TODAY, not about the tree's own date.
  *
- * `git log --all --since=<reset date> --format=%s`, filtered to that one subject shape,
- * is local, offline, reproducible against any full clone (the CI suite leg already runs
- * `fetch-depth: 0` for `isPinnedArtefact`'s sha resolution above, so the precondition is
- * already paid for), and -- because it counts only PRs that actually LANDED -- is a
+ * `git log <LANDING_REF> --since=<reset date> --format=%s`, filtered to that one subject
+ * shape, is local, offline, reproducible against any full clone (the CI suite leg already
+ * runs `fetch-depth: 0` for `isPinnedArtefact`'s sha resolution above, and that same
+ * checkout is what supplies the `origin/main` remote ref this derivation reads, so the
+ * precondition is already paid for), and -- because it counts only PRs that actually
+ * LANDED -- is a
  * deliberately CONSERVATIVE lower bound on the tracker's true current counter: an issue or
  * an open, unmerged PR can already hold a higher number than any merge this clone has seen
  * yet (a lane's own branch is frequently named after such a number). A citation to that
