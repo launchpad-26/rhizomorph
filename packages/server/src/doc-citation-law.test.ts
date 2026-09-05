@@ -1594,8 +1594,9 @@ function livePrMergeNumbers(subjects: string): number[] {
  *
  * `liveMaximum()` is the ceiling a NEW citation is judged against, so it must climb. It is
  * derived every run from something the corpus being checked cannot move: every commit
- * dated on or after the reset carries a `Merge pull request #N from <owner>/<branch>`
- * subject when it lands a real, numbered PR. It is floored at `recordedMaximum()`, so a
+ * dated on or after the reset and reachable from `LANDING_REF` carries a
+ * `Merge pull request #N from <owner>/<branch>` subject when it lands a real, numbered PR.
+ * The ref is pinned rather than `--all` for the reason `LANDING_REF`'s own comment gives. It is floored at `recordedMaximum()`, so a
  * shallow clone or a rewritten mirror falls back to the committed measurement rather than
  * to zero. There is no environment in which it returns nothing — that total absence of a
  * skip path is the property the rest of this describe depends on.
@@ -1619,7 +1620,7 @@ function livePrMergeNumbers(subjects: string): number[] {
  * before it was tried. This restores that ruling rather than arguing with it.
  *
  * What the git derivation costs, stated plainly: it is a CONSERVATIVE LOWER BOUND. It sees
- * merged PRs and nothing else, so a number that exists but has not landed reads as above
+ * PRs merged into `LANDING_REF` and nothing else, so a number that exists but has not landed reads as above
  * the ceiling and needs a baseline row until it does. Erring toward rejecting a citation
  * that happens to be current is the safe direction for a law whose whole purpose is
  * refusing the ones that are not.
@@ -1635,13 +1636,42 @@ function recordedMaximum(): number {
 // load would take the unrelated path-citation law above down with it on a
 // malformed file, rather than failing the tests that actually need the ceiling.
 let cachedLiveMaximum: number | undefined
+/**
+ * The ref the ceiling is derived from, and it is deliberately ONE ref rather than `--all`.
+ *
+ * `--all` walks every ref the object store holds — every local branch, every
+ * `refs/remotes/*`, and the refs of every linked worktree sharing this `.git`. None of
+ * those is evidence that a number landed. EXECUTED in this repo, no fabrication needed:
+ * `comm -13` between the two derivations returns `96 97 101 102`, all four carried by
+ * `refs/remotes/origin/prd44` — the abandoned integration branch AGENTS.md documents as an
+ * incident, still pushed and still fetched by an ordinary clone. A scratch local commit
+ * with a merge-shaped subject moved the ceiling from 272 to 999 while the `origin/main`
+ * derivation stayed at 272.
+ *
+ * That is the clone-dependence this law's own history already rejected once, in the
+ * paragraph the `gh` removal deleted: a ceiling that reads one number in a clone holding
+ * an unpushed branch and another in a fresh clone. Above the ceiling is supposed to mean
+ * "unambiguously prior-tracker"; a ceiling any stale branch can inflate cannot mean it.
+ */
+const LANDING_REF = 'origin/main'
+
 function liveMaximum(): number {
   if (cachedLiveMaximum !== undefined) return cachedLiveMaximum
-  const subjects = execFileSync('git', ['log', '--all', `--since=${TRACKER_RESET_DATE}`, '--format=%s'], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-  })
-  const merged = livePrMergeNumbers(subjects)
+  let merged: number[] = []
+  try {
+    const subjects = execFileSync('git', ['log', LANDING_REF, `--since=${TRACKER_RESET_DATE}`, '--format=%s'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    merged = livePrMergeNumbers(subjects)
+  } catch {
+    // `origin/main` absent — a fork clone, a CI checkout that fetched only the PR ref, a
+    // mirror under another remote name. EXECUTED: `git log no-such-ref/main` exits 128, so
+    // without this the swap away from `--all` would trade a clone-dependent ceiling for a
+    // thrown law, which is the environment-sensitivity the `gh` version was rejected for.
+    // Falling through leaves `merged` empty and the floor below does the rest.
+  }
   cachedLiveMaximum = Math.max(merged.length > 0 ? Math.max(...merged) : 0, recordedMaximum())
   return cachedLiveMaximum
 }
