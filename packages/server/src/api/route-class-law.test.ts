@@ -501,6 +501,45 @@ describe('every recognised route-count claim is derived from ROUTE_CLASSES, in w
   const SWEEP_EXCLUDED_PREFIXES = ['docs/adr/', 'docs/review/', 'docs/prds/'] as const
   const THIS_FILE_REL = 'packages/server/src/api/route-class-law.test.ts'
 
+  /**
+   * THE SWEEPING TESTS' BUDGET — #270, #266.
+   *
+   * `sweptFiles()` shells out to `git ls-files` and then reads EVERY tracked
+   * file with a swept extension. That is hundreds of synchronous reads inside
+   * one `it`, and vitest's default 5000 ms was never enough for it under load.
+   * Measured on one machine, one commit, 2026-09-04 (#270):
+   *
+   *   run alone                     ~4.2 s   88/88 pass
+   *   under VITEST_MAX_WORKERS=6     5.8 s   timeout
+   *   under the same load            8.1 s   timeout
+   *   under the same load           11.1 s   timeout
+   *
+   * So the default was marginal even in isolation. One failing run named the
+   * cause in its own output — `Preparing worktree (detached HEAD ...)`, a
+   * concurrent law test creating git worktrees while this one shells out to
+   * git.
+   *
+   * **Read the failure, not the test name, if this ever goes red.** The failure
+   * was `Error: Test timed out in 5000ms`, never an assertion — but the test is
+   * named for an undeclared route-count claim, so twice in one session a reader
+   * concluded the sweep had FOUND one and went looking for it. It had not.
+   *
+   * EVERY sweeping test carries this, not just the slow one. Raising one and
+   * leaving its sibling on the default to time out next month is the shape this
+   * repo names most often, and it is the shape #266's first draft had: it
+   * raised the completeness sweep and left `reads a non-empty file set` — which
+   * calls the same `sweptFiles()` — on 5000 ms.
+   *
+   * WHAT THIS IS NOT. It is a catastrophe backstop, never the regression guard.
+   * #266 cut the sweep's cost roughly six-fold, and a verify pass then showed
+   * that reverting that fix left every semantic test green well inside this
+   * ceiling — so a wall-clock bound cannot be what protects it. The structural
+   * assertion below ("the sweep normalises each swept file once") is the guard.
+   * If a future reader sees these tests near 30 s again, the answer is to make
+   * the sweep cheaper, not to raise the number.
+   */
+  const SWEEP_TIMEOUT_MS = 30_000
+
   function sweptFiles(): string[] {
     const out = execFileSync('git', ['ls-files', '-z'], { cwd: REPO_ROOT, encoding: 'utf8' })
     return out
@@ -513,7 +552,7 @@ describe('every recognised route-count claim is derived from ROUTE_CLASSES, in w
 
   it('the completeness sweep reads a non-empty file set — a sweep matching nothing would pass vacuously', () => {
     expect(sweptFiles().length).toBeGreaterThan(50)
-  })
+  }, SWEEP_TIMEOUT_MS)
 
   /** Git emits `/` from `ls-files` on every platform, independently of `path.sep`. */
   function claimKey(file: readonly string[], pattern: RegExp): string {
@@ -610,19 +649,13 @@ describe('every recognised route-count claim is derived from ROUTE_CLASSES, in w
 
   it('no swept file states a recognised route-count claim that no CLAIMS row declares', () => {
     expect(sweepUnregistered()).toEqual([])
-    // Explicit, not the 5000 ms default: this sweep's cost grows with the repo,
-    // and the default left it 270 ms of headroom on the machine it was written
-    // on while exceeding the budget on `macos-latest` (#266). 30 s is a
-    // catastrophe backstop and NOT the regression guard — reverting the hoist
-    // lands near 3.2 s, which clears this ceiling silently. The test below is
-    // the guard. If a future reader sees this test near 30 s again, the answer
-    // is to make the sweep cheaper, not to raise the number.
-  }, 30_000)
+    // Budget and its rationale: SWEEP_TIMEOUT_MS above.
+  }, SWEEP_TIMEOUT_MS)
 
   /**
    * The regression guard for the hoist, structural rather than wall-clock.
    *
-   * The verify pass on #266 established that the 30 s ceiling above could not
+   * The verify pass on #266 established that `SWEEP_TIMEOUT_MS` could not
    * fail for the reason it claimed: moving the normalisation back inside the
    * (file, claim) loop left every semantic test green at roughly 3.2 s, so the
    * exact regression the fix exists to prevent survived its own timeout. A
@@ -648,7 +681,7 @@ describe('every recognised route-count claim is derived from ROUTE_CLASSES, in w
 
     expect(sweepUnregistered(counted)).toEqual([])
     expect(calls).toBe(expected)
-  }, 30_000)
+  }, SWEEP_TIMEOUT_MS)
 
   it('every claimed file actually exists under REPO_ROOT — a moved file must fail loudly, not read as zero claims', () => {
     for (const claim of CLAIMS) {
@@ -1035,16 +1068,53 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
    *
    * `(?<!typeof\s)` is not used, for the reason round 6 recorded: a lookbehind
    * is fixed-width and misses `typeof  globalThis.fetch`.
+   *
+   * `typeof\s+` alone (#234) required at least one whitespace character
+   * between the keyword and its operand — but `typeof` is a unary operator,
+   * not a call, so `typeof(globalThis.fetch)` is valid JavaScript with no
+   * space at all, and `TYPEOF_PREFIX`'s `\s+` never matched it. The capture
+   * then failed to fire, the unprefixed alternative matched `globalThis.fetch`
+   * on its own, and a capability probe counted as a request (EXECUTED,
+   * `typeof(globalThis.fetch)` counted 1) — the same false-positive shape
+   * round 7 already fixed for the no-parens form, in the one spelling that
+   * form didn't reach. `\(?` after the optional whitespace, and another `\s*`
+   * after that, admits `typeof(x)`, `typeof (x)`, and `typeof  (  x)` alike
+   * without giving up any of the whitespace-only forms above.
    */
+  const TYPEOF_PREFIX = String.raw`typeof\s*\(?\s*`
   const ALIAS_ACCESS_PATTERNS: readonly RegExp[] = [
-    new RegExp(String.raw`(typeof\s+)?${GLOBAL_OBJECTS}${DOT}fetch(?!\s*(?:\?\.\s*)?\()`, 'g'),
+    new RegExp(String.raw`(${TYPEOF_PREFIX})?${GLOBAL_OBJECTS}${DOT}fetch(?!\s*(?:\?\.\s*)?\()`, 'g'),
     // Bracket access takes NO dot (`globalThis['fetch']`) or an optional-chained
     // one (`globalThis?.['fetch']`), so the dot is `\.?` here where `DOT`
     // requires it. Substituting `DOT` for consistency would stop matching the
     // commoner plain form.
-    new RegExp(String.raw`(typeof\s+)?${GLOBAL_OBJECTS}\s*\??\.?\s*\[\s*['"\`]fetch['"\`]\s*\]`, 'g'),
+    new RegExp(String.raw`(${TYPEOF_PREFIX})?${GLOBAL_OBJECTS}\s*\??\.?\s*\[\s*['"\`]fetch['"\`]\s*\]`, 'g'),
   ]
   const DESTRUCTURE_INNER = String.raw`(?:[^{}]|\{[^{}]*\})*`
+  /**
+   * The KEY half of a renamed destructure, all five spellings of it (#234, review of #272).
+   *
+   * This was `\bfetch` alone until the review, which pinned the bare key and missed every
+   * other way of writing the same construct. That is not a vocabulary boundary, it is a
+   * hole: EXECUTED, a real aliased outbound call written `const { 'fetch': send } =
+   * globalThis` under a swept root left this law GREEN, while the identical call with a
+   * bare key reddened it. The law backs README's exhaustiveness claim — "exactly these ten
+   * modules and thirteen call sites" — so a shippable spelling it cannot see is a count
+   * that can go silently wrong in a trust document.
+   *
+   * #23 narrowed the README's claim to a NAMED VOCABULARY, and that boundary still holds
+   * and still excludes things: a `node:http2` import, a type member, a destructuring
+   * parameter. But the vocabulary names CONSTRUCTS, not spellings. A quoted or computed
+   * key is the same construct as the bare one — a renamed destructure of `globalThis.fetch`
+   * — so excluding a spelling of an included construct is exactly what makes the count
+   * wrong. The three spellings come IN.
+   *
+   * Quote pairs are alternated rather than written `['"]fetch['"]`, which would match the
+   * mismatched `'fetch"`. Alternation, not a backreference: `\1` would bind to whatever
+   * group `DESTRUCTURE_INNER` happens to open, the coupling that rots when that constant
+   * changes.
+   */
+  const DESTRUCTURE_KEY = String.raw`(?:\bfetch|'fetch'|"fetch"|\[\s*'fetch'\s*\]|\[\s*"fetch"\s*\])`
   const ALIAS_PATTERNS: readonly RegExp[] = [
     new RegExp(
       // `\b(?:const|let|var)\s*` — a destructure begins at a DECLARATION.
@@ -1068,7 +1138,7 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
       // this row's neighbourhood a formatter can actually produce.
       // Measured: a pathological 4,000-key input matches in 1ms, so the
       // nested alternation carries no backtracking risk at file scale.
-      String.raw`\b(?:const|let|var)\s*\{${DESTRUCTURE_INNER}\bfetch\s*:\s*\w+${DESTRUCTURE_INNER}\}\s*(?::[^=;{}]*)?=\s*${GLOBAL_OBJECTS}\b`,
+      String.raw`\b(?:const|let|var)\s*\{${DESTRUCTURE_INNER}${DESTRUCTURE_KEY}\s*:\s*\w+${DESTRUCTURE_INNER}\}\s*(?::[^=;{}]*)?=\s*${GLOBAL_OBJECTS}\b`,
       'g',
     ),
   ]
@@ -1232,6 +1302,50 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     ['a let-declared renamed destructure still counts', 'let { fetch: send } = globalThis', 1],
     ['a type member named fetch', 'type T = { fetch: typeof fetch }', 0],
     ['a destructuring function parameter', 'function f({ fetch: impl }: Deps) { return impl }', 0],
+    // #234. Three spellings outside the README's exhaustiveness claim (#23
+    // narrowed that claim to a named vocabulary precisely so a candidate could
+    // be decided rather than chased forever) — decided here, not merely noted.
+    //
+    // 1. A quoted or computed destructure key is IN — all three spellings
+    //    (#234, decided on review of #272; the open question that review left
+    //    is closed here rather than carried).
+    //
+    //    The row asserted 0 twice, on two different reasons. The FIRST said
+    //    biome's `useLiteralKeys` made the spelling unshippable; that was
+    //    false — `biome.json` sets `"preset": "none"` and enables only
+    //    `correctness` and `suspicious`, while `useLiteralKeys` lives in
+    //    `complexity`, enabled nowhere. The SECOND, honest, said the spelling
+    //    sits outside the vocabulary #23 named, and recorded underneath that
+    //    this pinned a real blind spot.
+    //
+    //    It did, and that is why it is now IN. EXECUTED on review: a real
+    //    aliased outbound call written `const { 'fetch': send } = globalThis`
+    //    under a swept root left this law GREEN, while the identical call with
+    //    a bare key reddened it. #23's vocabulary names CONSTRUCTS, not
+    //    spellings — a quoted or computed key is the same renamed destructure
+    //    of `globalThis.fetch` — so excluding one spelling of an included
+    //    construct is what makes README's "ten modules and thirteen call
+    //    sites" able to go quietly wrong. See `DESTRUCTURE_KEY` above.
+    //
+    //    Revert `DESTRUCTURE_KEY` to `\bfetch` and all three rows below go
+    //    from 1 to 0 — the mutation this decision rests on.
+    ['a single-quoted destructure key is the same call site (#234)', "const { 'fetch': send } = globalThis", 1],
+    ['a double-quoted destructure key is the same call site (#234)', 'const { "fetch": send } = globalThis', 1],
+    ['a computed destructure key is the same call site (#234)', "const { ['fetch']: send } = globalThis", 1],
+    // 2. A dynamic import of a module the vocabulary never named. `http2` has
+    //    no request/get/sendBeacon surface this law recognises and README's
+    //    paragraph promises `http`/`https` only — recorded OUT, not a miss.
+    [
+      'import of a module outside the vocabulary is genuinely outside it, not a gap (#234)',
+      "await import('node:http2')",
+      0,
+    ],
+    // 3. `typeof(x)` — the false positive the TYPEOF_PREFIX comment above
+    //    describes. Decided IN: it is the same capability-probe shape every
+    //    other `typeof` row here already excludes, just spelled with parens
+    //    instead of a space. Revert `TYPEOF_PREFIX` to `typeof\s+` alone and
+    //    this row goes from 0 to 1 — the mutation this issue asks for.
+    ['typeof with parens and no space is still a capability probe, not a call (#234)', 'typeof(globalThis.fetch)', 0],
   ])(
     'counts %s exactly %i time(s) — the COUNT, not merely red-or-green',
     (_label, source, expected) => {

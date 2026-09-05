@@ -266,6 +266,36 @@ section naming the wrong location for lab artefacts, ADR-0005's narrowed root cl
 containment law's silent `claude-projects` clause. Filed after the ADR lands so the issue can cite
 it rather than a branch.
 
+**Joined wave 6 after the fact (amendment, 2026-09-04).** `prd43 w6: the route-count completeness
+sweep fits its timeout on the slowest runner` (#266) and `prd43 w6: the sweeping tests have a
+budget they can actually meet under load` (#270) are the same defect — the completeness sweep in
+`route-class-law.test.ts` timing out on vitest's 5000 ms default — filed twice within hours and
+built twice in parallel, by two sessions that could not see each other's lane.
+
+They belong to wave 6 because `#234` claims the same file, and because wave 6's gate could not go
+green without them: its red was `#266`, measured at 4.54 s with the wave applied against 4.78 s on
+plain `main`, so the wave was never the cause.
+
+**Why they were not bundled in the first place, which is the part worth keeping.** Both were filed
+with no wave — `prd43:` and `route-class-law:` respectively. The bundle unit is (milestone, wave),
+so an issue carrying a milestone and no wave is structurally unbundleable and becomes its own PR
+before anyone decides anything. Nothing caught it: `issues.sh orphans` checks milestone and board
+membership, and answered "all open issues carry a milestone" — true, and useless here, which is
+the same shape that command's own history already records. Both were retitled into wave 6 on
+2026-09-04.
+
+**The fold caught one of the pair, not both, and that is the durable part.** `#266` landed on its
+own as PR `#269`, merged 2026-09-04 21:30 from the other session — about fifteen hours after wave
+6's second PR was opened carrying a byte-identical fix for it. So a bundling rule enforced at the
+issue level did not prevent the same collision one level up, where nothing was checking: two PRs,
+not two issues. It cost nothing here, because the duplicate commits were patch-identical: the
+review merge of `main` into this branch (`3e4dd93`) reconciled all three conflicts, every one of
+them this branch's `SWEEP_TIMEOUT_MS` superseding main's `30_000` literals. `#270` is the half the fold did keep, and it was not
+redundant — `#266` raised the budget on two of the three sweeping tests and left the third, `the
+completeness sweep reads a non-empty file set`, on the 5000 ms default while calling the same
+`sweptFiles()`. Its branch is superseded by the fold rather than landed on its own, and its fix —
+one `SWEEP_TIMEOUT_MS` held by all three — survives inside it.
+
 **Wave 7 — ruled 2026-09-04, and it is two issues, not one.** `#66` (the docs cite a tracker
 that no longer exists) was booked the way wave 0 is booked: an operator act, not dispatchable
 until ruled. The ruling is made and recorded on the issue — **a single dated note in `AGENTS.md`
