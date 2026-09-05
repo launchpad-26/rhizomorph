@@ -868,7 +868,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
   const DECLARED_TOLERANCES = [
     { needle: 'checkout -- package-lock.json 2>/dev/null || true', count: 2, reason: 'clean(): best-effort lockfile checkout; nothing to clean is not a check failure' },
     { needle: 'workmux rebase "$H" >/dev/null 2>&1 || echo', count: 1, reason: "workmux's exit code is not the check — ancestry is asserted separately right after" },
-    { needle: 'git push origin main 2>&1 | tail -1 || echo', count: 1, reason: 'push_or_warn(): the one documented non-fatal check in the file (prd-39 ruling 1)' },
+    { needle: 'git push origin main 2>&1 | tail -1 || {', count: 1, reason: 'push_or_warn(): the one documented non-fatal check in the file (prd-39 ruling 1)' },
     { needle: 'workmux path "$H" 2>/dev/null | tail -1', count: 1, reason: 'resolves $W; the very next line ([ -d "${W:-}" ] on :24) checks the result and falls back to a constructed path — the verdict is the existence check, not this redirect. Structural predicate: an UNCHECKED $(...) assignment, exempted here rather than by spelling.' },
     { needle: 'rev-parse --abbrev-ref HEAD 2>/dev/null) || fail', count: 1, reason: "stderr text is discarded, but the command's own exit code is still routed through fail() via || — structurally CHECKED, kept here for the historical record only." },
     {
@@ -3117,6 +3117,83 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       const { stdout, h } = runVerdict('echo "  build OK"\nMERGED=1\nemit_gate_verdict clean')
       const parsed = JSON.parse(lastLine(stdout))
       expect(parsed).toMatchObject({ v: 1, writer: 'gate', kind: 'gate.verdict', lane: h, held: false, reason: 'clean' })
+    })
+
+    /**
+     * THE PUSH OUTCOME REACHES THE RECORD (review of #273, finding 1).
+     *
+     * Before this, a landing whose push FAILED emitted `reason: "clean"` —
+     * byte-identical to a pushed landing in every categorical field of the
+     * verdict, separable only by an opaque digest. A review seat found it and
+     * this is the guard. Both are `held: false`, correctly: the merge is real
+     * and local `main` carries it either way. What differs is whether anything
+     * reached `origin`, and AGENTS.md's own "a green gate on a branch whose
+     * base is not `main`" section exists because a record that reads as done
+     * while nothing was pushed is the expensive failure here.
+     *
+     * `push_or_warn` lives outside `VERDICT_MACHINERY`'s slice, so it is
+     * extracted from the real script by its own anchors and run against a
+     * shadowed `git` — the alternative, restating it in a fixture, is the
+     * defect this very issue's `MERGED=1` gap turned out to be.
+     */
+    describe('the push outcome is a category, not a footnote', () => {
+      // Ends on the comment that follows the CALL, because `push_or_warn`
+      // itself appears four times in the script and `uniqueLineIndex` refuses
+      // an ambiguous anchor — loudly, at collection, which is the behaviour
+      // this file wants. The slice therefore covers the flag, the function and
+      // its invocation, all from the real script.
+      const PUSH_MACHINERY = sliceLines('PUSHED=1', '# The verdict distinguishes the two clean landings')
+
+      function runPush(gitExit: number) {
+        const dir = scratchDir('push')
+        const h = `push-${process.pid}-${Math.random().toString(36).slice(2, 8)}`
+        // A `git` earlier on PATH than the real one, so nothing here can reach
+        // a real remote no matter how the script changes.
+        const bin = join(dir, 'bin')
+        mkdirSync(bin, { recursive: true })
+        writeFileSync(join(bin, 'git'), `#!/bin/bash\necho "fake git: $*"\nexit ${gitExit}\n`)
+        chmodSync(join(bin, 'git'), 0o755)
+        const script =
+          `#!/bin/bash\n${SHELL_OPTS}\nexport PATH="${bin}:$PATH"\nH=${h}\n` +
+          `${VERDICT_MACHINERY}\nMERGED=1\n${PUSH_MACHINERY}\n` +
+          `if [ "$PUSHED" = 1 ]; then emit_gate_verdict clean; else emit_gate_verdict push-failed; fi\n`
+        return { ...runFragment(script, dir), h }
+      }
+
+      it('EXECUTED — a FAILED push is recorded as push-failed, still held:false because the merge is real', () => {
+        const { stdout } = runPush(128)
+        const parsed = JSON.parse(lastLine(stdout))
+        expect(parsed.reason).toBe('push-failed')
+        expect(parsed.held).toBe(false)
+        expect(stdout).toContain('push FAILED')
+      })
+
+      it('EXECUTED — a successful push is recorded as clean, and the two are distinguishable', () => {
+        const ok = JSON.parse(lastLine(runPush(0).stdout))
+        const bad = JSON.parse(lastLine(runPush(128).stdout))
+        expect(ok.reason).toBe('clean')
+        // The whole finding: before the fix these two were equal.
+        expect(ok.reason).not.toBe(bad.reason)
+      })
+
+      /**
+       * The behavioural pair above proves the emitter and `push_or_warn` agree.
+       * This binds the SCRIPT to calling them that way — the seam that the
+       * `MERGED=1` gap showed is exactly what goes untested when a fixture
+       * supplies what the script should provide.
+       */
+      it('the script itself branches on PUSHED and names both categories', () => {
+        const branch = uniqueLineIndex('if [ "$PUSHED" = 1 ]; then')
+        const cleanEmit = uniqueLineIndex('  emit_gate_verdict clean')
+        const failedEmit = uniqueLineIndex('  emit_gate_verdict push-failed')
+        // `push_or_warn` appears 4 times (comment, definition, call, and this
+        // file's own tolerance row), so the CALL is anchored by the comment
+        // that sits immediately above the branch instead.
+        const pushDone = uniqueLineIndex('# The verdict distinguishes the two clean landings')
+        expect(pushDone, 'the verdict must follow the push, never precede it').toBeLessThan(branch)
+        expect(branch).toBeLessThan(cleanEmit)
+        expect(cleanEmit).toBeLessThan(failedEmit)
+      })
     })
 
     it('EXECUTED — loadBatches rides the line only when the run had any', () => {

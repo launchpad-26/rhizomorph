@@ -42,7 +42,7 @@ fail()  { echo "GATE FAILED: $1"
 # category gate.ts's own gateVerdictPayloadSchema doc comment already
 # illustrates with 'suite-red' and 'clean'. Declared here, once, so a new
 # failure mode cannot invent a fresh spelling nobody reviewed.
-GATE_VERDICT_VOCAB="clean setup git-error mid-rebase rebase-stale fence-invalid off-boundary-file empty-branch stranded-work nul-byte suite-red typecheck-red timing-config timing-regression load-flake timing-red merge-failed lane-manifest install-broken build-broken"
+GATE_VERDICT_VOCAB="clean push-failed uncategorized setup git-error mid-rebase rebase-stale fence-invalid off-boundary-file empty-branch stranded-work nul-byte suite-red typecheck-red timing-config timing-regression load-flake timing-red merge-failed lane-manifest install-broken build-broken"
 
 # prd17 w5 (#273): the gate derives its own verdict — one v1 beacon line
 # (ADR-0036; packages/core/src/events/beacon.ts) printed to the REAL stdout
@@ -92,7 +92,7 @@ GATE_TEE_PID=$!
 echo "════════ GATE: $H ════════"
 command -v python3 >/dev/null 2>&1 || fail "python3 not found — the NUL-byte guard cannot run without it" setup
 [ -d "$W" ] || fail "worktree missing (resolved: ${W:-none})" setup
-BRANCH=$(git -C "$W" rev-parse --abbrev-ref HEAD 2>/dev/null) || fail "cannot read branch" setup
+BRANCH=$(git -C "$W" rev-parse --abbrev-ref HEAD 2>/dev/null) || fail "cannot read branch" git-error
 echo "  worktree: $W (branch $BRANCH)"
 
 # lockfile churn from per-worktree installs blocks merges on either side
@@ -108,7 +108,7 @@ workmux rebase "$H" >/dev/null 2>&1 || echo "  (rebase reported an issue — the
 # mktemp, not a predictable "/tmp/gate-gitdir-$H.log" — a fixed path a
 # symlink can occupy before this runs, same class as :116's NUL_LIST.
 GITDIR_LOG=$(mktemp "/tmp/gate-gitdir-$H.XXXXXX") || fail "cannot create a scratch log for the git-dir probe" setup
-GD=$(git -C "$W" rev-parse --absolute-git-dir 2>"$GITDIR_LOG") || { cat "$GITDIR_LOG"; rm -f "$GITDIR_LOG"; fail "cannot resolve the real git dir for $W — the mid-rebase guard below cannot run without it" setup; }
+GD=$(git -C "$W" rev-parse --absolute-git-dir 2>"$GITDIR_LOG") || { cat "$GITDIR_LOG"; rm -f "$GITDIR_LOG"; fail "cannot resolve the real git dir for $W — the mid-rebase guard below cannot run without it" git-error; }
 rm -f "$GITDIR_LOG"
 { [ -d "$GD/rebase-merge" ] || [ -d "$GD/rebase-apply" ]; } && fail "worktree is mid-rebase (conflict) — resolve on the branch first" mid-rebase
 # workmux's exit code is not the check — the STATE is. A rebase that never ran
@@ -410,7 +410,7 @@ if [ "$LOAD" != "0" ]; then
     # $COUNT_FILE, used to fall through silently: the fragment still exited 0
     # and RISE_NOTE still printed, a verdict about a floor that never moved.
     mkdir -p "$root/.swarm" && printf '%s\n' "$TCOUNT" >"$COUNT_FILE" \
-      || fail "cannot write the timing-count floor at $COUNT_FILE — the ratchet did not advance; a human fixes its permissions" setup
+      || fail "cannot write the timing-count floor at $COUNT_FILE — the ratchet did not advance; a human fixes its permissions" timing-config
     [ -n "$RISE_NOTE" ] && echo "  timing-count ratchet:$RISE_NOTE"
   else
     grep -aE '×' /tmp/g-$H-timing.log | head -3 | sed 's/^/    /'
@@ -546,8 +546,25 @@ echo "  MERGED, main now at $(git log --oneline -1)"
 # 2026-08-04: "where are we pushing these changes?"), but an offline operator
 # must still be able to land — loud but non-fatal, so a failed push does not
 # hold a green landing hostage.
+PUSHED=1
 push_or_warn() {
-  git push origin main 2>&1 | tail -1 || echo "  ! push FAILED — main is LOCAL-ONLY until pushed by hand"
+  git push origin main 2>&1 | tail -1 || {
+    PUSHED=0
+    echo "  ! push FAILED — main is LOCAL-ONLY until pushed by hand"
+  }
 }
 push_or_warn
-emit_gate_verdict clean
+# The verdict distinguishes the two clean landings, because the record must
+# (review of #273). Both merged, so `held` is false either way — the merge is
+# real and local `main` carries it. But a landing whose push failed is the one
+# outcome this script calls out loudly in its own output, and before this the
+# beacon called it `clean`: a pushed landing and a LOCAL-ONLY one were
+# byte-identical in every categorical field of the verdict, separable only by an
+# opaque digest. That is the shape AGENTS.md's "a green gate on a branch whose
+# base is not main" section is about — a record that reads as done while nothing
+# reached `origin`.
+if [ "$PUSHED" = 1 ]; then
+  emit_gate_verdict clean
+else
+  emit_gate_verdict push-failed
+fi
