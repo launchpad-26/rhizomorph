@@ -65,19 +65,71 @@ emit_gate_verdict() {
   # GATE_OUTFILE is complete and flushed before its digest is taken — reading
   # it any earlier would race tee's own buffering.
   exec 1>&3 2>&4
-  wait "${GATE_TEE_PID:-}" 2>/dev/null
+  # BOUNDED (review of #273). `wait` on the process substitution blocks until
+  # tee exits, which is what makes the digest cover a complete file — but any
+  # child that inherited fd 1 and outlives its foreground command keeps that
+  # pipe open, and the wait then never returns. No such orphan is reachable in
+  # this script today (every long-running child redirects its own stdout, and
+  # the load-gate jobs are waited at their own site), so this is latent
+  # fragility rather than a live defect — but it is an unbounded wait newly
+  # introduced into the LANDING tool, whose failure mode would be "hangs
+  # forever, prints nothing". A landing may fail; it may not hang.
+  #
+  # Ten seconds is far beyond any real drain of a file this size and far below
+  # a human's patience. On timeout the digest still covers whatever tee flushed,
+  # and the `case` below rejects a partial read rather than reporting it.
+  if [ -n "${GATE_TEE_PID:-}" ]; then
+    local _waited=0
+    while kill -0 "$GATE_TEE_PID" 2>/dev/null && [ "$_waited" -lt 100 ]; do
+      sleep 0.1
+      _waited=$((_waited + 1))
+    done
+    [ "$_waited" -lt 100 ] || echo "  ! gate: tee did not drain in 10s — outputDigest may cover a partial capture" >&2
+  fi
   local held=false
   [ "$MERGED" = 0 ] && held=true
+  # An UNCOMPUTABLE digest is omitted, never emitted empty (review of #273).
+  # `outputDigest` is an extra key, so no closed v1 field rejects `""` and the
+  # line looks fine here — but gate.ts's `sha256Hex` is /^[0-9a-f]{64}$/, so
+  # #274 would refuse it downstream, and lenient parsing degrades a refused
+  # event to an UNKNOWN one rather than erroring. The verdict would be silently
+  # lost. An absent key is honest and readable; an invalid one is neither.
   local digest=""
   read -r digest < <(python3 -c 'import hashlib,sys
-print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$GATE_OUTFILE" 2>/dev/null)
+print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$GATE_OUTFILE" 2>/dev/null) || digest=""
+  case "$digest" in *[!0-9a-f]* | "") digest="" ;; esac
+
+  # `$3` is operator input and was never validated: a non-numeric LOAD made
+  # `int(load)` raise, `2>/dev/null` swallowed the traceback, and NO LINE WAS
+  # EMITTED AT ALL — the landing's record lost entirely because an argument was
+  # mistyped. A load count that is not a count is simply not reported.
+  local load="${LOAD:-0}"
+  case "$load" in ''|*[!0-9]*) load=0 ;; esac
+
+  # The last resort is a hand-built line, not silence. python3 is a hard
+  # dependency of this script in four other places, so its absence is already
+  # fatal elsewhere — but the verdict is the record of THAT failure, and a
+  # record that disappears exactly when the run went wrong is the one this
+  # PRD exists to abolish. `printf %s` with pre-validated values: the handle is
+  # the only free text, and it rides as-is on the fallback path only.
   python3 -c 'import json,sys,time
 lane, held, reason, digest, load = sys.argv[1:6]
 line = {"v": 1, "at": int(time.time() * 1000), "writer": "gate", "kind": "gate.verdict",
-        "lane": lane, "held": held == "true", "reason": reason, "outputDigest": digest}
+        "lane": lane, "held": held == "true", "reason": reason}
+if digest:
+    line["outputDigest"] = digest
 if load != "0":
     line["loadBatches"] = int(load)
-print(json.dumps(line, separators=(",", ":")))' "$H" "$held" "$reason" "$digest" "${LOAD:-0}" 2>/dev/null
+print(json.dumps(line, separators=(",", ":")))' "$H" "$held" "$reason" "$digest" "$load" 2>/dev/null \
+    || printf '{"v":1,"at":%s,"writer":"gate","kind":"gate.verdict","lane":"%s","held":%s,"reason":"%s"}\n' \
+         "$(date +%s000)" "$H" "$held" "$reason"
+
+  # Every other mktemp in this script is cleaned; this one was not, so each
+  # landing left a full copy of the gate's output in /tmp (review of #273).
+  # It cannot go earlier — the digest reads it — so it goes here, after the
+  # only consumer, on every path that emits.
+  rm -f "$GATE_OUTFILE"
+  GATE_OUTFILE=""
 }
 
 # Everything printed from here on is captured into GATE_OUTFILE too — fd 3/4

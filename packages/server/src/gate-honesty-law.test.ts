@@ -3290,6 +3290,87 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(a.outputDigest).not.toBe(b.outputDigest)
     })
 
+    /**
+     * THE EMITTER'S OWN FAILURES ARE NOT SWALLOWED (review of #273, finding 4).
+     *
+     * Three ways the verdict used to be lost or corrupted, each EXECUTED by a
+     * review seat before these guards existed:
+     *
+     *  - the digest command failing emitted `"outputDigest":""`. No closed v1
+     *    field rejects that, so the line looked fine — but `gate.ts`'s
+     *    `sha256Hex` is /^[0-9a-f]{64}$/, so #274 would refuse it downstream,
+     *    and lenient parsing degrades a refused event to an UNKNOWN one rather
+     *    than erroring. The verdict would vanish quietly.
+     *  - `LOAD=abc` (never validated, and `$3` is operator input) made
+     *    `int(load)` raise, `2>/dev/null` swallowed it, and NO LINE was emitted
+     *    at all — the record of the landing lost because an argument was
+     *    mistyped.
+     *  - python3 failing emitted nothing, which is worst precisely when the run
+     *    has already gone wrong.
+     */
+    describe('the emitter degrades honestly rather than silently', () => {
+      it('EXECUTED — an uncomputable digest OMITS the key rather than emitting an invalid empty one', () => {
+        const { stdout } = runVerdict('GATE_OUTFILE=/nonexistent/path/that/cannot/be/read\nfail "boom" suite-red')
+        const parsed = JSON.parse(lastLine(stdout))
+        expect(parsed.outputDigest, 'an empty digest is refused downstream — omit instead').toBeUndefined()
+        expect(parsed).toMatchObject({ v: 1, writer: 'gate', kind: 'gate.verdict', reason: 'suite-red' })
+      })
+
+      /**
+       * `outputDigest` is what tells the two emit paths apart, and asserting it
+       * is the whole point of this test. Without it the assertion passes for
+       * the WRONG REASON: dropping the LOAD validation makes `int("abc")` raise,
+       * python exits non-zero, and the printf fallback below emits a perfectly
+       * valid line with no `loadBatches` — so a test that only checked "a line
+       * exists, without loadBatches" stayed green with the guard removed.
+       * Caught by mutating the guard away, not by reading the test.
+       *
+       * The fallback line carries no digest, so requiring one proves the python
+       * path ran to completion and simply declined to report a load count.
+       */
+      it('EXECUTED — a non-numeric LOAD is dropped by the VALIDATOR, not rescued by the fallback', () => {
+        const { stdout } = runVerdict('LOAD=abc\nfail "boom" suite-red')
+        const parsed = JSON.parse(lastLine(stdout))
+        expect(parsed.loadBatches, 'a load count that is not a count is not reported').toBeUndefined()
+        expect(parsed.reason).toBe('suite-red')
+        expect(parsed.outputDigest, 'a digest proves the python path emitted this, not the fallback').toMatch(/^[0-9a-f]{64}$/)
+      })
+
+      it('EXECUTED — python3 failing still emits a valid v1 line from the printf fallback', () => {
+        const dir = scratchDir('nopython')
+        const h = `nopy-${process.pid}`
+        const bin = join(dir, 'bin')
+        mkdirSync(bin, { recursive: true })
+        writeFileSync(join(bin, 'python3'), '#!/bin/bash\nexit 127\n')
+        chmodSync(join(bin, 'python3'), 0o755)
+        const script = `#!/bin/bash\n${SHELL_OPTS}\nexport PATH="${bin}:$PATH"\nH=${h}\n${VERDICT_MACHINERY}\nfail "boom" suite-red\n`
+        const { stdout } = runFragment(script, dir)
+        const parsed = JSON.parse(lastLine(stdout))
+        expect(parsed).toMatchObject({ v: 1, writer: 'gate', kind: 'gate.verdict', lane: h, held: true, reason: 'suite-red' })
+      })
+
+      it('EXECUTED — the captured-output scratch file is removed after the verdict (finding 5)', () => {
+        const { stdout, dir } = runVerdict('echo "$GATE_OUTFILE" >&3\nfail "boom" suite-red')
+        const outfile = stdout.split('\n').find((l) => l.includes('/gate-output-'))?.trim()
+        expect(outfile, 'the fixture must actually name the scratch file, or this asserts nothing').toBeTruthy()
+        expect(existsSync(outfile!), `${outfile} should have been removed after the emit`).toBe(false)
+        expect(dir).toBeTruthy()
+      })
+
+      /**
+       * Finding 6 is latent — no orphan holding fd 1 is reachable in today's
+       * script — so this pins the BOUND rather than provoking the hang, which
+       * would cost the suite ten seconds to prove one `if`. A landing may fail;
+       * it may not hang.
+       */
+      it('the drain wait is bounded, not a bare wait that could block forever', () => {
+        const machinery = VERDICT_MACHINERY
+        expect(machinery, 'a bare `wait` on the tee pid is unbounded').not.toMatch(/^\s*wait "\$\{GATE_TEE_PID:-\}"/m)
+        expect(machinery).toContain('kill -0 "$GATE_TEE_PID"')
+        expect(machinery, 'the loop must have a ceiling').toMatch(/_waited" -lt 100/)
+      })
+    })
+
     it('EXECUTED — the printed line survives the REAL collector parser (parseBeaconLine) and the closed v1 schema (beaconReceivedPayloadSchema), extra keys intact in the raw text', () => {
       const { stdout, h } = runVerdict('fail "boom" suite-red')
       const line = lastLine(stdout)
