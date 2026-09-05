@@ -275,6 +275,103 @@ describe('chaptersFor — a flood of summonses is still one mark under density',
     // fact, in ts order, ready for coalesceMarks to cluster.
     for (let i = 0; i < chapters.length; i += 1) expect(chapters[i]?.ts).toBe(T0 + i)
   })
+
+  /**
+   * The clause above cannot see the sort at all, and the issue said so before
+   * either was written: "Emit the new kinds unsorted — append them after the
+   * existing sort instead of inside it. Every single-kind test passes; only an
+   * assertion over a log mixing an old kind and a new one at interleaved
+   * timestamps catches it." Filtering to one kind with `ofKind` is exactly the
+   * single-kind shape it named.
+   *
+   * **The first version of this test was itself too weak, and that is the
+   * lesson worth keeping** (review of #277, round 2). It mixed the kinds but
+   * emitted them at ASCENDING timestamps, so "push in log order and never sort
+   * at all" produced a byte-identical array: deleting `chapters.sort` outright
+   * left the whole `tide/` suite green, this assertion included. It constrained
+   * SEGREGATION — new kinds bucketed to the end — and not ORDERING, while its
+   * title claimed the second. Re-using the one mutation that found a defect as
+   * the proof its fix works is how that happened; the class was never probed.
+   *
+   * So the log below arrives OUT of ts order — by ts rank, (2nd, 1st, 1st, 1st,
+   * 2nd, 3rd, 3rd) — which is the only shape that can tell a real sort from no
+   * sort at all.
+   *
+   * **Every chapter kind appears, and that is a rule rather than thoroughness**
+   * (review of #277, round 3). A hoist can be written per kind, so a fixture
+   * missing one kind has no witness for that kind's hoist: an independent seat
+   * showed that appending ONLY `gate-verdict`, or ONLY `summons-cleared`, left
+   * all 188 tide tests green while the all-four spelling reddened. Two of
+   * #277's own four new kinds had no ordering witness anywhere in the repo.
+   *
+   * **A kind that sorts LAST is structurally invisible to a solo hoist**, since
+   * appending something already last cannot move it — so such a kind must also
+   * appear at a second, earlier ts. That is why `session.started` is emitted
+   * twice. The round-2 fixture put it at the maximum ts alone, which silently
+   * gave up a witness the round-1 fixture had: the only axis on which that
+   * version was WEAKER than the one it replaced.
+   */
+  it('orders every kind by ts, whatever order the log arrived in', () => {
+    const events = log((fx) => {
+      fx.at(T0 + 3 * MINUTE).sessionStarted()
+      // the same kind again at the EARLIEST ts — without this, hoisting
+      // `session-boundary` out of the sort is invisible: it already sorts last.
+      fx.at(T0).sessionStarted()
+      // `gate-held`, and it pulls `lane-born` to T0 so the @2m group stays a
+      // pair rather than a triple — the `kind` tiebreak stays load-bearing.
+      fx.at(T0).traceSpan({ lane: 'ke5', kind: 'tool_blocked', toolName: 'Bash', decision: 'accept' })
+      // the two of #277's four new kinds that had no ordering witness at all.
+      fx.at(T0 + MINUTE).summonsCleared({ lane: 'ke5', kind: 'stalled' })
+      fx.at(T0 + MINUTE).gateVerdict({ handle: 'ke5', held: true })
+      fx.at(T0 + MINUTE).summonsRaised({ lane: 'ke5', kind: 'stalled' })
+      // the only lane-bearing event, so `bornAt`/`landedAt` both resolve here:
+      // two DEFERRED kinds at one ts, pushed AFTER the main loop.
+      fx.at(T0 + 2 * MINUTE).agentStatus({ handle: 'ke5', status: 'done' })
+      // deliberately at the SAME ts and the SAME lane as those two, and pushed
+      // BEFORE them — so insertion order and `kind` order actively disagree.
+      // Without that the `kind` tiebreak is satisfied by V8's stability instead
+      // of by the comparator, which is how the first version of this fixture
+      // passed while the clause was removable.
+      fx.at(T0 + 2 * MINUTE).operatorVerdict({ subject: 'ke5', verdict: 'approved' })
+    })
+
+    const chapters = chaptersFor(events)
+    expect(chapters.map((chapter) => [chapter.kind, chapter.ts - T0])).toEqual([
+      ['gate-held', 0],
+      ['lane-born', 0],
+      ['session-boundary', 0],
+      ['gate-verdict', MINUTE],
+      ['summons-cleared', MINUTE],
+      ['summons-raised', MINUTE],
+      // one ts, two chapters, and the `kind` tiebreak alone decides them:
+      // `operator.verdict` is pushed in the main loop and `lane-landed` after
+      // it, so insertion order and `kind` order actively DISAGREE. (They are
+      // not simply reversed — only `operator-verdict` moves — but disagreeing
+      // is the whole requirement: without it V8's stable sort would satisfy
+      // this assertion while the clause was removable.)
+      ['lane-landed', 2 * MINUTE],
+      ['operator-verdict', 2 * MINUTE],
+      ['session-boundary', 3 * MINUTE],
+    ])
+  })
+
+  /**
+   * The comparator's third clause. `chaptersFor`'s own note says the sort makes
+   * the output well-ordered "regardless" of input order, and the `lane` tiebreak
+   * is the half of that claim nothing reached: dropping it left the suite green,
+   * because V8's sort is stable and every fixture happened to emit in the order
+   * the tiebreak would have chosen. Two raises at ONE ts, emitted
+   * reverse-alphabetically, is the case where stability and the tiebreak
+   * disagree — so it fails if the clause is removed.
+   */
+  it('breaks a ts tie between two lanes by lane, not by arrival', () => {
+    const events = log((fx) => {
+      fx.at(T0).summonsRaised({ lane: 'zulu', kind: 'stalled' })
+      fx.at(T0).summonsRaised({ lane: 'alpha', kind: 'stalled' })
+    })
+
+    expect(chaptersFor(events).map((chapter) => chapter.lane)).toEqual(['alpha', 'zulu'])
+  })
 })
 
 // ── the ruling-6 voice ───────────────────────────────────────────────────────
