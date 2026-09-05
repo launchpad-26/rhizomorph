@@ -363,6 +363,51 @@ resolve to an issue"*. **A dated note alone would not have helped**, because the
 *authoring* a citation rather than reading one — which is the case that keeps producing new dead
 references. That argues the guard `#66` already suggests is the load-bearing half.
 
+**Amended 2026-09-05 — wave 7 is three issues, and wave 8 exists.** Both drifts are the tracker
+running ahead of this document; the document is the plan of record, so it is amended rather than
+the issues retitled. `scripts/dev/prd-reconcile.sh 43` against `origin/main` at `5fa85b0` found the
+second on its own and could not find the first, because it compares declared waves against claimed
+waves and never counts the issues inside one — a wave that gains a third issue reads as reconciled.
+
+**Wave 7 gained `#264`** — *ADR-0032 names the writer that actually writes, and the subject it
+actually rules*. The paragraph above says wave 7 "is two issues, not one"; it is three. `#264` is
+this PRD's own thesis turned on the PRD's own output: ADR-0032's body names
+`packages/server/src/lab/checkpoint.ts` as writing synthesized sessions to the harness tree, where
+the write is `synthesizeSession` in `restore.ts` — `checkpoint.ts` only ever `readFile`s that tree
+— and it rules *checkpoints* where its subject is *sessions only*. EXECUTED during `#24`'s verify
+pass: `captureCheckpoint` against a fixture repo, diffing both trees, produced **zero** entries
+under the harness tree. The error had already propagated, which is why it is a wave-7 issue and
+not a note — `#24` corrected `README.md`'s Trust section *from* this ADR and faithfully inherited
+it, swapping which half of the sentence was false. It shares wave 7 rather than joining wave 6's
+"joining when filed" list because it is fence-disjoint from both siblings (`docs/adr/0032-*.md`
+plus `docs/adr/README.md`, against `#66`'s two documents and `#261`'s law plus its baseline), so
+all three share the wave and its PR.
+
+**Wave 8 is declared, and `#275` is its only issue** — *every row in the outbound-call table
+states its real expected count*. It was filed carrying `w8` while this Sequencing declared waves
+0–7, so `fence-lint` and the board both accepted an issue whose wave existed nowhere. Wave 8 is
+the residue of ruling 2's sweep in the same sense wave 6 was of ruling 1: `#232` swept every route
+count this repo states in prose, and two of the eight rows it then had were wrong — `#275` is the
+same defect one table over.
+
+**`#275` is unblocked and still not dispatchable, and the reason is outside this PRD.** Its stated
+blockers — `#234` and `#270`, both wave 6 — landed in PR `#272`. Its fence is a single file,
+`packages/server/src/api/route-class-law.test.ts`, and **prd-17's `#276` claims that same file**;
+that wave is assembled and unlanded, so the file is held. `dispatch-preflight.sh` does not catch
+this, because it reads open PRs and prd-17 wave 2 has none yet. Land prd-17 wave 2, then dispatch
+`#275` — and re-run `scripts/fence-lint.sh` rather than trusting this paragraph, which is the
+instruction `#275`'s own body already carries about its previous blockers.
+
+**Three closed issues in this milestone carry no wave:** `#215` (AGENTS.md's CI claims match what
+the workflow actually runs), `#222` (the retained PRDs state what is true on main) and `#228` (a
+citing document that declares the tree it is pinned to is a dated artefact). They are recorded here
+rather than sequenced: all three are closed, so no dispatch can be affected, and back-filling a
+wave onto finished work would invent a dependency layer that never existed. The cost was real
+while they were open — `fence-lint` never saw them and the board's orphan check cannot tell a
+missing wave from a present one — and that is the durable half: **a milestone plus no wave is
+invisible to both guards this repo has**, which is the same shape the `#266`/`#270` pair recorded
+above at the bundling level.
+
 **Unfiled work implied, described not numbered:** the audited clone's `origin` still points at the
 pre-rename `launchpad-26/rhizomorph.tmp`, working only through GitHub's redirect. That is local git
 config, not a tracked file, so it has no issue — but it belongs in the operator's own checklist
