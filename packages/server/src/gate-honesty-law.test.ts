@@ -3003,27 +3003,96 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(vocab.size).toBeGreaterThan(0)
       expect(vocab.has('clean'), 'the clean end of the script names this category — it must be declared').toBe(true)
 
-      // Every real fail() call site (never a comment merely mentioning fail,
-      // and never fail()'s own definition), matched the same way :39-:538
-      // were tagged: `fail "<message>" <category>` or a rescue-block `fail
-      // "<message>" <category>; }`, category the LAST bareword before the
-      // statement ends.
+      /**
+       * ENUMERATE FIRST, CLASSIFY SECOND (review of #273, finding 3).
+       *
+       * The previous version built `failCallSites` with a regex that ALREADY
+       * required a category, then checked the resulting list for sites with no
+       * category. A site lacking one never entered the list, so
+       * `expect(untagged).toEqual([])` could not fail — the shape AGENTS.md
+       * names as the second-worst defect here, a test that cannot fail for the
+       * reason it claims. A review seat proved it: dropping ` suite-red` from a
+       * real call site left the file 190 green, and so did spelling it
+       * `suite_red`, while the runtime emitted `"reason":"suite_red"`.
+       *
+       * The site detector is therefore deliberately loose — anything that looks
+       * like a `fail` invocation — and the category is extracted afterwards, so
+       * every form lands in exactly one bucket instead of vanishing. The
+       * grammar it must cover, each row a spelling the seat found invisible:
+       *
+       * | form                          | before | now              |
+       * |-------------------------------|--------|------------------|
+       * | `fail "m" cat`                | seen   | tagged           |
+       * | `\|\| fail "m" cat` / `&& …`   | seen   | tagged           |
+       * | `fail "m" cat; }` (rescue)    | seen   | tagged           |
+       * | `fail "m" bogus` (undeclared) | caught | caught           |
+       * | `fail "m"` (no category)      | INVISIBLE | untagged      |
+       * | `fail "m" cat  # why`         | INVISIBLE | tagged        |
+       * | `fail "m" suite_red`          | INVISIBLE | undeclared    |
+       * | `fail 'm' cat`                | INVISIBLE | tagged        |
+       * | `fail "m" "$CAT"` (dynamic)   | INVISIBLE | dynamic       |
+       *
+       * A dynamic category is its own bucket rather than an error: it defeats
+       * the vocabulary by construction, since nothing static can tell what it
+       * resolves to. There are none today and the assertion says so.
+       */
       const failCallSites = LINES.filter(
-        (l) => !l.trim().startsWith('#') && /\bfail "(?:[^"\\]|\\.)*"\s+[A-Za-z0-9-]+\s*(?:;|$)/.test(l) && !l.includes('fail()  {'),
+        (l) =>
+          !l.trim().startsWith('#') &&
+          /\bfail\s+["']/.test(l) &&
+          !l.includes('fail()  {') &&
+          !l.includes('emit_gate_verdict "${2:-uncategorized}"'),
       )
-      expect(failCallSites.length, 'no real fail() call sites matched — the tagging regex drifted from the real spelling').toBeGreaterThan(30)
+      expect(failCallSites.length, 'no real fail() call sites matched — the site detector drifted from the real spelling').toBeGreaterThan(30)
+
       const untagged: string[] = []
       const badCategory: string[] = []
+      const dynamicCategory: string[] = []
       for (const line of failCallSites) {
-        const m = line.match(/\bfail "(?:[^"\\]|\\.)*"\s+([A-Za-z0-9-]+)\s*(?:;|$)/)
-        if (!m) {
+        // The message, either quoting style, then whatever follows it up to the
+        // end of the statement — `;`, `}`, a trailing comment, or EOL.
+        const after = line.match(/\bfail\s+(?:"(?:[^"\\]|\\.)*"|'[^']*')\s*(.*)$/)?.[1] ?? ''
+        const token = after.replace(/[;}].*$/, '').replace(/#.*$/, '').trim()
+        if (token === '') {
           untagged.push(line.trim())
           continue
         }
-        if (!vocab.has(m[1]!)) badCategory.push(`${m[1]}: ${line.trim()}`)
+        if (/[$"'`]/.test(token)) {
+          dynamicCategory.push(`${token}: ${line.trim()}`)
+          continue
+        }
+        if (!vocab.has(token)) badCategory.push(`${token}: ${line.trim()}`)
       }
-      expect(untagged, 'fail() call site(s) with no category argument').toEqual([])
+      expect(untagged, 'fail() call site(s) with no category argument — the record would read "uncategorized"').toEqual([])
+      expect(dynamicCategory, 'fail() call site(s) whose category is computed — the vocabulary cannot check it').toEqual([])
       expect(badCategory, 'fail() call site(s) naming a category outside GATE_VERDICT_VOCAB').toEqual([])
+    })
+
+    /**
+     * THE DECOY — the classifier above is itself a grep-as-law, so it gets the
+     * treatment this file gives every other one: fed each spelling the seat
+     * found invisible, and required to bucket it correctly. Without this, the
+     * classifier could drift back to the shape it just replaced and its own
+     * "no site is untagged" assertion would go quiet again.
+     */
+    it('the fail-site classifier sees every spelling, including the five that used to vanish', () => {
+      const classify = (line: string) => {
+        const after = line.match(/\bfail\s+(?:"(?:[^"\\]|\\.)*"|'[^']*')\s*(.*)$/)?.[1] ?? ''
+        const token = after.replace(/[;}].*$/, '').replace(/#.*$/, '').trim()
+        if (!/\bfail\s+["']/.test(line)) return 'not-a-site'
+        if (token === '') return 'untagged'
+        if (/[$"'`]/.test(token)) return 'dynamic'
+        return token
+      }
+      expect(classify('  fail "boom" suite-red')).toBe('suite-red')
+      expect(classify('  cmd || fail "boom" suite-red')).toBe('suite-red')
+      expect(classify('  { cat log; fail "boom" suite-red; }')).toBe('suite-red')
+      expect(classify('  fail "boom"')).toBe('untagged')
+      expect(classify('  fail "boom" suite-red  # why')).toBe('suite-red')
+      expect(classify("  fail 'boom' suite-red")).toBe('suite-red')
+      expect(classify('  fail "boom" suite_red')).toBe('suite_red')
+      expect(classify('  fail "boom" "$CAT"')).toBe('dynamic')
+      expect(classify('  echo "no fail here"')).toBe('not-a-site')
     })
 
     it('every category is a short slug, never prose, and fits the v1 line\'s own 64-char cap', () => {
