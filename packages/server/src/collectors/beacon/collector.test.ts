@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
   type AdapterCapabilities,
+  BEACON_ATTENTION_KINDS,
   type CollectorContext,
   createCollectorContext,
   deriveRung,
@@ -13,9 +14,11 @@ import {
   type RhizomorphEvent,
 } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { CLAUDE_HOOK_EVENTS } from '../../cli/env.js'
 import { withResilience } from '../resilience.js'
 import { SESSIONLOG_CAPABILITIES } from '../sessionlog/collector.js'
 import { BEACON_CAPABILITIES, createBeaconCollector } from './collector.js'
+import { parseBeaconLine } from './parse-beacon-line.js'
 import { beaconDirFor } from './paths.js'
 
 /**
@@ -50,11 +53,25 @@ vi.mock('./read-beacon-lines.js', async (importOriginal) => {
 
 const FIXTURE_PATH = path.join(import.meta.dirname, 'fixtures', 'claude-hook.jsonl')
 const FIXTURE = readFileSync(FIXTURE_PATH, 'utf8')
-const [LINE1, LINE2, LINE3] = FIXTURE.split('\n') as [string, string, string]
+// The capture has at least four lines: one per hook event (#282). The first
+// three keep standing in for "an arbitrary well-formed line" everywhere below
+// that does not care which hook produced it.
+const FIXTURE_LINES = FIXTURE.split('\n').filter((line) => line.length > 0)
+const [LINE1, LINE2, LINE3] = FIXTURE_LINES as [string, string, string]
 
 function sha256(line: string): string {
   return createHash('sha256').update(line, 'utf8').digest('hex')
 }
+
+const atOf = (line: string): number => (JSON.parse(line) as { at: number }).at
+
+// The hand-written fixture's lines 2 and 3 before #282 replaced it with a
+// capture — kept verbatim so the two contract cases they proved (an extra
+// key is digested but not carried; an absent lane reads back as null) still
+// have coverage now that the emitter never writes either shape itself.
+const EXTRA_LITERAL =
+  '{"v":1,"at":1725000001000,"writer":"claude-hook","kind":"working","lane":"2-core","extra":"ignored but digested"}'
+const BARE_LITERAL = '{"v":1,"at":1725000002000,"writer":"claude-hook","kind":"stopped"}'
 
 /** The beacon collector never execs; a context whose exec throws proves it. */
 function context(repoPath = '/repo', now = 2_000): CollectorContext {
@@ -137,23 +154,26 @@ describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
       const collector = createBeaconCollector({ dataRoot: root })
       const result = await collector.poll(collector.initialSnapshot(), context())
       const beacons = ofType(result.events, 'beacon.received')
-      expect(result.events).toHaveLength(3)
-      expect(beacons.map((event) => event.ts)).toEqual([1_725_000_000_000, 1_725_000_001_000, 1_725_000_002_000])
+      expect(result.events).toHaveLength(FIXTURE_LINES.length)
+      expect(beacons.map((event) => event.ts)).toEqual(FIXTURE_LINES.map(atOf))
     })
 
     it('the first event is exact: payload, digest of the raw line, file and offset 0', async () => {
       const collector = createBeaconCollector({ dataRoot: root })
       const result = await collector.poll(collector.initialSnapshot(), context())
+      const first = JSON.parse(LINE1) as { writer: string; kind: string; lane: string | null; detail?: string }
+      expect(first.writer).toBe('claude-hook')
+      expect(BEACON_ATTENTION_KINDS).toContain(first.kind)
       expect(result.events[0]).toEqual({
         id: 'beacon-1',
-        ts: 1_725_000_000_000,
+        ts: atOf(LINE1),
         source: 'beacon',
         type: 'beacon.received',
         payload: {
-          writer: 'claude-hook',
-          kind: 'waiting',
-          lane: '2-core',
-          detail: 'permission: Bash',
+          writer: first.writer,
+          kind: first.kind,
+          lane: first.lane,
+          detail: first.detail,
           digest: sha256(LINE1),
           file: 'claude-hook.jsonl',
           offset: 0,
@@ -161,16 +181,29 @@ describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
       })
     })
 
-    it('the second event starts where the first line ended, and its digest covers the extra key', async () => {
+    it('the second event starts where the first line ended, and every later offset is the byte sum of the lines before it', async () => {
       const collector = createBeaconCollector({ dataRoot: root })
       const result = await collector.poll(collector.initialSnapshot(), context())
       const [, second, third] = ofType(result.events, 'beacon.received')
       expect(second?.payload.offset).toBe(Buffer.byteLength(`${LINE1}\n`))
       expect(second?.payload.digest).toBe(sha256(LINE2))
-      expect(second?.payload).not.toHaveProperty('extra')
       expect(third?.payload.offset).toBe(Buffer.byteLength(`${LINE1}\n${LINE2}\n`))
-      expect(third?.payload.lane).toBeNull()
-      expect(third?.payload).not.toHaveProperty('detail')
+    })
+
+    it('contract cases the emitter never writes: an extra key is digested not carried, an absent lane reads null', async () => {
+      await writeFile(path.join(dir, 'extra.jsonl'), `${EXTRA_LITERAL}\n`)
+      await writeFile(path.join(dir, 'bare.jsonl'), `${BARE_LITERAL}\n`)
+      const collector = createBeaconCollector({ dataRoot: root })
+      const result = await collector.poll(collector.initialSnapshot(), context())
+      const beacons = ofType(result.events, 'beacon.received')
+      const extraEvent = beacons.find((event) => event.payload.file === 'extra.jsonl')
+      const bareEvent = beacons.find((event) => event.payload.file === 'bare.jsonl')
+
+      expect(extraEvent?.payload.digest).toBe(sha256(EXTRA_LITERAL))
+      expect(extraEvent?.payload).not.toHaveProperty('extra')
+
+      expect(bareEvent?.payload.lane).toBeNull()
+      expect(bareEvent?.payload).not.toHaveProperty('detail')
     })
 
     it('the digest is over the line as written, not the parsed object', async () => {
@@ -267,7 +300,7 @@ describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
       const file = path.join(dir, 'claude-hook.jsonl')
       const collector = createBeaconCollector({ dataRoot: root })
       const first = await collector.poll(collector.initialSnapshot(), context())
-      expect(ofType(first.events, 'beacon.received')).toHaveLength(3)
+      expect(ofType(first.events, 'beacon.received')).toHaveLength(FIXTURE_LINES.length)
 
       const fourth = '{"v":1,"at":1725000003000,"writer":"claude-hook","kind":"landed"}'
       await appendFile(file, `${fourth}\n`)
@@ -460,6 +493,52 @@ describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
       }
 
       expect(await bytesOf(dir)).toEqual(before)
+    })
+  })
+
+  describe('the fixture is a capture (#282)', () => {
+    it('is newline-terminated', () => {
+      expect(FIXTURE.endsWith('\n')).toBe(true)
+    })
+
+    it('every line parses as a v1 beacon signed claude-hook for lane 2-core', () => {
+      for (const line of FIXTURE_LINES) {
+        const parsed = parseBeaconLine(line)
+        expect(parsed.kind).toBe('beacon')
+        if (parsed.kind !== 'beacon') continue
+        expect(parsed.payload.writer).toBe('claude-hook')
+        expect(parsed.payload.lane).toBe('2-core')
+      }
+    })
+
+    it('every kind is in the ruled vocabulary, and all three kinds occur', () => {
+      const kinds = new Set(FIXTURE_LINES.map((line) => (JSON.parse(line) as { kind: string }).kind))
+      for (const kind of kinds) {
+        expect(BEACON_ATTENTION_KINDS as readonly string[]).toContain(kind)
+      }
+      for (const kind of BEACON_ATTENTION_KINDS) {
+        expect(kinds.has(kind)).toBe(true)
+      }
+    })
+
+    it("every detail names the hook that fired, and the (event → kind) pairs match the emitter's table", () => {
+      for (const line of FIXTURE_LINES) {
+        const parsed = JSON.parse(line) as { kind: string; detail?: string }
+        expect(parsed.detail).toMatch(/^hook: (Notification|Stop|UserPromptSubmit|PostToolUse)$/)
+        const event = parsed.detail?.replace(/^hook: /, '')
+        const expectedKind = CLAUDE_HOOK_EVENTS.find(([e]) => e === event)?.[1]
+        expect(parsed.kind).toBe(expectedKind)
+      }
+    })
+
+    it('every at is a whole second in milliseconds — the printed command\'s clock, not a hand', () => {
+      let previous = -Infinity
+      for (const line of FIXTURE_LINES) {
+        const at = atOf(line)
+        expect(at % 1000).toBe(0)
+        expect(at).toBeGreaterThanOrEqual(previous)
+        previous = at
+      }
     })
   })
 
