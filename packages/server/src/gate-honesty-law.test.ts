@@ -3075,6 +3075,44 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(parsed.reason).toBe('build-broken')
     })
 
+    /**
+     * THE BOUNDARY ITSELF, not the emitter's reading of it (review of #273).
+     *
+     * The test above proves `emit_gate_verdict` honours `MERGED` — but it sets
+     * `MERGED=1` in its OWN harness snippet, so it never exercises the script's
+     * `MERGED=1` line. Deleting that line left the whole suite green at
+     * 190/191 while every post-merge failure began reporting `held: true` —
+     * the exact inversion this issue's Definition of done forbids ("a verdict
+     * reporting `held: true` for a post-merge failure would say the opposite
+     * of what happened"). EXECUTED, before this test existed.
+     *
+     * So the invariant is positional and is asserted as such: the assignment
+     * exists exactly once, it sits AFTER the containment check that is the last
+     * pre-merge `fail`, and it sits BEFORE both post-merge checks. Moving it to
+     * either side, or deleting it, reddens here.
+     *
+     * Anchored on text rather than line numbers, per this file's own rule — a
+     * reworded anchor throws at collection, loudly, instead of passing
+     * vacuously.
+     */
+    it('MUTATION — the MERGED=1 boundary sits between the merge and the post-merge checks, and deleting it reddens', () => {
+      const boundary = uniqueLineIndex('MERGED=1')
+      const lastPreMerge = uniqueLineIndex('is not contained in main — the merge did not complete')
+      const install = uniqueLineIndex('npm install after merge broke')
+      const build = uniqueLineIndex('if npm run build >')
+
+      expect(lastPreMerge, 'the containment check must precede the boundary').toBeLessThan(boundary)
+      expect(boundary, 'npm install runs AFTER the merge — it holds the push, not the merge').toBeLessThan(install)
+      expect(boundary, 'npm run build runs AFTER the merge — it holds the push, not the merge').toBeLessThan(build)
+    })
+
+    /**
+     * The pair above and below are what bind the boundary to the verdict: this
+     * one proves the emitter reads `MERGED`, the one above proves the script
+     * sets it in the right place. Neither alone is sufficient, which is how the
+     * gap arrived — the emitter was tested with an injected value and the line
+     * that produces that value was tested by nothing.
+     */
     it('EXECUTED — the clean end of the script emits held:false, reason:clean, with real output captured beforehand', () => {
       const { stdout, h } = runVerdict('echo "  build OK"\nMERGED=1\nemit_gate_verdict clean')
       const parsed = JSON.parse(lastLine(stdout))
