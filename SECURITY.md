@@ -139,7 +139,7 @@ exactly as the browser does. A value handed to a page over unauthenticated
 loopback HTTP cannot be hidden from something that can already reach that
 page.
 
-This server answers **ten** mutating routes in total, not three. Two more
+This server answers **eleven** mutating routes in total, not three. Two more
 are gated exactly as the three above are: the concierge's granted powers,
 `POST /api/concierge/clone` and `POST /api/concierge/launch` (prd-20
 ruling 1 / `docs/adr/0019-the-fourth-hand.md`) — for the fourth hand the
@@ -158,6 +158,14 @@ operator that switching the watched repo "is not built", which prd-20's
 route is proven, structurally, reachable only by a human's explicit act and
 by nothing else (`api/retarget-law.test.ts`) — without yet being reachable
 by anything at all.
+
+A seventh, `POST /api/operator/:act` (prd-17 ruling 1's operator door, #276),
+records one of three human acts — `operator.ack`, `operator.verdict`,
+`operator.note` — each stamped with the log offset it was decided against.
+Recording a decision is not routing one (the PRD's own non-goal): the route
+never gates, queues or notifies, it only appends the event the act already
+produced, the same posture `POST /api/rotate` holds over the instrument's
+own log.
 
 The remaining four are the OTLP telemetry inbox (`POST /v1/metrics`,
 `/v1/logs`, `/v1/traces`, and the bare-path fallback `POST /` that

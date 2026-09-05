@@ -7,6 +7,7 @@ import { registerLabRoutes } from './lab.js'
 import { registerLaneIndexRoutes } from './lane-index.js'
 import { registerLanesRoute } from './lanes.js'
 import { registerMetaRoute } from './meta.js'
+import { registerOperatorRoute } from './operator.js'
 import { registerOtelRoutes } from './otel.js'
 import { registerRetargetRoute } from './retarget.js'
 import { registerRotateRoute } from './rotate.js'
@@ -33,10 +34,11 @@ export function registerApiRoutes(app: FastifyInstance, ctx: ServerContext): voi
   // A session's first words (prd20 w6) — the read-only companion to the
   // transcript tail, sharing its attribution and its bounded-read shape.
   registerSessionPreviewRoute(app, ctx)
-  // The app's ten mutating routes (prd16 rulings 2 and 4; prd1's OTLP inbox;
-  // prd-20's two concierge powers and its repo switch) — see `ROUTE_CLASSES`
-  // below for the full classification, and `rotate.ts` / `label.ts` for why
-  // each of these two is allowed to exist and what still may not.
+  // The app's eleven mutating routes (prd16 rulings 2 and 4; prd1's OTLP inbox;
+  // prd-20's two concierge powers and its repo switch; prd-17's operator
+  // door) — see `ROUTE_CLASSES` below for the full classification, and
+  // `rotate.ts` / `label.ts` for why each of these two is allowed to exist
+  // and what still may not.
   registerRotateRoute(app, ctx)
   registerLabelRoute(app, ctx)
   // prd-20 ruling 5's repo switch (#389) — the session boundary drawn across
@@ -44,6 +46,12 @@ export function registerApiRoutes(app: FastifyInstance, ctx: ServerContext): voi
   // the same hand: see `retarget.ts`'s own doc for the order it runs in, and
   // `retarget-law.test.ts` for the clause that keeps it a human's act.
   registerRetargetRoute(app, ctx)
+  // prd-17 ruling 1's operator door (#276): one route, three acts
+  // (`operator.ack` / `operator.verdict` / `operator.note`), recording a
+  // decision the operator already made rather than routing one — see
+  // `operator.ts`'s own doc for the non-goal this route deliberately does
+  // not cross.
+  registerOperatorRoute(app, ctx)
   // Read-only routes over the laboratory's checkpoint/experiment slice
   // (prd14 wave 1) — see `lab.ts`'s own doc for why this never imports
   // `server/src/lab/` directly.
@@ -91,7 +99,7 @@ export interface RouteClassification {
  * remembered.
  */
 export const ROUTE_CLASSES: readonly RouteClassification[] = [
-  // Gated mutations (6) — each carries `requireCapabilityToken` as a
+  // Gated mutations (7) — each carries `requireCapabilityToken` as a
   // route-local `preHandler` (`api/security.ts`).
   { method: 'POST', url: '/api/label', routeClass: 'gated-mutation' },
   { method: 'POST', url: '/api/rotate', routeClass: 'gated-mutation' },
@@ -104,6 +112,10 @@ export const ROUTE_CLASSES: readonly RouteClassification[] = [
   // "never from a collector, never from a poll" — the gate is the grant.
   { method: 'POST', url: '/api/concierge/clone', routeClass: 'gated-mutation' },
   { method: 'POST', url: '/api/concierge/launch', routeClass: 'gated-mutation' },
+  // prd-17 ruling 1's operator door (#276): one route, three acts — the
+  // same posture as `/api/rotate` (a mutation of the instrument's own log,
+  // never the watched repo), so no new route class is owed.
+  { method: 'POST', url: '/api/operator/:act', routeClass: 'gated-mutation' },
 
   // Ungated mutations (4) — the OTLP inbox, ungated by design (prd-23 ruling
   // 6): an exporter has no channel to learn the capability token at all.
