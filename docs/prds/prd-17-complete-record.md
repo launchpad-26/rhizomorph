@@ -1,10 +1,11 @@
 # prd17 — the complete record: the instrument's judgements and the operator's decisions join the log
 
 > **Outcome:** partially shipped — ruling 3 landed, all five laws: the fold-order law was
-> ruled on #205 (append order is the truth) and replay honours it. The event families,
-> beacon ingestion and timeline dividend in rulings 1, 2 and 4 have not landed; the beacon
-> doorway is now shared with prd-27 by the 2026-08-24 amendment. Reconciled 2026-08-22 at
-> `03df141`.
+> ruled on #205 (append order is the truth) and replay honours it. Ruling 1's nine event
+> families landed as CONTRACTS on #219, and ruling 2's doorway landed as a collector on
+> prd-27 w1 (#217) — but **nothing emits either yet**, and ruling 4 has not started. See
+> the 2026-09-05 amendment, which corrects the sentence this line carried until then.
+> Reconciled 2026-08-22 at `03df141`; re-audited 2026-09-05 at `5fa85b0`.
 
 **STATUS: BLESSED** — operator, 2026-08-06, on the council's unanimous master
 finding (`docs/research/2026-08-06-council/synthesis.md`): *the causal record
@@ -126,3 +127,86 @@ the owed ADR on the directory and event contract lands with the beacon keystone 
 sidecar-for-content / event-for-occurrence split governs both PRDs' payloads. The event
 families of ruling 1 remain this PRD's build; the collector and its lapse voice are
 prd-27's.
+
+## Amendment — a contract is not an emitter, and ruling 4 stays here (operator, 2026-09-05)
+
+Audited against the tree at `5fa85b0`. **The Outcome line above was wrong for two weeks**,
+and in the direction that costs most: it said rulings 1 and 2 "have not landed" when both
+had landed in part, so a reader planning the next wave would have rebuilt what already
+existed. It is corrected above; what follows is what is actually true, and the distinction
+the old line could not draw.
+
+**Ruling 1 — the contracts landed, the emitters did not.** #219 put all nine families into
+the one union (`core/src/events/index.ts`): the summons pair, `gate.verdict`,
+`dispatch.brief`, `fence.declared`, the three operator acts, and `session.closed`. Every
+one has a reducer arm, and every arm is `return state` under the comment *"additive only
+(prd17 ruling 1, #219)"*. Outside `fixtures.ts` and `reduce.ts`, **nothing in the tree
+emits any of them except `session.closed`** — which the recorder has raised since prd-40.
+So the systems chair's proof stands exactly as written: a recording still contains no
+fences, and a trespass still cannot be re-derived from the record. The gap between "the
+family exists" and "the family appears in a log" is the whole of what rulings 1 and 4 have
+left, and it is where every remaining wave sits.
+
+**Ruling 2 — the door is built and nobody walks through it.** prd-27 wave 1 (#217) landed a
+beacon collector that tails the rhizomorph-owned directory and records each line as
+`beacon.received`, through the standard collector contract, exactly as the 2026-08-24
+amendment ruled. It is honest about its own emptiness — its manifest declares
+`attention: absent` with the reason *"no emitter exists yet"* rather than promising a rung
+it cannot serve. No script writes a beacon: `grep -rln beacon scripts/` returns nothing.
+Waves 5 and 6 (#273, #274, #280) are that missing writer.
+
+**Ruling 4 stays in this PRD, as its own wave.** It was open whether the mark kinds belong
+here or in prd18, which already owns the UI dividend. They stay here: ruling 4's constraint
+is *no new surface* — the existing mark lane gains the kinds it was always missing — and
+that is a claim about the record's completeness, not about the dock's design. prd18 remains
+everything richer. Wave 2's #277 is the build.
+
+**Ruling 3 re-audited, and it holds.** All five laws execute and all five bite: the golden
+era corpus folds byte-identically and refuses to be re-blessed from inside the suite, the
+`upcast()` chokepoint is still identity and still proven to run before anything else in
+`reduce()` reads the event, the lenient boundary counts and voices what it cannot parse,
+the append-order law is pinned on both paths, and rotation fsyncs close-then-open. Green
+across the four law files — re-derive the count rather than trusting this
+sentence, which is what `claim-lint` asked for when it was first written:
+
+```
+npx vitest run packages/core/src/eras/eras.test.ts \
+  packages/core/src/upcast-chokepoint-law.test.ts \
+  packages/server/src/recorder/rotate.test.ts \
+  packages/server/src/recorder/session-log-writer.test.ts
+``` The chokepoint law is worth reading as a model: its
+assertion (d) exists *because* someone verified that moving the call below `opensNewSession`
+left 1025/1025 green, and wrote the assertion that the mutation could not survive.
+
+## Amendment — an operator act's coordinate is a claim, not a checked reference (operator, 2026-09-05)
+
+Ruled during wave 2's verification, on a split between two independent review
+seats. `POST /api/operator/:act` accepts any well-formed `sessionId` and
+`offset` and records them: a valid-token request naming a session that does not
+exist, at a line index far past any real record, returns 200 and is persisted.
+One seat called that an integrity defect; the other called it correct. **It is
+correct, and this is the ruling that says so, so nobody re-opens it.**
+
+The server cannot check the coordinate without breaking the act. `sessionId` may
+name a **finished recording under review** — which is the most valuable of the
+three acts, and precisely what ruling 1 exists to make reconstructible — so
+constraining it to the live session would refuse the review verdict. Even for
+the live session the file grows between the operator deciding and the request
+landing, so a check at write time would reject honest acts and accept nothing a
+dishonest caller could not also send. Ruling 1's "stamped with the log offset it
+was decided against" describes what the operator was **seeing**, and only the
+client that rendered that line knows it.
+
+So the field is a **claim by a trusted client**, and the capability token
+(ADR-0012, ADR-0024) is what makes it trusted — the same posture every other
+gated mutation holds. The consequence is stated rather than hidden: **the record
+can carry an operator act whose coordinate names a line that never existed.**
+A reader reconciling acts against a record must treat an unresolvable
+`(sessionId, offset)` as an unresolvable reference, not as corruption of the
+log, and must not assume the pair resolves.
+
+What would change this ruling: an emitter that is not the dashboard — a script
+or a second process posting acts — because the argument above rests on the
+poster being the surface that rendered the line. Waves 5 and 6 bring exactly
+such a writer for the *gate's* verdicts, and if operator acts ever join it, this
+ruling is the one to revisit first.
