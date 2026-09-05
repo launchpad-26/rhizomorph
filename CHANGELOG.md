@@ -38,6 +38,25 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Added
 
+- **`agent.status` names its witness, and the transcript organ speaks (prd-27
+  ruling 2 — the keystone, #281).** The envelope that pinned every attention word
+  to `workmux` now also accepts `sessionlog`, and the transcript-tail state
+  machine publishes its working/waiting transitions through it — edge-triggered,
+  frozen and gone withheld, signed with its own name. `AgentState` records
+  `witness` (whose word the status is) and `dissent` (a later inference a
+  standing declaration overruled), and the fleet renders the difference: a
+  workmux WAITING is certain and names any disagreement beside it (`workmux
+  reports waiting 1m30s; transcript shape reads working`); a transcript-shape
+  WAITING carries the `~` mark and the organ's own reading as evidence. prd-27
+  ruling 4's asymmetry — a declaration may raise a summons, an inference alone
+  may only withdraw an inferred one — is one `if` in the reducer: a standing
+  workmux `waiting` or `done` is never displaced by the organ's word (a finished
+  lane stays DONE when the organ reads its idle session as waiting); only a
+  declared `working` yields to an inference.
+  [ADR-0037](docs/adr/0037-agent-status-names-its-witness.md) records why a
+  second literal beat a second event type and beat a payload field; the golden
+  era-1 snapshot is re-blessed for the two new keys and
+  `packages/core/src/eras/CAPTURE.md` says why.
 - **The beacon door exists (prd-27 ruling 1 / prd-17 ruling 2, #217).** A seventh
   collector, `beacon`, tails every `*.jsonl` file in the watched repo's own beacon
   directory — `<data root>/<repo slug>/beacons/`, beside its recordings — and

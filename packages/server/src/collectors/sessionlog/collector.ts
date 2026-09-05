@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import {
   UNATTRIBUTED_LANE,
+  createEvent,
   type AdapterCapabilities,
   type AgentRole,
   type AgentThread,
@@ -11,7 +12,13 @@ import {
   type RhizomorphEvent,
   type PollResult,
 } from '@rhizomorph/core'
-import { deriveLaneState, needsProcessProbe, quietMsOf, type LaneStateReading } from './lane-state.js'
+import {
+  agentStatusEmissionFor,
+  deriveLaneState,
+  needsProcessProbe,
+  quietMsOf,
+  type LaneStateReading,
+} from './lane-state.js'
 import { parseWorktreePaths } from './parse-worktree-paths.js'
 import { defaultProcessProbe, type ProcessLiveness, type ProcessProbe } from './process-probe.js'
 import { isRotated, readNewLines } from './tail.js'
@@ -31,11 +38,13 @@ const JSONL_SUFFIX = '.jsonl'
  * timeline. Attention is `partial`, not `provided`, on purpose: the organ
  * *infers* waiting/frozen/gone from turn shape (this is the exact example
  * the prd15 direction names — "inferred from transcript shape; a hook
- * beacon would declare it"); `agentStatusEmissionFor` in `lane-state.ts`
- * documents why it cannot yet *publish* that inference as a declared
- * `agent.status` either (BLOCKED on a core envelope change outside this
- * fence). Cost stays `absent` — tokens only, never dollars, until OTLP env
- * is wired in (L1).
+ * beacon would declare it"). Since #281 (ADR-0037) the organ does publish
+ * its working/waiting transitions as `agent.status` signed
+ * `source: 'sessionlog'` — edge-triggered, frozen and gone withheld
+ * (`agentStatusEmissionFor`). `attention` stays `partial`: a published
+ * inference is still an inference, and prd-27 w4 owns these strings. Cost
+ * stays `absent` — tokens only, never dollars, until OTLP env is wired in
+ * (L1).
  */
 export const SESSIONLOG_CAPABILITIES: AdapterCapabilities = {
   identity: { level: 'provided' },
@@ -235,6 +244,35 @@ export function createSessionlogCollector(
       }
 
       const lanes = await deriveLanes(nextFiles, prevSnapshot.lanes ?? {}, context.now, processProbe)
+
+      // prd-27 ruling 2 (#281, ADR-0037): the organ publishes its transitions
+      // as `agent.status` signed with its own name. Edge-triggered through
+      // `agentStatusEmissionFor` — a poll that changed nothing emits nothing,
+      // and frozen/gone are withheld for the reasons that function states.
+      // Sorted so two polls over the same snapshot emit in the same order.
+      for (const lane of Object.keys(lanes).sort()) {
+        const liveness = lanes[lane]
+        if (liveness === undefined) continue
+        // The main working tree's session is a setup gap, not a lane (#62);
+        // minting an agent record for it would give the fleet a lane it
+        // deliberately does not have.
+        if (lane === UNATTRIBUTED_LANE) continue
+        const emission = agentStatusEmissionFor({
+          handle: lane,
+          worktreePath: liveness.worktreePath,
+          branch: liveness.branch,
+          previous: liveness.previousState,
+          reading: liveness,
+        })
+        if (emission === null) continue
+        events.push(
+          createEvent('agent.status', emission, {
+            id: context.nextId(),
+            ts: context.now,
+            source: 'sessionlog',
+          }),
+        )
+      }
 
       return {
         nextSnapshot: {

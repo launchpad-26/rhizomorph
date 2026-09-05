@@ -44,10 +44,10 @@ export interface TailedFileState {
 /**
  * One lane's transcript-derived liveness (prd15 ruling 1) as of the last poll.
  *
- * This is the organ's OUTPUT. It is not published as an event yet — see the
- * BLOCKED note on `agentStatusEmissionFor` in `lane-state.ts` — so the snapshot
- * is where a lane's derived state is legible today, and what
- * `tmuxless-boot.test.ts` reads.
+ * This is the organ's OUTPUT. Its working/waiting transitions are published as
+ * `agent.status` signed `sessionlog` (#281, ADR-0037); frozen and gone are
+ * readable here and withheld from the log on purpose. The snapshot is where
+ * every lane's derived state is legible, and what `tmuxless-boot.test.ts` reads.
  */
 export interface LaneLiveness extends LaneStateReading {
   lane: string
@@ -59,8 +59,8 @@ export interface LaneLiveness extends LaneStateReading {
   derivedAt: number
   /**
    * The state this lane held at the previous poll, or null when first seen.
-   * Kept so publication stays edge-triggered once it is unblocked, and so a
-   * transition is visible to a reader of the snapshot alone.
+   * Kept so publication stays edge-triggered (#281), and so a transition is
+   * visible to a reader of the snapshot alone.
    */
   previousState: LaneState | null
 }
