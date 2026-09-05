@@ -2,9 +2,11 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beaconDirFor } from '../collectors/beacon/paths.js'
+import { DATA_ROOT_ENV_VAR } from '../log/paths.js'
 import { runCli, type CliHandle } from './index.js'
 import { capabilityAwareFetch } from './rotate.js'
-import { fetchInstanceId, metaUrl, otlpEndpoint, renderTelemetryEnv } from './telemetry-env.js'
+import { fetchInstanceId, fetchInstanceMeta, metaUrl, otlpEndpoint, renderTelemetryEnv } from './telemetry-env.js'
 
 /** A `fetch` that answers one `/api/meta` body, without a socket. */
 function metaFetch(body: unknown, init: ResponseInit = {}): typeof globalThis.fetch {
@@ -182,6 +184,21 @@ describe('fetchInstanceId', () => {
   })
 })
 
+describe('fetchInstanceMeta', () => {
+  it('returns the session id and the repo path the server publishes', async () => {
+    const meta = await fetchInstanceMeta(4321, {
+      fetch: metaFetch({ repoPath: '/repo', repoName: 'repo', sessionId: '1785458425389' }),
+    })
+    expect(meta).toEqual({ sessionId: '1785458425389', repoPath: '/repo' })
+  })
+
+  it('rejects a body with a session id but no repo path', async () => {
+    await expect(
+      fetchInstanceMeta(4321, { fetch: metaFetch({ sessionId: '1785458425389' }) }),
+    ).rejects.toThrow(/reported no repo path/)
+  })
+})
+
 /**
  * The end-to-end claim #60 makes: what `rhizomorph env` prints is wired to the
  * instance id of the Rhizomorph actually listening on that port. Boots a real
@@ -255,6 +272,41 @@ describe('rhizomorph env against a live server', () => {
       `export OTEL_RESOURCE_ATTRIBUTES=lane=my-lane,role=worker,instance=${instance}`,
     )
     expect(output).toContain(`export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:${port}`)
+  })
+
+  it('prints, for --hooks claude, a fragment whose every command targets the live server\'s own beacon directory', async () => {
+    const { port } = await boot()
+
+    // `--hooks` resolves the beacon directory through `defaultDataRoot()`
+    // (env var, else the platform default) rather than through any option
+    // this in-process `runCli` call could inject — by design (plan #282
+    // decision 1): the CLI and the server agree only because they share an
+    // environment. Reproduce that environment here rather than the server's
+    // injected `dataRoot`, which a real CLI invocation never has access to.
+    const previousDataRoot = process.env[DATA_ROOT_ENV_VAR]
+    process.env[DATA_ROOT_ENV_VAR] = dataRoot
+    let output: string
+    try {
+      const log = { log: vi.fn(), warn: vi.fn() }
+      const thrown = await runCli(['env', 'my-lane', '--hooks', 'claude', '--port', String(port)], {
+        log,
+        exit: fakeExit(),
+      }).catch((err: unknown) => err)
+
+      expect(thrown).toBeInstanceOf(FakeExit)
+      expect((thrown as FakeExit).code).toBe(0)
+      output = log.log.mock.calls.map((call) => String(call[0])).join('\n')
+    } finally {
+      if (previousDataRoot === undefined) delete process.env[DATA_ROOT_ENV_VAR]
+      else process.env[DATA_ROOT_ENV_VAR] = previousDataRoot
+    }
+    const parsed = JSON.parse(output) as { hooks: Record<string, [{ hooks: [{ command: string }] }]> }
+
+    const expectedBeaconDir = beaconDirFor(path.join(tmpdir(), 'env-repo'), dataRoot)
+    for (const commands of Object.values(parsed.hooks)) {
+      const command = commands[0]?.hooks[0]?.command ?? ''
+      expect(command).toContain(`'${expectedBeaconDir}'`)
+    }
   })
 
   it('emits a block the receiver on that very port accepts, and one it refuses without the id', async () => {

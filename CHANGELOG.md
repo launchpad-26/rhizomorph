@@ -38,6 +38,16 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Added
 
+- **A hook can declare a lane's attention (prd-15 ruling 2 / prd-27 ruling 4, #282).**
+  `rhizomorph env <lane> --hooks claude` prints the Claude Code `settings.json`
+  `hooks` fragment whose four one-line commands append an ADR-0036 beacon —
+  `Notification` → `waiting`, `Stop` → `stopped`, `UserPromptSubmit` and
+  `PostToolUse` → `working` — to the running instance's
+  `<data root>/<repo slug>/beacons/claude-hook.jsonl`, creating the directory
+  first and only ever appending. The three words are now the ruled vocabulary,
+  `BEACON_ATTENTION_KINDS` in core; the schema stays open. The beacon fixture is
+  a real capture from a session running the printed hooks, and its
+  `CAPTURE.md` is the recipe.
 - **The beacon door exists (prd-27 ruling 1 / prd-17 ruling 2, #217).** A seventh
   collector, `beacon`, tails every `*.jsonl` file in the watched repo's own beacon
   directory — `<data root>/<repo slug>/beacons/`, beside its recordings — and

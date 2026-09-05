@@ -1,3 +1,4 @@
-{"v":1,"at":1725000000000,"writer":"claude-hook","kind":"waiting","lane":"2-core","detail":"permission: Bash"}
-{"v":1,"at":1725000001000,"writer":"claude-hook","kind":"working","lane":"2-core","extra":"ignored but digested"}
-{"v":1,"at":1725000002000,"writer":"claude-hook","kind":"stopped"}
+{"v":1,"at":1788591365000,"writer":"claude-hook","kind":"working","lane":"2-core","detail":"hook: UserPromptSubmit"}
+{"v":1,"at":1788591374000,"writer":"claude-hook","kind":"waiting","lane":"2-core","detail":"hook: Notification"}
+{"v":1,"at":1788591375000,"writer":"claude-hook","kind":"working","lane":"2-core","detail":"hook: PostToolUse"}
+{"v":1,"at":1788591377000,"writer":"claude-hook","kind":"stopped","lane":"2-core","detail":"hook: Stop"}
