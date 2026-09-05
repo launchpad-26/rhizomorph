@@ -485,3 +485,45 @@ describe('ChapterMarks — row height (prd13 ruling 13: one height, not mode-dep
     expect(screen.getByTestId('chapter-marks').style.height).toBe('24px')
   })
 })
+
+/**
+ * `glyphHeldOf` is the ONLY new view logic whose ink depends on data rather
+ * than on the chapter's kind — a `gate-verdict` is amber while the gate holds
+ * and green once it merges. Nothing reached it: forcing it to `return null`
+ * unconditionally left all 187 tests in `tide/` green (review of #277). The
+ * new-kinds suite above asserts the accessible NAME, which comes from
+ * `chapterLabel` and not from the glyph, so it cannot see this.
+ *
+ * Severity is bounded by charter law 9 — the shape is the legend and hue only
+ * reinforces it, so a `gate-verdict` stays a filled square either way and a
+ * regression here is cosmetic rather than a lost fact. That is the reason this
+ * is a test and not a redesign.
+ *
+ * The ink is read off the inline `style`, which is where `MarkGlyph` puts it
+ * for this kind alone; every other kind carries its ink in a class. Asserting
+ * the class list instead would pass for both states.
+ */
+describe('ChapterMarks — a gate verdict is inked by its own held flag (#277)', () => {
+  function inkOfLoneMark(held: boolean): string {
+    const events = log((fx) => {
+      fx.at(3_000).gateVerdict({ handle: 'ke5', held })
+    })
+    render(<ChapterMarks events={events} start={T0} end={T_END} width={900} onSeek={() => {}} seekEnabled />)
+    const head = screen.getByTestId('chapter-mark').querySelector<HTMLElement>('span[style*="background-color"]')
+    return head?.style.backgroundColor ?? ''
+  }
+
+  it('inks a held verdict with the needs-you colour', () => {
+    expect(inkOfLoneMark(true)).toBe('var(--color-needs-you)')
+  })
+
+  it('inks a merged verdict with the done colour', () => {
+    expect(inkOfLoneMark(false)).toBe('var(--color-done)')
+  })
+
+  it('reads the two states differently — the assertion pair cannot pass for one reason', () => {
+    const held = inkOfLoneMark(true)
+    cleanup()
+    expect(inkOfLoneMark(false)).not.toBe(held)
+  })
+})
