@@ -145,7 +145,22 @@ export interface Chapter {
   verdict: string | null
 }
 
-const CHAPTER_VERB: Partial<Record<ChapterKind, string>> = {
+/**
+ * The kinds whose "what" is one fixed verb. The three {@link describeWhat}
+ * resolves from data instead — `gate-held`, `gate-verdict`, `operator-verdict`
+ * — are excluded BY NAME rather than by making the map partial, so this stays
+ * an exhaustive record: a kind added to {@link CHAPTER_KINDS} that is neither
+ * listed here nor given a `case` below fails `tsc` at this line, naming the
+ * kind it is missing.
+ *
+ * `MarkGlyph`'s own switch (`ChapterMarks.tsx`) already refuses a new kind, so
+ * nothing could reach a hover card as the string `undefined` before this
+ * either — this moves the error to the declaration that is actually missing an
+ * entry, rather than to a glyph switch a reader must then work backwards from.
+ */
+type FixedVerbKind = Exclude<ChapterKind, 'gate-held' | 'gate-verdict' | 'operator-verdict'>
+
+const CHAPTER_VERB: Record<FixedVerbKind, string> = {
   'lane-born': 'born',
   'lane-landed': 'landed',
   'session-boundary': 'started',
@@ -163,7 +178,7 @@ function describeWhat(chapter: Chapter): string {
     case 'operator-verdict':
       return chapter.verdict ?? 'decided'
     default:
-      return CHAPTER_VERB[chapter.kind] as string
+      return CHAPTER_VERB[chapter.kind]
   }
 }
 
