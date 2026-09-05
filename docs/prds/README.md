@@ -42,9 +42,11 @@ a PRD rewritten after shipping to look like it was planned that way is a
 Added 2026-09-04 (#66). Many PRDs here — in Status lines, Evidence sections,
 and rulings — cite `#NNN` issue numbers from this repo's original tracker,
 deleted 2026-08-21. Those numbers do not resolve. `AGENTS.md` carries the
-fuller note on why, and the current measurement of how far the dead tracker's
-citations reach into this corpus, since that number moves and belongs in one
-place rather than two that can drift apart.
+fuller note on why, and on which end of the range is unambiguous. It states
+neither sequence's maximum, deliberately: the live one is stale the moment the
+next issue is filed, and a second copy here would drift out of step with the
+first. `packages/server/src/doc-citation-law.test.ts` derives the live one from
+the tracker rather than from prose.
 
 The short version: this repo's tracker restarted from `#1`, so the two
 sequences overlap and no single number separates them. Above this repo's
