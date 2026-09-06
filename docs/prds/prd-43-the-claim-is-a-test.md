@@ -461,7 +461,10 @@ mode, and both callers using it — is not in this repo; `#285` is the half that
 
 **Wave 10 — declared 2026-09-06, two issues, both enforcement residue found by reviewing wave 7
 rather than by any gate.** Fence-disjoint, verified with the fence lint rather than asserted, so
-both may be built at once.
+they were built in parallel. **Built, reviewed over three rounds, and open as PR `#297`** — this
+paragraph said "may be built at once" until 2026-09-07, describing as future work that had
+already shipped, which is this PRD's own thesis pointed at its own Sequencing. A review seat
+caught it; the first repair pass then fixed five other findings and missed this one.
 
 - `prd43 w10: a pinned sha is evidence only if it landed` (`#288`). `isPinnedArtefact` grants a
   document total exemption from the citation law when its `**Tree:**` pin "resolves", tested with
