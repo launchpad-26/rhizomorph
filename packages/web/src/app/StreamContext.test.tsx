@@ -289,7 +289,7 @@ describe('news vs history', () => {
  * before it live-tails when there's no `Last-Event-ID` yet to resume from).
  * `foldStreamEvents` folds the same burst in one O(n) pass. Sized for CI
  * (moderate N, generous timeout) rather than the live session's real ~46k-55k
- * events — `streamState.test.ts`'s `#183` bench reports the size-scaled
+ * events — `streamState.bench.test.ts`'s `#183` bench reports the size-scaled
  * before/after (5k/15k/55k) this issue's DoD asks for, and
  * `useEventStream.ts`'s own docstring carries that table.
  *

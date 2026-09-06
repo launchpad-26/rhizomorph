@@ -62,8 +62,9 @@ const defaultCreateSource: EventSourceFactory = (url) => new EventSource(url)
  * `setState`s paying one O(n) pass through `foldStreamEvents` between them.
  *
  * Measured on the dev box, `foldStreamEvent` (per event) vs `foldStreamEvents`
- * (one batched pass), median of 3 interleaved rounds (`streamState.test.ts`'s
- * `#183` bench — same discipline as `panels/ledger/perf.test.ts`'s #157 note:
+ * (one batched pass), median of 3 interleaved rounds (`streamState.bench.test.ts`'s
+ * `#183` bench, which runs one round now — its `ROUNDS` note says why the table
+ * stands; same discipline as `panels/ledger/perf.test.ts`'s #157 note:
  * reported, not asserted, since a wall clock under concurrent workers measures
  * the box, not the code):
  *
