@@ -504,16 +504,40 @@ pre-rename `launchpad-26/rhizomorph.tmp`, working only through GitHub's redirect
 config, not a tracked file, so it has no issue — but it belongs in the operator's own checklist
 beside ruling 3.
 
-## Open questions
+## Open questions — all three RULED 2026-09-07
 
-- **Restore the deleted research note, or inline its rationale into the four files?** Restoring is
-  cheaper and keeps the citation resolving; inlining removes a dependency on a dated artefact.
-  Open, not ruled.
-- **Does the citation law belong at repo root or under `packages/server/`?** The root vitest
-  config globs `packages/*`, so a root-level test would never run — the trap
-  `runbook-delivery-law` and `no-personal-paths-law` both document. The answer is probably
-  "beside them", but it is a placement nobody has ruled. Open, not ruled.
-- **Should `docs/prds/` be excluded from ruling 1?** A PRD citing a path that later moved is
-  arguably a dated record like a research note, and arguably a live document that should stay
-  true. The corpus is cited 1,136 times from code, which argues for keeping it true. Open, not
-  ruled.
+Ruled by the operator, and in every case practice had already answered them; what was
+missing was the record. Each ruling below states the artefact that decides it, so a
+later reader can check rather than trust.
+
+**Ruling 6 — the deleted research note is RESTORED, not inlined.** Decided by `7070b20`
+("restore the research notes…"), building on `caa6827`, which put
+`docs/research/2026-08-04-semantic-judge-spike.md` back in the tree. The four source
+files that cite it — `core/src/events/judge.ts`, `collectors/judge/collector.ts`,
+`judge/mergetree.ts`, `judge/symbols.ts` — therefore resolve, and ruling 1's law is
+green for a real reason rather than by exemption. Verified: the note is not in
+`ALLOWLISTED_BROKEN_CITATIONS`, so nothing is suppressing it.
+
+The rejected alternative was inlining each rationale into the four files, which would
+have removed the dependency on a dated artefact. It was rejected in practice: restoring
+keeps one source of the reasoning where four copies would drift apart, and the citation
+law makes the dependency safe by failing loudly if the note is deleted again.
+
+**Ruling 7 — the citation law lives beside the other laws, under `packages/server/`.**
+It shipped at `packages/server/src/doc-citation-law.test.ts`. The question named the
+reason itself: the root vitest config globs `packages/*`, so a root-level test would
+never run — the trap `runbook-delivery-law` and `no-personal-paths-law` both document.
+A law nobody runs is worse than no law, because its silence reads as a pass.
+
+**Ruling 8 — `docs/prds/` IS excluded from ruling 1, as a CITING source only.** Shipped
+as `EXCLUDED_DIRS = ['docs/research/', 'docs/review/', 'docs/prds/']`. The distinction
+the question missed is the one that makes both halves right: a PRD's own citations are a
+record of the tree at a commit and are not swept, but a path pointing INTO `docs/prds/`
+from anywhere else is still a live claim and IS checked. Excluding by citing-file
+directory rather than by cited-target directory is what keeps the corpus's 1,136
+inbound citations honest while letting a PRD name a path that has since moved.
+
+The cost is real and is recorded rather than hidden: nothing checks a PRD's own claims
+about itself. Three false claims in this document were caught by review seats during
+wave 9, and none could have been caught by a gate. `#289` is that gap one level down,
+for exclusions rather than prose.
