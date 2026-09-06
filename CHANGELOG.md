@@ -356,6 +356,7 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **The activity feed names which witness signed an `agent.status` (prd-27 ruling 2 / ADR-0037, #290).** Since #281 two witnesses publish `agent.status` — workmux's declaration and the transcript organ's inference — and the feed rendered both as one bare word, the #133 false summons in a third costume. A lane row now carries the envelope's `source` as its witness and an inferred word wears the instrument's own `~` mark (`~ waiting`, `~ working`), exactly as the attention strip and the STATE hover already render an inference; a workmux row is byte-identical to before. The tag is exhaustive over the witness type, so a third witness fails typecheck rather than rendering as workmux's word.
 - **An event on screen is an event on disk (prd-40 wave 2, #4).** The recorder published
   every event — to the live buffer, to the maintained fold, and to every subscriber —
   *before* awaiting its append, and the poll loop advanced its collector snapshot before
