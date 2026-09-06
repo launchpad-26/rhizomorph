@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { eraCorpusEntry } from './eras/corpus.js'
 import { canonicalStateJson, foldEraRecording } from './eras/fold.js'
-import type { EventOf, RhizomorphEvent } from './events/index.js'
+import type { EventOf, PayloadOf, RhizomorphEvent } from './events/index.js'
 import { createEventFactory, fixtureSession } from './fixtures.js'
 import { reduce, reduceAll } from './reduce.js'
 import type { SessionState, SpanRecord } from './state.js'
@@ -827,6 +827,8 @@ describe('reduce — panes and agents', () => {
       updatedAt: 20,
       present: true,
       removedAt: null,
+      witness: 'workmux',
+      dissent: null,
     })
   })
 
@@ -867,6 +869,175 @@ describe('reduce — panes and agents', () => {
       f.agentStatus({ handle: 'feature', status: 'working' }, { ts: 400 }),
     ])
     expect(state.agents['feature']).toMatchObject({ present: true, removedAt: null, updatedAt: 400 })
+  })
+
+  // ── the second witness (#281, ADR-0037) ───────────────────────────────────
+  //
+  // prd-27 ruling 2 gives `agent.status` two legitimate signers, and ruling 4
+  // rules what happens when they disagree: a declaration may raise a summons;
+  // an inference alone may only withdraw an *inferred* one. That asymmetry is
+  // one `if` in `agentStatus`, and `dissent` is the record of what it refused.
+
+  /** The organ's word, signed with its own name rather than workmux's. */
+  const organ = (payload: Partial<PayloadOf<'agent.status'>>, ts: number) =>
+    f.agentStatus(payload, { ts, source: 'sessionlog' })
+
+  const ORGAN_WORKING = 'WORKING — tail pending-tool, quiet 3s, threshold 30s'
+
+  it('records whose word the status is', () => {
+    const declared = reduceAll([f.agentStatus({ handle: 'a', status: 'working' }, { ts: 10 })])
+    expect(declared.agents['a']).toMatchObject({ witness: 'workmux', dissent: null })
+
+    const inferred = reduceAll([organ({ handle: 'b', status: 'working' }, 10)])
+    expect(inferred.agents['b']).toMatchObject({ witness: 'sessionlog', dissent: null })
+  })
+
+  it('an inferred waiting over a declared working is last-wins — the inferred summons is raised', () => {
+    // Ruling 4 is one-directional. Nothing was declared waiting here, so the
+    // organ raising a hand is new information, not a withdrawal.
+    const state = reduceAll([
+      f.agentStatus({ handle: 'feature', status: 'working' }, { ts: 10 }),
+      organ({ handle: 'feature', status: 'waiting' }, 20),
+    ])
+    expect(state.agents['feature']).toMatchObject({
+      status: 'waiting',
+      witness: 'sessionlog',
+      updatedAt: 20,
+      previousStatus: 'working',
+      dissent: null,
+    })
+  })
+
+  it('ruling 4: a sessionlog working does not withdraw a declared waiting, and is kept as dissent', () => {
+    // The common case, not an edge: a permission prompt leaves the transcript
+    // on a `pending-tool` shape, which the organ reads as `working`, while
+    // workmux reads `waiting`. The human was asked by name; the declaration
+    // stands, and the refused word is kept so it can be rendered.
+    const state = reduceAll([
+      f.agentStatus({ handle: 'feature', status: 'waiting' }, { ts: 10 }),
+      organ({ handle: 'feature', status: 'working', detail: ORGAN_WORKING }, 20),
+    ])
+    expect(state.agents['feature']).toMatchObject({
+      status: 'waiting',
+      witness: 'workmux',
+      updatedAt: 10,
+      dissent: { witness: 'sessionlog', status: 'working', ts: 20, detail: ORGAN_WORKING },
+    })
+  })
+
+  it('corroboration is not dissent — an agreeing organ does not turn a declaration into an inference', () => {
+    const state = reduceAll([
+      f.agentStatus({ handle: 'feature', status: 'waiting' }, { ts: 10 }),
+      organ({ handle: 'feature', status: 'waiting' }, 20),
+    ])
+    expect(state.agents['feature']).toMatchObject({
+      status: 'waiting',
+      witness: 'workmux',
+      updatedAt: 10,
+      dissent: null,
+    })
+  })
+
+  it('workmux speaking again clears the dissent and wins', () => {
+    // When the human answers, workmux says `working` within a poll and the
+    // disagreement is over — a declaration always speaks.
+    const state = reduceAll([
+      f.agentStatus({ handle: 'feature', status: 'waiting' }, { ts: 10 }),
+      organ({ handle: 'feature', status: 'working', detail: ORGAN_WORKING }, 20),
+      f.agentStatus({ handle: 'feature', status: 'working' }, { ts: 30 }),
+    ])
+    expect(state.agents['feature']).toMatchObject({
+      status: 'working',
+      witness: 'workmux',
+      previousStatus: 'waiting',
+      updatedAt: 30,
+      dissent: null,
+    })
+  })
+
+  it('a removed handle re-sighted by sessionlog is last-wins, not ruling 4', () => {
+    // The refusal is guarded on `present`: a declaration nobody is standing
+    // behind any more cannot outrank a fresh sighting.
+    const state = reduceAll([
+      f.agentStatus({ handle: 'feature', status: 'waiting' }, { ts: 10 }),
+      f.agentRemoved({ handle: 'feature' }, { ts: 20 }),
+      organ({ handle: 'feature', status: 'working' }, 30),
+    ])
+    expect(state.agents['feature']).toMatchObject({
+      status: 'working',
+      witness: 'sessionlog',
+      present: true,
+      dissent: null,
+    })
+  })
+
+  it('ruling 4, the sibling: a sessionlog waiting does not resurrect a declared done, and is kept as dissent', () => {
+    // The normal sequence for every finished lane in the full rig: workmux
+    // declares `done` within a poll of the ✓ title; 75s later the organ reads
+    // the quiet, alive session at its prompt as `waiting`. Verify of #281
+    // caught the last-wins path turning DONE back into a summons here.
+    const state = reduceAll([
+      f.agentStatus({ handle: 'feature', status: 'done' }, { ts: 10 }),
+      organ({ handle: 'feature', status: 'waiting', detail: 'WAITING — tail turn-complete, quiet 75s, threshold 75s' }, 20),
+    ])
+    expect(state.agents['feature']).toMatchObject({
+      status: 'done',
+      witness: 'workmux',
+      updatedAt: 10,
+      dissent: {
+        witness: 'sessionlog',
+        status: 'waiting',
+        ts: 20,
+        detail: 'WAITING — tail turn-complete, quiet 75s, threshold 75s',
+      },
+    })
+  })
+
+  it('a sessionlog working over a declared done is dissent too, and workmux speaking again clears it', () => {
+    // The human typed a new prompt: the organ sees work before workmux's next
+    // poll does. The declaration stands until workmux itself says `working`.
+    const refused = reduceAll([
+      f.agentStatus({ handle: 'feature', status: 'done' }, { ts: 10 }),
+      organ({ handle: 'feature', status: 'working', detail: ORGAN_WORKING }, 20),
+    ])
+    expect(refused.agents['feature']).toMatchObject({
+      status: 'done',
+      witness: 'workmux',
+      dissent: { witness: 'sessionlog', status: 'working', ts: 20, detail: ORGAN_WORKING },
+    })
+
+    const resumed = reduce(refused, f.agentStatus({ handle: 'feature', status: 'working' }, { ts: 30 }))
+    expect(resumed.agents['feature']).toMatchObject({
+      status: 'working',
+      witness: 'workmux',
+      previousStatus: 'done',
+      updatedAt: 30,
+      dissent: null,
+    })
+  })
+
+  it('only a declared working yields to an inference', () => {
+    // The one declared word the organ can improve on: workmux's `working` is
+    // a title read once at the turn's start, the organ's `waiting` is the
+    // turn's end observed. Every other declared word stands (the two tests
+    // above, and the ruling-4 case).
+    const state = reduceAll([
+      f.agentStatus({ handle: 'feature', status: 'working' }, { ts: 10 }),
+      organ({ handle: 'feature', status: 'working' }, 20),
+    ])
+    expect(state.agents['feature']).toMatchObject({ status: 'working', witness: 'sessionlog', updatedAt: 20, dissent: null })
+  })
+
+  it('repetition: the same sessionlog word three times folds to the same state as once', () => {
+    const declared = f.agentStatus({ handle: 'feature', status: 'waiting' }, { ts: 10 })
+    const once = reduceAll([declared, organ({ handle: 'feature', status: 'working', detail: ORGAN_WORKING }, 20)])
+    const thrice = reduceAll([
+      declared,
+      organ({ handle: 'feature', status: 'working', detail: ORGAN_WORKING }, 20),
+      organ({ handle: 'feature', status: 'working', detail: ORGAN_WORKING }, 20),
+      organ({ handle: 'feature', status: 'working', detail: ORGAN_WORKING }, 20),
+    ])
+    expect(thrice.agents).toEqual(once.agents)
   })
 })
 

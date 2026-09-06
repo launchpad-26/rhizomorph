@@ -1,5 +1,5 @@
 import type { CollisionEntry, LaneSubagentActivity, TokenTotals, WaitingOnHumanSummary } from '../selectors/index.js'
-import type { AgentRole, AgentStatus, AgentThread, SpanDecision } from '../events/index.js'
+import type { AgentRole, AgentStatus, AgentStatusWitness, AgentThread, SpanDecision } from '../events/index.js'
 import type { LaneManifest, Trespass } from './fences.js'
 import type { LadderRank, Pathology, PathologyKind } from './pathology.js'
 
@@ -68,6 +68,13 @@ export interface Lane {
   slot: number
 
   agentStatus: AgentStatus | null
+  /**
+   * ADR-0037 — who said {@link Lane.agentStatus}: `workmux` declared it,
+   * `sessionlog` inferred it from turn shape, `null` when nobody has. The fleet
+   * renders a declared WAITING as certain and an inferred one with the `~` mark
+   * (prd-27 ruling 4, `detectWaiting`).
+   */
+  agentStatusWitness: AgentStatusWitness | null
   activity: LaneActivity
 
   // work

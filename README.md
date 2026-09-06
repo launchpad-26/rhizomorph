@@ -106,7 +106,7 @@ Every subcommand `rhizomorph` dispatches on (`packages/server/src/cli/index.ts`)
 |---|---|
 | `rhizomorph [path]` | Boots the server + collectors, watching `path` (default: current directory). The fallback when `argv[0]` matches nothing below — see [Install and run](#install-and-run). |
 | `rhizomorph doctor [path]` | Read-only preflight — Node version, target path, web build, port, session logs, tmux/workmux, telemetry env, harness roster — one `ok`/`warn`/`FAIL` line per check, each with its remedy. |
-| `rhizomorph env <lane>` | Prints the exact, export-ready OTLP env block for a lane, read from a running instance — see [Telemetry](#telemetry-the-money-layer). |
+| `rhizomorph env <lane>` | Prints the exact, export-ready OTLP env block for a lane, read from a running instance — or, with `--hooks claude`, the Claude Code hooks that declare the lane's attention as beacons. See [Telemetry](#telemetry-the-money-layer) and [Hooks](#hooks-declared-attention). |
 | `rhizomorph export-record` | Hands a recorded session to someone else as a portable, hash-chained file — see [the record format](docs/record-format.md). |
 | `rhizomorph export-otlp` | Writes a recorded session's trace spans out as an OTLP/HTTP JSON export-trace request. Nothing is sent anywhere — it's an offline dump; replay it into Langfuse (or any OTLP-compatible backend) yourself. |
 | `rhizomorph replay <record-file>` | Verifies a portable record's hash chain, then serves it read-only through the same dashboard a live recording uses. |
@@ -559,6 +559,45 @@ cross-machine conductor, say), is picked up with the repeatable
 Full walkthrough — the cross-machine note, the subscription-dollars honesty
 note, live proof of the `OTEL_RESOURCE_ATTRIBUTES` lane tag — lives in
 [`docs/telemetry.md`](docs/telemetry.md).
+
+### Hooks (declared attention)
+
+A beacon is a lane declaring its own attention — `waiting`, `working` or
+`stopped` — rather than the instrument guessing it from transcript shape
+(prd-27 ruling 4). Declared beats inferred: the false summons of #133 was
+inference getting it wrong, and a hook that fires on the harness's own
+lifecycle event cannot be fooled the way a transcript-shape heuristic can
+(ADR-0036).
+
+Print the fragment for a lane with the server already running:
+
+```sh
+npm start --silent -- env <lane> --hooks claude    # prints a {"hooks": …} fragment
+```
+
+Merge the fragment into that lane's `.claude/settings.json` (or
+`settings.local.json`) `hooks` block, then start Claude Code in that worktree.
+Each of the four hooks Claude Code fires maps to one attention kind:
+
+| hook | kind |
+|---|---|
+| `Notification` | `waiting` |
+| `Stop` | `stopped` |
+| `UserPromptSubmit` | `working` |
+| `PostToolUse` | `working` |
+
+Three honesty notes. The server must be running when the fragment is printed —
+it names the repo's own beacon directory, read off the same `/api/meta` scrape
+`env` already uses. The CLI and the server must see the same
+`RHIZOMORPH_DATA_DIR`, or the hooks and the collector disagree about where the
+beacons live. And **`Notification` is the only source of `waiting`, and it
+fires only when Claude Code actually stops to ask** — a lane left in the
+default auto-accept-edits permission mode never opens a dialog, so it declares
+`working` and `stopped` forever and the summons this feature exists to raise
+never arrives. That is a property of the harness, not of the hook: the fix is
+the lane's permission mode, not the fragment.
+`packages/server/src/collectors/beacon/fixtures/CAPTURE.md` is the worked
+example: a real capture of these hooks firing, recipe included.
 
 ## Performance
 

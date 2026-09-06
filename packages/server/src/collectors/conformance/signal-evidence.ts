@@ -19,12 +19,15 @@ function hasAttributedLane(events: readonly RhizomorphEvent[]): boolean {
  * per organ — the same `lane`/event-type shape sessionlog and otel both
  * already produce.
  *
- * `liveness` and `attention` have no event home yet: `lane-state.ts`'s BLOCKED
- * note explains why sessionlog's transcript-tail state machine cannot publish
- * `agent.status` today, and OTel's spans are retrospective-only by
- * construction. Both come back `emitted: false` here — an organ that derives
- * either signal another way (sessionlog's per-poll snapshot, in particular)
- * overrides those two entries itself after calling this.
+ * `liveness` and `attention` are not read off events here. Since #281
+ * (ADR-0037) sessionlog's transcript-tail state machine does publish its
+ * working/waiting transitions as `agent.status` signed `sessionlog`, but that
+ * is edge-triggered — a fixture whose lane is already `waiting` on its first
+ * poll publishes once and never again — so an event count is not evidence of
+ * the reading; the per-poll snapshot is. OTel's spans are retrospective-only
+ * by construction. Both come back `emitted: false` here — an organ that
+ * derives either signal another way (sessionlog's per-poll snapshot, in
+ * particular) overrides those two entries itself after calling this.
  */
 export function observeEventSignals(events: readonly RhizomorphEvent[]): SignalObservations {
   const identity = hasAttributedLane(events)

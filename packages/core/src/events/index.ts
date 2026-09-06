@@ -74,6 +74,7 @@ export const EVENT_SOURCE_BY_TYPE = {
   'pane.discovered': 'tmux',
   'pane.closed': 'tmux',
   'pane.activity': 'tmux',
+  // Primary (ADR-0037): the transcript organ also signs this type, as 'sessionlog', by passing source to createEvent — see events/workmux.ts.
   'agent.status': 'workmux',
   'agent.removed': 'workmux',
   'session.started': 'system',

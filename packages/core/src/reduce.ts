@@ -7,6 +7,7 @@ import { upcast } from './events/upcast.js'
 import type {
   ActiveTimeRecord,
   AgentState,
+  AgentStatusDissent,
   BranchState,
   CheckpointRecord,
   CollectorState,
@@ -673,6 +674,31 @@ function paneActivity(state: SessionState, event: EventOf<'pane.activity'>): Ses
 function agentStatus(state: SessionState, event: EventOf<'agent.status'>): SessionState {
   const p = event.payload
   const prev = state.agents[p.handle]
+
+  // prd-27 ruling 4 — an inference alone may only withdraw an *inferred*
+  // summons. While workmux's declared `waiting` stands, a sessionlog word does
+  // not displace it: the human was asked by name, and a transcript that reads
+  // `pending-tool` during a permission prompt is exactly the disagreement this
+  // guards. A declared `done` is the sibling: the roster said the lane finished,
+  // and the organ reading a quiet, alive session at its prompt as `waiting` —
+  // which it does, 75s after every finished turn — must not turn DONE back into
+  // a summons. Only a declared `working` yields to an inference, because that
+  // is the one declared word the organ can legitimately improve on. The refused
+  // word is kept as dissent so it renders (ADR-0037; verify of #281).
+  if (
+    prev !== undefined &&
+    prev.present &&
+    prev.witness === 'workmux' &&
+    prev.status !== 'working' &&
+    event.source === 'sessionlog'
+  ) {
+    const dissent: AgentStatusDissent | null =
+      p.status === prev.status
+        ? null
+        : { witness: event.source, status: p.status, ts: event.ts, detail: p.detail ?? null }
+    return { ...state, agents: { ...state.agents, [p.handle]: { ...prev, dissent } } }
+  }
+
   const agent: AgentState = {
     handle: p.handle,
     status: p.status,
@@ -681,6 +707,8 @@ function agentStatus(state: SessionState, event: EventOf<'agent.status'>): Sessi
     branch: p.branch ?? prev?.branch ?? null,
     elapsedSeconds: p.elapsedSeconds ?? null,
     detail: p.detail ?? null,
+    witness: event.source,
+    dissent: null,
     // Re-discovery must not forget: any fresh sighting is presence, even for
     // a handle `agent.removed` had previously marked gone.
     present: true,
