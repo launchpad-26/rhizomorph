@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { AnyCollector, CollectorContext, Exec, ExecResult } from '@rhizomorph/core'
-import { createEvent, createIdFactory, reduceAll } from '@rhizomorph/core'
+import { createEvent, createIdFactory, initialSessionState, reduceAll } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DEFAULT_FAILURE_THRESHOLD, DEFAULT_RETRY_INTERVAL_MS } from '../collectors/resilience.js'
 import { loadCollectors } from './collector-loader.js'
@@ -51,6 +51,17 @@ describe('a collector that throws on poll', () => {
         events.push(event)
         return { appended: true }
       },
+      // prd17 ruling 5: every tick's raiser reads `foldSoFar()` — absent here
+      // before this fence widening (#278), which is exactly why it went
+      // unnoticed until a tick finally called it. `initialSessionState()` has
+      // no worktrees and no telemetry, so `buildFleet` folds it to zero lanes
+      // and zero pathologies: the raiser sees nothing to raise, and this test
+      // stays about collector isolation, not the raiser — `collectorsHeardFrom`
+      // is still exactly `['broken', 'healthy']`.
+      foldSoFar: () => initialSessionState(),
+      // Still a partial double even with `foldSoFar` added — no `subscribe`,
+      // `eventsSoFar`, `sessionId`, `isSealed`/`close` — so the cast stays;
+      // this test exercises none of those.
     } as unknown as SessionRecorder
 
     const healthy = makeCollector('healthy')

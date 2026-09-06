@@ -1,8 +1,20 @@
 import type { AnyCollector, CollectorContext, EventOf, Exec, ExecResult, RhizomorphEvent } from '@rhizomorph/core'
+import { fixtureHistory, fleet20Spec, initialSessionState, pathologySpec, reduceAll } from '@rhizomorph/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { COLLECTOR_EXEC_TIMEOUT_MS, createPollLoop } from './poll-loop.js'
 import type { SessionRecorder } from './recorder.js'
 import type { LoadedSnapshot, SnapshotStore } from './snapshot-store.js'
+
+/**
+ * Every fake recorder below hands back the empty fold: none of these tests
+ * are about `raiseSummons()` itself (that is `summons.test.ts` and the
+ * dedicated describe block below), so an empty fleet — zero lanes, zero
+ * pathologies — keeps the raiser a silent no-op and every pre-existing
+ * assertion on `events`/`store.saves` exactly as it was.
+ */
+function emptyFold() {
+  return initialSessionState()
+}
 
 function createFakeRecorder(): { recorder: SessionRecorder; events: RhizomorphEvent[] } {
   const events: RhizomorphEvent[] = []
@@ -14,6 +26,7 @@ function createFakeRecorder(): { recorder: SessionRecorder; events: RhizomorphEv
       events.push(event)
       return { appended: true }
     },
+    foldSoFar: emptyFold,
   } as unknown as SessionRecorder
   return { recorder, events }
 }
@@ -41,6 +54,7 @@ function createFailingRecorder(): SessionRecorder {
         if (at >= 0) listeners.splice(at, 1)
       }
     },
+    foldSoFar: emptyFold,
   } as unknown as SessionRecorder
 }
 
@@ -171,7 +185,9 @@ describe('the poll loop and snapshot persistence', () => {
     await pollLoop.tick()
     await pollLoop.tick()
 
-    expect(store.loads).toEqual(['counter'])
+    // 'summons' loads once too — the raiser's own edge-state, hydrated in the
+    // same memoized pass as every collector's.
+    expect(store.loads).toEqual(['counter', 'summons'])
     expect(store.saves.map((save) => save.snapshot)).toEqual([{ polls: 6 }, { polls: 7 }])
   })
 
@@ -956,6 +972,7 @@ function createRecorderFailingOn(n: number): { recorder: SessionRecorder; events
       events.push(event)
       return { appended: true }
     },
+    foldSoFar: emptyFold,
   } as unknown as SessionRecorder
   return { recorder, events }
 }
@@ -1077,5 +1094,173 @@ describe('the poll loop advances its snapshot only once the batch is on disk (pr
       { name: 'counter', snapshot: { polls: 1 } },
       { name: 'counter', snapshot: { polls: 2 } },
     ])
+  })
+})
+
+describe('the summons raiser (prd17 ruling 5)', () => {
+  // The same fixed instant `buildFleet.test.ts` builds the staged-pathology
+  // fixture against — real events, folded by core's real reducer, judged by
+  // core's real `buildFleet`. Nothing about the pathology detection is faked;
+  // only the recorder's `foldSoFar()` is a stub, so a tick can be re-run
+  // against the identical fold without a real collector or a real clock tick.
+  const NOW = Date.UTC(2026, 6, 31, 12, 0, 0)
+  const REPO_PATH = '/tmp/rhizomorph-poll-loop-summons-fixture-does-not-exist'
+
+  function recorderOn(fold: () => ReturnType<SessionRecorder['foldSoFar']>): {
+    recorder: SessionRecorder
+    events: RhizomorphEvent[]
+  } {
+    const events: RhizomorphEvent[] = []
+    const recorder = {
+      record: async (event: RhizomorphEvent) => {
+        events.push(event)
+      },
+      recordAlarm: async (event: EventOf<'collector.error'>) => {
+        events.push(event)
+        return { appended: true }
+      },
+      foldSoFar: fold,
+    } as unknown as SessionRecorder
+    return { recorder, events }
+  }
+
+  function summonsRaised(events: readonly RhizomorphEvent[]): EventOf<'summons.raised'>[] {
+    return events.filter((event): event is EventOf<'summons.raised'> => event.type === 'summons.raised')
+  }
+
+  function summonsCleared(events: readonly RhizomorphEvent[]): EventOf<'summons.cleared'>[] {
+    return events.filter((event): event is EventOf<'summons.cleared'> => event.type === 'summons.cleared')
+  }
+
+  it('raises a summons for a real, folded pathology — not a fixture told to say so', async () => {
+    const staged = reduceAll(fixtureHistory(pathologySpec(), NOW))
+    const { recorder, events } = recorderOn(() => staged)
+
+    const pollLoop = createPollLoop({
+      repoPath: REPO_PATH,
+      collectors: [],
+      recorder,
+      exec: nullExec,
+      now: () => NOW,
+    })
+    await pollLoop.tick()
+
+    const raised = summonsRaised(events)
+    expect(raised.length).toBeGreaterThan(0)
+    // Every raise names a real pathology kind this fixture actually staged —
+    // never the one notice-rank kind (`expensive`), which is deliberately not
+    // a summons.
+    for (const event of raised) {
+      expect(['looping', 'frozen', 'waiting', 'off-fence']).toContain(event.payload.kind)
+    }
+  })
+
+  it('MUTATION 1 (DoD): a raise fires once, not once per tick — ticking repeatedly with the fold unchanged adds zero further raises', async () => {
+    const staged = reduceAll(fixtureHistory(pathologySpec(), NOW))
+    const { recorder, events } = recorderOn(() => staged)
+
+    const pollLoop = createPollLoop({
+      repoPath: REPO_PATH,
+      collectors: [],
+      recorder,
+      exec: nullExec,
+      now: () => NOW,
+    })
+
+    await pollLoop.tick()
+    const afterFirstTick = summonsRaised(events).length
+    expect(afterFirstTick).toBeGreaterThan(0)
+
+    await pollLoop.tick()
+    await pollLoop.tick()
+    expect(summonsRaised(events).length).toBe(afterFirstTick)
+    expect(summonsCleared(events)).toEqual([])
+  })
+
+  it('clears a summons once its condition is gone from the very next fold', async () => {
+    const staged = reduceAll(fixtureHistory(pathologySpec(), NOW))
+    const calm = reduceAll(fixtureHistory(fleet20Spec(), NOW))
+    let fold = staged
+    const { recorder, events } = recorderOn(() => fold)
+
+    const pollLoop = createPollLoop({
+      repoPath: REPO_PATH,
+      collectors: [],
+      recorder,
+      exec: nullExec,
+      now: () => NOW,
+    })
+
+    await pollLoop.tick()
+    const raisedLanes = summonsRaised(events).map((event) => `${event.payload.lane}:${event.payload.kind}`)
+    expect(raisedLanes.length).toBeGreaterThan(0)
+
+    // fleet20 is ALL CLEAR and shares none of pathologySpec's lane names — every
+    // point that was open a moment ago is gone from this fold.
+    fold = calm
+    await pollLoop.tick()
+
+    const clearedLanes = summonsCleared(events).map((event) => `${event.payload.lane}:${event.payload.kind}`)
+    expect(clearedLanes.sort()).toEqual(raisedLanes.sort())
+  })
+
+  it('MUTATION 2 (DoD): a condition still open across a restart does not re-raise, when its edge-state was persisted', async () => {
+    const staged = reduceAll(fixtureHistory(pathologySpec(), NOW))
+    const store = createFakeStore()
+
+    const first = recorderOn(() => staged)
+    const firstLoop = createPollLoop({
+      repoPath: REPO_PATH,
+      collectors: [],
+      recorder: first.recorder,
+      exec: nullExec,
+      now: () => NOW,
+      snapshotStore: store,
+    })
+    await firstLoop.tick()
+    expect(summonsRaised(first.events).length).toBeGreaterThan(0)
+
+    // A brand-new loop — the process restarted — sharing only the on-disk
+    // store, reading the SAME still-open condition.
+    const second = recorderOn(() => staged)
+    const secondLoop = createPollLoop({
+      repoPath: REPO_PATH,
+      collectors: [],
+      recorder: second.recorder,
+      exec: nullExec,
+      now: () => NOW,
+      snapshotStore: store,
+    })
+    await secondLoop.tick()
+
+    expect(summonsRaised(second.events)).toEqual([])
+  })
+
+  it('without a snapshotStore, a restart forgets the edge-state and re-raises — the persistence-dropped mutation, made visible', async () => {
+    const staged = reduceAll(fixtureHistory(pathologySpec(), NOW))
+
+    const first = recorderOn(() => staged)
+    const firstLoop = createPollLoop({
+      repoPath: REPO_PATH,
+      collectors: [],
+      recorder: first.recorder,
+      exec: nullExec,
+      now: () => NOW,
+    })
+    await firstLoop.tick()
+    const firstRaiseCount = summonsRaised(first.events).length
+    expect(firstRaiseCount).toBeGreaterThan(0)
+
+    const second = recorderOn(() => staged)
+    const secondLoop = createPollLoop({
+      repoPath: REPO_PATH,
+      collectors: [],
+      recorder: second.recorder,
+      exec: nullExec,
+      now: () => NOW,
+    })
+    await secondLoop.tick()
+
+    expect(summonsRaised(second.events).length).toBe(firstRaiseCount)
   })
 })

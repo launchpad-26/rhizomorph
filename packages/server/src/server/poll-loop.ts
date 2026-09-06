@@ -1,8 +1,10 @@
 import type { AnyCollector, EventOf, Exec, PollResult } from '@rhizomorph/core'
-import { createCollectorContext, createEvent, createIdFactory } from '@rhizomorph/core'
+import { buildFleet, createCollectorContext, createEvent, createIdFactory, evidenceLine, parseLaneManifest } from '@rhizomorph/core'
+import { readLanesManifest } from '../api/lanes.js'
 import type { SessionRecorder } from './recorder.js'
 import type { SnapshotStore } from './snapshot-store.js'
 import { withTimeout } from './exec.js'
+import { diffSummons, isSummonsKind, SUMMONS_SNAPSHOT_KEY, type SummonsCondition, type SummonsPoint } from './summons.js'
 
 /** Per-exec ceiling for every collector subprocess (belt) — the same value as the doctor route's `ROUTE_EXEC_TIMEOUT_MS`. See `docs/design-notes/collector-tick-budget.md`. */
 export const COLLECTOR_EXEC_TIMEOUT_MS = 5000
@@ -100,6 +102,14 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
   let snapshots = new Map<string, unknown>(collectors.map((c) => [c.name, c.initialSnapshot()]))
   /** Collectors whose snapshot failed to persist, so the error fires once, not every 2s. */
   const saveErrors = new Set<string>()
+  /**
+   * prd17 ruling 5 — every (lane, kind) pair with a summons currently open, as
+   * of the last tick that successfully recorded its diff. Not a collector
+   * snapshot (there is no collector named `SUMMONS_SNAPSHOT_KEY`), but
+   * persisted through the same `SnapshotStore` so it survives a restart the
+   * same way — see `raiseSummons()` below and `docs/adr/`.
+   */
+  let summonsState: readonly SummonsPoint[] = []
 
   let timer: ReturnType<typeof setInterval> | null = null
   /** The in-flight tick's own promise, held (not just a boolean) so `stop()` has something to await. */
@@ -147,6 +157,14 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
           const loaded = await snapshotStore.load(collector.name)
           if (loaded.found) snapshots.set(collector.name, loaded.snapshot)
         }
+        // The raiser's own edge-state, restored the same way — this is what
+        // makes mutation #2 (dropping persistence) fail: without it, a
+        // condition still open across a restart re-raises on the very first
+        // tick of the new process instead of staying quiet.
+        const loadedSummons = await snapshotStore.load(SUMMONS_SNAPSHOT_KEY)
+        if (loadedSummons.found && Array.isArray(loadedSummons.snapshot)) {
+          summonsState = loadedSummons.snapshot as SummonsPoint[]
+        }
       })()
     }
     return hydration
@@ -177,24 +195,29 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
     }
   }
 
-  async function persist(collector: AnyCollector, snapshot: unknown): Promise<void> {
+  /**
+   * `name` is a collector's own name for a collector's snapshot, and
+   * {@link SUMMONS_SNAPSHOT_KEY} for the raiser's edge-state — the store
+   * itself is dumb, keyed by string, and never knows the difference.
+   */
+  async function persist(name: string, snapshot: unknown): Promise<void> {
     if (!snapshotStore) return
     try {
-      await snapshotStore.save(collector.name, snapshot)
-      saveErrors.delete(collector.name)
+      await snapshotStore.save(name, snapshot)
+      saveErrors.delete(name)
     } catch (error) {
-      if (saveErrors.has(collector.name)) return
-      saveErrors.add(collector.name)
+      if (saveErrors.has(name)) return
+      saveErrors.add(name)
       await recordOrDegrade(
         createEvent(
           'collector.error',
           {
-            collector: collector.name,
+            collector: name,
             message: `snapshot save failed: ${error instanceof Error ? error.message : String(error)}`,
           },
           { id: nextId(), ts: now() },
         ),
-        collector.name,
+        name,
       )
     }
   }
@@ -235,7 +258,7 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
         snapshots.set(collector.name, result.nextSnapshot)
         // Reference check: a collector that handed its snapshot straight back
         // (nothing new, or an error branch) has nothing to write.
-        if (result.nextSnapshot !== previous) await persist(collector, result.nextSnapshot)
+        if (result.nextSnapshot !== previous) await persist(collector.name, result.nextSnapshot)
       } catch (error) {
         // #332's message (the timeout episode names its own budget) reported
         // through #361's guarded path (a failing report degrades, never crashes
@@ -253,6 +276,90 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
         )
         await recordOrDegrade(errorEvent, collector.name)
       }
+    }
+
+    await raiseSummons()
+  }
+
+  /**
+   * prd17 ruling 5 — the instrument raises its own summons, on the tick, from
+   * the very state every other route already reads: `recorder.foldSoFar()`
+   * folded through `buildFleet`, the lane manifest through
+   * `readLanesManifest`/`parseLaneManifest`. Nothing here re-judges a lane;
+   * it only asks whether `buildFleet`'s own pathologies changed since the
+   * last tick this function completed.
+   *
+   * Failure here is reported exactly like a collector's (`collector.error`,
+   * named `summons`) and never crashes the loop or the other collectors —
+   * this runs after all of them, so a bad tick here has already cost nothing
+   * else. `summonsState` and its persisted snapshot are only advanced past
+   * `try`'s last line: a rejected `recorder.record` throws before either
+   * updates, so the next tick recomputes and re-attempts the SAME diff
+   * (ADR-0029's own rule — a rejected append leaves the state that would have
+   * advanced past it exactly where it was).
+   */
+  async function raiseSummons(): Promise<void> {
+    try {
+      const tickNow = now()
+      const manifestResult = await readLanesManifest(repoPath)
+      const manifest = manifestResult.available ? parseLaneManifest(manifestResult) : null
+      const fleet = buildFleet(recorder.foldSoFar(), { now: tickNow, manifest })
+
+      const conditions: SummonsCondition[] = []
+      for (const lane of fleet.lanes) {
+        for (const pathology of lane.pathologies) {
+          if (!isSummonsKind(pathology.kind)) continue
+          conditions.push({
+            lane: lane.id,
+            kind: pathology.kind,
+            since: pathology.since,
+            detail: evidenceLine(pathology),
+          })
+        }
+      }
+
+      const { diff, next } = diffSummons(summonsState, conditions, tickNow)
+
+      for (const raise of diff.raised) {
+        await recorder.record(
+          createEvent(
+            'summons.raised',
+            {
+              lane: raise.lane,
+              kind: raise.kind,
+              raisedAt: raise.raisedAt,
+              ...(raise.detail !== undefined ? { detail: raise.detail } : {}),
+            },
+            { id: nextId(), ts: tickNow },
+          ),
+        )
+      }
+      for (const clear of diff.cleared) {
+        await recorder.record(
+          createEvent(
+            'summons.cleared',
+            { lane: clear.lane, kind: clear.kind, clearedAt: clear.clearedAt },
+            { id: nextId(), ts: tickNow },
+          ),
+        )
+      }
+
+      summonsState = next
+      // Same reference-check spirit as a collector's own `persist` call: skip
+      // the write when nothing changed, rather than touching disk every 2s
+      // forever on a calm fleet.
+      if (diff.raised.length > 0 || diff.cleared.length > 0) {
+        await persist(SUMMONS_SNAPSHOT_KEY, next)
+      }
+    } catch (error) {
+      await recordOrDegrade(
+        createEvent(
+          'collector.error',
+          { collector: 'summons', message: error instanceof Error ? error.message : String(error) },
+          { id: nextId(), ts: now() },
+        ),
+        'summons',
+      )
     }
   }
 
@@ -289,6 +396,13 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
     // mutations below safe without touching the timer at all.
     await inFlightTick
     snapshots = new Map<string, unknown>(collectors.map((c) => [c.name, c.initialSnapshot()]))
+    // The raiser's edge-state resets the same way a collector's snapshot
+    // does, for the same reason: a session boundary means the NEW session's
+    // log starts with nothing, so a condition still true right now must
+    // still get its own `summons.raised` in the new log, regardless of what
+    // the old in-memory state (or a store this reset just installed) says was
+    // already announced.
+    summonsState = []
     // Settle the hydration memo, so this function's own no-re-hydration
     // promise holds for a reset that lands BEFORE the first tick as well as
     // after one. `hydrate()` runs at most once and memoizes on its FIRST
