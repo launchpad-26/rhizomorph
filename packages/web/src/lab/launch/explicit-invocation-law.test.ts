@@ -102,10 +102,12 @@ function computedImportsIn(text: string): string[] {
 
 describe("the lab launch path is reachable only from an explicit request (prd12 ruling 1's UI-button exception)", () => {
   it('has source files to check at all — an empty walk proves nothing', () => {
-    // 3 real files as of the 2026-08-08 audit (estimate.ts, LaunchPanel.tsx,
-    // launch.ts) — pinned to today's count, not a loose lower bound, so a
-    // silently dropped file fails loudly here too.
-    expect(sourceFiles().length).toBeGreaterThanOrEqual(3)
+    // 3 real files, re-derived from this file's own sourceFiles() on
+    // 2026-09-07 (still estimate.ts, LaunchPanel.tsx, launch.ts — unchanged
+    // since the 2026-08-08 audit) — pinned to today's count, not a loose
+    // lower bound, so a file silently dropped OR silently added both fail
+    // loudly here (a >= assertion only catches the former).
+    expect(sourceFiles().length).toBe(3)
   })
 
   it('nothing under lab/launch/ has a clock of its own — a launch never fires without an incoming click', () => {

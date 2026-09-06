@@ -147,16 +147,58 @@ function sourceFiles(): LabSourceFile[] {
   return walkSourceFiles(LAB_DIR)
 }
 
+/**
+ * `sourceFiles()` grouped by immediate subdirectory, root-level files under the
+ * EMPTY key. That key is not a readability choice, it is the only one that
+ * cannot collide: `path.dirname()` returns `.` for a bare filename and a real
+ * segment otherwise, so it never yields `''` for any input this walker
+ * produces — while a printable sentinel is merely an unlikely directory name,
+ * not an impossible one. A first version used `(root)` and claimed parentheses
+ * were unusable in a path; they are legal on POSIX and Windows both, and a
+ * directory named `(root)` merged into the same bucket as the real root, so a
+ * file lost from the root while one appeared under the collision kept the law
+ * GREEN — reintroducing, through the sentinel, the exact compensated shrink
+ * this grouping exists to catch. A file nested deeper than one level lands
+ * under its own compound key (`compare/deep`) rather than folding into its
+ * parent, so a new depth reddens the count law instead of hiding inside it.
+ */
+function sourceFileCountsByDirectory(): Record<string, number> {
+  // Object.create(null), not `{}`. A plain object literal INHERITS `__proto__`
+  // as an accessor, so `counts['__proto__'] = 1` assigns through the setter and
+  // creates no own enumerable key — a real source file under `lab/__proto__/`
+  // then leaves this law green, which is the same hole the `(root)` sentinel
+  // had one level down: the key was fixed, the container that receives it was
+  // not. A null-prototype object has no such accessor, so every directory name
+  // the walker can produce becomes an own key.
+  const counts: Record<string, number> = Object.create(null)
+  for (const file of sourceFiles()) {
+    const dir = path.dirname(file.name)
+    const key = dir === '.' ? '' : dir
+    counts[key] = (counts[key] ?? 0) + 1
+  }
+  return counts
+}
+
 describe('the lab tab renders no live-fleet surface (prd14)', () => {
   it('has source files to check at all, from every governed subdirectory — a shallow walk proves nothing', () => {
-    // 17 real files as of the 2026-08-08 audit (5 at the root, 2 in
-    // branching/, 7 in compare/, 3 in launch/) — pinned exactly, not a loose
-    // lower bound: headroom here would defeat the point. A shallow walk
-    // dropping just branching/ (2 files) would still clear a >=15 floor, so
-    // any slack would silently forgive exactly the defect this law amends.
-    // The next test also names each subdirectory explicitly, so a loss is
-    // caught twice over — by count here, and by name there.
-    expect(sourceFiles().length).toBeGreaterThanOrEqual(17)
+    // Per-subdirectory counts, re-derived from this file's own
+    // sourceFiles() on 2026-09-07 (unchanged since the 2026-08-08 audit) —
+    // pinned exactly, not a loose lower bound, and grouped rather than
+    // totalled. Both halves are load-bearing. A lower bound at any floor lets
+    // a file silently ADDED pass unnoticed, not just a file dropped. And a
+    // single total, however exact, stays green through a compensated shrink:
+    // 17 is still 17 when compare/ loses two files and the root gains two, so
+    // a directory can shed a quarter of its coverage with nothing going red.
+    // Grouping is what makes that failure name the directory that moved. The
+    // next test names one file per subdirectory, so a directory vanishing
+    // outright is caught twice over — but a partial shrink is invisible to it,
+    // and this assertion is the only thing that sees it.
+    expect(sourceFileCountsByDirectory()).toEqual({
+      '': 5,
+      branching: 2,
+      compare: 7,
+      launch: 3,
+    })
   })
 
   it('the walk reaches every subdirectory, not just the ones a shallow readdirSync used to see', () => {
