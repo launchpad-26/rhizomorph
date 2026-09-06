@@ -3,6 +3,7 @@
     "190": {
       "branch": "190",
       "detail": "<agent detail elided>",
+      "dissent": null,
       "elapsedSeconds": 3660,
       "firstSeenAt": 1785933399716,
       "handle": "190",
@@ -11,11 +12,13 @@
       "removedAt": null,
       "status": "done",
       "updatedAt": 1785933399716,
+      "witness": "workmux",
       "worktreePath": "../rhizomorph__worktrees/190"
     },
     "191": {
       "branch": "191",
       "detail": "<agent detail elided>",
+      "dissent": null,
       "elapsedSeconds": 3000,
       "firstSeenAt": 1785933399716,
       "handle": "191",
@@ -24,11 +27,13 @@
       "removedAt": null,
       "status": "done",
       "updatedAt": 1785933399716,
+      "witness": "workmux",
       "worktreePath": "../rhizomorph__worktrees/191"
     },
     "194": {
       "branch": "194",
       "detail": "<agent detail elided>",
+      "dissent": null,
       "elapsedSeconds": 1,
       "firstSeenAt": 1785933924461,
       "handle": "194",
@@ -37,6 +42,7 @@
       "removedAt": null,
       "status": "working",
       "updatedAt": 1785933924461,
+      "witness": "workmux",
       "worktreePath": "../rhizomorph__worktrees/194"
     }
   },

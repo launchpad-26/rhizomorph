@@ -52,6 +52,14 @@ both have. A future era captured from a log's birth closes that gap; until then
 `reduce.test.ts` covers the session arms directly and `eras.test.ts` states the
 gap as an assertion rather than leaving it a silence.
 
+**Re-blessed 2026-09-05 (#281, ADR-0037).** `AgentState` gained `witness` and
+`dissent`. Every era-1 agent folds to `witness: "workmux"`, `dissent: null`,
+because era-1 predates the second witness — every `agent.status` on that log was
+signed `workmux`, and the fold now says so instead of assuming it. No other key
+moved (checked by diff). The reducer change is `agentStatus` in `reduce.ts`; the
+new fold is the correct meaning of the old log because it records who spoke,
+which the old log already knew.
+
 ## Redaction
 
 A real slice, mechanically redacted. Every field the reducer reads is

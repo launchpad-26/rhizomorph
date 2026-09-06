@@ -9,6 +9,7 @@ import {
 } from './constants.js'
 import { PATHOLOGY_RANK, type Pathology } from './pathology.js'
 import { formatSpan } from './plumbing.js'
+import type { AgentStatusDissent } from '../state.js'
 import type { Lane } from './types.js'
 
 // ── the five detectors ──────────────────────────────────────────────────────
@@ -19,6 +20,10 @@ export interface DiagnoseContext {
   expensiveThreshold: number
   paneActivityTs: number | null
   agentStatusTs: number | null
+  /** ADR-0037 — the witness's own evidence line, quoted when the organ inferred the WAITING. */
+  agentStatusDetail: string | null
+  /** prd-27 ruling 4 — the later word a standing declaration overruled, named beside the declaration. */
+  agentStatusDissent: AgentStatusDissent | null
   commitTs: number | null
 }
 
@@ -159,13 +164,30 @@ function detectWaiting(lane: Lane, ctx: DiagnoseContext): Pathology | null {
   if (lane.agentStatus === 'waiting' && lane.present) {
     const since = ctx.agentStatusTs ?? lane.lastEventTs
     const forMs = since === null ? null : Math.max(0, ctx.now - since)
+    // ADR-0037: the organ's WAITING is an inference and renders as one — the
+    // `~` mark, and the transcript's own reading as evidence (ruling 4).
+    if (lane.agentStatusWitness === 'sessionlog') {
+      return {
+        kind: 'waiting',
+        rank: PATHOLOGY_RANK.waiting,
+        since,
+        evidence: `transcript shape: ${ctx.agentStatusDetail ?? 'no reading recorded'}`,
+        inferred: true,
+      }
+    }
+    // A declared WAITING is certain — and if the organ disagrees, it says so
+    // beside the declaration rather than replacing it (ruling 4: disagreement
+    // renders, never resolves in silence).
+    const declared = forMs === null ? 'workmux reports waiting' : `workmux reports waiting ${formatSpan(forMs)}`
+    const dissent =
+      ctx.agentStatusDissent === null ? '' : `; transcript shape reads ${ctx.agentStatusDissent.status}`
     return {
       kind: 'waiting',
       rank: PATHOLOGY_RANK.waiting,
       // How long the hand has been up is when workmux said so — not the lane's
       // last event, which a pane heartbeat keeps refreshing while it waits.
       since,
-      evidence: forMs === null ? 'workmux reports waiting' : `workmux reports waiting ${formatSpan(forMs)}`,
+      evidence: `${declared}${dissent}`,
       inferred: false,
     }
   }

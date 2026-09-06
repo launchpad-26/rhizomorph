@@ -183,6 +183,9 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
     draft.telemetryOnly = false
     draft.agentStatus = view.agent?.status ?? null
     draft.agentStatusTs = view.agent?.updatedAt ?? null
+    draft.agentStatusWitness = view.agent?.witness ?? null
+    draft.agentStatusDetail = view.agent?.detail ?? null
+    draft.agentStatusDissent = view.agent?.dissent ?? null
     draft.aheadOfMain = view.aheadOfMain
     draft.dirtyCount = view.dirtyCount
     draft.dirtyStatusFailedSince = view.dirtyStatusFailedSince
@@ -308,6 +311,7 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
       present: draft.present,
       slot: 0, // assigned below, once every lane is known
       agentStatus: draft.agentStatus,
+      agentStatusWitness: draft.agentStatusWitness,
       activity: 'unknown',
 
       tokens: tokens?.tokens ?? ZERO_TOKEN_TOTALS,
@@ -388,6 +392,8 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
       expensiveThreshold,
       paneActivityTs: draft.paneActivityTs,
       agentStatusTs: draft.agentStatusTs,
+      agentStatusDetail: draft.agentStatusDetail,
+      agentStatusDissent: draft.agentStatusDissent,
       commitTs: lane.branch === null ? null : (commitTsByBranch.get(lane.branch) ?? null),
     })
     lane.rank = lane.pathologies.reduce<LadderRank>((worst, p) => worseRank(worst, p.rank), 'calm')

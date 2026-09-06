@@ -1,6 +1,7 @@
 import type {
   AgentRole,
   AgentStatus,
+  AgentStatusWitness,
   AgentThread,
   Author,
   DirtyFile,
@@ -203,6 +204,20 @@ export interface PaneState {
   activityCount: number
 }
 
+/**
+ * prd-27 ruling 4: the later word a standing declaration overruled. Set only
+ * when a `sessionlog` `agent.status` arrives while a `workmux` `waiting` or
+ * `done` stands and says something else; cleared the moment workmux speaks
+ * again. Kept so a disagreement between the two witnesses renders instead of
+ * being resolved in silence (prd-15 ruling 2).
+ */
+export interface AgentStatusDissent {
+  witness: AgentStatusWitness
+  status: AgentStatus
+  ts: number
+  detail: string | null
+}
+
 export interface AgentState {
   handle: string
   status: AgentStatus
@@ -211,6 +226,10 @@ export interface AgentState {
   branch: string | null
   elapsedSeconds: number | null
   detail: string | null
+  /** ADR-0037 — whose word `status` is. `workmux` declared it; `sessionlog` inferred it from turn shape. */
+  witness: AgentStatusWitness
+  /** See {@link AgentStatusDissent}. `null` whenever the two witnesses agree, or only one has spoken. */
+  dissent: AgentStatusDissent | null
   /** False once `agent.removed` has been seen; the record is kept for replay. */
   present: boolean
   firstSeenAt: number

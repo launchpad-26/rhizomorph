@@ -285,8 +285,15 @@ function event<T extends Parameters<typeof createEvent>[0]>(
   type: T,
   payload: Parameters<typeof createEvent<T>>[1],
   ts: number,
+  // ADR-0037: a type with two legitimate witnesses needs the non-primary one
+  // to be able to sign its own name here, the way a collector does.
+  source?: Parameters<typeof createEvent<T>>[2]['source'],
 ): RhizomorphEvent {
-  return createEvent(type, payload, { id: nextId(), ts })
+  return createEvent(type, payload, {
+    id: nextId(),
+    ts,
+    ...(source === undefined ? {} : { source }),
+  })
 }
 
 /** Two healthy lanes, both with their hands on one file. Nothing else is wrong. */
@@ -635,6 +642,148 @@ describe('the second witness: telemetry recency alongside pane stillness', () =>
     const fleet = buildFleet(reduceAll(log), { now: NOW })
 
     expect(kindsFor(fleet, HANDLE)).toContain('frozen')
+  })
+})
+
+// ── the second witness speaks (#281, ADR-0037) ──────────────────────────────
+
+/**
+ * prd-27 ruling 2 gives the transcript organ its own signature on
+ * `agent.status`, and ruling 4 rules the disagreement: a declaration may raise
+ * a summons; an inference alone may only withdraw an *inferred* one.
+ *
+ * The witness has to survive four hops to be worth anything — envelope →
+ * `AgentState.witness` → `Lane.agentStatusWitness` → `detectWaiting`. These
+ * are the tests at the far end of that chain: if any hop drops it, a
+ * transcript-shape WAITING renders as workmux's certain summons, which is the
+ * #133 false summons rebuilt one layer down.
+ */
+describe('the second witness speaks (#281, ADR-0037)', () => {
+  const ORGAN_WAITING = 'WAITING — tail turn-complete, quiet 45s, threshold 30s'
+
+  /** Session + main tree + one linked worktree, quiet since `discoveredAt`. */
+  function scaffold(handle: string, discoveredAt: number): RhizomorphEvent[] {
+    return [
+      event('session.started', {
+        sessionId: `witness-${handle}`,
+        repoPath: '/repo',
+        repoName: 'rhizomorph',
+        mainBranch: 'main',
+      }, discoveredAt),
+      event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, discoveredAt),
+      event('worktree.discovered', { path: `/repo-wt/${handle}`, branch: handle, head: `sha-${handle}`, isMain: false }, discoveredAt),
+    ]
+  }
+
+  it('renders a sessionlog-witnessed WAITING as inferred, with the transcript\'s own reading as evidence', () => {
+    const log = [
+      ...scaffold('q2', NOW - 600_000),
+      event(
+        'agent.status',
+        { handle: 'q2', status: 'waiting', worktreePath: '/repo-wt/q2', branch: 'q2', detail: ORGAN_WAITING },
+        NOW - 45_000,
+        'sessionlog',
+      ),
+    ]
+
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    const lane = laneIn(fleet, 'q2')
+    const waiting = lane.pathologies.find((pathology) => pathology.kind === 'waiting')
+
+    expect(kindsFor(fleet, 'q2')).toContain('waiting')
+    expect(lane.agentStatusWitness).toBe('sessionlog')
+    // A fold that stamped `witness: 'workmux'` regardless would make this
+    // certain, and this assertion is what reddens.
+    expect(waiting?.inferred).toBe(true)
+    expect(waiting?.evidence).toBe(`transcript shape: ${ORGAN_WAITING}`)
+    expect(evidenceLine(waiting!).startsWith(`${INFERRED_MARK} `)).toBe(true)
+  })
+
+  it('two witnesses disagree: the declaration stands, and the evidence says so', () => {
+    // A permission prompt: workmux has the hand up, the transcript's tail
+    // still reads `pending-tool`. Ruling 4 keeps the declaration — and says
+    // out loud that the other witness disagreed, rather than resolving it in
+    // silence (prd-15 ruling 2).
+    const log = [
+      ...scaffold('d1', NOW - 600_000),
+      event(
+        'agent.status',
+        { handle: 'd1', status: 'waiting', worktreePath: '/repo-wt/d1', branch: 'd1' },
+        NOW - 90_000,
+      ),
+      event(
+        'agent.status',
+        { handle: 'd1', status: 'working', worktreePath: '/repo-wt/d1', branch: 'd1', detail: 'WORKING — tail pending-tool, quiet 3s, threshold 30s' },
+        NOW - 10_000,
+        'sessionlog',
+      ),
+    ]
+
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    const lane = laneIn(fleet, 'd1')
+    const waiting = lane.pathologies.find((pathology) => pathology.kind === 'waiting')
+
+    expect(lane.agentStatus).toBe('waiting')
+    expect(lane.agentStatusWitness).toBe('workmux')
+    expect(waiting?.inferred).toBe(false)
+    expect(waiting?.evidence).toBe('workmux reports waiting 1m30s; transcript shape reads working')
+  })
+
+  it('a declared working after an inferred waiting withdraws the summons', () => {
+    // The other direction of ruling 4's asymmetry: the declaration is not
+    // refused by anything, so it simply wins and the raised hand comes down.
+    // No pane events, so the pane-based inference cannot fire instead.
+    const log = [
+      ...scaffold('d2', NOW - 600_000),
+      event(
+        'agent.status',
+        { handle: 'd2', status: 'waiting', worktreePath: '/repo-wt/d2', branch: 'd2', detail: ORGAN_WAITING },
+        NOW - 60_000,
+        'sessionlog',
+      ),
+      event(
+        'agent.status',
+        { handle: 'd2', status: 'working', worktreePath: '/repo-wt/d2', branch: 'd2' },
+        NOW - 5_000,
+      ),
+    ]
+
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+
+    expect(kindsFor(fleet, 'd2')).not.toContain('waiting')
+    expect(laneIn(fleet, 'd2').agentStatusWitness).toBe('workmux')
+  })
+
+  it('a finished lane the organ later reads as waiting stays DONE and calm', () => {
+    // The sibling of the permission-prompt case, and the common one: every
+    // lane that finishes in the full rig is declared `done` by workmux, and
+    // 75s later the organ reads its quiet, alive session as `waiting`. Under
+    // pure last-wins that turned every finished lane into a `~WAITING`
+    // summons — the #133 false summons rebuilt one layer down. Caught in
+    // verify of #281.
+    const log = [
+      ...scaffold('d3', NOW - 600_000),
+      event(
+        'agent.status',
+        { handle: 'd3', status: 'done', worktreePath: '/repo-wt/d3', branch: 'd3' },
+        NOW - 200_000,
+      ),
+      event(
+        'agent.status',
+        { handle: 'd3', status: 'waiting', worktreePath: '/repo-wt/d3', branch: 'd3', detail: ORGAN_WAITING },
+        NOW - 120_000,
+        'sessionlog',
+      ),
+    ]
+
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    const lane = laneIn(fleet, 'd3')
+
+    expect(lane.agentStatus).toBe('done')
+    expect(lane.agentStatusWitness).toBe('workmux')
+    expect(lane.activity).toBe('done')
+    expect(lane.rank).toBe('calm')
+    expect(kindsFor(fleet, 'd3')).not.toContain('waiting')
   })
 })
 
