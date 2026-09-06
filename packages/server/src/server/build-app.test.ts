@@ -4,6 +4,7 @@ import path from 'node:path'
 import { createEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GIT_CAPABILITIES } from '../collectors/git/index.js'
+import { BEACON_CAPABILITIES } from '../collectors/beacon/index.js'
 import { JUDGE_CAPABILITIES } from '../collectors/judge/index.js'
 import { PI_CAPABILITIES } from '../collectors/pi/index.js'
 import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
@@ -63,6 +64,11 @@ describe('buildApp integration', () => {
         workmux: WORKMUX_CAPABILITIES,
         judge: JUDGE_CAPABILITIES,
         pi: PI_CAPABILITIES,
+        // #283: the seventh collector joins the ladder. It does not move the
+        // rung below — `BEACON_CAPABILITIES` is all-absent but for a partial
+        // identity, prd-27 ruling 3's carve-out — and `rung: 'L4'` staying put
+        // beside this line is the assertion that says so.
+        beacon: BEACON_CAPABILITIES,
       },
       rung: 'L4',
       // Additive connection facts (prd19 wave 2, #255) — a bare recorder has

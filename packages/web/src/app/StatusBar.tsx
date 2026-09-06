@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { selectConnection, type CollectorState, type SourceFlow } from '@rhizomorph/core'
+import { selectConnection, type CollectorState, type SessionState, type SourceFlow } from '@rhizomorph/core'
 import { useFleet } from '../fleet/index.js'
 import { formatTokens } from '../lib/format.js'
 import { capabilityRead } from '../recordings/capabilityRead.js'
@@ -287,10 +287,18 @@ function useSessionVoice(bootFacts: BootFactsState): SessionVoice | null {
   }, [mode, replay.selectedId, replay.range, replay.events.length, info, bootFacts, fleet.now, fleet.eventCount])
 }
 
-/** The five optional sources prd0/prd2 promise degrade gracefully. */
-type SourceKey = 'git' | 'tmux' | 'workmux' | 'sessionlog' | 'otel'
+/**
+ * The six optional sources prd0/prd2 promise degrade gracefully.
+ *
+ * The sixth is the beacon door (#283). `CONNECTION_SOURCES` in `core`'s
+ * `selectors/connection.ts` is still five and stays five until a wave widens
+ * it, so this pill's flow is read off `session.declared` instead — the same
+ * fold every other pill's flow comes from, which is what prd-19 ruling 4's
+ * "one pass over the same fold" actually asks for. See {@link beaconFlow}.
+ */
+type SourceKey = 'git' | 'tmux' | 'workmux' | 'sessionlog' | 'otel' | 'beacon'
 
-const SOURCES: readonly SourceKey[] = ['git', 'tmux', 'workmux', 'sessionlog', 'otel']
+const SOURCES: readonly SourceKey[] = ['git', 'tmux', 'workmux', 'sessionlog', 'otel', 'beacon']
 
 const SOURCE_LABEL: Record<SourceKey, string> = {
   git: 'Git',
@@ -298,6 +306,7 @@ const SOURCE_LABEL: Record<SourceKey, string> = {
   workmux: 'Workmux',
   sessionlog: 'Sessionlog',
   otel: 'OTel',
+  beacon: 'Beacon',
 }
 
 type SourceHealth = 'live' | 'waiting' | 'disabled' | 'degraded' | 'errored'
@@ -348,7 +357,7 @@ interface SourceStatus {
  * A collector record is still the stronger fact and wins outright, exactly as
  * before this ruling — this only changes what "no record at all" defaults to.
  */
-function sourceStatus(collector: CollectorState | undefined, flow: SourceFlow): SourceStatus {
+function sourceStatus(collector: CollectorState | undefined, flow: Pick<SourceFlow, 'firstEventTs'>): SourceStatus {
   if (collector === undefined) {
     return flow.firstEventTs === null
       ? { health: 'waiting', message: 'no data yet' }
@@ -363,6 +372,26 @@ function sourceStatus(collector: CollectorState | undefined, flow: SourceFlow): 
       return { health: 'live', message: null }
     case 'error':
       return { health: 'errored', message: collector.lastErrorMessage }
+  }
+}
+
+/**
+ * prd-27 ruling 3 (#283): the beacon door's flow, off the same fold every
+ * other pill reads (prd-19 ruling 4) — `CONNECTION_SOURCES` stays five until
+ * a wave widens it; declared attention is what "beacon flow" means to this bar.
+ *
+ * Typed as the flow facts alone, not as a `SourceFlow`: `SourceFlow['source']`
+ * is the closed `ConnectionSource` union, and `'beacon' as SourceFlow['source']`
+ * compiles for `'beacon'` exactly as it compiles for any misspelling (verify of
+ * #283 checked a bogus literal through the same cast — `tsc` exit 0), so the
+ * cast would have documented nothing. `sourceStatus` reads only `firstEventTs`.
+ */
+function beaconFlow(session: SessionState): Pick<SourceFlow, 'firstEventTs' | 'lastEventTs' | 'count'> {
+  const ats = Object.values(session.declared).map((record) => record.at)
+  return {
+    firstEventTs: ats.length === 0 ? null : Math.min(...ats),
+    lastEventTs: ats.length === 0 ? null : Math.max(...ats),
+    count: ats.length,
   }
 }
 
@@ -405,7 +434,8 @@ export function StatusBar({ fetchMeta }: StatusBarProps = {}) {
       <div className="flex h-6 items-center gap-4">
         <span className="text-inst-dense uppercase tracking-widest text-(--ink-dim)">Sources</span>
         {SOURCES.map((source) => {
-          const { health, message } = sourceStatus(session.collectors[source], connection[source])
+          const flow = source === 'beacon' ? beaconFlow(session) : connection[source]
+          const { health, message } = sourceStatus(session.collectors[source], flow)
           const label = SOURCE_LABEL[source]
           const description =
             message === null ? `${label}: ${health}` : `${label}: ${health} — ${message}`

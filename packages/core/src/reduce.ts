@@ -1,8 +1,9 @@
 import type {
+  BeaconAttentionKind,
   EventOf,
   RhizomorphEvent,
 } from './events/index.js'
-import { totalTokens } from './events/index.js'
+import { BEACON_ATTENTION_KINDS, totalTokens } from './events/index.js'
 import { upcast } from './events/upcast.js'
 import type {
   ActiveTimeRecord,
@@ -14,6 +15,7 @@ import type {
   CommitRecord,
   CostPlaceSource,
   CostRecord,
+  DeclaredAttention,
   ErrorRecord,
   ForkDispatchRecord,
   JudgeFindingRecord,
@@ -182,10 +184,8 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
       // ruling 1 may give the close a home in state; until something needs to
       // read it, inventing one would be a field with no reader.
       return state
-    // ADR-0036: beacon occurrences are preserved in the log. #218 decides
-    // which of them becomes a folded attention signal.
     case 'beacon.received':
-      return state
+      return beaconReceived(state, event)
     case 'collector.error':
       return collectorError(state, event)
     case 'collector.disabled':
@@ -403,6 +403,37 @@ function collectorRecovered(state: SessionState, event: EventOf<'collector.recov
     disabledAt: null,
   }
   return { ...state, collectors: { ...state.collectors, [collector]: record } }
+}
+
+// --- beacon (prd-27 w3, #283) -----------------------------------------------
+
+function isAttentionKind(kind: string): kind is BeaconAttentionKind {
+  return (BEACON_ATTENTION_KINDS as readonly string[]).includes(kind)
+}
+
+/**
+ * prd-27 ruling 3: a lane's attention is declared only where a harness
+ * actually said so — one record per lane, the latest by the writer's clock.
+ * Only `BEACON_ATTENTION_KINDS` fold; a `landed` or any kind this wave does
+ * not know stays on the log for its own reader (#280's `gate` kinds compose
+ * here as a second `if`, not a rewrite). An unlaned beacon has nobody to be
+ * about. An older `at` never rolls a lane back; an equal `at` yields to log
+ * order, which is what keeps refolding the same run idempotent.
+ */
+function beaconReceived(state: SessionState, event: EventOf<'beacon.received'>): SessionState {
+  const p = event.payload
+  if (p.lane === null || !isAttentionKind(p.kind)) return state
+  const prev = state.declared[p.lane]
+  if (prev !== undefined && prev.at > event.ts) return state
+  const record: DeclaredAttention = {
+    kind: p.kind,
+    at: event.ts,
+    writer: p.writer,
+    digest: p.digest,
+    file: p.file,
+    offset: p.offset,
+  }
+  return { ...state, declared: { ...state.declared, [p.lane]: record } }
 }
 
 // --- git --------------------------------------------------------------------
