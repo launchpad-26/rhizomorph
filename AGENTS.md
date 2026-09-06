@@ -529,9 +529,29 @@ registry entry pinned to a number for a file that moves is a registry entry that
 rots by construction. `packages/server/src/runbook-delivery-law.test.ts` now
 holds this paragraph to the workflow it describes.
 
-CI is 3.5–4 minutes, against a 21-hour queue. **It is not the bottleneck — do
-not optimise it for throughput.** The valuable CI direction is coverage, not
-speed. Since #211 (prd-25 wave 2) `pack-smoke` runs a `windows-latest` leg at
+CI is **9–10 minutes**, and the full green bar is **13–15** — the `Windows suite`
+job joined on 2026-09-03 and is the longer of the two, so it, not `CI`, is what a
+PR actually waits on. Measured 2026-09-07 over the run history back to
+2026-08-25; re-derive rather than trust the figure here, with
+`gh run list --workflow=CI` and the same for `--workflow="Windows suite"`.
+
+This paragraph said **3.5–4 minutes** from 2026-08-11 until that measurement —
+stale for the better part of a month, while the sentence immediately after it
+told every reader not to go and look. That is the failure mode this file names
+elsewhere for line-number citations, in its most expensive form: a wrong number
+under an instruction not to check it.
+
+**It is still not the bottleneck — do not optimise it for throughput.** The
+instruction rests on the arithmetic, not on the figure: ten minutes against a
+21-hour queue is under 1% of cycle time, and would still be under 2% at double
+this. The valuable CI direction is coverage, not speed.
+
+Where the suite genuinely does cost is the **landing gate**, and for a reason CI
+does not share — the load probe runs it four times at once, so a test file that
+burns two minutes of CPU burns eight of them on the operator's own machine while
+they wait for it. That is an argument for keeping an expensive benchmark in the
+timing set (a `// @gate-timing` marker, or a `*.bench.test.ts` name), never for
+trimming what CI covers. Since #211 (prd-25 wave 2) `pack-smoke` runs a `windows-latest` leg at
 both node legs, so a built clone's boot on native Windows is witnessed on every
 push — the `pathToFileURL` fix in `packages/server/bin/rhizomorph.mjs` had no
 CI witness before it. `build-test-boot` still has no Windows leg. The suite's
