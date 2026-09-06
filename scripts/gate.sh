@@ -76,42 +76,64 @@ emit_gate_verdict() {
   # forever, prints nothing". A landing may fail; it may not hang.
   #
   # Ten seconds is far beyond any real drain of a file this size and far below
-  # a human's patience. On timeout the digest still covers whatever tee flushed,
-  # and the `case` below rejects a partial read rather than reporting it.
+  # a human's patience.
+  #
+  # **A timeout makes the digest UNCOMPUTABLE, not partial** (review of #273,
+  # round 2). The first version let the digest be taken anyway and warned on
+  # stderr — which emitted a normal, valid 64-hex `outputDigest` over a capture
+  # that was still being written. A seat proved it: `EARLY` captured, an
+  # inherited-stdout child writing `LATE` at 11s, and the beacon carried
+  # sha256("EARLY\n") with nothing downstream able to tell. A digest that
+  # silently covers less than it claims is worse than no digest, because only
+  # one of the two is detectable.
+  local drained=1
   if [ -n "${GATE_TEE_PID:-}" ]; then
     local _waited=0
     while kill -0 "$GATE_TEE_PID" 2>/dev/null && [ "$_waited" -lt 100 ]; do
       sleep 0.1
       _waited=$((_waited + 1))
     done
-    [ "$_waited" -lt 100 ] || echo "  ! gate: tee did not drain in 10s — outputDigest may cover a partial capture" >&2
+    if [ "$_waited" -ge 100 ]; then
+      drained=0
+      echo "  ! gate: tee did not drain in 10s — the verdict carries no outputDigest" >&2
+    fi
   fi
   local held=false
   [ "$MERGED" = 0 ] && held=true
-  # An UNCOMPUTABLE digest is omitted, never emitted empty (review of #273).
-  # `outputDigest` is an extra key, so no closed v1 field rejects `""` and the
-  # line looks fine here — but gate.ts's `sha256Hex` is /^[0-9a-f]{64}$/, so
-  # #274 would refuse it downstream, and lenient parsing degrades a refused
-  # event to an UNKNOWN one rather than erroring. The verdict would be silently
-  # lost. An absent key is honest and readable; an invalid one is neither.
+  # An UNCOMPUTABLE digest is OMITTED, never emitted empty (review of #273).
+  #
+  # **Correcting the first version of this comment, which claimed more than is
+  # true.** It said omitting the key stops #274 refusing the event downstream.
+  # It does not: `digest` is a REQUIRED field of `gateVerdictPayloadSchema`
+  # (packages/core/src/events/gate.ts), so an absent key is refused exactly as
+  # an empty one is — verified against the real schema, all three shapes:
+  # 64-hex ACCEPTED, empty rejected, absent rejected.
+  #
+  # What omission actually buys is honesty in the line a human reads, and it is
+  # still worth doing: `"outputDigest":""` ASSERTS a digest that is empty, which
+  # is a claim, and a false one. An absent key claims nothing. If `digest` ever
+  # becomes optional downstream, absence is already the correct shape while `""`
+  # would still be wrong.
   local digest=""
-  read -r digest < <(python3 -c 'import hashlib,sys
+  if [ "$drained" = 1 ]; then
+    read -r digest < <(python3 -c 'import hashlib,sys
 print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$GATE_OUTFILE" 2>/dev/null) || digest=""
-  case "$digest" in *[!0-9a-f]* | "") digest="" ;; esac
+    case "$digest" in *[!0-9a-f]* | "") digest="" ;; esac
+  fi
 
-  # `$3` is operator input and was never validated: a non-numeric LOAD made
-  # `int(load)` raise, `2>/dev/null` swallowed the traceback, and NO LINE WAS
-  # EMITTED AT ALL — the landing's record lost entirely because an argument was
-  # mistyped. A load count that is not a count is simply not reported.
-  local load="${LOAD:-0}"
-  case "$load" in ''|*[!0-9]*) load=0 ;; esac
-
-  # The last resort is a hand-built line, not silence. python3 is a hard
-  # dependency of this script in four other places, so its absence is already
-  # fatal elsewhere — but the verdict is the record of THAT failure, and a
-  # record that disappears exactly when the run went wrong is the one this
-  # PRD exists to abolish. `printf %s` with pre-validated values: the handle is
-  # the only free text, and it rides as-is on the fallback path only.
+  # There is deliberately NO hand-built fallback for a failing python3 (review
+  # of #273, round 2). One was written and is reverted: it branched on python's
+  # EXIT STATUS rather than on whether it produced output, so a python that
+  # printed its line and then exited non-zero emitted TWO verdict events for one
+  # landing — undedupable, different `at`, only one carrying a digest. It also
+  # interpolated the handle into JSON unescaped, so a branch named `quote"handle`
+  # (which `git check-ref-format` accepts) produced unparseable JSON on exactly
+  # the path meant to rescue the record. Both were found by review seats.
+  #
+  # python3 is already a hard dependency of this script in four other places, so
+  # its absence is fatal well before here. Speculative robustness in the LANDING
+  # tool bought nothing and cost two defects; the shell stays out of the
+  # JSON-serialising business.
   python3 -c 'import json,sys,time
 lane, held, reason, digest, load = sys.argv[1:6]
 line = {"v": 1, "at": int(time.time() * 1000), "writer": "gate", "kind": "gate.verdict",
@@ -120,9 +142,7 @@ if digest:
     line["outputDigest"] = digest
 if load != "0":
     line["loadBatches"] = int(load)
-print(json.dumps(line, separators=(",", ":")))' "$H" "$held" "$reason" "$digest" "$load" 2>/dev/null \
-    || printf '{"v":1,"at":%s,"writer":"gate","kind":"gate.verdict","lane":"%s","held":%s,"reason":"%s"}\n' \
-         "$(date +%s000)" "$H" "$held" "$reason"
+print(json.dumps(line, separators=(",", ":")))' "$H" "$held" "$reason" "$digest" "${LOAD:-0}" 2>/dev/null
 
   # Every other mktemp in this script is cleaned; this one was not, so each
   # landing left a full copy of the gate's output in /tmp (review of #273).

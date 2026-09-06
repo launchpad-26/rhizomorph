@@ -120,6 +120,60 @@ function uniqueLineIndex(needle: string): number {
   return matches[0]!
 }
 
+/**
+ * {@link uniqueLineIndex}, but blind to comments — for an anchor whose claim is
+ * about EXECUTABLE code (review of #273, round 2).
+ *
+ * `uniqueLineIndex` is a bare `includes`, deliberately: several anchors in this
+ * file point AT comments, and filtering globally would break them. But an
+ * assertion that `MERGED=1` sits between two checks is a claim about what RUNS,
+ * and the bare form satisfied it against `# MERGED=1 deleted` — commenting a
+ * line out is the ordinary way to disable it, and the boundary assertion passed
+ * 200/201 with the post-merge truth inverted. Found by a review seat.
+ */
+function uniqueCodeLineIndex(needle: string): number {
+  const matches: number[] = []
+  LINES.forEach((line, i) => {
+    if (!line.trim().startsWith('#') && line.includes(needle)) matches.push(i)
+  })
+  if (matches.length !== 1) {
+    throw new Error(
+      `expected exactly one NON-COMMENT line of ${GATE_PATH} containing ${JSON.stringify(needle)}, found ${matches.length}`,
+    )
+  }
+  return matches[0]!
+}
+
+/**
+ * Is this line a `fail` INVOCATION? Deliberately loose — anything that looks
+ * like one — because the category is classified afterwards. The previous shape
+ * filtered on a regex that already required a category, so a site lacking one
+ * never entered the list and the "no site is untagged" assertion could not fail.
+ */
+function isFailCallSite(line: string): boolean {
+  return (
+    !line.trim().startsWith('#') &&
+    /\bfail\s+["']/.test(line) &&
+    !line.includes('fail()  {') &&
+    !line.includes('emit_gate_verdict "${2:-uncategorized}"')
+  )
+}
+
+/**
+ * The category a `fail` site names: its literal slug, or `untagged` when it
+ * names none, or `dynamic` when it is computed and no static check can resolve
+ * it. One implementation, used by the law and by the decoy that guards the law.
+ */
+function classifyFailSite(line: string): string {
+  // The message, either quoting style, then whatever follows it up to the end
+  // of the statement — `;`, `}`, a trailing comment, or EOL.
+  const after = line.match(/\bfail\s+(?:"(?:[^"\\]|\\.)*"|'[^']*')\s*(.*)$/)?.[1] ?? ''
+  const token = after.replace(/[;}].*$/, '').replace(/#.*$/, '').trim()
+  if (token === '') return 'untagged'
+  if (/[$"'`]/.test(token)) return 'dynamic'
+  return token
+}
+
 function extractLine(needle: string): string {
   return LINES[uniqueLineIndex(needle)]!
 }
@@ -3036,32 +3090,21 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
        * the vocabulary by construction, since nothing static can tell what it
        * resolves to. There are none today and the assertion says so.
        */
-      const failCallSites = LINES.filter(
-        (l) =>
-          !l.trim().startsWith('#') &&
-          /\bfail\s+["']/.test(l) &&
-          !l.includes('fail()  {') &&
-          !l.includes('emit_gate_verdict "${2:-uncategorized}"'),
-      )
+      const failCallSites = LINES.filter((l) => isFailCallSite(l))
       expect(failCallSites.length, 'no real fail() call sites matched — the site detector drifted from the real spelling').toBeGreaterThan(30)
 
       const untagged: string[] = []
       const badCategory: string[] = []
       const dynamicCategory: string[] = []
       for (const line of failCallSites) {
-        // The message, either quoting style, then whatever follows it up to the
-        // end of the statement — `;`, `}`, a trailing comment, or EOL.
-        const after = line.match(/\bfail\s+(?:"(?:[^"\\]|\\.)*"|'[^']*')\s*(.*)$/)?.[1] ?? ''
-        const token = after.replace(/[;}].*$/, '').replace(/#.*$/, '').trim()
-        if (token === '') {
+        const bucket = classifyFailSite(line)
+        if (bucket === 'untagged') {
           untagged.push(line.trim())
-          continue
+        } else if (bucket === 'dynamic') {
+          dynamicCategory.push(line.trim())
+        } else if (!vocab.has(bucket)) {
+          badCategory.push(`${bucket}: ${line.trim()}`)
         }
-        if (/[$"'`]/.test(token)) {
-          dynamicCategory.push(`${token}: ${line.trim()}`)
-          continue
-        }
-        if (!vocab.has(token)) badCategory.push(`${token}: ${line.trim()}`)
       }
       expect(untagged, 'fail() call site(s) with no category argument — the record would read "uncategorized"').toEqual([])
       expect(dynamicCategory, 'fail() call site(s) whose category is computed — the vocabulary cannot check it').toEqual([])
@@ -3076,14 +3119,16 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
      * "no site is untagged" assertion would go quiet again.
      */
     it('the fail-site classifier sees every spelling, including the five that used to vanish', () => {
-      const classify = (line: string) => {
-        const after = line.match(/\bfail\s+(?:"(?:[^"\\]|\\.)*"|'[^']*')\s*(.*)$/)?.[1] ?? ''
-        const token = after.replace(/[;}].*$/, '').replace(/#.*$/, '').trim()
-        if (!/\bfail\s+["']/.test(line)) return 'not-a-site'
-        if (token === '') return 'untagged'
-        if (/[$"'`]/.test(token)) return 'dynamic'
-        return token
-      }
+      // THE LIVE functions, not a retyped copy (review of #273, round 2). The
+      // first version declared its own local `classify` with the regexes typed
+      // out again, so it exercised a duplicate: reverting the real detector to
+      // the exact pre-fix regex AND re-introducing the original defect in
+      // gate.sh left this file 200 green, while its own comment claimed it
+      // prevented precisely that. This file's stated discipline is "reuse,
+      // never reimplement" — `FAIL_BLOCK`, `SHELL_OPTS` and `sliceLines` all
+      // derive from the real source — and the decoy was the one place breaking
+      // it.
+      const classify = (line: string) => (isFailCallSite(line) ? classifyFailSite(line) : 'not-a-site')
       expect(classify('  fail "boom" suite-red')).toBe('suite-red')
       expect(classify('  cmd || fail "boom" suite-red')).toBe('suite-red')
       expect(classify('  { cat log; fail "boom" suite-red; }')).toBe('suite-red')
@@ -3165,10 +3210,10 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
      * vacuously.
      */
     it('MUTATION — the MERGED=1 boundary sits between the merge and the post-merge checks, and deleting it reddens', () => {
-      const boundary = uniqueLineIndex('MERGED=1')
-      const lastPreMerge = uniqueLineIndex('is not contained in main — the merge did not complete')
-      const install = uniqueLineIndex('npm install after merge broke')
-      const build = uniqueLineIndex('if npm run build >')
+      const boundary = uniqueCodeLineIndex('MERGED=1')
+      const lastPreMerge = uniqueCodeLineIndex('is not contained in main — the merge did not complete')
+      const install = uniqueCodeLineIndex('npm install after merge broke')
+      const build = uniqueCodeLineIndex('if npm run build >')
 
       expect(lastPreMerge, 'the containment check must precede the boundary').toBeLessThan(boundary)
       expect(boundary, 'npm install runs AFTER the merge — it holds the push, not the merge').toBeLessThan(install)
@@ -3252,9 +3297,9 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
        * supplies what the script should provide.
        */
       it('the script itself branches on PUSHED and names both categories', () => {
-        const branch = uniqueLineIndex('if [ "$PUSHED" = 1 ]; then')
-        const cleanEmit = uniqueLineIndex('  emit_gate_verdict clean')
-        const failedEmit = uniqueLineIndex('  emit_gate_verdict push-failed')
+        const branch = uniqueCodeLineIndex('if [ "$PUSHED" = 1 ]; then')
+        const cleanEmit = uniqueCodeLineIndex('  emit_gate_verdict clean')
+        const failedEmit = uniqueCodeLineIndex('  emit_gate_verdict push-failed')
         // `push_or_warn` appears 4 times (comment, definition, call, and this
         // file's own tolerance row), so the CALL is anchored by the comment
         // that sits immediately above the branch instead.
@@ -3317,36 +3362,30 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       })
 
       /**
-       * `outputDigest` is what tells the two emit paths apart, and asserting it
-       * is the whole point of this test. Without it the assertion passes for
-       * the WRONG REASON: dropping the LOAD validation makes `int("abc")` raise,
-       * python exits non-zero, and the printf fallback below emits a perfectly
-       * valid line with no `loadBatches` — so a test that only checked "a line
-       * exists, without loadBatches" stayed green with the guard removed.
-       * Caught by mutating the guard away, not by reading the test.
+       * There is deliberately NO hand-built fallback, and this pins its absence
+       * (review of #273, round 2). One was written and reverted: it branched on
+       * python's EXIT STATUS rather than on whether it produced output, so a
+       * python that printed its line then exited non-zero emitted TWO verdict
+       * events for one landing — and it interpolated the handle into JSON
+       * unescaped, so a branch named `quote"handle` produced unparseable JSON on
+       * exactly the path meant to rescue the record. Both found by review seats.
        *
-       * The fallback line carries no digest, so requiring one proves the python
-       * path ran to completion and simply declined to report a load count.
+       * python3 is a hard dependency of this script in four other places, so its
+       * absence is fatal well before the emitter. Speculative robustness in the
+       * LANDING tool bought nothing and cost two defects.
        */
-      it('EXECUTED — a non-numeric LOAD is dropped by the VALIDATOR, not rescued by the fallback', () => {
-        const { stdout } = runVerdict('LOAD=abc\nfail "boom" suite-red')
-        const parsed = JSON.parse(lastLine(stdout))
-        expect(parsed.loadBatches, 'a load count that is not a count is not reported').toBeUndefined()
-        expect(parsed.reason).toBe('suite-red')
-        expect(parsed.outputDigest, 'a digest proves the python path emitted this, not the fallback').toMatch(/^[0-9a-f]{64}$/)
+      it('emits at most ONE line, and no shell-built fallback can add a second', () => {
+        const machinery = VERDICT_MACHINERY
+        expect(machinery, 'a shell-built JSON line is how the double-emit and the unescaped handle arrived').not.toContain(
+          '"writer":"gate","kind":"gate.verdict"',
+        )
+        expect(machinery, 'branching the emit on python\'s exit status is what emitted twice').not.toMatch(/\|\|\s*printf/)
       })
 
-      it('EXECUTED — python3 failing still emits a valid v1 line from the printf fallback', () => {
-        const dir = scratchDir('nopython')
-        const h = `nopy-${process.pid}`
-        const bin = join(dir, 'bin')
-        mkdirSync(bin, { recursive: true })
-        writeFileSync(join(bin, 'python3'), '#!/bin/bash\nexit 127\n')
-        chmodSync(join(bin, 'python3'), 0o755)
-        const script = `#!/bin/bash\n${SHELL_OPTS}\nexport PATH="${bin}:$PATH"\nH=${h}\n${VERDICT_MACHINERY}\nfail "boom" suite-red\n`
-        const { stdout } = runFragment(script, dir)
-        const parsed = JSON.parse(lastLine(stdout))
-        expect(parsed).toMatchObject({ v: 1, writer: 'gate', kind: 'gate.verdict', lane: h, held: true, reason: 'suite-red' })
+      it('EXECUTED — exactly one beacon line per run, counted rather than sampled', () => {
+        const { stdout } = runVerdict('fail "boom" suite-red')
+        const beacons = stdout.split('\n').filter((l) => l.includes('"kind":"gate.verdict"'))
+        expect(beacons, 'lastLine() cannot see a second line — count them').toHaveLength(1)
       })
 
       it('EXECUTED — the captured-output scratch file is removed after the verdict (finding 5)', () => {
@@ -3363,6 +3402,33 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
        * would cost the suite ten seconds to prove one `if`. A landing may fail;
        * it may not hang.
        */
+      /**
+       * A TIMEOUT MAKES THE DIGEST UNCOMPUTABLE, NOT PARTIAL (review of #273,
+       * round 2). The first bounded wait let the digest be taken anyway and
+       * warned on stderr, which emitted a normal valid 64-hex `outputDigest`
+       * over a capture still being written — a seat captured `EARLY`, had an
+       * inherited-stdout child write `LATE` at 11s, and the beacon carried
+       * sha256("EARLY\\n") with nothing downstream able to tell. A digest that
+       * silently covers less than it claims is worse than no digest, because
+       * only one of the two is detectable.
+       */
+      // 20s, because it waits out the REAL 10s ceiling. The alternative — an env
+      // knob so the test could use a short one — is a tuning dial on the landing
+      // tool whose mis-set value would silently drop the digest from every
+      // landing. This issue has already paid twice for speculative additions to
+      // this file; a slow test is the cheaper side of that trade.
+      it('EXECUTED — a drain that times out omits the digest rather than binding a partial one', { timeout: 20_000 }, () => {
+        const { stdout, stderr } = runVerdict(
+          // a child that inherits stdout and outlives the foreground command is
+          // exactly what makes the tee pipe stay open past the timeout.
+          'sleep 12 & GATE_TEE_PID=$!\nfail "boom" suite-red',
+        )
+        const parsed = JSON.parse(lastLine(stdout))
+        expect(parsed.outputDigest, 'a partial capture must not be reported as a digest').toBeUndefined()
+        expect(parsed.reason).toBe('suite-red')
+        expect(stderr + stdout, 'the timeout must be said out loud').toContain('did not drain')
+      })
+
       it('the drain wait is bounded, not a bare wait that could block forever', () => {
         const machinery = VERDICT_MACHINERY
         expect(machinery, 'a bare `wait` on the tee pid is unbounded').not.toMatch(/^\s*wait "\$\{GATE_TEE_PID:-\}"/m)
