@@ -14,7 +14,7 @@ import * as core from '@rhizomorph/core'
 import { describe, expect, it, vi } from 'vitest'
 import { GIT_CAPABILITIES } from '../collectors/git/index.js'
 import { JUDGE_CAPABILITIES } from '../collectors/judge/index.js'
-import { BEACON_CAPABILITIES } from '../collectors/beacon/index.js'
+import { BEACON_CAPABILITIES, beaconCapabilitiesFor } from '../collectors/beacon/index.js'
 import { PI_CAPABILITIES } from '../collectors/pi/index.js'
 import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
 import { TMUX_CAPABILITIES } from '../collectors/tmux/index.js'
@@ -240,18 +240,23 @@ describe('GET /api/meta', () => {
     })
 
     /**
-     * prd-27 ruling 3 (#283). Adding a seventh collector to the ladder is the
-     * kind of change that can quietly move the instrument's own headline
-     * number, so the claim is asserted rather than assumed — and asserted
-     * twice, from two directions, because either half alone is weak. The
-     * arithmetic half (six versus seven, off the parallel map) proves the
+     * prd-27 ruling 3 (#283, restated for #218). Adding a seventh collector to
+     * the ladder is the kind of change that can quietly move the instrument's
+     * own headline number, so the claim is asserted rather than assumed — and
+     * asserted twice, from two directions, because either half alone is weak.
+     * The arithmetic half (six versus seven, off the parallel map) proves the
      * merge is unmoved; the live half proves the ROUTE actually serves the
-     * beacon's absent-with-reason attention, which is what makes the merge
-     * unmoved in the first place. Delete the carve-out from
-     * `BEACON_CAPABILITIES` and declare `attention: provided`, and the second
-     * expectation reddens immediately.
+     * beacon's configured-but-silent `partial`, which is what makes the merge
+     * unmoved in the first place.
+     *
+     * Since #218 the static manifest reads `partial` rather than `absent` —
+     * ruling 3's amendment, literally — and it does not move the rung because
+     * the detail is signed `witness: 'beacon'` (ADR-0039), which is what keeps
+     * a silent hook off the PTY rung. Drop the witness and this test reddens
+     * on a machine with no transcript organ; declare `provided` here instead
+     * of in `beaconCapabilitiesFor` and the level assertion reddens at once.
      */
-    it('adding the beacon collector to the ladder changes no rung — its manifest is all-absent in this wave (prd-27 ruling 3)', async () => {
+    it('adding the beacon collector to the ladder changes no rung — its static manifest is configured-but-silent (prd-27 ruling 3)', async () => {
       const six = LADDER_COLLECTOR_NAMES_FOR_TEST.filter((name) => name !== 'beacon').map(
         (name) => DECLARED_CAPABILITIES_FOR_TEST[name],
       )
@@ -269,12 +274,71 @@ describe('GET /api/meta', () => {
           capabilities: Record<string, { attention: { level: string; reason: string } }>
         }
 
-        expect(body.capabilities.beacon?.attention.level).toBe('absent')
+        expect(body.capabilities.beacon?.attention.level).toBe('partial')
         expect(body.capabilities.beacon?.attention.reason).toContain('ruling 3')
         expect(body.rung).toBe(deriveRung(mergeCapabilities(six)))
       } finally {
         await teardown()
       }
+    })
+
+    /**
+     * prd-27 ruling 3 / ADR-0039 (#218) — the issue's "doctor and /api/meta
+     * agree" clause, from this side. The route's rung is the one a reader is
+     * shown, so the L2/L4 distinction has to be visible in the body it serves
+     * and not only inside `deriveRung`.
+     */
+    describe('a beacon that has arrived moves the route to L2 — unless the rig is there too', () => {
+      const DIGEST = 'b'.repeat(64)
+
+      function beaconEvent(id: string, ts: number) {
+        return createEvent(
+          'beacon.received',
+          { writer: 'claude-hook', kind: 'waiting', lane: '2-core', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+          { id, ts },
+        )
+      }
+
+      it('reads L2, and serves attention provided and signed beacon, on a machine with no workmux', async () => {
+        await setup()
+        try {
+          const recorder = new SessionRecorder('5100', sessionFilePath(sessionDir, '5100'))
+          await recorder.record(beaconEvent('evt-1', 5_100))
+          await recorder.record(
+            createEvent('collector.disabled', { collector: 'workmux', reason: 'workmux binary not found' }, { id: 'evt-2', ts: 5_101 }),
+          )
+          const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+          const body = (await (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()) as {
+            rung: string
+            capabilities: Record<string, { attention: { level: string; witness?: string } }>
+          }
+
+          expect(body.capabilities.beacon?.attention).toEqual({ level: 'provided', witness: 'beacon' })
+          expect(body.rung).toBe('L2')
+        } finally {
+          await teardown()
+        }
+      })
+
+      it('reads L4 with the same beacon once workmux is active — the rig takes the tie', async () => {
+        await setup()
+        try {
+          const recorder = new SessionRecorder('5101', sessionFilePath(sessionDir, '5101'))
+          await recorder.record(beaconEvent('evt-1', 5_200))
+          const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+          const body = (await (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()) as {
+            rung: string
+            capabilities: Record<string, { attention: { level: string; witness?: string } }>
+          }
+
+          expect(body.capabilities.beacon?.attention).toEqual({ level: 'provided', witness: 'beacon' })
+          expect(body.rung).toBe('L4')
+        } finally {
+          await teardown()
+        }
+      })
     })
 
     it('law: a disabled collector reads absent-with-reason, never its normal declared capabilities', async () => {
@@ -796,8 +860,13 @@ function metaBodyFromRefold(recorder: SessionRecorder, repoPath: string, repoNam
   const capabilities: Record<string, AdapterCapabilities> = {}
   for (const name of LADDER_COLLECTOR_NAMES_FOR_TEST) {
     const collectorState = folded.collectors[name]
+    // Mirrors `buildLadderManifest`'s one live entry (#218): the beacon's
+    // manifest is a function of the fold, so a re-derivation that read the
+    // static one would disagree with the route the moment a beacon lands.
+    const declaredCapabilities =
+      name === 'beacon' ? beaconCapabilitiesFor(folded.declared) : DECLARED_CAPABILITIES_FOR_TEST[name]
     capabilities[name] = honestCapabilities({
-      capabilities: DECLARED_CAPABILITIES_FOR_TEST[name],
+      capabilities: declaredCapabilities,
       active: collectorState?.status !== 'disabled',
       inactiveReason: collectorState?.disabledReason ?? undefined,
     })

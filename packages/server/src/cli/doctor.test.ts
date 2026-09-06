@@ -3,8 +3,8 @@ import { createServer, type Server } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Exec, ExecResult } from '@rhizomorph/core'
-import { createEvent } from '@rhizomorph/core'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { BEACON_LAPSE_MS, CONFIGURED_SILENT_REASON, createEvent } from '@rhizomorph/core'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/worktree-slug.js'
 import { sessionDirFor } from '../log/paths.js'
 import { SessionLogWriter } from '../recorder/index.js'
@@ -22,6 +22,25 @@ import {
   type DoctorCheck,
 } from './doctor.js'
 import { CAPABILITY_META_NAME } from './rotate.js'
+
+/**
+ * One injectable read fault for `checkDeclaredAttention`'s guard (#218). Every
+ * *file-level* failure is already swallowed by `readSessionLog` (ADR-0011 — a
+ * recording never rots), so nothing seeded on disk can reach that arm; the
+ * seam is the honest place to fail it. Everything else in this file reaches the
+ * real reader — the passthrough below is the real function.
+ */
+const readFault = vi.hoisted(() => ({ armed: false }))
+vi.mock('../log/session-log.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../log/session-log.js')>()
+  return {
+    ...actual,
+    readSessionEvents: async (...args: Parameters<typeof actual.readSessionEvents>) => {
+      if (readFault.armed) throw new Error('EIO: i/o error, read')
+      return actual.readSessionEvents(...args)
+    },
+  }
+})
 
 function okResult(stdout = ''): ExecResult {
   return { stdout, stderr: '', code: 0, failed: false }
@@ -149,6 +168,7 @@ describe('runDoctor', () => {
       'lane-manifest',
       'cli-version-drift',
       'harness-roster',
+      'attention',
       'ladder',
     ])
   })
@@ -950,6 +970,206 @@ describe('runDoctor', () => {
       await runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot, dataRoot, now: () => 3000 })
 
       expect(await readResumedCount(sessionDir, '1000')).toBe(0)
+    })
+  })
+
+  /**
+   * prd-27 rulings 3 and 6 (#218). Three readings that a boolean would collapse
+   * into two — never declared, configured but silent, declared — plus the
+   * fourth this wave adds, lapsed; and the mirror the issue names, a landed
+   * lane, which has finished rather than lapsed.
+   *
+   * Every case reads the newest recorded session through the same `buildFleet`
+   * the dashboard reads, so doctor and the STATE column cannot disagree about
+   * a lane. `BEACON_LAPSE_MS` is imported, never typed: the boundary cases
+   * below move with the constant, and the constant is held to the design note
+   * by its own law in `collectors/beacon/collector.test.ts`.
+   */
+  describe('declared attention (prd-27 rulings 3 and 6, #218)', () => {
+    const NOW = 1_800_000_000_000
+    const now = () => NOW
+    const WRITER = 'claude-hook'
+    const DIGEST = 'c'.repeat(64)
+    let evtId = 0
+
+    function evt(type: Parameters<typeof createEvent>[0], payload: never, ts: number) {
+      evtId += 1
+      return createEvent(type, payload, { id: `evt-${evtId}`, ts })
+    }
+
+    function worktrees(): ReturnType<typeof createEvent>[] {
+      return [
+        evt('session.started', { sessionId: '900000', repoPath, repoName: 'repo' } as never, NOW - 900_000),
+        evt('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true } as never, NOW - 900_000),
+        evt(
+          'worktree.discovered',
+          { path: '/repo-wt/2-core', branch: '2-core', head: 'sha-2', isMain: false } as never,
+          NOW - 900_000,
+        ),
+        evt(
+          'worktree.discovered',
+          { path: '/repo-wt/3-web', branch: '3-web', head: 'sha-3', isMain: false } as never,
+          NOW - 900_000,
+        ),
+      ]
+    }
+
+    function beaconFor(lane: string, kind: string, ts: number) {
+      return evt(
+        'beacon.received',
+        { writer: WRITER, kind, lane, detail: 'hook: Notification', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 } as never,
+        ts,
+      )
+    }
+
+    function workFor(lane: string, ts: number) {
+      return evt(
+        'llm.usage',
+        {
+          lane,
+          role: 'worker',
+          model: 'claude-sonnet-4',
+          tokens: { input: 10, output: 20, cacheRead: 0, cacheCreation: 0 },
+          sessionId: `sess-${lane}`,
+          worktreePath: `/repo-wt/${lane}`,
+          branch: lane,
+          thread: 'main',
+        } as never,
+        ts,
+      )
+    }
+
+    async function seed(events: ReturnType<typeof createEvent>[]): Promise<void> {
+      const writer = new SessionLogWriter(sessionFilePath(sessionDirFor(repoPath, dataRoot), '900000'))
+      for (const event of events) await writer.append(event)
+    }
+
+    function run(exec: Exec = healthyExec) {
+      return runDoctor({ path: repoPath, port: 0, exec, webDistDir, claudeProjectsRoot, dataRoot, now })
+    }
+
+    it('never declared: every present lane says so, and the ladder reads L4 on a healthy machine', async () => {
+      await seed(worktrees())
+      const report = await run()
+
+      expect(checkFor(report.checks, 'attention:2-core').message).toContain('never declared')
+      expect(checkFor(report.checks, 'attention:3-web').message).toContain('never declared')
+      expect(checkFor(report.checks, 'attention:2-core').status).toBe('ok')
+      expect(checkFor(report.checks, 'ladder').message).toContain('L4')
+    })
+
+    it('configured but silent: a lane with no beacon beside one that has reads the reason, and the other reads declared', async () => {
+      await seed([...worktrees(), beaconFor('2-core', 'waiting', NOW - 30_000)])
+      const report = await run()
+
+      expect(checkFor(report.checks, 'attention:3-web').message).toContain(CONFIGURED_SILENT_REASON)
+      expect(checkFor(report.checks, 'attention:3-web').status).toBe('ok')
+      expect(checkFor(report.checks, 'attention:2-core').message).toContain('declared waiting 30s ago')
+    })
+
+    it('live declaration on a workmux-less machine: the ladder reads L2 and names the beacon', async () => {
+      const noWorkmuxExec: Exec = async (command, args) => {
+        if (command === 'workmux') return missingBinary('workmux')
+        return healthyExec(command, args)
+      }
+      await seed([...worktrees(), beaconFor('2-core', 'waiting', NOW - 30_000)])
+      const report = await run(noWorkmuxExec)
+
+      const ladder = checkFor(report.checks, 'ladder')
+      expect(ladder.message).toContain('L2')
+      expect(ladder.message).toContain('beacon')
+    })
+
+    it('live declaration on a healthy machine: the rig still wins the tie, L4', async () => {
+      await seed([...worktrees(), beaconFor('2-core', 'waiting', NOW - 30_000)])
+      const report = await run()
+
+      expect(checkFor(report.checks, 'ladder').message).toContain('L4')
+    })
+
+    it('lapsed: a working beacon older than the interval warns, and says how long ago it lapsed', async () => {
+      await seed([...worktrees(), beaconFor('2-core', 'working', NOW - BEACON_LAPSE_MS - 60_000)])
+      const report = await run()
+
+      const lane = checkFor(report.checks, 'attention:2-core')
+      expect(lane.status).toBe('warn')
+      expect(lane.message).toContain('declared attention lapsed 1m00s ago; reading turn shape')
+      expect(lane.message).toContain('--hooks claude')
+      // A lapse is per lane; the organ's session-wide manifest is unchanged, so
+      // the rung does not fall with it.
+      expect(checkFor(report.checks, 'ladder').message).toContain('L4')
+      expect(report.exitCode).toBe(0)
+    })
+
+    it('a waiting beacon does not lapse without later work, and does with it', async () => {
+      const declaredAt = NOW - BEACON_LAPSE_MS - 60_000
+      await seed([...worktrees(), beaconFor('2-core', 'waiting', declaredAt)])
+      const alone = await run()
+      expect(checkFor(alone.checks, 'attention:2-core').status).toBe('ok')
+      expect(checkFor(alone.checks, 'attention:2-core').message).toContain('declared waiting')
+
+      await seed([workFor('2-core', NOW - 30_000)])
+      const withWork = await run()
+      expect(checkFor(withWork.checks, 'attention:2-core').status).toBe('warn')
+      expect(checkFor(withWork.checks, 'attention:2-core').message).toContain('declared attention lapsed')
+    })
+
+    it('a landed lane is finished, not lapsed — it gets no line at all', async () => {
+      await seed([
+        ...worktrees(),
+        beaconFor('2-core', 'working', NOW - BEACON_LAPSE_MS - 60_000),
+        evt('worktree.removed', { path: '/repo-wt/2-core' } as never, NOW - 10_000),
+      ])
+      const report = await run()
+
+      expect(report.checks.some((check) => check.id === 'attention:2-core')).toBe(false)
+      expect(report.checks.some((check) => check.id === 'attention:3-web')).toBe(true)
+    })
+
+    it('no session yet: one honest line, no lane lines, and the ladder is unchanged', async () => {
+      const report = await run()
+
+      expect(checkFor(report.checks, 'attention').message).toContain('no session recorded for this repo yet')
+      expect(report.checks.some((check) => check.id.startsWith('attention:'))).toBe(false)
+      expect(checkFor(report.checks, 'ladder').message).toContain('L4')
+    })
+
+    /**
+     * The fault is injected at the read seam rather than seeded on disk, and
+     * the reason is worth keeping: ADR-0011 says a recording never rots, so
+     * `readSessionLog` swallows *every* file-level failure and hands back an
+     * empty session — garbage bytes, a path that will not open, a vanished
+     * file. None of them reach this arm. What can still throw is the fold and
+     * the fleet built on it, and this proves the guard around them holds:
+     * doctor degrades to one honest warn line instead of taking the whole
+     * preflight down with it, and the exit code stays 0.
+     */
+    it('an unreadable newest session warns instead of throwing', async () => {
+      await seed(worktrees())
+      readFault.armed = true
+      try {
+        const report = await run()
+
+        const attention = checkFor(report.checks, 'attention')
+        expect(attention.status).toBe('warn')
+        expect(attention.message).toContain('could not read')
+        expect(attention.message).toContain('session-900000.jsonl')
+        expect(report.checks.some((check) => check.id.startsWith('attention:'))).toBe(false)
+        expect(report.exitCode).toBe(0)
+      } finally {
+        readFault.armed = false
+      }
+    })
+
+    it('a session of unparseable lines reads as an empty session, not as a fault — ADR-0011', async () => {
+      const sessionDir = sessionDirFor(repoPath, dataRoot)
+      await mkdir(sessionDir, { recursive: true })
+      await writeFile(sessionFilePath(sessionDir, '900000'), 'not json at all\n{"also": ')
+      const report = await run()
+
+      const attention = checkFor(report.checks, 'attention')
+      expect(attention.status).toBe('ok')
+      expect(attention.message).toContain('no present lane')
     })
   })
 

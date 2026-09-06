@@ -38,6 +38,28 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Added
 
+- **A lapsed declaration reads as lapsed, and configured-but-silent says so
+  (prd-27 rulings 3 and 6, #218).** A hook beacon that goes quiet while the lane
+  keeps working stops being believed after `BEACON_LAPSE_MS` — a value
+  *measured* from three real Claude Code sessions with the hooks installed and
+  derived in
+  [`docs/design-notes/beacon-lapse-interval.md`](docs/design-notes/beacon-lapse-interval.md)
+  (3× the longest gap between beacons inside an active turn, floored at twice
+  the transcript organ's settle window); a `waiting` beacon lapses only once
+  work follows it, so a long wait on a human is never doubted. The fleet falls
+  back to the inferred reading and the STATE card says `declared attention
+  lapsed Nm ago; reading turn shape`. `rhizomorph doctor` prints one line per
+  present lane — never declared, hooks configured but no beacon for this lane
+  yet, declared, or lapsed — off the same fold the dashboard reads. The
+  capability ladder now tells **L2** (attention declared by the harness's own
+  hooks) from L4 (declared by tmux/workmux): `attention` carries a `witness` on
+  the manifest
+  ([ADR-0039](docs/adr/0039-attention-names-its-witness-on-the-manifest.md)),
+  the beacon's manifest reads `partial` with the configured-but-silent reason
+  until a beacon arrives and `provided` after, and a configured-but-silent hook
+  can no longer read as the PTY rung. The sessionlog organ's remedy names
+  `rhizomorph env <lane> --hooks claude` instead of a beacon that "would" exist.
+
 - **The fleet believes a declaration, and a disagreement says so (prd-27
   rulings 3–4, #283).** A hook beacon whose kind is in the ruled vocabulary now
   folds to one declared-attention record per lane (`SessionState.declared`,

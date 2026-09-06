@@ -1,4 +1,4 @@
-export { BEACON_CAPABILITIES, BEACON_COLLECTOR_NAME, createBeaconCollector } from './collector.js'
+export { BEACON_CAPABILITIES, BEACON_COLLECTOR_NAME, beaconCapabilitiesFor, createBeaconCollector } from './collector.js'
 export type { BeaconCollectorConfig } from './collector.js'
 export { parseBeaconLine } from './parse-beacon-line.js'
 export type { ParsedBeaconLine } from './parse-beacon-line.js'

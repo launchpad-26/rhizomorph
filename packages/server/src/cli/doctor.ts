@@ -6,14 +6,23 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   absentCapabilities,
+  attentionReading,
+  buildFleet,
+  CONFIGURED_SILENT_REASON,
+  CONFIGURED_SILENT_REMEDY,
   deriveRung,
+  formatSpan,
+  lapsedVoice,
   mergeCapabilities,
+  reduceAll,
   rungInfo,
   type AdapterCapabilities,
+  type DeclaredAttention,
   type Exec,
   type ExecResult,
 } from '@rhizomorph/core'
 import { lanesManifestPath, readLanesManifest } from '../api/lanes.js'
+import { beaconCapabilitiesFor } from '../collectors/beacon/index.js'
 import { GIT_CAPABILITIES } from '../collectors/git/index.js'
 import { OTEL_CAPABILITIES } from '../collectors/otel/index.js'
 import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
@@ -23,7 +32,7 @@ import { WORKMUX_CAPABILITIES } from '../collectors/workmux/index.js'
 import { DECLARED_HARNESSES, IMPLEMENTED_HARNESS_IDS } from '../harness-roster.js'
 import { formatBytes } from '../lib/format.js'
 import { defaultDataRoot, sessionDirFor } from '../log/paths.js'
-import { decideSessionBoot, formatBootDuration } from '../log/session-log.js'
+import { decideSessionBoot, formatBootDuration, listSessions, readSessionEvents } from '../log/session-log.js'
 import { exec as realExec } from '../server/exec.js'
 import { DEFAULT_PORT, parseFlags, type FlagSpec } from './args.js'
 import { capabilityAwareFetch } from './rotate.js'
@@ -105,8 +114,9 @@ export function doctorHelpText(): string {
 
 Read-only preflight: checks the Node version, the target path (exists and is
 a git repo), the web build, whether the port is free, Claude Code session
-logs, tmux/workmux presence, telemetry env, and the harness roster — one
-ok/warn/FAIL line per check, each with its remedy. Exits non-zero only when
+logs, tmux/workmux presence, telemetry env, the harness roster, and each
+present lane's declared attention (never declared / configured but silent /
+declared / lapsed) — one ok/warn/FAIL line per check, each with its remedy. Exits non-zero only when
 the app genuinely cannot run (bad path, not a repo, no web build, port taken).
 
 Arguments:
@@ -157,7 +167,13 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
     checkHarnessRoster(),
   ]
 
-  const checks: DoctorCheck[] = [...baseChecks, ...(await checkEnrichmentLadder(baseChecks, repoPath))]
+  const attention = await checkDeclaredAttention(repoPath, options.dataRoot, options.now ?? Date.now)
+  const withAttention: DoctorCheck[] = [...baseChecks, ...attention.checks]
+
+  const checks: DoctorCheck[] = [
+    ...withAttention,
+    ...(await checkEnrichmentLadder(withAttention, repoPath, attention.declared)),
+  ]
 
   const exitCode = checks.some((check) => FAILING_CHECK_IDS.has(check.id) && check.status === 'fail') ? 1 : 0
   return { checks, exitCode }
@@ -632,6 +648,112 @@ export function checkHarnessRoster(): DoctorCheck {
   }
 }
 
+export interface DeclaredAttentionFacts {
+  checks: DoctorCheck[]
+  /** The newest session's folded `declared`, for the ladder's beacon contributor; `{}` when no session exists. */
+  declared: Readonly<Record<string, DeclaredAttention>>
+}
+
+/**
+ * prd-27 ruling 3 / ruling 6 (#218): one line per present lane — never
+ * declared, configured but silent, live, or lapsed — read off the newest
+ * recorded session's fold and the same `buildFleet` the dashboard uses, so
+ * doctor and the STATE column cannot disagree about a lane. Read-only: reads
+ * the log, folds it, writes nothing.
+ *
+ * Never `fail`. A lapse is a warn (the hooks may have been removed under the
+ * lane), everything else is `ok`, and `FAILING_CHECK_IDS` is unchanged — a
+ * quiet beacon is a degraded reading, never a reason the app cannot run.
+ */
+export async function checkDeclaredAttention(
+  repoPath: string,
+  dataRoot: string | undefined,
+  now: () => number,
+): Promise<DeclaredAttentionFacts> {
+  const sessionDir = sessionDirFor(repoPath, dataRoot ?? defaultDataRoot())
+  const sessions = await listSessions(sessionDir)
+  if (sessions.length === 0) {
+    return {
+      checks: [
+        {
+          id: 'attention',
+          status: 'ok',
+          message: 'declared attention: no session recorded for this repo yet — nothing to read',
+        },
+      ],
+      declared: {},
+    }
+  }
+
+  const newest = sessions[sessions.length - 1]!
+  let state
+  let fleet
+  try {
+    const events = await readSessionEvents(path.join(sessionDir, newest.fileName))
+    state = reduceAll(events)
+    fleet = buildFleet(state, { now: now() })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      checks: [
+        {
+          id: 'attention',
+          status: 'warn',
+          message: `could not read the newest session (${newest.fileName}): ${message}`,
+        },
+      ],
+      declared: {},
+    }
+  }
+
+  const present = fleet.lanes.filter((lane) => lane.present).sort((a, b) => a.id.localeCompare(b.id))
+  if (present.length === 0) {
+    return {
+      checks: [
+        { id: 'attention', status: 'ok', message: 'declared attention: no present lane in the newest session' },
+      ],
+      declared: state.declared,
+    }
+  }
+
+  const checks = present.map((lane): DoctorCheck => {
+    const reading = attentionReading(state.declared, lane.id, now(), lane.lastWorkTs)
+    const id = `attention:${lane.id}`
+    switch (reading.kind) {
+      case 'never-declared':
+        return {
+          id,
+          status: 'ok',
+          message: `lane ${lane.id}: never declared — attention read from the other organs (rung below); hooks: \`rhizomorph env ${lane.id} --hooks claude\``,
+        }
+      case 'configured-silent':
+        return {
+          id,
+          status: 'ok',
+          message: `lane ${lane.id}: ${CONFIGURED_SILENT_REASON} — ${CONFIGURED_SILENT_REMEDY}`,
+        }
+      case 'live':
+        return {
+          id,
+          status: 'ok',
+          message: `lane ${lane.id}: declared ${reading.declared.kind} ${formatSpan(Math.max(0, now() - reading.declared.at))} ago (beacon ${reading.declared.writer})`,
+        }
+      case 'lapsed':
+        return {
+          id,
+          status: 'warn',
+          message: `lane ${lane.id}: ${lapsedVoice(reading.lapsedForMs)} — check the lane's hooks are still installed (\`rhizomorph env ${lane.id} --hooks claude\`)`,
+        }
+      default: {
+        const _never: never = reading
+        throw new Error(`unreachable attention reading: ${String(_never)}`)
+      }
+    }
+  })
+
+  return { checks, declared: state.declared }
+}
+
 /** Which process's env `checkTelemetryEnv` actually inspected — see its own doc. */
 export type DoctorShellContext = 'agent' | 'server'
 
@@ -828,7 +950,11 @@ function checkAssumed(checks: readonly DoctorCheck[], id: string): boolean {
  * would have reported is already known true, just not from a check the route
  * needs to expose.
  */
-export async function checkEnrichmentLadder(checks: readonly DoctorCheck[], repoPath: string): Promise<DoctorCheck[]> {
+export async function checkEnrichmentLadder(
+  checks: readonly DoctorCheck[],
+  repoPath: string,
+  declared: Readonly<Record<string, DeclaredAttention>> = {},
+): Promise<DoctorCheck[]> {
   const contributors: AdapterCapabilities[] = [
     checkOk(checks, 'target-path') ? GIT_CAPABILITIES : absentCapabilities('target path is not a usable git repository'),
     checkOk(checks, 'session-logs')
@@ -849,11 +975,20 @@ export async function checkEnrichmentLadder(checks: readonly DoctorCheck[], repo
           'telemetry env is not set in this shell',
           'run `npm exec rhizomorph -- env <lane>` (see docs/telemetry.md)',
         ),
+    // prd-27 ruling 3 (#218): the beacon organ's manifest is a function of the
+    // fold, not a static declaration — `provided` (signed `beacon`, so L2)
+    // once any lane has been declared for, `partial` with the
+    // configured-but-silent reason before that.
+    beaconCapabilitiesFor(declared),
   ]
 
   const rung = deriveRung(mergeCapabilities(contributors))
   const info = rungInfo(rung)
   const climbLine = info.climb === 'top rung — nothing further to climb' ? info.climb : `next: ${info.climb}`
+  // L2 is the one rung whose name alone does not say which witness put the
+  // fleet there (#218) — the beacon's hooks are, by construction, the only
+  // declaring witness when the rig is absent, so the line says so.
+  const label = rung === 'L2' ? `${info.label} — the harness’s hooks are the only declaring witness` : info.label
 
   // Visible, not just a code comment (adversarial review item 3): every
   // ladder entry this call produces carries the SAME assumed-ness its own
@@ -873,7 +1008,7 @@ export async function checkEnrichmentLadder(checks: readonly DoctorCheck[], repo
       {
         id: 'ladder',
         status: 'ok',
-        message: `this repo sits at ${info.label} — ${climbLine}${assumedNote}`,
+        message: `this repo sits at ${label} — ${climbLine}${assumedNote}`,
         ...assumedFlag,
       },
     ]
@@ -882,7 +1017,7 @@ export async function checkEnrichmentLadder(checks: readonly DoctorCheck[], repo
   return handles.map((handle) => ({
     id: `ladder:${handle}`,
     status: 'ok',
-    message: `lane ${handle} sits at ${info.label} — ${climbLine}${assumedNote}`,
+    message: `lane ${handle} sits at ${label} — ${climbLine}${assumedNote}`,
     ...assumedFlag,
   }))
 }

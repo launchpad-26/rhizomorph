@@ -247,6 +247,7 @@ of an old decision will do the same thing.
 | [0035](0035-the-watcher-is-never-a-container.md) | The watcher is never a container; the team server always is | 2026-09-03 | accepted |
 | [0036](0036-a-beacon-is-a-line-in-a-watched-directory.md) | A beacon is one JSON line appended to a rhizomorph-owned directory and tailed by a collector — never a route; the event carries the occurrence and a digest, the file keeps the content | 2026-08-24 | accepted (prd-27 ruling 1 / prd-17 ruling 2, recorded on the build #217) |
 | [0037](0037-agent-status-names-its-witness.md) | `agent.status` names its witness: a pinned envelope source widens to a second literal, and an inference may not withdraw a declared summons | 2026-09-05 | accepted (prd-27 ruling 2, recorded on the build #281) |
+| [0039](0039-attention-names-its-witness-on-the-manifest.md) | `attention` names its witness on the capability manifest — L2 is told from L4 by who declared, not by rank — extends [0010](0010-adapter-capabilities-named-not-ranked.md) | 2026-09-06 | accepted (prd-27 ruling 3, recorded on the build #218) |
 
 Records 0001–0011 were reconstructed on 2026-08-06 and say so in their Context.
 One, **ADR-0003**, has an inverted evidence shape worth knowing about: the
