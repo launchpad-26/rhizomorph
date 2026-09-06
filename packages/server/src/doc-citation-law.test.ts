@@ -77,7 +77,7 @@ import { describe, expect, it } from 'vitest'
  * | `packages/**\/*.ts` **code** (string/template literals) | SKIPPED — see above; a `` ` `` inside a `//` line is only swept if it appears AFTER the `//`, so a citation-shaped string literal preceding a trailing comment is correctly left alone |
  * | `//` inside a STRING literal, ahead of a real citation on the same line (`` const u = 'https://x/`packages/foo.ts`' ``) | SKIPPED, declared (review of #186 item 2) — `extractComments`'s line-comment regex has no string-awareness, so a `//` inside a string is read as starting a real comment, and a citation-shaped backtick span later on the same line is swept as if it were commentary. Closing it needs a string-literal-aware tokenizer — quote tracking with escapes, template-literal nesting, and the classic regex-literal-vs-division ambiguity — categorically bigger than the regex-based extractor this file deliberately is, the same "needs a real parser" line the CODE-vs-comment row above already draws. No live instance; pinned by a CONTROL test below so the behaviour cannot silently change |
  * | a path under a BUILD-ARTEFACT directory (`packages/*\/dist/…`) | HANDLED as always-valid — `dist/`, `dist-desktop/` and `dist-vendor/` are gitignored (`.gitignore`) build artefacts that exist only after `npm run build` or packaging; a doc describing where the bundle lands is not making a claim about the tracked tree. Scoped to exactly those three directory NAMES, not "anything git ignores" (review of #186 item 4) — `docs/audit/`, `coverage/`, `node_modules/` and any rule added later are gitignored too but are not build artefacts, and a citation into one of them is a real claim that can be wrong; the earlier, blanket form exempted every ignored path, so a dead citation into `docs/audit/` silently passed |
- * | a CITING document whose head declares `` **Tree:** `<ref>` at `<sha>` `` | EXCLUDED as a citing source, when the sha resolves (`git cat-file -e <sha>^{commit}`) — a dated run record pinned to one commit is a record of that tree, not a live claim (#228; the same reasoning as the three excluded directories, keyed on what the file IS rather than where it sits). The marker is exactly that form, read from the first 12 non-fenced lines: prose mentioning a tree, a pin with no `at`, or a pin buried in the body do not exempt. A pin whose sha does NOT resolve exempts nothing and is reported by `badPins()` |
+ * | a CITING document whose head declares `` **Tree:** `<ref>` at `<sha>` `` | EXCLUDED as a citing source, when the sha LANDED (`git merge-base --is-ancestor <sha> <LANDING_REF>`, not merely `git cat-file -e <sha>^{commit}` — #288: the object store holds shas that were fetched, cherry-picked or created locally and never reached `LANDING_REF`) — a dated run record pinned to one commit is a record of that tree, not a live claim (#228; the same reasoning as the three excluded directories, keyed on what the file IS rather than where it sits). The marker is exactly that form, read from the first 12 non-fenced lines: prose mentioning a tree, a pin with no `at`, or a pin buried in the body do not exempt. A pin whose sha does NOT resolve exempts nothing and is reported by `badPins()`, naming which of the two reasons |
  * | `.tsx` and `.mjs` source comments | OUT OF SCOPE, ruling (#186 item 9) — ruling 1 says `packages/**\/*.ts`, and `trackedFiles('packages/*.ts')` matches that exactly: 137 `.tsx` and 5 `.mjs` files go unswept. Verified this is the right call, not an oversight: the last of the 5 `.mjs` files the sweep would reach (`git ls-files 'packages/*.mjs'`, alphabetical — review round 2 corrected "first" to "last"; the substance is unaffected), `packages/web/src/scene/parity/capture.mjs`, cites a deleted `packages/web/src/scene/paint.ts` deliberately — in a comment AND a code constant — and resolves it out of git history, because `8686f24` (#578) replaced the 2D painter and the parity harness intentionally diffs against the pre-deletion file. Widening the sweep as written would false-positive on that live, working, documented citation. Before widening, the law needs a way to say "cited from history, on purpose" so a comment like that one can opt out — that mechanism does not exist yet, so the scope stays exactly ruling 1's, not narrower and not wider |
  *
  * ## The `git ls-files` glob gotcha this law's own tests pin down
@@ -268,7 +268,13 @@ const UNTRACKED_FIXTURE_RE = /^citation-law-untracked-fixture-(\d+)-\d+\.md$/
 /** The exact bytes `an untracked doc is swept too` writes to its fixture — the one thing `cleanUpOrphanedFixtures` is allowed to treat as proof it wrote a candidate file (#186, review round 3). */
 const UNTRACKED_FIXTURE_CONTENT = 'Cites a real path: `packages/server/src/doc-citation-law.test.ts`.\n'
 
-/** HEAD, resolved once — the one sha a pinned FIXTURE can declare and be sure resolves in every checkout that runs this suite. */
+/**
+ * HEAD, resolved once — this checkout's current commit. NOT, as of #288, a sha a pinned
+ * FIXTURE can assume resolves: an unmerged lane branch's own tip is not, in general,
+ * reachable from `LANDING_REF` yet. Still used below wherever a test only needs a
+ * well-formed, real sha and does not ask it to land — `landedAncestorSha()` is the one
+ * that does.
+ */
 const HEAD_SHA = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim()
 
 /**
@@ -277,8 +283,63 @@ const HEAD_SHA = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT, en
  * concurrency reason that test's doc comment gives — a dead citation left on shared
  * disk reddens a sibling run's sweep, a real one cannot, and the exclusion is still
  * provable by the fixture's ABSENCE from `allCitations()`.
+ *
+ * A function, not a top-level constant, since #288: it pins `landedAncestorSha()`, which
+ * shells out to `git merge-base` against `LANDING_REF` and must stay LAZY for the reason
+ * `landedAncestorSha()`'s own comment gives — evaluating it at module load would take
+ * every law in this file down in a clone where `LANDING_REF` is absent.
  */
-const PINNED_FIXTURE_CONTENT = `**Tree:** \`main\` at \`${HEAD_SHA}\`\n\nCites a real path: \`packages/server/src/doc-citation-law.test.ts\`.\n`
+function pinnedFixtureContent(): string {
+  return `**Tree:** \`main\` at \`${landedAncestorSha()}\`\n\nCites a real path: \`packages/server/src/doc-citation-law.test.ts\`.\n`
+}
+
+/**
+ * Synthetic author/committer identity for the `git commit-tree` call `createOrphanCommit`
+ * makes below — never this machine's own ambient git config (review of #288/`07893de`).
+ *
+ * `commit-tree`, unlike an ordinary `git commit`, has no friendly fallback: it REQUIRES an
+ * identity and fails outright, exit 128, "Author identity unknown", when neither the
+ * `GIT_AUTHOR_*`/`GIT_COMMITTER_*` env vars nor `user.name`/`user.email` config resolve one.
+ * The first version of this fixture supplied neither, so it worked on any machine with a
+ * configured git user and would have failed, invisibly, on any CI runner that has none —
+ * this repo's own `ci.yml` configures no git identity, and `actions/checkout` does not
+ * either. Nothing caught it locally because this branch had never been pushed, so no CI leg
+ * had ever run the test.
+ *
+ * EXECUTED, the identity-free reproduction: on a machine that DOES have a global git
+ * identity, `env -u HOME GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null git
+ * commit-tree <tree> -m '...'` (no override) exits 128 — proving the failure is about what
+ * the CHILD PROCESS is given, not what this machine happens to have configured, and that
+ * env vars are the fix rather than "run `git config` first": a config write would be a
+ * machine-specific side effect this test has no business making.
+ */
+const GIT_IDENTITY_ENV = {
+  GIT_AUTHOR_NAME: 'doc-citation-law test',
+  GIT_AUTHOR_EMAIL: 'doc-citation-law-test@example.invalid',
+  GIT_COMMITTER_NAME: 'doc-citation-law test',
+  GIT_COMMITTER_EMAIL: 'doc-citation-law-test@example.invalid',
+}
+
+/**
+ * A real commit object, attached to no ref — the exact defect shape #288 fixes (see `a pin
+ * to an orphaned commit…` below). Harmless: a dangling loose object nothing reads, nothing
+ * pushes, and eventual `git gc` reclaims.
+ *
+ * `env` is a parameter ONLY so `the orphan-commit fixture does not depend on…` below can
+ * strip ambient identity out from under this call and prove `GIT_IDENTITY_ENV` alone is
+ * enough — mirroring `pinVerdict`'s injected `landingRef` (#186 round 4's pattern, applied
+ * again). Every real call site uses the default: this process's own environment with
+ * `GIT_IDENTITY_ENV` forced on top, so the object's identity is always the synthetic one
+ * regardless of what this machine's global git config happens to say.
+ */
+function createOrphanCommit(env: NodeJS.ProcessEnv = { ...process.env, ...GIT_IDENTITY_ENV }): string {
+  const tree = execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim()
+  return execFileSync(
+    'git',
+    ['commit-tree', tree, '-m', 'doc-citation-law.test.ts #288 control: unreachable from any ref'],
+    { cwd: REPO_ROOT, encoding: 'utf8', env },
+  ).trim()
+}
 
 /**
  * What `cleanUpOrphanedFixtures` may treat as bytes this file wrote: the untracked
@@ -457,22 +518,87 @@ function declaredTreePin(text: string): string | undefined {
 }
 
 /**
- * `git cat-file -e <sha>^{commit}` — exits 0 when the object exists AND is a commit.
- * Cached per sha: the sweep asks once per pinned document, and every pinned document
- * in one run tends to pin the same few commits.
+ * Whether `sha` names a real commit object in the LOCAL STORE at all — kept apart from
+ * reachability so the two ways a pin can be bad stay distinguishable (#288's DoD): a sha
+ * that never existed anywhere and a sha that exists but never landed are different
+ * defects, and `pinVerdict` below reports them under different names.
  */
-const pinResolutionCache = new Map<string, boolean>()
-function pinResolves(sha: string): boolean {
-  const cached = pinResolutionCache.get(sha)
-  if (cached !== undefined) return cached
-  let resolves = true
+function shaExists(sha: string): boolean {
   try {
     execFileSync('git', ['cat-file', '-e', `${sha}^{commit}`], { cwd: REPO_ROOT, stdio: 'ignore' })
+    return true
   } catch {
-    resolves = false
+    return false
   }
-  pinResolutionCache.set(sha, resolves)
-  return resolves
+}
+
+type PinVerdict = 'landed' | 'unreachable' | 'unknown-sha'
+
+/**
+ * The defect this replaces: `git cat-file -e <sha>^{commit}` — what `shaExists` above still
+ * asks — answers the OBJECT STORE, not reachability. An object exists there if it was ever
+ * fetched, cherry-picked, rebased away, or created locally, including a commit reachable
+ * from NO ref at all. EXECUTED (#288): a commit made with `git commit-tree` and attached to
+ * no ref passes `cat-file -e` while `git branch -a --contains` names it from nothing — so
+ * the old check let a document exempt itself from this whole law with a sha that never
+ * landed anywhere, and the pin looked exactly like a legitimate one.
+ *
+ * `git merge-base --is-ancestor <sha> <landingRef>` asks the question the exemption
+ * actually means — "did this land" — rather than "does this object merely exist somewhere
+ * in my local store." The rejected alternative is `git branch -a --contains <sha>`:
+ * reachable from ANY ref, which readmits every stale remote branch `LANDING_REF` below
+ * already had to exclude for the identical reason — see its own comment: EXECUTED there,
+ * `refs/remotes/origin/prd44`, an abandoned but still-pushed integration branch, carried
+ * four PR numbers `origin/main` did not and moved a ceiling that should not move. The pin
+ * check and the citation-ceiling law's check are the SAME question against the SAME
+ * landing ref, so this reuses `LANDING_REF` and `landingRefResolves()` rather than arguing
+ * for a second ref — one well-tested probe beats two separately-argued ones.
+ *
+ * A `landingRef` that does not resolve THROWS rather than downgrading the check or
+ * reporting a bad pin — the wave-7 ruling `liveMaximum()`'s own docblock already settled
+ * for this file's sibling law: a document whose pin is perfectly honest must not be blamed
+ * for the clone it happens to run in.
+ *
+ * `landingRef` is a parameter, defaulting to the real `LANDING_REF`, ONLY so a test can
+ * point it at a synthetic ref — mirroring `cleanUpOrphanedFixtures`'s injected `isTracked`
+ * (#186 round 4). Every real call site uses the default; an unmerged lane branch's own
+ * HEAD is not, in general, reachable from `origin/main` yet, so a fixture proving the
+ * POSITIVE case needs a sha this checkout can be sure is already an ancestor of
+ * `LANDING_REF` — `landedAncestorSha()` below is that sha, not `HEAD_SHA` itself.
+ *
+ * Cached per (landingRef, sha): the sweep asks once per pinned document, and every pinned
+ * document in one run tends to pin the same few commits against the same ref.
+ */
+const pinVerdictCache = new Map<string, PinVerdict>()
+function pinVerdict(sha: string, landingRef: string = LANDING_REF): PinVerdict {
+  const cacheKey = `${landingRef} ${sha}`
+  const cached = pinVerdictCache.get(cacheKey)
+  if (cached !== undefined) return cached
+  if (!refResolves(landingRef)) {
+    throw new Error(
+      `${landingRef} does not resolve in this clone, so a declared tree pin cannot be checked for landing — this ` +
+        'law cannot certify the corpus without it. Fetch it (`git fetch origin main:refs/remotes/origin/main`), or ' +
+        'check out with `fetch-depth: 0`. NOT a corpus violation: falling back would either downgrade the check or ' +
+        "report an honest document's pin as bad, which is exactly what the absent-ref case must not do.",
+    )
+  }
+  let verdict: PinVerdict
+  if (!shaExists(sha)) {
+    verdict = 'unknown-sha'
+  } else {
+    try {
+      execFileSync('git', ['merge-base', '--is-ancestor', sha, landingRef], { cwd: REPO_ROOT, stdio: 'ignore' })
+      verdict = 'landed'
+    } catch {
+      verdict = 'unreachable'
+    }
+  }
+  pinVerdictCache.set(cacheKey, verdict)
+  return verdict
+}
+
+function pinResolves(sha: string): boolean {
+  return pinVerdict(sha) === 'landed'
 }
 
 /**
@@ -500,6 +626,8 @@ function isPinnedArtefact(text: string): boolean {
 interface BadPin {
   file: string
   sha: string
+  /** Which of the two ways a pin can be bad (#288's DoD) — a sha that never existed anywhere, or one that exists but never reached `LANDING_REF`. */
+  reason: Exclude<PinVerdict, 'landed'>
 }
 
 /** Pure: every entry whose head declares a pin that does not resolve. Tested on rigged input; `badPins()` runs it over the tree. */
@@ -507,7 +635,9 @@ function badPinsIn(entries: readonly { file: string; text: string }[]): BadPin[]
   const out: BadPin[] = []
   for (const { file, text } of entries) {
     const sha = declaredTreePin(text)
-    if (sha !== undefined && !pinResolves(sha)) out.push({ file, sha })
+    if (sha === undefined) continue
+    const verdict = pinVerdict(sha)
+    if (verdict !== 'landed') out.push({ file, sha, reason: verdict })
   }
   return out
 }
@@ -1026,15 +1156,17 @@ describe('doc citation law: a path cited from a document or a comment must exist
     const fixturePath = path.join(REPO_ROOT, fixtureRel)
     expect(existsSync(fixturePath), `${fixtureRel} already exists — pick a different fixture name`).toBe(false)
 
+    const pinnedContent = pinnedFixtureContent()
+
     // The unpinned half of the same bytes DOES extract the citation — so the
     // absence asserted below is the pin's doing, not the extractor's.
-    const unpinned = PINNED_FIXTURE_CONTENT.split('\n\n').slice(1).join('\n\n')
+    const unpinned = pinnedContent.split('\n\n').slice(1).join('\n\n')
     expect(declaredTreePin(unpinned)).toBeUndefined()
     expect(extractCitations(unpinned)).toEqual(['packages/server/src/doc-citation-law.test.ts'])
-    expect(declaredTreePin(PINNED_FIXTURE_CONTENT)).toBe(HEAD_SHA)
-    expect(isFixtureContent(PINNED_FIXTURE_CONTENT), 'the cleanup must recognise its own fixture by shape').toBe(true)
+    expect(declaredTreePin(pinnedContent)).toBe(landedAncestorSha())
+    expect(isFixtureContent(pinnedContent), 'the cleanup must recognise its own fixture by shape').toBe(true)
 
-    writeFileSync(fixturePath, PINNED_FIXTURE_CONTENT)
+    writeFileSync(fixturePath, pinnedContent)
     try {
       expect(trackedFiles(fixtureRel)).toEqual([])
       expect(sweepFiles(fixtureRel), 'the sweep must SEE the file — exclusion, not invisibility, is what is being proved').toEqual([fixtureRel])
@@ -1063,15 +1195,17 @@ describe('doc citation law: a path cited from a document or a comment must exist
   it('a pin that does not resolve exempts nothing and is reported by name — a fake pin is a defect, not an exit (#228)', () => {
     const fake = 'deadbeef0'
     expect(pinResolves(fake)).toBe(false)
-    expect(pinResolves(HEAD_SHA)).toBe(true)
-    expect(pinResolves(HEAD_SHA.slice(0, 7)), 'a short sha resolves like a long one').toBe(true)
+    expect(pinVerdict(fake), 'a sha that never existed anywhere is UNKNOWN, not merely unreached').toBe('unknown-sha')
+    expect(pinResolves(landedAncestorSha())).toBe(true)
+    expect(pinResolves(landedAncestorSha().slice(0, 7)), 'a short sha resolves like a long one').toBe(true)
 
+    const pinnedContent = pinnedFixtureContent()
     const rigged = [
       { file: 'docs/design/rigged-fake-pin.md', text: `**Tree:** \`main\` at \`${fake}\`\n\nCites \`packages/this-directory-does-not-exist/nothing.ts\`.\n` },
-      { file: 'docs/design/rigged-real-pin.md', text: PINNED_FIXTURE_CONTENT },
+      { file: 'docs/design/rigged-real-pin.md', text: pinnedContent },
       { file: 'docs/design/rigged-no-pin.md', text: 'No pin at all.\n' },
     ]
-    expect(badPinsIn(rigged)).toEqual([{ file: 'docs/design/rigged-fake-pin.md', sha: fake }])
+    expect(badPinsIn(rigged)).toEqual([{ file: 'docs/design/rigged-fake-pin.md', sha: fake, reason: 'unknown-sha' }])
     expect(isPinnedArtefact(rigged[0]!.text), 'a fake pin must NOT exempt').toBe(false)
     expect(isPinnedArtefact(rigged[1]!.text)).toBe(true)
 
@@ -1080,15 +1214,137 @@ describe('doc citation law: a path cited from a document or a comment must exist
     expect(badPins()).toEqual([])
   })
 
+  /**
+   * The defect #288 exists to fix, reproduced exactly as the issue's own EXECUTED repro
+   * did: a commit made with `git commit-tree` and attached to no ref is a REAL object — the
+   * old `git cat-file -e <sha>^{commit}` check granted the exemption — but `git branch -a
+   * --contains` names it from nothing, because it never landed anywhere. `shaExists` is the
+   * control that proves this is not the `unknown-sha` case above: the object is real, and
+   * `pinVerdict` still refuses it, distinguishing the two reasons the way `badPinsIn`'s
+   * `reason` field is meant to (DoD).
+   *
+   * The commit is made against this repo's own real `.git` (no fixture repo), the same way
+   * `landedAncestorSha()` does its own git calls — a dangling loose object with no ref
+   * pointing at it is harmless: nothing reads it, nothing pushes it, and eventual `git gc`
+   * reclaims it. `createOrphanCommit()` (beside `pinnedFixtureContent()`, near
+   * `GIT_IDENTITY_ENV`) is what actually shells out — see its own comment for why the
+   * identity it supplies is not optional: this test's FIRST version called `git
+   * commit-tree` with no identity at all, which worked on every machine with a configured
+   * git user and would have failed on CI, which has none, invisibly — review of #288 caught
+   * it before this branch had ever been pushed to find out the hard way.
+   */
+  it('a pin to an orphaned commit — real object, reachable from NO ref — is rejected, not exempted (#288)', () => {
+    const orphan = createOrphanCommit()
+
+    expect(shaExists(orphan), 'the object must be REAL — otherwise this is just the unknown-sha case again').toBe(true)
+    expect(
+      execFileSync('git', ['branch', '-a', '--contains', orphan], { cwd: REPO_ROOT, encoding: 'utf8' }).trim(),
+      'reachable from NO ref — the exact state the old cat-file-only check could not tell apart from a landed commit',
+    ).toBe('')
+
+    expect(pinVerdict(orphan)).toBe('unreachable')
+    expect(pinResolves(orphan), 'an orphaned commit must NOT resolve — this is the defect itself').toBe(false)
+
+    const rigged = { file: 'docs/design/rigged-orphan-pin.md', text: `**Tree:** \`main\` at \`${orphan}\`\n\nCites \`packages/this-directory-does-not-exist/nothing.ts\`.\n` }
+    expect(badPinsIn([rigged])).toEqual([{ file: rigged.file, sha: orphan, reason: 'unreachable' }])
+    expect(isPinnedArtefact(rigged.text), 'an orphaned pin must NOT exempt its document').toBe(false)
+  })
+
+  /**
+   * The regression review of #288 (`07893de`) caught: `createOrphanCommit`'s first version
+   * called `git commit-tree` with no identity override at all, so it worked on any machine
+   * with a configured git user — every local run, this repo's own author's included — and
+   * would have failed, invisibly, the first time CI actually ran it (`ci.yml` configures no
+   * git identity; `actions/checkout` does not either). Nothing local could have caught it:
+   * this branch had never been pushed, so no CI leg had ever witnessed the test.
+   *
+   * Calling `createOrphanCommit(someEnvBuiltHere)` would NOT catch a regression — passing
+   * an explicit env bypasses the DEFAULT parameter entirely, so a default that silently
+   * stopped forcing `GIT_IDENTITY_ENV` on would never be exercised. This mutates
+   * `process.env` itself and calls `createOrphanCommit()` with NO argument, so it runs the
+   * exact default every real call site uses.
+   *
+   * ROUND 2 (`c89bbb2`'s own review): the round-1 version of this control scrubbed only
+   * `HOME`, `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` — it never touched
+   * `GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL`/`GIT_COMMITTER_NAME`/`GIT_COMMITTER_EMAIL`, and git
+   * reads those four BEFORE any config file. EXECUTED, the exact gap: with those four
+   * exported ambiently (a CI runner that sets them for some other reason, a dev shell, a git
+   * wrapper) `git commit-tree` exits 0 even with `HOME` gone and both `GIT_CONFIG_*` pointed
+   * at `/dev/null` — so reverting `createOrphanCommit`'s default to bare `process.env` on
+   * such a machine would NOT have reddened the round-1 control. The guard would already be
+   * gone and nothing would go red — the exact "test that cannot fail for the reason it
+   * claims" shape `AGENTS.md` names. This control now saves, BLANKS (not deletes — see
+   * below), and restores all six variables.
+   *
+   * BLANK, NOT DELETE. EXECUTED, both ways, against a scratch repo with `user.name`/
+   * `user.email` configured locally: deleting the four identity vars lets `git` fall through
+   * to that config and still succeed (exit 0) — the identical hole the first reviewer named
+   * for repo-local config, one layer further down. Setting them to the EMPTY STRING makes
+   * git treat identity as explicitly present-but-invalid and refuse regardless of what any
+   * config file says (exit 128, "empty ident name (for <>) not allowed") — discriminating
+   * for the right reason regardless of ambient config at any level. The real default's
+   * `GIT_IDENTITY_ENV` values still win when this test is NOT active, because object spread
+   * puts them after `process.env` — an empty ambient value is exactly as overridable as an
+   * absent one.
+   *
+   * A future edit that moves the identity back onto an ambient default fails HERE, on ANY
+   * machine, regardless of what it has exported or configured — instead of passing silently
+   * everywhere this suite happens to run with identity available from any source. Restored
+   * in `finally` regardless of outcome — `process.env` is shared by every test in this
+   * (serial, non-concurrent) file.
+   */
+  it("the orphan-commit fixture does not depend on this machine's own git identity, from ANY source — the regression review of #288 caught, twice (review of #288)", () => {
+    const IDENTITY_KEYS = ['HOME', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL'] as const
+    const saved: Partial<Record<(typeof IDENTITY_KEYS)[number], string>> = {}
+    for (const key of IDENTITY_KEYS) saved[key] = process.env[key]
+
+    delete process.env.HOME
+    process.env.GIT_CONFIG_GLOBAL = '/dev/null'
+    process.env.GIT_CONFIG_SYSTEM = '/dev/null'
+    // Blank, not delete — deleting would let a fallback (repo-local or global config)
+    // resolve an identity anyway, which is precisely the gap this round closes.
+    process.env.GIT_AUTHOR_NAME = ''
+    process.env.GIT_AUTHOR_EMAIL = ''
+    process.env.GIT_COMMITTER_NAME = ''
+    process.env.GIT_COMMITTER_EMAIL = ''
+    try {
+      const orphan = createOrphanCommit()
+      expect(shaExists(orphan), 'must still produce a real commit object with no ambient git identity available to it, from any source').toBe(true)
+    } finally {
+      for (const key of IDENTITY_KEYS) {
+        const value = saved[key]
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+    }
+  })
+
+  it('a missing landing ref refuses to certify the pin rather than downgrading the check or blaming the document (#288, the wave-7 ruling applied to the sibling case)', () => {
+    const missingRef = 'refs/remotes/origin/citation-law-288-no-such-ref'
+    expect(refResolves(missingRef), 'pick a ref name genuinely absent from this clone').toBe(false)
+
+    expect(() => pinVerdict(landedAncestorSha(), missingRef)).toThrow(missingRef)
+    expect(() => pinResolves(landedAncestorSha())).not.toThrow() // the real LANDING_REF is present in this clone
+  })
+
+  it('the real, honest pin in the corpus today resolves, and is the reason this check is tractable now (#228, #288)', () => {
+    const file = 'docs/design/glance-2026-09-02.md'
+    const raw = readSweptFile(file)
+    expect(raw, `${file} must exist — the corpus's one pinned artefact`).toBeDefined()
+    const sha = declaredTreePin(stripFencedCodeBlocks(raw ?? ''))
+    expect(sha, `${file} must declare a **Tree:** pin`).toBe('0851512')
+    expect(pinVerdict(sha!), `${file}'s pin must be an ancestor of ${LANDING_REF} — it is the pin this fix must not break`).toBe('landed')
+  })
+
   it('the pin arm has the history it needs — in a shallow clone every honest pin reads as fake (#228, review of #229)', () => {
     expect(
       repoIsShallow(),
-      'this clone is SHALLOW, so `git cat-file -e <sha>^{commit}` cannot see any sha but the tip and every tree pin to an ancestor reads as a fake one — run `git fetch --unshallow`, or restore `fetch-depth: 0` on the suite leg in `.github/workflows/ci.yml`',
+      'this clone is SHALLOW, so `git merge-base --is-ancestor` cannot see any sha but the tip and every tree pin to an ancestor reads as a fake one — run `git fetch --unshallow`, or restore `fetch-depth: 0` on the suite leg in `.github/workflows/ci.yml`',
     ).toBe(false)
-    // And the pin arm is not vacuous in this clone: an ancestor of HEAD resolves,
-    // which is the case a depth-1 checkout loses and a fake sha never had.
-    const parent = execFileSync('git', ['rev-parse', 'HEAD^'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim()
-    expect(pinResolves(parent), 'an ancestor sha must resolve — this is the case a shallow clone breaks').toBe(true)
+    // And the pin arm is not vacuous in this clone: an ancestor of both HEAD and
+    // LANDING_REF resolves, which is the case a depth-1 checkout loses and a fake sha
+    // never had.
+    expect(pinResolves(landedAncestorSha()), 'a landed ancestor sha must resolve — this is the case a shallow clone breaks').toBe(true)
   })
 
   it('a file the git listing names but that is gone from disk is skipped, not a crash — the ENOENT sibling of item 5', () => {
@@ -1644,16 +1900,21 @@ function recordedMaximum(): number {
 // malformed file, rather than failing the tests that actually need the ceiling.
 let cachedLiveMaximum: number | undefined
 /**
- * The ref the ceiling is derived from, and it is deliberately ONE ref rather than `--all`.
+ * The ref BOTH laws in this file derive "did this land" from, and it is deliberately ONE
+ * ref rather than `--all`. Originally the citation-ceiling law's alone; `pinVerdict` above
+ * reuses it (#288) rather than naming a second one, because a pinned document's tree sha
+ * and a merged PR number are the identical question — "is this reachable from where work
+ * actually lands" — asked of two different kinds of git object.
  *
  * `--all` walks every ref the object store holds — every local branch, every
  * `refs/remotes/*`, and the refs of every linked worktree sharing this `.git`. None of
- * those is evidence that a number landed. EXECUTED in this repo, no fabrication needed:
- * `comm -13` between the two derivations returns `96 97 101 102`, all four carried by
- * `refs/remotes/origin/prd44` — the abandoned integration branch AGENTS.md documents as an
- * incident, still pushed and still fetched by an ordinary clone. A scratch local commit
+ * those is evidence that a number (or a pin) landed. EXECUTED in this repo, no fabrication
+ * needed: `comm -13` between the two derivations returns `96 97 101 102`, all four carried
+ * by `refs/remotes/origin/prd44` — the abandoned integration branch AGENTS.md documents as
+ * an incident, still pushed and still fetched by an ordinary clone. A scratch local commit
  * with a merge-shaped subject moved the ceiling from 272 to 999 while the `origin/main`
- * derivation stayed at 272.
+ * derivation stayed at 272. The same branch is why `git branch -a --contains <sha>` was
+ * rejected for the pin check: reachable from ANY ref readmits it too.
  *
  * That is the clone-dependence this law's own history already rejected once, in the
  * paragraph the `gh` removal deleted: a ceiling that reads one number in a clone holding
@@ -1662,17 +1923,10 @@ let cachedLiveMaximum: number | undefined
  */
 const LANDING_REF = 'origin/main'
 
-/**
- * Whether `LANDING_REF` resolves here — a PRECONDITION of the derivation, asserted by its
- * own test below rather than absorbed, for the reason `repoIsShallow()` above already
- * gives about `fetch-depth: 0`: an environment that cannot meet it should fail HERE,
- * naming the cause, "instead of surfacing as a bad-pin report against a document whose pin
- * is perfectly honest". This is the identical failure one precondition over, and it was
- * absorbed instead (review of #261).
- */
-function landingRefResolves(): boolean {
+/** Whether `ref` resolves to a commit here — the shared precondition probe `landingRefResolves()` and `pinVerdict`'s injected-ref path both ask. */
+function refResolves(ref: string): boolean {
   try {
-    execFileSync('git', ['rev-parse', '--verify', '--quiet', `${LANDING_REF}^{commit}`], {
+    execFileSync('git', ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], {
       cwd: REPO_ROOT,
       stdio: 'ignore',
     })
@@ -1680,6 +1934,42 @@ function landingRefResolves(): boolean {
   } catch {
     return false
   }
+}
+
+/**
+ * Whether `LANDING_REF` resolves here — a PRECONDITION of the ceiling derivation AND of
+ * `pinVerdict`'s default path, asserted by its own test below rather than absorbed, for the
+ * reason `repoIsShallow()` above already gives about `fetch-depth: 0`: an environment that
+ * cannot meet it should fail HERE, naming the cause, "instead of surfacing as a bad-pin
+ * report against a document whose pin is perfectly honest". This is the identical failure
+ * one precondition over, and it was absorbed instead (review of #261).
+ */
+function landingRefResolves(): boolean {
+  return refResolves(LANDING_REF)
+}
+
+// Memoised, not eager, for the same reason `cachedLiveMaximum` is: shelling out to
+// `git merge-base` against `LANDING_REF` at module load would take the unrelated laws in
+// this file down with it in a clone where `LANDING_REF` is absent, rather than failing only
+// the tests that actually need a landed sha.
+let cachedLandedAncestorSha: string | undefined
+/**
+ * An ancestor of BOTH this checkout's HEAD and `LANDING_REF` — the sha a test fixture uses
+ * to prove the POSITIVE "resolves" case (#288), in place of `HEAD_SHA` itself. An unmerged
+ * lane branch's own tip is not, in general, reachable from `origin/main` until IT lands, so
+ * a fixture pinned to `HEAD_SHA` would only pass the new ancestor check after this very
+ * branch merges — the merge-base is guaranteed already reachable from `LANDING_REF`
+ * regardless of that, by construction, and (being an older commit than `HEAD`) still needs
+ * the same full clone depth `repoIsShallow()`'s test guards.
+ */
+function landedAncestorSha(): string {
+  if (cachedLandedAncestorSha === undefined) {
+    cachedLandedAncestorSha = execFileSync('git', ['merge-base', 'HEAD', LANDING_REF], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+    }).trim()
+  }
+  return cachedLandedAncestorSha
 }
 
 /**
