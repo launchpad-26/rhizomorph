@@ -469,14 +469,29 @@ both may be built at once.
   artefact today and it is honest, so tightening the check costs no migration — which is why this
   is filed now rather than after a second pin arrives.
 - `prd43 w10: every docs/prds exclusion proves it is not vacuous` (`#289`). Three sweeps exclude
-  `docs/prds/`; one asserts the exclusion would trip if scanned. Ruling 1 states that principle
-  for the citation law and the two later sweeps inherited the shape without the proof. Both
-  exclusions are honest today — measured, not assumed — so each control passes when written and
-  earns its keep only as the corpus moves.
+  `docs/prds/`; only the citation law asserts the exclusion would trip if scanned, and it does so
+  in two controls. Ruling 1 states that principle and the two later sweeps inherited the shape
+  without the proof.
 
-**`#289` cannot be dispatched beside `#275` or beside prd-17's open operator-door issue**: all
-three claim the route-count law file. The fence lint calls that an OVERLAP whatever wave they
-carry, so it forces a sequence, exactly as wave 5's `#24` and wave 6's `#234` did.
+  **One of those two exclusions has ALREADY gone vacuous, which is why this is a defect and not a
+  guard.** EXECUTED against the route-count law's own twelve production patterns, applied to all
+  53 tracked `docs/prds/**/*.md` files: **zero matches.** Its exclusion hides nothing today, so an
+  honesty control written for it would fail on its first run — the issue's subject is therefore
+  the decision (retire the dead exclusion, or make it non-vacuous), not the guard. The
+  manifest law's exclusion IS still doing work — `docs/prds/parked/prd-38-the-borrowed-credential.md`
+  carries a real clone instruction its sweep would match — and is merely unproven.
+
+  **The first draft of this paragraph said both exclusions were honest, and it was wrong.** The
+  measurement behind it was a hand-written grep for route-count-shaped prose, which matched a
+  sentence in this very PRD that the law's actual patterns do not match. A command that succeeds
+  and enumerates something other than what was asked is the failure this PRD exists to catch, and
+  it was caught by a review seat rather than by the author or by any gate.
+
+**`#289` cannot be dispatched beside `#275`**: both claim the route-count law file, and the fence
+lint calls that an OVERLAP whatever wave they carry — so it forces a sequence, exactly as wave 5's
+`#24` and wave 6's `#234` did. An earlier draft also named prd-17's operator-door issue as a third
+claimant; that issue closed with PR 286, whose merge was already an ancestor of this branch when
+the claim was written.
 
 **Unfiled work implied, described not numbered:** the audited clone's `origin` still points at the
 pre-rename `launchpad-26/rhizomorph.tmp`, working only through GitHub's redirect. That is local git
