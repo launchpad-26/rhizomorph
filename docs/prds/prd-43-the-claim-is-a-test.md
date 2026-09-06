@@ -304,9 +304,10 @@ until ruled.
 > three. Kept in place because citations to this paragraph must keep resolving, and because the
 > ruling it records about `#66` and `#261` is still the ruling. Only the count is wrong here.
 > Flagged by `scripts/dev/prd-reconcile.sh 43` as DOUBLE-DECLARED after the amendment landed in
-> PR 284 — the amendment declared wave 7 a second time and did not mark this one, which is the
+> PR #284 — the amendment declared wave 7 a second time and did not mark this one, which is the
 > defect the reconciler exists to catch and which no reviewer caught before the merge.
- The ruling is made and recorded on the issue — **a single dated note in `AGENTS.md`
+
+The ruling is made and recorded on the issue — **a single dated note in `AGENTS.md`
 and `docs/prds/README.md`**, with the 216 references in the other 110 files left untouched. A
 per-reference marker across 111 files and a mapping to surviving artefacts were both considered
 and rejected: the first is a 216-edit diff nobody can review whose per-site markers rot when the
@@ -446,8 +447,10 @@ own wave rather than joining wave 8 because `#275` is held behind another progra
 would hold this hostage, and because the two share no file.
 
 **It is fence-blocked by wave 7's own PR.** `AGENTS.md` sits inside `#66`'s fence, so `#285` and
-wave 7 can never be in flight together — the branch carrying it is based on the wave-7 head for
-exactly that reason. Land wave 7, then this.
+wave 7 could never be in flight together. **That constraint is discharged**: wave 7 landed in
+PR #284 (`547429d`), and the branch carrying `#285` was rebased onto `main` — it is no longer
+based on the wave-7 head, and `git merge-base --is-ancestor` says so. Recorded rather than
+deleted because the sequencing decision was real when it was made.
 
 The failure that produced it is this PRD's thesis pointed at the PRD's own toolchain: on
 2026-09-05 two commits were recorded with `verify-ledger.sh record --force`, and the ledger, the
@@ -490,7 +493,7 @@ both may be built at once.
 **`#289` cannot be dispatched beside `#275`**: both claim the route-count law file, and the fence
 lint calls that an OVERLAP whatever wave they carry — so it forces a sequence, exactly as wave 5's
 `#24` and wave 6's `#234` did. An earlier draft also named prd-17's operator-door issue as a third
-claimant; that issue closed with PR 286, whose merge was already an ancestor of this branch when
+claimant; that issue closed with PR #286, whose merge was already an ancestor of this branch when
 the claim was written.
 
 **Unfiled work implied, described not numbered:** the audited clone's `origin` still points at the

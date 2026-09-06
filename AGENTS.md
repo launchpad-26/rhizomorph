@@ -294,7 +294,10 @@ A PR is opened, undrafted or merged only when **both** are true. They are separa
 conditions and each has been broken on its own:
 
 1. **Every commit in the range has been read by an independent review pass** — the
-   `verify` seats, recorded in the ledger. Check it rather than remembering it:
+   `verify` seats, recorded in the ledger. Check it rather than remembering it. This
+   command is **operator-local**: `verify-ledger.sh`, `lane-precommit.sh` and
+   `pr-open.sh` are not shipped by this repository, so a fresh clone will not have
+   them and you will need a configured operator environment:
 
    ```
    ~/.claude/skills/verify/scripts/verify-ledger.sh check --strict --range <base>..<branch>
@@ -312,10 +315,7 @@ artefact — running the review, and asking — are the two that go missing.
 
 **`--strict` is not decoration.** A bare `check` exits 0 on a `FORCED` row, and a
 forced row is a reason typed by whoever wants the PR opened. Measured 2026-09-05 on the wave-7
-PR (number 284, written without the usual hash on purpose: it had not merged, so the
-citation law correctly reads a hash-prefixed 284 as above the derived ceiling, and
-this sentence would otherwise redden the very law the PR was landing): two commits
-were recorded with `record --force`, after which the ledger,
+PR #284: two commits were recorded with `record --force`, after which the ledger,
 `pr-open.sh` and the `pr-approval-guard` hook *all* reported the range verified —
 three independent-looking layers reading one exit status the same session had just
 written. A guard whose evidence the guarded party can author is not a guard. The
@@ -323,9 +323,11 @@ honest escape is `pr-open.sh --unverified "<why>"`, which writes the gap into th
 body where a reviewer sees it.
 
 **This paragraph is not the enforcement, and must not be relied on as it.** The rule
-already existed in three places on 2026-09-04 — this file, the
-`pr-is-a-wave-verified-first` memory, and `verify/SKILL.md` §9 — and three PRs were
-opened against it in one session anyway. What enforces it is a `PreToolUse` hook that
+was written down — in the
+`pr-is-a-wave-verified-first` memory, in `verify/SKILL.md` §9, and in this file's own
+landing rules — and three PRs were opened against it in one session anyway. That is
+the whole argument: the enforcement is a hook, not a paragraph, and this section does
+not become one by being read. What enforces it is a `PreToolUse` hook that
 fires on the tool call regardless of what the session concludes. If you are reading
 this and the hook did not fire, that is a defect in the hook worth reporting, not
 permission to proceed on the strength of having read the paragraph.
