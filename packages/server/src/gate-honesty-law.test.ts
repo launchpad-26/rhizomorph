@@ -362,30 +362,38 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    *
    * MEASURED FALSE-POSITIVE RATE (EXECUTED, run against every real producer
    * of ANY spelling above in scripts/gate.sh — prd-46's own open question,
-   * re-run after #179's widening rather than retyped, and again after prd17
-   * w5 (#273) added the verdict's own output-capture producer): 18 such
-   * assignments exist — UP from 17 by exactly that one new producer, because
-   * gate.sh still contains no live instance of rows 2-7; every producer in
-   * the file today is still the bare, single-line form of row 1. Exactly 1
-   * is flagged as structurally unchecked — :23 (`W=$(workmux path ...)`),
-   * declared before this issue and still declared, because the very next
-   * line's existence check is the verdict rather than the redirect. 0 of the
-   * 18 are undeclared: the predicate does not convict a single honest line on
-   * this file.
+   * re-run after #179's widening rather than retyped, again after prd17 w5
+   * (#273) added the verdict's own output-capture producer, and again after
+   * prd17 w5 (#274) added the beacon write): 20 such assignments exist — UP
+   * from 18 by exactly the two new producers #274 adds. Both are also the
+   * FIRST live instance of row 7 (the multi-line `$(...)` form) in this
+   * file: `verdict_line=$(python3 -c '...'  ...)` and
+   * `beacon_dir=$(REPO_PATH=... "$root/node_modules/.bin/tsx" -e '...' ...)`
+   * each open their `$(` on one line and close it several lines down, past
+   * a quoted script argument that itself spans multiple lines — so the
+   * claim this paragraph made through #273, that every producer here was
+   * "still the bare, single-line form of row 1", is no longer true and is
+   * corrected rather than repeated. Exactly 1 is flagged as structurally
+   * unchecked — :23 (`W=$(workmux path ...)`), declared before this issue
+   * and still declared, because the very next line's existence check is the
+   * verdict rather than the redirect. 0 of the 20 are undeclared: the
+   * predicate does not convict a single honest line on this file.
    *
-   * The other 17 pass structurally on their own merits: 12 same-line forms
+   * The other 19 pass structurally on their own merits: 12 same-line forms
    * (:17's `|| exit 2`, written before `fail` is even defined; 9 `|| fail` at
-   * :88 (#273's `GATE_OUTFILE`) :95 :110 :170 :264 :274 :338 :424 :479; 2
-   * `|| { ...; fail ...; }` rescue blocks at :111 :480) and 5 next-line
-   * `_RC=$?` captures (:127's `ANCESTOR_RC`, :207's `N_RC`, :211's
-   * `STATUS_RC`, :238's `DIRTY_RC`, :339's `CAT_RC`).
+   * :314 (`GATE_OUTFILE`) :321 :336 :396 :490 :500 :564 :650 :705; 2
+   * `|| { ...; fail ...; }` rescue blocks at :337 :706) and 7 next-line
+   * `_RC=$?` captures (:156's `VERDICT_LINE_RC` and :236's `BEACON_DIR_RC` —
+   * both new with #274 — plus :353's `ANCESTOR_RC`, :433's `N_RC`, :437's
+   * `STATUS_RC`, :464's `DIRTY_RC`, :565's `CAT_RC`).
    *
-   * (This paragraph's line citations had already drifted once before #273
-   * touched it — the previous revision cited :41 :56 :116 :210 :220 :284
-   * :370 :410 :411 and one rescue block at :57, none of which matched the
-   * file by the time this issue landed. Re-derived against the current file
-   * rather than nudged, the same trap the citations themselves are prose
-   * about.)
+   * (This paragraph's line citations have drifted before — once across
+   * #273, and now again across #274, both times because lines were added
+   * ABOVE producers this paragraph already cited. Re-derived against the
+   * current file each time rather than nudged, the same trap the citations
+   * themselves are prose about — and the reason every citation here is
+   * re-checked on every touch instead of only the ones a diff happens to
+   * mention.)
    *
    * These counts moved with #71, and the reason is structural rather than
    * arithmetic: `DIFF_RC` and `GREP_RC` used to be next-line captures of
@@ -972,21 +980,26 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     const allProducers = findAllProducers(LINES)
     const unchecked = findUncheckedProducers(LINES)
     const undeclared = unchecked.filter((u) => !DECLARED_TOLERANCES.some((t) => u.line.includes(t.needle)))
-    // UNCHANGED from before #179's widening: gate.sh contains no live
-    // instance of the four newly-recognised spellings (rows 2-7 of the
-    // table above) today, so widening the predicate finds nothing NEW here —
-    // it only means a FUTURE line written that way would now be seen. Proven
-    // by count, not assumed: this would move the moment such a line landed.
+    // UNCHANGED from before #179's widening THROUGH #273: gate.sh contained
+    // no live instance of rows 2-7 of the table above, so widening the
+    // predicate found nothing NEW there — it only meant a FUTURE line
+    // written that way would now be seen. That changed with #274, below.
     //
     // 18 -> 20 (#274): `emit_gate_verdict` gained two producers when the
     // beacon write landed — `verdict_line=$(python3 ...)` (capturing the
     // line that used to be printed directly, uncaptured, so it could also be
     // appended byte-for-byte to the beacon file) and
-    // `beacon_dir=$(... npx ... tsx ...)` (resolving beaconDirFor() rather
-    // than re-deriving its path in shell). Both are CHECKED, not flagged: each
-    // is followed on the very next line by its own bare `_RC=$?` capture
-    // (`VERDICT_LINE_RC=$?`, `BEACON_DIR_RC=$?`), so `unchecked` does not
-    // move — see the next-line bucket below, which is where both land.
+    // `beacon_dir=$(... "$root/node_modules/.bin/tsx" -e ...)` (resolving
+    // beaconDirFor() rather than re-deriving its path in shell). Both are
+    // CHECKED, not flagged: each is followed on the very next line by its
+    // own bare `_RC=$?` capture (`VERDICT_LINE_RC=$?`, `BEACON_DIR_RC=$?`),
+    // so `unchecked` does not move — see the next-line bucket below, which
+    // is where both land. Both are ALSO the first live instance of row 7
+    // (the multi-line `$(...)` form): each opens its `$(` on one line and
+    // closes it several lines down, past a quoted script argument that
+    // itself spans multiple lines — so "no live instance of rows 2-7" is no
+    // longer true of this file, proven by count rather than left as the
+    // stale claim above would still have it.
     expect(allProducers.length, 'total producers (any spelling) in scripts/gate.sh drifted — the doc comment above cites this count').toBe(20)
     expect(unchecked.length, 'flagged (structurally unchecked) count drifted — the doc comment above cites this count').toBe(1)
     expect(undeclared.length).toBe(0)
@@ -3557,6 +3570,131 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       })
 
       /**
+       * Review of #274, round 2 (MEASURED): `npx --no-install tsx` does NOT
+       * fail fast when the package is unresolvable — it falls back to a
+       * REGISTRY LOOKUP first, measured at 70s against a connection-refused
+       * registry and still running past five minutes against a
+       * black-holed one. Reachable twice in this script: root's own
+       * `node_modules` may not exist yet on a fresh checkout (root's
+       * install runs AFTER the merge), and `install-broken` correlates with
+       * exactly the offline operator `push_or_warn`'s own exemption exists
+       * for. The fix is invoking the resolved binary directly, which never
+       * touches npm's resolver at all — proven structurally rather than by
+       * actually waiting out a black-holed registry in the suite.
+       */
+      it('the tsx invocation is the resolved binary directly, guarded by -x, never `npx`', () => {
+        // CODE lines only — this very test, and the fix's own commit
+        // message, both say "npx" in prose explaining why it must not be
+        // used; the claim is about what RUNS, not what is discussed.
+        const code = VERDICT_MACHINERY.split('\n')
+          .filter((l) => !l.trim().startsWith('#'))
+          .join('\n')
+        expect(
+          code,
+          'a plain `npx tsx` was MEASURED to hang past five minutes against a black-holed registry when tsx is unresolvable locally — this must never be `npx` again',
+        ).not.toMatch(/\bnpx\b/)
+        expect(code).toContain('node_modules/.bin/tsx')
+        expect(
+          code,
+          'the binary must be existence-checked before being invoked, or a missing one fails as "command not found" instead of the reported warning',
+        ).toMatch(/-x\s+"\$\{root:-\}\/node_modules\/\.bin\/tsx"/)
+      })
+
+      /**
+       * Review of #274, round 2 (MEASURED): `import()` takes a MODULE
+       * SPECIFIER, which Node parses as a URL, not a filesystem path — a
+       * repo path containing a tab, LF, CR, `#` or `?` resolved to the
+       * wrong module or ERR_MODULE_NOT_FOUND, and one containing `%` threw
+       * a URIError. Every one of them took the "could not resolve" branch
+       * and wrote nothing, silently. `#` is exercised here (the character
+       * this filesystem can hold in a plain directory name without any
+       * escaping tricks): a symlink whose OWN name carries the special
+       * character, pointing at the real repo, stands in for "the checkout
+       * lives at a path like this" without needing a second copy of
+       * packages/server on disk.
+       */
+      it('EXECUTED — a repo path containing `#` still resolves the beacon directory (pathToFileURL, not a bare-path import)', () => {
+        const linkParent = scratchDir('beacon-hash-path')
+        const specialRoot = join(linkParent, 'repo#with#hash')
+        symlinkSync(REPO_ROOT, specialRoot, 'dir')
+        const dataRoot = scratchDir('beacon-hash-dataroot')
+        const h = `verdict-hash-${process.pid}-${Math.random().toString(36).slice(2, 8)}`
+        const script =
+          `#!/bin/bash\n${SHELL_OPTS}\nH=${h}\nroot="${specialRoot}"\nexport RHIZOMORPH_DATA_DIR="${dataRoot}"\n` +
+          `${VERDICT_MACHINERY}\necho "  build OK"\nMERGED=1\nemit_gate_verdict clean\n`
+        // cwd stays REPO_ROOT (the real node_modules) — only `root`, used to
+        // build MODULE_PATH, needs to carry the special character.
+        const res = runFragment(script, REPO_ROOT)
+        expect(res.status).toBe(0)
+        const printed = lastLine(res.stdout)
+        const beaconDir = beaconDirFor(specialRoot, dataRoot)
+        const beaconFile = join(beaconDir, 'gate.jsonl')
+        expect(
+          existsSync(beaconFile),
+          'a bare (non-URL-encoded) path import takes the "could not resolve" branch on this path and writes nothing — this must exist',
+        ).toBe(true)
+        expect(readFileSync(beaconFile, 'utf8')).toBe(`${printed}\n`)
+      })
+
+      /**
+       * Review of #274, round 2 (EXECUTED): a full-disk or otherwise
+       * interrupted append can leave a PARTIAL line with no trailing
+       * newline. A plain `>>` on the NEXT ordinary landing concatenates
+       * directly onto that prefix — one unparseable "line" that costs the
+       * collector BOTH verdicts, the failed one and the good one right
+       * after it. The fix repairs the missing newline before appending its
+       * own line, so the leftover partial content is isolated onto its own
+       * (still genuinely malformed, but no longer contagious) line.
+       */
+      it('EXECUTED — a landing after an interrupted (no-trailing-newline) previous write gets its own line, not fused onto the leftover partial one', () => {
+        const dataRoot = scratchDir('beacon-torn-write')
+        const beaconDir = beaconDirFor(REPO_ROOT, dataRoot)
+        mkdirSync(beaconDir, { recursive: true })
+        // No trailing newline — simulates a write interrupted mid-append.
+        writeFileSync(join(beaconDir, 'gate.jsonl'), '{"v":1,"partial":true')
+
+        const { stdout } = runVerdictWithBeacon('echo "  build OK"\nMERGED=1\nemit_gate_verdict clean', dataRoot)
+        const printed = lastLine(stdout)
+        const contents = readFileSync(join(beaconDir, 'gate.jsonl'), 'utf8')
+        const lines = contents.split('\n').filter((l) => l.length > 0)
+        expect(lines, "the leftover partial line and this landing's own line must both survive, on separate lines").toEqual(['{"v":1,"partial":true', printed])
+        // The leftover line legitimately does not parse (it is genuinely
+        // truncated JSON) — the point is that it no longer poisons the one
+        // after it.
+        expect(() => JSON.parse(lines[1]!)).not.toThrow()
+      })
+
+      it("MUTATION — removing the trailing-newline repair fuses a leftover partial write onto the next landing's line", () => {
+        const repairCondition = 'if f.read(1) != b"\\n":'
+        expect(VERDICT_MACHINERY, 'the real repair condition must still be present for this mutation to say anything').toContain(repairCondition)
+        // `if False:` keeps the body (still indented beneath it) syntactically
+        // valid while making sure it never runs — the newline repair simply
+        // never happens.
+        const noRepair = VERDICT_MACHINERY.replace(repairCondition, 'if False:')
+        expect(noRepair).not.toBe(VERDICT_MACHINERY)
+
+        const dataRoot = scratchDir('beacon-torn-write-mutation')
+        const beaconDir = beaconDirFor(REPO_ROOT, dataRoot)
+        mkdirSync(beaconDir, { recursive: true })
+        writeFileSync(join(beaconDir, 'gate.jsonl'), '{"v":1,"partial":true')
+
+        const script =
+          `#!/bin/bash\n${SHELL_OPTS}\nH=torn-mutant\nroot="${REPO_ROOT}"\nexport RHIZOMORPH_DATA_DIR="${dataRoot}"\n` +
+          `${noRepair}\necho "  build OK"\nMERGED=1\nemit_gate_verdict clean\n`
+        const res = runFragment(script, REPO_ROOT)
+        expect(res.status).toBe(0)
+
+        const contents = readFileSync(join(beaconDir, 'gate.jsonl'), 'utf8')
+        const lines = contents.split('\n').filter((l) => l.length > 0)
+        // The control (the EXECUTED test above, unmutated) produces TWO
+        // separately parseable lines. Under this mutation the partial
+        // content and the new verdict fuse into ONE — the exact corruption
+        // the review measured, costing the collector both.
+        expect(lines).toHaveLength(1)
+        expect(() => JSON.parse(lines[0]!)).toThrow()
+      })
+
+      /**
        * MUTATION 1 (the issue's own words): "make the write a no-op and
        * assert only that the gate still exits 0. That passes." Proven here
        * against the REAL extracted machinery with one line mutated, so the
@@ -3564,15 +3702,12 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
        * imagined one — and the test above it is what the mutation reddens.
        */
       it('MUTATION — a no-op write still exits 0; only reading gate.jsonl back catches it', () => {
-        const appendLine = 'printf \'%s\\n\' "$verdict_line" >>"$beacon_dir/gate.jsonl" 2>/dev/null'
-        expect(VERDICT_MACHINERY, 'the real append line must still be present for this mutation to say anything').toContain(appendLine)
-        // `true`, not `: # comment` — the real line sits inside `elif ! <CMD>;
-        // then`, so a trailing `#` here would swallow the rest of that
-        // physical line (the `; then`) into a comment and break the syntax.
-        // `elif ! true; then` is itself the no-op this mutation models: the
-        // condition always succeeds, so the warning never fires and — the
-        // point — nothing is ever appended either.
-        const noop = VERDICT_MACHINERY.replace(appendLine, 'true')
+        const appendStatement = 'f.write(line.encode() + b"\\n")'
+        expect(VERDICT_MACHINERY, 'the real write statement must still be present for this mutation to say anything').toContain(appendStatement)
+        // `pass`, a python no-op with the same indentation the statement it
+        // replaces already had — the write simply never happens, and the
+        // surrounding lock/flush/close still run normally.
+        const noop = VERDICT_MACHINERY.replace(appendStatement, 'pass')
         expect(noop).not.toBe(VERDICT_MACHINERY)
 
         const dataRoot = scratchDir('beacon-noop-mutation')
@@ -3582,9 +3717,14 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
         const res = runFragment(script, REPO_ROOT)
         // The weak assertion — exactly what the issue warns is insufficient.
         expect(res.status, 'a no-op write must not be fatal — this alone is not proof the write happened').toBe(0)
-        // The assertion that actually catches it: the file the real test
-        // above requires to exist and match does neither.
-        expect(existsSync(join(beaconDirFor(REPO_ROOT, dataRoot), 'gate.jsonl')), 'the mutation deleted the write — exit-status-only coverage is blind to this').toBe(false)
+        // The assertion that actually catches it: `open(path, "a+b")` alone
+        // already creates an empty file, so EXISTENCE is not enough either
+        // (that would just be a second exit-status-shaped check) — only
+        // reading the CONTENT back and finding it empty (never mind
+        // matching the printed line) proves nothing was appended.
+        const beaconFile = join(beaconDirFor(REPO_ROOT, dataRoot), 'gate.jsonl')
+        expect(existsSync(beaconFile), 'a no-op write still leaves an empty file behind — that is not the same claim as "nothing happened"').toBe(true)
+        expect(readFileSync(beaconFile, 'utf8'), 'the mutation deleted the write — exit-status-only (or existence-only) coverage is blind to this').toBe('')
       })
 
       /**
@@ -3596,13 +3736,12 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
        * to the write on a genuinely fresh one.
        */
       it('MUTATION — deleting mkdir passes on a machine that already has the directory, and only reddens against a genuinely fresh data root', () => {
-        const mkdirLine = 'mkdir -p "$beacon_dir" 2>/dev/null'
-        expect(VERDICT_MACHINERY, 'the real mkdir line must still be present for this mutation to say anything').toContain(mkdirLine)
-        // Same reasoning as the no-op mutation above: this line also sits
-        // inside `elif ! <CMD>; then`, so the replacement must not carry a
-        // trailing `#` comment. `true` models "directory creation removed
-        // but reported as having succeeded."
-        const noMkdir = VERDICT_MACHINERY.replace(mkdirLine, 'true')
+        const mkdirStatement = 'os.makedirs(beacon_dir, exist_ok=True)'
+        expect(VERDICT_MACHINERY, 'the real makedirs statement must still be present for this mutation to say anything').toContain(mkdirStatement)
+        // `pass` models "directory creation removed but nothing complains" —
+        // `open(path, "a+b")` still succeeds as long as the directory it
+        // sits in already exists.
+        const noMkdir = VERDICT_MACHINERY.replace(mkdirStatement, 'pass')
         expect(noMkdir).not.toBe(VERDICT_MACHINERY)
 
         // Warm: the directory already exists (a machine that ran the
@@ -3640,11 +3779,19 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
        * BYTE-FOR-BYTE. Proven by planting exactly that divergence.
        */
       it('MUTATION — an append that writes something OTHER than the printed line reddens the byte-for-byte check', () => {
-        const appendLine = 'printf \'%s\\n\' "$verdict_line" >>"$beacon_dir/gate.jsonl" 2>/dev/null'
-        expect(VERDICT_MACHINERY).toContain(appendLine)
+        const appendStatement = 'f.write(line.encode() + b"\\n")'
+        expect(VERDICT_MACHINERY).toContain(appendStatement)
+        // Double-quote delimited, internal quotes escaped — NOT a single-
+        // quoted python literal. The whole python script is itself embedded
+        // in one bash single-quoted string (`python3 -c '...'`), and bash
+        // single quotes cannot be escaped or nested: a bare `'` inside this
+        // replacement would close that string early and corrupt the
+        // surrounding shell syntax (EXECUTED: the first version of this
+        // mutation did exactly that and left gate.sh unable to even create
+        // the directory).
         const diverged = VERDICT_MACHINERY.replace(
-          appendLine,
-          'printf \'%s\\n\' "{\\"v\\":1,\\"writer\\":\\"gate\\",\\"kind\\":\\"gate.verdict\\",\\"mutated\\":true}" >>"$beacon_dir/gate.jsonl" 2>/dev/null',
+          appendStatement,
+          String.raw`f.write(b"{\"v\":1,\"writer\":\"gate\",\"kind\":\"gate.verdict\",\"mutated\":true}\n")`,
         )
         expect(diverged).not.toBe(VERDICT_MACHINERY)
 
