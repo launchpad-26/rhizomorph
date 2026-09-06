@@ -3370,9 +3370,13 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
        * unescaped, so a branch named `quote"handle` produced unparseable JSON on
        * exactly the path meant to rescue the record. Both found by review seats.
        *
-       * python3 is a hard dependency of this script in four other places, so its
-       * absence is fatal well before the emitter. Speculative robustness in the
-       * LANDING tool bought nothing and cost two defects.
+       * A fallback for a missing python3 guards a state the script refuses to
+       * run in: `command -v python3 … || fail` aborts the gate long before the
+       * emitter. (An earlier version of this said "four other places"; two of
+       * those four are inside `emit_gate_verdict` itself, so it is one other
+       * invocation plus that presence check — corrected in round 2.)
+       * Speculative robustness in the LANDING tool bought nothing and cost two
+       * defects.
        */
       it('emits at most ONE line, and no shell-built fallback can add a second', () => {
         const machinery = VERDICT_MACHINERY

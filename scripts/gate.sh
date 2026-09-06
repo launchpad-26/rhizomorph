@@ -130,10 +130,17 @@ print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$GATE_OUTFIL
   # (which `git check-ref-format` accepts) produced unparseable JSON on exactly
   # the path meant to rescue the record. Both were found by review seats.
   #
-  # python3 is already a hard dependency of this script in four other places, so
-  # its absence is fatal well before here. Speculative robustness in the LANDING
-  # tool bought nothing and cost two defects; the shell stays out of the
-  # JSON-serialising business.
+  # A fallback for "python3 is missing" guards a state this script REFUSES TO
+  # RUN IN: `command -v python3 … || fail` (the NUL-byte guard's precondition)
+  # hard-fails the gate long before the emitter is reached. Speculative
+  # robustness in the LANDING tool bought nothing and cost two defects; the
+  # shell stays out of the JSON-serialising business.
+  #
+  # The first version of this comment said python3 was a dependency "in four
+  # other places" (review of #273, round 2). Recount: two of the four are inside
+  # this very function, so it is ONE other invocation — the NUL-byte counter —
+  # plus that presence check. The conclusion is unchanged and in fact stronger,
+  # since a presence check that aborts is a better argument than a count.
   python3 -c 'import json,sys,time
 lane, held, reason, digest, load = sys.argv[1:6]
 line = {"v": 1, "at": int(time.time() * 1000), "writer": "gate", "kind": "gate.verdict",
