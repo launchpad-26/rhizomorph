@@ -3437,7 +3437,12 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
         const machinery = VERDICT_MACHINERY
         expect(machinery, 'a bare `wait` on the tee pid is unbounded').not.toMatch(/^\s*wait "\$\{GATE_TEE_PID:-\}"/m)
         expect(machinery).toContain('kill -0 "$GATE_TEE_PID"')
-        expect(machinery, 'the loop must have a ceiling').toMatch(/_waited" -lt 100/)
+        // The ceiling must be WALL CLOCK. A loop counter is not a bound: the
+        // first version counted 100 iterations of `sleep 0.1`, called it ten
+        // seconds, and on a loaded macOS runner ran past twelve — letting a
+        // still-writing capture read as drained (review of #273, round 3).
+        expect(machinery, 'the ceiling must be a deadline, not a loop count').toMatch(/SECONDS \+ 10/)
+        expect(machinery, 'a loop counter lengthens under load — that is not a bound').not.toMatch(/_waited/)
       })
     })
 

@@ -86,14 +86,25 @@ emit_gate_verdict() {
   # sha256("EARLY\n") with nothing downstream able to tell. A digest that
   # silently covers less than it claims is worse than no digest, because only
   # one of the two is detectable.
+  # **The ceiling is WALL CLOCK, not a loop count** (review of #273, round 3).
+  # The first version counted 100 iterations of `sleep 0.1` and its comment
+  # called that ten seconds. It is not: each iteration also pays for `kill -0`,
+  # the arithmetic and whatever the scheduler adds, so under load the real
+  # ceiling stretches — on a loaded macOS CI runner it exceeded TWELVE seconds
+  # and let a still-writing capture read as fully drained. A bound in the
+  # landing tool that lengthens exactly when the machine is busy is not a bound.
+  #
+  # `SECONDS` is bash's own wall clock, so the deadline means what the comment
+  # says on any machine. The post-loop condition is the honest one: if the
+  # writer is STILL ALIVE we timed out — asking that directly beats inferring it
+  # from a counter, which is what made the first version wrong.
   local drained=1
   if [ -n "${GATE_TEE_PID:-}" ]; then
-    local _waited=0
-    while kill -0 "$GATE_TEE_PID" 2>/dev/null && [ "$_waited" -lt 100 ]; do
+    local _deadline=$((SECONDS + 10))
+    while kill -0 "$GATE_TEE_PID" 2>/dev/null && [ "$SECONDS" -lt "$_deadline" ]; do
       sleep 0.1
-      _waited=$((_waited + 1))
     done
-    if [ "$_waited" -ge 100 ]; then
+    if kill -0 "$GATE_TEE_PID" 2>/dev/null; then
       drained=0
       echo "  ! gate: tee did not drain in 10s — the verdict carries no outputDigest" >&2
     fi
