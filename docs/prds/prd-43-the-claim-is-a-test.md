@@ -452,7 +452,29 @@ it, swapping which half of the sentence was false. It shares wave 7 rather than 
 plus `docs/adr/README.md`, against `#66`'s two documents and `#261`'s law plus its baseline), so
 all three share the wave and its PR.
 
-**Wave 8 is declared, and `#275` is its only issue** — *every row in the outbound-call table
+**Amended 2026-09-07 — waves 5 and 8 are merged into wave 8, and `#235` moves.** The two
+remaining issues, `#235` and `#275`, are parallel by this PRD's own definition of a wave:
+nothing within a wave depends on anything else in it. Derived rather than asserted —
+`scripts/fence-lint.sh 235 275` reports no overlap, and their fences are in different
+packages (`packages/web/src/lab/` against `packages/server/src/api/`), so neither can
+reach the other's files.
+
+They were in different waves for a reason that has expired. `#235` sat in wave 5 because
+it was blocked by `#220`, and `#275` in wave 8 because it was blocked by `#234`/`#270`
+and then by prd-17's hold on the route-count law. All three blocks are discharged: the
+`#220` overlap was ruled nominal on 2026-09-07, and the other two landed. What remains is
+two independent issues held apart by a wave boundary that now records history rather than
+a dependency.
+
+AGENTS.md's own escape is taken here rather than worked around: *"resolve it by making
+them the same wave, or ship the wave in order."* One PR pays the queue toll once for work
+with no dependency between its halves; two would pay it twice to honour a boundary that
+no longer separates anything.
+
+**Wave 5 is therefore closed as a wave**, its declaration above kept as the record of why
+`#235` waited. `#235` is now wave 8.
+
+**Wave 8 — two issues, `#275` and `#235`** — *every row in the outbound-call table
 states its real expected count*. It was filed carrying `w8` while this Sequencing declared waves
 0–7, so `fence-lint` and the board both accepted an issue whose wave existed nowhere. Wave 8 is
 the residue of ruling 2's sweep in the same sense wave 6 was of ruling 1: `#232` swept every route
