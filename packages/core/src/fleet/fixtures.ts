@@ -588,6 +588,7 @@ export class SyntheticFleet {
         events.push(this.laneDirty(lane, endAt - 10_000))
       }
       events.push(this.laneStatus(lane, endAt))
+      if (lane.spec.behaviour === 'waiting') events.push(this.laneBeacon(lane, endAt + 1_000))
     }
 
     // main's own history: the commits that already came home.
@@ -813,18 +814,35 @@ export class SyntheticFleet {
   }
 
   /**
-   * Only the waiting lane has workmux declaring a stop, and only a finished
-   * fleet says `done` — which is what makes the frozen lane's silence a fault
-   * rather than a finish.
+   * Only a finished fleet says `done` — which is what makes the frozen lane's
+   * silence a fault rather than a finish.
+   *
+   * The waiting lane's roster word is `working` (prd-27 ruling 4, #283): the
+   * hook fires the instant the prompt appears; workmux's next poll has not
+   * turned over yet, which is the real race prd-27 ruling 4 was written for.
+   * The declaration that names the stop is {@link laneBeacon}, and the stale
+   * roster word is what the fleet voices beside it.
    */
   private laneStatus(lane: LaneRuntime, ts: number): RhizomorphEvent {
-    const status =
-      lane.spec.behaviour === 'waiting' ? 'waiting' : lane.spec.behaviour === 'done' ? 'done' : 'working'
+    const status = lane.spec.behaviour === 'done' ? 'done' : 'working'
     return this.event('agent.status', {
       handle: lane.spec.name,
       status,
       worktreePath: lane.worktreePath,
       branch: lane.spec.name,
+    }, ts)
+  }
+
+  /** prd-27 ruling 3 (#283): the waiting lane's harness said so itself, one second after its last work — the fleet believes it, and voices the roster's stale `working` beside it. */
+  private laneBeacon(lane: LaneRuntime, ts: number): RhizomorphEvent {
+    return this.event('beacon.received', {
+      writer: 'claude-hook',
+      kind: 'waiting',
+      lane: lane.spec.name,
+      detail: 'hook: Notification',
+      digest: 'f'.repeat(64),
+      file: 'claude-hook.jsonl',
+      offset: 0,
     }, ts)
   }
 

@@ -2,6 +2,7 @@ import {
   isEventOfType,
   selectRecentCommits,
   type AgentStatus,
+  type AgentStatusWitness,
   type CommitRecord,
   type Lane,
   type RhizomorphEvent,
@@ -68,6 +69,13 @@ export interface LaneFeedEntry extends FeedEntryBase {
   kind: 'lane'
   handle: string
   status: AgentStatus
+  /**
+   * ADR-0037 / prd-27 ruling 2 (#290): who signed this word — `workmux`
+   * declared it, `sessionlog` inferred it from turn shape. Read off the
+   * envelope's `source` and nothing else; `detail` is the witness's evidence,
+   * never a second place to learn its name.
+   */
+  witness: AgentStatusWitness
   branch: string | null
   detail: string | null
 }
@@ -212,6 +220,7 @@ export function buildFeedEntries(
         news: isRecent(event.ts, connectedAt, newsGraceMs),
         handle,
         status,
+        witness: event.source,
         branch: branch ?? null,
         detail: detail ?? null,
       })

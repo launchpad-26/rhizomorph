@@ -1,11 +1,13 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createEventFactory, type RhizomorphEvent } from '@rhizomorph/core'
+import { createEventFactory, type AgentStatusWitness, type RhizomorphEvent } from '@rhizomorph/core'
 import { StreamProvider } from '../../app/StreamContext.js'
 import { FleetProvider } from '../../fleet/FleetContext.js'
+import { INFERRED_MARK } from '../../fleet/index.js'
 import type { FetchLike } from '../../fleet/manifest.js'
 import { SelectionProvider } from '../../fleet/selection.js'
 import type { EventSourceLike } from '../../hooks/useEventStream.js'
+import { formatClock } from './format.js'
 import ActivityFeed from './index.js'
 
 afterEach(cleanup)
@@ -74,9 +76,37 @@ function scenarioEvents(): RhizomorphEvent[] {
 
   f.collectorDisabled({ collector: 'workmux', reason: 'workmux not found on PATH' })
   f.commitLanded({ sha: 'sha-43-1', branch: '43-lane', message: 'feat(43): a second lane' })
+  f.agentStatus(
+    { handle: '43-lane', status: 'working', worktreePath: WT('43-lane'), branch: '43-lane' },
+    { source: 'sessionlog' },
+  )
+  f.agentStatus(
+    {
+      handle: '43-lane',
+      status: 'waiting',
+      worktreePath: WT('43-lane'),
+      branch: '43-lane',
+      detail: 'WAITING — tail turn-complete, quiet 45s, threshold 30s',
+    },
+    { source: 'sessionlog' },
+  )
   f.collectorError({ collector: 'tmux', message: 'capture-pane timed out' })
 
   return f.all()
+}
+
+/** The `KindTag` a `LaneRow` wears: the span right after the clock's. */
+function laneTagTextOf(row: HTMLElement): string {
+  return row.querySelectorAll('span')[1]?.textContent ?? ''
+}
+
+/**
+ * `LaneRow` stamps `data-witness` on its own root, one level under the
+ * `feed-entry` `<li>` `screen.getAllByTestId` returns — read it off that
+ * inner element rather than the `<li>` itself.
+ */
+function witnessOf(row: HTMLElement): string | null {
+  return row.querySelector<HTMLElement>('[data-witness]')?.dataset.witness ?? null
 }
 
 describe('ActivityFeed', () => {
@@ -139,5 +169,90 @@ describe('ActivityFeed', () => {
     expect(
       screen.getAllByTestId('feed-entry').some((row) => row.dataset.kind === 'collector'),
     ).toBe(true)
+  })
+})
+
+describe('lane rows name their witness (#290)', () => {
+  it('a declared waiting and an inferred waiting render differently, and the difference is the inference mark', async () => {
+    const { emit } = renderFeed()
+    for (const event of scenarioEvents()) await emit(event)
+    // One more, declared: a workmux `waiting` for 42-lane, alongside the
+    // scenario's sessionlog `waiting` for 43-lane.
+    await emit(
+      createEventFactory({ startTs: NOW }).agentStatus(
+        { handle: '42-lane', status: 'waiting', worktreePath: WT('42-lane'), branch: '42-lane' },
+        { source: 'workmux' },
+      ),
+    )
+
+    const laneRows = screen
+      .getAllByTestId('feed-entry')
+      .filter((row) => row.dataset.kind === 'lane' && row.textContent?.includes('waiting'))
+    expect(laneRows).toHaveLength(2)
+
+    const workmuxRow = laneRows.find((row) => witnessOf(row) === 'workmux')
+    const sessionlogRow = laneRows.find((row) => witnessOf(row) === 'sessionlog')
+    expect(workmuxRow).toBeDefined()
+    expect(sessionlogRow).toBeDefined()
+
+    const workmuxTag = laneTagTextOf(workmuxRow!)
+    const sessionlogTag = laneTagTextOf(sessionlogRow!)
+    expect(workmuxTag).not.toBe(sessionlogTag)
+    expect(sessionlogTag.startsWith(`${INFERRED_MARK} `)).toBe(true)
+    expect(workmuxTag).not.toContain(INFERRED_MARK)
+  })
+
+  it('an inferred working is marked too — the mark is about the witness, not the word', async () => {
+    const { emit } = renderFeed()
+    for (const event of scenarioEvents()) await emit(event)
+
+    // 43-lane carries two sessionlog rows (working, then waiting) — isolate
+    // the working one by its tag text, not by handle alone.
+    const workingRow = screen
+      .getAllByTestId('feed-entry')
+      .find(
+        (candidate) =>
+          candidate.dataset.kind === 'lane' &&
+          witnessOf(candidate) === 'sessionlog' &&
+          candidate.textContent?.includes('43-lane') &&
+          laneTagTextOf(candidate) === `${INFERRED_MARK} working`,
+      )
+    expect(workingRow).toBeDefined()
+    expect(laneTagTextOf(workingRow!)).toBe(`${INFERRED_MARK} working`)
+  })
+
+  it('a workmux row renders byte-identically to before the witness existed', async () => {
+    const events = scenarioEvents()
+    const workmuxWorking = events.find(
+      (event): event is Extract<RhizomorphEvent, { type: 'agent.status' }> =>
+        event.type === 'agent.status' &&
+        event.source === 'workmux' &&
+        event.payload.handle === '42-lane' &&
+        event.payload.status === 'working',
+    )
+    expect(workmuxWorking).toBeDefined()
+
+    const { emit } = renderFeed()
+    for (const event of events) await emit(event)
+
+    const row = screen
+      .getAllByTestId('feed-entry')
+      .find(
+        (candidate) =>
+          candidate.dataset.kind === 'lane' &&
+          witnessOf(candidate) === 'workmux' &&
+          candidate.textContent?.includes('42-lane') &&
+          candidate.textContent?.includes('working'),
+      )
+    expect(row).toBeDefined()
+    // The regression this issue demands: no witness word, no space added —
+    // exactly Clock text + tag + handle, the pre-#290 `LaneRow` shape (no
+    // ` · branch` because branch equals handle; no detail on this event).
+    expect(row!.textContent).toBe(`${formatClock(workmuxWorking!.ts)}working42-lane`)
+  })
+
+  it('the tag is total over the witness type', () => {
+    const _covered: Record<AgentStatusWitness, true> = { workmux: true, sessionlog: true }
+    expect(_covered).toEqual({ workmux: true, sessionlog: true })
   })
 })

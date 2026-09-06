@@ -116,7 +116,12 @@ describe('the staged-pathology fixture', () => {
 
     expect(evidenceFor(fleet, '41-retry-parser', 'looping')).toBe('Read→Edit→Bash ×6, no commit')
     expect(evidenceFor(fleet, '42-otel-receiver', 'frozen')).toMatch(/^no events for \d+m\d\ds$/)
-    expect(evidenceFor(fleet, '43-drawer-attach', 'waiting')).toMatch(/^workmux reports waiting /)
+    // prd-27 (#283): the staged waiting lane is now beacon-declared, with the
+    // roster's stale `working` voiced beside it — the race ruling 4 was
+    // written for (the hook fires before workmux's next poll turns over).
+    expect(evidenceFor(fleet, '43-drawer-attach', 'waiting')).toMatch(
+      /^beacon \(claude-hook\) declares waiting \S+ ago · workmux reports working$/,
+    )
     expect(evidenceFor(fleet, '44-scene-pulses', 'expensive')).toMatch(
       /^\d+ out-tok\/min, \d+\.\d× fleet median$/,
     )
@@ -136,10 +141,10 @@ describe('the staged-pathology fixture', () => {
     ])
   })
 
-  it('reports waiting as declared rather than inferred, because workmux said so', () => {
-    const waiting = laneIn(fleet, '43-drawer-attach').pathologies.find(
-      (pathology) => pathology.kind === 'waiting',
-    )
+  it('reports waiting as declared rather than inferred, because the harness said so (#283)', () => {
+    const lane = laneIn(fleet, '43-drawer-attach')
+    const waiting = lane.pathologies.find((pathology) => pathology.kind === 'waiting')
+    expect(lane.declared?.kind).toBe('waiting')
     expect(waiting?.inferred).toBe(false)
     expect(evidenceLine(waiting!)).not.toContain(INFERRED_MARK)
   })
@@ -784,6 +789,251 @@ describe('the second witness speaks (#281, ADR-0037)', () => {
     expect(lane.activity).toBe('done')
     expect(lane.rank).toBe('calm')
     expect(kindsFor(fleet, 'd3')).not.toContain('waiting')
+  })
+})
+
+// ── the harness says so (prd-27 rulings 3–4, #283) ──────────────────────────
+
+/**
+ * The third witness, end to end: a `beacon.received` line on the log →
+ * `SessionState.declared` → `Lane.declared` → `detectWaiting`. Ruling 4's
+ * asymmetry is four clauses and each is a test here, because each has a mirror
+ * that a fix for one of them silently breaks: a suppression that forgets the
+ * *sessionlog*-witnessed inference (#281's third witness) leaves an inferred
+ * WAITING no declaration can quiet; a `stopped` read as a `waiting` summons a
+ * lane that has simply finished.
+ *
+ * The last test is #133's shape in a new costume, and it is the one worth
+ * reading: a beacon naming a lane the fleet has never heard of must conjure
+ * **no lane** — a summons for a lane nobody can attach to is the false summons
+ * this instrument's scar tissue is made of.
+ */
+describe('the harness says so (prd-27 rulings 3–4, #283)', () => {
+  const WRITER = 'claude-hook'
+
+  /**
+   * Work old enough that the activity witness does not read `working`
+   * (`WAITING_QUIET_MS` is 75s), and recent enough that the lane is not FROZEN
+   * (`FROZEN_AFTER_MS` is 8m). Both bounds matter and each was found by a red
+   * test: past the frozen threshold, `diagnose` suppresses WAITING behind
+   * FROZEN and every assertion below goes vacuously undefined; inside the
+   * quiet threshold, `recent work reads working` joins the evidence and the
+   * byte-exact strings gain a clause they were not written for.
+   */
+  const QUIET_WORK_TS = NOW - 120_000
+
+  function scaffold(handle: string, discoveredAt: number): RhizomorphEvent[] {
+    return [
+      event('session.started', {
+        sessionId: `declared-${handle}`,
+        repoPath: '/repo',
+        repoName: 'rhizomorph',
+        mainBranch: 'main',
+      }, discoveredAt),
+      event('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, discoveredAt),
+      event('worktree.discovered', { path: `/repo-wt/${handle}`, branch: handle, head: `sha-${handle}`, isMain: false }, discoveredAt),
+    ]
+  }
+
+  /** One beacon line, as ADR-0036 shapes it: the writer's clock is the envelope `ts`. */
+  function beacon(handle: string | null, kind: string, ts: number): RhizomorphEvent {
+    return event('beacon.received', {
+      writer: WRITER,
+      kind,
+      lane: handle,
+      detail: 'hook: Notification',
+      digest: 'f'.repeat(64),
+      file: 'claude-hook.jsonl',
+      offset: 0,
+    }, ts)
+  }
+
+  /** Work old enough that no activity inference reads `working`. */
+  function oldWork(handle: string, ts: number): RhizomorphEvent {
+    return event('llm.usage', {
+      lane: handle,
+      role: 'worker',
+      model: 'claude-sonnet-4',
+      tokens: { input: 10, output: 20, cacheRead: 0, cacheCreation: 0 },
+      sessionId: `sess-${handle}`,
+      worktreePath: `/repo-wt/${handle}`,
+      branch: handle,
+      thread: 'main',
+    }, ts)
+  }
+
+  /**
+   * The pane-stillness inference's own shape, lifted from `detection honesty`
+   * above: quiet past the threshold, pane moving a moment ago, nobody
+   * declaring anything.
+   */
+  function paneInferred(handle: string, paneId: string): RhizomorphEvent[] {
+    return [
+      ...scaffold(handle, NOW - 600_000),
+      event('pane.discovered', { paneId, windowName: handle, currentPath: `/repo-wt/${handle}`, worktreePath: `/repo-wt/${handle}` }, NOW - 600_000),
+      event('worktree.dirty', { path: `/repo-wt/${handle}`, branch: handle, files: [{ path: 'a.ts', status: 'modified' }] }, NOW - 160_000),
+      event('pane.activity', { paneId, contentHash: 'h1' }, NOW - 5_000),
+    ]
+  }
+
+  function waitingIn(fleet: Fleet, id: string) {
+    return laneIn(fleet, id).pathologies.find((pathology) => pathology.kind === 'waiting')
+  }
+
+  it('(a) a declared waiting is WAITING, certain, since the beacon\'s at', () => {
+    const log = [
+      ...scaffold('q1', NOW - 600_000),
+      oldWork('q1', QUIET_WORK_TS),
+      beacon('q1', 'waiting', NOW - 40_000),
+    ]
+    const fleet = buildFleet(reduceAll(log), { now: NOW })
+    const waiting = waitingIn(fleet, 'q1')
+
+    expect(waiting?.inferred).toBe(false)
+    expect(waiting?.since).toBe(NOW - 40_000)
+    expect(waiting?.evidence).toBe('beacon (claude-hook) declares waiting 40s ago')
+    expect(laneIn(fleet, 'q1').declared).toEqual({ kind: 'waiting', at: NOW - 40_000, writer: WRITER })
+  })
+
+  it('(c1) an organ inferring working never suppresses a declared waiting — and the disagreement is voiced', () => {
+    const log = [
+      ...scaffold('q1', NOW - 600_000),
+      oldWork('q1', QUIET_WORK_TS),
+      beacon('q1', 'waiting', NOW - 40_000),
+      // Dated at the same quiet mark as the work, so the ORGAN is the only
+      // witness disagreeing here: an `agent.status` refreshes `lastWorkTs`, so
+      // a fresher one would also make the activity witness read `working` and
+      // append a second, equally true clause. That case is (c2)'s, one test
+      // down — this one isolates the organ.
+      event(
+        'agent.status',
+        { handle: 'q1', status: 'working', worktreePath: '/repo-wt/q1', branch: 'q1', detail: 'WORKING — tail pending-tool, quiet 3s, threshold 30s' },
+        QUIET_WORK_TS,
+        'sessionlog',
+      ),
+    ]
+    const waiting = waitingIn(buildFleet(reduceAll(log), { now: NOW }), 'q1')
+
+    expect(waiting?.inferred).toBe(false)
+    expect(waiting?.evidence).toBe('beacon (claude-hook) declares waiting 40s ago · transcript shape reads working')
+  })
+
+  it('(c2) recent activity never suppresses a declared waiting either', () => {
+    const log = [
+      ...scaffold('q1', NOW - 600_000),
+      oldWork('q1', NOW - 5_000),
+      beacon('q1', 'waiting', NOW - 40_000),
+    ]
+    const waiting = waitingIn(buildFleet(reduceAll(log), { now: NOW }), 'q1')
+
+    expect(waiting?.evidence).toBe('beacon (claude-hook) declares waiting 40s ago · recent work reads working')
+  })
+
+  it('(b1) a declared working newer than the last work quiets the pane-stillness inference', () => {
+    const log = [...paneInferred('b1', '%51'), beacon('b1', 'working', NOW - 5_000)]
+    expect(kindsFor(buildFleet(reduceAll(log), { now: NOW }), 'b1')).not.toContain('waiting')
+  })
+
+  it('(b2) …and quiets a transcript-shape inference too (#281)', () => {
+    const log = [
+      ...scaffold('b2', NOW - 600_000),
+      event(
+        'agent.status',
+        { handle: 'b2', status: 'waiting', worktreePath: '/repo-wt/b2', branch: 'b2', detail: 'WAITING — tail turn-complete, quiet 45s, threshold 30s' },
+        NOW - 60_000,
+        'sessionlog',
+      ),
+      beacon('b2', 'working', NOW - 10_000),
+    ]
+    expect(kindsFor(buildFleet(reduceAll(log), { now: NOW }), 'b2')).not.toContain('waiting')
+  })
+
+  it('(b3) a declared working OLDER than the last work quiets nothing, and says so', () => {
+    const log = [...paneInferred('b3', '%53'), beacon('b3', 'working', NOW - 300_000)]
+    const waiting = waitingIn(buildFleet(reduceAll(log), { now: NOW }), 'b3')
+
+    expect(waiting?.inferred).toBe(true)
+    expect(waiting?.evidence.endsWith(' · beacon (claude-hook) declared working 5m00s ago, before the last work')).toBe(true)
+  })
+
+  it('(d) a declared stopped is not WAITING and suppresses nothing', () => {
+    const alone = [
+      ...scaffold('d4', NOW - 600_000),
+      oldWork('d4', QUIET_WORK_TS),
+      beacon('d4', 'stopped', NOW - 20_000),
+    ]
+    expect(kindsFor(buildFleet(reduceAll(alone), { now: NOW }), 'd4')).not.toContain('waiting')
+
+    const beside = [...paneInferred('d5', '%54'), beacon('d5', 'stopped', NOW - 20_000)]
+    const waiting = waitingIn(buildFleet(reduceAll(beside), { now: NOW }), 'd5')
+    expect(waiting?.inferred).toBe(true)
+    expect(waiting?.evidence).toBe('quiet 2m40s, pane still alive')
+  })
+
+  it('between two declarations the newer word stands — in both directions', () => {
+    const rosterNewer = [
+      ...scaffold('n1', NOW - 600_000),
+      beacon('n1', 'waiting', NOW - 60_000),
+      event('agent.status', { handle: 'n1', status: 'working', worktreePath: '/repo-wt/n1', branch: 'n1' }, NOW - 5_000),
+    ]
+    expect(kindsFor(buildFleet(reduceAll(rosterNewer), { now: NOW }), 'n1')).not.toContain('waiting')
+
+    const beaconNewer = [
+      ...scaffold('n2', NOW - 600_000),
+      event('agent.status', { handle: 'n2', status: 'waiting', worktreePath: '/repo-wt/n2', branch: 'n2' }, NOW - 60_000),
+      beacon('n2', 'working', NOW - 5_000),
+    ]
+    expect(kindsFor(buildFleet(reduceAll(beaconNewer), { now: NOW }), 'n2')).not.toContain('waiting')
+  })
+
+  it('a workmux waiting with an OLDER beacon stopped voices the beacon beside it', () => {
+    const log = [
+      ...scaffold('n3', NOW - 600_000),
+      beacon('n3', 'stopped', NOW - 120_000),
+      event('agent.status', { handle: 'n3', status: 'waiting', worktreePath: '/repo-wt/n3', branch: 'n3' }, NOW - 90_000),
+    ]
+    const waiting = waitingIn(buildFleet(reduceAll(log), { now: NOW }), 'n3')
+
+    expect(waiting?.inferred).toBe(false)
+    expect(waiting?.evidence).toBe('workmux reports waiting 1m30s · beacon (claude-hook) declared stopped 2m00s ago')
+  })
+
+  it('a beacon for a handle the fleet does not know conjures no lane and no alarm (#133)', () => {
+    const base = [...scaffold('k1', NOW - 600_000), oldWork('k1', QUIET_WORK_TS)]
+    const without = buildFleet(reduceAll(base), { now: NOW })
+    const withGhost = buildFleet(reduceAll([...base, beacon('ghost-lane', 'waiting', NOW - 40_000)]), { now: NOW })
+
+    expect(withGhost.lanes.length).toBe(without.lanes.length)
+    expect(withGhost.lanes.map((lane) => lane.id)).toEqual(without.lanes.map((lane) => lane.id))
+    expect(withGhost.ladder.rank).toBe(without.ladder.rank)
+    for (const lane of withGhost.lanes) {
+      for (const pathology of lane.pathologies) expect(pathology.evidence).not.toContain('ghost-lane')
+    }
+  })
+
+  it('an unlaned beacon reaches no lane at all', () => {
+    const base = [...scaffold('k2', NOW - 600_000), oldWork('k2', QUIET_WORK_TS)]
+    const fleet = buildFleet(reduceAll([...base, beacon(null, 'waiting', NOW - 40_000)]), { now: NOW })
+
+    expect(laneIn(fleet, 'k2').declared).toBeNull()
+    expect(kindsFor(fleet, 'k2')).not.toContain('waiting')
+  })
+
+  it('a declared waiting on a worktree that has since been removed raises no summons (verify of #283)', () => {
+    // The beacon record outlives the lane: nothing in the fold retires it when
+    // the worktree goes. The alarm must not outlive the lane too — a summons
+    // for a lane nobody can attach to is #133's false summons in a new costume.
+    const log = [
+      ...scaffold('r1', NOW - 600_000),
+      oldWork('r1', QUIET_WORK_TS),
+      beacon('r1', 'waiting', NOW - 40_000),
+      event('worktree.removed', { path: '/repo-wt/r1' }, NOW - 30_000),
+    ]
+    const lane = laneIn(buildFleet(reduceAll(log), { now: NOW }), 'r1')
+
+    expect(lane.present).toBe(false)
+    expect(lane.declared?.kind).toBe('waiting') // the record is still there …
+    expect(kindsFor(buildFleet(reduceAll(log), { now: NOW }), 'r1')).not.toContain('waiting') // … the alarm is not
   })
 })
 

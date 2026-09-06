@@ -1,5 +1,12 @@
 import type { CollisionEntry, LaneSubagentActivity, TokenTotals, WaitingOnHumanSummary } from '../selectors/index.js'
-import type { AgentRole, AgentStatus, AgentStatusWitness, AgentThread, SpanDecision } from '../events/index.js'
+import type {
+  AgentRole,
+  AgentStatus,
+  AgentStatusWitness,
+  AgentThread,
+  BeaconAttentionKind,
+  SpanDecision,
+} from '../events/index.js'
 import type { LaneManifest, Trespass } from './fences.js'
 import type { LadderRank, Pathology, PathologyKind } from './pathology.js'
 
@@ -75,6 +82,15 @@ export interface Lane {
    * (prd-27 ruling 4, `detectWaiting`).
    */
   agentStatusWitness: AgentStatusWitness | null
+  /**
+   * prd-27 ruling 3 (#283): what the harness itself last declared for this
+   * lane, via a hook beacon (ADR-0036) — or `null` when no beacon ever named
+   * this lane's id. Joined by handle equality only: `SessionState.declared[lane.id]`
+   * (the identity join across spellings is w4's). `detectWaiting` believes a
+   * declared `waiting` outright and lets a newer declared `working` quiet an
+   * inference (ruling 4); `selectLaneCondition` voices any disagreement.
+   */
+  declared: { kind: BeaconAttentionKind; at: number; writer: string } | null
   activity: LaneActivity
 
   // work

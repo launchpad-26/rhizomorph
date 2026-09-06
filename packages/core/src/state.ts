@@ -4,6 +4,7 @@ import type {
   AgentStatusWitness,
   AgentThread,
   Author,
+  BeaconAttentionKind,
   DirtyFile,
   FileChange,
   ForkCheckpointCapturedBy,
@@ -944,6 +945,23 @@ function indexRefusalUnder(
   return { ...byInstance, [instance]: [...held, at] }
 }
 
+/**
+ * prd-27 ruling 3 (#283): the latest attention beacon a harness wrote for one
+ * lane, folded from `beacon.received` (ADR-0036) — only for the three kinds in
+ * `BEACON_ATTENTION_KINDS`; every other kind stays on the log unread. `at` is
+ * the writer's own clock (the event's `ts`); `digest`/`file`/`offset` point back
+ * at the line, the way the event does. A lane with no record here was never
+ * declared for — the fleet reads that as "nothing said", not as `stopped`.
+ */
+export interface DeclaredAttention {
+  kind: BeaconAttentionKind
+  at: number
+  writer: string
+  digest: string
+  file: string
+  offset: number
+}
+
 export interface SessionState {
   session: SessionInfo | null
   /** Branch everything is measured against; null until we learn it. */
@@ -977,6 +995,8 @@ export interface SessionState {
    * whose six-key shape is a pinned law. See {@link RefusalState}.
    */
   refusals: RefusalState
+  /** prd-27 ruling 3 (#283): declared attention per lane handle. Additive again — see {@link DeclaredAttention}. */
+  declared: Record<string, DeclaredAttention>
   eventCount: number
   firstEventTs: number | null
   lastEventTs: number | null
@@ -1002,6 +1022,7 @@ export function initialSessionState(): SessionState {
     forks: initialForkState(),
     judge: initialJudgeState(),
     refusals: initialRefusalState(),
+    declared: {},
     eventCount: 0,
     firstEventTs: null,
     lastEventTs: null,

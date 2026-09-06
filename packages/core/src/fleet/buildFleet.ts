@@ -298,6 +298,10 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
       ...(draft.branch === null ? [] : [draft.branch]),
       ...handles,
     ])
+    // prd-27 ruling 3 (#283): a beacon whose lane matches no draft id is simply
+    // never read — no lane, no alarm (the #133 shape: a summons for a lane
+    // nobody can attach to is a false summons in a new costume).
+    const declaredRecord = state.declared[draft.id]
 
     lanes.push({
       id: draft.id,
@@ -312,6 +316,10 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
       slot: 0, // assigned below, once every lane is known
       agentStatus: draft.agentStatus,
       agentStatusWitness: draft.agentStatusWitness,
+      declared:
+        declaredRecord === undefined
+          ? null
+          : { kind: declaredRecord.kind, at: declaredRecord.at, writer: declaredRecord.writer },
       activity: 'unknown',
 
       tokens: tokens?.tokens ?? ZERO_TOKEN_TOTALS,

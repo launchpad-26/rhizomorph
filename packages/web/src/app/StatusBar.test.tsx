@@ -60,7 +60,10 @@ function metaFetch(body: unknown, ok = true): NonNullable<StatusBarProps['fetchM
   return async () => ({ ok, json: async () => body })
 }
 
-function pill(container: HTMLElement, key: 'git' | 'tmux' | 'workmux' | 'sessionlog' | 'otel'): HTMLElement {
+function pill(
+  container: HTMLElement,
+  key: 'git' | 'tmux' | 'workmux' | 'sessionlog' | 'otel' | 'beacon',
+): HTMLElement {
   const el = container.querySelector(`[data-source="${key}"]`)
   if (el === null) throw new Error(`no pill for ${key}`)
   return el as HTMLElement
@@ -70,7 +73,7 @@ describe('StatusBar', () => {
   it('shows every source as waiting before any collector event or folded record arrives (prd19 ruling 4)', () => {
     const { container } = renderBar()
 
-    for (const key of ['git', 'tmux', 'workmux', 'sessionlog', 'otel'] as const) {
+    for (const key of ['git', 'tmux', 'workmux', 'sessionlog', 'otel', 'beacon'] as const) {
       expect(pill(container, key).dataset.health).toBe('waiting')
     }
   })
@@ -121,6 +124,56 @@ describe('StatusBar', () => {
     expect(tmux.dataset.health).toBe('errored')
     expect(tmux.title).toBe('capture-pane timed out')
     expect(tmux.getAttribute('aria-label')).toContain('capture-pane timed out')
+  })
+
+  /**
+   * prd-27 ruling 3 (#283). The Beacon pill is the one source whose flow does
+   * NOT come from `selectConnection` — `CONNECTION_SOURCES` is still five —
+   * so it needs its own proof that the fold reaches the bar. The second test
+   * is the one that matters: a pill wired to "any beacon arrived" rather than
+   * to declared attention passes the first and fails this one.
+   */
+  it('the Beacon pill reads waiting until a lane\'s attention is declared, then live', () => {
+    const { container, source } = renderBar()
+    const f = createEventFactory()
+
+    expect(pill(container, 'beacon').dataset.health).toBe('waiting')
+    expect(pill(container, 'beacon').getAttribute('aria-label')).toContain('Beacon')
+
+    act(() => {
+      source()?.emit(
+        f.beaconReceived({
+          writer: 'claude-hook',
+          kind: 'waiting',
+          lane: '2-core',
+          digest: 'a'.repeat(64),
+          file: 'claude-hook.jsonl',
+          offset: 0,
+        }),
+      )
+    })
+
+    expect(pill(container, 'beacon').dataset.health).toBe('live')
+  })
+
+  it('a beacon of a kind outside the vocabulary does not make the pill live', () => {
+    const { container, source } = renderBar()
+    const f = createEventFactory()
+
+    act(() => {
+      source()?.emit(
+        f.beaconReceived({
+          writer: 'gate',
+          kind: 'landed',
+          lane: '2-core',
+          digest: 'b'.repeat(64),
+          file: 'gate.jsonl',
+          offset: 0,
+        }),
+      )
+    })
+
+    expect(pill(container, 'beacon').dataset.health).toBe('waiting')
   })
 
   it('renders no gap voice while nothing has degraded', () => {

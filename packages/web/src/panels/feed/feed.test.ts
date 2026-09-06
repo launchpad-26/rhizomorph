@@ -148,6 +148,107 @@ describe('buildFeedEntries — coalesced collector.error count', () => {
   })
 })
 
+describe('buildFeedEntries — the witness (#290, ADR-0037)', () => {
+  it('a lane entry carries the envelope\'s source as its witness', () => {
+    const f = createEventFactory({ startTs: NOW - 60_000, stepMs: 60_000 })
+    f.sessionStarted()
+    f.worktreeDiscovered({ path: REPO, branch: 'main', head: 'sha-main-0', isMain: true })
+    f.worktreeDiscovered({ path: WT('42-lane'), branch: '42-lane', head: 'sha-42-0', isMain: false })
+    const declared = f.agentStatus(
+      { handle: '42-lane', status: 'working', worktreePath: WT('42-lane'), branch: '42-lane' },
+      { source: 'workmux' },
+    )
+    const inferred = f.agentStatus(
+      { handle: '42-lane', status: 'waiting', worktreePath: WT('42-lane'), branch: '42-lane' },
+      { source: 'sessionlog' },
+    )
+
+    const events = f.all()
+    const session = reduceAll(events)
+    const fleet = buildFleet(session, { now: NOW })
+    const laneIndex = buildLaneIndex(fleet.lanes)
+    const entries = buildFeedEntries(events, session, laneIndex, {
+      connectedAt: NOW,
+      newsGraceMs: NEWS_GRACE_MS,
+    })
+
+    const declaredEntry = entries.find((entry) => entry.kind === 'lane' && entry.id === `lane-${declared.id}`)
+    const inferredEntry = entries.find((entry) => entry.kind === 'lane' && entry.id === `lane-${inferred.id}`)
+    expect(declaredEntry).toMatchObject({ witness: 'workmux' })
+    expect(inferredEntry).toMatchObject({ witness: 'sessionlog' })
+  })
+
+  it('the witness is read from the envelope, never from detail', () => {
+    const f = createEventFactory({ startTs: NOW - 60_000, stepMs: 60_000 })
+    f.sessionStarted()
+    f.worktreeDiscovered({ path: REPO, branch: 'main', head: 'sha-main-0', isMain: true })
+    f.worktreeDiscovered({ path: WT('42-lane'), branch: '42-lane', head: 'sha-42-0', isMain: false })
+    // A workmux event carrying the organ's own phrasing as its `detail` — a
+    // witness derived from `detail`'s shape would misread this as inferred.
+    const declared = f.agentStatus(
+      {
+        handle: '42-lane',
+        status: 'waiting',
+        worktreePath: WT('42-lane'),
+        branch: '42-lane',
+        detail: 'WAITING — tail turn-complete, quiet 45s, threshold 30s',
+      },
+      { source: 'workmux' },
+    )
+    // A sessionlog event with no detail at all.
+    const inferred = f.agentStatus(
+      { handle: '42-lane', status: 'waiting', worktreePath: WT('42-lane'), branch: '42-lane' },
+      { source: 'sessionlog' },
+    )
+
+    const events = f.all()
+    const session = reduceAll(events)
+    const fleet = buildFleet(session, { now: NOW })
+    const laneIndex = buildLaneIndex(fleet.lanes)
+    const entries = buildFeedEntries(events, session, laneIndex, {
+      connectedAt: NOW,
+      newsGraceMs: NEWS_GRACE_MS,
+    })
+
+    const declaredEntry = entries.find((entry) => entry.kind === 'lane' && entry.id === `lane-${declared.id}`)
+    const inferredEntry = entries.find((entry) => entry.kind === 'lane' && entry.id === `lane-${inferred.id}`)
+    expect(declaredEntry).toMatchObject({ witness: 'workmux' })
+    expect(inferredEntry).toMatchObject({ witness: 'sessionlog' })
+  })
+
+  it('sibling: the two witnesses resolve to the same lane even when they disagree about the branch', () => {
+    const f = createEventFactory({ startTs: NOW - 60_000, stepMs: 60_000 })
+    f.sessionStarted()
+    f.worktreeDiscovered({ path: REPO, branch: 'main', head: 'sha-main-0', isMain: true })
+    f.worktreeDiscovered({ path: WT('42-lane'), branch: '42-lane', head: 'sha-42-0', isMain: false })
+    f.agentStatus(
+      { handle: '42-lane', status: 'working', worktreePath: WT('42-lane'), branch: '42-lane' },
+      { source: 'workmux' },
+    )
+    // The sessionlog organ's own reading of the branch — a branch the fleet
+    // never discovered a worktree for.
+    f.agentStatus(
+      { handle: '42-lane', status: 'waiting', worktreePath: WT('42-lane'), branch: 'feature/42-renamed' },
+      { source: 'sessionlog' },
+    )
+
+    const events = f.all()
+    const session = reduceAll(events)
+    const fleet = buildFleet(session, { now: NOW })
+    const laneIndex = buildLaneIndex(fleet.lanes)
+    const entries = buildFeedEntries(events, session, laneIndex, {
+      connectedAt: NOW,
+      newsGraceMs: NEWS_GRACE_MS,
+    })
+
+    const laneEntries = entries.filter((entry) => entry.kind === 'lane')
+    expect(laneEntries).toHaveLength(2)
+    expect(laneEntries.every((entry) => entry.laneId !== null)).toBe(true)
+    const laneIds = new Set(laneEntries.map((entry) => entry.laneId))
+    expect(laneIds.size).toBe(1)
+  })
+})
+
 describe('filterFeedEntries', () => {
   it('narrows to the selected kinds', () => {
     const { events, session, laneIndex } = buildScenario()

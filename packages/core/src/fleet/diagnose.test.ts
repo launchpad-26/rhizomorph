@@ -53,6 +53,7 @@ function laneWith(trespasses: Trespass[]): Lane {
     activity: 'working',
     present: true,
     parked: false,
+    declared: null,
     pathologies: [],
   } as unknown as Lane
 }
@@ -160,6 +161,7 @@ describe('WAITING names its witness (#281, ADR-0037)', () => {
       recentTools: [],
       outputPerMin: 1,
       activity: 'waiting',
+      declared: null,
       pathologies: [],
     } as unknown as Lane
   }
@@ -211,5 +213,171 @@ describe('WAITING names its witness (#281, ADR-0037)', () => {
     expect(waitingEvidence(waitingLane('sessionlog'), { agentStatusDetail: null })).toBe(
       'transcript shape: no reading recorded',
     )
+  })
+})
+
+/**
+ * THE THIRD WITNESS, AT THE DETECTOR (prd-27 rulings 3–4, #283).
+ *
+ * `buildFleet.test.ts` proves the same asymmetry end-to-end through a real
+ * event log; this block pins the **strings** at `detectWaiting`'s own level,
+ * byte for byte, because the disagreement voice is a rendered sentence and
+ * "deterministic to the byte" is the ruling's own wording. A regression that
+ * only changes the wording is invisible to a `kind === 'waiting'` assertion
+ * and reddens here.
+ */
+describe('detectWaiting through diagnose() — the declared voice, byte-exact (prd-27, #283)', () => {
+  const WRITER = 'claude-hook'
+
+  /**
+   * A lane with no roster word and no fresh *work*, but very much alive: the
+   * pane inference cannot fire (no `paneActivityTs`), so whatever comes back is
+   * the beacon's doing.
+   *
+   * `ageMs` is deliberately small while `workAgeMs` is large — the work-age /
+   * liveness-age split `detectWaiting` is built on. A lane whose *events* are
+   * `FROZEN_AFTER_MS` old is FROZEN, and `diagnose` suppresses WAITING behind
+   * FROZEN by design (silence means exactly one thing), which would make every
+   * assertion in this block vacuously `undefined`.
+   */
+  function declaredLane(overrides: Partial<Lane> = {}): Lane {
+    return {
+      id: '283-declared',
+      fenced: false,
+      trespasses: [],
+      agentStatus: null,
+      agentStatusWitness: null,
+      present: true,
+      parked: false,
+      telemetryOnly: false,
+      lastEventTs: NOW - 1_000,
+      ageMs: 1_000,
+      lastWorkTs: NOW - 10 * 60_000,
+      workAgeMs: 10 * 60_000,
+      recentTools: [],
+      outputPerMin: 1,
+      activity: 'idle',
+      declared: null,
+      pathologies: [],
+      ...overrides,
+    } as unknown as Lane
+  }
+
+  function waiting(lane: Lane, overrides: Partial<DiagnoseContext> = {}) {
+    return diagnose(lane, { ...ctx(), ...overrides }).find((pathology) => pathology.kind === 'waiting')
+  }
+
+  /** The pane-stillness inference's shape: quiet past the threshold, pane still moving. */
+  function paneInferredLane(overrides: Partial<Lane> = {}): Lane {
+    return declaredLane({ lastWorkTs: NOW - 160_000, workAgeMs: 160_000, ...overrides })
+  }
+  const PANE_FRESH: Partial<DiagnoseContext> = { paneActivityTs: NOW - 1_000 }
+
+  it('(a) a declared waiting is a certain WAITING since the beacon fired', () => {
+    const found = waiting(declaredLane({ declared: { kind: 'waiting', at: NOW - 40_000, writer: WRITER } }))
+    expect(found?.evidence).toBe('beacon (claude-hook) declares waiting 40s ago')
+    expect(found?.inferred).toBe(false)
+    expect(found?.since).toBe(NOW - 40_000)
+  })
+
+  it('(c1) an organ inferring working never suppresses it — the disagreement is voiced', () => {
+    const found = waiting(
+      declaredLane({
+        declared: { kind: 'waiting', at: NOW - 40_000, writer: WRITER },
+        agentStatus: 'working',
+        agentStatusWitness: 'sessionlog',
+      }),
+    )
+    expect(found?.evidence).toBe('beacon (claude-hook) declares waiting 40s ago · transcript shape reads working')
+    expect(found?.inferred).toBe(false)
+  })
+
+  it('(c2) recent work never suppresses it either, and says so', () => {
+    const found = waiting(
+      declaredLane({
+        declared: { kind: 'waiting', at: NOW - 40_000, writer: WRITER },
+        lastWorkTs: NOW - 5_000,
+        workAgeMs: 5_000,
+      }),
+    )
+    expect(found?.evidence).toBe('beacon (claude-hook) declares waiting 40s ago · recent work reads working')
+  })
+
+  it('(b3) a declared working OLDER than the last work quiets nothing, and the inference says why', () => {
+    const found = waiting(
+      paneInferredLane({ declared: { kind: 'working', at: NOW - 300_000, writer: WRITER } }),
+      PANE_FRESH,
+    )
+    expect(found?.evidence).toBe(
+      'quiet 2m40s, pane still alive · beacon (claude-hook) declared working 5m00s ago, before the last work',
+    )
+    expect(found?.inferred).toBe(true)
+  })
+
+  /**
+   * (b3)'s sibling against the *other* inference. `staleDeclaredWorking` is
+   * appended in two places — the transcript-shape arm and the pane-stillness
+   * arm — and (b3) above only ever exercised the second, so dropping the
+   * clause from the sessionlog arm alone left the suite green (review of #296).
+   */
+  it('(b3, sibling) a stale declared working is named on the transcript-shape inference too (#281)', () => {
+    const found = waiting(
+      paneInferredLane({
+        agentStatus: 'waiting',
+        agentStatusWitness: 'sessionlog',
+        declared: { kind: 'working', at: NOW - 300_000, writer: WRITER },
+      }),
+    )
+    expect(found?.evidence).toBe(
+      'transcript shape: no reading recorded · beacon (claude-hook) declared working 5m00s ago, before the last work',
+    )
+    expect(found?.inferred).toBe(true)
+  })
+
+  it('(b1) a declared working NEWER than the last work quiets the pane inference outright', () => {
+    const found = waiting(
+      paneInferredLane({ declared: { kind: 'working', at: NOW - 5_000, writer: WRITER } }),
+      PANE_FRESH,
+    )
+    expect(found).toBeUndefined()
+  })
+
+  it('(d) a declared stopped alarms nothing and appends nothing to an inference that stands', () => {
+    const alone = waiting(declaredLane({ declared: { kind: 'stopped', at: NOW - 20_000, writer: WRITER } }))
+    expect(alone).toBeUndefined()
+
+    const beside = waiting(
+      paneInferredLane({ declared: { kind: 'stopped', at: NOW - 20_000, writer: WRITER } }),
+      PANE_FRESH,
+    )
+    expect(beside?.evidence).toBe('quiet 2m40s, pane still alive')
+    expect(beside?.inferred).toBe(true)
+  })
+
+  it('a workmux waiting with an older beacon stopped voices the beacon beside it', () => {
+    const found = waiting(
+      declaredLane({
+        agentStatus: 'waiting',
+        agentStatusWitness: 'workmux',
+        declared: { kind: 'stopped', at: NOW - 120_000, writer: WRITER },
+      }),
+      { agentStatusTs: NOW - 90_000 },
+    )
+    expect(found?.evidence).toBe('workmux reports waiting 1m30s · beacon (claude-hook) declared stopped 2m00s ago')
+    expect(found?.inferred).toBe(false)
+  })
+
+  /**
+   * The `lane.present` guard on clause (a), pinned (verify of #283: dropping it
+   * left every test green). A beacon record stands in `state.declared` for as
+   * long as the session does, but a worktree that has been removed has landed —
+   * the same honesty exemption FROZEN and the workmux arm apply — so a declared
+   * `waiting` on an absent lane must not summon anyone to a lane nobody can
+   * attach to (#133's shape). Without this, every landed lane whose last word
+   * was `waiting` would raise a hand forever.
+   */
+  it('(a) a declared waiting on a removed worktree raises no summons — the record outlives the lane, the alarm must not', () => {
+    const found = waiting(declaredLane({ present: false, declared: { kind: 'waiting', at: NOW - 40_000, writer: WRITER } }))
+    expect(found).toBeUndefined()
   })
 })
