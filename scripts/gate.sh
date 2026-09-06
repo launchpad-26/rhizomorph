@@ -152,7 +152,8 @@ print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$GATE_OUTFIL
   # this very function, so it is ONE other invocation — the NUL-byte counter —
   # plus that presence check. The conclusion is unchanged and in fact stronger,
   # since a presence check that aborts is a better argument than a count.
-  python3 -c 'import json,sys,time
+
+  verdict_line=$(python3 -c 'import json,sys,time
 lane, held, reason, digest, load = sys.argv[1:6]
 line = {"v": 1, "at": int(time.time() * 1000), "writer": "gate", "kind": "gate.verdict",
         "lane": lane, "held": held == "true", "reason": reason}
@@ -160,7 +161,47 @@ if digest:
     line["outputDigest"] = digest
 if load != "0":
     line["loadBatches"] = int(load)
-print(json.dumps(line, separators=(",", ":")))' "$H" "$held" "$reason" "$digest" "${LOAD:-0}" 2>/dev/null
+print(json.dumps(line, separators=(",", ":")))' "$H" "$held" "$reason" "$digest" "${LOAD:-0}" 2>/dev/null)
+  VERDICT_LINE_RC=$?
+  printf '%s\n' "$verdict_line"
+
+  # prd17 w5 (#274): the line just printed above also has to reach the
+  # beacon directory a collector tails (ADR-0036), not only stdout — the
+  # SAME bytes, from the SAME variable, never re-derived by a second call
+  # (a second python3 invocation would mint its own "at" and produce a
+  # different line, which the collector would then see as two beacons for
+  # one landing rather than one beacon reaching two doors).
+  #
+  # The directory itself is RESOLVED, never re-derived here: repoSlug()
+  # hashes the absolute repo path, so a hand-built "$root/beacons"-shaped
+  # guess would collide for any two repos sharing a basename. beaconDirFor()
+  # itself (packages/server/src/collectors/beacon/paths.ts) is TypeScript;
+  # tsx — already a devDependency of packages/server, the same runtime its
+  # own `dev` script launches with — evaluates a loader that imports it by
+  # an absolute path passed through the environment, never interpolated
+  # into the JS text (the branch-name/JSON-escaping lesson a few lines
+  # above, paid for once already, applies here too).
+  #
+  # A write failure past this point is reported, never fatal (issue #274's
+  # DoD): the landing tool's job is to land, and a full disk or an
+  # unwritable directory must not turn a clean gate into a held one.
+  beacon_dir=$(REPO_PATH="$root" MODULE_PATH="$root/packages/server/src/collectors/beacon/paths.ts" \
+    npx --no-install tsx -e '
+      import(process.env.MODULE_PATH).then(
+        (m) => { process.stdout.write(m.beaconDirFor(process.env.REPO_PATH)) },
+        () => { process.exitCode = 1 }
+      )
+    ' 2>/dev/null)
+  BEACON_DIR_RC=$?
+  if [ "$VERDICT_LINE_RC" -ne 0 ] || [ -z "$verdict_line" ]; then
+    : # nothing to append — python3's own failure mode stays out of scope here (#273 round 2's "no hand-built fallback")
+  elif [ "$BEACON_DIR_RC" -ne 0 ] || [ -z "$beacon_dir" ]; then
+    echo "  ! gate: could not resolve the beacon directory (rc=$BEACON_DIR_RC) — this landing will not reach the beacon collector" >&2
+  elif ! mkdir -p "$beacon_dir" 2>/dev/null; then
+    echo "  ! gate: could not create beacon directory $beacon_dir — this landing will not reach the beacon collector" >&2
+  elif ! printf '%s\n' "$verdict_line" >>"$beacon_dir/gate.jsonl" 2>/dev/null; then
+    echo "  ! gate: could not append the verdict to $beacon_dir/gate.jsonl — this landing will not reach the beacon collector" >&2
+  fi
 
   # Every other mktemp in this script is cleaned; this one was not, so each
   # landing left a full copy of the gate's output in /tmp (review of #273).

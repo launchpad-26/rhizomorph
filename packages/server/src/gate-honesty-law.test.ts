@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
 import { beaconReceivedPayloadSchema } from '@rhizomorph/core'
 import { parseBeaconLine } from './collectors/beacon/parse-beacon-line.js'
+import { beaconDirFor } from './collectors/beacon/paths.js'
 
 /**
  * #42's law — a guard in the landing tool may not print a verdict it did not
@@ -961,7 +962,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     expect(undeclared.map((u) => `${u.index + 1}: ${u.line.trim()}`), 'undeclared unchecked producer(s) in scripts/gate.sh — fix the shape (see the :82 commit-count fix below) or add a DECLARED_TOLERANCES entry with a reason').toEqual([])
   })
 
-  it('EXECUTED — the measured false-positive rate on the real file, RE-DERIVED after #179 widened the predicate and #273 added the verdict output-capture producer: still 1 of 18 flagged, it is declared, 0 undeclared', () => {
+  it('EXECUTED — the measured false-positive rate on the real file, RE-DERIVED after #179 widened the predicate, #273 added the verdict output-capture producer, and #274 added two more: still 1 of 20 flagged, it is declared, 0 undeclared', () => {
     // findAllProducers, not a codeLines()+regex filter: the widened predicate
     // recognises multi-line producers that a per-line filter cannot even
     // represent (row 7), so the count of "producers" and the count of
@@ -976,13 +977,23 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     // table above) today, so widening the predicate finds nothing NEW here —
     // it only means a FUTURE line written that way would now be seen. Proven
     // by count, not assumed: this would move the moment such a line landed.
-    expect(allProducers.length, 'total producers (any spelling) in scripts/gate.sh drifted — the doc comment above cites this count').toBe(18)
+    //
+    // 18 -> 20 (#274): `emit_gate_verdict` gained two producers when the
+    // beacon write landed — `verdict_line=$(python3 ...)` (capturing the
+    // line that used to be printed directly, uncaptured, so it could also be
+    // appended byte-for-byte to the beacon file) and
+    // `beacon_dir=$(... npx ... tsx ...)` (resolving beaconDirFor() rather
+    // than re-deriving its path in shell). Both are CHECKED, not flagged: each
+    // is followed on the very next line by its own bare `_RC=$?` capture
+    // (`VERDICT_LINE_RC=$?`, `BEACON_DIR_RC=$?`), so `unchecked` does not
+    // move — see the next-line bucket below, which is where both land.
+    expect(allProducers.length, 'total producers (any spelling) in scripts/gate.sh drifted — the doc comment above cites this count').toBe(20)
     expect(unchecked.length, 'flagged (structurally unchecked) count drifted — the doc comment above cites this count').toBe(1)
     expect(undeclared.length).toBe(0)
 
-    // The doc comment's OTHER numbers, pinned for the first time. The
-    // revision before this one got all three wrong precisely because only
-    // the totals were pinned.
+    // The doc comment's OTHER numbers, pinned since #179. The revision before
+    // that one got all three wrong precisely because only the totals were
+    // pinned.
     //
     // `!p.hasKeywordPrefix` on both buckets: a keyword-prefixed producer
     // whose TAIL merely LOOKS like `|| fail` (or is followed by a `_RC=$?`
@@ -992,10 +1003,15 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     // No live instance changes today (gate.sh has no keyword-prefixed
     // producer), but the filters must agree with the real classification
     // rather than happen to agree by the accident of an empty case.
+    //
+    // 5 -> 7 (#274): both new producers land in the NEXT-LINE bucket, not
+    // same-line — `verdict_line=$(...)` and `beacon_dir=$(...)` are each
+    // checked by a bare `_RC=$?` assignment on the line right after them,
+    // never by a `||`-shaped tail on the same line. `sameLine` is unmoved.
     const sameLine = allProducers.filter((p) => !p.hasKeywordPrefix && tailChecksStatus(p.tail))
     const nextLine = allProducers.filter((p) => !p.hasKeywordPrefix && !tailChecksStatus(p.tail) && nextLineCapturesRC(LINES[p.endLineIndex + 1]))
     expect(sameLine.length, 'same-line-checked count drifted — the doc comment above cites it').toBe(12)
-    expect(nextLine.length, 'next-line _RC=$? count drifted — the doc comment above cites it').toBe(5)
+    expect(nextLine.length, 'next-line _RC=$? count drifted — the doc comment above cites it').toBe(7)
     expect(sameLine.length + nextLine.length + unchecked.length).toBe(allProducers.length)
   })
 
@@ -3468,6 +3484,183 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(raw.held).toBe(true)
       expect(raw.reason).toBe('suite-red')
       expect(typeof raw.outputDigest).toBe('string')
+    })
+
+    /**
+     * prd17 w5 (#274) — the SAME verdict line also has to reach `gate.jsonl`
+     * in the beacon directory (ADR-0036), not only stdout. Every fixture
+     * above runs `VERDICT_MACHINERY` with no `root` set at all, so every one
+     * of them takes the "could not resolve the beacon directory" branch —
+     * none of them ever reaches the write. That gap is the reason this
+     * describe block exists: it is the only place in this file that sets
+     * `root` to something real (`REPO_ROOT`, so `npx tsx` can actually
+     * resolve `beaconDirFor()` from `packages/server/src/collectors/beacon/
+     * paths.ts`) and points `RHIZOMORPH_DATA_DIR` at a scratch directory, so
+     * the write lands somewhere disposable rather than a developer's real
+     * `~/.local/share/rhizomorph`.
+     *
+     * `beaconDirFor` is imported directly (the real function, not a
+     * restatement of its hash-and-join) to compute the expected path in
+     * each assertion below — the same "reuse, never reimplement" rule this
+     * file holds every other fixture to.
+     */
+    describe('prd17 w5 (#274) — the same verdict line also reaches gate.jsonl in the beacon directory', () => {
+      /** `root=$REPO_ROOT` (so `npx tsx` resolves the real module) and `RHIZOMORPH_DATA_DIR` pointed at a scratch dir (so the write never touches a real machine's data root) — both absent from `runVerdict` above by design. */
+      function runVerdictWithBeacon(setup: string, dataRoot: string): FragmentResult & { h: string } {
+        const h = `verdict-beacon-${process.pid}-${Math.random().toString(36).slice(2, 8)}`
+        const script =
+          `#!/bin/bash\n${SHELL_OPTS}\nH=${h}\nroot="${REPO_ROOT}"\nexport RHIZOMORPH_DATA_DIR="${dataRoot}"\n` +
+          `${VERDICT_MACHINERY}\n${setup}\n`
+        // cwd is REPO_ROOT, not a scratch dir: `npx --no-install tsx` resolves
+        // its binary by walking UP from cwd through node_modules, which a
+        // fresh scratchDir (usually under /tmp) never reaches. This is the
+        // one fixture in the file that needs the real tree as its cwd rather
+        // than a disposable one.
+        const res = runFragment(script, REPO_ROOT)
+        return { ...res, h }
+      }
+
+      it('EXECUTED — a fresh data root (no beacons/ directory yet) gets one created, and gate.jsonl holds byte-for-byte the same line just printed', () => {
+        const dataRoot = scratchDir('beacon-fresh')
+        const beaconDir = beaconDirFor(REPO_ROOT, dataRoot)
+        expect(existsSync(beaconDir), 'test setup: the directory must be genuinely absent for this to be the fresh-install case ADR-0036 names').toBe(false)
+
+        const { stdout, status } = runVerdictWithBeacon('echo "  build OK"\nMERGED=1\nemit_gate_verdict clean', dataRoot)
+        expect(status).toBe(0)
+        const printed = lastLine(stdout)
+        expect(JSON.parse(printed)).toMatchObject({ v: 1, writer: 'gate', kind: 'gate.verdict', held: false, reason: 'clean' })
+
+        const beaconFile = join(beaconDir, 'gate.jsonl')
+        expect(existsSync(beaconFile), 'gate.jsonl must exist after a landing — the directory-creation step must have run').toBe(true)
+        // Byte-for-byte, not "parses to the same object": the whole design
+        // decision (captured once into `verdict_line`, never re-derived by a
+        // second python3 call) is that stdout and the beacon file carry the
+        // IDENTICAL bytes, not merely equivalent JSON.
+        expect(readFileSync(beaconFile, 'utf8')).toBe(`${printed}\n`)
+      })
+
+      it('EXECUTED — a held (pre-merge fail) verdict reaches gate.jsonl too, not only a clean landing', () => {
+        const dataRoot = scratchDir('beacon-held')
+        const beaconDir = beaconDirFor(REPO_ROOT, dataRoot)
+        const { stdout } = runVerdictWithBeacon('fail "boom" suite-red', dataRoot)
+        const printed = lastLine(stdout)
+        expect(JSON.parse(printed)).toMatchObject({ held: true, reason: 'suite-red' })
+        expect(readFileSync(join(beaconDir, 'gate.jsonl'), 'utf8')).toBe(`${printed}\n`)
+      })
+
+      it('EXECUTED — a second landing appends a second line rather than rewriting the first', () => {
+        const dataRoot = scratchDir('beacon-append')
+        const first = lastLine(runVerdictWithBeacon('fail "first" suite-red', dataRoot).stdout)
+        const second = lastLine(runVerdictWithBeacon('fail "second" typecheck-red', dataRoot).stdout)
+        const contents = readFileSync(join(beaconDirFor(REPO_ROOT, dataRoot), 'gate.jsonl'), 'utf8')
+        expect(contents).toBe(`${first}\n${second}\n`)
+      })
+
+      /**
+       * MUTATION 1 (the issue's own words): "make the write a no-op and
+       * assert only that the gate still exits 0. That passes." Proven here
+       * against the REAL extracted machinery with one line mutated, so the
+       * fixture is exercising the actual defect shape rather than an
+       * imagined one — and the test above it is what the mutation reddens.
+       */
+      it('MUTATION — a no-op write still exits 0; only reading gate.jsonl back catches it', () => {
+        const appendLine = 'printf \'%s\\n\' "$verdict_line" >>"$beacon_dir/gate.jsonl" 2>/dev/null'
+        expect(VERDICT_MACHINERY, 'the real append line must still be present for this mutation to say anything').toContain(appendLine)
+        // `true`, not `: # comment` — the real line sits inside `elif ! <CMD>;
+        // then`, so a trailing `#` here would swallow the rest of that
+        // physical line (the `; then`) into a comment and break the syntax.
+        // `elif ! true; then` is itself the no-op this mutation models: the
+        // condition always succeeds, so the warning never fires and — the
+        // point — nothing is ever appended either.
+        const noop = VERDICT_MACHINERY.replace(appendLine, 'true')
+        expect(noop).not.toBe(VERDICT_MACHINERY)
+
+        const dataRoot = scratchDir('beacon-noop-mutation')
+        const script =
+          `#!/bin/bash\n${SHELL_OPTS}\nH=noop-mutant\nroot="${REPO_ROOT}"\nexport RHIZOMORPH_DATA_DIR="${dataRoot}"\n` +
+          `${noop}\necho "  build OK"\nMERGED=1\nemit_gate_verdict clean\n`
+        const res = runFragment(script, REPO_ROOT)
+        // The weak assertion — exactly what the issue warns is insufficient.
+        expect(res.status, 'a no-op write must not be fatal — this alone is not proof the write happened').toBe(0)
+        // The assertion that actually catches it: the file the real test
+        // above requires to exist and match does neither.
+        expect(existsSync(join(beaconDirFor(REPO_ROOT, dataRoot), 'gate.jsonl')), 'the mutation deleted the write — exit-status-only coverage is blind to this').toBe(false)
+      })
+
+      /**
+       * MUTATION 2 (the issue's own words): "delete the directory-creation
+       * step. On a machine that has run the instrument before, the directory
+       * already exists and every test stays green — so the test has to run
+       * against a data root that does not have one yet." Both halves proven
+       * here: the SAME mutation is invisible on a warm data root and fatal
+       * to the write on a genuinely fresh one.
+       */
+      it('MUTATION — deleting mkdir passes on a machine that already has the directory, and only reddens against a genuinely fresh data root', () => {
+        const mkdirLine = 'mkdir -p "$beacon_dir" 2>/dev/null'
+        expect(VERDICT_MACHINERY, 'the real mkdir line must still be present for this mutation to say anything').toContain(mkdirLine)
+        // Same reasoning as the no-op mutation above: this line also sits
+        // inside `elif ! <CMD>; then`, so the replacement must not carry a
+        // trailing `#` comment. `true` models "directory creation removed
+        // but reported as having succeeded."
+        const noMkdir = VERDICT_MACHINERY.replace(mkdirLine, 'true')
+        expect(noMkdir).not.toBe(VERDICT_MACHINERY)
+
+        // Warm: the directory already exists (a machine that ran the
+        // instrument before) — the mutation is INVISIBLE here, which is
+        // exactly the trap the issue names.
+        const warmDataRoot = scratchDir('beacon-mkdir-mutation-warm')
+        const warmBeaconDir = beaconDirFor(REPO_ROOT, warmDataRoot)
+        mkdirSync(warmBeaconDir, { recursive: true })
+        const warmScript =
+          `#!/bin/bash\n${SHELL_OPTS}\nH=mkdir-mutant-warm\nroot="${REPO_ROOT}"\nexport RHIZOMORPH_DATA_DIR="${warmDataRoot}"\n` +
+          `${noMkdir}\necho "  build OK"\nMERGED=1\nemit_gate_verdict clean\n`
+        const warmRes = runFragment(warmScript, REPO_ROOT)
+        expect(warmRes.status).toBe(0)
+        expect(existsSync(join(warmBeaconDir, 'gate.jsonl')), 'on a warm machine the mutation is invisible — this is the trap the issue names, not a bug in this test').toBe(true)
+
+        // Fresh: no pre-existing directory. The SAME mutation now leaves the
+        // write with nowhere to append to.
+        const freshDataRoot = scratchDir('beacon-mkdir-mutation-fresh')
+        const freshBeaconDir = beaconDirFor(REPO_ROOT, freshDataRoot)
+        expect(existsSync(freshBeaconDir)).toBe(false)
+        const freshScript =
+          `#!/bin/bash\n${SHELL_OPTS}\nH=mkdir-mutant-fresh\nroot="${REPO_ROOT}"\nexport RHIZOMORPH_DATA_DIR="${freshDataRoot}"\n` +
+          `${noMkdir}\necho "  build OK"\nMERGED=1\nemit_gate_verdict clean\n`
+        const freshRes = runFragment(freshScript, REPO_ROOT)
+        expect(freshRes.status, 'the write staying non-fatal is correct even under this mutation — the DoD asks for that much').toBe(0)
+        expect(existsSync(join(freshBeaconDir, 'gate.jsonl')), 'without directory creation, a genuinely fresh data root must show the beacon missing').toBe(false)
+      })
+
+      /**
+       * A third mutation, not named by the issue but the direct converse of
+       * the "same bytes, never re-derived" design decision this file's own
+       * comments make: if the append line diverged from the printed line —
+       * a stray extra call, a re-serialised copy, a differently-escaped
+       * `$verdict_line` — nothing above catches it unless the comparison is
+       * BYTE-FOR-BYTE. Proven by planting exactly that divergence.
+       */
+      it('MUTATION — an append that writes something OTHER than the printed line reddens the byte-for-byte check', () => {
+        const appendLine = 'printf \'%s\\n\' "$verdict_line" >>"$beacon_dir/gate.jsonl" 2>/dev/null'
+        expect(VERDICT_MACHINERY).toContain(appendLine)
+        const diverged = VERDICT_MACHINERY.replace(
+          appendLine,
+          'printf \'%s\\n\' "{\\"v\\":1,\\"writer\\":\\"gate\\",\\"kind\\":\\"gate.verdict\\",\\"mutated\\":true}" >>"$beacon_dir/gate.jsonl" 2>/dev/null',
+        )
+        expect(diverged).not.toBe(VERDICT_MACHINERY)
+
+        const dataRoot = scratchDir('beacon-divergent-mutation')
+        const script =
+          `#!/bin/bash\n${SHELL_OPTS}\nH=divergent-mutant\nroot="${REPO_ROOT}"\nexport RHIZOMORPH_DATA_DIR="${dataRoot}"\n` +
+          `${diverged}\necho "  build OK"\nMERGED=1\nemit_gate_verdict clean\n`
+        const res = runFragment(script, REPO_ROOT)
+        expect(res.status).toBe(0)
+        const printed = lastLine(res.stdout)
+        const written = readFileSync(join(beaconDirFor(REPO_ROOT, dataRoot), 'gate.jsonl'), 'utf8')
+        // A schema-shape or "it parses" check would pass here too — `written`
+        // is valid, v1-shaped JSON. Only the exact-bytes comparison the real
+        // test above makes tells them apart.
+        expect(written).not.toBe(`${printed}\n`)
+      })
     })
   })
 })
