@@ -151,67 +151,127 @@ export function isTerminalDone(lane: Lane): boolean {
 // answer can no longer possibly land.
 
 /**
- * WAITING — stopped with its hand up. **Certain** when workmux declared it;
- * otherwise inferred from a quiet lane whose pane is still moving, and marked
- * as inferred, because a pane heartbeat is a weaker signal than a declaration
- * (ruling 18's detection-honesty clause).
+ * WAITING — three witnesses, one asymmetry (prd-27 ruling 4, #283).
+ *
+ * A *declaration* is a harness or the rig saying so: a hook beacon
+ * (`lane.declared`, ADR-0036) or workmux's roster (`agentStatusWitness ===
+ * 'workmux'`). An *inference* is this instrument reading turn shape
+ * (`agentStatusWitness === 'sessionlog'`) or pane stillness (below). Ruling 4:
+ * a declaration may raise a summons; an inference alone may only withdraw an
+ * inferred one — so a declared `working` newer than the last work quiets both
+ * inferences, and an inferred `working` never quiets a declared `waiting`.
+ * Between two declarations the newer word stands (the later moment is the
+ * truer one), and the older is voiced.
+ *
+ * Disagreement renders, never resolves in silence: the evidence names every
+ * witness that read otherwise, in a fixed order, byte-deterministic. The
+ * visual form is the hover card — `selectLaneCondition` carries this string
+ * into `why.evidence.fact`, which `DisclosureCard` shows — not a new chip;
+ * ruling 4 leaves that choice to the implementer and this comment records it.
+ *
+ * Two facts the older comments carried, kept because they are still the reason
+ * these branches are shaped this way: a declared WAITING **outlives the agent
+ * record that made it** — workmux's last report stands forever once the handle
+ * goes quiet, but a removed worktree has landed, so `lane.present` is the same
+ * honesty exemption FROZEN applies and a stale "waiting" never stands in for a
+ * live raised hand; and the pane inference measures **work-age, not
+ * liveness-age**, because its whole shape is "the agent stopped working while
+ * its terminal kept moving" and a pane repaint must not refresh the very
+ * silence being measured.
  */
 function detectWaiting(lane: Lane, ctx: DiagnoseContext): Pathology | null {
-  // A declared WAITING outlives the agent record that made it: workmux's last
-  // report stands forever once the handle goes quiet, but a worktree that has
-  // been removed has landed — same honesty exemption FROZEN applies, so a
-  // stale "waiting" does not stand in for a live raised hand.
+  const declared = lane.declared
+  const declaredIsNewerThanRoster =
+    declared !== null &&
+    (ctx.agentStatusTs === null || lane.agentStatusWitness !== 'workmux' || declared.at >= ctx.agentStatusTs)
+
+  // (a) the harness said so — and nothing declared has said otherwise since.
+  if (declared !== null && declared.kind === 'waiting' && lane.present && declaredIsNewerThanRoster) {
+    const parts = [`beacon (${declared.writer}) declares waiting ${formatSpan(Math.max(0, ctx.now - declared.at))} ago`]
+    for (const reading of otherReadings(lane, ctx)) if (reading.word !== 'waiting') parts.push(reading.voice)
+    return {
+      kind: 'waiting',
+      rank: PATHOLOGY_RANK.waiting,
+      since: declared.at,
+      evidence: parts.join(' · '),
+      inferred: false,
+    }
+  }
+
+  // (b) a declared `working` newer than the last work quiets every inference below;
+  // a stale one quiets nothing and is named on whatever inference stands.
+  const declaredWorkingIsFresh =
+    declared !== null && declared.kind === 'working' && declared.at > (lane.lastWorkTs ?? Number.NEGATIVE_INFINITY)
+  const staleDeclaredWorking =
+    declared !== null && declared.kind === 'working' && !declaredWorkingIsFresh
+      ? ` · beacon (${declared.writer}) declared working ${formatSpan(Math.max(0, ctx.now - declared.at))} ago, before the last work`
+      : ''
+
   if (lane.agentStatus === 'waiting' && lane.present) {
     const since = ctx.agentStatusTs ?? lane.lastEventTs
     const forMs = since === null ? null : Math.max(0, ctx.now - since)
-    // ADR-0037: the organ's WAITING is an inference and renders as one — the
-    // `~` mark, and the transcript's own reading as evidence (ruling 4).
     if (lane.agentStatusWitness === 'sessionlog') {
+      if (declaredWorkingIsFresh) return null // (b): the harness says it is working, newer than the organ's reading
       return {
         kind: 'waiting',
         rank: PATHOLOGY_RANK.waiting,
         since,
-        evidence: `transcript shape: ${ctx.agentStatusDetail ?? 'no reading recorded'}`,
+        evidence: `transcript shape: ${ctx.agentStatusDetail ?? 'no reading recorded'}${staleDeclaredWorking}`,
         inferred: true,
       }
     }
-    // A declared WAITING is certain — and if the organ disagrees, it says so
-    // beside the declaration rather than replacing it (ruling 4: disagreement
-    // renders, never resolves in silence).
-    const declared = forMs === null ? 'workmux reports waiting' : `workmux reports waiting ${formatSpan(forMs)}`
-    const dissent =
-      ctx.agentStatusDissent === null ? '' : `; transcript shape reads ${ctx.agentStatusDissent.status}`
+    // workmux declared it. A newer beacon `working` is the newer declaration and stands instead.
+    if (declared !== null && declared.kind === 'working' && ctx.agentStatusTs !== null && declared.at > ctx.agentStatusTs)
+      return null
+    const word = forMs === null ? 'workmux reports waiting' : `workmux reports waiting ${formatSpan(forMs)}`
+    const dissent = ctx.agentStatusDissent === null ? '' : `; transcript shape reads ${ctx.agentStatusDissent.status}`
+    const olderBeacon =
+      declared !== null && declared.kind === 'waiting'
+        ? ''
+        : declared === null
+          ? ''
+          : ` · beacon (${declared.writer}) declared ${declared.kind} ${formatSpan(Math.max(0, ctx.now - declared.at))} ago`
     return {
       kind: 'waiting',
       rank: PATHOLOGY_RANK.waiting,
       // How long the hand has been up is when workmux said so — not the lane's
       // last event, which a pane heartbeat keeps refreshing while it waits.
       since,
-      evidence: `${declared}${dissent}`,
+      evidence: `${word}${dissent}${olderBeacon}`,
       inferred: false,
     }
   }
 
-  // Same four exemptions as FROZEN (parked included, prd4 ruling 5): this
-  // branch is the *inference*, read off a quiet lane with a live pane, and a
-  // parked lane going quiet is exactly what the operator declared, not a
-  // raised hand to deduce. A workmux-declared WAITING above this is left
-  // alone — that is workmux's own fact, not this detector's guess.
+  // The pane-stillness inference — same four exemptions as FROZEN (parked
+  // included, prd4 ruling 5): a parked lane going quiet is exactly what the
+  // operator declared, not a raised hand to deduce. Plus (b).
   if (lane.agentStatus === 'done' || !lane.present || lane.telemetryOnly || lane.parked) return null
-  // Work-age, not liveness-age: the whole shape of this inference is "the agent
-  // stopped working while its terminal kept moving", so a pane repaint must not
-  // be allowed to refresh the very silence being measured.
   if (lane.workAgeMs === null || lane.workAgeMs < WAITING_QUIET_MS) return null
   if (ctx.paneActivityTs === null) return null
   if (ctx.now - ctx.paneActivityTs > WAITING_PANE_FRESH_MS) return null
+  if (declaredWorkingIsFresh) return null
 
   return {
     kind: 'waiting',
     rank: PATHOLOGY_RANK.waiting,
     since: lane.lastWorkTs,
-    evidence: `quiet ${formatSpan(lane.workAgeMs)}, pane still alive`,
+    evidence: `quiet ${formatSpan(lane.workAgeMs)}, pane still alive${staleDeclaredWorking}`,
     inferred: true,
   }
+}
+
+/** The witnesses that can disagree with a declaration, in the order they are voiced. */
+function otherReadings(lane: Lane, ctx: DiagnoseContext): Array<{ word: string; voice: string }> {
+  const readings: Array<{ word: string; voice: string }> = []
+  if (lane.agentStatus !== null && lane.agentStatusWitness === 'sessionlog') {
+    readings.push({ word: lane.agentStatus, voice: `transcript shape reads ${lane.agentStatus}` })
+  } else if (lane.agentStatus !== null && lane.agentStatusWitness === 'workmux') {
+    readings.push({ word: lane.agentStatus, voice: `workmux reports ${lane.agentStatus}` })
+  }
+  if (lane.workAgeMs !== null && lane.workAgeMs < WAITING_QUIET_MS) {
+    readings.push({ word: 'working', voice: 'recent work reads working' })
+  }
+  return readings
 }
 
 /**

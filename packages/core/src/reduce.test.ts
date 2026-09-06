@@ -46,6 +46,7 @@ describe('reduce — envelope bookkeeping', () => {
       forks: initialForkState(),
       judge: initialJudgeState(),
       refusals: initialRefusalState(),
+      declared: {},
       eventCount: 0,
       firstEventTs: null,
       lastEventTs: null,
@@ -2064,21 +2065,94 @@ describe('reduce — the fold-order law: append order is the truth (prd17 ruling
   })
 })
 
-describe('reduce — beacon.received is recorded, not yet folded (prd-27 w1, #217; ADR-0036)', () => {
-  // The arm returns `state` on purpose: a beacon's meaning is a per-lane,
-  // per-kind reading that #218 (declared attention and its lapse) and #219
-  // (the conduct tooling's decisions) own. Until a reader exists, the fold
-  // must not invent a home — `session.closed`'s own reasoning. This law pins
-  // that: a beacon changes only the envelope bookkeeping every event changes.
-  it('changes nothing but the envelope bookkeeping', () => {
+describe('reduce — beacon.received folds declared attention per lane (prd-27 w3, #283)', () => {
+  const DIGEST = 'a'.repeat(64)
+
+  it('a waiting beacon for a lane writes declared[lane] with the writer clock and the pointer', () => {
     const base = reduceAll(fixtureSession())
-    const after = reduce(base, f.beaconReceived({ kind: 'waiting', lane: '2-core' }, { ts: (base.lastEventTs ?? 0) + 1 }))
-    expect(after.eventCount).toBe(base.eventCount + 1)
-    expect(after.lastEventTs).toBe((base.lastEventTs ?? 0) + 1)
+    const after = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: '2-core', writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 10 },
+      ),
+    )
+    expect(after.declared['2-core']).toEqual({
+      kind: 'waiting',
+      at: 10,
+      writer: 'claude-hook',
+      digest: DIGEST,
+      file: 'claude-hook.jsonl',
+      offset: 0,
+    })
+    // Nothing else moved: the declared slice and the envelope bookkeeping, and no more.
+    expect({ ...after, declared: base.declared, eventCount: base.eventCount, lastEventTs: base.lastEventTs }).toEqual(base)
+  })
+
+  it('a kind outside BEACON_ATTENTION_KINDS folds to state unchanged', () => {
+    const base = reduceAll(fixtureSession())
+    const after = reduce(base, f.beaconReceived({ kind: 'landed', lane: '2-core' }, { ts: 10 }))
+    expect(after.declared).toEqual({})
     expect({ ...after, eventCount: base.eventCount, lastEventTs: base.lastEventTs }).toEqual(base)
   })
 
-  it('folds to the same canonical state with or without a run of beacons, envelope aside', () => {
+  it('an unlaned beacon is never indexed — it has nobody to be about', () => {
+    const base = reduceAll(fixtureSession())
+    const after = reduce(base, f.beaconReceived({ kind: 'waiting', lane: null }, { ts: 10 }))
+    expect(after.declared).toEqual({})
+  })
+
+  it('the latest by writer clock wins, and an older line never rolls a lane back', () => {
+    const after = reduceAll([
+      f.beaconReceived({ kind: 'waiting', lane: '2-core' }, { ts: 10 }),
+      f.beaconReceived({ kind: 'working', lane: '2-core' }, { ts: 20 }),
+    ])
+    expect(after.declared['2-core']?.kind).toBe('working')
+    expect(after.declared['2-core']?.at).toBe(20)
+
+    const late = reduce(after, f.beaconReceived({ kind: 'stopped', lane: '2-core' }, { ts: 15 }))
+    expect(late.declared['2-core']?.kind).toBe('working')
+    expect(late.declared['2-core']?.at).toBe(20)
+  })
+
+  it('equal clocks yield to log order — the later line stands', () => {
+    const after = reduceAll([
+      f.beaconReceived({ kind: 'waiting', lane: '2-core' }, { ts: 10 }),
+      f.beaconReceived({ kind: 'working', lane: '2-core' }, { ts: 10 }),
+    ])
+    expect(after.declared['2-core']?.kind).toBe('working')
+  })
+
+  it('two lanes fold independently', () => {
+    const after = reduceAll([
+      f.beaconReceived({ kind: 'waiting', lane: '2-core' }, { ts: 10 }),
+      f.beaconReceived({ kind: 'working', lane: '3-web' }, { ts: 11 }),
+    ])
+    expect(after.declared['2-core']?.kind).toBe('waiting')
+    expect(after.declared['3-web']?.kind).toBe('working')
+  })
+
+  it('repetition: folding the same run of beacons twice yields toEqual states', () => {
+    const events = fixtureSession()
+    const run = [
+      f.beaconReceived({ kind: 'waiting', lane: '2-core' }, { ts: 10 }),
+      f.beaconReceived({ kind: 'working', lane: '3-web' }, { ts: 11 }),
+      f.beaconReceived({ kind: 'landed', writer: 'gate', lane: '2-core' }, { ts: 12 }),
+    ]
+    const once = reduceAll([...events, ...run])
+    const twice = reduceAll([...events, ...run, ...run])
+    expect({ ...twice, eventCount: once.eventCount, lastEventTs: once.lastEventTs }).toEqual(once)
+  })
+
+  it('is pure for this arm too — the input state is untouched and no reference is shared into the fold', () => {
+    const before = reduceAll(fixtureSession())
+    const snapshot = JSON.parse(JSON.stringify(before)) as unknown
+    const after = reduce(before, f.beaconReceived())
+    expect(before).toEqual(snapshot)
+    expect(after).not.toBe(before)
+  })
+
+  it('canonical state with a run of attention beacons differs from without only in declared', () => {
     const events = fixtureSession()
     const beacons = [
       f.beaconReceived({ kind: 'waiting' }, { ts: 10 }),
@@ -2088,14 +2162,15 @@ describe('reduce — beacon.received is recorded, not yet folded (prd-27 w1, #21
     const alone = reduceAll(events)
     const both = reduceAll([...events, ...beacons])
     expect(both.eventCount).toBe(alone.eventCount + beacons.length)
-    expect(canonicalStateJson({ ...both, eventCount: alone.eventCount, lastEventTs: alone.lastEventTs })).toBe(canonicalStateJson(alone))
-  })
-
-  it('is pure for this arm too — the input state is untouched and no reference is shared into the fold', () => {
-    const before = reduceAll(fixtureSession())
-    const snapshot = JSON.parse(JSON.stringify(before)) as unknown
-    const after = reduce(before, f.beaconReceived())
-    expect(before).toEqual(snapshot)
-    expect(after).not.toBe(before)
+    // The one laned attention beacon in that run landed, and it is the only difference.
+    expect(both.declared['2-core']?.kind).toBe('waiting')
+    expect(
+      canonicalStateJson({
+        ...both,
+        declared: alone.declared,
+        eventCount: alone.eventCount,
+        lastEventTs: alone.lastEventTs,
+      }),
+    ).toBe(canonicalStateJson(alone))
   })
 })

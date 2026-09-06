@@ -14,6 +14,7 @@ import * as core from '@rhizomorph/core'
 import { describe, expect, it, vi } from 'vitest'
 import { GIT_CAPABILITIES } from '../collectors/git/index.js'
 import { JUDGE_CAPABILITIES } from '../collectors/judge/index.js'
+import { BEACON_CAPABILITIES } from '../collectors/beacon/index.js'
 import { PI_CAPABILITIES } from '../collectors/pi/index.js'
 import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
 import { TMUX_CAPABILITIES } from '../collectors/tmux/index.js'
@@ -233,6 +234,44 @@ describe('GET /api/meta', () => {
 
         expect(body.rung).toBe('L4')
         expect(body.capabilities.workmux?.attention.level).toBe('provided')
+      } finally {
+        await teardown()
+      }
+    })
+
+    /**
+     * prd-27 ruling 3 (#283). Adding a seventh collector to the ladder is the
+     * kind of change that can quietly move the instrument's own headline
+     * number, so the claim is asserted rather than assumed — and asserted
+     * twice, from two directions, because either half alone is weak. The
+     * arithmetic half (six versus seven, off the parallel map) proves the
+     * merge is unmoved; the live half proves the ROUTE actually serves the
+     * beacon's absent-with-reason attention, which is what makes the merge
+     * unmoved in the first place. Delete the carve-out from
+     * `BEACON_CAPABILITIES` and declare `attention: provided`, and the second
+     * expectation reddens immediately.
+     */
+    it('adding the beacon collector to the ladder changes no rung — its manifest is all-absent in this wave (prd-27 ruling 3)', async () => {
+      const six = LADDER_COLLECTOR_NAMES_FOR_TEST.filter((name) => name !== 'beacon').map(
+        (name) => DECLARED_CAPABILITIES_FOR_TEST[name],
+      )
+      const seven = LADDER_COLLECTOR_NAMES_FOR_TEST.map((name) => DECLARED_CAPABILITIES_FOR_TEST[name])
+      expect(seven.length).toBe(six.length + 1)
+      expect(deriveRung(mergeCapabilities(seven))).toBe(deriveRung(mergeCapabilities(six)))
+
+      await setup()
+      try {
+        const recorder = new SessionRecorder('5001', sessionFilePath(sessionDir, '5001'))
+        const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+        const body = (await (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()) as {
+          rung: string
+          capabilities: Record<string, { attention: { level: string; reason: string } }>
+        }
+
+        expect(body.capabilities.beacon?.attention.level).toBe('absent')
+        expect(body.capabilities.beacon?.attention.reason).toContain('ruling 3')
+        expect(body.rung).toBe(deriveRung(mergeCapabilities(six)))
       } finally {
         await teardown()
       }
@@ -725,7 +764,7 @@ async function recordActivity(recorder: SessionRecorder, from: number, to: numbe
   }
 }
 
-const LADDER_COLLECTOR_NAMES_FOR_TEST = ['git', 'sessionlog', 'tmux', 'workmux', 'judge', 'pi'] as const
+const LADDER_COLLECTOR_NAMES_FOR_TEST = ['git', 'sessionlog', 'tmux', 'workmux', 'judge', 'pi', 'beacon'] as const
 
 const DECLARED_CAPABILITIES_FOR_TEST: Record<
   (typeof LADDER_COLLECTOR_NAMES_FOR_TEST)[number],
@@ -737,6 +776,7 @@ const DECLARED_CAPABILITIES_FOR_TEST: Record<
   workmux: WORKMUX_CAPABILITIES,
   judge: JUDGE_CAPABILITIES,
   pi: PI_CAPABILITIES,
+  beacon: BEACON_CAPABILITIES,
 }
 
 /**

@@ -1,8 +1,8 @@
 import { useMemo, useState, type ReactElement, type ReactNode } from 'react'
-import type { AgentStatus } from '@rhizomorph/core'
+import type { AgentStatus, AgentStatusWitness } from '@rhizomorph/core'
 import { useStream } from '../../app/StreamContext.js'
 import { NEWS_GRACE_MS } from '../../app/streamState.js'
-import { useFleet, useSelection } from '../../fleet/index.js'
+import { INFERRED_MARK, useFleet, useSelection } from '../../fleet/index.js'
 import { HiddenNotice } from '../search/HiddenNotice.js'
 import { filterByQuery, useSessionQuery } from '../search/session.js'
 import {
@@ -226,11 +226,32 @@ const AGENT_STATUS_LABEL: Record<AgentStatus, string> = {
   done: 'done',
 }
 
+/**
+ * The tag a lane row wears (#290). A declared word is bare; an inferred one
+ * wears the instrument's own inference mark, exactly as `evidenceLine` and the
+ * attention strip render it — one mark, learned once. Exhaustive over
+ * `AgentStatusWitness`: a third witness in `AGENT_STATUS_SOURCES` fails here
+ * at typecheck rather than rendering as workmux's word.
+ */
+function laneTag(status: AgentStatus, witness: AgentStatusWitness): string {
+  const label = AGENT_STATUS_LABEL[status]
+  switch (witness) {
+    case 'workmux':
+      return label
+    case 'sessionlog':
+      return `${INFERRED_MARK} ${label}`
+    default: {
+      const _never: never = witness
+      throw new Error(`unreachable agent.status witness: ${String(_never)}`)
+    }
+  }
+}
+
 function LaneRow({ entry }: { entry: LaneFeedEntry }): ReactElement {
   return (
-    <div className="flex items-start gap-2">
+    <div className="flex items-start gap-2" data-witness={entry.witness}>
       <Clock ts={entry.ts} />
-      <KindTag>{AGENT_STATUS_LABEL[entry.status]}</KindTag>
+      <KindTag>{laneTag(entry.status, entry.witness)}</KindTag>
       <span className="min-w-0 flex-1 truncate text-(--ink-body)">
         {entry.handle}
         {entry.branch !== null && entry.branch !== entry.handle ? ` · ${entry.branch}` : ''}

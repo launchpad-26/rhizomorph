@@ -60,6 +60,12 @@ moved (checked by diff). The reducer change is `agentStatus` in `reduce.ts`; the
 new fold is the correct meaning of the old log because it records who spoke,
 which the old log already knew.
 
+**Re-blessed 2026-09-05 (#283).** `SessionState` gained the `declared` slice
+(prd-27 ruling 3). Era-1 predates beacons, so it folds to `declared: {}` and no
+other key moved (checked by diff). The reducer change is the `beacon.received`
+arm; the new fold is the correct meaning of the old log because that log
+contains no beacon and now says so.
+
 ## Redaction
 
 A real slice, mechanically redacted. Every field the reducer reads is

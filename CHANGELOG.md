@@ -38,6 +38,25 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Added
 
+- **The fleet believes a declaration, and a disagreement says so (prd-27
+  rulings 3–4, #283).** A hook beacon whose kind is in the ruled vocabulary now
+  folds to one declared-attention record per lane (`SessionState.declared`,
+  latest by the writer's clock), and the fleet reads it as a third witness: a
+  declared `waiting` is a certain WAITING since the moment the hook fired —
+  *named blocked because it said so* — a declared `working` newer than the
+  lane's last work quiets both inferred WAITINGs (pane stillness and transcript
+  shape), an inferred `working` never quiets a declared `waiting`, and a
+  `stopped` alarms nothing. Between two declarations the newer word stands.
+  Every disagreement is voiced on the STATE hover card, byte-deterministic —
+  `beacon (claude-hook) declares waiting 40s ago · transcript shape reads
+  working` — never resolved in silence. `beacon` joins `/api/meta`'s capability
+  ladder (rung unchanged: its manifest is all-absent until w4) and the status
+  bar's sources as a sixth pill, `Beacon`. The staged pathology fixture's
+  waiting lane is now beacon-declared with the roster's stale `working` voiced
+  beside it, so the STATE-hover screenshots this wave owes can be captured in
+  one command once it lands on `main` (they are captured there, not here — a
+  lane's `capturedAt` cannot be a `main` ancestor).
+
 - **`agent.status` names its witness, and the transcript organ speaks (prd-27
   ruling 2 — the keystone, #281).** The envelope that pinned every attention word
   to `workmux` now also accepts `sessionlog`, and the transcript-tail state
@@ -356,6 +375,7 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **The activity feed names which witness signed an `agent.status` (prd-27 ruling 2 / ADR-0037, #290).** Since #281 two witnesses publish `agent.status` — workmux's declaration and the transcript organ's inference — and the feed rendered both as one bare word, the #133 false summons in a third costume. A lane row now carries the envelope's `source` as its witness and an inferred word wears the instrument's own `~` mark (`~ waiting`, `~ working`), exactly as the attention strip and the STATE hover already render an inference; a workmux row is byte-identical to before. The tag is exhaustive over the witness type, so a third witness fails typecheck rather than rendering as workmux's word.
 - **An event on screen is an event on disk (prd-40 wave 2, #4).** The recorder published
   every event — to the live buffer, to the maintained fold, and to every subscriber —
   *before* awaiting its append, and the poll loop advanced its collector snapshot before

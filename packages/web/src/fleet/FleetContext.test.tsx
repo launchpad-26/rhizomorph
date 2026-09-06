@@ -809,11 +809,12 @@ describe('the beat (#158)', () => {
     expect(chain.rebuilds()).toBe(rebuildsBefore + 2)
   })
 
-  it('keys on eleven slices plus the clock and the manifest (thirteen in total)', () => {
+  it('keys on twelve slices plus the clock and the manifest (fourteen in total)', () => {
     // Do not re-prove the tick itself — the one clock rule describe above
     // already covers `FLEET_TICK_MS` end to end. This only guards against a
     // slice silently falling out of the constant the key is spread from.
-    expect(FLEET_INPUT_SLICES).toHaveLength(11)
+    // Twelve since #283: `declared` is read by `buildFleet` for `Lane.declared`.
+    expect(FLEET_INPUT_SLICES).toHaveLength(12)
   })
 
   /** Slices `buildFleet` provably does not read, plus the envelope fields. */
