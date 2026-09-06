@@ -1,6 +1,7 @@
 import { isTerminalDone } from '../fleet/diagnose.js'
 import { formatSpan } from '../fleet/plumbing.js'
 import { evidenceLine, PATHOLOGY_WORD, rankIndex, type Pathology, type PathologyKind } from '../fleet/pathology.js'
+import { declarationStatus, lapsedForMs, lapsedVoice } from './lapse.js'
 import type { Lane, LaneActivity } from '../fleet/types.js'
 
 /**
@@ -182,11 +183,17 @@ function doneCondition(lane: Lane, now: number): LaneCondition {
   }
 }
 
-/** prd-27 ruling 4 (#283): a declaration is always named on the card, even when no alarm follows from it. */
+/**
+ * prd-27 ruling 4 (#283): a declaration is always named on the card, even when
+ * no alarm follows from it — and prd-27 ruling 6 (#218): once it has lapsed,
+ * what the card names is the lapse, not the word the harness last said.
+ */
 function declaredClause(lane: Lane, now: number): string {
-  return lane.declared === null
-    ? ''
-    : ` · beacon (${lane.declared.writer}) declares ${lane.declared.kind} ${formatSpan(Math.max(0, now - lane.declared.at))} ago`
+  if (lane.declared === null) return ''
+  if (declarationStatus(lane.declared, now, lane.lastWorkTs) === 'lapsed') {
+    return ` · ${lapsedVoice(lapsedForMs(lane.declared, now))}`
+  }
+  return ` · beacon (${lane.declared.writer}) declares ${lane.declared.kind} ${formatSpan(Math.max(0, now - lane.declared.at))} ago`
 }
 
 function activityCondition(lane: Lane, now: number): LaneCondition {

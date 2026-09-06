@@ -38,11 +38,13 @@ const JSONL_SUFFIX = '.jsonl'
  * timeline. Attention is `partial`, not `provided`, on purpose: the organ
  * *infers* waiting/frozen/gone from turn shape (this is the exact example
  * the prd15 direction names — "inferred from transcript shape; a hook
- * beacon would declare it"). Since #281 (ADR-0037) the organ does publish
+ * beacon declares it (#282)"). Since #281 (ADR-0037) the organ does publish
  * its working/waiting transitions as `agent.status` signed
  * `source: 'sessionlog'` — edge-triggered, frozen and gone withheld
  * (`agentStatusEmissionFor`). `attention` stays `partial`: a published
- * inference is still an inference, and prd-27 w4 owns these strings. Cost
+ * inference is still an inference. prd-27 w4 (#218) set the remedy these
+ * strings carry — it names the emitter that now exists rather than a beacon
+ * that "would" declare it. Cost
  * stays `absent` — tokens only, never dollars, until OTLP env is wired in
  * (L1).
  */
@@ -53,7 +55,8 @@ export const SESSIONLOG_CAPABILITIES: AdapterCapabilities = {
   attention: {
     level: 'partial',
     reason: 'inferred from transcript shape via the turn-shape state machine, not declared by the CLI',
-    remedy: 'a hook beacon would declare it (prd15 ruling 2, wave 3)',
+    remedy:
+      'install the Claude Code hooks — `rhizomorph env <lane> --hooks claude` — so the harness declares it (prd-27 ruling 3)',
   },
   telemetry: { level: 'provided' },
   cost: {

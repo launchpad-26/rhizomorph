@@ -16,7 +16,7 @@ import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
 import { TMUX_CAPABILITIES } from '../collectors/tmux/index.js'
 import { WORKMUX_CAPABILITIES } from '../collectors/workmux/index.js'
 import { JUDGE_CAPABILITIES } from '../collectors/judge/index.js'
-import { BEACON_CAPABILITIES } from '../collectors/beacon/index.js'
+import { BEACON_CAPABILITIES, beaconCapabilitiesFor } from '../collectors/beacon/index.js'
 import { RESUME_WINDOW_MS, type SessionBootReason } from '../log/session-log.js'
 import type { SessionRecorder } from '../server/recorder.js'
 import type { ServerContext } from '../server/context.js'
@@ -108,14 +108,15 @@ function fallbackBootMeta(): SessionBootMeta {
  *
  * **Seven names, not six (#283).** `beacon` joins the list here so the
  * instrument's own manifest stops omitting a collector that exists (the verify
- * note on #217). It moves no rung, and that is deliberate rather than an
- * oversight: `BEACON_CAPABILITIES` is all-`absent` but for a `partial`
- * identity, because prd-27 ruling 3's carve-out says `attention` reads
- * `provided` only once a beacon has actually arrived *for that lane* — a
- * per-lane reading a static manifest cannot make. This wave folds declared
- * attention into `SessionState.declared`; the rung that tells a declaring
- * beacon from tmux (L2 versus L4) is w4's, and until then the honest static
- * answer is the absent one, with the reason said.
+ * note on #217). Since #218 it is also the one entry whose manifest is not
+ * static: prd-27 ruling 3's carve-out says `attention` reads `provided` only
+ * once a beacon has actually arrived, so {@link buildLadderManifest} asks
+ * `beaconCapabilitiesFor(folded.declared)` rather than reading
+ * `DECLARED_CAPABILITIES.beacon`. The static entry below is what that function
+ * returns for a session with no declaration in it — `attention: partial` with
+ * the configured-but-silent reason — and the rung it produces once a beacon
+ * has landed is L2, told from tmux/workmux's L4 by the `witness` on the detail
+ * (ADR-0039).
  *
  * **`pi` (#612).** Its collector registers under its own name (`collector.ts`'s
  * `COLLECTOR_NAME = 'pi'`), so `folded.collectors.pi` is already a real,
@@ -177,8 +178,12 @@ export function buildLadderManifest(recorder: SessionRecorder): LadderManifest {
   const capabilities: Record<string, AdapterCapabilities> = {}
   for (const name of LADDER_COLLECTOR_NAMES) {
     const collectorState = folded.collectors[name]
+    // The beacon is the one collector whose manifest is a function of the fold
+    // (prd-27 ruling 3, #218): attention reads `provided` only once a beacon
+    // has actually arrived for some lane in this session.
+    const declaredCapabilities = name === 'beacon' ? beaconCapabilitiesFor(folded.declared) : DECLARED_CAPABILITIES[name]
     capabilities[name] = honestCapabilities({
-      capabilities: DECLARED_CAPABILITIES[name],
+      capabilities: declaredCapabilities,
       active: collectorState?.status !== 'disabled',
       inactiveReason: collectorState?.disabledReason ?? undefined,
     })
