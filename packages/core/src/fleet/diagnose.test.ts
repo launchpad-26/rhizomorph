@@ -31,6 +31,8 @@ function ctx(): DiagnoseContext {
     expensiveThreshold: Number.POSITIVE_INFINITY,
     paneActivityTs: null,
     agentStatusTs: null,
+    agentStatusDetail: null,
+    agentStatusDissent: null,
     commitTs: null,
   }
 }
@@ -123,5 +125,91 @@ describe('off-fence names a bounded number of paths and counts the rest', () => 
     const unfenced = { ...laneWith(trespasses(3)), fenced: false } as Lane
     expect(diagnose(unfenced, ctx()).some((p) => p.kind === 'off-fence')).toBe(false)
     expect(diagnose(laneWith([]), ctx()).some((p) => p.kind === 'off-fence')).toBe(false)
+  })
+})
+
+/**
+ * WAITING'S EVIDENCE NAMES ITS WITNESS (#281, ADR-0037).
+ *
+ * `detectWaiting`'s declared branch used to have exactly one sentence for
+ * every raised hand. It now has three, and which one it speaks is decided by
+ * two facts that arrive through different doors: `Lane.agentStatusWitness`
+ * (the fold's record of who spoke) and `DiagnoseContext.agentStatusDissent`
+ * (the word a standing declaration refused). Both are asserted here at the
+ * detector's own level, so a regression is localised to this function rather
+ * than only showing up four hops away in `buildFleet.test.ts`.
+ */
+describe('WAITING names its witness (#281, ADR-0037)', () => {
+  const ORGAN_WAITING = 'WAITING — tail turn-complete, quiet 45s, threshold 30s'
+
+  /** A lane with its hand up and nothing else wrong with it. */
+  function waitingLane(witness: 'workmux' | 'sessionlog' | null): Lane {
+    return {
+      id: '281-witness',
+      fenced: false,
+      trespasses: [],
+      agentStatus: 'waiting',
+      agentStatusWitness: witness,
+      present: true,
+      parked: false,
+      telemetryOnly: false,
+      lastEventTs: NOW - 90_000,
+      lastWorkTs: NOW - 90_000,
+      workAgeMs: 90_000,
+      ageMs: 90_000,
+      recentTools: [],
+      outputPerMin: 1,
+      activity: 'waiting',
+      pathologies: [],
+    } as unknown as Lane
+  }
+
+  function waitingEvidence(lane: Lane, overrides: Partial<DiagnoseContext> = {}): string {
+    const found = diagnose(lane, { ...ctx(), agentStatusTs: NOW - 90_000, ...overrides }).find(
+      (pathology) => pathology.kind === 'waiting',
+    )
+    expect(found, 'waiting did not fire on a lane with its hand up').toBeDefined()
+    return found?.evidence ?? ''
+  }
+
+  function waitingPathology(lane: Lane, overrides: Partial<DiagnoseContext> = {}) {
+    return diagnose(lane, { ...ctx(), agentStatusTs: NOW - 90_000, ...overrides }).find(
+      (pathology) => pathology.kind === 'waiting',
+    )
+  }
+
+  it('a declaration nobody contradicted reads exactly as it always did', () => {
+    // The pre-#281 sentence, unchanged: the dissent clause appends nothing
+    // when there is no dissent, rather than leaving a dangling separator.
+    expect(waitingEvidence(waitingLane('workmux'))).toBe('workmux reports waiting 1m30s')
+    expect(waitingPathology(waitingLane('workmux'))?.inferred).toBe(false)
+  })
+
+  it('a declaration the organ contradicted names the disagreement beside itself', () => {
+    const evidence = waitingEvidence(waitingLane('workmux'), {
+      agentStatusDissent: { witness: 'sessionlog', status: 'working', ts: NOW - 10_000, detail: null },
+    })
+    expect(evidence).toBe('workmux reports waiting 1m30s; transcript shape reads working')
+    // Still certain: the declaration stands, ruling 4. The dissent is a
+    // sentence beside it, never a downgrade of it.
+    expect(
+      waitingPathology(waitingLane('workmux'), {
+        agentStatusDissent: { witness: 'sessionlog', status: 'working', ts: NOW - 10_000, detail: null },
+      })?.inferred,
+    ).toBe(false)
+  })
+
+  it('an organ-witnessed hand is inferred, and quotes the transcript\'s own reading', () => {
+    const lane = waitingLane('sessionlog')
+    expect(waitingEvidence(lane, { agentStatusDetail: ORGAN_WAITING })).toBe(
+      `transcript shape: ${ORGAN_WAITING}`,
+    )
+    expect(waitingPathology(lane, { agentStatusDetail: ORGAN_WAITING })?.inferred).toBe(true)
+  })
+
+  it('an organ-witnessed hand with no detail says so rather than printing null', () => {
+    expect(waitingEvidence(waitingLane('sessionlog'), { agentStatusDetail: null })).toBe(
+      'transcript shape: no reading recorded',
+    )
   })
 })

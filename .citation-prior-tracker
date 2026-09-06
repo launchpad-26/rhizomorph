@@ -1,0 +1,203 @@
+# .citation-prior-tracker — every `#NNN` citation, in a tracked markdown
+# file outside the dated-artefact directories, that already exceeded this
+# repo's live tracker maximum on the date below (#261). A committed
+# baseline, not a date-scoped predicate — see the "citation ceiling law"
+# docblock in `packages/server/src/doc-citation-law.test.ts` for why, and
+# for the rejected alternative.
+#
+# This is an EXPECTED-VIOLATION list, not a skip list: every entry is swept
+# on every run, a new violation outside this file turns the law red, and an
+# entry whose citation is no longer present in its file — or never exceeded
+# the ceiling below in the first place — is itself a failure, so the list
+# cannot silently drift out of date. Adding an entry that isn't wave-7's own
+# #66 coupling (see the docblock) should be rare enough to warrant asking why
+# a document just cited a number above the live maximum at all.
+#
+# The `live-maximum=` field below is LOAD-BEARING, not a note: it is the
+# ceiling these rows were SELECTED against, and it is what the staleness
+# check compares them to. It is not a claim about what the tracker's true
+# counter read that day — #261's own commit body says the true figure was
+# 266 where this says 265, and that discrepancy is immaterial here because
+# no row is #266: the row set is identical at either ceiling. Read the field
+# as "the number these rows were chosen by", which is what the check needs. It is deliberately NOT the current ceiling. A row
+# records that a citation exceeded the ceiling on the date it was taken, and
+# that is a historical fact which does not expire when this repo files its
+# next issue. Checking it against a ceiling that climbs made an unmodified
+# tree go red — `#267 no longer exceeds the live maximum (268)` — and the
+# remedy it prescribed was wrong: `docs/roadmap.md` cites `#267` meaning the
+# prior tracker's issue, while live `#267` is an unrelated beacon collector,
+# so deleting the row would have made the corpus permanently accept a
+# citation that now resolves to something else. Re-measure the field
+# deliberately, in a reviewed commit; never edit it to make a run go green.
+#
+# Format: <repo-relative file>  #<number>, one per (file, number) pair —
+# duplicate citations of the same number in the same file collapse to one
+# entry, since existence does not depend on repeat count.
+#
+# RE-SWEEP THE BASELINE AGAINST THE `main` THE LAW LANDS ON, not the one it
+# was written on. This file was measured 2026-09-04 against a `main` that did
+# not yet have `docs/adr/0036-a-beacon-is-a-line-in-a-watched-directory.md`,
+# which arrived with #217 carrying a genuine prior-tracker `#609`. Rebasing
+# wave 7 onto the merged trunk turned the law red on its first contact with
+# that document — correctly, and this row is the fix. Every document that
+# lands between a measurement and the law landing is a row this file does not
+# know about, so the sweep belongs at landing time; the law reports the gap
+# rather than hiding it, which is the behaviour to keep.
+#
+# `#609` itself is a real defect in ADR-0036 by this repo's own rule — ADR-0032
+# rules that anything pre-recreation is cited by SHA, because the commits
+# survived and the issue numbers did not. Grandfathered here rather than
+# corrected, because that file belongs to prd-27, not to prd-43.
+#
+# measured: 2026-09-04 live-maximum=265 violations=151
+AGENTS.md  #275
+AGENTS.md  #362
+AGENTS.md  #396
+AGENTS.md  #399
+AGENTS.md  #408
+AGENTS.md  #649
+CHANGELOG.md  #269
+CHANGELOG.md  #270
+CHANGELOG.md  #271
+CHANGELOG.md  #292
+CHANGELOG.md  #298
+CHANGELOG.md  #304
+CHANGELOG.md  #305
+CHANGELOG.md  #306
+CHANGELOG.md  #366
+CHANGELOG.md  #384
+CHANGELOG.md  #385
+CHANGELOG.md  #389
+CHANGELOG.md  #390
+CHANGELOG.md  #391
+CHANGELOG.md  #415
+CHANGELOG.md  #417
+CHANGELOG.md  #418
+CHANGELOG.md  #429
+CHANGELOG.md  #442
+CHANGELOG.md  #449
+CHANGELOG.md  #454
+CHANGELOG.md  #463
+CHANGELOG.md  #505
+CHANGELOG.md  #506
+CHANGELOG.md  #526
+CHANGELOG.md  #536
+CHANGELOG.md  #537
+CHANGELOG.md  #606
+CLAUDE.md  #399
+CONTRIBUTING.md  #403
+README.md  #292
+SECURITY.md  #292
+SECURITY.md  #389
+docs/adr/0009-portable-hash-chained-record.md  #292
+docs/adr/0012-in-band-capability-token-delivery.md  #303
+docs/adr/0017-one-turngrammar-seams-shape-and-extraction.md  #320
+docs/adr/0018-bare-path-body-shape-routing.md  #321
+docs/adr/0018-bare-path-body-shape-routing.md  #322
+docs/adr/0019-the-fourth-hand.md  #351
+docs/adr/0019-the-fourth-hand.md  #358
+docs/adr/0019-the-fourth-hand.md  #373
+docs/adr/0019-the-fourth-hand.md  #374
+docs/adr/0020-transcript-migration-is-a-create-only-copy.md  #401
+docs/adr/0020-transcript-migration-is-a-create-only-copy.md  #513
+docs/adr/0022-per-worktree-incidents-are-worktree-facts.md  #415
+docs/adr/0022-per-worktree-incidents-are-worktree-facts.md  #429
+docs/adr/0022-per-worktree-incidents-are-worktree-facts.md  #506
+docs/adr/0023-a-transcript-dialect-names-itself-with-harness.md  #324
+docs/adr/0023-a-transcript-dialect-names-itself-with-harness.md  #538
+docs/adr/0024-a-gated-read-is-the-fourth-route-class.md  #374
+docs/adr/0025-a-native-otlp-harness-gets-a-mapping-profile.md  #323
+docs/adr/0033-the-record-travels-by-protocol.md  #292
+docs/adr/0036-a-beacon-is-a-line-in-a-watched-directory.md  #609
+docs/architecture.md  #370
+docs/architecture.md  #552
+docs/architecture.md  #555
+docs/architecture.md  #562
+docs/demo.md  #562
+docs/design-notes/lab-launch-ceilings.md  #306
+docs/design-notes/lab-launch-ceilings.md  #425
+docs/design/charter.md  #272
+docs/design/charter.md  #273
+docs/design/charter.md  #428
+docs/design/charter.md  #431
+docs/design/ui-2.0-decisions.md  #433
+docs/design/ui-2.0-decisions.md  #439
+docs/design/ui-2.0-decisions.md  #441
+docs/design/ui-2.0-progress.md  #433
+docs/design/ui-2.0-progress.md  #441
+docs/design/ui-2.0-progress.md  #451
+docs/design/ui-2.0-progress.md  #473
+docs/design/ui-2.0-progress.md  #474
+docs/design/ui-2.0-progress.md  #493
+docs/design/ui-2.0-progress.md  #548
+docs/design/ui-2.0-progress.md  #549
+docs/design/ui-2.0-progress.md  #550
+docs/design/ui-2.0-progress.md  #551
+docs/design/ui-2.0-progress.md  #552
+docs/design/ui-2.0-progress.md  #553
+docs/design/ui-2.0-progress.md  #554
+docs/design/ui-2.0-progress.md  #555
+docs/design/ui-2.0-progress.md  #556
+docs/design/ui-2.0-progress.md  #557
+docs/design/ui-2.0-progress.md  #558
+docs/design/ui-2.0-progress.md  #559
+docs/design/ui-2.0-progress.md  #560
+docs/design/ui-2.0-progress.md  #561
+docs/design/ui-2.0-progress.md  #562
+docs/design/ui-2.0-progress.md  #563
+docs/design/ui-2.0-progress.md  #564
+docs/design/ui-2.0-progress.md  #565
+docs/design/ui-2.0-progress.md  #566
+docs/design/ui-2.0-progress.md  #567
+docs/design/ui-2.0-progress.md  #568
+docs/design/ui-2.0-progress.md  #569
+docs/design/ui-2.0-progress.md  #570
+docs/design/ui-2.0-progress.md  #571
+docs/design/ui-2.0-progress.md  #572
+docs/design/ui-2.0-progress.md  #573
+docs/design/ui-2.0-progress.md  #574
+docs/design/ui-2.0-progress.md  #575
+docs/follow-up-292.md  #292
+docs/metamorphosis/system-design.md  #292
+docs/metamorphosis/system-design.md  #432
+docs/metamorphosis/system-design.md  #446
+docs/metamorphosis/system-design.md  #447
+docs/metamorphosis/system-design.md  #448
+docs/operational-targets.md  #342
+docs/record-format.md  #292
+docs/roadmap.md  #267
+docs/roadmap.md  #269
+docs/roadmap.md  #270
+docs/roadmap.md  #271
+docs/roadmap.md  #272
+docs/roadmap.md  #273
+docs/roadmap.md  #281
+docs/roadmap.md  #364
+docs/roadmap.md  #395
+docs/telemetry.md  #532
+docs/user-guide/replay.md  #292
+docs/user-guide/troubleshooting.md  #288
+docs/user-guide/troubleshooting.md  #562
+docs/user-guide/watching.md  #304
+docs/user-guide/watching.md  #549
+docs/user-guide/watching.md  #555
+docs/user-guide/watching.md  #560
+docs/user-guide/watching.md  #562
+packages/app/README.md  #565
+packages/core/src/eras/CAPTURE.md  #292
+packages/server/src/collectors/codex/fixtures/CAPTURE.md  #322
+packages/server/src/collectors/codex/fixtures/CAPTURE.md  #510
+packages/server/src/collectors/otel/fixtures/CAPTURE.md  #323
+packages/server/src/collectors/otel/fixtures/CAPTURE.md  #635
+packages/server/src/collectors/pi/fixtures/CAPTURE.md  #324
+packages/server/src/collectors/sessionlog/fixtures/CAPTURE.md  #649
+packages/server/src/collectors/tmux/fixtures/CAPTURE.md  #649
+packages/web/src/scene/gl/README.md  #548
+packages/web/src/scene/gl/README.md  #578
+packages/web/src/scene/parity/README.md  #578
+packages/web/src/scene/parity/README.md  #579
+research/2026-08-15-renderer-spike.md  #566
+research/2026-08-16-concurrency-measurement.md  #519
+research/2026-08-16-concurrency-measurement.md  #567
+research/concurrency/README.md  #567
+research/spikes/renderer/README.md  #566

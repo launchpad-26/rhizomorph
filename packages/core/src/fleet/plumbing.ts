@@ -6,8 +6,15 @@ import {
   type TokenTotals,
   type WaitingOnHumanSummary,
 } from '../selectors/index.js'
-import type { AgentRole, AgentStatus, AgentThread, SpanDecision, TelemetryOrigin } from '../events/index.js'
-import type { SessionState } from '../state.js'
+import type {
+  AgentRole,
+  AgentStatus,
+  AgentStatusWitness,
+  AgentThread,
+  SpanDecision,
+  TelemetryOrigin,
+} from '../events/index.js'
+import type { AgentStatusDissent, SessionState } from '../state.js'
 import { IDLE_AFTER_MS } from './constants.js'
 import type { LaneManifest } from './fences.js'
 import { rankIndex } from './pathology.js'
@@ -27,6 +34,12 @@ export interface Draft {
   agentStatus: AgentStatus | null
   /** When workmux last declared this lane's status — how long a hand has been up. */
   agentStatusTs: number | null
+  /** ADR-0037 — whose word {@link Draft.agentStatus} is, carried through to `Lane` and `diagnose`. */
+  agentStatusWitness: AgentStatusWitness | null
+  /** The witness's own evidence line, so `detectWaiting` can quote the organ's reading. */
+  agentStatusDetail: string | null
+  /** prd-27 ruling 4 — the later word a standing declaration overruled, or null. */
+  agentStatusDissent: AgentStatusDissent | null
   paneActivityTs: number | null
   aheadOfMain: number
   commitCount: number
@@ -49,6 +62,9 @@ export function emptyDraft(id: string, seedTs: number): Draft {
     present: true,
     agentStatus: null,
     agentStatusTs: null,
+    agentStatusWitness: null,
+    agentStatusDetail: null,
+    agentStatusDissent: null,
     paneActivityTs: null,
     aheadOfMain: 0,
     commitCount: 0,

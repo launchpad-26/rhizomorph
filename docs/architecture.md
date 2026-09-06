@@ -91,7 +91,7 @@ v0 event types:
   before commits exist)
 - **tmux:** `pane.discovered/closed` · `pane.activity` (content-hash delta
   per poll — never the pane's text)
-- **workmux:** `agent.status` (working/waiting/done)
+- **workmux:** `agent.status` (working/waiting/done) — since [ADR-0037](adr/0037-agent-status-names-its-witness.md) the transcript organ also signs this type as `sessionlog`; the envelope's `source` names the witness.
 - **system:** `session.started` · `collector.error/disabled`
 
 `core` also owns the **`Collector` interface**, so collectors and the server
@@ -2091,7 +2091,7 @@ other picker showing it, including the live dashboard's own session
 picker — a same-HEAD fix (`fix(web): renaming a recording also refreshes
 the balcony's session picker`) closed a gap where the two pickers cached
 independently and one went stale. **The count is not worth keeping here any
-more:** the route is one `gated-mutation` row among ten mutating routes, and
+more:** the route is one `gated-mutation` row among eleven mutating routes, and
 `ROUTE_CLASSES` (`packages/server/src/api/index.ts`) is the table that holds
 them and the law that walks them — see [Route classes and the trust
 boundary](#route-classes-and-the-trust-boundary-prd-23-ruling-5--adr-0014-adr-0024)

@@ -141,6 +141,59 @@ describe('event envelope', () => {
 })
 
 /**
+ * ADR-0037 / prd-27 ruling 2. `agent.status` is the one attention word, and it
+ * has two legitimate witnesses: workmux declaring it, and the transcript organ
+ * inferring it from turn shape. The envelope's `source` is where that is
+ * recorded — a payload field under a `workmux` envelope would make the envelope
+ * lie on a hash-chained log (ADR-0009).
+ */
+describe('agent.status names its witness (ADR-0037)', () => {
+  const statusEvent = (source: string) => ({
+    id: 'evt-witness',
+    ts: 1000,
+    source,
+    type: 'agent.status',
+    payload: { handle: 'h', status: 'waiting' },
+  })
+
+  it('accepts both witnesses and refuses every other source', () => {
+    expect(parseEvent(statusEvent('workmux')).ok).toBe(true)
+    expect(parseEvent(statusEvent('sessionlog')).ok).toBe(true)
+    // Not widened to `eventSourceSchema` wholesale: a beacon is a declaration
+    // by the harness and otel never sees attention at all.
+    expect(parseEvent(statusEvent('beacon')).ok).toBe(false)
+    expect(parseEvent(statusEvent('otel')).ok).toBe(false)
+  })
+
+  it('defaults to workmux, its primary, when createEvent is given no source', () => {
+    const event = createEvent('agent.status', { handle: 'h', status: 'working' }, { id: 'e', ts: 1 })
+    expect(event.source).toBe('workmux')
+    expect(sourceOf('agent.status')).toBe('workmux')
+  })
+
+  it('lets the organ sign its own name through createEvent', () => {
+    const event = createEvent(
+      'agent.status',
+      { handle: 'h', status: 'waiting' },
+      { id: 'e', ts: 1, source: 'sessionlog' },
+    )
+    expect(event.source).toBe('sessionlog')
+  })
+
+  it('still admits only workmux on agent.removed — only a roster can say a handle left', () => {
+    expect(
+      parseEvent({
+        id: 'evt-removed',
+        ts: 1000,
+        source: 'sessionlog',
+        type: 'agent.removed',
+        payload: { handle: 'h' },
+      }).ok,
+    ).toBe(false)
+  })
+})
+
+/**
  * prd16 ruling 2 adds the recorder's third hand; prd17 ruling 1 names the
  * event it appends. The union-level facts that hand depends on, stated here
  * rather than in the server package that emits it: the close is a `system`

@@ -196,22 +196,22 @@ export function needsProcessProbe(shape: TurnShape, quietMs: number | null): boo
   return quietMs >= (isMidTurn(shape) ? TRANSCRIPT_STALL_MS : TURN_SETTLE_MS)
 }
 
-// ── publication (BLOCKED on core; see the note below) ───────────────────────
+// ── publication ─────────────────────────────────────────────────────────────
 
 /**
- * The `agent.status` an organ reading would publish, if it could publish.
+ * The `agent.status` an organ reading publishes.
  *
- * ## BLOCKED — why nothing here is wired into `poll` yet
+ * ## Why this was BLOCKED until #281, and on what
  *
  * prd15 ruling 4 and the adapter contract both say an adapter emits **only**
- * from the existing event union, and `agent.status` is the natural home. It is
- * not usable from this collector today, for one structural reason:
+ * from the existing event union, and `agent.status` is the natural home. It was
+ * not usable from this collector, for one structural reason:
  *
- * `agentStatusEventSchema = envelope('workmux', 'agent.status', …)`
- * (`packages/core/src/events/workmux.ts:20`) pins `source` to the **literal**
+ * `agentStatusEventSchema` used to read `envelope('workmux', 'agent.status', …)`
+ * (`packages/core/src/events/workmux.ts`), pinning `source` to the **literal**
  * `'workmux'`. `createEvent` fills `source` from `EVENT_SOURCE_BY_TYPE`, and
  * zod rejects any other value — so every `agent.status` this collector emitted
- * would be stamped as having come from workmux. That is a forged provenance
+ * would have been stamped as having come from workmux. That is a forged provenance
  * record on an append-only log that is hash-chained, exported as a portable
  * record, and merged with other instruments' records. It also makes prd15
  * ruling 2 unimplementable at the point it matters most: if both witnesses
@@ -224,15 +224,13 @@ export function needsProcessProbe(shape: TurnShape, quietMs: number | null): boo
  * one collector can legitimately produce" — `llm.usage` uses it for the
  * sessionlog/otel pair today.
  *
- * **BLOCKED: `agent.status` must accept `source: 'sessionlog'` — change
- * `envelope('workmux', …)` to `envelopeWithSources(['workmux', 'sessionlog'], …)`
- * in `packages/core/src/events/workmux.ts` and widen
- * `EVENT_SOURCE_BY_TYPE['agent.status']`'s `SourceOf` accordingly. Outside
- * this issue's fence (`collectors/sessionlog/` only) and not #187's either.**
+ * Unblocked by #281 (ADR-0037): `agentStatusEventSchema` accepts
+ * `source: 'sessionlog'`, and `collector.ts` publishes what this returns
+ * through `createEvent` with that source.
  *
- * Until that lands the organ derives in full — the states are computed every
- * poll and live in the snapshot, which is what `tmuxless-boot.test.ts` reads —
- * and this function stays the tested, ready-to-wire publication step.
+ * The organ still derives in full — the states are computed every poll and live
+ * in the snapshot, which is what `tmuxless-boot.test.ts` reads; publication is
+ * the strictly narrower thing this function decides on top of that reading.
  */
 export interface AgentStatusEmission {
   handle: string
@@ -288,10 +286,9 @@ export function agentStatusEmissionFor(inputs: AgentStatusEmissionInputs): Agent
     worktreePath: inputs.worktreePath,
     branch: inputs.branch,
     elapsedSeconds: reading.quietMs === null ? null : Math.floor(reading.quietMs / 1000),
-    // Names the witness in the payload. Once the envelope can say
-    // `source: 'sessionlog'` this is corroboration; today it is the only place
-    // the second witness could sign its name at all.
-    detail: `transcript-tail: ${reading.evidence}`,
+    // The organ's own reading, verbatim. The envelope names the witness
+    // (ADR-0037); this names the evidence.
+    detail: reading.evidence,
   }
 }
 

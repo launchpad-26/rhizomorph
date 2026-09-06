@@ -421,6 +421,61 @@ describe('ChapterMarks — no marks, no glyphs', () => {
   })
 })
 
+describe('ChapterMarks — the new mark kinds (prd17 ruling 4, issue #277)', () => {
+  it('renders and labels a summons raised, and a summons cleared, distinctly', () => {
+    const events = log((fx) => {
+      fx.at(100).summonsRaised({ lane: 'ke5', kind: 'awaiting-reply' })
+      fx.at(9_000).summonsCleared({ lane: 'ke5', kind: 'awaiting-reply' })
+    })
+
+    render(<ChapterMarks events={events} start={T0} end={T_END} width={900} onSeek={() => {}} seekEnabled />)
+
+    const marks = screen.getAllByTestId('chapter-mark')
+    expect(marks).toHaveLength(2)
+    expect(marks[0]).toHaveAccessibleName(/ke5 raised/)
+    expect(marks[1]).toHaveAccessibleName(/ke5 cleared/)
+  })
+
+  it('labels a gate verdict "held" or "merged" — never the same word for both', () => {
+    const events = log((fx) => {
+      fx.at(100).gateVerdict({ handle: 'ke5', held: true })
+      fx.at(9_000).gateVerdict({ handle: 'w1', held: false })
+    })
+
+    render(<ChapterMarks events={events} start={T0} end={T_END} width={900} onSeek={() => {}} seekEnabled />)
+
+    const marks = screen.getAllByTestId('chapter-mark')
+    expect(marks[0]).toHaveAccessibleName(/ke5 held/)
+    expect(marks[1]).toHaveAccessibleName(/w1 merged/)
+  })
+
+  it("carries the operator's own verdict word into the accessible name, verbatim", () => {
+    const events = log((fx) => {
+      fx.at(100).operatorVerdict({ subject: '219', verdict: 'approved' })
+    })
+
+    render(<ChapterMarks events={events} start={T0} end={T_END} width={900} onSeek={() => {}} seekEnabled />)
+
+    expect(screen.getByTestId('chapter-mark')).toHaveAccessibleName(/219 approved/)
+  })
+
+  it('a flood of summonses still coalesces into one counted cluster — no kind is exempt from the density law', () => {
+    // Same 6px/≈67ms hover budget as the existing coalescing law's own test,
+    // now proven for a kind that did not exist when that law was written.
+    const events = log((fx) => {
+      fx.at(5_000).summonsRaised({ lane: 'a', kind: 'stalled' })
+      fx.at(5_010).summonsRaised({ lane: 'b', kind: 'stalled' })
+      fx.at(5_020).summonsRaised({ lane: 'c', kind: 'stalled' })
+    })
+
+    render(<ChapterMarks events={events} start={T0} end={T_END} width={900} onSeek={() => {}} seekEnabled />)
+
+    const marks = screen.getAllByTestId('chapter-mark')
+    expect(marks).toHaveLength(1)
+    expect(marks[0]?.dataset.count).toBe('3')
+  })
+})
+
 describe('ChapterMarks — row height (prd13 ruling 13: one height, not mode-dependent)', () => {
   it('always renders at the compact row height', () => {
     const events = log((fx) => {
@@ -428,5 +483,62 @@ describe('ChapterMarks — row height (prd13 ruling 13: one height, not mode-dep
     })
     render(<ChapterMarks events={events} start={T0} end={T_END} width={900} onSeek={() => {}} seekEnabled />)
     expect(screen.getByTestId('chapter-marks').style.height).toBe('24px')
+  })
+})
+
+/**
+ * `glyphHeldOf` is the ONLY new view logic whose ink depends on data rather
+ * than on the chapter's kind — a `gate-verdict` is amber while the gate holds
+ * and green once it merges. Nothing reached it: forcing it to `return null`
+ * unconditionally left the whole `tide/` suite green at the time it was found (review of #277). The
+ * new-kinds suite above asserts the accessible NAME, which comes from
+ * `chapterLabel` and not from the glyph, so it cannot see this.
+ *
+ * Severity is bounded by charter law 9 — the shape is the legend and hue only
+ * reinforces it, so a `gate-verdict` stays a filled square either way and a
+ * regression here is cosmetic rather than a lost fact. That is the reason this
+ * is a test and not a redesign.
+ *
+ * The ink is read off the inline `style`, which is where `MarkGlyph` puts it
+ * for this kind alone; every other kind carries its ink in a class. Asserting
+ * the class list instead would pass for both states.
+ */
+describe('ChapterMarks — a gate verdict is inked by its own held flag (#277)', () => {
+  /**
+   * EVERY inline-painted span, not one of them. The `gate-verdict` branch
+   * renders TWO — the faded stem and the head square — each carrying its own
+   * copy of the same ternary, four lines apart. The first version of this
+   * helper used `querySelector`, which returns the first in document order: the
+   * STEM. Inverting only the head's ink then rendered a held gate GREEN while
+   * all three tests below passed, 191/191 (found by an independent seat, review
+   * of #277). The local was even named `head`.
+   *
+   * That is this repo's named #1 defect shape — a fix that handles the case its
+   * author considered and misses a structurally identical sibling. Returning
+   * every span makes the count itself part of the assertion, so a third painted
+   * span added later is caught rather than ignored.
+   */
+  function inksOfLoneMark(held: boolean): string[] {
+    const events = log((fx) => {
+      fx.at(3_000).gateVerdict({ handle: 'ke5', held })
+    })
+    render(<ChapterMarks events={events} start={T0} end={T_END} width={900} onSeek={() => {}} seekEnabled />)
+    return [...screen.getByTestId('chapter-mark').querySelectorAll<HTMLElement>('span[style*="background-color"]')].map(
+      (span) => span.style.backgroundColor,
+    )
+  }
+
+  it('inks every painted span of a held verdict with the needs-you colour', () => {
+    expect(inksOfLoneMark(true)).toEqual(['var(--color-needs-you)', 'var(--color-needs-you)'])
+  })
+
+  it('inks every painted span of a merged verdict with the done colour', () => {
+    expect(inksOfLoneMark(false)).toEqual(['var(--color-done)', 'var(--color-done)'])
+  })
+
+  it('reads the two states differently — the assertion pair cannot pass for one reason', () => {
+    const held = inksOfLoneMark(true)
+    cleanup()
+    expect(inksOfLoneMark(false)).not.toEqual(held)
   })
 })

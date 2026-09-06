@@ -241,11 +241,12 @@ of an old decision will do the same thing.
 | [0029](0029-a-recording-may-repeat-a-fact.md) | A recording may repeat a fact: at-least-once on the poll path, no read-side dedupe — amends [0011](0011-recordings-never-rot.md) | 2026-08-25 | accepted |
 | [0030](0030-the-alarm-may-outrun-the-record.md) | The alarm may outrun the record: the degrade `collector.error` is emitted whether or not its own append lands | 2026-08-26 | accepted |
 | [0031](0031-the-recorder-hands-out-a-frozen-fold.md) | The recorder hands out a frozen fold: deep-frozen on assignment, return type unchanged | 2026-08-26 | accepted |
-| [0032](0032-synthesized-sessions-live-in-the-harness-projects-tree.md) | A synthesized session lives in the harness's own projects tree, widening the lab's write surface by one named root — narrows [0005](0005-session-log-lives-outside-the-watched-repo.md) | 2026-08-04 | accepted (reconstructed 2026-09-03) |
+| [0032](0032-synthesized-sessions-live-in-the-harness-projects-tree.md) | A synthesized session lives in the harness's own projects tree, widening the lab's write surface by one named root — narrows [0005](0005-session-log-lives-outside-the-watched-repo.md) | 2026-08-04 | accepted (reconstructed 2026-09-03), context corrected 2026-09-04 |
 | [0033](0033-the-record-travels-by-protocol.md) | The record travels by a versioned protocol, keyed on position — amends [0009](0009-portable-hash-chained-record.md) | 2026-09-03 | accepted |
 | [0034](0034-the-fifth-hand.md) | The fifth hand: the shipper has a clock and holds one key, bounded — amends [0001](0001-read-only-observer-as-a-constitution.md) and [0019](0019-the-fourth-hand.md) | 2026-09-03 | accepted |
 | [0035](0035-the-watcher-is-never-a-container.md) | The watcher is never a container; the team server always is | 2026-09-03 | accepted |
 | [0036](0036-a-beacon-is-a-line-in-a-watched-directory.md) | A beacon is one JSON line appended to a rhizomorph-owned directory and tailed by a collector — never a route; the event carries the occurrence and a digest, the file keeps the content | 2026-08-24 | accepted (prd-27 ruling 1 / prd-17 ruling 2, recorded on the build #217) |
+| [0037](0037-agent-status-names-its-witness.md) | `agent.status` names its witness: a pinned envelope source widens to a second literal, and an inference may not withdraw a declared summons | 2026-09-05 | accepted (prd-27 ruling 2, recorded on the build #281) |
 
 Records 0001–0011 were reconstructed on 2026-08-06 and say so in their Context.
 One, **ADR-0003**, has an inverted evidence shape worth knowing about: the

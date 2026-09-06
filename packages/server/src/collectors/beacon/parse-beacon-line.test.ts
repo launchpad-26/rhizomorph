@@ -4,14 +4,26 @@ import { describe, expect, it } from 'vitest'
 import { parseBeaconLine } from './parse-beacon-line.js'
 
 const FIXTURE = readFileSync(path.join(import.meta.dirname, 'fixtures', 'claude-hook.jsonl'), 'utf8')
-const [FULL, EXTRA, BARE] = FIXTURE.split('\n') as [string, string, string]
+const FIXTURE_LINES = FIXTURE.split('\n').filter(Boolean)
+const atOf = (line: string): number => (JSON.parse(line) as { at: number }).at
+// The capture's first `waiting` line — Notification is the only hook the
+// table (packages/server/src/cli/env.ts) maps to `waiting`.
+const FULL = FIXTURE_LINES.find((line) => line.includes('"kind":"waiting"'))
+if (FULL === undefined) throw new Error('fixture has no waiting line')
+
+// The hand-written fixture's lines 2 and 3 before #282 replaced it with a
+// capture — kept verbatim so the two contract cases they proved (an extra
+// key is digested but not carried; an absent lane reads back as null) still
+// have coverage now that the emitter never writes either shape itself.
+const EXTRA = '{"v":1,"at":1725000001000,"writer":"claude-hook","kind":"working","lane":"2-core","extra":"ignored but digested"}'
+const BARE = '{"v":1,"at":1725000002000,"writer":"claude-hook","kind":"stopped"}'
 
 describe('parseBeaconLine — the v1 line contract (ADR-0036)', () => {
   it('parses a full line, keeping the writer clock and the short detail', () => {
     expect(parseBeaconLine(FULL)).toEqual({
       kind: 'beacon',
-      at: 1_725_000_000_000,
-      payload: { writer: 'claude-hook', kind: 'waiting', lane: '2-core', detail: 'permission: Bash' },
+      at: atOf(FULL),
+      payload: { writer: 'claude-hook', kind: 'waiting', lane: '2-core', detail: 'hook: Notification' },
     })
   })
 
@@ -70,5 +82,14 @@ describe('parseBeaconLine — the v1 line contract (ADR-0036)', () => {
     const results = [FULL, FULL, FULL].map(parseBeaconLine)
     expect(results[1]).toEqual(results[0])
     expect(results[2]).toEqual(results[0])
+  })
+
+  it('every captured line parses, and no two lines share a digest', () => {
+    for (const line of FIXTURE_LINES) {
+      expect(parseBeaconLine(line).kind).toBe('beacon')
+    }
+    // Identical bytes would mean identical at/kind/detail, which two
+    // consecutive hooks cannot produce — the cheap form of "no duplicates".
+    expect(new Set(FIXTURE_LINES).size).toBe(FIXTURE_LINES.length)
   })
 })

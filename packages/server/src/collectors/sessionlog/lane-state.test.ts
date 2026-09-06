@@ -316,11 +316,16 @@ describe('publication — edge-triggered, and silent where the union would lie',
     expect(emissionFor('gone', 'working')).toBeNull()
   })
 
-  it('signs the payload with the witness that made the observation', () => {
-    // Ruling 2, as far as the current envelope allows: the source field is
-    // pinned to `workmux` (see the BLOCKED note in lane-state.ts), so `detail`
-    // is the only place the second witness can name itself today.
+  it('carries the organ\'s evidence as detail — the envelope names the witness (ADR-0037)', () => {
+    // #281: the envelope's `source` is now `sessionlog`, so `detail` no longer
+    // has to carry the signature. The `transcript-tail: ` prefix that stood in
+    // for it is retired, and `detail` is the reading verbatim — the fleet is
+    // what frames it ("transcript shape: …").
+    const reading = deriveLaneState(inputs({ shape: 'turn-complete', lastEntryTs: NOW - 5 * 60_000 }))
     const emission = emissionFor('waiting', 'working')
-    expect(emission?.detail).toMatch(/^transcript-tail: WAITING — tail turn-complete/)
+
+    expect(emission?.detail).toMatch(/^WAITING — tail turn-complete/)
+    expect(emission?.detail).toBe(reading?.evidence)
+    expect(emission?.detail).not.toContain('transcript-tail:')
   })
 })

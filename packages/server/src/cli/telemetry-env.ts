@@ -90,8 +90,14 @@ export interface FetchInstanceIdOptions {
   fetch?: typeof globalThis.fetch
 }
 
+/** What `rhizomorph env` needs from the running instance: which run this is, and which repo it watches. */
+export interface InstanceMeta {
+  sessionId: string
+  repoPath: string
+}
+
 /**
- * The instance id of the Rhizomorph listening on `port`, read from its
+ * The running Rhizomorph's identity and the repo it watches, read from its
  * `/api/meta`.
  *
  * **The server must be running when env is generated.** That is not a
@@ -100,11 +106,15 @@ export interface FetchInstanceIdOptions {
  * precisely the guessed identity prd2 exists to remove. If nothing answers,
  * this throws with a message saying what to start, because a lane dispatched
  * with no instance id would export telemetry the receiver then refuses.
+ *
+ * `--hooks` reads `repoPath` off this same `/api/meta` scrape for the same
+ * reason the instance id is read there — only the running Rhizomorph knows
+ * which repo's beacon directory a hook should write to.
  */
-export async function fetchInstanceId(
+export async function fetchInstanceMeta(
   port: number,
   options: FetchInstanceIdOptions = {},
-): Promise<string> {
+): Promise<InstanceMeta> {
   const fetchImpl = options.fetch ?? globalThis.fetch
   const url = metaUrl(port)
 
@@ -129,7 +139,25 @@ export async function fetchInstanceId(
   if (typeof sessionId !== 'string' || sessionId.length === 0) {
     throw new Error(unreachable(port, `${url} reported no session id — is an Rhizomorph really listening there?`))
   }
-  return sessionId
+
+  const repoPath = typeof body === 'object' && body !== null ? (body as { repoPath?: unknown }).repoPath : undefined
+  if (typeof repoPath !== 'string' || repoPath.length === 0) {
+    throw new Error(unreachable(port, `${url} reported no repo path — is an Rhizomorph really listening there?`))
+  }
+
+  return { sessionId, repoPath }
+}
+
+/**
+ * The instance id of the Rhizomorph listening on `port`, read from its
+ * `/api/meta`. A thin wrapper over {@link fetchInstanceMeta} for callers that
+ * only need the session id.
+ */
+export async function fetchInstanceId(
+  port: number,
+  options: FetchInstanceIdOptions = {},
+): Promise<string> {
+  return (await fetchInstanceMeta(port, options)).sessionId
 }
 
 function unreachable(port: number, detail: string): string {

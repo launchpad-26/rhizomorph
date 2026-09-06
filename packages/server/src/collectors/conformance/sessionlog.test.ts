@@ -83,9 +83,10 @@ async function observeSessionlog(): Promise<SignalObservations> {
     const lanes = Object.values(result.nextSnapshot.lanes ?? {})
     const waiting = lanes.filter((lane) => lane.state === 'waiting').length
 
-    // liveness/attention have no event home (see signal-evidence.ts's doc
+    // liveness/attention are not read off events (see signal-evidence.ts's doc
     // comment) — this organ's real evidence for both lives in the poll's own
-    // snapshot instead, per lane-state.ts's BLOCKED note on `agent.status`.
+    // snapshot; its `agent.status` publication (#281, ADR-0037) is
+    // edge-triggered, so an event count would under-report a standing reading.
     // Attention is NOT liveness's evidence re-badged (#319 review, finding 4):
     // the needs-you read is a lane the state machine resolved to `waiting`,
     // so a future upgrade of the declaration to `provided` must be earned by
