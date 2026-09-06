@@ -1,4 +1,5 @@
 import { isTerminalDone } from '../fleet/diagnose.js'
+import { formatSpan } from '../fleet/plumbing.js'
 import { evidenceLine, PATHOLOGY_WORD, rankIndex, type Pathology, type PathologyKind } from '../fleet/pathology.js'
 import type { Lane, LaneActivity } from '../fleet/types.js'
 
@@ -181,6 +182,13 @@ function doneCondition(lane: Lane, now: number): LaneCondition {
   }
 }
 
+/** prd-27 ruling 4 (#283): a declaration is always named on the card, even when no alarm follows from it. */
+function declaredClause(lane: Lane, now: number): string {
+  return lane.declared === null
+    ? ''
+    : ` · beacon (${lane.declared.writer}) declares ${lane.declared.kind} ${formatSpan(Math.max(0, now - lane.declared.at))} ago`
+}
+
 function activityCondition(lane: Lane, now: number): LaneCondition {
   switch (lane.activity) {
     case 'working':
@@ -189,7 +197,7 @@ function activityCondition(lane: Lane, now: number): LaneCondition {
         why: {
           reason: 'active within the last window',
           evidence: {
-            fact: 'a tool call, model request or status update landed inside the working window',
+            fact: `a tool call, model request or status update landed inside the working window${declaredClause(lane, now)}`,
             elapsedMs: elapsedSince(now, lane.lastWorkTs),
           },
         },
@@ -202,7 +210,7 @@ function activityCondition(lane: Lane, now: number): LaneCondition {
         why: {
           reason: 'quiet, past the idle threshold',
           evidence: {
-            fact: 'no tool call, model request or status update has landed since the idle threshold passed',
+            fact: `no tool call, model request or status update has landed since the idle threshold passed${declaredClause(lane, now)}`,
             elapsedMs: elapsedSince(now, lane.lastWorkTs),
           },
         },
@@ -218,7 +226,7 @@ function activityCondition(lane: Lane, now: number): LaneCondition {
         why: {
           reason: 'no work signal yet',
           evidence: {
-            fact: 'no request, tool call or status update has reached this lane',
+            fact: `no request, tool call or status update has reached this lane${declaredClause(lane, now)}`,
             elapsedMs: elapsedSince(now, lane.firstSeenAt),
           },
         },
@@ -243,7 +251,7 @@ function activityCondition(lane: Lane, now: number): LaneCondition {
         why: {
           reason: 'reported waiting, with no pathology recorded behind it',
           evidence: {
-            fact: 'no WAITING pathology matched this reading',
+            fact: `no WAITING pathology matched this reading${declaredClause(lane, now)}`,
             elapsedMs: elapsedSince(now, lane.lastEventTs),
           },
         },

@@ -16,6 +16,7 @@ import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
 import { TMUX_CAPABILITIES } from '../collectors/tmux/index.js'
 import { WORKMUX_CAPABILITIES } from '../collectors/workmux/index.js'
 import { JUDGE_CAPABILITIES } from '../collectors/judge/index.js'
+import { BEACON_CAPABILITIES } from '../collectors/beacon/index.js'
 import { RESUME_WINDOW_MS, type SessionBootReason } from '../log/session-log.js'
 import type { SessionRecorder } from '../server/recorder.js'
 import type { ServerContext } from '../server/context.js'
@@ -105,6 +106,17 @@ function fallbackBootMeta(): SessionBootMeta {
  * adapter for one), and `mergeCapabilities` never lets an absent contributor
  * pull a signal another collector already provides.
  *
+ * **Seven names, not six (#283).** `beacon` joins the list here so the
+ * instrument's own manifest stops omitting a collector that exists (the verify
+ * note on #217). It moves no rung, and that is deliberate rather than an
+ * oversight: `BEACON_CAPABILITIES` is all-`absent` but for a `partial`
+ * identity, because prd-27 ruling 3's carve-out says `attention` reads
+ * `provided` only once a beacon has actually arrived *for that lane* — a
+ * per-lane reading a static manifest cannot make. This wave folds declared
+ * attention into `SessionState.declared`; the rung that tells a declaring
+ * beacon from tmux (L2 versus L4) is w4's, and until then the honest static
+ * answer is the absent one, with the reason said.
+ *
  * **`pi` (#612).** Its collector registers under its own name (`collector.ts`'s
  * `COLLECTOR_NAME = 'pi'`), so `folded.collectors.pi` is already a real,
  * independent entry the fold has kept since #609 — this ladder was simply not
@@ -120,7 +132,7 @@ function fallbackBootMeta(): SessionBootMeta {
  * honest, otel-aware flow fact in the meantime; whoever rules the asymmetry
  * owns both files in one fence.
  */
-const LADDER_COLLECTOR_NAMES = ['git', 'sessionlog', 'tmux', 'workmux', 'judge', 'pi'] as const
+const LADDER_COLLECTOR_NAMES = ['git', 'sessionlog', 'tmux', 'workmux', 'judge', 'pi', 'beacon'] as const
 
 const DECLARED_CAPABILITIES: Record<(typeof LADDER_COLLECTOR_NAMES)[number], AdapterCapabilities> = {
   git: GIT_CAPABILITIES,
@@ -129,6 +141,7 @@ const DECLARED_CAPABILITIES: Record<(typeof LADDER_COLLECTOR_NAMES)[number], Ada
   workmux: WORKMUX_CAPABILITIES,
   judge: JUDGE_CAPABILITIES,
   pi: PI_CAPABILITIES,
+  beacon: BEACON_CAPABILITIES,
 }
 
 export interface LadderManifest {

@@ -27,6 +27,7 @@ function baseLane(overrides: Partial<Lane> = {}): Lane {
     slot: 0,
     agentStatus: null,
     agentStatusWitness: null,
+    declared: null,
     activity: 'working',
 
     tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, total: 0 },
@@ -325,5 +326,77 @@ describe('selectLaneCondition — the calm activities', () => {
     expect(condition.label).toBe('waiting')
     expect(condition.why.reason).not.toBe('stopped')
     expectHonest(condition)
+  })
+})
+
+/**
+ * THE DECLARATION REACHES THE CARD (prd-27 rulings 3–4, #283).
+ *
+ * Two halves, and they arrive by different routes. A WAITING **pathology**
+ * carries the whole disagreement sentence in its own `evidence`, so this
+ * selector's job is to pass it through *verbatim* — the assertions below are
+ * byte-exact for exactly that reason, and they redden if `pathologyCondition`
+ * ever starts paraphrasing. A **calm** lane has no pathology to carry
+ * anything, so the declaration is named by `declaredClause` instead: a reader
+ * of IDLE or WORKING still learns what the harness said, which is ruling 4's
+ * "a declaration is always named" with no alarm attached to it.
+ */
+describe('selectLaneCondition — the declared voice (prd-27, #283)', () => {
+  const DECLARED_WAITING = 'beacon (claude-hook) declares waiting 40s ago'
+  const DECLARED_WITH_DISSENT = `${DECLARED_WAITING} · transcript shape reads working`
+
+  it('WAITING, declared by the harness: the fact names the beacon and the remedy is an action', () => {
+    const p = pathology({ kind: 'waiting', since: NOW - 40_000, evidence: DECLARED_WAITING, inferred: false })
+    const lane = baseLane({
+      pathologies: [p],
+      declared: { kind: 'waiting', at: NOW - 40_000, writer: 'claude-hook' },
+    })
+    const condition = selectLaneCondition(lane, NOW)
+    expect(condition.why.evidence.fact).toBe(DECLARED_WAITING)
+    expect(condition.why.evidence.elapsedMs).toBe(40_000)
+    expect(condition.remedy.kind).toBe('action')
+    expectHonest(condition)
+  })
+
+  it('WAITING, declared, with the organ disagreeing: the fact carries both witnesses, byte-exact', () => {
+    const p = pathology({ kind: 'waiting', since: NOW - 40_000, evidence: DECLARED_WITH_DISSENT, inferred: false })
+    const lane = baseLane({
+      pathologies: [p],
+      declared: { kind: 'waiting', at: NOW - 40_000, writer: 'claude-hook' },
+      agentStatus: 'working',
+      agentStatusWitness: 'sessionlog',
+    })
+    // Verbatim: the detector wrote the disagreement, and the card shows it whole.
+    expect(selectLaneCondition(lane, NOW).why.evidence.fact).toBe(DECLARED_WITH_DISSENT)
+  })
+
+  it('IDLE with a fresh declared working: the card names the declaration', () => {
+    const lane = baseLane({
+      activity: 'idle',
+      pathologies: [],
+      declared: { kind: 'working', at: NOW - 40_000, writer: 'claude-hook' },
+    })
+    const condition = selectLaneCondition(lane, NOW)
+    expect(condition.label).toBe('idle')
+    expect(condition.why.evidence.fact.endsWith(' · beacon (claude-hook) declares working 40s ago')).toBe(true)
+    expectHonest(condition)
+  })
+
+  it('WORKING with a declared stopped: named, not alarmed', () => {
+    const lane = baseLane({
+      activity: 'working',
+      pathologies: [],
+      declared: { kind: 'stopped', at: NOW - 40_000, writer: 'claude-hook' },
+    })
+    const condition = selectLaneCondition(lane, NOW)
+    expect(condition.label).toBe('working')
+    expect(condition.why.evidence.fact.endsWith(' · beacon (claude-hook) declares stopped 40s ago')).toBe(true)
+    expect(condition.remedy.kind).toBe('none')
+    expectHonest(condition)
+  })
+
+  it('a lane nothing declared for says nothing about beacons at all', () => {
+    const condition = selectLaneCondition(baseLane({ activity: 'idle', pathologies: [] }), NOW)
+    expect(condition.why.evidence.fact).not.toContain('beacon')
   })
 })

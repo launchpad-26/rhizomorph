@@ -53,7 +53,8 @@ export const FLEET_TICK_MS = 1_000
  * Derived by reading `core`, not guessed: the union of `state.<slice>` reads
  * across `core/src/fleet/*.ts` and the selectors `buildFleet` calls. NOT read,
  * and deliberately absent: `checkpoints`, `forks`, `judge`, `refusals`,
- * `firstEventTs`, `lastEventTs`. `FleetContext.test.tsx` pins that partition
+ * `firstEventTs`, `lastEventTs`. `declared` joined the read side in #283 — the
+ * law below is what caught that it had to. `FleetContext.test.tsx` pins that partition
  * against `initialSessionState()`, so a slice added to `SessionState` reddens a
  * law rather than silently joining neither list.
  *
@@ -75,6 +76,11 @@ export const FLEET_INPUT_SLICES = [
   'errors',
   'telemetry',
   'traces',
+  // prd-27 ruling 3 (#283): `buildFleet` reads `state.declared[draft.id]` for
+  // `Lane.declared`, so a beacon arriving is a fact the fleet can read — and a
+  // slice the fleet reads has to be a key, or a declared WAITING would not
+  // reach the strip until the next beat happened to rebuild for another reason.
+  'declared',
 ] as const
 
 export interface FleetProviderProps {

@@ -38,6 +38,25 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Added
 
+- **The fleet believes a declaration, and a disagreement says so (prd-27
+  rulings 3–4, #283).** A hook beacon whose kind is in the ruled vocabulary now
+  folds to one declared-attention record per lane (`SessionState.declared`,
+  latest by the writer's clock), and the fleet reads it as a third witness: a
+  declared `waiting` is a certain WAITING since the moment the hook fired —
+  *named blocked because it said so* — a declared `working` newer than the
+  lane's last work quiets both inferred WAITINGs (pane stillness and transcript
+  shape), an inferred `working` never quiets a declared `waiting`, and a
+  `stopped` alarms nothing. Between two declarations the newer word stands.
+  Every disagreement is voiced on the STATE hover card, byte-deterministic —
+  `beacon (claude-hook) declares waiting 40s ago · transcript shape reads
+  working` — never resolved in silence. `beacon` joins `/api/meta`'s capability
+  ladder (rung unchanged: its manifest is all-absent until w4) and the status
+  bar's sources as a sixth pill, `Beacon`. The staged pathology fixture's
+  waiting lane is now beacon-declared with the roster's stale `working` voiced
+  beside it, so the STATE-hover screenshots this wave owes can be captured in
+  one command once it lands on `main` (they are captured there, not here — a
+  lane's `capturedAt` cannot be a `main` ancestor).
+
 - **`agent.status` names its witness, and the transcript organ speaks (prd-27
   ruling 2 — the keystone, #281).** The envelope that pinned every attention word
   to `workmux` now also accepts `sessionlog`, and the transcript-tail state
