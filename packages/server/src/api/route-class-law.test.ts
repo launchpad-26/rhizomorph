@@ -494,14 +494,32 @@ describe('every recognised route-count claim is derived from ROUTE_CLASSES, in w
    *    every pattern as a regex literal and every claim in prose; sweeping
    *    itself would match its own source. That is a real hole: a count added to
    *    THIS file's comments escapes.
-   *  - **Dated artefacts.** `docs/adr/`, `docs/review/` and `docs/prds/` are
-   *    excluded by design — an ADR counts the tree as it stood and the log is
-   *    append-only, and a shipped PRD is the same kind of record. #232's own
-   *    scope statement names the first two; the third is named here because a
-   *    verify pass found the omission silently load-bearing.
+   *  - **Dated artefacts.** `docs/adr/` and `docs/review/` are excluded by
+   *    design — an ADR counts the tree as it stood and the log is
+   *    append-only. #232's own scope statement names both.
+   *
+   *    `docs/prds/` was excluded here too, on the same reasoning, from
+   *    2026-09-04 until issue #289: a verify pass found the omission silently
+   *    load-bearing and named it — but named it without checking whether it
+   *    was still doing anything. It was not. EXECUTED (#289): all twelve
+   *    `CLAIMS` patterns below, the real ones extracted from the table rather
+   *    than retyped, against all 53 tracked markdown files under `docs/prds/`
+   *    — zero matches. An exclusion earns its place by hiding a claim this
+   *    sweep would otherwise flag; ruling 1's own reasoning is that a PRD's
+   *    Evidence section cites a dead path *on purpose* (this document's own
+   *    Evidence section names four), which is a reason to protect a claim
+   *    already known to be there — not license to keep excluding a directory
+   *    that has nothing in it for this particular detector to trip over.
+   *    **Rejected: reviving it** (asserting the exclusion non-vacuous as-is).
+   *    That would mean either asserting a false thing about the current tree,
+   *    or growing a docs/prds/ file a route-count sentence for no reason but
+   *    to keep a test green — manufacturing the exact fixture ruling 1 exists
+   *    to warn against. Retired instead: `docs/prds/` is swept like any other
+   *    tracked doc, and the pinned assertion below is what keeps a silent
+   *    re-exclusion from creeping back in unnoticed.
    */
   const SWEPT_EXTENSIONS = ['.md', '.ts', '.tsx', '.mjs', '.js'] as const
-  const SWEEP_EXCLUDED_PREFIXES = ['docs/adr/', 'docs/review/', 'docs/prds/'] as const
+  const SWEEP_EXCLUDED_PREFIXES = ['docs/adr/', 'docs/review/'] as const
   const THIS_FILE_REL = 'packages/server/src/api/route-class-law.test.ts'
 
   /**
@@ -555,6 +573,26 @@ describe('every recognised route-count claim is derived from ROUTE_CLASSES, in w
 
   it('the completeness sweep reads a non-empty file set — a sweep matching nothing would pass vacuously', () => {
     expect(sweptFiles().length).toBeGreaterThan(50)
+  }, SWEEP_TIMEOUT_MS)
+
+  /**
+   * THE RETIREMENT ITSELF (#289) — `docs/prds/` is no longer in
+   * `SWEEP_EXCLUDED_PREFIXES`, and this is the guard against it silently
+   * coming back. Pinned so a re-addition cannot pass unnoticed: an editor who
+   * re-excludes the directory (for a real reason, or out of habit copied from
+   * `EXCLUDED_CLONE_SITE_DIRS` or `doc-citation-law.test.ts`'s `EXCLUDED_DIRS`)
+   * gets a failing diff here, naming the exact list this test expects, rather
+   * than a silent widening nobody notices until the next verify pass.
+   *
+   * EXECUTED, by mutation: re-adding `'docs/prds/'` to the array above turns
+   * this test red on the `toEqual` line, before either assertion below ever
+   * runs — reverted after confirming it.
+   */
+  it('docs/prds/ stays swept — issue #289: the exclusion hid nothing and is retired, not revived', () => {
+    expect(SWEEP_EXCLUDED_PREFIXES).toEqual(['docs/adr/', 'docs/review/'])
+
+    const prdFiles = sweptFiles().filter((rel) => rel.startsWith('docs/prds/'))
+    expect(prdFiles.length).toBeGreaterThan(50)
   }, SWEEP_TIMEOUT_MS)
 
   /** Git emits `/` from `ls-files` on every platform, independently of `path.sep`. */

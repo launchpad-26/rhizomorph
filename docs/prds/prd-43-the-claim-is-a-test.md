@@ -298,7 +298,16 @@ one `SWEEP_TIMEOUT_MS` held by all three — survives inside it.
 
 **Wave 7 — ruled 2026-09-04, and it is two issues, not one.** `#66` (the docs cite a tracker
 that no longer exists) was booked the way wave 0 is booked: an operator act, not dispatchable
-until ruled. The ruling is made and recorded on the issue — **a single dated note in `AGENTS.md`
+until ruled.
+
+> **SUPERSEDED 2026-09-06** — by *"Wave 7 gained `#264`"* below, which corrects the count to
+> three. Kept in place because citations to this paragraph must keep resolving, and because the
+> ruling it records about `#66` and `#261` is still the ruling. Only the count is wrong here.
+> Flagged by `scripts/dev/prd-reconcile.sh 43` as DOUBLE-DECLARED after the amendment landed in
+> PR #284 — the amendment declared wave 7 a second time and did not mark this one, which is the
+> defect the reconciler exists to catch and which no reviewer caught before the merge.
+
+The ruling is made and recorded on the issue — **a single dated note in `AGENTS.md`
 and `docs/prds/README.md`**, with the 216 references in the other 110 files left untouched. A
 per-reference marker across 111 files and a mapping to surviving artefacts were both considered
 and rejected: the first is a 216-edit diff nobody can review whose per-site markers rot when the
@@ -387,8 +396,25 @@ all three share the wave and its PR.
 states its real expected count*. It was filed carrying `w8` while this Sequencing declared waves
 0–7, so `fence-lint` and the board both accepted an issue whose wave existed nowhere. Wave 8 is
 the residue of ruling 2's sweep in the same sense wave 6 was of ruling 1: `#232` swept every route
-count this repo states in prose, and two of the eight rows it then had were wrong — `#275` is the
-same defect one table over.
+count this repo states in prose, and **two of the eight sites it newly found were already wrong** —
+`security.ts` said "ten" gated reads and `lane-index.test.ts` said "eleven", both against a true
+fourteen. It folded those eight together with the four `#23` already guarded into one `CLAIMS`
+table of twelve. `#275` is the same defect one table over.
+
+The count in that sentence is stated carefully, because the first draft of it got the arithmetic
+wrong in the way this PRD exists to catch: it read "two of the eight rows it then had", which
+conflates the **eight sites discovered** with the **twelve rows the table then held**. Caught by a
+review seat re-deriving it from `9f020e2` itself, not by any gate.
+
+**And "no gate" is the precise claim, because the looser one is false and was caught the same
+way.** The first wording said no test reads this file. It is excluded from the enforcement
+sweeps — `EXCLUDED_DIRS` in the citation law and the route-count sweep both list `docs/prds/` —
+but the citation law's *exclusion-honesty* control does read it: it globs `docs/prds/**/*.md`,
+passes every file through `readSweptFile`, and asserts the directory **would** trip the law if
+scanned, so that a stale exclusion cannot sit here unnoticed. This document is therefore read by
+the suite and enforced by none of it, which is a narrower and stranger position than "unread", and
+the two are worth telling apart. Two seats split on exactly this: one checked `EXCLUDED_DIRS`
+membership and concluded the file was unread; the other ran the control and found it reading.
 
 **`#275` is unblocked and still not dispatchable, and the reason is outside this PRD.** Its stated
 blockers — `#234` and `#270`, both wave 6 — landed in PR `#272`. Its fence is a single file,
@@ -408,21 +434,118 @@ missing wave from a present one — and that is the durable half: **a milestone 
 invisible to both guards this repo has**, which is the same shape the `#266`/`#270` pair recorded
 above at the bundling level.
 
+**Wave 9 — declared 2026-09-05, one issue, and it is the runbook half of an enforcement that
+already exists.** `prd43 w9: the runbook states what a PR requires before it is opened` (`#285`).
+`AGENTS.md` never states that a PR needs an independent review pass over every commit and the
+operator's word for that specific PR: `grep -c '/verify' AGENTS.md` returned 0. The rule lived
+only in a project memory and in the verify skill's own text, both of which load conditionally — a
+session that never invokes the skill never meets the rule.
+
+It belongs to this PRD rather than to `charter-laws` on that milestone's own test: the carve-out
+is for a rule the **design charter** already states, and this is process, not design. It is its
+own wave rather than joining wave 8 because `#275` is held behind another programme's fence and
+would hold this hostage, and because the two share no file.
+
+**It is fence-blocked by wave 7's own PR.** `AGENTS.md` sits inside `#66`'s fence, so `#285` and
+wave 7 could never be in flight together. **That constraint is discharged**: wave 7 landed in
+PR #284 (`547429d`), and the branch carrying `#285` was rebased onto `main` — it is no longer
+based on the wave-7 head, and `git merge-base --is-ancestor` says so. Recorded rather than
+deleted because the sequencing decision was real when it was made.
+
+The failure that produced it is this PRD's thesis pointed at the PRD's own toolchain: on
+2026-09-05 two commits were recorded with `verify-ledger.sh record --force`, and the ledger, the
+PR-opening script **and** the PreToolUse approval guard then all reported the range verified.
+Three layers that look independent were reading one exit status the session under review had
+itself written. A bare `check` exits 0 on a forced row. The operator-side repair — a `--strict`
+mode, and both callers using it — is not in this repo; `#285` is the half that is.
+
+**Wave 10 — declared 2026-09-06, two issues, both enforcement residue found by reviewing wave 7
+rather than by any gate.** Fence-disjoint, verified with the fence lint rather than asserted, so
+they were built in parallel. **Built, reviewed over three rounds, and open as PR `#297`** — this
+paragraph said "may be built at once" until 2026-09-07, describing as future work that had
+already shipped, which is this PRD's own thesis pointed at its own Sequencing. A review seat
+caught it, and the first repair pass then missed it while fixing the rest.
+
+Round 1's findings are LISTED rather than counted, because counting them is what went
+wrong: two seats reported separately, their findings were merged by total instead of by
+identity, and one issue occupied a slot already counted. They were — the blockquote that
+swallowed its own ruling, a stale ceiling claim, a false count of where the rule was
+written down, a false claim in an earlier commit message, a stale "based on the wave-7
+head", a missing operator-local clause, and this one. Derive the total from that list if
+a total is wanted; do not carry one forward.
+
+- `prd43 w10: a pinned sha is evidence only if it landed` (`#288`). `isPinnedArtefact` grants a
+  document total exemption from the citation law when its `**Tree:**` pin "resolves", tested with
+  `git cat-file -e` — the object store, not reachability. EXECUTED: a locally created, orphaned
+  commit is reachable from no ref and still resolves, so a document can exempt itself with a sha
+  that never landed. It is the sibling of the `--all` ceiling defect wave 7 spent two rounds on:
+  local git state is not evidence that something landed. The corpus carries exactly one pinned
+  artefact today and it is honest, so tightening the check costs no migration — which is why this
+  is filed now rather than after a second pin arrives.
+- `prd43 w10: every docs/prds exclusion proves it is not vacuous` (`#289`). Three sweeps exclude
+  `docs/prds/`; only the citation law asserts the exclusion would trip if scanned, and it does so
+  in two controls. Ruling 1 states that principle and the two later sweeps inherited the shape
+  without the proof.
+
+  **One of those two exclusions has ALREADY gone vacuous, which is why this is a defect and not a
+  guard.** EXECUTED against the route-count law's own twelve production patterns, applied to all
+  53 tracked `docs/prds/**/*.md` files: **zero matches.** Its exclusion hides nothing today, so an
+  honesty control written for it would fail on its first run — the issue's subject is therefore
+  the decision (retire the dead exclusion, or make it non-vacuous), not the guard. The
+  manifest law's exclusion IS still doing work — `docs/prds/parked/prd-38-the-borrowed-credential.md`
+  carries a real clone instruction its sweep would match — and is merely unproven.
+
+  **The first draft of this paragraph said both exclusions were honest, and it was wrong.** The
+  measurement behind it was a hand-written grep for route-count-shaped prose, which matched a
+  sentence in this very PRD that the law's actual patterns do not match. A command that succeeds
+  and enumerates something other than what was asked is the failure this PRD exists to catch, and
+  it was caught by a review seat rather than by the author or by any gate.
+
+**`#289` cannot be dispatched beside `#275`**: both claim the route-count law file, and the fence
+lint calls that an OVERLAP whatever wave they carry — so it forces a sequence, exactly as wave 5's
+`#24` and wave 6's `#234` did. An earlier draft also named prd-17's operator-door issue as a third
+claimant; that issue closed with PR #286, whose merge was already an ancestor of this branch when
+the claim was written.
+
 **Unfiled work implied, described not numbered:** the audited clone's `origin` still points at the
 pre-rename `launchpad-26/rhizomorph.tmp`, working only through GitHub's redirect. That is local git
 config, not a tracked file, so it has no issue — but it belongs in the operator's own checklist
 beside ruling 3.
 
-## Open questions
+## Open questions — all three RULED 2026-09-07
 
-- **Restore the deleted research note, or inline its rationale into the four files?** Restoring is
-  cheaper and keeps the citation resolving; inlining removes a dependency on a dated artefact.
-  Open, not ruled.
-- **Does the citation law belong at repo root or under `packages/server/`?** The root vitest
-  config globs `packages/*`, so a root-level test would never run — the trap
-  `runbook-delivery-law` and `no-personal-paths-law` both document. The answer is probably
-  "beside them", but it is a placement nobody has ruled. Open, not ruled.
-- **Should `docs/prds/` be excluded from ruling 1?** A PRD citing a path that later moved is
-  arguably a dated record like a research note, and arguably a live document that should stay
-  true. The corpus is cited 1,136 times from code, which argues for keeping it true. Open, not
-  ruled.
+Ruled by the operator, and in every case practice had already answered them; what was
+missing was the record. Each ruling below states the artefact that decides it, so a
+later reader can check rather than trust.
+
+**Ruling 6 — the deleted research note is RESTORED, not inlined.** Decided by `7070b20`
+("restore the research notes…"), building on `caa6827`, which put
+`docs/research/2026-08-04-semantic-judge-spike.md` back in the tree. The four source
+files that cite it — `core/src/events/judge.ts`, `collectors/judge/collector.ts`,
+`judge/mergetree.ts`, `judge/symbols.ts` — therefore resolve, and ruling 1's law is
+green for a real reason rather than by exemption. Verified: the note is not in
+`ALLOWLISTED_BROKEN_CITATIONS`, so nothing is suppressing it.
+
+The rejected alternative was inlining each rationale into the four files, which would
+have removed the dependency on a dated artefact. It was rejected in practice: restoring
+keeps one source of the reasoning where four copies would drift apart, and the citation
+law makes the dependency safe by failing loudly if the note is deleted again.
+
+**Ruling 7 — the citation law lives beside the other laws, under `packages/server/`.**
+It shipped at `packages/server/src/doc-citation-law.test.ts`. The question named the
+reason itself: the root vitest config globs `packages/*`, so a root-level test would
+never run — the trap `runbook-delivery-law` and `no-personal-paths-law` both document.
+A law nobody runs is worse than no law, because its silence reads as a pass.
+
+**Ruling 8 — `docs/prds/` IS excluded from ruling 1, as a CITING source only.** Shipped
+as `EXCLUDED_DIRS = ['docs/research/', 'docs/review/', 'docs/prds/']`. The distinction
+the question missed is the one that makes both halves right: a PRD's own citations are a
+record of the tree at a commit and are not swept, but a path pointing INTO `docs/prds/`
+from anywhere else is still a live claim and IS checked. Excluding by citing-file
+directory rather than by cited-target directory is what keeps the corpus's 1,136
+inbound citations honest while letting a PRD name a path that has since moved.
+
+The cost is real and is recorded rather than hidden: nothing checks a PRD's own claims
+about itself. Three false claims in this document were caught by review seats during
+wave 9, and none could have been caught by a gate. `#289` is that gap one level down,
+for exclusions rather than prose.

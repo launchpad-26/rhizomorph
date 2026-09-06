@@ -200,8 +200,21 @@ describe("the root manifest's published repository identity", () => {
 
 const REPO_ROOT = path.join(HERE, '..', '..', '..', '..')
 
-/** Dated records, excluded as CITING sources — the same line prd43 ruling 1's citation law already draws, not a new one invented here. */
-const EXCLUDED_CLONE_SITE_DIRS = ['docs/prds/', 'docs/review/']
+/**
+ * Dated records, excluded as CITING sources — the same line prd43 ruling 1's
+ * citation law already draws, not a new one invented here.
+ *
+ * `docs/review/` was dropped from this list by issue #289: none of its 40
+ * tracked markdown files has ever named a real `git clone … github.com`
+ * instruction — checked against every file, not sampled — so excluding it
+ * hid nothing this law's discovery filter would otherwise have found. The
+ * exclusion earns its place by hiding a live instruction (see the honesty
+ * control below, which `docs/prds/` still passes and `docs/review/` did
+ * not), not by matching the shape of a list drawn for a different law's
+ * different detector. Re-add it only if a real clone-this-repo line shows up
+ * there; the control below would then need it to keep passing.
+ */
+const EXCLUDED_CLONE_SITE_DIRS = ['docs/prds/']
 
 function trackedMarkdownFiles(): string[] {
   return execFileSync('git', ['ls-files', '--', '*.md'], { cwd: REPO_ROOT, encoding: 'utf8' })
@@ -239,10 +252,12 @@ function discoverCloneSites(): string[] {
  * transfer that updates `repository.url` and forgets a doc is caught here,
  * instead of leaving a dead clone URL for the next stranger to hit.
  *
- * `docs/prds/`, `docs/review/` and `manifest-law.test.ts`'s own comment above
- * are excluded on purpose — they are dated records of what this repo's
- * install identity used to be (prd43 ruling 1's law draws the same line for
- * citations), not live instructions a reader will act on today.
+ * `docs/prds/` and `manifest-law.test.ts`'s own comment above are excluded on
+ * purpose — they are dated records of what this repo's install identity used
+ * to be (prd43 ruling 1's law draws the same line for citations), not live
+ * instructions a reader will act on today. `docs/review/` was excluded here
+ * too until issue #289 found the exclusion was hiding nothing (see the note
+ * on `EXCLUDED_CLONE_SITE_DIRS` above).
  */
 describe("every tracked clone instruction names the manifest's own repository (prd43 w3, #21)", () => {
   const root = manifest(ROOT_MANIFEST)
@@ -259,6 +274,68 @@ describe("every tracked clone instruction names the manifest's own repository (p
   it('the discovery sweep finds exactly the known sites — pinned so a silently emptied or silently widened sweep cannot pass every check below vacuously', () => {
     expect(CLONE_SITES).toEqual(['README.md', 'docs/demo.md', 'docs/user-guide/getting-started.md'])
   })
+
+  /**
+   * THE EXCLUSION HONESTY CONTROL (#289) — every directory in
+   * `EXCLUDED_CLONE_SITE_DIRS` is asserted to carry a file that would turn
+   * this describe block's real per-site check red were the directory not
+   * excluded — not merely one the loose discovery regex happens to notice.
+   * An exclusion that would find nothing to fail on is not protecting
+   * anything; that is exactly why `docs/review/` was dropped from this list
+   * above rather than kept beside `docs/prds/` here.
+   *
+   * The real per-site test two describe-blocks down fails a file two
+   * different ways, and `docs/prds/parked/prd-38-the-borrowed-credential.md`
+   * trips the FIRST, not the second one might expect: its clone instruction —
+   * `` `git clone https://github.com/o/r.git` `` — sits inside an inline
+   * backtick code span in a sentence, so `CLONE_INSTRUCTION_RE` (a loose,
+   * discovery-only substring match) finds it, but `cloneLinesIn` (which
+   * anchors each line to start with `git clone`) does not: the line starts
+   * with a backtick, not the words "git clone". Unexcluded, this file would
+   * fail `expect(lines).not.toEqual([])` — "has no git clone line — nothing
+   * for this law to check" — a real red, just not the "wrong repository" one
+   * a first guess would reach for. Checked both ways below, so this control
+   * does not itself repeat that guess.
+   *
+   * Pinned to the current (single-entry) list first, so the loop cannot pass
+   * vacuously by iterating zero times if the list were silently emptied — the
+   * `doc-citation-law.test.ts` sibling control (`EXCLUDED_DIRS`) already
+   * learned this the hard way (its own comment: "with EXCLUDED_DIRS emptied
+   * to `[]`, the for loop's body never runs and the test still reported
+   * green").
+   *
+   * EXECUTED, by mutation: emptying `EXCLUDED_CLONE_SITE_DIRS` to `[]` turns
+   * the pinned assertion below red before the (now zero-iteration) loop ever
+   * runs; reverted after confirming it.
+   */
+  it('EXCLUDED_CLONE_SITE_DIRS is not empty — the loop below cannot pass vacuously', () => {
+    expect(EXCLUDED_CLONE_SITE_DIRS).toEqual(['docs/prds/'])
+  })
+
+  for (const dir of EXCLUDED_CLONE_SITE_DIRS) {
+    it(`${dir}: carries a file that would fail the real per-site check if unexcluded — the exclusion hides a live violation, not nothing`, () => {
+      const files = trackedMarkdownFiles().filter((file) => file.startsWith(dir))
+      expect(files.length, `${dir} has no markdown files to check`).toBeGreaterThan(0)
+
+      const matching = files.filter((file) =>
+        CLONE_INSTRUCTION_RE.test(readFileSync(path.join(REPO_ROOT, file), 'utf8')),
+      )
+      expect(matching.length, `${dir} would trip nothing if scanned — the exclusion is stale`).toBeGreaterThan(0)
+
+      // Mirrors the real per-site check's two failure shapes exactly: no
+      // recognized clone line at all (the discovery/parse mismatch above), or
+      // a recognized line naming the wrong repository (including one whose
+      // tokens resolve to no url).
+      const wouldFailPerSiteCheck = matching.some((file) => {
+        const lines = cloneLinesIn(readFileSync(path.join(REPO_ROOT, file), 'utf8'))
+        return lines.length === 0 || lines.some((l) => l.url !== expectedUrl)
+      })
+      expect(
+        wouldFailPerSiteCheck,
+        `${dir} matched files, but every one of them would pass the per-site check unexcluded — scanning it would find nothing to fail on`,
+      ).toBe(true)
+    })
+  }
 
   it("bites: the discovery filter recognizes a real clone-this-repo line and ignores unrelated \"git clone\" text — the concierge feature's own fixtures, which name no github.com url, must not be swept in", () => {
     expect(CLONE_INSTRUCTION_RE.test('git clone https://github.com/launchpad-26/rhizomorph')).toBe(true)
