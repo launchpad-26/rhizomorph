@@ -1,8 +1,58 @@
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import type { AnyCollector, CollectorContext, EventOf, Exec, ExecResult, RhizomorphEvent } from '@rhizomorph/core'
+import { fixtureHistory, fleet20Spec, initialSessionState, manifestFor, pathologySpec, reduceAll } from '@rhizomorph/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type * as LanesModule from '../api/lanes.js'
 import { COLLECTOR_EXEC_TIMEOUT_MS, createPollLoop } from './poll-loop.js'
-import type { SessionRecorder } from './recorder.js'
+import { SessionRecorder } from './recorder.js'
 import type { LoadedSnapshot, SnapshotStore } from './snapshot-store.js'
+
+/**
+ * The one seam this suite mocks: `raiseSummons()` calls `readLanesManifest`
+ * directly (no injected seam — it is not a collector, and every other real
+ * collector call already goes through `exec`), so a test that needs to
+ * simulate a genuinely wedged filesystem read (review of #278, item 1) has no
+ * other way in. `manifestReadOverride` defaults to `null`, in which case this
+ * delegates straight to the real `readLanesManifest` — every existing test
+ * in this file that never touches the override sees exactly the same
+ * behaviour it always did (a real, fast ENOENT against a repoPath that does
+ * not exist). Declared via `vi.hoisted` because `vi.mock`'s factory is
+ * itself hoisted above every other statement in this file, including a plain
+ * `let`.
+ */
+const { getManifestReadOverride, setManifestReadOverride } = vi.hoisted(() => {
+  let override: (() => Promise<unknown>) | null = null
+  return {
+    getManifestReadOverride: () => override,
+    setManifestReadOverride: (fn: (() => Promise<unknown>) | null) => {
+      override = fn
+    },
+  }
+})
+
+vi.mock('../api/lanes.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof LanesModule>()
+  return {
+    ...actual,
+    readLanesManifest: (repoPath: string) => {
+      const override = getManifestReadOverride()
+      return override ? override() : actual.readLanesManifest(repoPath)
+    },
+  }
+})
+
+/**
+ * Every fake recorder below hands back the empty fold: none of these tests
+ * are about `raiseSummons()` itself (that is `summons.test.ts` and the
+ * dedicated describe block below), so an empty fleet — zero lanes, zero
+ * pathologies — keeps the raiser a silent no-op and every pre-existing
+ * assertion on `events`/`store.saves` exactly as it was.
+ */
+function emptyFold() {
+  return initialSessionState()
+}
 
 function createFakeRecorder(): { recorder: SessionRecorder; events: RhizomorphEvent[] } {
   const events: RhizomorphEvent[] = []
@@ -14,6 +64,7 @@ function createFakeRecorder(): { recorder: SessionRecorder; events: RhizomorphEv
       events.push(event)
       return { appended: true }
     },
+    foldSoFar: emptyFold,
   } as unknown as SessionRecorder
   return { recorder, events }
 }
@@ -41,6 +92,7 @@ function createFailingRecorder(): SessionRecorder {
         if (at >= 0) listeners.splice(at, 1)
       }
     },
+    foldSoFar: emptyFold,
   } as unknown as SessionRecorder
 }
 
@@ -171,7 +223,9 @@ describe('the poll loop and snapshot persistence', () => {
     await pollLoop.tick()
     await pollLoop.tick()
 
-    expect(store.loads).toEqual(['counter'])
+    // 'summons' loads once too — the raiser's own edge-state, hydrated in the
+    // same memoized pass as every collector's.
+    expect(store.loads).toEqual(['counter', 'summons'])
     expect(store.saves.map((save) => save.snapshot)).toEqual([{ polls: 6 }, { polls: 7 }])
   })
 
@@ -956,6 +1010,7 @@ function createRecorderFailingOn(n: number): { recorder: SessionRecorder; events
       events.push(event)
       return { appended: true }
     },
+    foldSoFar: emptyFold,
   } as unknown as SessionRecorder
   return { recorder, events }
 }
@@ -1077,5 +1132,575 @@ describe('the poll loop advances its snapshot only once the batch is on disk (pr
       { name: 'counter', snapshot: { polls: 1 } },
       { name: 'counter', snapshot: { polls: 2 } },
     ])
+  })
+})
+
+describe('the summons raiser (prd17 ruling 5)', () => {
+  // The same fixed instant `buildFleet.test.ts` builds the staged-pathology
+  // fixture against — real events, folded by core's real reducer, judged by
+  // core's real `buildFleet`. Nothing about the pathology detection is faked;
+  // only the recorder's `foldSoFar()` is a stub, so a tick can be re-run
+  // against the identical fold without a real collector or a real clock tick.
+  const NOW = Date.UTC(2026, 6, 31, 12, 0, 0)
+  const REPO_PATH = '/tmp/rhizomorph-poll-loop-summons-fixture-does-not-exist'
+
+  function recorderOn(fold: () => ReturnType<SessionRecorder['foldSoFar']>): {
+    recorder: SessionRecorder
+    events: RhizomorphEvent[]
+  } {
+    const events: RhizomorphEvent[] = []
+    const recorder = {
+      record: async (event: RhizomorphEvent) => {
+        events.push(event)
+      },
+      recordAlarm: async (event: EventOf<'collector.error'>) => {
+        events.push(event)
+        return { appended: true }
+      },
+      foldSoFar: fold,
+    } as unknown as SessionRecorder
+    return { recorder, events }
+  }
+
+  function summonsRaised(events: readonly RhizomorphEvent[]): EventOf<'summons.raised'>[] {
+    return events.filter((event): event is EventOf<'summons.raised'> => event.type === 'summons.raised')
+  }
+
+  function summonsCleared(events: readonly RhizomorphEvent[]): EventOf<'summons.cleared'>[] {
+    return events.filter((event): event is EventOf<'summons.cleared'> => event.type === 'summons.cleared')
+  }
+
+  it('raises a summons for a real, folded pathology — not a fixture told to say so', async () => {
+    const staged = reduceAll(fixtureHistory(pathologySpec(), NOW))
+    const { recorder, events } = recorderOn(() => staged)
+
+    const pollLoop = createPollLoop({
+      repoPath: REPO_PATH,
+      collectors: [],
+      recorder,
+      exec: nullExec,
+      now: () => NOW,
+    })
+    await pollLoop.tick()
+
+    const raised = summonsRaised(events)
+    expect(raised.length).toBeGreaterThan(0)
+    // Every raise names a real pathology kind this fixture actually staged —
+    // never the one notice-rank kind (`expensive`), which is deliberately not
+    // a summons.
+    for (const event of raised) {
+      expect(['looping', 'frozen', 'waiting', 'off-fence']).toContain(event.payload.kind)
+    }
+  })
+
+  it('MUTATION 1 (DoD): a raise fires once, not once per tick — ticking repeatedly with the fold unchanged adds zero further raises', async () => {
+    const staged = reduceAll(fixtureHistory(pathologySpec(), NOW))
+    const { recorder, events } = recorderOn(() => staged)
+
+    const pollLoop = createPollLoop({
+      repoPath: REPO_PATH,
+      collectors: [],
+      recorder,
+      exec: nullExec,
+      now: () => NOW,
+    })
+
+    await pollLoop.tick()
+    const afterFirstTick = summonsRaised(events).length
+    expect(afterFirstTick).toBeGreaterThan(0)
+
+    await pollLoop.tick()
+    await pollLoop.tick()
+    expect(summonsRaised(events).length).toBe(afterFirstTick)
+    expect(summonsCleared(events)).toEqual([])
+  })
+
+  it('clears a summons once its condition is gone from the very next fold', async () => {
+    const staged = reduceAll(fixtureHistory(pathologySpec(), NOW))
+    const calm = reduceAll(fixtureHistory(fleet20Spec(), NOW))
+    let fold = staged
+    const { recorder, events } = recorderOn(() => fold)
+
+    const pollLoop = createPollLoop({
+      repoPath: REPO_PATH,
+      collectors: [],
+      recorder,
+      exec: nullExec,
+      now: () => NOW,
+    })
+
+    await pollLoop.tick()
+    const raisedLanes = summonsRaised(events).map((event) => `${event.payload.lane}:${event.payload.kind}`)
+    expect(raisedLanes.length).toBeGreaterThan(0)
+
+    // fleet20 is ALL CLEAR and shares none of pathologySpec's lane names — every
+    // point that was open a moment ago is gone from this fold.
+    fold = calm
+    await pollLoop.tick()
+
+    const clearedLanes = summonsCleared(events).map((event) => `${event.payload.lane}:${event.payload.kind}`)
+    expect(clearedLanes.sort()).toEqual(raisedLanes.sort())
+  })
+
+  it('MUTATION 2 (DoD): a condition still open across a restart does not re-raise, when its edge-state was persisted', async () => {
+    const staged = reduceAll(fixtureHistory(pathologySpec(), NOW))
+    const store = createFakeStore()
+
+    const first = recorderOn(() => staged)
+    const firstLoop = createPollLoop({
+      repoPath: REPO_PATH,
+      collectors: [],
+      recorder: first.recorder,
+      exec: nullExec,
+      now: () => NOW,
+      snapshotStore: store,
+    })
+    await firstLoop.tick()
+    expect(summonsRaised(first.events).length).toBeGreaterThan(0)
+
+    // A brand-new loop — the process restarted — sharing only the on-disk
+    // store, reading the SAME still-open condition.
+    const second = recorderOn(() => staged)
+    const secondLoop = createPollLoop({
+      repoPath: REPO_PATH,
+      collectors: [],
+      recorder: second.recorder,
+      exec: nullExec,
+      now: () => NOW,
+      snapshotStore: store,
+    })
+    await secondLoop.tick()
+
+    expect(summonsRaised(second.events)).toEqual([])
+  })
+
+  it('without a snapshotStore, a restart forgets the edge-state and re-raises — the persistence-dropped mutation, made visible', async () => {
+    const staged = reduceAll(fixtureHistory(pathologySpec(), NOW))
+
+    const first = recorderOn(() => staged)
+    const firstLoop = createPollLoop({
+      repoPath: REPO_PATH,
+      collectors: [],
+      recorder: first.recorder,
+      exec: nullExec,
+      now: () => NOW,
+    })
+    await firstLoop.tick()
+    const firstRaiseCount = summonsRaised(first.events).length
+    expect(firstRaiseCount).toBeGreaterThan(0)
+
+    const second = recorderOn(() => staged)
+    const secondLoop = createPollLoop({
+      repoPath: REPO_PATH,
+      collectors: [],
+      recorder: second.recorder,
+      exec: nullExec,
+      now: () => NOW,
+    })
+    await secondLoop.tick()
+
+    expect(summonsRaised(second.events).length).toBe(firstRaiseCount)
+  })
+
+  describe('a real .swarm/lanes.json (review of #278, item 3)', () => {
+    it('reaches an off-fence pathology through a REAL manifest file on disk — the manifest read is genuinely exercised, not always degraded to null', async () => {
+      // Every other test in this describe points `repoPath` at a directory
+      // that does not exist, so `readLanesManifest` always returns
+      // `{ available: false }` and `off-fence` — one of the four kinds the
+      // DoD asks this build to choose — can never fire. Forcing `manifest =
+      // null` in `raiseSummons()` left the WHOLE suite green before this
+      // test existed; this is the one that catches it.
+      const dir = await mkdtemp(path.join(tmpdir(), 'rhizo-summons-manifest-'))
+      try {
+        const spec = pathologySpec()
+        const manifest = manifestFor(spec)
+        // The wire shape `/api/lanes` actually serves (`LanesManifest` in
+        // `api/lanes.ts`): a versioned array, each entry carrying its own
+        // `branch` — never core's own record-keyed-by-handle shape. `branch`
+        // is set to the same handle `manifestFor` already keyed by, matching
+        // how the fixture's own synthetic git events name the lane.
+        const wireManifest = {
+          version: 1,
+          lanes: Object.values(manifest).map((fence) => ({
+            handle: fence.handle,
+            branch: fence.handle,
+            fence: fence.fence,
+            issue: fence.issue,
+            model: fence.model,
+          })),
+        }
+        await mkdir(path.join(dir, '.swarm'), { recursive: true })
+        await writeFile(path.join(dir, '.swarm', 'lanes.json'), JSON.stringify(wireManifest), 'utf8')
+
+        const staged = reduceAll(fixtureHistory(spec, NOW))
+        const { recorder, events } = recorderOn(() => staged)
+
+        const pollLoop = createPollLoop({
+          repoPath: dir,
+          collectors: [],
+          recorder,
+          exec: nullExec,
+          now: () => NOW,
+        })
+        await pollLoop.tick()
+
+        const kinds = summonsRaised(events).map((event) => event.payload.kind)
+        expect(kinds).toContain('off-fence')
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    })
+  })
+
+  describe('a manifest read that never settles (review of #278, item 1 — MUST FIX)', () => {
+    afterEach(() => {
+      setManifestReadOverride(null)
+    })
+
+    it('degrades to no manifest after the tick budget instead of stalling the tick forever, reports once, and does not re-report while still wedged', async () => {
+      setManifestReadOverride(() => new Promise(() => {}))
+      const staged = reduceAll(fixtureHistory(pathologySpec(), NOW))
+      const { recorder, events } = recorderOn(() => staged)
+
+      const pollLoop = createPollLoop({
+        repoPath: REPO_PATH,
+        collectors: [],
+        recorder,
+        exec: nullExec,
+        now: () => NOW,
+        tickBudgetMs: 20,
+      })
+
+      // The whole point: this resolves at all. Before the fix, `runTick()`
+      // awaited the wedged read with no bound, `inFlightTick` never cleared,
+      // and every later `tick()` call returned that same never-settling
+      // promise — this `await` would simply never return.
+      await pollLoop.tick()
+
+      const timeoutErrors = events.filter(
+        (event): event is EventOf<'collector.error'> =>
+          event.type === 'collector.error' &&
+          event.payload.collector === 'summons' &&
+          event.payload.message.includes('manifest read timed out'),
+      )
+      expect(timeoutErrors).toHaveLength(1)
+
+      // Degraded to the SAME state an absent manifest already produces:
+      // off-fence just does not fire this tick.
+      expect(summonsRaised(events).map((event) => event.payload.kind)).not.toContain('off-fence')
+
+      // A second tick, read still wedged: no second report — mirrors the
+      // per-collector `inFlight` skip's "fires once per episode".
+      await pollLoop.tick()
+      const timeoutErrorsAfterSecondTick = events.filter(
+        (event): event is EventOf<'collector.error'> =>
+          event.type === 'collector.error' &&
+          event.payload.collector === 'summons' &&
+          event.payload.message.includes('manifest read timed out'),
+      )
+      expect(timeoutErrorsAfterSecondTick).toHaveLength(1)
+    }, 2000)
+  })
+
+  describe('a rotation racing the tick (review of #278, item 3 — the reset() guard alone cannot close this)', () => {
+    it('never emits a phantom summons.cleared for a condition that never actually cleared, when the recorder has already opened its new session but pollLoop.reset() has not run yet', async () => {
+      const dir = await mkdtemp(path.join(tmpdir(), 'rhizo-summons-rotation-'))
+      try {
+        // A REAL recorder, not a fake: `sessionId` and `openSession()` are
+        // exactly the two things under test, and a fake would have to
+        // reimplement both to be worth anything here.
+        const recorder = new SessionRecorder('old-session', path.join(dir, 'old.jsonl'))
+        const heard: RhizomorphEvent[] = []
+        recorder.subscribe((event) => heard.push(event))
+        for (const event of fixtureHistory(pathologySpec(), NOW)) {
+          await recorder.record(event)
+        }
+
+        const pollLoop = createPollLoop({
+          repoPath: REPO_PATH,
+          collectors: [],
+          recorder,
+          exec: nullExec,
+          now: () => NOW,
+        })
+
+        await pollLoop.tick()
+        const openedPoints = summonsRaised(heard).map((event) => `${event.payload.lane}:${event.payload.kind}`)
+        expect(openedPoints.length).toBeGreaterThan(0)
+
+        // `rotateSession()`'s own half of a rotation (`recorder/rotate.ts`):
+        // the recorder switches to a fresh, empty session BEFORE the route
+        // that called it goes on to call `pollLoop.reset()` — see
+        // `api/rotate.ts`'s own comment on the ordering. Deliberately NOT
+        // followed by `pollLoop.reset()` yet: this is the race window.
+        recorder.openSession('new-session', path.join(dir, 'new.jsonl'))
+
+        const beforeRaceTick = heard.length
+        await pollLoop.tick() // the race-window tick
+        const duringRace = heard.slice(beforeRaceTick)
+        expect(summonsCleared(duringRace)).toEqual([])
+        expect(summonsRaised(duringRace)).toEqual([])
+
+        // Completing the real sequence: `pollLoop.reset()` runs after, and
+        // everything from here behaves exactly as an ordinary rotation would.
+        await pollLoop.reset()
+        const afterReset = heard.length
+        await pollLoop.tick()
+        expect(summonsCleared(heard.slice(afterReset))).toEqual([])
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    })
+  })
+
+  describe('a rotation racing a PARKED tick (review of #278 round 2, finding 1 — check-then-use across the await)', () => {
+    afterEach(() => {
+      setManifestReadOverride(null)
+    })
+
+    it('never emits a phantom summons.cleared when the rotation happens WHILE the tick is parked on its manifest read, not just before the tick begins', async () => {
+      const dir = await mkdtemp(path.join(tmpdir(), 'rhizo-summons-interleave-'))
+      try {
+        const recorder = new SessionRecorder('old-session', path.join(dir, 'old.jsonl'))
+        const heard: RhizomorphEvent[] = []
+        recorder.subscribe((event) => heard.push(event))
+        for (const event of fixtureHistory(pathologySpec(), NOW)) {
+          await recorder.record(event)
+        }
+
+        const pollLoop = createPollLoop({
+          repoPath: REPO_PATH,
+          collectors: [],
+          recorder,
+          exec: nullExec,
+          now: () => NOW,
+        })
+
+        await pollLoop.tick()
+        const openedPoints = summonsRaised(heard).map((event) => `${event.payload.lane}:${event.payload.kind}`)
+        expect(openedPoints.length).toBeGreaterThan(0)
+
+        // Park tick 2's manifest read mid-flight, and know the INSTANT it is
+        // actually reached — deterministic, not a guess at how many
+        // microtask turns `hydrate()` plus an empty collector loop take.
+        // A plain object holds the resolvers rather than bare `let`s: a
+        // `let` reassigned only inside a nested closure narrows to `never`
+        // at the read site under this repo's pinned typescript (7.0.2).
+        const control: {
+          releaseRead: ((value: { available: false; reason: string }) => void) | null
+          readStarted: (() => void) | null
+        } = { releaseRead: null, readStarted: null }
+        const readStartedPromise = new Promise<void>((resolve) => {
+          control.readStarted = resolve
+        })
+        setManifestReadOverride(() => {
+          control.readStarted?.()
+          return new Promise<{ available: false; reason: string }>((resolve) => {
+            control.releaseRead = resolve
+          })
+        })
+
+        const beforeInterleave = heard.length
+        const tick2 = pollLoop.tick()
+        await readStartedPromise // tick 2 is now parked on the manifest read
+
+        // The rotation's own half fires WHILE tick 2 is still parked — the
+        // interleaving the earlier (round 1) rotation test does not cover:
+        // that one rotates strictly BETWEEN two complete ticks.
+        recorder.openSession('new-session', path.join(dir, 'new.jsonl'))
+
+        control.releaseRead?.({ available: false, reason: 'parked (test)' })
+        await tick2
+
+        const duringInterleave = heard.slice(beforeInterleave)
+        expect(summonsCleared(duringInterleave)).toEqual([])
+        expect(summonsRaised(duringInterleave)).toEqual([])
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    })
+  })
+
+  describe('a degraded manifest read never clears an open off-fence summons (review of #278 round 2, finding 2)', () => {
+    afterEach(() => {
+      setManifestReadOverride(null)
+    })
+
+    function wireManifestFor(spec: ReturnType<typeof pathologySpec>) {
+      const manifest = manifestFor(spec)
+      return {
+        available: true as const,
+        version: 1,
+        lanes: Object.values(manifest).map((fence) => ({
+          handle: fence.handle,
+          branch: fence.handle,
+          fence: fence.fence,
+          issue: fence.issue,
+          model: fence.model,
+        })),
+      }
+    }
+
+    it('preserves an open off-fence summons across a timed-out read, and does not re-raise it once the read recovers', async () => {
+      const spec = pathologySpec()
+      const wireManifest = wireManifestFor(spec)
+      const staged = reduceAll(fixtureHistory(spec, NOW))
+      const { recorder, events } = recorderOn(() => staged)
+
+      const pollLoop = createPollLoop({
+        repoPath: REPO_PATH,
+        collectors: [],
+        recorder,
+        exec: nullExec,
+        now: () => NOW,
+        tickBudgetMs: 20,
+      })
+
+      // Tick 1: manifest available — off-fence raises with everything else.
+      setManifestReadOverride(() => Promise.resolve(wireManifest))
+      await pollLoop.tick()
+      expect(summonsRaised(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)).toContain(
+        '45-ledger-subrows:off-fence',
+      )
+
+      // Tick 2: the read wedges past the budget. Off-fence must NOT clear —
+      // a degraded read is "we do not know", not "the fence went away".
+      // A plain object holds the resolver rather than a bare `let`: a `let`
+      // reassigned only inside a nested closure narrows to `never` at the
+      // read site under this repo's pinned typescript (7.0.2).
+      const control: { release: ((value: typeof wireManifest) => void) | null } = { release: null }
+      setManifestReadOverride(
+        () =>
+          new Promise<typeof wireManifest>((resolve) => {
+            control.release = resolve
+          }),
+      )
+      await pollLoop.tick()
+      expect(summonsCleared(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)).not.toContain(
+        '45-ledger-subrows:off-fence',
+      )
+
+      // Let the wedged read actually settle (late) — clears `manifestInFlight`
+      // for the next tick — and point the override back at an available read.
+      control.release?.(wireManifest)
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+      setManifestReadOverride(() => Promise.resolve(wireManifest))
+
+      // Tick 3: recovered. Off-fence must NOT be re-raised — it was never
+      // cleared, so a healthy read again is silence, not a fresh raise.
+      await pollLoop.tick()
+      const offFenceRaises = summonsRaised(events).filter(
+        (e) => e.payload.lane === '45-ledger-subrows' && e.payload.kind === 'off-fence',
+      )
+      expect(offFenceRaises).toHaveLength(1)
+    }, 5000)
+  })
+
+  describe('a timed-out manifest read does not permanently poison the fold (review of #278 round 2, finding 4)', () => {
+    afterEach(() => {
+      setManifestReadOverride(null)
+    })
+
+    it('emits collector.recovered once the read succeeds again, clearing state.collectors["summons"] back to healthy', async () => {
+      const staged = reduceAll(fixtureHistory(fleet20Spec(), NOW))
+      const { recorder, events } = recorderOn(() => staged)
+
+      const pollLoop = createPollLoop({
+        repoPath: REPO_PATH,
+        collectors: [],
+        recorder,
+        exec: nullExec,
+        now: () => NOW,
+        tickBudgetMs: 20,
+      })
+
+      // A plain object holds the resolver rather than a bare `let`: a `let`
+      // reassigned only inside a nested closure narrows to `never` at the
+      // read site under this repo's pinned typescript (7.0.2).
+      const control: { release: ((value: { available: false; reason: string }) => void) | null } = {
+        release: null,
+      }
+      setManifestReadOverride(
+        () =>
+          new Promise<{ available: false; reason: string }>((resolve) => {
+            control.release = resolve
+          }),
+      )
+      await pollLoop.tick() // times out at the budget, reports collector.error
+
+      const foldedAfterError = reduceAll(events)
+      expect(foldedAfterError.collectors.summons?.status).toBe('error')
+
+      // Let the wedged read actually settle (late), clearing `manifestInFlight`.
+      control.release?.({ available: false, reason: 'late (test)' })
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+      setManifestReadOverride(() => Promise.resolve({ available: false, reason: 'fine now (test)' }))
+
+      await pollLoop.tick() // settles well within budget — recovered
+
+      const folded = reduceAll(events)
+      expect(folded.collectors.summons?.status).toBe('healthy')
+
+      const recovered = events.filter(
+        (event): event is EventOf<'collector.recovered'> => event.type === 'collector.recovered',
+      )
+      expect(recovered).toHaveLength(1)
+      expect(recovered[0]?.payload).toMatchObject({ collector: 'summons' })
+    }, 5000)
+  })
+
+  describe('reset() clears a wedged manifest read too (review of #278 round 2, finding 3)', () => {
+    afterEach(() => {
+      setManifestReadOverride(null)
+    })
+
+    it('a retarget after a wedged read still issues a fresh manifest read on its next tick, rather than staying skipped forever', async () => {
+      const spec = pathologySpec()
+      const manifest = manifestFor(spec)
+      const wireManifest = {
+        available: true as const,
+        version: 1,
+        lanes: Object.values(manifest).map((fence) => ({
+          handle: fence.handle,
+          branch: fence.handle,
+          fence: fence.fence,
+          issue: fence.issue,
+          model: fence.model,
+        })),
+      }
+
+      const staged = reduceAll(fixtureHistory(spec, NOW))
+      const { recorder, events } = recorderOn(() => staged)
+
+      const pollLoop = createPollLoop({
+        repoPath: REPO_PATH,
+        collectors: [],
+        recorder,
+        exec: nullExec,
+        now: () => NOW,
+        tickBudgetMs: 20,
+      })
+
+      // Wedge it, and never release it — a genuinely stuck read must not be
+      // what blocks recovery; `reset()` has to be able to move on without it.
+      setManifestReadOverride(() => new Promise(() => {}))
+      await pollLoop.tick() // times out, degrades
+
+      await pollLoop.reset()
+
+      // If `manifestInFlight` were still occupied by the never-releasing
+      // promise above, this tick would skip issuing a new read and
+      // off-fence would never appear.
+      setManifestReadOverride(() => Promise.resolve(wireManifest))
+      await pollLoop.tick()
+
+      expect(summonsRaised(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)).toContain(
+        '45-ledger-subrows:off-fence',
+      )
+    }, 5000)
   })
 })
