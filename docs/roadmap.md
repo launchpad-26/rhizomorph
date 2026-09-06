@@ -145,7 +145,7 @@
   file drop, one collector) — and ruling 4's timeline dividend (chapter
   marks for gate holds, summonses, and operator verdicts) — the richer UI
   built on top of all of it is a separate prd (prd18), not yet a doc in this
-  tree. The residual is sequenced as waves 2–5 in the PRD's 2026-09-05
+  tree. The residual is sequenced as waves 2–6 in the PRD's 2026-09-05
   amendment.
 - **prd19 — the connection** (`docs/prds/done/prd-19-the-connection.md`, shipped): the
   `/connect` handshake, folded connection facts, exact remedies and doctor route ship; zero

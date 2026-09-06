@@ -22,7 +22,7 @@
 > raises its own summons on the poll loop's tick) is wave 3 and owes an ADR; ruling 6 (the
 > gate's verdict rides as extra keys on a beacon line) is what wave 5 builds to.
 > **Ship-out is at wave 4 (operator, 2026-09-05):** this PRD closes when waves 2–4 land,
-> with wave 5 declared and blocked.
+> with wave 5 declared and blocked and wave 6 (#280) declared after ship-out.
 > Reconciled 2026-09-06 at `29cde14`; previously 2026-09-05 at `612df45` and 2026-08-22 at
 > `03df141`. The residual is sequenced below and groomed onto the `prd17` milestone —
 > an earlier version of this line said the milestone held no open issue, which stopped
