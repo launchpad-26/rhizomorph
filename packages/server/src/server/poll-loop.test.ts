@@ -1452,4 +1452,255 @@ describe('the summons raiser (prd17 ruling 5)', () => {
       }
     })
   })
+
+  describe('a rotation racing a PARKED tick (review of #278 round 2, finding 1 — check-then-use across the await)', () => {
+    afterEach(() => {
+      setManifestReadOverride(null)
+    })
+
+    it('never emits a phantom summons.cleared when the rotation happens WHILE the tick is parked on its manifest read, not just before the tick begins', async () => {
+      const dir = await mkdtemp(path.join(tmpdir(), 'rhizo-summons-interleave-'))
+      try {
+        const recorder = new SessionRecorder('old-session', path.join(dir, 'old.jsonl'))
+        const heard: RhizomorphEvent[] = []
+        recorder.subscribe((event) => heard.push(event))
+        for (const event of fixtureHistory(pathologySpec(), NOW)) {
+          await recorder.record(event)
+        }
+
+        const pollLoop = createPollLoop({
+          repoPath: REPO_PATH,
+          collectors: [],
+          recorder,
+          exec: nullExec,
+          now: () => NOW,
+        })
+
+        await pollLoop.tick()
+        const openedPoints = summonsRaised(heard).map((event) => `${event.payload.lane}:${event.payload.kind}`)
+        expect(openedPoints.length).toBeGreaterThan(0)
+
+        // Park tick 2's manifest read mid-flight, and know the INSTANT it is
+        // actually reached — deterministic, not a guess at how many
+        // microtask turns `hydrate()` plus an empty collector loop take.
+        // A plain object holds the resolvers rather than bare `let`s: a
+        // `let` reassigned only inside a nested closure narrows to `never`
+        // at the read site under this repo's pinned typescript (7.0.2).
+        const control: {
+          releaseRead: ((value: { available: false; reason: string }) => void) | null
+          readStarted: (() => void) | null
+        } = { releaseRead: null, readStarted: null }
+        const readStartedPromise = new Promise<void>((resolve) => {
+          control.readStarted = resolve
+        })
+        setManifestReadOverride(() => {
+          control.readStarted?.()
+          return new Promise<{ available: false; reason: string }>((resolve) => {
+            control.releaseRead = resolve
+          })
+        })
+
+        const beforeInterleave = heard.length
+        const tick2 = pollLoop.tick()
+        await readStartedPromise // tick 2 is now parked on the manifest read
+
+        // The rotation's own half fires WHILE tick 2 is still parked — the
+        // interleaving the earlier (round 1) rotation test does not cover:
+        // that one rotates strictly BETWEEN two complete ticks.
+        recorder.openSession('new-session', path.join(dir, 'new.jsonl'))
+
+        control.releaseRead?.({ available: false, reason: 'parked (test)' })
+        await tick2
+
+        const duringInterleave = heard.slice(beforeInterleave)
+        expect(summonsCleared(duringInterleave)).toEqual([])
+        expect(summonsRaised(duringInterleave)).toEqual([])
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    })
+  })
+
+  describe('a degraded manifest read never clears an open off-fence summons (review of #278 round 2, finding 2)', () => {
+    afterEach(() => {
+      setManifestReadOverride(null)
+    })
+
+    function wireManifestFor(spec: ReturnType<typeof pathologySpec>) {
+      const manifest = manifestFor(spec)
+      return {
+        available: true as const,
+        version: 1,
+        lanes: Object.values(manifest).map((fence) => ({
+          handle: fence.handle,
+          branch: fence.handle,
+          fence: fence.fence,
+          issue: fence.issue,
+          model: fence.model,
+        })),
+      }
+    }
+
+    it('preserves an open off-fence summons across a timed-out read, and does not re-raise it once the read recovers', async () => {
+      const spec = pathologySpec()
+      const wireManifest = wireManifestFor(spec)
+      const staged = reduceAll(fixtureHistory(spec, NOW))
+      const { recorder, events } = recorderOn(() => staged)
+
+      const pollLoop = createPollLoop({
+        repoPath: REPO_PATH,
+        collectors: [],
+        recorder,
+        exec: nullExec,
+        now: () => NOW,
+        tickBudgetMs: 20,
+      })
+
+      // Tick 1: manifest available — off-fence raises with everything else.
+      setManifestReadOverride(() => Promise.resolve(wireManifest))
+      await pollLoop.tick()
+      expect(summonsRaised(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)).toContain(
+        '45-ledger-subrows:off-fence',
+      )
+
+      // Tick 2: the read wedges past the budget. Off-fence must NOT clear —
+      // a degraded read is "we do not know", not "the fence went away".
+      // A plain object holds the resolver rather than a bare `let`: a `let`
+      // reassigned only inside a nested closure narrows to `never` at the
+      // read site under this repo's pinned typescript (7.0.2).
+      const control: { release: ((value: typeof wireManifest) => void) | null } = { release: null }
+      setManifestReadOverride(
+        () =>
+          new Promise<typeof wireManifest>((resolve) => {
+            control.release = resolve
+          }),
+      )
+      await pollLoop.tick()
+      expect(summonsCleared(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)).not.toContain(
+        '45-ledger-subrows:off-fence',
+      )
+
+      // Let the wedged read actually settle (late) — clears `manifestInFlight`
+      // for the next tick — and point the override back at an available read.
+      control.release?.(wireManifest)
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+      setManifestReadOverride(() => Promise.resolve(wireManifest))
+
+      // Tick 3: recovered. Off-fence must NOT be re-raised — it was never
+      // cleared, so a healthy read again is silence, not a fresh raise.
+      await pollLoop.tick()
+      const offFenceRaises = summonsRaised(events).filter(
+        (e) => e.payload.lane === '45-ledger-subrows' && e.payload.kind === 'off-fence',
+      )
+      expect(offFenceRaises).toHaveLength(1)
+    }, 5000)
+  })
+
+  describe('a timed-out manifest read does not permanently poison the fold (review of #278 round 2, finding 4)', () => {
+    afterEach(() => {
+      setManifestReadOverride(null)
+    })
+
+    it('emits collector.recovered once the read succeeds again, clearing state.collectors["summons"] back to healthy', async () => {
+      const staged = reduceAll(fixtureHistory(fleet20Spec(), NOW))
+      const { recorder, events } = recorderOn(() => staged)
+
+      const pollLoop = createPollLoop({
+        repoPath: REPO_PATH,
+        collectors: [],
+        recorder,
+        exec: nullExec,
+        now: () => NOW,
+        tickBudgetMs: 20,
+      })
+
+      // A plain object holds the resolver rather than a bare `let`: a `let`
+      // reassigned only inside a nested closure narrows to `never` at the
+      // read site under this repo's pinned typescript (7.0.2).
+      const control: { release: ((value: { available: false; reason: string }) => void) | null } = {
+        release: null,
+      }
+      setManifestReadOverride(
+        () =>
+          new Promise<{ available: false; reason: string }>((resolve) => {
+            control.release = resolve
+          }),
+      )
+      await pollLoop.tick() // times out at the budget, reports collector.error
+
+      const foldedAfterError = reduceAll(events)
+      expect(foldedAfterError.collectors.summons?.status).toBe('error')
+
+      // Let the wedged read actually settle (late), clearing `manifestInFlight`.
+      control.release?.({ available: false, reason: 'late (test)' })
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+      setManifestReadOverride(() => Promise.resolve({ available: false, reason: 'fine now (test)' }))
+
+      await pollLoop.tick() // settles well within budget — recovered
+
+      const folded = reduceAll(events)
+      expect(folded.collectors.summons?.status).toBe('healthy')
+
+      const recovered = events.filter(
+        (event): event is EventOf<'collector.recovered'> => event.type === 'collector.recovered',
+      )
+      expect(recovered).toHaveLength(1)
+      expect(recovered[0]?.payload).toMatchObject({ collector: 'summons' })
+    }, 5000)
+  })
+
+  describe('reset() clears a wedged manifest read too (review of #278 round 2, finding 3)', () => {
+    afterEach(() => {
+      setManifestReadOverride(null)
+    })
+
+    it('a retarget after a wedged read still issues a fresh manifest read on its next tick, rather than staying skipped forever', async () => {
+      const spec = pathologySpec()
+      const manifest = manifestFor(spec)
+      const wireManifest = {
+        available: true as const,
+        version: 1,
+        lanes: Object.values(manifest).map((fence) => ({
+          handle: fence.handle,
+          branch: fence.handle,
+          fence: fence.fence,
+          issue: fence.issue,
+          model: fence.model,
+        })),
+      }
+
+      const staged = reduceAll(fixtureHistory(spec, NOW))
+      const { recorder, events } = recorderOn(() => staged)
+
+      const pollLoop = createPollLoop({
+        repoPath: REPO_PATH,
+        collectors: [],
+        recorder,
+        exec: nullExec,
+        now: () => NOW,
+        tickBudgetMs: 20,
+      })
+
+      // Wedge it, and never release it — a genuinely stuck read must not be
+      // what blocks recovery; `reset()` has to be able to move on without it.
+      setManifestReadOverride(() => new Promise(() => {}))
+      await pollLoop.tick() // times out, degrades
+
+      await pollLoop.reset()
+
+      // If `manifestInFlight` were still occupied by the never-releasing
+      // promise above, this tick would skip issuing a new read and
+      // off-fence would never appear.
+      setManifestReadOverride(() => Promise.resolve(wireManifest))
+      await pollLoop.tick()
+
+      expect(summonsRaised(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)).toContain(
+        '45-ledger-subrows:off-fence',
+      )
+    }, 5000)
+  })
 })

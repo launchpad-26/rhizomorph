@@ -133,6 +133,16 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
    * forever (caught in review, #278).
    */
   let manifestInFlight: Promise<LanesResult> | null = null
+  /**
+   * Consecutive manifest-read timeouts not yet recovered from — 0 means
+   * healthy. Round-2 review, finding 4: `collector.error` latches
+   * `state.collectors['summons']` at `status: 'error'` and only
+   * `collector.recovered` clears it; every real collector gets that signal
+   * from `withResilience`, which the raiser is never wrapped by, so without
+   * this a single timed-out read left the fold unable to ever say `summons`
+   * was healthy again.
+   */
+  let summonsManifestFailures = 0
 
   let timer: ReturnType<typeof setInterval> | null = null
   /** The in-flight tick's own promise, held (not just a boolean) so `stop()` has something to await. */
@@ -325,23 +335,27 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
    * updates, so the next tick recomputes and re-attempts the SAME diff
    * (ADR-0029's own rule — a rejected append leaves the state that would have
    * advanced past it exactly where it was).
+   *
+   * **Round-2 review, the class both MUST-FIX findings share:** this function
+   * holds one `await` (the manifest read), and everything read BEFORE it may
+   * describe a world that no longer exists by the time it resumes. Both
+   * `recorder.sessionId`/`recorder.foldSoFar()` (finding 1) and off-fence's
+   * dependence on a manifest that may have gone stale mid-read (finding 2)
+   * are read or decided AFTER that await now, never before it.
    */
   async function raiseSummons(): Promise<void> {
     try {
       const tickNow = now()
 
-      // The session changed since the last tick this raiser completed — a
-      // rotation already emptied the fold (`recorder.openSession()`) before
-      // this tick ran, whether or not `reset()` has caught up yet. Treat it
-      // exactly like `reset()` would: drop the stale points without emitting
-      // a clear for any of them (they belong to a session that has already
-      // closed) and let this tick's own diff start from empty.
-      if (summonsSessionId !== null && summonsSessionId !== recorder.sessionId) {
-        summonsState = []
-      }
-      summonsSessionId = recorder.sessionId
-
       let manifest: LaneManifest | null = null
+      // Round-2 review, finding 2: a DEGRADED read (timed out, or still
+      // wedged from a prior tick) means "we do not know the current fence
+      // state" — absence of evidence, not evidence of absence — as distinct
+      // from a read that SETTLED and definitively found no manifest file.
+      // Only the former gets off-fence's special preservation below; the
+      // latter is a real, settled fact and off-fence correctly stops firing,
+      // exactly as it always has for an absent manifest.
+      let manifestDegradedThisTick = false
       if (!manifestInFlight) {
         const pending = readLanesManifest(repoPath)
         manifestInFlight = pending
@@ -349,18 +363,38 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
         // after its own tick gave up on it, the slot simply clears and the
         // next tick reads fresh — nothing here can surface as an unhandled
         // rejection.
-        void pending.finally(() => {
-          if (manifestInFlight === pending) manifestInFlight = null
-        })
+        void pending
+          .catch(() => {})
+          .finally(() => {
+            if (manifestInFlight === pending) manifestInFlight = null
+          })
 
         try {
           const manifestResult = await raceBudget(pending, tickBudgetMs)
           manifest = manifestResult.available ? parseLaneManifest(manifestResult) : null
+          // Round-2 review, finding 4: the read itself completed — whatever
+          // it found — so the filesystem is no longer wedged. Symmetric with
+          // `withResilience`'s own `collector.recovered` emission: recovery
+          // means the ATTEMPT succeeded, not that it found anything in
+          // particular.
+          if (summonsManifestFailures > 0) {
+            await recorder.record(
+              createEvent(
+                'collector.recovered',
+                { collector: 'summons', consecutiveFailures: summonsManifestFailures },
+                { id: nextId(), ts: tickNow },
+              ),
+            )
+            summonsManifestFailures = 0
+          }
         } catch (error) {
           if (error !== TIMED_OUT) throw error
-          // Degrades to the SAME state an absent manifest already produces
-          // (off-fence just does not fire this tick) instead of aborting the
-          // whole tick — a hang here must never be worse than a missing file.
+          manifestDegradedThisTick = true
+          summonsManifestFailures += 1
+          // Never aborts the whole tick — a hang here must never be worse
+          // than a missing file — but no longer claims off-fence simply
+          // "does not fire this tick" (round-2 finding 2's false comment):
+          // see the preservation below for what actually happens to it.
           await recordOrDegrade(
             createEvent(
               'collector.error',
@@ -370,13 +404,29 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
             'summons',
           )
         }
+      } else {
+        // The previous tick's read is still wedged. Skip issuing a second
+        // one — `manifest` stays null, same as this tick having found none
+        // at all — and the timeout error above already fired once for this
+        // episode; it does not fire again every `intervalMs` while the read
+        // stays hung (mirrors the collector `inFlight` skip's own "fires
+        // once per episode" comment above). Still degraded, for the same
+        // "we do not know" reason as a fresh timeout.
+        manifestDegradedThisTick = true
       }
-      // else: the previous tick's read is still wedged. Skip issuing a
-      // second one — `manifest` stays null, same as this tick having found
-      // none at all — and the timeout error above already fired once for
-      // this episode; it does not fire again every `intervalMs` while the
-      // read stays hung (mirrors the collector `inFlight` skip's own
-      // "fires once per episode" comment above).
+
+      // Round-2 review, finding 1: read fresh, AFTER the only await above —
+      // a rotation's route empties the fold (`recorder.openSession()`)
+      // synchronously, and a tick can be parked on the manifest read while
+      // that happens. Reading `sessionId`/`foldSoFar()` before the await
+      // would describe the OLD session even after it closed. Treat a change
+      // exactly like `reset()` would: drop the stale points without emitting
+      // a clear for any of them (they belong to a session that has already
+      // closed) and let this tick's own diff start from empty.
+      if (summonsSessionId !== null && summonsSessionId !== recorder.sessionId) {
+        summonsState = []
+      }
+      summonsSessionId = recorder.sessionId
 
       const fleet = buildFleet(recorder.foldSoFar(), { now: tickNow, manifest })
 
@@ -393,7 +443,24 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
         }
       }
 
-      const { diff, next } = diffSummons(summonsState, conditions, tickNow)
+      // Round-2 review, finding 2: `off-fence` is the one kind `buildFleet`
+      // ever derives from the manifest, so when THIS tick's read was
+      // degraded, it is spliced out of both sides of the diff and carried
+      // into `next` untouched — neither cleared (the read failed, it did not
+      // learn the fence went away) nor spuriously re-raised next tick (it
+      // was never cleared in the first place). Without this, a timed-out
+      // read cleared an open off-fence summons and the next healthy read
+      // re-raised it: a clear-then-raise cycle on the one family whose
+      // stated purpose is making exactly that computable (chattering).
+      let previousForDiff = summonsState
+      let preservedOffFence: readonly SummonsPoint[] = []
+      if (manifestDegradedThisTick) {
+        preservedOffFence = summonsState.filter((point) => point.kind === 'off-fence')
+        previousForDiff = summonsState.filter((point) => point.kind !== 'off-fence')
+      }
+
+      const { diff, next: diffedNext } = diffSummons(previousForDiff, conditions, tickNow)
+      const next = manifestDegradedThisTick ? [...diffedNext, ...preservedOffFence] : diffedNext
 
       for (const raise of diff.raised) {
         await recorder.record(
@@ -483,6 +550,15 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
     // have `summonsSessionId` read as stale on the very next tick and self-
     // correct there — this just means the correction has nothing left to do.
     summonsSessionId = recorder.sessionId
+    // Round-2 review, finding 3: a genuinely wedged manifest read never
+    // settles, so without this the slot stayed occupied forever and no
+    // later tick — even after a retarget points `repoPath` at a healthy
+    // repo — would ever issue a fresh read. Dropping the reference here
+    // does not cancel the old read (still nothing can); it just stops this
+    // loop from waiting on it, exactly like every other piece of state
+    // `reset()` already drops rather than carries across a boundary.
+    manifestInFlight = null
+    summonsManifestFailures = 0
     // Settle the hydration memo, so this function's own no-re-hydration
     // promise holds for a reset that lands BEFORE the first tick as well as
     // after one. `hydrate()` runs at most once and memoizes on its FIRST
