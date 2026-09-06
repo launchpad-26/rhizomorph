@@ -124,7 +124,7 @@
   #182's reserved ruling.
 - **prd17 — the complete record** (`docs/prds/prd-17-complete-record.md`, BLESSED 2026-08-06,
   partially landed): the instrument's own judgements and the operator's
-  decisions join the log. **Landed** (ruling 3, four of five laws): lenient
+  decisions join the log. **Landed** (ruling 3, all five laws): lenient
   parse (an unrecognized event line is counted and voiced, never dropped —
   see [docs/record-format.md](record-format.md#verifying-a-record)), the
   golden era corpus (one real recording per era, folded byte-identically in
@@ -137,12 +137,16 @@
   families all exist as of #219 (2026-09-04)** — summons raised/cleared,
   gate/dispatch/fence and operator ack/verdict/note joined the already-landed
   `session.closed` — but they are DEFINED, not emitted: nothing raises one yet,
-  so no recording contains one. **Ruled but not yet landed:** the emitters for
-  those families, ruling 2's beacon ingestion — its doorway ruled 2026-08-24, shared with prd27 (the
+  so no recording contains one. **Ruling 5 (operator, 2026-09-05)** answers who
+  raises a summons: the instrument does, server-side on the poll loop's tick,
+  and the seam owes an ADR because a state-reading judge cannot be a collector.
+  **Ruled but not yet landed:** ruling 5 itself, the emitters for ruling 1's
+  families, ruling 2's beacon ingestion — its doorway ruled 2026-08-24, shared with prd27 (the
   file drop, one collector) — and ruling 4's timeline dividend (chapter
   marks for gate holds, summonses, and operator verdicts) — the richer UI
   built on top of all of it is a separate prd (prd18), not yet a doc in this
-  tree.
+  tree. The residual is sequenced as waves 2–6 in the PRD's 2026-09-05
+  amendment.
 - **prd19 — the connection** (`docs/prds/done/prd-19-the-connection.md`, shipped): the
   `/connect` handshake, folded connection facts, exact remedies and doctor route ship; zero
   folded events is not accepted as proof that a source is live.
