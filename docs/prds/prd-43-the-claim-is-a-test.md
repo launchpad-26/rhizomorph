@@ -191,6 +191,62 @@ moment the reader was trying to extend trust.
 
 ## Sequencing (waves, each gated as ever)
 
+> **How to read the tense below, added 2026-09-07.** Every wave paragraph describes the
+> tracker **as it stood when that paragraph was written**, and the tracker moves daily.
+> No paragraph below is a current claim about what is open — and this note does not make
+> one either, because a status sentence written here would rot on the same schedule as the
+> ones it is warning about. Those sentences are dated records, left as written for the same
+> reason a PRD's Evidence section is: rewriting them would destroy what the sequencing
+> decision actually was at the time.
+>
+> **Derive the current state; do not read it off this page:**
+>
+> ```sh
+> gh issue list --milestone prd43 --state all --limit 200 \
+>   --json number,state,title --jq '.[]|"\(.number) \(.state) \(.title)"'
+> ```
+>
+> The limit is explicit because `gh` defaults to 30 and truncates without saying
+> so, which would quietly answer a different question than the one asked.
+>
+> **That query asks the milestone, and deliberately does not read this file.** An
+> earlier version of this note scraped `#NNN` out of the prose below and resolved
+> each number. That was removed rather than patched, because it cannot be made
+> correct here. This repo's tracker was deleted and rebuilt from `#1` on
+> 2026-08-21 — see AGENTS.md's note on `#NNN` citations — and the new sequence has
+> since climbed back over numbers the old one had already used. So `#148`, `#153`
+> and `#243`, which the Evidence section below cites as dead and says had to be
+> given as shas for that exact reason, all resolve today to real, unrelated
+> issues. A scraper reports them as live state, confidently and wrongly, on the
+> same page as the sentence saying they are gone. **Only the citing text's date
+> disambiguates a reused number, and no pattern over the number can see a date.**
+>
+> A second, smaller failure has the same root: a pattern loose enough to catch
+> every citation also catches things that are not citations. `#674c63` — a hex
+> literal this corpus already uses as its own worked example of that mistake —
+> yields `674` to an unanchored sweep. Asking the milestone raises neither
+> question, because it never reads a number out of prose at all.
+>
+> **A line-oriented grep under-reports the thing this note is about.** A wave paragraph
+> can wrap a quoted phrase across a line break, and `grep -c` then misses that instance
+> entirely — a false negative that read as a clean sweep through three rounds of review,
+> and that this paragraph deliberately does not restate as a number. Normalise the
+> whitespace before counting, substituting the phrase you are sweeping for:
+>
+> ```sh
+> tr '\n' ' ' < docs/prds/prd-43-the-claim-is-a-test.md | tr -s ' ' \
+>   | grep -o "$PHRASE" | wc -l
+> ```
+>
+> Four rounds of review on wave 9 each found a stale tense here and each fixed one
+> instance. The fourth round's seats then named the pattern and listed the waves still
+> carrying live-status language: wave 5 (`#24` had landed), wave 6 (all of its listed work
+> had landed), wave 7 (`#241` and `#261` landed), wave 8 (`#276` landed), wave 9 (the fence
+> constraint discharged), wave 10 ("already shipped", false while its branch was unmerged).
+> This note is the level above, written instead of a seventh correction: the section cannot
+> be kept current by hand, so it says so and hands the reader the command.
+
+
 `docs/**`, `README.md`, `SECURITY.md`, `CHANGELOG.md` and the law tests are this PRD's territory.
 `docs/prds/**` is the PRD corpus's own; no wave here edits a PRD. `api/index.ts`'s route classes
 are prd-29's — this PRD reads `ROUTE_CLASSES`, never writes it. Every wave follows prd-39 wave 1.
@@ -220,7 +276,11 @@ agree` · `prd43 w4: the README's recipes are run by the suite` (ruling 5).
 **Wave 5 — the sweep, last.** `prd43 w5: the README states where lab sessions live` — downstream
 of wave 0's ADR, and last because it is the one correction whose *content* is decided elsewhere.
 
-**Amended 2026-09-04 — wave 5 is stranded, and the order out of it is forced.** `#235` is
+**Amended 2026-09-04 — wave 5 is stranded, and the order out of it is forced.**
+**SUPERSEDED 2026-09-07: `#235` is no longer blocked** — the operator ruled the `#220`
+overlap nominal on evidence recorded in `#235`'s comments (both files are `.ts`, carry
+no `title=` attribute and render nothing, so `#220`'s sweep cannot reach them). The
+paragraph below is kept as the record of why wave 5 stalled for three days. `#235` is
 blocked by `#220` (prd-30 **wave 3** — the `title=` adoption sweep; prd-30's own Sequencing
 lists it as item 3 and its amendment says "the sweep is `#220` as one issue", so do not copy the
 "w1" that `#235`'s own body carries), which has no branch, no worktree and sits at Soon/Backlog: so
