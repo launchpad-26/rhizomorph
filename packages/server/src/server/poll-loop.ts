@@ -1,6 +1,6 @@
-import type { AnyCollector, EventOf, Exec, PollResult } from '@rhizomorph/core'
+import type { AnyCollector, EventOf, Exec, LaneManifest, PollResult } from '@rhizomorph/core'
 import { buildFleet, createCollectorContext, createEvent, createIdFactory, evidenceLine, parseLaneManifest } from '@rhizomorph/core'
-import { readLanesManifest } from '../api/lanes.js'
+import { readLanesManifest, type LanesResult } from '../api/lanes.js'
 import type { SessionRecorder } from './recorder.js'
 import type { SnapshotStore } from './snapshot-store.js'
 import { withTimeout } from './exec.js'
@@ -110,6 +110,29 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
    * same way — see `raiseSummons()` below and `docs/adr/`.
    */
   let summonsState: readonly SummonsPoint[] = []
+  /**
+   * Which session's fold {@link summonsState} was last diffed against —
+   * this raiser's own guard against a race `reset()` alone cannot close.
+   * `api/rotate.ts`'s own mutating route empties the recorder's fold
+   * immediately (`recorder.openSession()`) BEFORE it goes on to call
+   * `pollLoop.reset()`. A tick landing in that gap would otherwise see a
+   * brand-new, empty fold while `summonsState` still holds the OLD session's
+   * open points, diff them against the wrong session, and emit a
+   * `summons.cleared` for every one — mis-recorded into the NEW session's
+   * log for a condition that never actually cleared (caught in review,
+   * #278).
+   */
+  let summonsSessionId: string | null = null
+  /**
+   * A manifest read still pending from a prior tick, mirroring the
+   * per-collector `inFlight` map below for the one non-collector read this
+   * loop makes: `readLanesManifest` never rejects on its own (an absent or
+   * unparseable file both degrade to `{ available: false }` internally), so
+   * the only way it fails to settle is a genuinely wedged filesystem — and
+   * without this, a fresh dangling read would stack up every `intervalMs`
+   * forever (caught in review, #278).
+   */
+  let manifestInFlight: Promise<LanesResult> | null = null
 
   let timer: ReturnType<typeof setInterval> | null = null
   /** The in-flight tick's own promise, held (not just a boolean) so `stop()` has something to await. */
@@ -122,16 +145,21 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
   const TIMED_OUT = Symbol('collector-poll-timed-out')
 
   /**
-   * Resolves with the poll's result, or rejects with {@link TIMED_OUT} once
-   * `tickBudgetMs` elapses — enforced here in JS so it holds regardless of what
-   * the underlying child does. The timer is cleared the instant the poll
-   * settles (and unref'd), so it never holds the loop open.
+   * Resolves with `promise`'s own result, or rejects with {@link TIMED_OUT}
+   * once `budgetMs` elapses — enforced here in JS so it holds regardless of
+   * what the awaited work actually is. Originally just a collector's
+   * subprocess poll; generalized (review of #278) so `raiseSummons()`'s
+   * manifest read gets the identical treatment rather than a bespoke
+   * mechanism of its own. The timer is cleared the instant `promise` settles
+   * (and unref'd), so it never holds the loop open — and `promise` itself is
+   * never cancelled: this is JS-level abandonment, the same "suspenders"
+   * limit the collector case already had, not a kill.
    */
-  function raceBudget(pollPromise: Promise<PollResult<unknown>>): Promise<PollResult<unknown>> {
-    return new Promise<PollResult<unknown>>((resolve, reject) => {
-      const timer = setTimeout(() => reject(TIMED_OUT), tickBudgetMs)
+  function raceBudget<T>(promise: Promise<T>, budgetMs: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => reject(TIMED_OUT), budgetMs)
       timer.unref()
-      pollPromise.then(
+      promise.then(
         (result) => {
           clearTimeout(timer)
           resolve(result)
@@ -245,7 +273,7 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
             if (inFlight.get(collector.name) === pollPromise) inFlight.delete(collector.name)
           })
 
-        const result = await raceBudget(pollPromise)
+        const result = await raceBudget(pollPromise, tickBudgetMs)
         // prd40 ruling 1 (ADR-0029): the snapshot advances only once every event
         // in this batch is on disk. A rejected append therefore leaves
         // `previous` in place and the next tick re-derives the WHOLE batch —
@@ -301,8 +329,55 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
   async function raiseSummons(): Promise<void> {
     try {
       const tickNow = now()
-      const manifestResult = await readLanesManifest(repoPath)
-      const manifest = manifestResult.available ? parseLaneManifest(manifestResult) : null
+
+      // The session changed since the last tick this raiser completed — a
+      // rotation already emptied the fold (`recorder.openSession()`) before
+      // this tick ran, whether or not `reset()` has caught up yet. Treat it
+      // exactly like `reset()` would: drop the stale points without emitting
+      // a clear for any of them (they belong to a session that has already
+      // closed) and let this tick's own diff start from empty.
+      if (summonsSessionId !== null && summonsSessionId !== recorder.sessionId) {
+        summonsState = []
+      }
+      summonsSessionId = recorder.sessionId
+
+      let manifest: LaneManifest | null = null
+      if (!manifestInFlight) {
+        const pending = readLanesManifest(repoPath)
+        manifestInFlight = pending
+        // Detached exactly like a collector's poll: if this settles long
+        // after its own tick gave up on it, the slot simply clears and the
+        // next tick reads fresh — nothing here can surface as an unhandled
+        // rejection.
+        void pending.finally(() => {
+          if (manifestInFlight === pending) manifestInFlight = null
+        })
+
+        try {
+          const manifestResult = await raceBudget(pending, tickBudgetMs)
+          manifest = manifestResult.available ? parseLaneManifest(manifestResult) : null
+        } catch (error) {
+          if (error !== TIMED_OUT) throw error
+          // Degrades to the SAME state an absent manifest already produces
+          // (off-fence just does not fire this tick) instead of aborting the
+          // whole tick — a hang here must never be worse than a missing file.
+          await recordOrDegrade(
+            createEvent(
+              'collector.error',
+              { collector: 'summons', message: `manifest read timed out after ${tickBudgetMs}ms` },
+              { id: nextId(), ts: tickNow },
+            ),
+            'summons',
+          )
+        }
+      }
+      // else: the previous tick's read is still wedged. Skip issuing a
+      // second one — `manifest` stays null, same as this tick having found
+      // none at all — and the timeout error above already fired once for
+      // this episode; it does not fire again every `intervalMs` while the
+      // read stays hung (mirrors the collector `inFlight` skip's own
+      // "fires once per episode" comment above).
+
       const fleet = buildFleet(recorder.foldSoFar(), { now: tickNow, manifest })
 
       const conditions: SummonsCondition[] = []
@@ -403,6 +478,11 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
     // the old in-memory state (or a store this reset just installed) says was
     // already announced.
     summonsState = []
+    // Kept in step with the state it guards: a `reset()` that runs strictly
+    // after `recorder.openSession()` (the production ordering) would already
+    // have `summonsSessionId` read as stale on the very next tick and self-
+    // correct there — this just means the correction has nothing left to do.
+    summonsSessionId = recorder.sessionId
     // Settle the hydration memo, so this function's own no-re-hydration
     // promise holds for a reset that lands BEFORE the first tick as well as
     // after one. `hydrate()` runs at most once and memoizes on its FIRST

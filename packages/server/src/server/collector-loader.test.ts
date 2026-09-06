@@ -8,6 +8,7 @@ import { DEFAULT_FAILURE_THRESHOLD, DEFAULT_RETRY_INTERVAL_MS } from '../collect
 import { loadCollectors } from './collector-loader.js'
 import { createPollLoop } from './poll-loop.js'
 import type { SessionRecorder } from './recorder.js'
+import { SUMMONS_SNAPSHOT_KEY } from './summons.js'
 
 describe('loadCollectors', () => {
   it('registers all seven collectors', async () => {
@@ -21,6 +22,23 @@ describe('loadCollectors', () => {
     await loadCollectors({ warn: (m) => warnings.push(m) })
 
     expect(warnings).toEqual([])
+  })
+
+  it('never registers a collector named after the summons raiser\'s reserved snapshot key (#278)', async () => {
+    // `SnapshotStore` is keyed by plain string, with no registry distinguishing
+    // a collector's name from the raiser's own reserved key — ADR-0038's
+    // reservation is prose, not a type. A collector sharing
+    // `SUMMONS_SNAPSHOT_KEY` would silently share (and clobber) the raiser's
+    // persisted edge-state through `poll-loop.ts`'s `persist()`/`hydrate()` in
+    // one direction, and be handed the raiser's point array as its own
+    // snapshot in the other. Asserted here, against the real loaded registry
+    // (fence-widened for this one assertion; see #278), because a copy of the
+    // collector name list restated in `summons.test.ts` would drift from it —
+    // this is the one place the reservation can be checked against the actual
+    // set rather than a restatement.
+    const collectors = await loadCollectors({ warn: () => {} })
+
+    expect(collectors.map((c) => c.name)).not.toContain(SUMMONS_SNAPSHOT_KEY)
   })
 })
 

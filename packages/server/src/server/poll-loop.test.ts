@@ -1,9 +1,47 @@
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import type { AnyCollector, CollectorContext, EventOf, Exec, ExecResult, RhizomorphEvent } from '@rhizomorph/core'
-import { fixtureHistory, fleet20Spec, initialSessionState, pathologySpec, reduceAll } from '@rhizomorph/core'
+import { fixtureHistory, fleet20Spec, initialSessionState, manifestFor, pathologySpec, reduceAll } from '@rhizomorph/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type * as LanesModule from '../api/lanes.js'
 import { COLLECTOR_EXEC_TIMEOUT_MS, createPollLoop } from './poll-loop.js'
-import type { SessionRecorder } from './recorder.js'
+import { SessionRecorder } from './recorder.js'
 import type { LoadedSnapshot, SnapshotStore } from './snapshot-store.js'
+
+/**
+ * The one seam this suite mocks: `raiseSummons()` calls `readLanesManifest`
+ * directly (no injected seam — it is not a collector, and every other real
+ * collector call already goes through `exec`), so a test that needs to
+ * simulate a genuinely wedged filesystem read (review of #278, item 1) has no
+ * other way in. `manifestReadOverride` defaults to `null`, in which case this
+ * delegates straight to the real `readLanesManifest` — every existing test
+ * in this file that never touches the override sees exactly the same
+ * behaviour it always did (a real, fast ENOENT against a repoPath that does
+ * not exist). Declared via `vi.hoisted` because `vi.mock`'s factory is
+ * itself hoisted above every other statement in this file, including a plain
+ * `let`.
+ */
+const { getManifestReadOverride, setManifestReadOverride } = vi.hoisted(() => {
+  let override: (() => Promise<unknown>) | null = null
+  return {
+    getManifestReadOverride: () => override,
+    setManifestReadOverride: (fn: (() => Promise<unknown>) | null) => {
+      override = fn
+    },
+  }
+})
+
+vi.mock('../api/lanes.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof LanesModule>()
+  return {
+    ...actual,
+    readLanesManifest: (repoPath: string) => {
+      const override = getManifestReadOverride()
+      return override ? override() : actual.readLanesManifest(repoPath)
+    },
+  }
+})
 
 /**
  * Every fake recorder below hands back the empty fold: none of these tests
@@ -1262,5 +1300,156 @@ describe('the summons raiser (prd17 ruling 5)', () => {
     await secondLoop.tick()
 
     expect(summonsRaised(second.events).length).toBe(firstRaiseCount)
+  })
+
+  describe('a real .swarm/lanes.json (review of #278, item 3)', () => {
+    it('reaches an off-fence pathology through a REAL manifest file on disk — the manifest read is genuinely exercised, not always degraded to null', async () => {
+      // Every other test in this describe points `repoPath` at a directory
+      // that does not exist, so `readLanesManifest` always returns
+      // `{ available: false }` and `off-fence` — one of the four kinds the
+      // DoD asks this build to choose — can never fire. Forcing `manifest =
+      // null` in `raiseSummons()` left the WHOLE suite green before this
+      // test existed; this is the one that catches it.
+      const dir = await mkdtemp(path.join(tmpdir(), 'rhizo-summons-manifest-'))
+      try {
+        const spec = pathologySpec()
+        const manifest = manifestFor(spec)
+        // The wire shape `/api/lanes` actually serves (`LanesManifest` in
+        // `api/lanes.ts`): a versioned array, each entry carrying its own
+        // `branch` — never core's own record-keyed-by-handle shape. `branch`
+        // is set to the same handle `manifestFor` already keyed by, matching
+        // how the fixture's own synthetic git events name the lane.
+        const wireManifest = {
+          version: 1,
+          lanes: Object.values(manifest).map((fence) => ({
+            handle: fence.handle,
+            branch: fence.handle,
+            fence: fence.fence,
+            issue: fence.issue,
+            model: fence.model,
+          })),
+        }
+        await mkdir(path.join(dir, '.swarm'), { recursive: true })
+        await writeFile(path.join(dir, '.swarm', 'lanes.json'), JSON.stringify(wireManifest), 'utf8')
+
+        const staged = reduceAll(fixtureHistory(spec, NOW))
+        const { recorder, events } = recorderOn(() => staged)
+
+        const pollLoop = createPollLoop({
+          repoPath: dir,
+          collectors: [],
+          recorder,
+          exec: nullExec,
+          now: () => NOW,
+        })
+        await pollLoop.tick()
+
+        const kinds = summonsRaised(events).map((event) => event.payload.kind)
+        expect(kinds).toContain('off-fence')
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    })
+  })
+
+  describe('a manifest read that never settles (review of #278, item 1 — MUST FIX)', () => {
+    afterEach(() => {
+      setManifestReadOverride(null)
+    })
+
+    it('degrades to no manifest after the tick budget instead of stalling the tick forever, reports once, and does not re-report while still wedged', async () => {
+      setManifestReadOverride(() => new Promise(() => {}))
+      const staged = reduceAll(fixtureHistory(pathologySpec(), NOW))
+      const { recorder, events } = recorderOn(() => staged)
+
+      const pollLoop = createPollLoop({
+        repoPath: REPO_PATH,
+        collectors: [],
+        recorder,
+        exec: nullExec,
+        now: () => NOW,
+        tickBudgetMs: 20,
+      })
+
+      // The whole point: this resolves at all. Before the fix, `runTick()`
+      // awaited the wedged read with no bound, `inFlightTick` never cleared,
+      // and every later `tick()` call returned that same never-settling
+      // promise — this `await` would simply never return.
+      await pollLoop.tick()
+
+      const timeoutErrors = events.filter(
+        (event): event is EventOf<'collector.error'> =>
+          event.type === 'collector.error' &&
+          event.payload.collector === 'summons' &&
+          event.payload.message.includes('manifest read timed out'),
+      )
+      expect(timeoutErrors).toHaveLength(1)
+
+      // Degraded to the SAME state an absent manifest already produces:
+      // off-fence just does not fire this tick.
+      expect(summonsRaised(events).map((event) => event.payload.kind)).not.toContain('off-fence')
+
+      // A second tick, read still wedged: no second report — mirrors the
+      // per-collector `inFlight` skip's "fires once per episode".
+      await pollLoop.tick()
+      const timeoutErrorsAfterSecondTick = events.filter(
+        (event): event is EventOf<'collector.error'> =>
+          event.type === 'collector.error' &&
+          event.payload.collector === 'summons' &&
+          event.payload.message.includes('manifest read timed out'),
+      )
+      expect(timeoutErrorsAfterSecondTick).toHaveLength(1)
+    }, 2000)
+  })
+
+  describe('a rotation racing the tick (review of #278, item 3 — the reset() guard alone cannot close this)', () => {
+    it('never emits a phantom summons.cleared for a condition that never actually cleared, when the recorder has already opened its new session but pollLoop.reset() has not run yet', async () => {
+      const dir = await mkdtemp(path.join(tmpdir(), 'rhizo-summons-rotation-'))
+      try {
+        // A REAL recorder, not a fake: `sessionId` and `openSession()` are
+        // exactly the two things under test, and a fake would have to
+        // reimplement both to be worth anything here.
+        const recorder = new SessionRecorder('old-session', path.join(dir, 'old.jsonl'))
+        const heard: RhizomorphEvent[] = []
+        recorder.subscribe((event) => heard.push(event))
+        for (const event of fixtureHistory(pathologySpec(), NOW)) {
+          await recorder.record(event)
+        }
+
+        const pollLoop = createPollLoop({
+          repoPath: REPO_PATH,
+          collectors: [],
+          recorder,
+          exec: nullExec,
+          now: () => NOW,
+        })
+
+        await pollLoop.tick()
+        const openedPoints = summonsRaised(heard).map((event) => `${event.payload.lane}:${event.payload.kind}`)
+        expect(openedPoints.length).toBeGreaterThan(0)
+
+        // `rotateSession()`'s own half of a rotation (`recorder/rotate.ts`):
+        // the recorder switches to a fresh, empty session BEFORE the route
+        // that called it goes on to call `pollLoop.reset()` — see
+        // `api/rotate.ts`'s own comment on the ordering. Deliberately NOT
+        // followed by `pollLoop.reset()` yet: this is the race window.
+        recorder.openSession('new-session', path.join(dir, 'new.jsonl'))
+
+        const beforeRaceTick = heard.length
+        await pollLoop.tick() // the race-window tick
+        const duringRace = heard.slice(beforeRaceTick)
+        expect(summonsCleared(duringRace)).toEqual([])
+        expect(summonsRaised(duringRace)).toEqual([])
+
+        // Completing the real sequence: `pollLoop.reset()` runs after, and
+        // everything from here behaves exactly as an ordinary rotation would.
+        await pollLoop.reset()
+        const afterReset = heard.length
+        await pollLoop.tick()
+        expect(summonsCleared(heard.slice(afterReset))).toEqual([])
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    })
   })
 })

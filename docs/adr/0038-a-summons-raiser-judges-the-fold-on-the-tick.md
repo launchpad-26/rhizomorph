@@ -140,6 +140,22 @@ about a kind neither list was updated for.
   volume `/api/lanes` sees. Acceptable at today's file size and interval; a
   fleet whose manifest read becomes a bottleneck would need this revisited
   rather than assumed away.
+- **Bad.** A `recorder.record` that rejects mid-batch duplicates every raise
+  already recorded before it, the same way ADR-0029 already accepts for a
+  collector's own events — `raiseSummons()`'s catch reports the failure and
+  leaves `summonsState` unadvanced, so the next tick re-diffs the identical
+  set and re-raises everything it had already raised this episode (found in
+  review, #278: a control against a mid-batch failure took a fleet's raise
+  count from 1 to 4, with one lane raised twice with no clear between).
+  `summons.raised`'s whole stated purpose is making flood and chattering
+  computable (ruling 1's doc comment), and a duplicate raise under this exact
+  failure mode **is** chattering by that same definition — accepting it here
+  without saying so would be the ADR quietly re-introducing the thing the
+  event family exists to measure. The mitigation is the same one ADR-0029
+  already prescribes for the general case: whatever later folds this pair
+  (not this issue's scope, per the schema doc) must dedupe an open summons on
+  `(lane, kind)` rather than count raises, exactly as a collector's own
+  at-least-once events are already deduped downstream.
 - **Neutral.** The summons snapshot's persisted shape (`SummonsPoint[]`, just
   `{ lane, kind }` pairs) is deliberately smaller than what
   `diffSummons` computes per tick (`since`, `detail`) — only the key survives
