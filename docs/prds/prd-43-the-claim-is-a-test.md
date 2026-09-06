@@ -464,7 +464,15 @@ rather than by any gate.** Fence-disjoint, verified with the fence lint rather t
 they were built in parallel. **Built, reviewed over three rounds, and open as PR `#297`** — this
 paragraph said "may be built at once" until 2026-09-07, describing as future work that had
 already shipped, which is this PRD's own thesis pointed at its own Sequencing. A review seat
-caught it; the first repair pass then fixed five other findings and missed this one.
+caught it, and the first repair pass then missed it while fixing the rest.
+
+Round 1's findings are LISTED rather than counted, because counting them is what went
+wrong: two seats reported separately, their findings were merged by total instead of by
+identity, and one issue occupied a slot already counted. They were — the blockquote that
+swallowed its own ruling, a stale ceiling claim, a false count of where the rule was
+written down, a false claim in an earlier commit message, a stale "based on the wave-7
+head", a missing operator-local clause, and this one. Derive the total from that list if
+a total is wanted; do not carry one forward.
 
 - `prd43 w10: a pinned sha is evidence only if it landed` (`#288`). `isPinnedArtefact` grants a
   document total exemption from the citation law when its `**Tree:**` pin "resolves", tested with

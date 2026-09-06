@@ -310,8 +310,11 @@ conditions and each has been broken on its own:
 **A green suite is not condition 1.** Neither is a clean fence audit, a passing
 `lane-precommit.sh --repair`, or a certified mutation. Those validate an artefact;
 only the ledger records that the review *happened*. That distinction is the whole
-rule: every other gate in this toolchain checks a thing, and the two steps with no
-artefact — running the review, and asking — are the two that go missing.
+rule. The gates named above each check an ARTEFACT — a tree, a diff, a suite result —
+and the two steps that produce none, running the review and asking the operator, are the
+two that go missing. Which gates those are is derivable rather than asserted:
+`grep -n 'ok    ' <a lane-precommit run>` lists them, and the ledger is the only one
+whose subject is an event rather than a file.
 
 **`--strict` is not decoration.** A bare `check` exits 0 on a `FORCED` row, and a
 forced row is a reason typed by whoever wants the PR opened. Measured 2026-09-05 on the wave-7
