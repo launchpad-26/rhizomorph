@@ -395,6 +395,39 @@ describe('selectLaneCondition — the declared voice (prd-27, #283)', () => {
     expectHonest(condition)
   })
 
+  /**
+   * `declaredClause` is spliced into four arms of `activityCondition`. The two
+   * above cover `working` and `idle`; these two cover the other two, because
+   * dropping the clause from either of them alone left the suite green
+   * (review of #296) — the same sibling shape the block above is written for.
+   */
+  it('UNKNOWN with a declaration: the card names it before any work has landed', () => {
+    const lane = baseLane({
+      activity: 'unknown',
+      lastWorkTs: null,
+      workAgeMs: null,
+      firstSeenAt: NOW - 30_000,
+      pathologies: [],
+      declared: { kind: 'waiting', at: NOW - 40_000, writer: 'claude-hook' },
+    })
+    const condition = selectLaneCondition(lane, NOW)
+    expect(condition.label).toBe('unknown')
+    expect(condition.why.evidence.fact.endsWith(' · beacon (claude-hook) declares waiting 40s ago')).toBe(true)
+    expectHonest(condition)
+  })
+
+  it('the waiting fallback — a reported waiting no pathology matched — names the declaration too', () => {
+    const lane = baseLane({
+      activity: 'waiting' as LaneActivity,
+      pathologies: [],
+      declared: { kind: 'waiting', at: NOW - 40_000, writer: 'claude-hook' },
+    })
+    const condition = selectLaneCondition(lane, NOW)
+    expect(condition.label).toBe('waiting')
+    expect(condition.why.evidence.fact.endsWith(' · beacon (claude-hook) declares waiting 40s ago')).toBe(true)
+    expectHonest(condition)
+  })
+
   it('a lane nothing declared for says nothing about beacons at all', () => {
     const condition = selectLaneCondition(baseLane({ activity: 'idle', pathologies: [] }), NOW)
     expect(condition.why.evidence.fact).not.toContain('beacon')

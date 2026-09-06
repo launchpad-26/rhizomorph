@@ -314,6 +314,26 @@ describe('detectWaiting through diagnose() — the declared voice, byte-exact (p
     expect(found?.inferred).toBe(true)
   })
 
+  /**
+   * (b3)'s sibling against the *other* inference. `staleDeclaredWorking` is
+   * appended in two places — the transcript-shape arm and the pane-stillness
+   * arm — and (b3) above only ever exercised the second, so dropping the
+   * clause from the sessionlog arm alone left the suite green (review of #296).
+   */
+  it('(b3, sibling) a stale declared working is named on the transcript-shape inference too (#281)', () => {
+    const found = waiting(
+      paneInferredLane({
+        agentStatus: 'waiting',
+        agentStatusWitness: 'sessionlog',
+        declared: { kind: 'working', at: NOW - 300_000, writer: WRITER },
+      }),
+    )
+    expect(found?.evidence).toBe(
+      'transcript shape: no reading recorded · beacon (claude-hook) declared working 5m00s ago, before the last work',
+    )
+    expect(found?.inferred).toBe(true)
+  })
+
   it('(b1) a declared working NEWER than the last work quiets the pane inference outright', () => {
     const found = waiting(
       paneInferredLane({ declared: { kind: 'working', at: NOW - 5_000, writer: WRITER } }),
