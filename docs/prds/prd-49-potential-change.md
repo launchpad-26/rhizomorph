@@ -59,6 +59,30 @@ the issue stays open, `Later` / `Low`, until one of those is observed. An issue 
 closed by the trigger being ruled irrelevant is the cheapest form this can take; a paragraph in a
 closed PRD is the most expensive.
 
+> **Amendment — what the trigger refers to once the scene composes colonies** (operator ruling,
+> Lachlan Kelliher, 2026-09-07). The original reasoning above stands unchanged; this settles what
+> its two clauses *point at* now that prd-52 makes "the 30x3 cell" ambiguous. Both clauses were
+> written when the only way to reach 90 threads was three independent single-colony layouts summed
+> in a test. prd-52 changes both halves of that, so left alone this trigger would either fire on
+> its own test data or silently start reading a different number.
+>
+> - **Clause 2 follows the composed cell, not the summed one.** Once `layoutWorld` exists, "the
+>   model floor's 30x3 cell" means the cell measured *through composition* — the number the product
+>   actually renders. **The ~60 % threshold does not survive that change unexamined:** it was
+>   calibrated against the summed reading of 49.8 %, and the composed cell must be higher, because
+>   composition adds placement, a union camera fit and cross-colony marks that the sum charges
+>   nothing for. So the threshold is **re-derived from the first composed measurement** (prd-52
+>   wave 5) and recorded here in a further amendment. Until that measurement exists, clause 2 is
+>   **suspended rather than tripped** — a threshold read against the wrong baseline is not a
+>   signal, and firing on it would oblige ruling 2's work on no evidence.
+> - **Clause 1 is not tripped by a synthetic fixture.** A multi-colony demo fixture is test-only
+>   and does not ship as a selectable `StreamSource`, so it cannot satisfy "a real session or
+>   shipped fixture." The clause keeps meaning *a real fleet got big*, which is the fact it was
+>   written to catch — not *we added a demo*. This also keeps prd-37 ruling 6 intact: a solo user
+>   is shown no team scaffolding, because there is none to select.
+>
+> Ruling 2 is untouched and still binds whenever a clause does trip.
+
 ## Ruling 2 — when it trips, the first act is a re-measurement, not a build
 
 The trigger re-asks the question; it does not answer it. The order on [#190][i190] binds: re-run

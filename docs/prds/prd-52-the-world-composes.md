@@ -227,7 +227,14 @@ whether `1×180` and `3×60` should carry different supported sizes once measure
 - **Does a multi-colony fixture ship where a user can select it?** A test-only fixture proves the
   laws and shows nobody team scaffolding; a selectable one is how a human ever sees the composed
   scene before the team server is real. prd-37 ruling 6 pulls one way and dogfooding pulls the
-  other. Open, not ruled.
+  other. — **ANSWERED (operator ruling, Lachlan Kelliher, 2026-09-07): no.** The multi-colony
+  fixture is test-only and does not join `StreamSource`. Two things follow. prd-37 ruling 6 holds
+  without this PRD touching it — a solo user is shown no team scaffolding because there is none
+  to select. And prd-49's trigger keeps its meaning: its clause 1 fires on *a real session or
+  shipped fixture* above ~90 threads, and a synthetic 3×30 would have tripped it on our own test
+  data. Recorded as an amendment on prd-49 ruling 1 and on #190. The cost is accepted: nobody
+  sees the composed scene by hand until either a real multi-colony source exists or this is
+  re-ruled.
 - **Does the world place colonies by a fixed arrangement or by their own mass?** Placement is
   wave 1's to implement but not wave 1's to rule; a radial arrangement and a packed grid have
   different answers when one colony is much larger than its neighbours. Open, not ruled.
