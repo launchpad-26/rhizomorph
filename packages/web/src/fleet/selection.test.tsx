@@ -495,16 +495,40 @@ describe('a selection names its colony (prd-52 ruling 1)', () => {
     expect(withinColony(id)).toBe('72-thing')
   })
 
-  it('splits on the first separator, because a lane id contains them', () => {
-    // A branch-derived lane id like `feat/thing` is ordinary. Splitting on the
-    // last separator would answer `thing` and open the wrong lane.
+  it('carries a slashed lane id through both halves untouched', () => {
+    // A branch-derived lane id like `feat/thing` is ordinary, and the separator
+    // is deliberately a character it cannot contain, so neither half needs to
+    // escape anything.
     const id = colonySelection('alpha', 'feat/thing')
+    expect(id).toBe('alpha:feat/thing')
     expect(colonyOf(id)).toBe('alpha')
     expect(withinColony(id)).toBe('feat/thing')
   })
 
   it('refuses a colony id that would make the split ambiguous', () => {
-    expect(() => colonySelection('al/pha', MAIN_SELECTION)).toThrow(/may not contain/)
+    expect(() => colonySelection('al:pha', MAIN_SELECTION)).toThrow(/may not contain/)
+  })
+
+  it('refuses a SELECTION carrying the separator too — the sibling half of the same split', () => {
+    // The colony id was guarded from the start; this half was not, and a bare
+    // id holding the separator is mis-split by `colonyOf`/`withinColony` later
+    // with no colony ever having been named.
+    expect(() => colonySelection(null, 'weird:id')).toThrow(/may not contain/)
+    expect(() => colonySelection('alpha', 'weird:id')).toThrow(/may not contain/)
+  })
+
+  it('does NOT read a bare lane id as a namespaced one, however many slashes it carries', () => {
+    // The regression this separator exists to prevent (review of #321): with
+    // `/` as the separator, `withinColony('feat/main')` answered `main`, so a
+    // worker lane on an ordinary branch reported as the root-mass and the
+    // drawer showed the conductor instead of the lane.
+    expect(isMainSelected('feat/main')).toBe(false)
+    expect(colonyOf('feat/main')).toBeNull()
+    expect(withinColony('feat/main')).toBe('feat/main')
+
+    // And the deeper one, which the old first-split also flattened.
+    expect(isMainSelected('team/infra/main')).toBe(false)
+    expect(withinColony('team/infra/main')).toBe('team/infra/main')
   })
 
   it('recognises any colony mass as a mass, not only the bare one', () => {

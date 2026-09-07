@@ -62,7 +62,9 @@ export const MAIN_SELECTION = 'main'
  *
  * Reads the selection's colony-local part, so it answers for the bare `main`
  * and for any colony's own mass in a world (prd-52 ruling 1). A world of one
- * colony uses the bare form, so this is unchanged for every existing caller.
+ * colony uses the bare form, so this is unchanged for every existing caller —
+ * and unchanged for a bare lane id carrying slashes too, which is why
+ * {@link COLONY_SEP} is a character no lane id can hold.
  */
 export function isMainSelected(selectedId: string | null): boolean {
   return withinColony(selectedId) === MAIN_SELECTION
@@ -73,13 +75,25 @@ export function isMainSelected(selectedId: string | null): boolean {
 /**
  * The separator between a colony's name and what is selected inside it.
  *
- * A colony id comes from whoever composed the world; a lane id is a
- * branch-derived slug, and branch names ordinarily contain `/` — `feat/thing`
- * is nothing unusual. That asymmetry is the whole design: the split takes the
- * **first** separator only, and a colony id may not contain one at all, which
- * {@link colonySelection} refuses rather than silently mis-parsing later.
+ * `:`, and the character is the whole of the design. A colony id comes from
+ * whoever composed the world; a lane id is a branch-derived slug, and branch
+ * names ordinarily contain `/` — `feat/thing` is nothing unusual. A `/`
+ * separator therefore makes the BARE, single-colony form ambiguous: `feat/main`
+ * is either a lone lane on branch `feat/main`, or lane `main` inside a colony
+ * called `feat`, and nothing in the string decides which. Reading it as the
+ * second is what this file did on first write, and it reported an ordinary
+ * worker lane as the root-mass through {@link isMainSelected} — the drawer and
+ * the trace panel both rendered the conductor for a selected lane (review of
+ * #321).
+ *
+ * `:` cannot appear in either half. `git check-ref-format` forbids it in a
+ * refname outright, so no branch-derived lane id can carry one, and
+ * {@link colonySelection} refuses it in a colony id AND in the selection it
+ * wraps. The split is therefore total, and the bare form is unambiguous by
+ * construction rather than by care — which is what lets the bare id go on
+ * meaning exactly what it meant before prd-52 (ruling 2, applied to identity).
  */
-const COLONY_SEP = '/'
+const COLONY_SEP = ':'
 
 /**
  * Name a selection inside a colony.
@@ -95,6 +109,13 @@ const COLONY_SEP = '/'
  * together.
  */
 export function colonySelection(colonyId: string | null, withinId: string): string {
+  // Checked before the bare-form return, not after it: a bare id carrying the
+  // separator would be mis-split by `colonyOf`/`withinColony` later, with no
+  // colony ever having been named. Refusing both halves is what makes the
+  // split total rather than merely likely.
+  if (withinId.includes(COLONY_SEP)) {
+    throw new Error(`a selection may not contain "${COLONY_SEP}": ${withinId}`)
+  }
   if (colonyId === null || colonyId === '') return withinId
   if (colonyId.includes(COLONY_SEP)) {
     throw new Error(`a colony id may not contain "${COLONY_SEP}": ${colonyId}`)
@@ -112,9 +133,10 @@ export function colonyOf(selectedId: string | null): string | null {
 /**
  * What is selected *inside* its colony — a `Lane.id` or {@link MAIN_SELECTION}.
  *
- * Splits on the **first** separator, never the last: a lane id can contain
- * one, so `alpha/feat/thing` is colony `alpha` and lane `feat/thing`, and
- * splitting on the last would answer `thing`.
+ * Splits on the **first** separator, never the last. Neither half can hold one
+ * — {@link COLONY_SEP} says why — so there is only ever one to find; taking the
+ * first keeps that true rather than assuming it, and a bare `feat/thing` finds
+ * none at all and comes back whole.
  */
 export function withinColony(selectedId: string | null): string | null {
   if (selectedId === null) return null
