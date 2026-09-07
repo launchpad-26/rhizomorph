@@ -67,5 +67,5 @@ export {
 export { ringAngles, rimSpacing } from './geometry/ring.js'
 export { pointAt, tangentAt } from './geometry/curves.js'
 export { layoutScene } from './geometry/layout.js'
-export { RING_SPACING, layoutWorld, ringOrigin } from './geometry/world.js'
+export { RING_SLOTS, RING_SPACING, layoutWorld, ringOrigin } from './geometry/world.js'
 export type { ColonyGeometry, ColonySource, WorldGeometry } from './geometry/world.js'

@@ -91,31 +91,46 @@ export interface WorldGeometry {
 }
 
 /**
- * How far out the ring of other colonies sits, as a multiple of the box.
+ * How far out the first ring sits, as a multiple of the box; ring `k` sits at
+ * `RING_SPACING · (k + 1)`.
  *
  * Every colony is laid out at the FULL box — nothing shrinks to make room —
  * so two colonies overlap unless they are at least a box apart in one axis.
  * A ring offset of `(cos θ · width, sin θ · height) · k` is at least a box
  * apart in some axis when `k ≥ 1 / max(|cos θ|, |sin θ|)`, whose worst case is
  * 45° and `√2`. 1.5 clears it with margin, and `world.test.ts` proves the
- * content bounds stay disjoint up to nine colonies rather than trusting the
- * arithmetic. Past eight or so on one ring the neighbours start to crowd; a
- * second ring is the follow-up when a team that size exists.
+ * content bounds stay disjoint rather than trusting the arithmetic. Rings are
+ * a full 1.5 boxes apart radially, so a colony on ring 1 clears every colony
+ * on ring 0 in the radial axis alone.
  */
 export const RING_SPACING = 1.5
 
 /**
- * Where the `i`-th ring colony sits, for `count` on the ring.
- *
- * The first slot is due east so a two-person world reads left to right; the
- * rest are spaced evenly. Elliptical in the box's own aspect, because the
- * colonies are: a wide panel gives a wide ring.
+ * Slots per ring. Eight, at FIXED 45° positions — never spaced by how many
+ * are filled. This is the whole of the stability law: a ring that divided 2π
+ * by the number of colonies present would move every colony on it each time
+ * someone joined, which is the re-flow problem of the grid in polar
+ * coordinates. The first cut of this file did exactly that and the
+ * moves-nobody law caught it. Eight fixed slots at spacing 1.5 are provably
+ * disjoint — the 45° neighbour is `(1.06w, 1.06h)` away, clear in both axes —
+ * and the ninth arrival opens ring 1 rather than crowding ring 0.
  */
-export function ringOrigin(i: number, count: number, width: number, height: number): Point {
-  const angle = (i / count) * Math.PI * 2
+export const RING_SLOTS = 8
+
+/**
+ * Where ring slot `i` sits — a function of `i` alone, never of how many
+ * colonies there are. Slot 0 is due east so a two-colony world reads left to
+ * right; the rest go round at fixed 45° steps; slot 8 starts ring 1.
+ * Elliptical in the aspect of the box, because the colonies are: a wide panel
+ * gives a wide ring.
+ */
+export function ringOrigin(i: number, width: number, height: number): Point {
+  const ring = Math.floor(i / RING_SLOTS)
+  const angle = ((i % RING_SLOTS) / RING_SLOTS) * Math.PI * 2
+  const k = RING_SPACING * (ring + 1)
   return {
-    x: Math.cos(angle) * width * RING_SPACING,
-    y: Math.sin(angle) * height * RING_SPACING,
+    x: Math.cos(angle) * width * k,
+    y: Math.sin(angle) * height * k,
   }
 }
 
@@ -162,7 +177,7 @@ export function layoutWorld(
     // of `{0,0}` folded in. The arithmetic agrees, but ruling 2 is a
     // byte-identity claim, and the cheapest way to keep one true is to leave
     // no arithmetic between it and the thing it claims about.
-    const origin = i === 0 ? ORIGIN : ringOrigin(i - 1, sources.length - 1, width, height)
+    const origin = i === 0 ? ORIGIN : ringOrigin(i - 1, width, height)
     const geometry = i === 0 ? layoutScene(fleet, options) : layoutScene(fleet, { ...options, origin })
     colonies.push({ id, origin, geometry, fleet })
     threadCount += geometry.threads.length

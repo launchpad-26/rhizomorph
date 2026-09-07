@@ -35,6 +35,7 @@ import {
 import { contentBounds } from './camera.js'
 import { layoutScene } from './geometry.js'
 import {
+  RING_SLOTS,
   RING_SPACING,
   layoutWorld,
   ringOrigin,
@@ -170,12 +171,12 @@ describe('every colony looks the way its owner sees it', () => {
     }
   })
 
-  it('keeps every colony’s content clear of every other’s, up to nine on the ring', () => {
+  it('keeps every colony’s content clear of every other’s, across two full rings', () => {
     // Full-size colonies overlap unless they are a box apart in some axis, and
     // RING_SPACING is chosen so they are. Asserted over CONTENT bounds rather
     // than boxes — trespasses and labels reach past the rim, and those are the
-    // parts that would collide first.
-    for (const n of [2, 3, 5, 7, 9]) {
+    // parts that would collide first. 17 = centre + ring 0 full + ring 1 full.
+    for (const n of [2, 3, 5, 9, 12, 17]) {
       const world = layoutWorld(sourcesOf(...team(n)), { ...SIZE, now: NOW })
       const boxes = world.colonies.map((c) => contentBounds(c.geometry))
       for (let a = 0; a < boxes.length; a++) {
@@ -203,22 +204,42 @@ describe('every colony looks the way its owner sees it', () => {
 })
 
 describe('ringOrigin', () => {
-  it('spaces the ring at least a box apart in some axis at every angle', () => {
+  it('is a function of the slot alone — a slot does not move when the ring fills', () => {
+    // The law that makes "joining moves nobody" true. A ring that divided 2π
+    // by the number present would relocate every colony on each arrival; the
+    // slot's position must depend on nothing but its own index.
+    for (let i = 0; i < 20; i++) {
+      const a = ringOrigin(i, SIZE.width, SIZE.height)
+      const b = ringOrigin(i, SIZE.width, SIZE.height)
+      expect(b).toStrictEqual(a)
+    }
+    // And the signature cannot quietly grow a `count` back.
+    expect(ringOrigin.length).toBe(3)
+  })
+
+  it('clears the centre by at least a box in some axis at every slot', () => {
     // The mutation this catches: RING_SPACING dropping below √2. At 45° the
     // offset is (k·w·0.707, k·h·0.707), and both are under a box when k < √2.
-    for (const count of [1, 2, 3, 4, 6, 8, 12]) {
-      for (let i = 0; i < count; i++) {
-        const { x, y } = ringOrigin(i, count, SIZE.width, SIZE.height)
-        const clearX = Math.abs(x) >= SIZE.width - 1e-9
-        const clearY = Math.abs(y) >= SIZE.height - 1e-9
-        expect(clearX || clearY, `slot ${i} of ${count} is inside the box in both axes`).toBe(true)
-      }
+    for (let i = 0; i < RING_SLOTS * 2; i++) {
+      const { x, y } = ringOrigin(i, SIZE.width, SIZE.height)
+      const clearX = Math.abs(x) >= SIZE.width - 1e-9
+      const clearY = Math.abs(y) >= SIZE.height - 1e-9
+      expect(clearX || clearY, `slot ${i} is inside the box in both axes`).toBe(true)
     }
   })
 
+  it('opens a second ring, further out, once the first eight slots are full', () => {
+    const last = ringOrigin(RING_SLOTS - 1, SIZE.width, SIZE.height)
+    const ninth = ringOrigin(RING_SLOTS, SIZE.width, SIZE.height)
+    // Same angle as slot 0 (due east), a full ring further out.
+    expect(ninth.y).toBeCloseTo(0, 9)
+    expect(ninth.x).toBeCloseTo(SIZE.width * RING_SPACING * 2, 9)
+    expect(Math.hypot(ninth.x, ninth.y)).toBeGreaterThan(Math.hypot(last.x, last.y))
+  })
+
   it('is elliptical in the box’s own aspect, so a wide panel gives a wide ring', () => {
-    const east = ringOrigin(0, 4, SIZE.width, SIZE.height)
-    const north = ringOrigin(1, 4, SIZE.width, SIZE.height)
+    const east = ringOrigin(0, SIZE.width, SIZE.height)
+    const north = ringOrigin(RING_SLOTS / 4, SIZE.width, SIZE.height)
     expect(Math.abs(east.x) / Math.abs(north.y)).toBeCloseTo(SIZE.width / SIZE.height, 9)
   })
 })
