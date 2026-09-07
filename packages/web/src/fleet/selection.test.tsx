@@ -7,12 +7,15 @@ import type { EventSourceLike } from '../hooks/useEventStream.js'
 import FleetTable from '../panels/fleet/index.js'
 import { FleetProvider } from './FleetContext.js'
 import {
-  isMainSelected,
   MAIN_SELECTION,
+  SelectionProvider,
+  colonyOf,
+  colonySelection,
+  isMainSelected,
   needsYouLaneIds,
   nextJumpTarget,
-  SelectionProvider,
   useSelection,
+  withinColony,
 } from './selection.js'
 
 afterEach(cleanup)
@@ -463,5 +466,51 @@ describe('the selection is scoped to its repo (#390 review)', () => {
     view.rerender(<ScopedSurfaces />)
 
     expect(screen.getByTestId('selected').textContent).toBe('dev-1')
+  })
+})
+
+describe('a selection names its colony (prd-52 ruling 1)', () => {
+  it('keeps the bare form for a single colony, so nothing about a solo page changes', () => {
+    expect(colonySelection(null, MAIN_SELECTION)).toBe(MAIN_SELECTION)
+    expect(colonySelection(null, '72-thing')).toBe('72-thing')
+    expect(colonyOf(MAIN_SELECTION)).toBeNull()
+    expect(withinColony(MAIN_SELECTION)).toBe(MAIN_SELECTION)
+  })
+
+  it('tells two colonies apart when both hold a lane of the same name', () => {
+    // The assertion that fails today: MAIN_SELECTION is one id and N colonies
+    // are N masses, so a world of two resolves one id to two things.
+    const a = colonySelection('alpha', MAIN_SELECTION)
+    const b = colonySelection('beta', MAIN_SELECTION)
+    expect(a).not.toBe(b)
+
+    const laneA = colonySelection('alpha', '72-thing')
+    const laneB = colonySelection('beta', '72-thing')
+    expect(laneA).not.toBe(laneB)
+  })
+
+  it('round-trips both halves', () => {
+    const id = colonySelection('alpha', '72-thing')
+    expect(colonyOf(id)).toBe('alpha')
+    expect(withinColony(id)).toBe('72-thing')
+  })
+
+  it('splits on the first separator, because a lane id contains them', () => {
+    // A branch-derived lane id like `feat/thing` is ordinary. Splitting on the
+    // last separator would answer `thing` and open the wrong lane.
+    const id = colonySelection('alpha', 'feat/thing')
+    expect(colonyOf(id)).toBe('alpha')
+    expect(withinColony(id)).toBe('feat/thing')
+  })
+
+  it('refuses a colony id that would make the split ambiguous', () => {
+    expect(() => colonySelection('al/pha', MAIN_SELECTION)).toThrow(/may not contain/)
+  })
+
+  it('recognises any colony mass as a mass, not only the bare one', () => {
+    expect(isMainSelected(MAIN_SELECTION)).toBe(true)
+    expect(isMainSelected(colonySelection('alpha', MAIN_SELECTION))).toBe(true)
+    expect(isMainSelected(colonySelection('alpha', '72-thing'))).toBe(false)
+    expect(isMainSelected(null)).toBe(false)
   })
 })

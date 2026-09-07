@@ -57,9 +57,69 @@ import type { Fleet } from '@rhizomorph/core'
  */
 export const MAIN_SELECTION = 'main'
 
-/** True when the selection is the root-mass rather than a worker lane. */
+/**
+ * True when the selection is a root-mass rather than a worker lane.
+ *
+ * Reads the selection's colony-local part, so it answers for the bare `main`
+ * and for any colony's own mass in a world (prd-52 ruling 1). A world of one
+ * colony uses the bare form, so this is unchanged for every existing caller.
+ */
 export function isMainSelected(selectedId: string | null): boolean {
-  return selectedId === MAIN_SELECTION
+  return withinColony(selectedId) === MAIN_SELECTION
+}
+
+// ── selection in a world of colonies (prd-52 ruling 1) ─────────────────────
+
+/**
+ * The separator between a colony's name and what is selected inside it.
+ *
+ * A colony id comes from whoever composed the world; a lane id is a
+ * branch-derived slug, and branch names ordinarily contain `/` — `feat/thing`
+ * is nothing unusual. That asymmetry is the whole design: the split takes the
+ * **first** separator only, and a colony id may not contain one at all, which
+ * {@link colonySelection} refuses rather than silently mis-parsing later.
+ */
+const COLONY_SEP = '/'
+
+/**
+ * Name a selection inside a colony.
+ *
+ * The bare {@link MAIN_SELECTION} is one hardcoded id for the root-mass, and a
+ * world holds one mass per colony — so in a world of more than one colony that
+ * id resolves to N different masses. This is the form that does not.
+ *
+ * A world of one colony keeps the bare form, which is prd-52 ruling 2 applied
+ * to identity rather than to geometry: nothing about a solo picture changes,
+ * down to the strings its surfaces pass around. That is what lets the eleven
+ * consumers of the bare id keep working untouched until #319 moves them
+ * together.
+ */
+export function colonySelection(colonyId: string | null, withinId: string): string {
+  if (colonyId === null || colonyId === '') return withinId
+  if (colonyId.includes(COLONY_SEP)) {
+    throw new Error(`a colony id may not contain "${COLONY_SEP}": ${colonyId}`)
+  }
+  return `${colonyId}${COLONY_SEP}${withinId}`
+}
+
+/** The colony a selection belongs to, or `null` for the bare single-colony form. */
+export function colonyOf(selectedId: string | null): string | null {
+  if (selectedId === null) return null
+  const at = selectedId.indexOf(COLONY_SEP)
+  return at === -1 ? null : selectedId.slice(0, at)
+}
+
+/**
+ * What is selected *inside* its colony — a `Lane.id` or {@link MAIN_SELECTION}.
+ *
+ * Splits on the **first** separator, never the last: a lane id can contain
+ * one, so `alpha/feat/thing` is colony `alpha` and lane `feat/thing`, and
+ * splitting on the last would answer `thing`.
+ */
+export function withinColony(selectedId: string | null): string | null {
+  if (selectedId === null) return null
+  const at = selectedId.indexOf(COLONY_SEP)
+  return at === -1 ? selectedId : selectedId.slice(at + 1)
 }
 
 export interface SelectionValue {
