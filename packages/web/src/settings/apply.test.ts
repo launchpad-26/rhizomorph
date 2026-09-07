@@ -1,6 +1,6 @@
+import { renderHook } from '@testing-library/react'
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { renderHook } from '@testing-library/react'
 import { applyPreferences, readSystemPreferences, resolveTheme, useResolvedMotion } from './apply.js'
 import { writePreference } from './registry.js'
 
@@ -27,11 +27,12 @@ describe('resolveTheme', () => {
     expect(resolveTheme('light', { prefersLight: false, prefersReducedMotion: false })).toBe('light')
   })
 
-  it('follows the system when asked to, and defaults to following it', () => {
+  it('follows the system when asked to, and for a stored value it does not recognise', () => {
     expect(resolveTheme('system', { prefersLight: true, prefersReducedMotion: false })).toBe('light')
     expect(resolveTheme('system', { prefersLight: false, prefersReducedMotion: false })).toBe('dark')
-    // An unrecognised stored value is not a third theme — it follows the system,
-    // which is the declared default.
+    // An unrecognised stored value is not a third theme — it follows the system.
+    // This is the RESOLVER's fallback for a value it cannot read; the registry's
+    // own default is dark (#337, `registry.test.ts`), which never reaches here.
     expect(resolveTheme('sepia', { prefersLight: true, prefersReducedMotion: false })).toBe('light')
   })
 })
