@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
+import { discloseText } from '../disclosure/testing.js'
 import { InteractionCard } from './InteractionCard.js'
 import type { InteractionCardModel, InteractionCost } from './model.js'
 
@@ -80,6 +81,14 @@ describe('the time shape leads', () => {
     fireEvent.mouseEnter(trigger.closest('[data-testid="disclosure"]') as HTMLElement)
     expect(screen.getByTestId('disclosure-card')).toBeTruthy()
     expect(screen.getByTestId('disclosure-why').textContent).toContain('3 leaf spans summed')
+  })
+
+  it('discloses where the dollar figure came from, by hover and by focus alike (#220)', () => {
+    renderCard()
+
+    const card = discloseText(screen.getByTestId('interaction-fact-cost'))
+    expect(card).toMatch(/authoritative dollar cost|estimated/)
+    expect(card).toContain('$')
   })
 })
 

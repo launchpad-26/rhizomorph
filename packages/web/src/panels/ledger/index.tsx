@@ -3,17 +3,20 @@ import { selectSpendByBranch } from '@rhizomorph/core'
 import { useModeClock } from '../../app/ModeContext.js'
 import { laneUrl, navigate } from '../../app/router.js'
 import { useStream } from '../../app/StreamContext.js'
+import { Disclosure } from '../../disclosure/index.js'
 import { useFleet, useSelection } from '../../fleet/index.js'
 import { formatTokens } from '../../lib/format.js'
 import { Sparkline } from '../../spark/index.js'
 import { exemplarForBranch, heaviestLlmRequestSpanByLane } from './exemplar.js'
 import {
   costCellText,
-  costCellTitle,
+  costCellDisclosure,
+  exemplarJumpDisclosure,
+  landedDisclosure,
   formatElapsed,
   formatRelativeTime,
   threadLabel,
-  tokensCellTitle,
+  tokensCellDisclosure,
 } from './format.js'
 import { branchOutputSpark, usageEventsByBranch } from './sparkline.js'
 import { selectThreadRowsForBranch } from './threads.js'
@@ -159,42 +162,51 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
                         <span
                           role="status"
                           aria-label={row.landed ? 'landed' : 'live'}
-                          title={
-                            row.landed
-                              ? 'worktree removed — this feature is finished'
-                              : 'worktree still present'
-                          }
                           className={`inline-flex items-center gap-1 text-inst-dense uppercase tracking-wide ${
                             row.landed ? 'text-done' : 'text-working'
                           }`}
                         >
-                          <span
-                            className={`h-2 w-2 rounded-full ${
-                              row.landed ? 'bg-done' : 'bg-working'
-                            }`}
-                          />
-                          {row.landed ? 'Landed' : 'Live'}
+                          <Disclosure
+                            disclosure={landedDisclosure(row.landed)}
+                            triggerLabel={`${row.branch}, ${row.landed ? 'landed' : 'live'}`}
+                          >
+                            <span
+                              className={`h-2 w-2 rounded-full ${
+                                row.landed ? 'bg-done' : 'bg-working'
+                              }`}
+                            />
+                            {row.landed ? 'Landed' : 'Live'}
+                          </Disclosure>
                         </span>
                       </td>
                       <td
                         className="figures py-1.5 pr-2 text-(--ink-primary)"
                         data-testid="ledger-cost"
-                        title={costCellTitle(row)}
                       >
-                        {costCellText(row)}
-                        {row.costIsAuthoritative === false ? (
-                          <span className="ml-1 text-inst-dense font-normal text-(--ink-dim)">est.</span>
-                        ) : null}
+                        <Disclosure disclosure={costCellDisclosure(row)} triggerLabel={`${row.branch}, cost`}>
+                          {costCellText(row)}
+                          {row.costIsAuthoritative === false ? (
+                            <span className="ml-1 text-inst-dense font-normal text-(--ink-dim)">est.</span>
+                          ) : null}
+                        </Disclosure>
                       </td>
                       <td
                         className="figures py-1.5 pr-2 text-(--ink-dim)"
                         data-testid="ledger-tokens"
-                        title={tokensCellTitle(row)}
                       >
                         <span className="inline-flex items-center gap-1.5">
-                          <Sparkline values={spark} className="shrink-0 text-(--ink-dim)" />
-                          {formatTokens(row.tokens.output)}
-                          <span className="text-inst-dense text-(--ink-dim)">out</span>
+                          {/*
+                            The card wraps the figure and NOT the cell: the
+                            exemplar jump is a button, and a trigger around the
+                            whole cell would nest one inside the other — the
+                            defect ADR-0040 exists to prevent. It has its own
+                            disclosure, in the inline mode, a few lines down.
+                          */}
+                          <Disclosure disclosure={tokensCellDisclosure(row)} triggerLabel={`${row.branch}, tokens`}>
+                            <Sparkline values={spark} className="shrink-0 text-(--ink-dim)" />
+                            {formatTokens(row.tokens.output)}
+                            <span className="text-inst-dense text-(--ink-dim)">out</span>
+                          </Disclosure>
                           {exemplar === null ? null : (
                             <ExemplarJumpButton laneId={laneId} exemplar={exemplar} select={select} />
                           )}
@@ -225,22 +237,30 @@ export default function LedgerPanel({ now: nowOverride }: LedgerPanelProps = {})
                             <td
                               className="figures py-1.5 pr-2 text-(--ink-body)"
                               data-testid="ledger-subrow-cost"
-                              title={costCellTitle(thread)}
                             >
-                              {costCellText(thread)}
-                              {thread.costIsAuthoritative === false ? (
-                                <span className="ml-1 text-inst-dense font-normal text-(--ink-dim)">
-                                  est.
-                                </span>
-                              ) : null}
+                              <Disclosure
+                                disclosure={costCellDisclosure(thread)}
+                                triggerLabel={`${threadLabel(thread.thread)}, cost`}
+                              >
+                                {costCellText(thread)}
+                                {thread.costIsAuthoritative === false ? (
+                                  <span className="ml-1 text-inst-dense font-normal text-(--ink-dim)">
+                                    est.
+                                  </span>
+                                ) : null}
+                              </Disclosure>
                             </td>
                             <td
                               className="figures py-1.5 pr-2 text-(--ink-dim)"
                               data-testid="ledger-subrow-tokens"
-                              title={tokensCellTitle(thread)}
                             >
-                              {formatTokens(thread.tokens.output)}
-                              <span className="ml-1 text-inst-dense text-(--ink-dim)">out</span>
+                              <Disclosure
+                                disclosure={tokensCellDisclosure(thread)}
+                                triggerLabel={`${threadLabel(thread.thread)}, tokens`}
+                              >
+                                {formatTokens(thread.tokens.output)}
+                                <span className="ml-1 text-inst-dense text-(--ink-dim)">out</span>
+                              </Disclosure>
                             </td>
                             <td className="py-1.5 pr-2 text-(--ink-dim)">
                               {thread.models.length === 0 ? '—' : thread.models.join(', ')}
@@ -314,17 +334,19 @@ function ExemplarJumpButton({
   select: (laneId: string) => void
 }) {
   return (
-    <button
-      type="button"
-      data-testid="ledger-exemplar-jump"
-      title={`open this lane's run view at its trace — heaviest llm_request, ${formatTokens(exemplar.tokens)} tok`}
-      onClick={() => {
-        select(laneId)
-        navigate(laneUrl(laneId))
-      }}
-      className="focus-ring rounded-none border border-(--line-hair) px-1 text-inst-dense text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
-    >
-      ⇥ trace
-    </button>
+    <Disclosure disclosure={exemplarJumpDisclosure(exemplar)} trigger="inline">
+      <button
+        type="button"
+        data-testid="ledger-exemplar-jump"
+        aria-label="open this lane's run view at its heaviest model request"
+        onClick={() => {
+          select(laneId)
+          navigate(laneUrl(laneId))
+        }}
+        className="focus-ring rounded-none border border-(--line-hair) px-1 text-inst-dense text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
+      >
+        ⇥ trace
+      </button>
+    </Disclosure>
   )
 }

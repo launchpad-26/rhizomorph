@@ -1,3 +1,4 @@
+import { Disclosure, type DisclosureContent } from '../../disclosure/index.js'
 import type { SpanDecision } from '@rhizomorph/core'
 import type { MouseEvent, ReactElement, ReactNode } from 'react'
 import {
@@ -212,15 +213,13 @@ function WaitedChipButton({
   onToggle: (laneId: string) => void
 }): ReactElement {
   const glyph = chip.decision === null ? '?' : DECISION_GLYPH[chip.decision]
-  const decisionWord = chip.decision === null ? 'unknown' : DECISION_WORD[chip.decision]
   const duration = formatSpan(chip.waitMs)
-  const title = `${chip.label} waited ${duration}${chip.toolName === null ? '' : ` on ${chip.toolName}`} — ${decisionWord}`
 
   return (
+    <Disclosure disclosure={waitedChipDisclosure(chip)} trigger="inline">
     <button
       type="button"
       data-waited-chip={chip.laneId}
-      title={title}
       aria-pressed={selected}
       onClick={() => onToggle(chip.laneId)}
       className={[
@@ -239,6 +238,7 @@ function WaitedChipButton({
         {glyph}
       </span>
     </button>
+    </Disclosure>
   )
 }
 
@@ -282,12 +282,12 @@ function Chip({ item, selected, onToggle, reducedMotion }: ChipProps): ReactElem
   }
 
   return (
+    <Disclosure disclosure={chipDisclosure(item, evidence)} trigger="inline">
     <button
       type="button"
       data-chip-id={item.id}
       data-chip-kind={item.kind}
       disabled={!clickable}
-      title={evidence}
       aria-pressed={selected}
       onClick={clickable ? handleClick : undefined}
       className={[
@@ -311,6 +311,7 @@ function Chip({ item, selected, onToggle, reducedMotion }: ChipProps): ReactElem
         </span>
       )}
     </button>
+    </Disclosure>
   )
 }
 
@@ -353,4 +354,48 @@ function ChipGlyph({ kind }: { kind: AttentionKind }): ReactElement {
 
 function isPathologyKind(kind: AttentionKind): kind is PathologyKind {
   return (PATHOLOGY_KINDS as readonly string[]).includes(kind)
+}
+
+/**
+ * A waited chip's disclosure (#220) — and the one place in this sweep where the
+ * elapsed time needed no sourcing at all: the wait IS the observation, and
+ * `chip.waitMs` is its age.
+ */
+function waitedChipDisclosure(chip: WaitedChip): DisclosureContent {
+  const decisionWord = chip.decision === null ? 'unknown' : DECISION_WORD[chip.decision]
+  return {
+    label: chip.label,
+    why: {
+      reason: `this lane waited on a decision — ${decisionWord}`,
+      evidence: {
+        fact: chip.toolName === null ? 'it was blocked on a prompt' : `it was blocked on ${chip.toolName}`,
+        elapsedMs: chip.waitMs,
+      },
+    },
+    remedy:
+      chip.decision === null
+        ? { kind: 'action', action: 'open the lane and answer it' }
+        : { kind: 'none', because: `the wait is over — it was ${decisionWord}` },
+  }
+}
+
+/**
+ * A pathology chip's disclosure. The evidence sentence is the strip's own,
+ * passed in rather than rebuilt, so the card and the chip beside it cannot
+ * phrase one condition two ways — and `item.forMs` is the age the strip
+ * already measured for it. A chip with no `forMs` is a continuously-true
+ * reading (core's rule) and reports 0 rather than a fabricated span.
+ */
+function chipDisclosure(item: AttentionItem, evidence: string): DisclosureContent {
+  return {
+    label: item.kind,
+    why: {
+      reason: isPathologyKind(item.kind) ? `this lane is ${item.kind}` : NON_PATHOLOGY_LABEL[item.kind],
+      evidence: { fact: evidence, elapsedMs: item.forMs ?? 0 },
+    },
+    remedy:
+      item.laneId === null
+        ? { kind: 'none', because: 'this chip names a fleet-wide condition rather than one lane, so there is nowhere to open' }
+        : { kind: 'action', action: 'select it to filter the fleet to this lane' },
+  }
 }

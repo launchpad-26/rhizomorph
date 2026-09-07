@@ -1,4 +1,6 @@
+import { useModeClock } from '../app/ModeContext.js'
 import { Nav } from '../app/Nav.js'
+import { Disclosure, type DisclosureContent } from '../disclosure/index.js'
 import {
   RANK_GLOW_CLASS,
   Sigil,
@@ -7,14 +9,14 @@ import {
   stateTextClass,
   type Lane,
 } from '../fleet/index.js'
-import { PARKED_TEXT_CLASS, stateSigilKind, stateTitle } from '../panels/fleet/format.js'
+import { PARKED_TEXT_CLASS, stateSigilKind, stateDisclosure } from '../panels/fleet/format.js'
 
 /**
  * THE LANE PAGE'S HEADER (prd9 B1b) — handle, role, state glyph and branch,
  * read straight off the derived fleet the fleet table reads (#135's own
  * ruling: "from the same derived objects the fleet table reads — one object,
  * never re-derive"). The glyph logic is the fleet table's own cell code
- * (`panels/fleet/format.js`'s `stateSigilKind`/`stateTitle`), imported rather
+ * (`panels/fleet/format.js`'s `stateSigilKind`/`stateDisclosure`), imported rather
  * than repeated, for the same reason the drawer's `Vitals` imports it: a page
  * that computed its own state glyph could disagree with the row an operator
  * clicked to get here.
@@ -77,7 +79,7 @@ export function PageHeader({ subject, onClose }: PageHeaderProps) {
         <span
           data-testid="lane-page-role"
           className="shrink-0 text-inst uppercase tracking-wider text-(--ink-dim)"
-          title="declared role"
+          aria-label="declared role"
         >
           {subject.kind === 'conductor' ? 'conductor' : subject.kind === 'run' ? 'worker' : subject.lane.role}
         </span>
@@ -85,19 +87,14 @@ export function PageHeader({ subject, onClose }: PageHeaderProps) {
         <span
           data-testid="lane-page-branch"
           className="min-w-0 truncate font-mono text-inst text-(--ink-dim)"
-          title={
-            subject.kind === 'conductor'
-              ? 'no branch — the conductor runs the fleet, not a worktree of its own'
-              : subject.kind === 'run'
-                ? (subject.branch ?? 'no branch — no recording of this lane names one')
-                : (subject.lane.branch ?? 'no branch — git never saw a worktree for this lane')
-          }
         >
-          {subject.kind === 'conductor'
-            ? '—'
-            : subject.kind === 'run'
-              ? (subject.branch ?? '—')
-              : (subject.lane.branch ?? '—')}
+          <Disclosure disclosure={headerBranchDisclosure(subject)} triggerLabel="branch">
+            {subject.kind === 'conductor'
+              ? '—'
+              : subject.kind === 'run'
+                ? (subject.branch ?? '—')
+                : (subject.lane.branch ?? '—')}
+          </Disclosure>
         </span>
       </header>
     </>
@@ -105,6 +102,10 @@ export function PageHeader({ subject, onClose }: PageHeaderProps) {
 }
 
 function LaneIdentity({ lane }: { lane: Lane }) {
+  // The fold's own reading position, not `Date.now()` — the same clock the
+  // ledger reads, so an elapsed time on this page means the same thing in
+  // replay as it does live (`disclosure/vocabulary.ts`'s clock rule).
+  const now = useModeClock()
   const sigilKind = stateSigilKind(lane)
   const stateClass = lane.parked ? PARKED_TEXT_CLASS : stateTextClass(lane.rank, lane.activity)
 
@@ -117,10 +118,8 @@ function LaneIdentity({ lane }: { lane: Lane }) {
         )}
       </h1>
 
-      <span
-        className={`inline-flex shrink-0 items-center gap-1 ${stateClass}`}
-        title={stateTitle(lane)}
-      >
+      <span className={`inline-flex shrink-0 items-center gap-1 ${stateClass}`}>
+        <Disclosure disclosure={stateDisclosure(lane, now)} triggerLabel={`${lane.label}, state`}>
         {lane.parked ? null : (
           <Sigil
             kind={sigilKind}
@@ -131,6 +130,7 @@ function LaneIdentity({ lane }: { lane: Lane }) {
         <span className="figures text-inst uppercase tracking-wide">
           {lane.parked ? 'PARKED' : SIGIL_WORD[sigilKind]}
         </span>
+        </Disclosure>
       </span>
     </>
   )
@@ -165,4 +165,47 @@ function ConductorIdentity() {
       Main <span className="ml-1 text-inst italic text-(--ink-dim)">— the conductor</span>
     </h1>
   )
+}
+
+/**
+ * The header's BRANCH mark (#220). Three subjects, three honest absences —
+ * the conductor has no worktree by design, a run is read out of a recording
+ * that may not name one, and a lane's branch is whatever git last saw.
+ *
+ * `elapsedMs: 0` because each of these is re-read from the fold on every tick
+ * rather than dated to an observation (`selectors/condition.ts`'s own rule).
+ */
+function headerBranchDisclosure(subject: PageHeaderSubject): DisclosureContent {
+  if (subject.kind === 'conductor') {
+    return {
+      label: 'branch',
+      why: {
+        reason: 'the conductor runs the fleet, not a worktree of its own',
+        evidence: { fact: 'no branch is expected here, and none is shown', elapsedMs: 0 },
+      },
+      remedy: { kind: 'none', because: 'this is the conductor working as designed, not a gap' },
+    }
+  }
+  const branch = subject.kind === 'run' ? subject.branch : subject.lane.branch
+  if (branch === null) {
+    return {
+      label: 'branch',
+      why: {
+        reason:
+          subject.kind === 'run'
+            ? 'no recording of this lane names a branch'
+            : 'git never saw a worktree for this lane',
+        evidence: { fact: 'nothing is shown rather than a guess', elapsedMs: 0 },
+      },
+      remedy: { kind: 'none', because: 'a lane with no worktree has no branch to name' },
+    }
+  }
+  return {
+    label: 'branch',
+    why: {
+      reason: 'the branch this lane is working on',
+      evidence: { fact: `git reported ${branch}`, elapsedMs: 0 },
+    },
+    remedy: { kind: 'none', because: 'a branch name is a reading, not a condition' },
+  }
 }

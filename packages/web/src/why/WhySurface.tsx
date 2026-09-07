@@ -1,3 +1,4 @@
+import { Disclosure, type DisclosureContent } from '../disclosure/index.js'
 import { useMemo, useState } from 'react'
 import {
   selectFileProvenance,
@@ -11,7 +12,7 @@ import {
 import { formatSpan } from '../fleet/index.js'
 import type { FetchLike } from '../fleet/manifest.js'
 import { KindTag } from '../trace/glyphs.js'
-import { NearestEntry } from './NearestEntry.js'
+import { JUMP_TO_NEAREST, NearestEntry } from './NearestEntry.js'
 
 /**
  * THE WHY SURFACE (prd11 ruling 5) — causality made clickable, shared by the
@@ -122,7 +123,7 @@ export function WhySurface({
               type="button"
               data-testid="why-open-in-activity"
               onClick={() => onJumpToActivity(activePath)}
-              title="jumps to ACTIVITY, scrolled to and marking this file's own entries"
+              aria-label="jumps to ACTIVITY, scrolled to and marking this file's own entries"
               className="shrink-0 rounded-none border border-(--line-hair) px-1.5 py-0.5 text-inst uppercase tracking-wide text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
             >
               activity ↗
@@ -179,11 +180,11 @@ function FileList({ touches, activePath, onSelect, now }: FileListProps) {
     <ol data-testid="why-file-list" className="flex gap-1 overflow-x-auto pb-1 [scrollbar-gutter:stable]">
       {touches.map((touch) => (
         <li key={touch.path} className="shrink-0">
+          <Disclosure disclosure={touchDisclosure(touch, now)} trigger="inline">
           <button
             type="button"
             data-testid="why-file"
             data-active={touch.path === activePath}
-            title={`${touch.toolCallCount} tool call${touch.toolCallCount === 1 ? '' : 's'} · ${touch.commitCount} commit${touch.commitCount === 1 ? '' : 's'} · last touched ${formatSpan(Math.max(0, now - touch.lastTouchedAt))} ago`}
             onClick={() => onSelect(touch.path)}
             className={`rounded-none border px-2 py-1 font-mono text-inst-dense leading-tight ${
               touch.path === activePath
@@ -196,6 +197,7 @@ function FileList({ touches, activePath, onSelect, now }: FileListProps) {
               {touch.toolCallCount}t·{touch.commitCount}c
             </span>
           </button>
+          </Disclosure>
         </li>
       ))}
     </ol>
@@ -267,11 +269,10 @@ function ToolCallRow({ call, now, fetchTranscript }: ToolCallRowProps) {
     <li data-testid="why-tool-call" className="border-t border-(--line-hair)/60 pt-1 first:border-t-0 first:pt-0">
       <div className="flex items-baseline gap-2">
         {call.span === null ? (
-          <span
-            title="no trace span carries this toolUseId — either none exported, or the call has none"
-            className="w-14 shrink-0 text-inst-dense uppercase tracking-wider text-(--ink-dim)"
-          >
-            tool
+          <span className="w-14 shrink-0 text-inst-dense uppercase tracking-wider text-(--ink-dim)">
+            <Disclosure disclosure={NO_SPAN_DISCLOSURE} triggerLabel="no trace span">
+              tool
+            </Disclosure>
           </span>
         ) : (
           <KindTag kind={call.span.kind} />
@@ -284,7 +285,7 @@ function ToolCallRow({ call, now, fetchTranscript }: ToolCallRowProps) {
           type="button"
           data-testid="why-tool-call-jump"
           onClick={() => setExpanded((value) => !value)}
-          title="jumps to the transcript entry nearest this tool call's timestamp — jump-to-nearest, not exact alignment (future work)"
+          aria-label={`jumps to ${JUMP_TO_NEAREST}`}
           className="shrink-0 rounded-none border border-(--line-hair) px-1.5 py-0.5 text-inst uppercase tracking-wide text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
         >
           {expanded ? 'hide ▴' : 'conversation ↗'}
@@ -308,4 +309,47 @@ function CommitRow({ commit, now }: { commit: FileProvenanceCommit; now: number 
       </span>
     </li>
   )
+}
+
+
+/**
+ * The honest gap when no exported span carries a tool call (prd-30 S1's
+ * *unknown*: name what is missing, never improvise).
+ *
+ * A module constant rather than a function because it takes no arguments and
+ * says the same thing every time — and `elapsedMs: 0` because the absence is
+ * re-read out of the fold on every render, which is core's own register for a
+ * continuously-true fact rather than a claim about when the span went missing.
+ */
+export const NO_SPAN_DISCLOSURE: DisclosureContent = {
+  label: 'tool',
+  why: {
+    reason: 'no trace span carries this toolUseId',
+    evidence: { fact: 'either no span was exported for it, or the call has none', elapsedMs: 0 },
+  },
+  remedy: {
+    kind: 'none',
+    because: 'the call is still shown with what is known about it — the missing span is named rather than papered over',
+  },
+}
+
+/** One touched file's disclosure: what happened to it, and how long ago. */
+function touchDisclosure(
+  touch: { path: string; toolCallCount: number; commitCount: number; lastTouchedAt: number },
+  now: number,
+): DisclosureContent {
+  return {
+    label: touch.path,
+    why: {
+      reason: 'what this run did to this file',
+      evidence: {
+        fact: `${touch.toolCallCount} tool call${touch.toolCallCount === 1 ? '' : 's'} · ${touch.commitCount} commit${touch.commitCount === 1 ? '' : 's'}, last touched`,
+        // `Math.max(0, …)` for the same reason the surface already used it: a
+        // playhead scrubbed behind an event would otherwise hand the card a
+        // negative age, and `requireAge` refuses those outright.
+        elapsedMs: Math.max(0, now - touch.lastTouchedAt),
+      },
+    },
+    remedy: { kind: 'action', action: 'select it to see the chain of work that touched it' },
+  }
 }

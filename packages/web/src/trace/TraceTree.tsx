@@ -1,9 +1,10 @@
+import { Disclosure } from '../disclosure/index.js'
 import { useState } from 'react'
 import type { SessionState } from '@rhizomorph/core'
 import { HiddenNotice } from '../panels/search/HiddenNotice.js'
 import { filterByQuery, useSessionQuery } from '../panels/search/session.js'
 import { EmptyTrace } from './EmptyTrace.js'
-import { formatSpan, tokenHeadline, tokenTitle } from './format.js'
+import { formatSpan, tokenHeadline, tokenDisclosure } from './format.js'
 import {
   flattenDescendants,
   interactionText,
@@ -88,9 +89,9 @@ export function TraceTree({ state, lane }: TraceTreeProps) {
                 interaction #{ordinal} · {formatSpan(view.summary.wallDurationMs)} · Σ
                 {formatSpan(sumLeafDurationsMs(view.root))}
                 {' · '}
-                <span title={tokenTitle(view.summary.tokens)}>
+                <Disclosure disclosure={tokenDisclosure(view.summary.tokens)} trigger="inline">
                   {tokenHeadline(view.summary.tokens)}
-                </span>
+                </Disclosure>
               </span>
             </button>
 

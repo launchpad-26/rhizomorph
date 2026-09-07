@@ -1,3 +1,4 @@
+import { Disclosure, type DisclosureContent } from '../disclosure/index.js'
 import { useEffect, useRef } from 'react'
 import type { FetchLike } from '../fleet/manifest.js'
 import { useTranscript, type TranscriptEntry } from '../drawer/index.js'
@@ -85,14 +86,20 @@ export function NearestEntry({ lane, targetTs, fetchImpl }: NearestEntryProps) {
   }
 
   return (
-    <div
-      data-testid="why-nearest-entry"
-      title="the transcript entry nearest this tool call's timestamp — jump-to-nearest, not exact tool-call alignment (future work)"
-      className="mt-1 border-l border-(--line-hair) py-0.5 pl-3"
-    >
+    <div data-testid="why-nearest-entry" className="mt-1 border-l border-(--line-hair) py-0.5 pl-3">
       <p className="heading text-(--ink-dim)">
-        {nearest.role}
-        {stillPaging ? ' · paging earlier…' : ''}
+        {/*
+          The caveat is a disclosure and not an `aria-label` (#220): this is a
+          `<div>`, and an aria-label on a non-interactive, non-landmark element
+          is ignored by assistive technology — which is how the sentence came
+          to be pointer-only in the first place. The card puts it on the
+          keyboard path, from the one constant `WhySurface` also names itself
+          with.
+        */}
+        <Disclosure disclosure={NEAREST_ENTRY_DISCLOSURE} triggerLabel="nearest entry">
+          {nearest.role}
+          {stillPaging ? ' · paging earlier…' : ''}
+        </Disclosure>
       </p>
       <p className="whitespace-pre-wrap break-words font-mono text-read-floor leading-snug text-(--ink-body)">
         {entryPreview(nearest)}
@@ -136,4 +143,38 @@ function entryPreview(entry: TranscriptEntry): string {
 
 function truncate(text: string): string {
   return text.length <= PREVIEW_MAX_CHARS ? text : `${text.slice(0, PREVIEW_MAX_CHARS)}…`
+}
+
+/**
+ * The jump's caveat, in one place (#220).
+ *
+ * It was written out twice — here and in `WhySurface.tsx` — as two native
+ * `title=` strings kept in step by hand. One constant, two readers: the
+ * control that performs the jump names itself with it, and this panel
+ * discloses it. It lives HERE rather than in `WhySurface.tsx` because that
+ * file already imports this one; the other direction would be an import cycle,
+ * and a cycle around a module-level constant is how it ends up `undefined` at
+ * evaluation time.
+ */
+export const JUMP_TO_NEAREST =
+  "the transcript entry nearest this tool call's timestamp — jump-to-nearest, not exact tool-call alignment (future work)"
+
+/**
+ * What this panel is showing, and what it is not (#220) — the jump is to the
+ * *nearest* transcript entry, not to an exactly-aligned one.
+ *
+ * The sentence itself is {@link JUMP_TO_NEAREST}, shared with the control in
+ * `WhySurface.tsx` that performs the jump, so the promise a reader is given
+ * before the jump and the caveat they meet after it cannot drift apart.
+ */
+const NEAREST_ENTRY_DISCLOSURE: DisclosureContent = {
+  label: 'nearest',
+  why: {
+    reason: JUMP_TO_NEAREST,
+    evidence: { fact: 'the entry shown is the closest one by timestamp, chosen from what has been paged in', elapsedMs: 0 },
+  },
+  remedy: {
+    kind: 'none',
+    because: 'exact tool-call alignment is future work — the caveat is here so the entry is not read as an exact match',
+  },
 }

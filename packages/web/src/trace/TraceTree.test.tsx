@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { fixtureTraceSpans, initialSessionState, reduceAll } from '@rhizomorph/core'
 import { afterEach, describe, expect, it } from 'vitest'
+import { discloseText } from '../disclosure/testing.js'
 import { TraceTree } from './TraceTree.js'
 
 afterEach(cleanup)
@@ -44,9 +45,9 @@ describe('TraceTree', () => {
     const state = reduceAll(fixtureTraceSpans({ lane: '2-core' }))
     render(<TraceTree state={state} lane="2-core" />)
 
-    const title = screen.getByTitle(/output 3\.1K/)
-    expect(title.textContent).toBe('3.1K')
-    expect(title.getAttribute('title')).toBe('output 3.1K · input 4 · cache read 180K · cache write 6.4K')
+    // #220: the headline is the mark, the breakdown is its card.
+    const headline = screen.getByText('3.1K')
+    expect(discloseText(headline)).toContain('output 3.1K · input 4 · cache read 180K · cache write 6.4K')
   })
 
   it('expands to show every child row, indented, none hidden', () => {
