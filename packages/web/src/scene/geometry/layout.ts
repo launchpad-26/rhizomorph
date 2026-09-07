@@ -93,7 +93,27 @@ interface ThreadSpine {
   filaments: FilamentGeometry[]
 }
 
-function layoutSpine(
+/**
+ * The half of a spine that growth cannot touch (prd-52 ruling 4, #315).
+ *
+ * `full` is the whole smoothed curve. Growth is applied *after* it, by
+ * truncating it — so `full` is not a function of growth, and a cache that
+ * carries growth in its key rebuilds a curve that did not change. This type is
+ * the seam that lets the two be keyed separately.
+ *
+ * `perp`, `lean` and `habit` ride along because the second half needs them and
+ * they are functions of the same inputs — recomputing them would mean
+ * re-deriving the wander and the variation to get two numbers back.
+ */
+interface SpineBase {
+  full: Point[]
+  perp: Point
+  lean: number
+  /** The lane's own free phase — `variation.curl`, spent on how it lets go. */
+  habit: number
+}
+
+function spineBase(
   lane: Lane,
   outward: Point,
   root: Point,
@@ -101,13 +121,8 @@ function layoutSpine(
   rim: Point,
   rx: number,
   ry: number,
-  sizeFrac: number,
-  widthTip: number,
   spacing: number,
-  growth: number,
-  growthTravel: boolean,
-  cut: RetireState | null,
-): ThreadSpine {
+): SpineBase {
   // Deterministic sideways lean, keyed on the lane id (same wander every frame
   // and session). Every thread gets a *minimum* bow — sign from the hash,
   // magnitude floored — so a lane whose hash lands near the middle doesn't run
@@ -133,11 +148,40 @@ function layoutSpine(
   }
 
   const full = smoothSpine(waypoints, THREAD_SAMPLES)
+
+  return { full, perp, lean, habit: variation.curl }
+}
+
+/**
+ * The half of a spine that growth *does* touch: the truncation, the release,
+ * and the filaments hung off whatever is left (prd-52 ruling 4, #315).
+ *
+ * Cheap next to {@link spineBase} — a slice and a deformation rather than a
+ * cubic sampled at `SPINE_SEGMENTS` and smoothed to `THREAD_SAMPLES`.
+ */
+function layoutSpine(
+  base: SpineBase,
+  lane: Lane,
+  outward: Point,
+  rx: number,
+  ry: number,
+  sizeFrac: number,
+  widthTip: number,
+  growth: number,
+  growthTravel: boolean,
+  cut: RetireState | null,
+): ThreadSpine {
+  const { full, perp, lean, habit } = base
   // The growth class's own choreography (motion.ts): a nub through the bud,
   // tip-led reach after — every multiplier exactly 1 at rest. `travel: false`
   // (reduced motion) draws the full spine immediately; the mark layer's
   // warm-in is what carries "new lane" there, on the allowance's own excluded
   // channels.
+  //
+  // At rest this returns `full` itself, not a copy — which is what keeps the
+  // path's array identity stable frame to frame and lets `ribbon.ts`'s outline
+  // cache hit. `world.test.ts` pins that identity as a law, because it is the
+  // reason the outline cache needs no change of its own.
   const grown =
     growth >= 1 || !growthTravel ? full : truncate(full, growthEnvelope(growth).spine)
 
@@ -146,7 +190,6 @@ function layoutSpine(
   // rim, and how deeply the released strand sags. Two lanes that finished the
   // same work still let go differently — see docs/design-notes/geometry-relax-reach.md
   // (#117) for why a rim where they did not is a problem.
-  const habit = variation.curl
   const relax = RETIRE_RELAX_PX.min + (RETIRE_RELAX_PX.max - RETIRE_RELAX_PX.min) * habit
   const slack =
     Math.min(SLACK_MAX_PX, Math.max(SLACK_MIN_PX, Math.min(rx, ry) * SLACK_FRACTION)) *
@@ -198,6 +241,28 @@ let retiredSpineCache: { world: string; entries: Map<string, ThreadSpine> } | nu
  * identities this keeps stable.
  */
 const livingSpineCache = new Map<string, { key: string; spine: ThreadSpine }>()
+
+/**
+ * THE PRE-TRUNCATION CACHE (prd-52 ruling 4, #315) — the second chance behind
+ * {@link livingSpineCache}.
+ *
+ * The living cache answers a lane whose picture did not change at all, and it
+ * is keyed on everything including `growth`. A *growing* lane changes `growth`
+ * every frame by definition, so it misses that cache every frame and rebuilt
+ * its whole curve — including the cubic sampled at `SPINE_SEGMENTS` and
+ * smoothed to `THREAD_SAMPLES`, none of which growth affects, because growth
+ * is applied afterwards by truncating the result.
+ *
+ * So this slot holds the half growth cannot touch, keyed **without** it. A
+ * lane whose only change is growth now rebuilds the cheap half only. The two
+ * caches are complementary rather than alternatives: at rest the living cache
+ * still returns the whole spine and this one is never consulted.
+ *
+ * Correct before it is fast. Excluding a term the value does not depend on is
+ * right on its own terms; what it *buys* at scale is #320's to measure, per
+ * prd-52 ruling 3.
+ */
+const spineBaseCache = new Map<string, { key: string; base: SpineBase }>()
 
 /**
  * How long a living spine may coast on its cached geometry. The only term that
@@ -370,7 +435,16 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
     // byte-for-byte. At a pinned clock every distinct `now` that changes any
     // other term (growth, thicken, a cut stage) changes the key, so still-image
     // tests and choreography tests see exact per-frame geometry as before.
-    const livingKey = `${world}|${angle.toFixed(6)}|${bundleAngle.toFixed(6)}|${sizeFrac.toFixed(6)}|${growth.toFixed(6)}|${options.growthTravel !== false}|${variationSeed(lane)}|${cut === null ? 'live' : `${cut.stage}|${cut.tension}|${cut.withdraw}|${cut.drift}`}|${Math.floor(now / LIFECYCLE_TICK_MS)}`
+    //
+    // THE BASE KEY is this key minus the two growth terms (prd-52 ruling 4).
+    // Everything in it is something the *pre-truncation* curve is a function
+    // of; growth is not, because growth is applied by truncating that curve
+    // afterwards. Deriving one key from the other rather than writing two
+    // literals is deliberate — two literals drift, and a base key that
+    // silently gained a term the base does not depend on would quietly undo
+    // the whole point of this cache.
+    const baseKey = `${world}|${angle.toFixed(6)}|${bundleAngle.toFixed(6)}|${sizeFrac.toFixed(6)}|${variationSeed(lane)}|${cut === null ? 'live' : `${cut.stage}|${cut.tension}|${cut.withdraw}|${cut.drift}`}|${Math.floor(now / LIFECYCLE_TICK_MS)}`
+    const livingKey = `${baseKey}|${growth.toFixed(6)}|${options.growthTravel !== false}`
     const livingKnown = livingSpineCache.get(lane.id)
 
     let path: readonly Point[]
@@ -384,17 +458,17 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
       const cache = retiredSpineCacheFor(world)
       const known = cache.get(key)
       if (known === undefined) {
+        // A settled lane is built once per world generation and then answered
+        // from its own cache, so the base is not worth a slot here — it would
+        // be written once and read never.
         const built = layoutSpine(
+          spineBase(lane, outward, root, bundle, rim, rx, ry, spacing),
           lane,
           outward,
-          root,
-          bundle,
-          rim,
           rx,
           ry,
           sizeFrac,
           widthTip,
-          spacing,
           growth,
           options.growthTravel !== false,
           cut,
@@ -413,17 +487,27 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
       path = livingKnown.spine.path
       filaments = livingKnown.spine.filaments
     } else {
+      // The living cache missed. Before rebuilding the whole curve, ask
+      // whether only growth moved — if the base key still matches, the
+      // expensive half is already in hand and this frame owes only the cheap
+      // one (prd-52 ruling 4).
+      const baseKnown = spineBaseCache.get(lane.id)
+      let base: SpineBase
+      if (baseKnown !== undefined && baseKnown.key === baseKey) {
+        base = baseKnown.base
+      } else {
+        base = spineBase(lane, outward, root, bundle, rim, rx, ry, spacing)
+        spineBaseCache.set(lane.id, { key: baseKey, base })
+      }
+
       const built = layoutSpine(
+        base,
         lane,
         outward,
-        root,
-        bundle,
-        rim,
         rx,
         ry,
         sizeFrac,
         widthTip,
-        spacing,
         growth,
         options.growthTravel !== false,
         cut,
