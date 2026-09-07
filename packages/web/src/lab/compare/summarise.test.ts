@@ -1,3 +1,4 @@
+import { canSummariseArm, MIN_COMPLETED_RUNS_TO_SUMMARISE } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { summariseArm } from './summarise.js'
 import type { Arm, Run } from './types.js'
@@ -22,6 +23,16 @@ describe('summariseArm — law 1: every run is kept, always', () => {
     const summary = summariseArm(arm(runs))
     expect(summary.runs).toEqual(runs)
     expect(summary.runs).toHaveLength(3)
+  })
+})
+
+describe('summariseArm — the floor is core\'s, and this surface agrees with it verdict for verdict (prd53 ruling 2)', () => {
+  it('states a spread exactly when core says the completed-run count clears the floor — the same fixture the CLI test walks', () => {
+    for (let completed = 0; completed <= MIN_COMPLETED_RUNS_TO_SUMMARISE + 1; completed += 1) {
+      const runs = Array.from({ length: completed }, (_unused, index) => complete(`r${index + 1}`, index + 1))
+      const summary = summariseArm(arm(runs))
+      expect(summary.spread !== null, `completed=${completed}`).toBe(canSummariseArm(completed))
+    }
   })
 })
 
