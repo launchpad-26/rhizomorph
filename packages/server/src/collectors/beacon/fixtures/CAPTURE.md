@@ -47,7 +47,7 @@ substitute.
    ```sh
    tmux new-session -d -s beacon-cap -c "$SCRATCH" 'claude'
    # wait for the prompt, then SELECT MANUAL APPROVAL before typing anything:
-   tmux send-keys -t beacon-cap S-Tab   # cycle off the default auto-accept-edits mode
+   tmux send-keys -t beacon-cap BTab   # cycle off the default auto-accept-edits mode (S-Tab is accepted by tmux and silently ignored — #218's measurement)
    tmux capture-pane -p -t beacon-cap   # confirm the mode line before continuing
    # Without this the Write below is auto-accepted, no permission dialog opens,
    # `Notification` never fires, and the capture is three kinds, not four.
@@ -88,7 +88,9 @@ substitute.
 | lines captured, by kind | 1 waiting / 2 working / 1 stopped |
 
 The manual-approval permission mode (`shift+tab` to cycle past the default
-auto-accept-edits mode) had to be selected before sending the prompt — under
+auto-accept-edits mode — `BTab` when driven through `tmux send-keys`, since
+`S-Tab` is accepted by tmux and silently ignored) had to be selected before
+sending the prompt — under
 the default auto mode, Claude Code never asks permission for a file write, so
 `Notification` (`waiting`) never fires and the capture would have been three
 lines short of the vocabulary, not four.

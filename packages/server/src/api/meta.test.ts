@@ -528,12 +528,15 @@ describe('GET /api/meta', () => {
             workmux: SourceFlowForTest
             sessionlog: SourceFlowForTest
             otel: SourceFlowForTest
+            beacon: SourceFlowForTest
             uninstrumentedSessions: unknown[]
             refusals: { count: number; instance: string | null; expectedInstance: string | null }
           }
         }
 
-        for (const source of ['git', 'tmux', 'workmux', 'sessionlog', 'otel'] as const) {
+        // Six since #307 — `beacon` is a connection source like the other five,
+        // so this route's `connection` block reports it too.
+        for (const source of ['git', 'tmux', 'workmux', 'sessionlog', 'otel', 'beacon'] as const) {
           expect(body.connection[source]).toEqual({ source, firstEventTs: null, lastEventTs: null, count: 0 })
         }
         expect(body.connection.uninstrumentedSessions).toEqual([])

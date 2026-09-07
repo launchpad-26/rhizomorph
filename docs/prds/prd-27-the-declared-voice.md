@@ -1,9 +1,16 @@
 # prd-27 — the declared voice: attention that says so, and no silent states
 
 > **Outcome:** ruled 2026-08-24 — rulings 1–6 accepted; the door, the silent-beacon reading
-> and the lapse mechanism are answered in the amendment. Two of four Success criteria hold;
-> the hook beacon and the capability-version mismatch voice remain the build. Implements
-> prd-15 ruling 2 and extends it to the rendering side. Reconciled 2026-08-22 at `03df141`.
+> and the lapse mechanism are answered in the amendment. **Built, waves 1–4 (2026-09-04 →
+> 2026-09-07):** the beacon door and ADR-0036 (#217, PR #267 `a36d15c`); `agent.status` names
+> its witness and the organ publishes, ADR-0037, plus `rhizomorph env --hooks claude` and a
+> captured fixture (#281, #282, PR #287 `29cde14`); the fold believes a declaration, disagreement
+> is voiced, the feed names its witness (#283, #290, PR #296 `f479a9a`); the lapse is measured
+> (`BEACON_LAPSE_MS = 180000`, design note), configured-but-silent reads `partial`, L2 is told
+> from L4, ADR-0039 (#218, PR #304 `3f36355`). **Success:** 1 and 4 hold; 2 holds through prd-30's
+> `selectLaneCondition` (#220 open); 3 holds for the lapse only — ruling 6's version-mismatch
+> voice (old-tracker #223) and authoritative cost coverage (old-tracker #147) are **not yet groomed**.
+> Implements prd-15 ruling 2 and extends it to the rendering side. Reconciled 2026-09-07 at `3f36355`.
 
 ## Problem
 
