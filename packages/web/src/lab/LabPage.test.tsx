@@ -17,6 +17,9 @@ const CHECKPOINT = {
   snapshotRef: 'refs/rhizomorph/checkpoints/ckpt-1',
   snapshotSha: 'sha-1',
   headSha: 'sha-0',
+  eventIndex: 12,
+  sessionCutByte: 11_840,
+  sessionByteLength: 40_000,
 }
 
 const CLEAN_EXPERIMENT = {
@@ -190,11 +193,13 @@ describe('LabPage', () => {
     expect(screen.getByTestId('lab-arm-path-fork-1-arm-2')).toHaveAttribute('data-arm-state', 'running')
   })
 
-  it('a running experiment (no arm measured yet) shows its arms without a comparison — never an empty one', async () => {
+  it('a running experiment (no run measured yet) says so, and its comparison renders every run as not measured — never an empty surface and never a number (prd53 S2)', async () => {
     render(<LabPage fetchImpl={fetchImplFor([], [CLEAN_EXPERIMENT])} />)
 
     await waitFor(() => expect(screen.getByTestId('lab-experiment-no-comparison-fork-1')).toBeInTheDocument())
-    expect(screen.queryByTestId('comparison-surface')).toBeNull()
+    expect(screen.getByTestId('comparison-surface')).toBeInTheDocument()
+    expect(screen.getAllByText('not measured yet — no outcome is invented in its place').length).toBeGreaterThan(0)
+    expect(document.querySelectorAll('[data-testid="arm-spread"]')).toHaveLength(0)
   })
 
   it('an experiment with a measured arm renders the branching layout AND the comparison surface below it', async () => {
@@ -205,5 +210,49 @@ describe('LabPage', () => {
     expect(screen.getByTestId('lab-arm-path-fork-3-arm-2')).toHaveAttribute('data-arm-state', 'dead')
     expect(screen.getByTestId('comparison-surface')).toBeInTheDocument()
     expect(screen.queryByTestId('lab-experiment-no-comparison-fork-3')).toBeNull()
+  })
+
+  it('the session axis places the checkpoint by byte, and seating it puts the same x on the frame (prd53 S1)', async () => {
+    render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [])} />)
+    await waitFor(() => expect(screen.getByTestId('axis-marker-ckpt-1')).toBeInTheDocument())
+    expect(screen.getByTestId('axis-marker-ckpt-1').dataset.x).not.toBe('unknown')
+    await act(async () => {
+      screen.getByTestId('axis-marker-ckpt-1').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(screen.getByTestId('axis-playhead').dataset.x).toStrictEqual(screen.getByTestId('frame-playhead').dataset.x)
+  })
+
+  it('fork-from-here lives on the seated marker and seats the launch panel on that checkpoint', async () => {
+    render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [])} />)
+    await waitFor(() => expect(screen.getByTestId('axis-marker-ckpt-1')).toBeInTheDocument())
+    expect(screen.queryByTestId('axis-fork-from-here')).toBeNull()
+    await act(async () => {
+      screen.getByTestId('axis-marker-ckpt-1').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await act(async () => {
+      screen.getByTestId('axis-fork-from-here').click()
+    })
+    await waitFor(() => expect((screen.getByTestId('launch-checkpoint-ckpt-1').querySelector('input') as HTMLInputElement).checked).toBe(true))
+  })
+
+  it('a partial launch names its failed arm count at the marker and its failed arm in Compare and Metrics (prd53 ruling 7)', async () => {
+    const outcome = {
+      forkId: 'fork-1',
+      parentLane: 'feature',
+      checkpointId: 'ckpt-1',
+      arms: [{ arm: 1, model: 'opus', briefProvided: false, forkId: 'fork-1', laneHandle: 'fork-1-arm-1', worktreePath: '/tmp/arm-1', launched: true }],
+      failed: { arm: 2, error: 'workmux: tmux server not running' },
+    }
+    render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [CLEAN_EXPERIMENT])} seedLaunchOutcomes={[outcome]} />)
+    await waitFor(() => expect(screen.getByTestId('axis-marker-ckpt-1')).toBeInTheDocument())
+    expect(screen.getByTestId('axis-marker-ckpt-1').dataset.failedArms).toBe('1')
+    expect(screen.getByTestId('arm-failed-2').textContent).toMatch(/tmux server not running/)
+    expect(screen.getByTestId('metrics-partial-fork-1').textContent).toMatch(/2 of 3 arms dispatched/)
+  })
+
+  it('a failed checkpoints read renders the error copy on the axis too, never the empty copy', async () => {
+    render(<LabPage fetchImpl={fetchImplFor([], [], false, 500)} />)
+    await waitFor(() => expect(screen.getByTestId('lab-axis-error')).toBeInTheDocument())
+    expect(screen.queryByTestId('axis-empty')).toBeNull()
   })
 })

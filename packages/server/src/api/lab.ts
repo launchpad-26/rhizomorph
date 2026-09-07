@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
-import { rm, writeFile } from 'node:fs/promises'
+import { rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Exec, ForkDispatchRecord, ForkOutcomeRecord, RhizomorphEvent, SessionState } from '@rhizomorph/core'
@@ -54,6 +54,16 @@ export interface LabCheckpointDTO {
   snapshotRef: string
   snapshotSha: string
   headSha: string
+  /** Where in the lane's session the cut fell — the event index, the tie-break for two cuts at one byte (prd53 S1). */
+  eventIndex: number
+  /** The byte the session was cut at. Position on the lab's axis is this over `sessionByteLength` — never wall-clock. */
+  sessionCutByte: number
+  /**
+   * The recorded session file's length NOW, or null when it cannot be read —
+   * S1's *degraded* state (the file moved), which renders as a marker with its
+   * reason, never as a checkpoint that is not there.
+   */
+  sessionByteLength: number | null
 }
 
 export interface LabTreatmentDTO {
@@ -139,19 +149,33 @@ async function readAllEvents(ctx: ServerContext): Promise<RhizomorphEvent[]> {
   return events
 }
 
+/** The session file's byte length today, or null when it cannot be read — a fact about now, not about the record. */
+async function sessionByteLength(sessionFile: string): Promise<number | null> {
+  try {
+    return (await stat(sessionFile)).size
+  } catch {
+    return null
+  }
+}
+
 /** `state.checkpoints.records`, oldest first — the same chronological order `GET /api/sessions` lists in. */
-function checkpointDTOs(events: readonly RhizomorphEvent[]): LabCheckpointDTO[] {
+async function checkpointDTOs(events: readonly RhizomorphEvent[]): Promise<LabCheckpointDTO[]> {
   const state = reduceAll(events)
-  return state.checkpoints.records.map((record) => ({
-    eventId: record.eventId,
-    lane: record.lane,
-    checkpointId: record.checkpointId,
-    capturedAt: record.ts,
-    capturedBy: record.capturedBy,
-    snapshotRef: record.snapshotRef,
-    snapshotSha: record.snapshotSha,
-    headSha: record.headSha,
-  }))
+  return Promise.all(
+    state.checkpoints.records.map(async (record) => ({
+      eventId: record.eventId,
+      lane: record.lane,
+      checkpointId: record.checkpointId,
+      capturedAt: record.ts,
+      capturedBy: record.capturedBy,
+      snapshotRef: record.snapshotRef,
+      snapshotSha: record.snapshotSha,
+      headSha: record.headSha,
+      eventIndex: record.eventIndex,
+      sessionCutByte: record.sessionCutByte,
+      sessionByteLength: await sessionByteLength(record.sessionFile),
+    })),
+  )
 }
 
 /**
@@ -1118,7 +1142,7 @@ export async function measureExperiment(body: unknown, options: MeasureExperimen
 export function registerLabRoutes(app: FastifyInstance, ctx: ServerContext): void {
   app.get('/api/lab/checkpoints', { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') }, async () => {
     const events = await readAllEvents(ctx)
-    return { checkpoints: checkpointDTOs(events) }
+    return { checkpoints: await checkpointDTOs(events) }
   })
 
   app.get('/api/lab/experiments', { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') }, async () => {

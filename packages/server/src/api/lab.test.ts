@@ -73,6 +73,10 @@ describe('GET /api/lab/checkpoints and /api/lab/experiments', () => {
     expect(response.statusCode).toBe(200)
     const { checkpoints } = response.json() as { checkpoints: Array<Record<string, unknown>> }
     expect(checkpoints).toHaveLength(1)
+    // prd53 S1: the byte facts the axis places a marker by. The fixture's session
+    // file does not exist on this machine, so its length is null — the degraded
+    // state, reported rather than guessed.
+    expect(checkpoints[0]).toMatchObject({ eventIndex: 12, sessionCutByte: 11_840, sessionByteLength: null })
     expect(checkpoints[0]).toMatchObject({
       lane: 'feature',
       checkpointId: 'ckpt-1',
