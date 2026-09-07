@@ -1,3 +1,4 @@
+import { CONFOUND_VOICE } from '@rhizomorph/core'
 import type { Arm, ComparisonClaim, Dimension } from './types.js'
 
 /**
@@ -36,6 +37,8 @@ export function classifyClaim(arms: Arm[]): ComparisonClaim {
   return {
     kind: 'confounded',
     dimensions: dims,
-    reason: `these arms differ in ${formatDimensionList(dims)}, so a difference cannot be attributed to either.`,
+    // Core's sentence, verbatim (prd53 ruling 2): the CLI table prints the same
+    // one, so the console and the terminal cannot disagree about a confound.
+    reason: CONFOUND_VOICE,
   }
 }

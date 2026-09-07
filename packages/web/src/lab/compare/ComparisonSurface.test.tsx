@@ -1,7 +1,7 @@
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { compareArms } from './compare.js'
 import { ComparisonSurface } from './ComparisonSurface.js'
+import { compareArms } from './compare.js'
 import type { Arm, Run } from './types.js'
 
 afterEach(cleanup)
@@ -44,7 +44,7 @@ describe('ComparisonSurface', () => {
     })
     render(<ComparisonSurface comparison={comparison} />)
 
-    expect(screen.getByTestId('arm-spread').textContent).toBe('spread 4–9')
+    expect(screen.getByTestId('arm-spread').textContent).toBe('min 4 · median 6 · max 9 (n=3)')
     expect(screen.queryByTestId('arm-insufficient')).toBeNull()
   })
 
@@ -76,7 +76,7 @@ describe('ComparisonSurface', () => {
     const claim = screen.getByTestId('comparison-claim')
     expect(claim.textContent).toContain('NO COMPARATIVE CLAIM')
     expect(claim.textContent).toContain(
-      'these arms differ in model and brief, so a difference cannot be attributed to either.',
+      'these arms differ in model and brief — a difference cannot be attributed to either',
     )
     // both arms still render side by side, in full
     expect(screen.getAllByTestId('arm-panel')).toHaveLength(2)
@@ -88,7 +88,7 @@ describe('ComparisonSurface', () => {
     })
     render(<ComparisonSurface comparison={comparison} />)
 
-    expect(screen.getByTestId('arm-spread').textContent).toBe('spread 1–3')
+    expect(screen.getByTestId('arm-spread').textContent).toBe('min 1 · median 2 · max 3 (n=3)')
     expect(screen.getByTestId('arm-incomplete-note').textContent).toBe('3 of 4 runs completed — 1 still pending')
   })
 })
