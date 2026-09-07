@@ -1,4 +1,4 @@
-import type { Exec } from '@rhizomorph/core'
+import type { Exec, SessionState } from '@rhizomorph/core'
 import type { FastifyInstance } from 'fastify'
 import {
   checkCliVersionDrift,
@@ -10,6 +10,7 @@ import {
   checkOptionalTool,
   checkSessionBoundary,
   checkTelemetryEnv,
+  declaredAttentionChecks,
   type DoctorCheck,
 } from '../cli/doctor.js'
 import type { ServerContext } from '../server/context.js'
@@ -46,6 +47,14 @@ export interface ServerDoctorOptions {
    * replaced with an honest "not applicable" entry instead.
    */
   replay?: boolean
+  /**
+   * The running recorder's fold, read live per call (`ctx.recorder` is
+   * re-pointed on retarget — prd-20 ruling 5 — so this is a thunk, never a
+   * captured object). Feeds the ladder's beacon contributor and the per-lane
+   * `attention` readings (#307). Absent: the ladder reads the static beacon
+   * manifest and no `attention` lines are emitted.
+   */
+  foldSoFar?: () => SessionState
 }
 
 /** A `DoctorCheck` this call skipped outright because it assumes a live repo/recorder a replay session doesn't have — see `ServerDoctorOptions.replay`'s own doc. */
@@ -83,6 +92,17 @@ function notApplicableDuringReplay(id: string): DoctorCheck {
  * entries it derives from it (adversarial review item 3: visible in the
  * payload, not only in a code comment).
  *
+ * **The fold is the input the ladder was missing (#307).** #218 gave
+ * `checkEnrichmentLadder` its optional `declared` parameter so this route would
+ * keep compiling, and this route passed nothing — so a beacon-only machine read
+ * L4 here and L2 from `rhizomorph doctor`, two surfaces disagreeing about the
+ * same repo. `ServerDoctorOptions.foldSoFar` closes it: the running recorder's
+ * fold feeds both the ladder's beacon contributor and the per-lane `attention`
+ * lines, which are phrased by `cli/doctor.ts`'s own `declaredAttentionChecks`
+ * rather than restated here — this file still never re-implements a check.
+ * `/api/meta`'s ladder already read `beaconCapabilitiesFor(folded.declared)`,
+ * so all three readers now derive the rung from one fold.
+ *
  * This function itself is never rate-limited or timed out — that is
  * deliberately the route's own concern (`createRouteDoctorProbe` below), not
  * this reusable core's, so a direct caller (this file's own tests, and any
@@ -105,13 +125,24 @@ export async function runServerDoctor(repoPath: string, options: ServerDoctorOpt
     checkHarnessRoster(),
   ]
 
+  // Never read during a replay, and never read twice: a replay's `repoPath` is
+  // a synthetic `record:<slug>` string and its recorder holds the replayed
+  // record, not a live fleet, so the thunk must not be called at all.
+  const fold = replay || options.foldSoFar === undefined ? null : options.foldSoFar()
+
+  const attention: DoctorCheck[] = replay
+    ? [notApplicableDuringReplay('attention')]
+    : fold === null
+      ? []
+      : declaredAttentionChecks(fold, (options.now ?? Date.now)())
+
   if (replay) {
     // The whole ladder is a live-repo enrichment story (git + sessionlog +
     // tmux/workmux + telemetry rungs) — nonsensical for a finished record
     // this server never watched. Labeled the same honest way as the other
     // two replay-skipped checks above, rather than assuming a git contributor
     // that was never true.
-    return [...baseChecks, notApplicableDuringReplay('ladder')]
+    return [...baseChecks, ...attention, notApplicableDuringReplay('ladder')]
   }
 
   const impliedTargetPath: DoctorCheck = {
@@ -120,9 +151,11 @@ export async function runServerDoctor(repoPath: string, options: ServerDoctorOpt
     message: 'implied: this server is already running against this repository',
     assumed: true,
   }
-  const ladder = await checkEnrichmentLadder([impliedTargetPath, ...baseChecks], repoPath)
+  const ladder = await checkEnrichmentLadder([impliedTargetPath, ...baseChecks], repoPath, fold?.declared ?? {})
 
-  return [...baseChecks, ...ladder]
+  // Attention before the ladder, the order `rhizomorph doctor` prints them in:
+  // the per-lane readings are what the rung line below is derived from.
+  return [...baseChecks, ...attention, ...ladder]
 }
 
 /**
@@ -257,15 +290,27 @@ export function createRouteDoctorProbe(
  * current prober was built for, and rebuilds (a fresh prober, a cold cache)
  * the instant they disagree — so this route self-heals on its very next
  * request, with no dependency on #389 (or anything else) calling back into it.
+ *
+ * The fold seam (#307) is deliberately NOT bound the same way: `foldSoFar`
+ * below reads `ctx.recorder` inside the thunk, so a retarget that re-points the
+ * recorder is picked up by the next probe whether or not the prober itself was
+ * rebuilt. Capturing `ctx.recorder` here instead would have re-created exactly
+ * the staleness the paragraph above exists to describe, one field over.
  */
 export function registerDoctorRoute(app: FastifyInstance, ctx: ServerContext): void {
   let proberRepoPath = ctx.repoPath
-  let probe = createRouteDoctorProbe(proberRepoPath, { replay: ctx.readOnly === true })
+  let probe = createRouteDoctorProbe(proberRepoPath, {
+    replay: ctx.readOnly === true,
+    foldSoFar: () => ctx.recorder.foldSoFar(),
+  })
 
   app.get('/api/doctor', { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') }, async () => {
     if (ctx.repoPath !== proberRepoPath) {
       proberRepoPath = ctx.repoPath
-      probe = createRouteDoctorProbe(proberRepoPath, { replay: ctx.readOnly === true })
+      probe = createRouteDoctorProbe(proberRepoPath, {
+        replay: ctx.readOnly === true,
+        foldSoFar: () => ctx.recorder.foldSoFar(),
+      })
     }
     return probe()
   })

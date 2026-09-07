@@ -49,7 +49,7 @@
 # survived and the issue numbers did not. Grandfathered here rather than
 # corrected, because that file belongs to prd-27, not to prd-43.
 #
-# measured: 2026-09-04 live-maximum=265 violations=151
+# measured: 2026-09-04 live-maximum=265 violations=152
 AGENTS.md  #275
 AGENTS.md  #362
 AGENTS.md  #396
@@ -64,6 +64,7 @@ CHANGELOG.md  #298
 CHANGELOG.md  #304
 CHANGELOG.md  #305
 CHANGELOG.md  #306
+CHANGELOG.md  #307
 CHANGELOG.md  #366
 CHANGELOG.md  #384
 CHANGELOG.md  #385

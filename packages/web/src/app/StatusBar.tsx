@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { selectConnection, type CollectorState, type SessionState, type SourceFlow } from '@rhizomorph/core'
+import {
+  CONNECTION_SOURCES,
+  selectConnection,
+  type CollectorState,
+  type ConnectionSource,
+  type SourceFlow,
+} from '@rhizomorph/core'
 import { useFleet } from '../fleet/index.js'
 import { formatTokens } from '../lib/format.js'
 import { capabilityRead } from '../recordings/capabilityRead.js'
@@ -288,19 +294,23 @@ function useSessionVoice(bootFacts: BootFactsState): SessionVoice | null {
 }
 
 /**
- * The six optional sources prd0/prd2 promise degrade gracefully.
+ * The six optional sources prd0/prd2 promise degrade gracefully — the list
+ * itself, from `core`, so this bar cannot know a different number of sources
+ * than `selectConnection` produces.
  *
- * The sixth is the beacon door (#283). `CONNECTION_SOURCES` in `core`'s
- * `selectors/connection.ts` is still five and stays five until a wave widens
- * it, so this pill's flow is read off `session.declared` instead — the same
- * fold every other pill's flow comes from, which is what prd-19 ruling 4's
- * "one pass over the same fold" actually asks for. See {@link beaconFlow}.
+ * The sixth is the beacon door. #283 put its pill here while
+ * `CONNECTION_SOURCES` was still five and read the flow off `session.declared`
+ * locally; #307 widened the constant, so every pill on this line now reads
+ * `connection[source]` — one pass over one fold, which is what prd-19 ruling 4
+ * asks for, and the reason the connect page and `/api/meta`'s `connection`
+ * block can no longer disagree with this bar about how many sources exist.
+ *
+ * Typed off the constant rather than restated: a seventh source fails to
+ * compile in the label map below until it is named there too.
  */
-type SourceKey = 'git' | 'tmux' | 'workmux' | 'sessionlog' | 'otel' | 'beacon'
+const SOURCES: readonly ConnectionSource[] = CONNECTION_SOURCES
 
-const SOURCES: readonly SourceKey[] = ['git', 'tmux', 'workmux', 'sessionlog', 'otel', 'beacon']
-
-const SOURCE_LABEL: Record<SourceKey, string> = {
+const SOURCE_LABEL: Record<ConnectionSource, string> = {
   git: 'Git',
   tmux: 'Tmux',
   workmux: 'Workmux',
@@ -357,7 +367,7 @@ interface SourceStatus {
  * A collector record is still the stronger fact and wins outright, exactly as
  * before this ruling — this only changes what "no record at all" defaults to.
  */
-function sourceStatus(collector: CollectorState | undefined, flow: Pick<SourceFlow, 'firstEventTs'>): SourceStatus {
+function sourceStatus(collector: CollectorState | undefined, flow: SourceFlow): SourceStatus {
   if (collector === undefined) {
     return flow.firstEventTs === null
       ? { health: 'waiting', message: 'no data yet' }
@@ -372,26 +382,6 @@ function sourceStatus(collector: CollectorState | undefined, flow: Pick<SourceFl
       return { health: 'live', message: null }
     case 'error':
       return { health: 'errored', message: collector.lastErrorMessage }
-  }
-}
-
-/**
- * prd-27 ruling 3 (#283): the beacon door's flow, off the same fold every
- * other pill reads (prd-19 ruling 4) — `CONNECTION_SOURCES` stays five until
- * a wave widens it; declared attention is what "beacon flow" means to this bar.
- *
- * Typed as the flow facts alone, not as a `SourceFlow`: `SourceFlow['source']`
- * is the closed `ConnectionSource` union, and `'beacon' as SourceFlow['source']`
- * compiles for `'beacon'` exactly as it compiles for any misspelling (verify of
- * #283 checked a bogus literal through the same cast — `tsc` exit 0), so the
- * cast would have documented nothing. `sourceStatus` reads only `firstEventTs`.
- */
-function beaconFlow(session: SessionState): Pick<SourceFlow, 'firstEventTs' | 'lastEventTs' | 'count'> {
-  const ats = Object.values(session.declared).map((record) => record.at)
-  return {
-    firstEventTs: ats.length === 0 ? null : Math.min(...ats),
-    lastEventTs: ats.length === 0 ? null : Math.max(...ats),
-    count: ats.length,
   }
 }
 
@@ -434,8 +424,7 @@ export function StatusBar({ fetchMeta }: StatusBarProps = {}) {
       <div className="flex h-6 items-center gap-4">
         <span className="text-inst-dense uppercase tracking-widest text-(--ink-dim)">Sources</span>
         {SOURCES.map((source) => {
-          const flow = source === 'beacon' ? beaconFlow(session) : connection[source]
-          const { health, message } = sourceStatus(session.collectors[source], flow)
+          const { health, message } = sourceStatus(session.collectors[source], connection[source])
           const label = SOURCE_LABEL[source]
           const description =
             message === null ? `${label}: ${health}` : `${label}: ${health} — ${message}`

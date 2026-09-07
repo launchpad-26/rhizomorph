@@ -65,9 +65,15 @@ import { compareStrings } from './touches.js'
  */
 
 /**
- * The five collectors whose flow a connect surface reports, in the order the
- * chain runs: the three that watch the machine, then the two that carry an
- * agent's own telemetry.
+ * The six collectors whose flow a connect surface reports, in the order the
+ * chain runs: the three that watch the machine, the two that carry an agent's
+ * own telemetry, then the beacon door.
+ *
+ * The sixth was outside #283's fence and so read its own flow off
+ * `state.declared` in `web`'s status bar for one wave (#307 closes that): a
+ * beacon is a polled collector's record like the other five (ADR-0036), so its
+ * flow belongs here, derived once, rather than in one surface that then
+ * disagrees with `/api/meta`'s `connection` block and the connect page.
  *
  * `system` is deliberately absent. Its events (`session.started`, the four
  * `collector.*` families) are the recorder's own hand and our own resilience
@@ -76,7 +82,7 @@ import { compareStrings } from './touches.js'
  * flowing in. The `lab` and `judge` hands are absent for the same reason: both
  * are explicitly invoked by us.
  */
-export const CONNECTION_SOURCES = ['git', 'tmux', 'workmux', 'sessionlog', 'otel'] as const
+export const CONNECTION_SOURCES = ['git', 'tmux', 'workmux', 'sessionlog', 'otel', 'beacon'] as const
 
 export type ConnectionSource = (typeof CONNECTION_SOURCES)[number]
 
@@ -158,6 +164,7 @@ export interface Connection {
   workmux: SourceFlow
   sessionlog: SourceFlow
   otel: SourceFlow
+  beacon: SourceFlow
   /**
    * Earliest transcript sighting first, session id as the only tiebreak — a
    * total order over the state, so a fold and a refold of one log hand back the
@@ -186,6 +193,11 @@ export interface Connection {
  *   because `trace.span` has exactly one possible source: our own `/v1/traces`
  *   receiver. Its envelope `ts` is used, not `startTs`/`endTs`, which are the
  *   exporting process's clock rather than the moment data reached us.
+ * - **beacon** — `declared`: one folded declaration per lane, its `at`.
+ *   Declared attention is what beacon flow means (prd-27 ruling 3, #283/#307).
+ *   The window is therefore over the STANDING declarations, not every beacon
+ *   ever seen — the fold keeps the newest per lane (#283) — which is the same
+ *   record-not-event rule this file's header states for the other five.
  *
  * **`state.refusals` is deliberately NOT otel flow, and this is the load-bearing
  * exclusion.** A refused export is telemetry that never landed — the receiver
@@ -204,6 +216,7 @@ export function selectConnection(state: SessionState): Connection {
     workmux: newFlow(),
     sessionlog: newFlow(),
     otel: newFlow(),
+    beacon: newFlow(),
   }
 
   for (const worktree of Object.values(state.worktrees)) {
@@ -233,12 +246,15 @@ export function selectConnection(state: SessionState): Connection {
   }
   for (const span of state.traces.spans) fold(flows.otel, span.ts)
 
+  for (const record of Object.values(state.declared)) fold(flows.beacon, record.at)
+
   return {
     git: sourceFlow('git', flows.git),
     tmux: sourceFlow('tmux', flows.tmux),
     workmux: sourceFlow('workmux', flows.workmux),
     sessionlog: sourceFlow('sessionlog', flows.sessionlog),
     otel: sourceFlow('otel', flows.otel),
+    beacon: sourceFlow('beacon', flows.beacon),
     uninstrumentedSessions: uninstrumentedSessions(state),
   }
 }

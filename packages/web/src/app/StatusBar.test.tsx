@@ -127,11 +127,15 @@ describe('StatusBar', () => {
   })
 
   /**
-   * prd-27 ruling 3 (#283). The Beacon pill is the one source whose flow does
-   * NOT come from `selectConnection` — `CONNECTION_SOURCES` is still five —
-   * so it needs its own proof that the fold reaches the bar. The second test
-   * is the one that matters: a pill wired to "any beacon arrived" rather than
-   * to declared attention passes the first and fails this one.
+   * prd-27 ruling 3 (#283, #307). The Beacon pill's flow now comes from
+   * `selectConnection`'s own `beacon` source like every other pill's — #283
+   * derived it locally here because `CONNECTION_SOURCES` was still five, and
+   * #307 widened the constant and deleted the workaround. These two tests are
+   * unchanged by that move, deliberately: they are the proof that the fold
+   * still reaches the bar, and they would have gone red had the widening
+   * changed what the pill reads. The second is the one that matters: a pill
+   * wired to "any beacon arrived" rather than to declared attention passes the
+   * first and fails this one.
    */
   it('the Beacon pill reads waiting until a lane\'s attention is declared, then live', () => {
     const { container, source } = renderBar()

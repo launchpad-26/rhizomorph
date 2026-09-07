@@ -1398,6 +1398,12 @@ describe('SessionRecorder — the window has a stated ceiling (prd-44 ruling 4, 
     expect(recorder.evictedEventCount).toBe(0)
   })
 
+  // #307: this law folds 75,003 events and takes 4–10 s alone on an 8 GB Apple
+  // Silicon machine (four measurements: 4.2 s, 9.3 s, 9.7 s, 10.5 s) and 5.9 s
+  // under a six-worker suite — past vitest's 5 s default, which made it the one
+  // red in every full run of prd-27 waves 3 and 4 on that machine. The ceiling
+  // it asserts is a COUNT; only the harness clock moves here. The file's stance
+  // above (no `@gate-timing`, no `.bench`) is unchanged.
   it('holds the ceiling in a session reached by rotation, not only in the first one', async () => {
     const recorder = new SessionRecorder(FIRST, sessionFilePath(dir, FIRST), {
       resumeFrom: session(MAX_BUFFERED_EVENTS + 5),
@@ -1414,7 +1420,7 @@ describe('SessionRecorder — the window has a stated ceiling (prd-44 ruling 4, 
     expect(recorder.eventsSoFar()).toHaveLength(MAX_BUFFERED_EVENTS)
     expect(recorder.evictedEventCount).toBe(3)
     expect(recorder.foldSoFar().eventCount).toBe(MAX_BUFFERED_EVENTS + 3)
-  })
+  }, 30_000)
 
   it('does not repair the fold from a window that has already evicted, and still repairs one that has not', async () => {
     const evicting = new SessionRecorder(FIRST, sessionFilePath(dir, FIRST), {
