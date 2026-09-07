@@ -1462,6 +1462,14 @@ describe('the model floor (#579, prd-33 w2)', () => {
    *
    * Reported, never asserted. The law is a count.
    */
+  /**
+   * Half the rounds of a single-arm cell, because this one runs two arms per
+   * round at the heaviest configuration. Still enough that the median is a
+   * median, and the claim is a ratio between two arms measured against each
+   * other rather than an absolute either of them owns.
+   */
+  const ARM_ROUNDS = 30
+
   it('reports the growing and pinned arms of the heaviest cell', () => {
     withPath2D(() => {
       const fleets = Array.from({ length: 3 }, (_unused, c) => colonyFleet(60, c))
@@ -1473,7 +1481,7 @@ describe('the model floor (#579, prd-33 w2)', () => {
         modelFrame(fleets, NOW, round, null, false)
         modelFrame(fleets, NOW, round, null, true)
       }
-      for (let round = 0; round < ROUNDS; round++) {
+      for (let round = 0; round < ARM_ROUNDS; round++) {
         growing.push(modelFrame(fleets, NOW, round, null, false).ms)
         pinned.push(modelFrame(fleets, NOW, round, null, true).ms)
       }
@@ -1489,10 +1497,15 @@ describe('the model floor (#579, prd-33 w2)', () => {
 
       // The claim is a count: both arms ran every round, so neither figure is
       // a median of an empty list.
-      expect(growing).toHaveLength(ROUNDS)
-      expect(pinned).toHaveLength(ROUNDS)
+      expect(growing).toHaveLength(ARM_ROUNDS)
+      expect(pinned).toHaveLength(ARM_ROUNDS)
     })
-  })
+    // The same timeout every other cell in this file carries. Two interleaved
+    // arms at the heaviest cell is twice the work of a single-arm round, and
+    // under `--maxWorkers` this file runs beside 140 others — which is the
+    // condition `// @gate-timing` exists to route it out of, and the reason
+    // the default five-second timeout is not the right ceiling here.
+  }, BENCH_TIMEOUT_MS)
 
   it('reports the model stage at every cell prd-33 asks for', () => {
     withPath2D(() => {
