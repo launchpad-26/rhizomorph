@@ -7,7 +7,6 @@ import {
   SCALE_EXTENT,
   type Camera,
   contentBounds,
-  worldBounds,
   gestureFilter,
   isContentVisible,
   translateExtentFor,
@@ -474,10 +473,14 @@ export function useFrameLoop(
       if (colony === undefined) return
       const geometry = colony.geometry
       geometryRef.current = geometry
-      // Null only for a world holding no colonies at all, which this cannot
-      // be. The fallback keeps the empty-scene path honest rather than
-      // asserting a shape the return type does not promise.
-      rig.boundsRef.current = worldBounds(world) ?? contentBounds(geometry)
+      // THE CAMERA OPENS ON YOU (prd-52, placement ruled 2026-09-07). The fit
+      // is the first colony's own content — the viewer's — so a person sees
+      // their work framed exactly as it is today, and the landscape beyond it
+      // is something they pull back into rather than something that shrinks
+      // their colony to fit on arrival. The union of everyone's content is
+      // `worldBounds(world)`; wiring it as the pan extent is the follow-up
+      // that comes with a second colony to pan to.
+      rig.boundsRef.current = contentBounds(geometry)
 
       const palette = paletteFor(current.theme)
       const sceneFrame: SceneFrame = {

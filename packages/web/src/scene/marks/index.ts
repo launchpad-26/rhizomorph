@@ -91,10 +91,11 @@ function screenMarks(frame: SceneFrame): Mark[] {
  * need a case per mark kind, and every kind added afterwards would be a silent
  * miss that drew one colony in the wrong place.
  *
- * Depth layers **within** each colony rather than across them. Colonies occupy
- * disjoint boxes, so a finished strand in one cannot be crossed by a living one
- * in another; interleaving nine builders across N colonies would reorder marks
- * that never overlap.
+ * Depth layers **within** each colony rather than across them. Colonies stand
+ * on separate ground — the ring keeps their content clear of each other, and
+ * `world.test.ts` proves it — so a finished strand in one is never crossed by
+ * a living one in another; interleaving nine builders across N colonies would
+ * reorder marks that never overlap.
  *
  * `frame` supplies the screen pass — fog, vignette, grain and the gap voice —
  * which belongs to the panel, once, however many colonies it holds.

@@ -1,5 +1,5 @@
 /**
- * THE WORLD'S LAWS (prd-52 wave 1).
+ * THE WORLD'S LAWS (prd-52 wave 1, placement ruled 2026-09-07).
  *
  * The load-bearing one is ruling 2: **one colony renders byte-identically to
  * today.** Composition is additive or it is a regression, and the regression
@@ -7,6 +7,14 @@
  * because a feature they do not have was built. prd-37 ruling 6 asks for the
  * same thing in product language ("solo must never show team scaffolding");
  * this file is that sentence as a test.
+ *
+ * The placement ruling adds two more of the same shape. **A teammate joining
+ * never moves you**: the first colony's origin and geometry are the same
+ * whether it is alone or one of nine. And **every colony looks the way its
+ * owner sees it**: nobody is shrunk to make room, so a colony's mass radius
+ * and rim are its solo values. Thread width is a locked channel meaning work
+ * size, and a colony drawn smaller to signal distance would be lying about
+ * the fleet it belongs to.
  *
  * "Byte-identical" is meant literally and is asserted structurally, against
  * the shipped 20-lane fixture rather than a hand-built one, because the
@@ -23,10 +31,12 @@ import {
   type Fleet,
   type FixtureSpec,
 } from '../fleet/index.js'
+import { contentBounds } from './camera.js'
 import { layoutScene } from './geometry.js'
 import {
-  colonyColumns,
+  RING_SPACING,
   layoutWorld,
+  ringOrigin,
   type ColonyGeometry,
   type ColonySource,
   type WorldGeometry,
@@ -49,6 +59,11 @@ function colonyAt(world: WorldGeometry, i: number): ColonyGeometry {
   const colony = world.colonies[i]
   if (colony === undefined) throw new Error(`the world laid out no colony at ${i}`)
   return colony
+}
+
+/** N fleets, alternating the two shipped fixtures so no two neighbours are the same shape. */
+function team(n: number): Fleet[] {
+  return Array.from({ length: n }, (_unused, i) => fleetFor(i % 2 === 0 ? fleet20Spec() : pathologySpec()))
 }
 
 describe('one colony is unchanged (prd-52 ruling 2)', () => {
@@ -78,7 +93,7 @@ describe('one colony is unchanged (prd-52 ruling 2)', () => {
     expect(colonyAt(world, 0).geometry).toStrictEqual(direct)
   })
 
-  it('keeps the world box, not the colony box, as its own size', () => {
+  it('keeps the viewport box as its own size', () => {
     const fleet = fleetFor(fleet20Spec())
     const world = layoutWorld(sourcesOf(fleet), { ...SIZE, now: NOW })
     expect(world.width).toBe(SIZE.width)
@@ -86,34 +101,81 @@ describe('one colony is unchanged (prd-52 ruling 2)', () => {
   })
 })
 
-describe('a world of several colonies', () => {
-  it('lays out every colony it was given, in the order it was given them', () => {
-    const fleets = [fleetFor(fleet20Spec()), fleetFor(pathologySpec()), fleetFor(fleet20Spec())]
-    const world = layoutWorld(sourcesOf(...fleets), { ...SIZE, now: NOW })
-    expect(world.colonies.map((c) => c.id)).toEqual(['colony-0', 'colony-1', 'colony-2'])
+describe('you stay at the origin (placement ruling, 2026-09-07)', () => {
+  it('does not move the first colony when others join — not by a float', () => {
+    // The property a grid cannot promise: every arrival re-flows every cell.
+    // Here the first source is laid out with the untouched options whether it
+    // is alone or one of nine, so its geometry is the SAME object graph.
+    const [you, ...others] = team(9)
+    if (you === undefined) throw new Error('no fleet')
+    const alone = layoutWorld(sourcesOf(you), { ...SIZE, now: NOW })
+    const crowded = layoutWorld(sourcesOf(you, ...others), { ...SIZE, now: NOW })
+
+    expect(crowded.colonies).toHaveLength(9)
+    expect(colonyAt(crowded, 0).origin).toStrictEqual({ x: 0, y: 0 })
+    expect(colonyAt(crowded, 0).geometry).toStrictEqual(colonyAt(alone, 0).geometry)
   })
 
-  it('gives every colony a box inside the world, and no two the same origin', () => {
-    const fleets = [fleetFor(fleet20Spec()), fleetFor(pathologySpec()), fleetFor(fleet20Spec())]
-    const world = layoutWorld(sourcesOf(...fleets), { ...SIZE, now: NOW })
-
-    const seen = new Set<string>()
-    for (const colony of world.colonies) {
-      const { x, y } = colony.origin
-      expect(x).toBeGreaterThanOrEqual(0)
-      expect(y).toBeGreaterThanOrEqual(0)
-      expect(x + colony.geometry.width).toBeLessThanOrEqual(world.width + 1e-9)
-      expect(y + colony.geometry.height).toBeLessThanOrEqual(world.height + 1e-9)
-      seen.add(`${x}|${y}`)
+  it('places every other colony off the origin, in the caller’s order', () => {
+    const world = layoutWorld(sourcesOf(...team(4)), { ...SIZE, now: NOW })
+    expect(world.colonies.map((c) => c.id)).toEqual(['colony-0', 'colony-1', 'colony-2', 'colony-3'])
+    for (let i = 1; i < world.colonies.length; i++) {
+      const { x, y } = colonyAt(world, i).origin
+      expect(Math.hypot(x, y)).toBeGreaterThan(0)
     }
-    expect(seen.size).toBe(world.colonies.length)
+  })
+
+  it('puts a two-person world’s other colony due east', () => {
+    // So "you, and them beside you" reads left-to-right rather than landing
+    // them above or below you at an angle nobody chose.
+    const world = layoutWorld(sourcesOf(...team(2)), { ...SIZE, now: NOW })
+    const other = colonyAt(world, 1).origin
+    expect(other.y).toBeCloseTo(0, 9)
+    expect(other.x).toBeCloseTo(SIZE.width * RING_SPACING, 9)
+  })
+})
+
+describe('every colony looks the way its owner sees it', () => {
+  it('lays every colony out at the full box, never a shrunken cell', () => {
+    // The mass radius and the rim's half-axes are derived from the box a
+    // colony is handed. Shrink the box and a teammate's work renders at a
+    // different scale from the one they are looking at.
+    const fleets = team(5)
+    const world = layoutWorld(sourcesOf(...fleets), { ...SIZE, now: NOW })
+    for (const [i, colony] of world.colonies.entries()) {
+      const solo = layoutScene(fleets[i] as Fleet, { ...SIZE, now: NOW })
+      expect(colony.geometry.width).toBe(SIZE.width)
+      expect(colony.geometry.height).toBe(SIZE.height)
+      expect(colony.geometry.rootRadius).toBe(solo.rootRadius)
+      expect(colony.geometry.rx).toBe(solo.rx)
+      expect(colony.geometry.ry).toBe(solo.ry)
+      expect(colony.geometry.threads).toHaveLength(solo.threads.length)
+    }
+  })
+
+  it('keeps every colony’s content clear of every other’s, up to nine on the ring', () => {
+    // Full-size colonies overlap unless they are a box apart in some axis, and
+    // RING_SPACING is chosen so they are. Asserted over CONTENT bounds rather
+    // than boxes — trespasses and labels reach past the rim, and those are the
+    // parts that would collide first.
+    for (const n of [2, 3, 5, 7, 9]) {
+      const world = layoutWorld(sourcesOf(...team(n)), { ...SIZE, now: NOW })
+      const boxes = world.colonies.map((c) => contentBounds(c.geometry))
+      for (let a = 0; a < boxes.length; a++) {
+        for (let b = a + 1; b < boxes.length; b++) {
+          const p = boxes[a]
+          const q = boxes[b]
+          if (p === undefined || q === undefined) throw new Error('no bounds')
+          const apart = p.maxX < q.minX || q.maxX < p.minX || p.maxY < q.minY || q.maxY < p.minY
+          expect(apart, `colonies ${a} and ${b} overlap in a world of ${n}`).toBe(true)
+        }
+      }
+    }
   })
 
   it('counts every thread in the world, not every thread in one colony', () => {
-    const fleets = [fleetFor(fleet20Spec()), fleetFor(pathologySpec())]
-    const world = layoutWorld(sourcesOf(...fleets), { ...SIZE, now: NOW })
+    const world = layoutWorld(sourcesOf(...team(2)), { ...SIZE, now: NOW })
     const summed = world.colonies.reduce((n, c) => n + c.geometry.threads.length, 0)
-
     expect(world.threadCount).toBe(summed)
     // And it is genuinely the sum of two different colonies, so the assertion
     // above cannot pass by both being the same number.
@@ -121,62 +183,25 @@ describe('a world of several colonies', () => {
       colonyAt(world, 1).geometry.threads.length,
     )
   })
-
-  it('gives each colony a smaller box than the world once there is more than one', () => {
-    const fleets = [fleetFor(fleet20Spec()), fleetFor(pathologySpec())]
-    const world = layoutWorld(sourcesOf(...fleets), { ...SIZE, now: NOW })
-    for (const colony of world.colonies) {
-      expect(colony.geometry.width * colony.geometry.height).toBeLessThan(
-        world.width * world.height,
-      )
-    }
-  })
 })
 
-describe('colonyColumns', () => {
-  it('is one column for one colony, whatever the box', () => {
-    expect(colonyColumns(1, 900, 260)).toBe(1)
-    expect(colonyColumns(1, 260, 900)).toBe(1)
-  })
-
-  it('lays three colonies in a row on a wide box and a column on a tall one', () => {
-    // 900x260 is the shipped panel's shape: a row of three is far closer to
-    // square per cell (300x260) than a stack of three (900x87) would be.
-    expect(colonyColumns(3, 900, 260)).toBe(3)
-    expect(colonyColumns(3, 260, 900)).toBe(1)
-  })
-
-  it('chooses the least distorted cell available, measured symmetrically', () => {
-    // Distortion is the long side over the short one, so 2:1 and 1:2 are the
-    // same number — which is the point. `|aspect - 1|` is not: it is capped at
-    // 1 below and unbounded above, so it scores a tall cell cheaper than an
-    // equally-distorted wide one and picks a genuinely worse cell to get it.
-    //
-    // Six colonies in 480x500 is the case that separates them. A symmetric
-    // score picks 2 columns (a 1.44:1 cell); a linear one picks 3 (a 1.56:1
-    // cell) — measurably worse, chosen because the score is lopsided rather
-    // than because the cell is. Without this case the suite passes either way.
-    const cases: ReadonlyArray<readonly [number, number, number]> = [
-      [6, 480, 500],
-      [3, 900, 260],
-      [2, 400, 400],
-      [5, 900, 260],
-      [12, 1400, 900],
-    ]
-    for (const [n, w, h] of cases) {
-      const distortion = (c: number): number => {
-        const aspect = w / c / (h / Math.ceil(n / c))
-        return Math.max(aspect, 1 / aspect)
+describe('ringOrigin', () => {
+  it('spaces the ring at least a box apart in some axis at every angle', () => {
+    // The mutation this catches: RING_SPACING dropping below √2. At 45° the
+    // offset is (k·w·0.707, k·h·0.707), and both are under a box when k < √2.
+    for (const count of [1, 2, 3, 4, 6, 8, 12]) {
+      for (let i = 0; i < count; i++) {
+        const { x, y } = ringOrigin(i, count, SIZE.width, SIZE.height)
+        const clearX = Math.abs(x) >= SIZE.width - 1e-9
+        const clearY = Math.abs(y) >= SIZE.height - 1e-9
+        expect(clearX || clearY, `slot ${i} of ${count} is inside the box in both axes`).toBe(true)
       }
-      const available = Array.from({ length: n }, (_, i) => distortion(i + 1))
-      expect(distortion(colonyColumns(n, w, h))).toBeCloseTo(Math.min(...available), 9)
     }
   })
 
-  it('never asks for more columns than there are colonies', () => {
-    for (const n of [1, 2, 3, 4, 7, 12]) {
-      expect(colonyColumns(n, 900, 260)).toBeLessThanOrEqual(n)
-      expect(colonyColumns(n, 900, 260)).toBeGreaterThanOrEqual(1)
-    }
+  it('is elliptical in the box’s own aspect, so a wide panel gives a wide ring', () => {
+    const east = ringOrigin(0, 4, SIZE.width, SIZE.height)
+    const north = ringOrigin(1, 4, SIZE.width, SIZE.height)
+    expect(Math.abs(east.x) / Math.abs(north.y)).toBeCloseTo(SIZE.width / SIZE.height, 9)
   })
 })

@@ -82,69 +82,76 @@ export interface WorldGeometry {
 }
 
 /**
- * How many columns to break `count` colonies into so the cells come out as
- * square as the box allows.
+ * How far out the ring of other colonies sits, as a multiple of the box.
  *
- * Square-ish matters because a colony is a radial mass: it fills a circle
- * inscribed in its cell, so a long thin cell wastes the difference and the
- * masses read as smaller than the space they were given. Choosing the column
- * count by cell aspect rather than by a fixed grid is what lets 3 colonies
- * sit in a row on a wide viewport and stack on a narrow one.
- *
- * The *arrangement* — grid versus a radial ring versus packing by mass size —
- * is an open question on prd-52 and deliberately not ruled here. This is a
- * defensible default, not a decision; it is one function, and replacing it
- * does not reach any other file.
+ * Every colony is laid out at the FULL box — nothing shrinks to make room —
+ * so two colonies overlap unless they are at least a box apart in one axis.
+ * A ring offset of `(cos θ · width, sin θ · height) · k` is at least a box
+ * apart in some axis when `k ≥ 1 / max(|cos θ|, |sin θ|)`, whose worst case is
+ * 45° and `√2`. 1.5 clears it with margin, and `world.test.ts` proves the
+ * content bounds stay disjoint up to nine colonies rather than trusting the
+ * arithmetic. Past eight or so on one ring the neighbours start to crowd; a
+ * second ring is the follow-up when a team that size exists.
  */
-export function colonyColumns(count: number, width: number, height: number): number {
-  if (count <= 1) return 1
-  let best = 1
-  let bestPenalty = Number.POSITIVE_INFINITY
-  for (let cols = 1; cols <= count; cols++) {
-    const rows = Math.ceil(count / cols)
-    const aspect = width / cols / (height / rows)
-    // Distance from square, measured on a log scale so that 2:1 and 1:2 are
-    // equally bad. A linear |aspect - 1| would quietly prefer tall cells.
-    const penalty = Math.abs(Math.log(aspect))
-    if (penalty < bestPenalty) {
-      bestPenalty = penalty
-      best = cols
-    }
+export const RING_SPACING = 1.5
+
+/**
+ * Where the `i`-th other colony sits, for `count` others on the ring.
+ *
+ * The first slot is due east so a two-person world reads as "you, and them
+ * beside you"; the rest are spaced evenly. Elliptical in the box's own aspect,
+ * because the colonies are: a wide panel gives a wide ring.
+ */
+export function ringOrigin(i: number, count: number, width: number, height: number): Point {
+  const angle = (i / count) * Math.PI * 2
+  return {
+    x: Math.cos(angle) * width * RING_SPACING,
+    y: Math.sin(angle) * height * RING_SPACING,
   }
-  return best
 }
 
 /**
- * Lay out a world of colonies.
+ * Lay out a world of colonies — **the caller at the origin, everyone else
+ * around them** (prd-52, placement ruled 2026-09-07).
  *
- * At one colony this is `layoutScene` with the options it was handed and an
- * origin of zero — see the note at the top of this file, and ruling 2.
+ * Not a grid. One continuous surface: `sources[0]` is laid out exactly where
+ * a solo colony is laid out today, and the others are placed on a ring around
+ * it, each at the full box size and each byte-identical to how it would draw
+ * alone. Only the origin differs between colonies. Three things follow, and
+ * each is a law in `world.test.ts`:
+ *
+ * - **a solo colony is unchanged** (ruling 2) — with one source this is
+ *   `layoutScene(fleet, options)` and nothing else;
+ * - **a teammate joining never moves you** — the first source's origin and
+ *   geometry are the same whether it is alone or one of nine;
+ * - **every colony looks the way its owner sees it** — no colony is shrunk,
+ *   so its mass radius and rim half-axes are the solo values. Thread width is
+ *   a locked channel meaning work size, and a colony drawn smaller to signal
+ *   distance would be lying about its fleet. Perspective is the camera's job.
+ *
+ * Who is first is the caller's decision, not this file's — it does not know
+ * or care whose work it is drawing (ruling 6). The order of the rest is the
+ * caller's array order and carries no meaning; a ring has to put people
+ * somewhere, and any ordering of people is a ranking waiting to be read as
+ * one, so the honest ordering is the arbitrary one, stated. Placing colonies
+ * by what they are touching would make the landscape mean something, and it
+ * waits on cross-colony data that nothing can carry yet.
  */
 export function layoutWorld(
   sources: readonly ColonySource[],
   options: LayoutOptions,
 ): WorldGeometry {
   const { width, height } = options
-  const cols = colonyColumns(sources.length, width, height)
-  const rows = Math.max(1, Math.ceil(sources.length / cols))
-  const single = sources.length <= 1
-  // At one colony the options are passed through untouched rather than
-  // recomputed as `width / 1`. The arithmetic agrees, but ruling 2 is a
-  // byte-identity claim and the cheapest way to keep a claim like that true
-  // is to leave no arithmetic between it and the thing it claims about.
-  const cellWidth = single ? width : width / cols
-  const cellHeight = single ? height : height / rows
-
   const colonies: ColonyGeometry[] = []
   let threadCount = 0
 
   for (const [i, { id, fleet }] of sources.entries()) {
-    const origin = single
-      ? ORIGIN
-      : { x: (i % cols) * cellWidth, y: Math.floor(i / cols) * cellHeight }
-    const geometry = single
-      ? layoutScene(fleet, options)
-      : layoutScene(fleet, { ...options, width: cellWidth, height: cellHeight, origin })
+    // The first source is handed the options untouched rather than an origin
+    // of `{0,0}` folded in. The arithmetic agrees, but ruling 2 is a
+    // byte-identity claim, and the cheapest way to keep one true is to leave
+    // no arithmetic between it and the thing it claims about.
+    const origin = i === 0 ? ORIGIN : ringOrigin(i - 1, sources.length - 1, width, height)
+    const geometry = i === 0 ? layoutScene(fleet, options) : layoutScene(fleet, { ...options, origin })
     colonies.push({ id, origin, geometry, fleet })
     threadCount += geometry.threads.length
   }

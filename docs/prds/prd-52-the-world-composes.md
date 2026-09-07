@@ -239,7 +239,20 @@ whether `1×180` and `3×60` should carry different supported sizes once measure
   re-ruled.
 - **Does the world place colonies by a fixed arrangement or by their own mass?** Placement is
   wave 1's to implement but not wave 1's to rule; a radial arrangement and a packed grid have
-  different answers when one colony is much larger than its neighbours. Open, not ruled.
+  different answers when one colony is much larger than its neighbours. — **ANSWERED (operator
+  ruling, Lachlan Kelliher, 2026-09-07): neither a grid nor packing — one continuous surface,
+  the viewer at the origin, everyone else on a ring around them, every colony at the full box.**
+  Not a grid of panels: a shared environment the viewer is *in*. Three consequences are laws in
+  `world.test.ts`. A teammate joining never moves you — the first source is laid out with the
+  untouched options whether alone or one of nine. Every colony looks the way its owner sees it —
+  nobody is shrunk to make room, because thread width is a locked channel meaning work size and
+  a colony drawn smaller to signal distance would be lying about its fleet; perspective is the
+  camera's job, and the camera opens on the viewer's own colony. And the ring's order is the
+  caller's array order and carries no meaning: any ordering of people is a ranking waiting to be
+  read as one (prd-37 ruling 5), so the honest ordering is the arbitrary one, stated. Depth haze
+  stays decorative — it is a channel permitted to move on condition it carries nothing, and
+  "someone else's" is something. Placing colonies by what they are touching would make the
+  landscape mean something, and waits on cross-colony data that law 1 currently forbids.
 - **Is `1×180` a configuration this product should support at all,** or is a colony always
   bounded and the world is what grows? The answer changes whether `victimLaneId`'s containment is
   a performance law or a correctness one. Open, not ruled.
