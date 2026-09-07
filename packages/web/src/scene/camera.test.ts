@@ -7,6 +7,7 @@ import {
   pathologySpec,
   type Fleet,
 } from '../fleet/index.js'
+import { layoutWorld } from './geometry.js'
 import {
   CLICK_DISTANCE,
   FIT_DURATION_MAX_MS,
@@ -19,6 +20,7 @@ import {
   clampScale,
   contentBounds,
   fitCamera,
+  worldBounds,
   flight,
   gestureFilter,
   isContentVisible,
@@ -394,5 +396,63 @@ describe('which events the camera claims', () => {
   it('keeps a click distinguishable from a drag by a hand tremor', () => {
     expect(CLICK_DISTANCE).toBeGreaterThan(0)
     expect(CLICK_DISTANCE).toBeLessThan(10)
+  })
+})
+
+describe('the camera frames the whole world (prd-52 ruling 1)', () => {
+  const sourcesOf = (...fleets: Fleet[]) =>
+    fleets.map((f, i) => ({ id: `colony-${i}`, fleet: f }))
+
+  it('answers what contentBounds answers, at one colony', () => {
+    const one = fleet()
+    const world = layoutWorld(sourcesOf(one), { ...VIEWPORT, now: NOW })
+    const colony = world.colonies[0]
+    if (colony === undefined) throw new Error('no colony')
+    expect(worldBounds(world)).toStrictEqual(contentBounds(colony.geometry))
+  })
+
+  it('unions every colony, so no colony is left outside the box', () => {
+    const world = layoutWorld(sourcesOf(fleet(), fleet(), fleet()), { ...VIEWPORT, now: NOW })
+    const union = worldBounds(world)
+    if (union === null) throw new Error('no bounds')
+
+    expect(world.colonies).toHaveLength(3)
+    for (const colony of world.colonies) {
+      const own = contentBounds(colony.geometry)
+      expect(own.minX).toBeGreaterThanOrEqual(union.minX)
+      expect(own.minY).toBeGreaterThanOrEqual(union.minY)
+      expect(own.maxX).toBeLessThanOrEqual(union.maxX)
+      expect(own.maxY).toBeLessThanOrEqual(union.maxY)
+    }
+  })
+
+  it('is wider than any one colony once there is more than one', () => {
+    // The mutation this catches: returning the first colony's bounds and
+    // calling it a union. Three colonies sit in different cells, so the union
+    // must be strictly wider than the widest single one.
+    const world = layoutWorld(sourcesOf(fleet(), fleet(), fleet()), { ...VIEWPORT, now: NOW })
+    const union = worldBounds(world)
+    if (union === null) throw new Error('no bounds')
+    const widest = Math.max(
+      ...world.colonies.map((c) => {
+        const b = contentBounds(c.geometry)
+        return b.maxX - b.minX
+      }),
+    )
+    expect(union.maxX - union.minX).toBeGreaterThan(widest)
+  })
+
+  it('has no box for an empty world, rather than one at the origin', () => {
+    // A fabricated box is something the camera would fly to. The caller's
+    // empty-scene fallback is the honest answer.
+    expect(worldBounds({ width: 900, height: 500, colonies: [], threadCount: 0 })).toBeNull()
+  })
+
+  it('fits a world so every colony is inside the fitted view', () => {
+    const world = layoutWorld(sourcesOf(fleet(), fleet()), { ...VIEWPORT, now: NOW })
+    const union = worldBounds(world)
+    if (union === null) throw new Error('no bounds')
+    const camera = fitCamera(union, VIEWPORT)
+    expect(isContentVisible(camera, VIEWPORT, union)).toBe(true)
   })
 })
