@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { appendFile, mkdir, mkdtemp, readdir, readFile, rm, unlink, writeFile } from 'node:fs/promises'
@@ -6,8 +7,10 @@ import path from 'node:path'
 import {
   type AdapterCapabilities,
   BEACON_ATTENTION_KINDS,
+  BEACON_LAPSE_MS,
   type CollectorContext,
   createCollectorContext,
+  type DeclaredAttention,
   deriveRung,
   type EventOf,
   mergeCapabilities,
@@ -17,7 +20,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CLAUDE_HOOK_EVENTS } from '../../cli/env.js'
 import { withResilience } from '../resilience.js'
 import { SESSIONLOG_CAPABILITIES } from '../sessionlog/collector.js'
-import { BEACON_CAPABILITIES, createBeaconCollector } from './collector.js'
+import { WORKMUX_CAPABILITIES } from '../workmux/collector.js'
+import { BEACON_CAPABILITIES, beaconCapabilitiesFor, createBeaconCollector } from './collector.js'
 import { parseBeaconLine } from './parse-beacon-line.js'
 import { beaconDirFor } from './paths.js'
 
@@ -543,14 +547,22 @@ describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
   })
 
   describe('the manifest', () => {
-    it('declares attention absent, with ruling 3 as the reason, so this wave promises no rung', () => {
+    it('declares attention partial and signs it beacon, with ruling 3 as the reason', () => {
       const attention = BEACON_CAPABILITIES.attention
-      expect(attention.level).toBe('absent')
+      expect(attention.level).toBe('partial')
+      expect(attention.witness).toBe('beacon')
       expect(attention.level !== 'provided' && attention.reason).toContain('ruling 3')
+    })
+
+    it('a configured-but-silent beacon does NOT read as the PTY rung — the false rung ADR-0036 recorded, closed by type', () => {
+      // `partial` attention + `absent` telemetry was L3 before #218. The
+      // witness is what keeps it off that rung; nothing else about this
+      // manifest changed to earn L0.
+      expect(BEACON_CAPABILITIES.telemetry.level).toBe('absent')
       expect(deriveRung(BEACON_CAPABILITIES)).toBe('L0')
     })
 
-    it('adding the beacon to a fleet changes no signal the transcript organ already has', () => {
+    it('adding the silent beacon to a fleet changes no signal the transcript organ already has', () => {
       const merged = mergeCapabilities([SESSIONLOG_CAPABILITIES, BEACON_CAPABILITIES])
       for (const signal of Object.keys(SESSIONLOG_CAPABILITIES) as (keyof AdapterCapabilities)[]) {
         expect(merged[signal]).toEqual(SESSIONLOG_CAPABILITIES[signal])
@@ -558,13 +570,82 @@ describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
       expect(deriveRung(merged)).toBe(deriveRung(SESSIONLOG_CAPABILITIES))
     })
 
-    it('every signal says why it is at its level and what would raise it — nothing here is provided', () => {
+    it('every signal in the static manifest says why it is at its level and what would raise it — nothing there is provided', () => {
       for (const detail of Object.values(BEACON_CAPABILITIES)) {
         expect(detail.level).not.toBe('provided')
         if (detail.level === 'provided') continue // narrows the union; unreachable after the assertion above
         expect(detail.reason.length).toBeGreaterThan(0)
         expect(detail.remedy).toBeDefined()
         expect(detail.remedy?.length).toBeGreaterThan(0)
+      }
+    })
+  })
+
+  describe('the live manifest — beaconCapabilitiesFor (prd-27 ruling 3, #218)', () => {
+    const declared: DeclaredAttention = {
+      kind: 'waiting',
+      at: 1_000,
+      writer: 'claude-hook',
+      digest: 'a'.repeat(64),
+      file: 'claude-hook.jsonl',
+      offset: 0,
+    }
+
+    it('is the static configured-but-silent manifest, unchanged, when no lane has been declared for', () => {
+      expect(beaconCapabilitiesFor({})).toBe(BEACON_CAPABILITIES)
+    })
+
+    it('provides attention — signed beacon — once any lane has been declared for, and sits at L2', () => {
+      const live = beaconCapabilitiesFor({ '2-core': declared })
+      expect(live.attention).toEqual({ level: 'provided', witness: 'beacon' })
+      expect(deriveRung(live)).toBe('L2')
+    })
+
+    it('raises no signal but attention — the organ still carries no tokens, dollars or heartbeat', () => {
+      const live = beaconCapabilitiesFor({ '2-core': declared })
+      for (const signal of ['identity', 'liveness', 'activity', 'telemetry', 'cost'] as const) {
+        expect(live[signal]).toEqual(BEACON_CAPABILITIES[signal])
+      }
+    })
+
+    it('yields the rig the tie: a fleet witnessed by both the hook and workmux reads L4, in either input order', () => {
+      const live = beaconCapabilitiesFor({ '2-core': declared })
+      expect(deriveRung(mergeCapabilities([live, WORKMUX_CAPABILITIES]))).toBe('L4')
+      expect(deriveRung(mergeCapabilities([WORKMUX_CAPABILITIES, live]))).toBe('L4')
+    })
+  })
+
+  /**
+   * prd-27 ruling 6's amendment — *the mechanism is ruled, the number is
+   * measured* — enforced from both sides. A `BEACON_LAPSE_MS ± 1` pair in
+   * `packages/core/src/selectors/lapse.test.ts` passes at any interval; this
+   * is the law that makes the interval itself falsifiable, by holding the
+   * constant to the note that derived it. Changing either alone reddens here.
+   *
+   * It lives in `server` rather than beside the selector because `core` is
+   * browser-safe (ADR-0003) and cannot read a file outside its own package
+   * root. `REPO_ROOT` is derived the way `corpus-eol-law.test.ts` derives it.
+   */
+  describe('the lapse interval is measured, and the note is the source of truth (#218)', () => {
+    const REPO_ROOT = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
+    const NOTE_PATH = path.join(REPO_ROOT, 'docs', 'design-notes', 'beacon-lapse-interval.md')
+    // The note is prose under docs/, not a pinned fixture: a CRLF checkout (the windows-suite leg) must read the same bytes-as-text this law was written against.
+    const NOTE = readFileSync(NOTE_PATH, 'utf8').replace(/\r\n/g, '\n')
+
+    it('states the same number the code holds', () => {
+      const match = /BEACON_LAPSE_MS = (\d+)/.exec(NOTE)
+      expect(match, `no "BEACON_LAPSE_MS = <n>" line in ${NOTE_PATH}`).not.toBeNull()
+      expect(Number(match![1])).toBe(BEACON_LAPSE_MS)
+    })
+
+    it('carries a measurement, not prose — a raw capture of real beacon lines the parser accepts', () => {
+      expect(NOTE).toContain('## The measurement')
+      const block = /```jsonl\n([\s\S]*?)```/.exec(NOTE)
+      expect(block, 'no ```jsonl raw-capture block in the note').not.toBeNull()
+      const lines = block![1]!.split('\n').filter((line) => line.length > 0)
+      expect(lines.length).toBeGreaterThanOrEqual(20)
+      for (const line of lines) {
+        expect(parseBeaconLine(line).kind, line).toBe('beacon')
       }
     })
   })

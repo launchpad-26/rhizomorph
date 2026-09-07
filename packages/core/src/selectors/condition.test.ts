@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Lane, LaneActivity, Pathology } from '../fleet/index.js'
 import { INFERRED_MARK, PATHOLOGY_RANK } from '../fleet/index.js'
 import { selectLaneCondition, selectWorstPathology, type LaneCondition } from './condition.js'
+import { BEACON_LAPSE_MS } from './lapse.js'
 
 /**
  * The condition selector's own table (prd-30 ruling 2 · #560): every
@@ -431,5 +432,35 @@ describe('selectLaneCondition — the declared voice (prd-27, #283)', () => {
   it('a lane nothing declared for says nothing about beacons at all', () => {
     const condition = selectLaneCondition(baseLane({ activity: 'idle', pathologies: [] }), NOW)
     expect(condition.why.evidence.fact).not.toContain('beacon')
+  })
+
+  /**
+   * prd-27 ruling 6 (#218). Once a declaration has lapsed, the card stops
+   * repeating the word the harness last said and names the lapse instead —
+   * otherwise the calm arms would keep quoting a three-minute-old `working` as
+   * if it were current, which is the staleness ruling 6 exists to voice.
+   */
+  describe('a lapsed declaration replaces the clause rather than ageing inside it (#218)', () => {
+    function idleWithWorkingAt(at: number): LaneCondition {
+      return selectLaneCondition(
+        baseLane({ activity: 'idle', pathologies: [], declared: { kind: 'working', at, writer: 'claude-hook' } }),
+        NOW,
+      )
+    }
+
+    it('names the lapse, and stops naming the beacon, one minute past the interval', () => {
+      const condition = idleWithWorkingAt(NOW - BEACON_LAPSE_MS - 60_000)
+      expect(
+        condition.why.evidence.fact.endsWith(' · declared attention lapsed 1m00s ago; reading turn shape'),
+      ).toBe(true)
+      expect(condition.why.evidence.fact).not.toContain('beacon (claude-hook) declares')
+      expectHonest(condition)
+    })
+
+    it('still names the beacon exactly at the interval — the #283 clause, unchanged, to the byte', () => {
+      const condition = idleWithWorkingAt(NOW - BEACON_LAPSE_MS)
+      expect(condition.why.evidence.fact.endsWith(' · beacon (claude-hook) declares working 3m00s ago')).toBe(true)
+      expect(condition.why.evidence.fact).not.toContain('lapsed')
+    })
   })
 })

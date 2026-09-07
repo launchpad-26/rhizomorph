@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { BEACON_LAPSE_MS } from '../selectors/lapse.js'
 import { diagnose, NAMED_TRESPASSES, type DiagnoseContext } from './diagnose.js'
 import type { Trespass } from './fences.js'
 import type { Lane } from './types.js'
@@ -303,13 +304,21 @@ describe('detectWaiting through diagnose() — the declared voice, byte-exact (p
     expect(found?.evidence).toBe('beacon (claude-hook) declares waiting 40s ago · recent work reads working')
   })
 
+  /**
+   * The declaration is 2m50s old, not the 5m00s this test used before #218:
+   * `staleDeclaredWorking` only speaks for a declaration that is **still
+   * standing** — past `BEACON_LAPSE_MS` the lapse clause replaces it, which is
+   * its own case in the lapse block at the foot of this file. The window this
+   * clause lives in is "older than the last work, younger than the lapse", and
+   * that is what these two now pin.
+   */
   it('(b3) a declared working OLDER than the last work quiets nothing, and the inference says why', () => {
     const found = waiting(
-      paneInferredLane({ declared: { kind: 'working', at: NOW - 300_000, writer: WRITER } }),
+      paneInferredLane({ declared: { kind: 'working', at: NOW - 170_000, writer: WRITER } }),
       PANE_FRESH,
     )
     expect(found?.evidence).toBe(
-      'quiet 2m40s, pane still alive · beacon (claude-hook) declared working 5m00s ago, before the last work',
+      'quiet 2m40s, pane still alive · beacon (claude-hook) declared working 2m50s ago, before the last work',
     )
     expect(found?.inferred).toBe(true)
   })
@@ -325,11 +334,11 @@ describe('detectWaiting through diagnose() — the declared voice, byte-exact (p
       paneInferredLane({
         agentStatus: 'waiting',
         agentStatusWitness: 'sessionlog',
-        declared: { kind: 'working', at: NOW - 300_000, writer: WRITER },
+        declared: { kind: 'working', at: NOW - 170_000, writer: WRITER },
       }),
     )
     expect(found?.evidence).toBe(
-      'transcript shape: no reading recorded · beacon (claude-hook) declared working 5m00s ago, before the last work',
+      'transcript shape: no reading recorded · beacon (claude-hook) declared working 2m50s ago, before the last work',
     )
     expect(found?.inferred).toBe(true)
   })
@@ -379,5 +388,81 @@ describe('detectWaiting through diagnose() — the declared voice, byte-exact (p
   it('(a) a declared waiting on a removed worktree raises no summons — the record outlives the lane, the alarm must not', () => {
     const found = waiting(declaredLane({ present: false, declared: { kind: 'waiting', at: NOW - 40_000, writer: WRITER } }))
     expect(found).toBeUndefined()
+  })
+
+  /**
+   * prd-27 ruling 6 (#218) — the lapse, through the same byte-exact door.
+   *
+   * The lane below is built so the declaration would **suppress** the pane
+   * inference if it still stood (`declared.at > lastWorkTs`, clause (b1)). That
+   * is the point: "no WAITING" and "WAITING with the lapsed clause" are the two
+   * sides of the boundary, on one lane, and a `declarationStatus` that never
+   * lapses `working` turns the first case into the second's silence.
+   */
+  describe('a lapsed declaration has no precedence, and the inference that stands says why (#218)', () => {
+    /** Quiet long enough for the pane inference, with the last work OLDER than any declaration below. */
+    function quietLane(overrides: Partial<Lane> = {}): Lane {
+      return declaredLane({ lastWorkTs: NOW - 300_000, workAgeMs: 300_000, ...overrides })
+    }
+
+    it('a working declaration one minute past the interval stops suppressing, and the pane inference names the lapse', () => {
+      const found = waiting(
+        quietLane({ declared: { kind: 'working', at: NOW - BEACON_LAPSE_MS - 60_000, writer: WRITER } }),
+        PANE_FRESH,
+      )
+      expect(found?.evidence).toBe(
+        'quiet 5m00s, pane still alive · declared attention lapsed 1m00s ago; reading turn shape',
+      )
+      expect(found?.inferred).toBe(true)
+    })
+
+    it('the same declaration one second inside the interval still suppresses outright', () => {
+      const found = waiting(
+        quietLane({ declared: { kind: 'working', at: NOW - BEACON_LAPSE_MS + 1_000, writer: WRITER } }),
+        PANE_FRESH,
+      )
+      expect(found).toBeUndefined()
+    })
+
+    it('a lapsed waiting beside the transcript witness reads inferred, not the certain beacon summons', () => {
+      const found = waiting(
+        quietLane({
+          agentStatus: 'waiting',
+          agentStatusWitness: 'sessionlog',
+          // Work landed after the declaration — the one thing that retires a
+          // `waiting` (a human's silence never does).
+          lastWorkTs: NOW - 100_000,
+          workAgeMs: 100_000,
+          declared: { kind: 'waiting', at: NOW - BEACON_LAPSE_MS - 60_000, writer: WRITER },
+        }),
+        { agentStatusDetail: 'assistant turn open, no tool result' },
+      )
+      expect(found?.evidence).toBe(
+        'transcript shape: assistant turn open, no tool result · declared attention lapsed 1m00s ago; reading turn shape',
+      )
+      expect(found?.inferred).toBe(true)
+    })
+
+    it('the workmux arm names the lapse in place of the older-beacon clause', () => {
+      const found = waiting(
+        quietLane({
+          agentStatus: 'waiting',
+          agentStatusWitness: 'workmux',
+          declared: { kind: 'stopped', at: NOW - BEACON_LAPSE_MS - 60_000, writer: WRITER },
+        }),
+        { agentStatusTs: NOW - 90_000 },
+      )
+      expect(found?.evidence).toBe(
+        'workmux reports waiting 1m30s · declared attention lapsed 1m00s ago; reading turn shape',
+      )
+    })
+
+    it('a landed lane has not lapsed, it has finished — presence still exempts, exactly as before', () => {
+      const found = waiting(
+        quietLane({ present: false, declared: { kind: 'working', at: NOW - BEACON_LAPSE_MS - 60_000, writer: WRITER } }),
+        PANE_FRESH,
+      )
+      expect(found).toBeUndefined()
+    })
   })
 })

@@ -948,12 +948,18 @@ describe('the harness says so (prd-27 rulings 3–4, #283)', () => {
     expect(kindsFor(buildFleet(reduceAll(log), { now: NOW }), 'b2')).not.toContain('waiting')
   })
 
+  // 2m50s, not the 5m00s this used before #218: `staleDeclaredWorking` speaks
+  // only for a declaration that still stands, and past `BEACON_LAPSE_MS` the
+  // lapse clause replaces it (prd-27 ruling 6; the boundary is pinned in
+  // `diagnose.test.ts` and `selectors/lapse.test.ts`). The clause under test
+  // here lives in the window "older than the last work, younger than the
+  // lapse" — this test's own claim is unchanged, only its clock.
   it('(b3) a declared working OLDER than the last work quiets nothing, and says so', () => {
-    const log = [...paneInferred('b3', '%53'), beacon('b3', 'working', NOW - 300_000)]
+    const log = [...paneInferred('b3', '%53'), beacon('b3', 'working', NOW - 170_000)]
     const waiting = waitingIn(buildFleet(reduceAll(log), { now: NOW }), 'b3')
 
     expect(waiting?.inferred).toBe(true)
-    expect(waiting?.evidence.endsWith(' · beacon (claude-hook) declared working 5m00s ago, before the last work')).toBe(true)
+    expect(waiting?.evidence.endsWith(' · beacon (claude-hook) declared working 2m50s ago, before the last work')).toBe(true)
   })
 
   it('(d) a declared stopped is not WAITING and suppresses nothing', () => {

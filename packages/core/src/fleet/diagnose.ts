@@ -9,6 +9,7 @@ import {
 } from './constants.js'
 import { PATHOLOGY_RANK, type Pathology } from './pathology.js'
 import { formatSpan } from './plumbing.js'
+import { declarationStatus, lapsedForMs, lapsedVoice } from '../selectors/lapse.js'
 import type { AgentStatusDissent } from '../state.js'
 import type { Lane } from './types.js'
 
@@ -169,6 +170,14 @@ export function isTerminalDone(lane: Lane): boolean {
  * into `why.evidence.fact`, which `DisclosureCard` shows — not a new chip;
  * ruling 4 leaves that choice to the implementer and this comment records it.
  *
+ * **A lapsed declaration is not a declaration** (prd-27 ruling 6, #218). Before
+ * any clause below reads `lane.declared`, {@link declarationStatus} decides
+ * whether it still stands; a lapsed one is nulled out for every one of them, so
+ * the asymmetry above applies to what the harness is *still* saying rather than
+ * to a word it stopped repeating. The inference that then stands names the
+ * lapse — ` · declared attention lapsed <span> ago; reading turn shape` — so
+ * the fallback is voiced rather than silent.
+ *
  * Two facts the older comments carried, kept because they are still the reason
  * these branches are shaped this way: a declared WAITING **outlives the agent
  * record that made it** — workmux's last report stands forever once the handle
@@ -180,7 +189,12 @@ export function isTerminalDone(lane: Lane): boolean {
  * silence being measured.
  */
 function detectWaiting(lane: Lane, ctx: DiagnoseContext): Pathology | null {
-  const declared = lane.declared
+  const status = declarationStatus(lane.declared, ctx.now, lane.lastWorkTs)
+  // prd-27 ruling 6 (#218): a lapsed declaration has no precedence — every
+  // clause below sees `null` — and the inference that then stands says why.
+  const declared = status === 'lapsed' ? null : lane.declared
+  const lapsed =
+    status === 'lapsed' && lane.declared !== null ? ` · ${lapsedVoice(lapsedForMs(lane.declared, ctx.now))}` : ''
   const declaredIsNewerThanRoster =
     declared !== null &&
     (ctx.agentStatusTs === null || lane.agentStatusWitness !== 'workmux' || declared.at >= ctx.agentStatusTs)
@@ -216,7 +230,7 @@ function detectWaiting(lane: Lane, ctx: DiagnoseContext): Pathology | null {
         kind: 'waiting',
         rank: PATHOLOGY_RANK.waiting,
         since,
-        evidence: `transcript shape: ${ctx.agentStatusDetail ?? 'no reading recorded'}${staleDeclaredWorking}`,
+        evidence: `transcript shape: ${ctx.agentStatusDetail ?? 'no reading recorded'}${staleDeclaredWorking}${lapsed}`,
         inferred: true,
       }
     }
@@ -226,11 +240,13 @@ function detectWaiting(lane: Lane, ctx: DiagnoseContext): Pathology | null {
     const word = forMs === null ? 'workmux reports waiting' : `workmux reports waiting ${formatSpan(forMs)}`
     const dissent = ctx.agentStatusDissent === null ? '' : `; transcript shape reads ${ctx.agentStatusDissent.status}`
     const olderBeacon =
-      declared !== null && declared.kind === 'waiting'
-        ? ''
-        : declared === null
+      lapsed !== ''
+        ? lapsed
+        : declared !== null && declared.kind === 'waiting'
           ? ''
-          : ` · beacon (${declared.writer}) declared ${declared.kind} ${formatSpan(Math.max(0, ctx.now - declared.at))} ago`
+          : declared === null
+            ? ''
+            : ` · beacon (${declared.writer}) declared ${declared.kind} ${formatSpan(Math.max(0, ctx.now - declared.at))} ago`
     return {
       kind: 'waiting',
       rank: PATHOLOGY_RANK.waiting,
@@ -255,7 +271,7 @@ function detectWaiting(lane: Lane, ctx: DiagnoseContext): Pathology | null {
     kind: 'waiting',
     rank: PATHOLOGY_RANK.waiting,
     since: lane.lastWorkTs,
-    evidence: `quiet ${formatSpan(lane.workAgeMs)}, pane still alive${staleDeclaredWorking}`,
+    evidence: `quiet ${formatSpan(lane.workAgeMs)}, pane still alive${staleDeclaredWorking}${lapsed}`,
     inferred: true,
   }
 }

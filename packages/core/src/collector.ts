@@ -122,9 +122,19 @@ export type CapabilityLevel = 'provided' | 'partial' | 'absent'
  * a `reason` — the law "a one-line reason for anything not provided" restated
  * as a type rather than a convention a collector author could skip.
  */
+/**
+ * prd-15 ruling 5 / prd-27 ruling 3 (#218, ADR-0039): which organ speaks for
+ * `attention` — the one signal whose *source* decides the rung. `rig` is
+ * tmux/workmux's roster (L4); `beacon` is the harness's own hook (L2). Absent
+ * means "not the beacon": every manifest written before #218 reads as it did.
+ * Meaningful on `attention` only; the type allows it elsewhere and nothing
+ * reads it there.
+ */
+export type AttentionWitness = 'rig' | 'beacon'
+
 export type CapabilityDetail =
-  | { level: 'provided' }
-  | { level: 'partial' | 'absent'; reason: string; remedy?: string }
+  | { level: 'provided'; witness?: AttentionWitness }
+  | { level: 'partial' | 'absent'; reason: string; remedy?: string; witness?: AttentionWitness }
 
 export type AdapterCapabilities = Record<Signal, CapabilityDetail>
 
@@ -237,7 +247,10 @@ const LEVEL_RANK: Record<CapabilityLevel, number> = { absent: 0, partial: 1, pro
  * collector reaches (a second witness only ever adds confidence, never takes
  * it away — restating the adapters spike's "two witnesses" framing for
  * capabilities rather than liveness readings). Ties keep whichever detail was
- * seen first, so the result is deterministic for a given input order.
+ * seen first, so the result is deterministic for a given input order — with
+ * one source-aware exception (ADR-0039, #218): a tie against a detail signed
+ * `witness: 'beacon'` goes to the non-beacon one, so a fleet witnessed by both
+ * the rig and the hook reads L4 rather than L2.
  */
 export function mergeCapabilities(all: readonly AdapterCapabilities[]): AdapterCapabilities {
   if (all.length === 0) return UNKNOWN_CAPABILITIES
@@ -247,7 +260,17 @@ export function mergeCapabilities(all: readonly AdapterCapabilities[]): AdapterC
     let best = all[0]![signal]
     for (const capabilities of all.slice(1)) {
       const candidate = capabilities[signal]
-      if (LEVEL_RANK[candidate.level] > LEVEL_RANK[best.level]) best = candidate
+      // Best level wins. On a tie, the non-beacon detail wins: a rig that
+      // declares attention outranks a hook that declares it (L4 over L2), and
+      // a tie between two non-beacon details keeps the first, as before.
+      if (
+        LEVEL_RANK[candidate.level] > LEVEL_RANK[best.level] ||
+        (LEVEL_RANK[candidate.level] === LEVEL_RANK[best.level] &&
+          best.witness === 'beacon' &&
+          candidate.witness !== 'beacon')
+      ) {
+        best = candidate
+      }
     }
     merged[signal] = best
   }
@@ -257,10 +280,12 @@ export function mergeCapabilities(all: readonly AdapterCapabilities[]): AdapterC
 /**
  * prd15 ruling 5's enrichment ladder, named not ranked — but a lane still
  * sits at exactly one rung at a time, which is what `doctor` and `/api/meta`
- * report. `L2` (beacon) and `L3` (PTY wrapper) aren't reachable by any
- * collector in this repo yet (prd15 waves 3 and 7); `deriveRung` still maps
- * them totally so the law — "every capability combination maps to exactly
- * one rung" — holds before those collectors exist, not just after.
+ * report. `L2` (beacon) became reachable with #218: the beacon organ's live
+ * manifest signs its `attention` `witness: 'beacon'` (ADR-0039). `L3` (PTY
+ * wrapper) is still reachable by no collector in this repo (prd15 wave 7);
+ * `deriveRung` maps it totally anyway, so the law — "every capability
+ * combination maps to exactly one rung" — holds before that collector exists,
+ * not just after.
  */
 export type Rung = 'L0' | 'L1' | 'L2' | 'L3' | 'L4'
 
@@ -271,14 +296,15 @@ export const RUNGS: readonly Rung[] = ['L0', 'L1', 'L2', 'L3', 'L4']
  * combination of the six signals — including ones no real collector produces
  * today. Read top-down, highest bar first:
  *
- * - **L4** (tmux/workmux): `attention` is `provided` — today the only
- *   mechanism that *declares* attention rather than inferring it. (When the
- *   L2 beacon collector lands it will also declare attention; distinguishing
- *   the two rungs is that collector's own follow-up, not a regression here —
- *   see the doc comment above.)
- * - **L3** (PTY wrapper): `attention` is `partial` (heuristic, not declared)
- *   and `telemetry` is `absent` — a byte stream sees prompts and output but
- *   no tokens at all, unlike the transcript organ.
+ * - **L4** (tmux/workmux): `attention` is `provided` by the rig — anything
+ *   that is not the beacon's own witness. `mergeCapabilities` gives the rig
+ *   the tie, so a fleet with both witnesses reads here.
+ * - **L2** (beacon): `attention` is `provided` with `witness: 'beacon'`
+ *   (#218) — the harness's own hooks declared it, and no rig did.
+ * - **L3** (PTY wrapper): `attention` is a *heuristic* `partial` — not the
+ *   beacon's — and `telemetry` is `absent`: a byte stream sees prompts and
+ *   output but no tokens at all, unlike the transcript organ. No collector
+ *   in this repo reaches it yet.
  * - **L1** (env/OTLP): `cost` is anything but `absent` — dollars exist only
  *   once OTLP (or a pricing-table estimate) is wired in.
  * - **L0**: the floor. Git alone, or git plus the transcript organ, both
@@ -286,9 +312,14 @@ export const RUNGS: readonly Rung[] = ['L0', 'L1', 'L2', 'L3', 'L4']
  */
 export function deriveRung(capabilities: AdapterCapabilities): Rung {
   const level = (signal: Signal): CapabilityLevel => capabilities[signal].level
+  const attention = capabilities.attention
 
-  if (level('attention') === 'provided') return 'L4'
-  if (level('attention') === 'partial' && level('telemetry') === 'absent') return 'L3'
+  // ADR-0039: the rung reads who provides attention, not just that it is provided.
+  if (attention.level === 'provided') return attention.witness === 'beacon' ? 'L2' : 'L4'
+  // The PTY-wrapper signature is a *heuristic* partial with no telemetry. A
+  // configured-but-silent beacon is also `partial` (prd-27 ruling 3) and must
+  // not read as the PTY rung — ADR-0036 names exactly that false rung.
+  if (attention.level === 'partial' && attention.witness !== 'beacon' && level('telemetry') === 'absent') return 'L3'
   if (level('cost') !== 'absent') return 'L1'
   return 'L0'
 }

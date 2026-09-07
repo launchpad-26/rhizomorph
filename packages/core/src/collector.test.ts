@@ -295,6 +295,26 @@ describe('mergeCapabilities', () => {
     const merged = mergeCapabilities([healthy, disabled])
     for (const signal of SIGNALS) expect(merged[signal].level).toBe('provided')
   })
+
+  // ADR-0039 (#218): the one source-aware tie-break. Both orders, because the
+  // rule this replaces was "first seen wins" and an order-sensitive fix would
+  // pass in exactly one of them.
+  it('a tie between the rig\'s provided attention and the beacon\'s keeps the rig\'s, in either input order', () => {
+    const rig: AdapterCapabilities = { ...allAt('absent'), attention: { level: 'provided' } }
+    const beacon: AdapterCapabilities = { ...allAt('absent'), attention: { level: 'provided', witness: 'beacon' } }
+    expect(mergeCapabilities([rig, beacon]).attention).toEqual({ level: 'provided' })
+    expect(mergeCapabilities([beacon, rig]).attention).toEqual({ level: 'provided' })
+  })
+
+  it('a beacon-provided attention still wins over a partial one — the tie-break never costs a level', () => {
+    const inferred: AdapterCapabilities = {
+      ...allAt('absent'),
+      attention: { level: 'partial', reason: 'inferred from transcript shape' },
+    }
+    const beacon: AdapterCapabilities = { ...allAt('absent'), attention: { level: 'provided', witness: 'beacon' } }
+    expect(mergeCapabilities([inferred, beacon]).attention).toEqual({ level: 'provided', witness: 'beacon' })
+    expect(mergeCapabilities([beacon, inferred]).attention).toEqual({ level: 'provided', witness: 'beacon' })
+  })
 })
 
 describe('deriveRung — pure and total', () => {
@@ -354,6 +374,54 @@ describe('deriveRung — pure and total', () => {
   it('declared attention (tmux/workmux) climbs to L4 regardless of the other five signals', () => {
     const capabilities: AdapterCapabilities = { ...allAt('absent'), attention: { level: 'provided' } }
     expect(deriveRung(capabilities)).toBe('L4')
+  })
+
+  // ── ADR-0039 (#218): the rung reads *who* provided attention ──────────────
+
+  it('attention provided by the beacon alone sits at L2, not L4', () => {
+    const capabilities: AdapterCapabilities = {
+      ...allAt('absent'),
+      attention: { level: 'provided', witness: 'beacon' },
+    }
+    expect(deriveRung(capabilities)).toBe('L2')
+  })
+
+  it('attention provided by both witnesses sits at L4 — the merge picks the rig, and the rung follows', () => {
+    const rig: AdapterCapabilities = { ...allAt('absent'), attention: { level: 'provided' } }
+    const beacon: AdapterCapabilities = { ...allAt('absent'), attention: { level: 'provided', witness: 'beacon' } }
+    expect(deriveRung(mergeCapabilities([rig, beacon]))).toBe('L4')
+    expect(deriveRung(mergeCapabilities([beacon, rig]))).toBe('L4')
+  })
+
+  it('a configured-but-silent beacon (partial, witness beacon, no telemetry) does NOT read as L3 — it stays at L0', () => {
+    // The exact shape ADR-0036 recorded as the false rung: identical to the
+    // PTY-wrapper signature two tests above, which is L3, but for the witness.
+    const capabilities: AdapterCapabilities = {
+      ...allAt('absent'),
+      attention: { level: 'partial', witness: 'beacon', reason: 'configured but silent' },
+    }
+    expect(deriveRung(capabilities)).toBe('L0')
+  })
+
+  it('every one of the 3^6 combinations is still total with attention signed by the beacon, and provided always reads L2', () => {
+    const levels: CapabilityLevel[] = ['absent', 'partial', 'provided']
+    let count = 0
+    for (let code = 0; code < 3 ** SIGNALS.length; code += 1) {
+      let remainder = code
+      const capabilities = {} as AdapterCapabilities
+      for (const signal of SIGNALS) {
+        const level = levels[remainder % 3]!
+        remainder = Math.floor(remainder / 3)
+        const witness = signal === 'attention' ? ({ witness: 'beacon' } as const) : {}
+        capabilities[signal] =
+          level === 'provided' ? { level, ...witness } : { level, reason: 'exhaustive test fixture', ...witness }
+      }
+      const rung = deriveRung(capabilities)
+      expect(RUNGS).toContain(rung)
+      if (capabilities.attention.level === 'provided') expect(rung).toBe('L2')
+      count += 1
+    }
+    expect(count).toBe(729)
   })
 })
 

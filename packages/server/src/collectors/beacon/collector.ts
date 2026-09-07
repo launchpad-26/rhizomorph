@@ -1,7 +1,14 @@
 import { createHash } from 'node:crypto'
 import { readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
-import type { AdapterCapabilities, Collector, CollectorContext, PollResult, RhizomorphEvent } from '@rhizomorph/core'
+import type {
+  AdapterCapabilities,
+  Collector,
+  CollectorContext,
+  DeclaredAttention,
+  PollResult,
+  RhizomorphEvent,
+} from '@rhizomorph/core'
 import { beaconDirFor, BEACON_FILE_SUFFIX } from './paths.js'
 import { parseBeaconLine } from './parse-beacon-line.js'
 import { readBeaconLines } from './read-beacon-lines.js'
@@ -15,39 +22,60 @@ export interface BeaconCollectorConfig {
 }
 
 /**
- * The beacon collector's manifest (prd-15 ruling 5).
+ * The beacon collector's **static** manifest (prd-15 ruling 5) — what the organ
+ * can say before a single beacon has arrived in this session.
  *
- * Why `attention` is `absent` here and not `partial`: prd-27 ruling 3's
- * amendment says a configured-but-silent beacon reads `partial` with the
- * reason said — but this wave cannot tell "configured" from "never offered"
- * (no emitter exists yet), and `deriveRung` reads `attention: partial` +
- * `telemetry: absent` as L3, the PTY rung, when merged over a fleet with no
- * transcript organ. That would be a false rung on a promise. `absent` with the
- * reason is the honest static answer until #218 gives attention a per-lane
- * reading. The sessionlog collector's own `attention.remedy` — "a hook beacon
- * would declare it" — is deliberately not edited: it now names a collector
- * that exists, and it is still true.
+ * `attention` is `partial`, which is prd-27 ruling 3's amendment applied
+ * literally: *configured-but-silent reads `partial`, with the reason said*.
+ * #217 could not write that and had to say `absent` instead, and ADR-0036's
+ * own record says why — `attention: partial` + `telemetry: absent` was the
+ * PTY-wrapper signature, so a hook that had never spoken would have read as
+ * L3, a rung on a promise. #218 closed that by type rather than by level:
+ * the detail is signed `witness: 'beacon'` (ADR-0039), `deriveRung` never
+ * reads a beacon's `partial` as the PTY rung, and it reads a beacon's
+ * `provided` as L2 rather than L4.
+ *
+ * The live counterpart is {@link beaconCapabilitiesFor}: this object is what
+ * the organ answers when no lane has ever been declared for.
  */
 export const BEACON_CAPABILITIES: AdapterCapabilities = {
   identity: {
     level: 'partial',
-    reason: 'a beacon names its lane by the handle the writer chose; nothing here verifies it against a worktree',
-    remedy: 'the fold that reads beacons (prd-27 w2, #218) joins it to the lane the other collectors know',
+    reason: 'a beacon names its lane by the handle the writer chose; the fold joins it by equality only (#283)',
+    remedy: 'the identity join across handle spellings is prd-27 follow-up work',
   },
   liveness: {
     level: 'absent',
-    reason: 'a beacon is an occurrence, not a heartbeat — silence means nothing until the lapse mechanism exists',
-    remedy: 'prd-27 ruling 6 / w2 (#218): declared attention lapses after a measured interval',
-  },
-  activity: { level: 'absent', reason: 'no beacon kind is folded yet', remedy: 'prd-27 w2 (#218)' },
-  attention: {
-    level: 'absent',
     reason:
-      'a beacon declares attention per lane only once one has arrived (prd-27 ruling 3), and nothing reads one yet — declaring provided here would put every lane on L4 on a promise',
-    remedy: 'prd-27 w2 (#218): the fold, the lapse and the disagreement voice; then per-lane declared attention reads provided',
+      'a beacon is an occurrence, not a heartbeat; its silence is read per lane by the lapse (BEACON_LAPSE_MS, #218), and liveness itself is the transcript organ’s',
+    remedy: 'the sessionlog organ provides liveness wherever a transcript exists',
+  },
+  activity: {
+    level: 'absent',
+    reason: 'a beacon’s kind is an attention word, not an activity record',
+    remedy: 'the sessionlog organ provides activity',
+  },
+  attention: {
+    level: 'partial',
+    witness: 'beacon',
+    reason:
+      'configured-but-silent reads partial (prd-27 ruling 3): the beacon organ declares attention per lane only once a beacon for that lane has arrived, and none has in this session',
+    remedy: 'install the hooks — `rhizomorph env <lane> --hooks claude` — and the lane’s next prompt declares it',
   },
   telemetry: { level: 'absent', reason: 'a beacon carries no tokens', remedy: 'env vars at launch (`rhizomorph env <lane>`) bring OTLP' },
   cost: { level: 'absent', reason: 'a beacon carries no dollars', remedy: 'env vars at launch (`rhizomorph env <lane>`) bring OTLP' },
+}
+
+/**
+ * The organ’s live manifest for one session (prd-27 ruling 3, #218): attention
+ * `provided` — signed `beacon`, so `deriveRung` reads L2 — once any lane has
+ * been declared for, else the static configured-but-silent manifest. Lapse is
+ * per lane and does not lower this: the manifest says what the organ can
+ * provide in this session; `attentionReading` says whether it is speaking now.
+ */
+export function beaconCapabilitiesFor(declared: Readonly<Record<string, DeclaredAttention>>): AdapterCapabilities {
+  if (Object.keys(declared).length === 0) return BEACON_CAPABILITIES
+  return { ...BEACON_CAPABILITIES, attention: { level: 'provided', witness: 'beacon' } }
 }
 
 /**

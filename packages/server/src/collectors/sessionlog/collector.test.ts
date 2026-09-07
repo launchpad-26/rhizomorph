@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import type { CollectorContext, Exec, ExecResult } from '@rhizomorph/core'
 import { UNATTRIBUTED_LANE, createEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createSessionlogCollector } from './collector.js'
+import { createSessionlogCollector, SESSIONLOG_CAPABILITIES } from './collector.js'
 import { TRANSCRIPT_STALL_MS, TURN_SETTLE_MS } from './lane-state.js'
 import type { ProcessLiveness, ProcessProbe } from './process-probe.js'
 import type { AssistantLineFacts, TurnGrammar } from './turn-grammar.js'
@@ -1229,5 +1229,24 @@ describe('the organ publishes agent.status, edge-triggered and signed (#281, ADR
 
     expect(result.nextSnapshot.lanes?.[UNATTRIBUTED_LANE]).toBeDefined()
     expect(statuses(result.events)).toHaveLength(0)
+  })
+})
+
+/**
+ * prd-27 ruling 3 (#218). The organ's own self-declaration is this PRD's
+ * thesis — it is quoted verbatim in prd-27's Evidence — and its remedy used to
+ * point at a beacon that did not exist. #282 shipped the emitter, so the
+ * remedy now names the command that installs it.
+ */
+describe('the manifest names the emitter that exists (prd-27 ruling 3, #218)', () => {
+  const attention = SESSIONLOG_CAPABILITIES.attention
+
+  it('still reads partial — a published inference is still an inference', () => {
+    expect(attention.level).toBe('partial')
+  })
+
+  it('names the command that installs the hooks, and no longer a beacon that "would" declare it', () => {
+    expect(attention.level !== 'provided' && attention.remedy).toContain('--hooks claude')
+    expect(attention.level !== 'provided' && attention.remedy).not.toContain('would declare')
   })
 })
