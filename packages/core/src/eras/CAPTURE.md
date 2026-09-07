@@ -66,6 +66,14 @@ other key moved (checked by diff). The reducer change is the `beacon.received`
 arm; the new fold is the correct meaning of the old log because that log
 contains no beacon and now says so.
 
+**Re-blessed 2026-09-07 (prd-53 ruling 1, wave 1).** `ForkState` gained the `byArm`
+index — the r runs of one arm, keyed `armKey(forkId, arm)` — beside `byFork` and
+`byLane`. Era-1 predates the laboratory, so it folds to `byArm: {}` and no other
+key moved (checked by diff). The reducer change is the `fork.dispatched` arm
+(`forkDispatched` in `reduce.ts`, which now also reads a record's `run ?? 1`);
+the new fold is the correct meaning of the old log because that log contains no
+dispatch, and now says so under one more name.
+
 ## Redaction
 
 A real slice, mechanically redacted. Every field the reducer reads is

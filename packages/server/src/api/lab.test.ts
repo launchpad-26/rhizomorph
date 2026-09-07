@@ -1,29 +1,29 @@
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Exec, ExecResult } from '@rhizomorph/core'
-import { createEventFactory, eventsToJsonl } from '@rhizomorph/core'
+import type { Exec, ExecResult, RhizomorphEvent } from '@rhizomorph/core'
+import { armKey, createEventFactory, eventsToJsonl, reduceAll } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
 import { runCli } from '../cli/index.js'
+import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
 import { sessionFileName } from '../log/paths.js'
 import { sessionFilePath } from '../log/session-log.js'
 import { buildApp } from '../server/build-app.js'
 import { exec as realExec } from '../server/exec.js'
 import { SessionRecorder } from '../server/recorder.js'
 import {
+  estimateLaunchSpend,
   LAB_CLI_LOCK_CEILING_MS,
   LabCliLockCeilingError,
   LaunchValidationError,
+  launchExperiment,
   MAX_ARMS,
   MODEL_GRAMMAR,
-  estimateLaunchSpend,
-  launchExperiment,
-  parseSingleArmForkStdout,
+  parseForkStdout,
 } from './lab.js'
 import { CAPABILITY_TOKEN_HEADER } from './security.js'
 import { capabilityHeaders } from './test-support.js'
@@ -137,20 +137,25 @@ describe('GET /api/lab/checkpoints and /api/lab/experiments', () => {
     expect(experiment?.arms[1]?.treatment).toEqual({ model: 'sonnet', promptDigest: null })
   })
 
-  it('carries every recorded run of one arm, rather than collapsing repeats', async () => {
+  it('carries every recorded run of one arm, each with its number and its own worktree, rather than collapsing repeats (prd53 ruling 1)', async () => {
+    // Before prd53 this fixture recorded two runs sharing one handle and one
+    // worktree — a shape `dispatchFork` can no longer produce (`armLeaf` gives
+    // every run its own), so the fixture now records what actually happens.
     await mkdir(sessionDir, { recursive: true })
     const f = createEventFactory({ startTs: 1000 })
     f.forkDispatched({
       forkId: 'fork-2',
       arm: 1,
+      run: 1,
       laneHandle: 'fork-2-arm-1',
       worktreePath: '/data/lab/worktrees/fork-2-arm-1',
     })
     f.forkDispatched({
       forkId: 'fork-2',
       arm: 1,
-      laneHandle: 'fork-2-arm-1',
-      worktreePath: '/data/lab/worktrees/fork-2-arm-1',
+      run: 2,
+      laneHandle: 'fork-2-arm-1-run-2',
+      worktreePath: '/data/lab/worktrees/fork-2-arm-1-run-2',
     })
     await writeFile(path.join(sessionDir, sessionFileName(1000)), eventsToJsonl(f.all()), 'utf8')
 
@@ -158,9 +163,26 @@ describe('GET /api/lab/checkpoints and /api/lab/experiments', () => {
     const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
 
     const response = await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/experiments' })
-    const { experiments } = response.json() as { experiments: Array<{ arms: Array<{ runs: unknown[] }> }> }
+    const { experiments } = response.json() as {
+      experiments: Array<{ arms: Array<{ runs: Array<{ run: number; worktreePath: string }> }> }>
+    }
     expect(experiments[0]?.arms).toHaveLength(1)
-    expect(experiments[0]?.arms[0]?.runs).toHaveLength(2)
+    expect(experiments[0]?.arms[0]?.runs.map((run) => run.run)).toEqual([1, 2])
+    expect(new Set(experiments[0]?.arms[0]?.runs.map((run) => run.worktreePath)).size).toBe(2)
+  })
+
+  it('reads a run recorded before prd53 — no run field at all — as run 1, never as missing', async () => {
+    await mkdir(sessionDir, { recursive: true })
+    const f = createEventFactory({ startTs: 1000 })
+    f.forkDispatched({ forkId: 'fork-3', arm: 1, laneHandle: 'fork-3-arm-1', worktreePath: '/data/lab/worktrees/fork-3-arm-1' })
+    await writeFile(path.join(sessionDir, sessionFileName(1000)), eventsToJsonl(f.all()), 'utf8')
+
+    const recorder = new SessionRecorder('2000', sessionFilePath(sessionDir, '2000'))
+    const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+    const response = await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/experiments' })
+    const { experiments } = response.json() as { experiments: Array<{ arms: Array<{ runs: Array<{ run: number }> }> }> }
+    expect(experiments[0]?.arms[0]?.runs[0]?.run).toBe(1)
   })
 })
 
@@ -242,42 +264,60 @@ describe('estimateLaunchSpend unit shape', () => {
   })
 })
 
-describe('parseSingleArmForkStdout', () => {
-  it("reads forkId, checkpointId, laneHandle, worktreePath and 'launched' from a real single-arm dispatch's stdout", () => {
+describe('parseForkStdout', () => {
+  it("reads forkId, checkpointId and, per run, the REAL arm number, laneHandle, worktreePath and 'launched' from a dispatch's stdout", () => {
     const stdout = [
       'fork fork-abc123 — 1 arm(s) of lane "feature" restored from checkpoint ckpt-1',
-      '  arm 1  fork-abc123-arm-1',
-      '    worktree  /data/lab/worktrees/fork-abc123-arm-1',
+      '  arm 2  fork-abc123-arm-2',
+      '    worktree  /data/lab/worktrees/fork-abc123-arm-2',
       '    session   /home/x/.claude/projects/y/z.jsonl (12 lines, 3 paths rewritten to this tree)',
-      '    launch    ran: workmux add fork-abc123-arm-1 -b -a "bash scripts/lane-agent.sh opus"',
+      '    launch    ran: workmux add fork-abc123-arm-2 -b -a "bash scripts/lane-agent.sh opus"',
       '',
       'Compare them with: rhizomorph lab compare fork-abc123 --path /repo',
     ].join('\n')
 
-    expect(parseSingleArmForkStdout(stdout)).toEqual({
+    expect(parseForkStdout(stdout)).toEqual({
       forkId: 'fork-abc123',
       checkpointId: 'ckpt-1',
-      laneHandle: 'fork-abc123-arm-1',
-      worktreePath: '/data/lab/worktrees/fork-abc123-arm-1',
-      launched: true,
+      runs: [
+        {
+          arm: 2,
+          run: 1,
+          laneHandle: 'fork-abc123-arm-2',
+          worktreePath: '/data/lab/worktrees/fork-abc123-arm-2',
+          launched: true,
+        },
+      ],
     })
   })
 
-  it("reads launched:false from the CLI's 'not run' wording (--launch omitted)", () => {
+  it("reads every run of a multi-run dispatch — the second onward carrying its number, a launcher's extra session line skipped — and launched:false from 'not run' (prd53 ruling 1)", () => {
     const stdout = [
-      'fork fork-xyz — 1 arm(s) of lane "feature" restored from checkpoint ckpt-1',
+      'fork fork-xyz — 1 arm(s) × 2 run(s) of lane "feature" restored from checkpoint ckpt-1',
       '  arm 1  fork-xyz-arm-1',
       '    worktree  /data/lab/worktrees/fork-xyz-arm-1',
       '    session   /home/x/.claude/projects/y/z.jsonl (0 lines, 0 paths rewritten to this tree)',
       '    launch    not run — run it yourself: workmux add fork-xyz-arm-1 -b',
+      '  arm 1 run 2  fork-xyz-arm-1-run-2',
+      '    worktree  /data/lab/worktrees/fork-xyz-arm-1-run-2',
+      '    session   /home/x/.claude/projects/y/z.jsonl (0 lines, 0 paths rewritten to this tree)',
+      "    session   /elsewhere/z.jsonl (the launcher's own tree)",
+      '    launch    ran: workmux add fork-xyz-arm-1-run-2 -b',
     ].join('\n')
 
-    expect(parseSingleArmForkStdout(stdout)?.launched).toBe(false)
+    const parsed = parseForkStdout(stdout)
+    expect(parsed?.runs.map((run) => [run.arm, run.run, run.launched])).toEqual([
+      [1, 1, false],
+      [1, 2, true],
+    ])
+    expect(parsed?.runs[1]?.worktreePath).toBe('/data/lab/worktrees/fork-xyz-arm-1-run-2')
   })
 
   it('returns null on unrecognised output rather than guessing at a shape', () => {
-    expect(parseSingleArmForkStdout('not the shape we expect')).toBeNull()
-    expect(parseSingleArmForkStdout('')).toBeNull()
+    expect(parseForkStdout('not the shape we expect')).toBeNull()
+    expect(parseForkStdout('')).toBeNull()
+    // A header with no run block underneath it is not a dispatch either.
+    expect(parseForkStdout('fork fork-a — 1 arm(s) of lane "x" restored from checkpoint c')).toBeNull()
   })
 })
 
@@ -409,6 +449,56 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
 
     expect(result.failed).toBeNull()
     expect(result.arms).toHaveLength(MAX_ARMS)
+  })
+
+  it(`refuses arms × runs above MAX_ARMS (${MAX_ARMS}) spending lanes before touching the laboratory — a run is a lane too`, async () => {
+    const neverRuns: Exec = async (command, argv) => {
+      throw new Error(`nothing should have been executed, but got: ${command} ${argv.join(' ')}`)
+    }
+    await expect(
+      launchExperiment({ lane: 'x', checkpointId: 'y', arms: [{}, {}, {}], runs: 3 }, { repoPath: repoDir, exec: neverRuns }),
+    ).rejects.toThrow(new RegExp(`may not exceed ${MAX_ARMS} spending lanes`))
+    await expect(
+      launchExperiment({ lane: 'x', checkpointId: 'y', arms: [{}], runs: 0 }, { repoPath: repoDir, exec: neverRuns }),
+    ).rejects.toThrow(/"runs" must be a positive integer/)
+  })
+
+  it('one launch is ONE experiment: every arm and every run folds under the forkId the launch minted, and no two share a worktree (prd53 ruling 1)', async () => {
+    const checkpointId = await seedCheckpoint('lane-one-fork', () => 1_000_000)
+    const exec = execWithStubs((command) => (command === 'workmux' ? OK : null))
+
+    const result = await launchExperiment(
+      { lane: 'lane-one-fork', checkpointId, arms: [{ model: 'opus' }, { model: 'sonnet' }], runs: 2 },
+      { repoPath: repoDir, exec, dataRoot, claudeProjectsRoot, now: () => 2_000_000 },
+    )
+
+    expect(result.failed).toBeNull()
+    expect(result.arms.map((arm) => arm.forkId)).toEqual([result.forkId, result.forkId])
+    expect(result.arms.map((arm) => arm.runs.map((run) => run.run))).toEqual([
+      [1, 2],
+      [1, 2],
+    ])
+
+    // The law is read from the LOG the launch wrote, not from the result it
+    // returned: what the fold sees is what every surface will see.
+    const dispatched = readdirSync(dataRoot, { recursive: true, encoding: 'utf8' })
+      .filter((file) => file.endsWith('.jsonl'))
+      .flatMap((file) =>
+        readFileSync(path.join(dataRoot, file), 'utf8')
+          .split('\n')
+          .filter((line) => line.length > 0)
+          .map((line) => JSON.parse(line) as RhizomorphEvent),
+      )
+      .filter((event) => event.type === 'fork.dispatched')
+    const state = reduceAll(dispatched)
+
+    expect(Object.keys(state.forks.byFork)).toEqual([result.forkId])
+    expect(state.forks.byFork[result.forkId]).toHaveLength(2 * 2)
+    expect(state.forks.byArm[armKey(result.forkId, 1)]).toHaveLength(2)
+    expect(state.forks.byArm[armKey(result.forkId, 2)]).toHaveLength(2)
+    expect(new Set(state.forks.dispatches.map((d) => d.worktreePath)).size).toBe(4)
+    expect(new Set(state.forks.dispatches.map((d) => d.laneHandle)).size).toBe(4)
+    expect(state.forks.dispatches.map((d) => d.model)).toEqual(['opus', 'opus', 'sonnet', 'sonnet'])
   })
 
   /**
@@ -788,8 +878,11 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
     expect(result.arms.map((a) => a.arm)).toEqual([1, 2, 3])
     expect(result.arms.map((a) => a.model)).toEqual(['opus', 'sonnet', 'opus'])
     expect(result.arms.map((a) => a.briefProvided)).toEqual([true, true, true])
-    // Each arm is its own independently-restored reality — never sharing a worktree or a fork id.
-    expect(new Set(result.arms.map((a) => a.forkId)).size).toBe(3)
+    // Each arm is its own independently-restored reality — never sharing a
+    // worktree — and every one of them is an arm of the SAME experiment (prd53
+    // ruling 1). Before prd53 this line asserted three fork ids: that was the
+    // fragmentation that kept the comparison surface empty, not a law.
+    expect(new Set(result.arms.map((a) => a.forkId))).toEqual(new Set([result.forkId]))
     expect(new Set(result.arms.map((a) => a.worktreePath)).size).toBe(3)
   })
 

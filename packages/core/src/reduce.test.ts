@@ -6,7 +6,7 @@ import { createEventFactory, fixtureSession } from './fixtures.js'
 import { reduce, reduceAll } from './reduce.js'
 import type { SessionState, SpanRecord } from './state.js'
 import {
-  MAX_ERRORS,
+  armKey,
   initialCheckpointState,
   initialCommitsState,
   initialForkState,
@@ -15,6 +15,7 @@ import {
   initialSessionState,
   initialTelemetryState,
   initialTraceState,
+  MAX_ERRORS,
   refusalIndexOf,
   traceStateOf,
 } from './state.js'
@@ -1131,6 +1132,27 @@ describe('reduce — fork.dispatched (prd12 ruling 3)', () => {
     )
     expect(state.forks.byFork['fork-1']).toEqual([0, 1, 2])
     expect(state.forks.dispatches.map((d) => d.arm)).toEqual([1, 2, 3])
+  })
+
+  it('indexes the r runs of one arm under one armKey, beside the fork and lane indexes (prd53 ruling 1)', () => {
+    const state = reduceAll(
+      [1, 2, 3].map((run) =>
+        f.forkDispatched(
+          { forkId: 'fork-1', arm: 2, run, laneHandle: run === 1 ? 'fork-1-arm-2' : `fork-1-arm-2-run-${run}` },
+          { ts: 100 + run },
+        ),
+      ),
+    )
+    expect(state.forks.byArm[armKey('fork-1', 2)]).toEqual([0, 1, 2])
+    expect(state.forks.byFork['fork-1']).toEqual([0, 1, 2])
+    expect(Object.keys(state.forks.byLane)).toHaveLength(3)
+    expect(state.forks.dispatches.map((d) => d.run)).toEqual([1, 2, 3])
+  })
+
+  it('reads a record written before runs existed as run 1 — the additive convention, not an upcast', () => {
+    const state = reduceAll([f.forkDispatched({ forkId: 'fork-1', arm: 1, laneHandle: 'fork-1-arm-1' }, { ts: 100 })])
+    expect(state.forks.dispatches[0]?.run).toBe(1)
+    expect(state.forks.byArm[armKey('fork-1', 1)]).toEqual([0])
   })
 
   it('marks a lane that appears AFTER the dispatch synthetic — the forward direction', () => {

@@ -4,21 +4,21 @@ import path from 'node:path'
 import type { EventOf, Exec, PayloadOf } from '@rhizomorph/core'
 import { createEvent, createIdFactory } from '@rhizomorph/core'
 import { defaultDataRoot, sessionDirFor, sessionFileName } from '../log/paths.js'
-import { findResumableSession, listSessions, readSessionEvents, RESUME_WINDOW_MS } from '../log/session-log.js'
+import { findResumableSession, listSessions, RESUME_WINDOW_MS, readSessionEvents } from '../log/session-log.js'
 import { exec as realExec, withTimeout } from '../server/exec.js'
 import { SessionRecorder } from '../server/recorder.js'
-import { armWorktreePath } from './paths.js'
+import { armLeaf, armWorktreePath } from './paths.js'
 import {
-  restoreCheckpoint,
-  synthesizeSession,
   type CheckpointCoordinates,
+  restoreCheckpoint,
   type SynthesizedSession,
+  synthesizeSession,
 } from './restore.js'
 
 /**
- * prd12 phase 2's dispatch half: n arms of one checkpoint, each a restored
- * reality of its own, each marked synthetic by the `fork.dispatched` event
- * this module emits.
+ * prd12 phase 2's dispatch half: n arms × r runs of one checkpoint (prd53
+ * ruling 1), each run a restored reality of its own, each marked synthetic by
+ * the `fork.dispatched` event this module emits.
  *
  * ## Why launching is opt-in
  *
@@ -61,13 +61,26 @@ export interface DispatchForkOptions extends ForkTreatmentInput {
   checkpointId?: string | undefined
   /** How many arms. prd12 ruling 4's default is 3. */
   arms: number
+  /**
+   * How many runs of each arm (prd53 ruling 1). Default 1. Every run is its
+   * own restored worktree, its own session and its own `fork.dispatched`;
+   * the arm is what they share — one treatment, one number.
+   */
+  runs?: number | undefined
+  /**
+   * The number of the first arm this call dispatches. Default 1. With
+   * `arms: 1` this reads "dispatch arm k of fork `forkId`" — how `api/lab.ts`'s
+   * launch gives every arm its own treatment while all of them stay inside
+   * ONE experiment: one `forkId` minted by the caller, one call per arm.
+   */
+  armNumber?: number | undefined
   exec?: Exec
   now?: () => number
   dataRoot?: string
   claudeProjectsRoot?: string
-  /** Injectable fork id, for deterministic tests. */
-  forkId?: string
-  /** Injectable per-arm session uuids, index 0 = arm 1. */
+  /** The fork id to dispatch into — the launch's one-per-experiment id, or a deterministic one for tests. Minted here when absent. */
+  forkId?: string | undefined
+  /** Injectable per-run session uuids, in dispatch order: index 0 is the first arm's first run. */
   sessionUuids?: readonly string[]
   /** Passed through to the restore; see `RestoreWorkspaceOptions.install`. */
   install?: boolean
@@ -77,6 +90,8 @@ export interface DispatchForkOptions extends ForkTreatmentInput {
 
 export interface DispatchedArm {
   arm: number
+  /** 1-based run within the arm (prd53 ruling 1). */
+  run: number
   laneHandle: string
   /** The lab-owned worktree this arm was restored into. */
   labWorktreePath: string
@@ -95,7 +110,10 @@ export interface DispatchForkResult {
   forkId: string
   checkpointId: string
   parentLane: string
+  /** Every run of every arm dispatched by this call, in dispatch order — `arms.length` is arms × runs. */
   arms: DispatchedArm[]
+  /** Runs per arm, as dispatched. */
+  runs: number
   /** The rhizomorph event log the `fork.dispatched` events were appended to. */
   recordedTo: string
 }
@@ -193,9 +211,14 @@ export function workmuxAddArgv(laneHandle: string, treatment: ForkTreatmentInput
   return argv
 }
 
-/** The handle an arm runs under. Distinct from the parent lane by construction — the schema refuses otherwise. */
-export function armLaneHandle(forkId: string, arm: number): string {
-  return `${forkId}-arm-${arm}`
+/**
+ * The handle a run of an arm runs under — the same spelling as its worktree
+ * leaf (`paths.ts`'s {@link armLeaf}, which is where `-run-1` is elided and
+ * why). Distinct from the parent lane by construction — the schema refuses
+ * otherwise.
+ */
+export function armLaneHandle(forkId: string, arm: number, run = 1): string {
+  return armLeaf(forkId, arm, run)
 }
 
 // --- finding the checkpoint ------------------------------------------------------
@@ -276,6 +299,14 @@ export async function dispatchFork(options: DispatchForkOptions): Promise<Dispat
   if (!Number.isInteger(options.arms) || options.arms < 1) {
     throw new Error(`invalid arm count: ${options.arms} (must be a positive integer)`)
   }
+  const runs = options.runs ?? 1
+  if (!Number.isInteger(runs) || runs < 1) {
+    throw new Error(`invalid run count: ${options.runs} (must be a positive integer)`)
+  }
+  const firstArm = options.armNumber ?? 1
+  if (!Number.isInteger(firstArm) || firstArm < 1) {
+    throw new Error(`invalid arm number: ${options.armNumber} (must be a positive integer)`)
+  }
 
   // Before the checkpoint is even looked up, so a refused model restores no
   // workspace, creates no worktree, and records no `fork.dispatched`.
@@ -298,31 +329,43 @@ export async function dispatchFork(options: DispatchForkOptions): Promise<Dispat
   const recorder = new SessionRecorder(resumed?.sessionId ?? String(ts), logFilePath, resumed ? { resumeFrom: resumed.events } : {})
   const nextId = createIdFactory('lab')
 
+  // Arm-major, run-minor: every run of arm k is restored before arm k+1
+  // begins, so a partial dispatch leaves whole arms behind it, never half of
+  // two. `armLeaf` gives each (arm, run) its own worktree and handle by
+  // construction — no two runs can share either.
   const arms: DispatchedArm[] = []
-  for (let arm = 1; arm <= options.arms; arm += 1) {
-    arms.push(
-      await dispatchArm({
-        arm,
-        forkId,
-        checkpoint,
-        treatment,
-        parentWorktreePath,
-        dataRoot,
-        restoreExec: rawExec,
-        forkExec,
-        now,
-        recorder,
-        nextId,
-        options,
-      }),
-    )
+  for (let index = 0; index < options.arms; index += 1) {
+    const arm = firstArm + index
+    for (let run = 1; run <= runs; run += 1) {
+      arms.push(
+        await dispatchArm({
+          arm,
+          run,
+          ordinal: arms.length,
+          forkId,
+          checkpoint,
+          treatment,
+          parentWorktreePath,
+          dataRoot,
+          restoreExec: rawExec,
+          forkExec,
+          now,
+          recorder,
+          nextId,
+          options,
+        }),
+      )
+    }
   }
 
-  return { forkId, checkpointId: checkpoint.checkpointId, parentLane: options.parentLane, arms, recordedTo: logFilePath }
+  return { forkId, checkpointId: checkpoint.checkpointId, parentLane: options.parentLane, arms, runs, recordedTo: logFilePath }
 }
 
 interface DispatchArmContext {
   arm: number
+  run: number
+  /** Position in dispatch order, 0-based — what indexes `sessionUuids`. */
+  ordinal: number
   forkId: string
   checkpoint: CheckpointCoordinates
   treatment: { model: string | null; promptDigest: string | null }
@@ -339,10 +382,10 @@ interface DispatchArmContext {
 }
 
 async function dispatchArm(ctx: DispatchArmContext): Promise<DispatchedArm> {
-  const { arm, forkId, options } = ctx
-  const laneHandle = armLaneHandle(forkId, arm)
-  const labWorktreePath = armWorktreePath(ctx.dataRoot, forkId, arm)
-  const sessionUuid = options.sessionUuids?.[arm - 1]
+  const { arm, run, forkId, options } = ctx
+  const laneHandle = armLaneHandle(forkId, arm, run)
+  const labWorktreePath = armWorktreePath(ctx.dataRoot, forkId, arm, run)
+  const sessionUuid = options.sessionUuids?.[ctx.ordinal]
 
   const restored = await restoreCheckpoint({
     checkpoint: ctx.checkpoint,
@@ -393,6 +436,7 @@ async function dispatchArm(ctx: DispatchArmContext): Promise<DispatchedArm> {
       parentLane: options.parentLane,
       checkpointId: ctx.checkpoint.checkpointId,
       arm,
+      run,
       treatment: ctx.treatment,
       laneHandle,
       worktreePath,
@@ -403,6 +447,7 @@ async function dispatchArm(ctx: DispatchArmContext): Promise<DispatchedArm> {
 
   return {
     arm,
+    run,
     laneHandle,
     labWorktreePath,
     worktreePath,
