@@ -3,7 +3,14 @@ import { createServer, type Server } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Exec, ExecResult } from '@rhizomorph/core'
-import { BEACON_LAPSE_MS, CONFIGURED_SILENT_REASON, createEvent } from '@rhizomorph/core'
+import {
+  BEACON_LAPSE_MS,
+  CONFIGURED_SILENT_REASON,
+  CONFIGURED_SILENT_REMEDY,
+  createEvent,
+  lapsedVoice,
+  reduceAll,
+} from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/worktree-slug.js'
 import { sessionDirFor } from '../log/paths.js'
@@ -15,6 +22,7 @@ import {
   checkClaudeProjects,
   checkHarnessRoster,
   checkTelemetryEnv,
+  declaredAttentionChecks,
   doctorHelpText,
   parseDoctorArgs,
   renderDoctorReport,
@@ -1139,10 +1147,12 @@ describe('runDoctor', () => {
      * the reason is worth keeping: ADR-0011 says a recording never rots, so
      * `readSessionLog` swallows *every* file-level failure and hands back an
      * empty session — garbage bytes, a path that will not open, a vanished
-     * file. None of them reach this arm. What can still throw is the fold and
-     * the fleet built on it, and this proves the guard around them holds:
-     * doctor degrades to one honest warn line instead of taking the whole
-     * preflight down with it, and the exit code stays 0.
+     * file. None of them reach this arm. What can still throw is the read
+     * itself and the fold over it — since #307 the guard is scoped to exactly
+     * those two, the fleet build having moved into the pure
+     * `declaredAttentionChecks` the route shares — and this proves the guard
+     * holds: doctor degrades to one honest warn line instead of taking the
+     * whole preflight down with it, and the exit code stays 0.
      */
     it('an unreadable newest session warns instead of throwing', async () => {
       await seed(worktrees())
@@ -1170,6 +1180,69 @@ describe('runDoctor', () => {
       const attention = checkFor(report.checks, 'attention')
       expect(attention.status).toBe('ok')
       expect(attention.message).toContain('no present lane')
+    })
+
+    /**
+     * #307: the four readings are phrased once, in `declaredAttentionChecks`,
+     * because `GET /api/doctor` now prints them too — over the running
+     * recorder's fold instead of the newest recorded session. This is the proof
+     * that the pure reader IS what the CLI prints: the same log, seeded and
+     * read through `runDoctor`, then folded directly and handed to the pure
+     * function, and the two check lists are compared whole. A route (or a CLI)
+     * that grew its own wording for any of the four fails here.
+     *
+     * The reason and remedy come from `core`'s own constants rather than being
+     * typed out, so a reworded reason moves both surfaces and this test at once
+     * instead of pinning a stale string.
+     */
+    it('declaredAttentionChecks phrases the four readings from a fold alone', async () => {
+      const declaredLog = [...worktrees(), beaconFor('2-core', 'waiting', NOW - 30_000)]
+      await seed(declaredLog)
+      const report = await run()
+
+      const fromFold = declaredAttentionChecks(reduceAll(declaredLog), NOW)
+      expect(fromFold).toEqual(report.checks.filter((check) => check.id.startsWith('attention')))
+
+      // live, and configured-but-silent beside it — one fold, two readings.
+      expect(fromFold).toEqual([
+        {
+          id: 'attention:2-core',
+          status: 'ok',
+          message: `lane 2-core: declared waiting 30s ago (beacon ${WRITER})`,
+        },
+        {
+          id: 'attention:3-web',
+          status: 'ok',
+          message: `lane 3-web: ${CONFIGURED_SILENT_REASON} — ${CONFIGURED_SILENT_REMEDY}`,
+        },
+      ])
+
+      // never declared — no lane in the fold has a declaration at all.
+      expect(declaredAttentionChecks(reduceAll(worktrees()), NOW)).toEqual([
+        {
+          id: 'attention:2-core',
+          status: 'ok',
+          message:
+            'lane 2-core: never declared — attention read from the other organs (rung below); hooks: `rhizomorph env 2-core --hooks claude`',
+        },
+        {
+          id: 'attention:3-web',
+          status: 'ok',
+          message:
+            'lane 3-web: never declared — attention read from the other organs (rung below); hooks: `rhizomorph env 3-web --hooks claude`',
+        },
+      ])
+
+      // lapsed — the one reading that warns.
+      const lapsed = declaredAttentionChecks(
+        reduceAll([...worktrees(), beaconFor('2-core', 'working', NOW - BEACON_LAPSE_MS - 60_000)]),
+        NOW,
+      )
+      expect(lapsed[0]).toEqual({
+        id: 'attention:2-core',
+        status: 'warn',
+        message: `lane 2-core: ${lapsedVoice(60_000)} — check the lane's hooks are still installed (\`rhizomorph env 2-core --hooks claude\`)`,
+      })
     })
   })
 

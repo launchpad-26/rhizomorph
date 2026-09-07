@@ -82,6 +82,9 @@ describe('buildApp integration', () => {
         workmux: { source: 'workmux', firstEventTs: null, lastEventTs: null, count: 0 },
         sessionlog: { source: 'sessionlog', firstEventTs: null, lastEventTs: null, count: 0 },
         otel: { source: 'otel', firstEventTs: null, lastEventTs: null, count: 0 },
+        // Six since #307: the beacon door is a connection source like the
+        // other five, folded from `state.declared`.
+        beacon: { source: 'beacon', firstEventTs: null, lastEventTs: null, count: 0 },
         uninstrumentedSessions: [],
         refusals: { count: 0, instance: null, expectedInstance: null },
       },

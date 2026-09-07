@@ -2824,4 +2824,24 @@ stale before (#238), and it drifted again since.
   this path**, since the frozen fold is the input to the next `reduce()` — an
   impure arm throws in strict mode rather than corrupting silently, which is a
   bug surfaced, not a cost introduced. (issue #69; ADR accepted 2026-08-26)
-
+- 2026-09-04 — prd-27 ruling 1 / prd-17 ruling 2 /
+  [ADR-0036](adr/0036-a-beacon-is-a-line-in-a-watched-directory.md): **a beacon
+  is one JSON line appended to `<dataRoot>/<repoSlug>/beacons/<writer>.jsonl`
+  and tailed by a collector — never a route, never a socket** — the event
+  (`beacon.received`, source `beacon`) carries the occurrence and a digest, the
+  file keeps the content; the collector never creates its own input directory.
+  (issue #217; ADR accepted 2026-09-04)
+- 2026-09-05 — prd-27 ruling 2 /
+  [ADR-0037](adr/0037-agent-status-names-its-witness.md): **`agent.status`'s
+  pinned `source: 'workmux'` widens to `'workmux' | 'sessionlog'`** so the
+  transcript organ can publish without forging provenance on a hash-chained log
+  (ADR-0009); `AgentState` records `witness` and `dissent`, and ruling 4's
+  asymmetry — an inference may not withdraw a declared summons — is one `if` in
+  the fold. (issue #281; ADR accepted 2026-09-05)
+- 2026-09-06 — prd-27 ruling 3 / prd-15 ruling 5 /
+  [ADR-0039](adr/0039-attention-names-its-witness-on-the-manifest.md):
+  **`attention` names its witness on the capability manifest** (`witness?: 'rig'
+  | 'beacon'` on `CapabilityDetail`), so `deriveRung` tells L2 (declared by the
+  harness's hooks) from L4 (declared by tmux/workmux) and a configured-but-silent
+  beacon can no longer read as the PTY rung ADR-0036 warned of; on a level tie
+  the rig wins. (issue #218; ADR accepted 2026-09-06)

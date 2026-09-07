@@ -42,13 +42,27 @@ const healthyExec: Exec = async (command, args) => {
  * every test that calls `runServerDoctor` directly still passes its own
  * `exec` fixture and is unaffected by this mock.
  */
+/**
+ * The one machine fact the route's own wiring tests need to vary (#307): a
+ * beacon-only machine has no `workmux` on PATH, and the L2 reading is what the
+ * route could not produce before it was handed the recorder's fold. The mock
+ * factory above is module-scoped and cannot close over a `let` in a test, so
+ * the switch is a hoisted flag — default `false`, so every pre-existing test in
+ * this file sees exactly the healthy stub it always did.
+ */
+const execState = vi.hoisted(() => ({ workmuxMissing: false }))
+
 vi.mock('../server/exec.js', async (importOriginal) => {
   const actual = await importOriginal<typeof ExecModule>()
   return {
     ...actual,
     exec: (async (command: string, args: readonly string[]) => {
       if (command === 'tmux' && args[0] === '-V') return okResult('tmux 3.3a\n')
-      if (command === 'workmux' && args[0] === 'status') return okResult('handle  status\n')
+      if (command === 'workmux' && args[0] === 'status') {
+        return execState.workmuxMissing
+          ? { stdout: '', stderr: '', code: null, failed: true, errorMessage: 'spawn workmux ENOENT' }
+          : okResult('handle  status\n')
+      }
       if (command === 'claude' && args[0] === '--version') return okResult('2.1.220 (Claude Code)\n')
       return { stdout: '', stderr: 'not stubbed', code: 1, failed: true, errorMessage: 'not stubbed' }
     }) satisfies Exec,
@@ -866,5 +880,228 @@ describe('GET /api/doctor', () => {
         await teardown()
       }
     })
+  })
+})
+
+/**
+ * #307 — the follow-up #218 left behind. `checkEnrichmentLadder` gained its
+ * optional `declared` parameter so this route would keep compiling, and the
+ * route passed nothing: a beacon-only machine read **L4** here and **L2** from
+ * `rhizomorph doctor`, two surfaces answering "what rung is this repo at" two
+ * different ways for the same repo. `ServerDoctorOptions.foldSoFar` is the seam
+ * that closes it, and the per-lane `attention` lines come with it — phrased by
+ * `cli/doctor.ts`'s `declaredAttentionChecks`, never restated here.
+ *
+ * The rung parity test below is the sibling case: `/api/meta` was already
+ * reading `beaconCapabilitiesFor(folded.declared)` off the same recorder
+ * (#218), so after this change all three readers (CLI doctor, this route,
+ * `/api/meta`) derive the rung from one fold, and a fourth phrasing has
+ * somewhere to fail.
+ */
+describe('declared attention and the L2 rung reach the route (#307)', () => {
+  let repoPath: string
+  let sessionDir: string
+  let claudeProjectsRoot: string
+  let dataRoot: string
+
+  async function setup(): Promise<void> {
+    repoPath = await mkdtemp(path.join(tmpdir(), 'rhizomorph-route-fold-repo-'))
+    sessionDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-route-fold-session-'))
+    claudeProjectsRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-route-fold-claude-'))
+    dataRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-route-fold-data-'))
+  }
+
+  async function teardown(): Promise<void> {
+    execState.workmuxMissing = false
+    await Promise.all([
+      rm(repoPath, { recursive: true, force: true }),
+      rm(sessionDir, { recursive: true, force: true }),
+      rm(claudeProjectsRoot, { recursive: true, force: true }),
+      rm(dataRoot, { recursive: true, force: true }),
+    ])
+  }
+
+  /**
+   * A recorder holding one present lane, and optionally a declaration for it.
+   *
+   * `workmuxDisabled` is what makes the parity test meaningful rather than
+   * lucky: the two readers learn about an absent workmux through DIFFERENT
+   * honest seams — this route probes the binary (`checkOptionalTool`),
+   * `/api/meta` reads the fold's `collector.disabled` — so a beacon-only
+   * machine has to be described to both, and the flag is that machine's second
+   * half. Setting only one of the two is the state where they legitimately
+   * disagree, and neither reader is wrong about what it measured.
+   */
+  async function recorderWith(options: {
+    declaredAt?: number
+    workmuxDisabled?: boolean
+  }): Promise<SessionRecorder> {
+    const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+    let seq = 0
+    const next = () => {
+      seq += 1
+      return `evt-${seq}`
+    }
+    await recorder.record(
+      createEvent('session.started', { sessionId: '1000', repoPath, repoName: 'repo' }, { id: next(), ts: 1_000 }),
+    )
+    await recorder.record(
+      createEvent(
+        'worktree.discovered',
+        { path: '/repo-wt/2-core', branch: '2-core', head: 'sha-2', isMain: false },
+        { id: next(), ts: 2_000 },
+      ),
+    )
+    if (options.workmuxDisabled === true) {
+      await recorder.record(
+        createEvent(
+          'collector.disabled',
+          { collector: 'workmux', reason: 'workmux not found on PATH' },
+          { id: next(), ts: 3_000 },
+        ),
+      )
+    }
+    if (options.declaredAt !== undefined) {
+      await recorder.record(
+        createEvent(
+          'beacon.received',
+          {
+            writer: 'claude-hook',
+            kind: 'waiting',
+            lane: '2-core',
+            digest: 'a'.repeat(64),
+            file: 'claude-hook.jsonl',
+            offset: 0,
+          },
+          { id: next(), ts: options.declaredAt },
+        ),
+      )
+    }
+    return recorder
+  }
+
+  /** The rung word the ladder line names — the same token `/api/meta` returns as `rung`. */
+  function rungIn(message: string): string {
+    const match = message.match(/L[0-4]/)
+    if (match === null) throw new Error(`no rung in ladder message: ${message}`)
+    return match[0]
+  }
+
+  it("the route reads L2 off the recorder's fold when the beacon is the only declaring witness", async () => {
+    await setup()
+    try {
+      execState.workmuxMissing = true
+      const recorder = await recorderWith({ declaredAt: Date.now() - 30_000, workmuxDisabled: true })
+      const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+      const body = (await app.inject({ method: 'GET', url: '/api/doctor', headers: capabilityHeaders(app) })).json()
+
+      const ladder = checkFor(body, 'ladder')
+      expect(ladder.message).toContain('L2')
+      expect(ladder.message).toContain('beacon')
+
+      const lane = checkFor(body, 'attention:2-core')
+      expect(lane.status).toBe('ok')
+      expect(lane.message).toContain('declared waiting')
+      expect(lane.message).toContain('beacon claude-hook')
+    } finally {
+      await teardown()
+    }
+  })
+
+  it('…and L4 when workmux is present — the rig still wins the tie (ADR-0039)', async () => {
+    await setup()
+    try {
+      const recorder = await recorderWith({ declaredAt: Date.now() - 30_000 })
+      const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+      const body = (await app.inject({ method: 'GET', url: '/api/doctor', headers: capabilityHeaders(app) })).json()
+
+      expect(checkFor(body, 'ladder').message).toContain('L4')
+      expect(checkFor(body, 'attention:2-core').message).toContain('declared waiting')
+    } finally {
+      await teardown()
+    }
+  })
+
+  it('the route and /api/meta derive the same rung from the same recorder, on both machines', async () => {
+    for (const machine of [{ beaconOnly: true }, { beaconOnly: false }]) {
+      await setup()
+      try {
+        execState.workmuxMissing = machine.beaconOnly
+        const recorder = await recorderWith({
+          declaredAt: Date.now() - 30_000,
+          workmuxDisabled: machine.beaconOnly,
+        })
+        const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+        const doctorBody = (
+          await app.inject({ method: 'GET', url: '/api/doctor', headers: capabilityHeaders(app) })
+        ).json()
+        const metaBody = (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()
+
+        expect(rungIn(checkFor(doctorBody, 'ladder').message)).toBe(metaBody.rung)
+        expect(metaBody.rung).toBe(machine.beaconOnly ? 'L2' : 'L4')
+      } finally {
+        await teardown()
+      }
+    }
+  })
+
+  it('no beacon: every present lane reads never declared, and the ladder is unchanged from before #307', async () => {
+    await setup()
+    try {
+      const recorder = await recorderWith({})
+      const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+      const body = (await app.inject({ method: 'GET', url: '/api/doctor', headers: capabilityHeaders(app) })).json()
+
+      expect(checkFor(body, 'attention:2-core').message).toContain('never declared')
+      expect(checkFor(body, 'ladder').message).toContain('L4')
+    } finally {
+      await teardown()
+    }
+  })
+
+  it('replay: attention is not applicable, and the fold thunk is never called', async () => {
+    await setup()
+    try {
+      let reads = 0
+      const checks = await runServerDoctor('record:some-slug', {
+        exec: healthyExec,
+        claudeProjectsRoot,
+        dataRoot,
+        replay: true,
+        foldSoFar: () => {
+          reads += 1
+          throw new Error('must not be read during replay')
+        },
+      })
+
+      const attention = checkFor(checks, 'attention')
+      expect(attention.status).toBe('ok')
+      expect(attention.message).toContain('not applicable')
+      expect(checks.some((check) => check.id.startsWith('attention:'))).toBe(false)
+      expect(reads).toBe(0)
+    } finally {
+      await teardown()
+    }
+  })
+
+  it('no fold seam: no attention lines at all, and the ladder still answers from the static manifest', async () => {
+    await setup()
+    try {
+      const checks = await runServerDoctor(repoPath, {
+        exec: healthyExec,
+        claudeProjectsRoot,
+        dataRoot,
+        env: { CLAUDE_CODE_ENABLE_TELEMETRY: '1' },
+      })
+
+      expect(checks.some((check) => check.id.startsWith('attention'))).toBe(false)
+      expect(checkFor(checks, 'ladder').message).toContain('L4')
+    } finally {
+      await teardown()
+    }
   })
 })

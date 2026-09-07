@@ -20,6 +20,7 @@ import {
   type DeclaredAttention,
   type Exec,
   type ExecResult,
+  type SessionState,
 } from '@rhizomorph/core'
 import { lanesManifestPath, readLanesManifest } from '../api/lanes.js'
 import { beaconCapabilitiesFor } from '../collectors/beacon/index.js'
@@ -655,15 +656,68 @@ export interface DeclaredAttentionFacts {
 }
 
 /**
- * prd-27 ruling 3 / ruling 6 (#218): one line per present lane — never
- * declared, configured but silent, live, or lapsed — read off the newest
- * recorded session's fold and the same `buildFleet` the dashboard uses, so
- * doctor and the STATE column cannot disagree about a lane. Read-only: reads
- * the log, folds it, writes nothing.
+ * prd-27 rulings 3 and 6 (#218; #307): one line per present lane — never
+ * declared, configured but silent, live, or lapsed — phrased ONCE here so the
+ * CLI (`checkDeclaredAttention`, over the newest recorded session) and
+ * `GET /api/doctor` (over the running recorder's fold) can never say the same
+ * reading two ways. Pure over the fold; the caller supplies `now`.
+ *
+ * Reads the lanes off the same `buildFleet` the dashboard uses, so doctor and
+ * the STATE column cannot disagree about a lane either.
  *
  * Never `fail`. A lapse is a warn (the hooks may have been removed under the
  * lane), everything else is `ok`, and `FAILING_CHECK_IDS` is unchanged — a
  * quiet beacon is a degraded reading, never a reason the app cannot run.
+ */
+export function declaredAttentionChecks(state: SessionState, now: number): DoctorCheck[] {
+  const fleet = buildFleet(state, { now })
+
+  const present = fleet.lanes.filter((lane) => lane.present).sort((a, b) => a.id.localeCompare(b.id))
+  if (present.length === 0) {
+    return [{ id: 'attention', status: 'ok', message: 'declared attention: no present lane in the newest session' }]
+  }
+
+  return present.map((lane): DoctorCheck => {
+    const reading = attentionReading(state.declared, lane.id, now, lane.lastWorkTs)
+    const id = `attention:${lane.id}`
+    switch (reading.kind) {
+      case 'never-declared':
+        return {
+          id,
+          status: 'ok',
+          message: `lane ${lane.id}: never declared — attention read from the other organs (rung below); hooks: \`rhizomorph env ${lane.id} --hooks claude\``,
+        }
+      case 'configured-silent':
+        return {
+          id,
+          status: 'ok',
+          message: `lane ${lane.id}: ${CONFIGURED_SILENT_REASON} — ${CONFIGURED_SILENT_REMEDY}`,
+        }
+      case 'live':
+        return {
+          id,
+          status: 'ok',
+          message: `lane ${lane.id}: declared ${reading.declared.kind} ${formatSpan(Math.max(0, now - reading.declared.at))} ago (beacon ${reading.declared.writer})`,
+        }
+      case 'lapsed':
+        return {
+          id,
+          status: 'warn',
+          message: `lane ${lane.id}: ${lapsedVoice(reading.lapsedForMs)} — check the lane's hooks are still installed (\`rhizomorph env ${lane.id} --hooks claude\`)`,
+        }
+      default: {
+        const _never: never = reading
+        throw new Error(`unreachable attention reading: ${String(_never)}`)
+      }
+    }
+  })
+}
+
+/**
+ * The CLI's reader: finds the newest recorded session for this repo, folds it,
+ * and hands the fold to {@link declaredAttentionChecks}. Read-only — reads the
+ * log, folds it, writes nothing. Its own two lines (no session; unreadable) are
+ * the only readings it phrases itself, because neither is a fact about a fold.
  */
 export async function checkDeclaredAttention(
   repoPath: string,
@@ -686,12 +740,10 @@ export async function checkDeclaredAttention(
   }
 
   const newest = sessions[sessions.length - 1]!
-  let state
-  let fleet
+  let state: SessionState
   try {
     const events = await readSessionEvents(path.join(sessionDir, newest.fileName))
     state = reduceAll(events)
-    fleet = buildFleet(state, { now: now() })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return {
@@ -706,52 +758,7 @@ export async function checkDeclaredAttention(
     }
   }
 
-  const present = fleet.lanes.filter((lane) => lane.present).sort((a, b) => a.id.localeCompare(b.id))
-  if (present.length === 0) {
-    return {
-      checks: [
-        { id: 'attention', status: 'ok', message: 'declared attention: no present lane in the newest session' },
-      ],
-      declared: state.declared,
-    }
-  }
-
-  const checks = present.map((lane): DoctorCheck => {
-    const reading = attentionReading(state.declared, lane.id, now(), lane.lastWorkTs)
-    const id = `attention:${lane.id}`
-    switch (reading.kind) {
-      case 'never-declared':
-        return {
-          id,
-          status: 'ok',
-          message: `lane ${lane.id}: never declared — attention read from the other organs (rung below); hooks: \`rhizomorph env ${lane.id} --hooks claude\``,
-        }
-      case 'configured-silent':
-        return {
-          id,
-          status: 'ok',
-          message: `lane ${lane.id}: ${CONFIGURED_SILENT_REASON} — ${CONFIGURED_SILENT_REMEDY}`,
-        }
-      case 'live':
-        return {
-          id,
-          status: 'ok',
-          message: `lane ${lane.id}: declared ${reading.declared.kind} ${formatSpan(Math.max(0, now() - reading.declared.at))} ago (beacon ${reading.declared.writer})`,
-        }
-      case 'lapsed':
-        return {
-          id,
-          status: 'warn',
-          message: `lane ${lane.id}: ${lapsedVoice(reading.lapsedForMs)} — check the lane's hooks are still installed (\`rhizomorph env ${lane.id} --hooks claude\`)`,
-        }
-      default: {
-        const _never: never = reading
-        throw new Error(`unreachable attention reading: ${String(_never)}`)
-      }
-    }
-  })
-
-  return { checks, declared: state.declared }
+  return { checks: declaredAttentionChecks(state, now()), declared: state.declared }
 }
 
 /** Which process's env `checkTelemetryEnv` actually inspected — see its own doc. */

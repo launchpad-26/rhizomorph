@@ -32,13 +32,13 @@ beforeEach(() => {
 const refusal = (instance: string | null, count: number, ts: number) =>
   f.make('telemetry.refused', { instance, expectedInstance: 'ours', count }, { ts })
 
-describe('selectConnection — the five sources', () => {
+describe('selectConnection — the six sources', () => {
   it('answers for every source it declares, each labelled with its own name', () => {
     const connection = selectConnection(reduceAll(fixtureTelemetrySession()))
     for (const source of CONNECTION_SOURCES) {
       expect(connection[source].source, source).toBe(source)
     }
-    expect(CONNECTION_SOURCES).toEqual(['git', 'tmux', 'workmux', 'sessionlog', 'otel'])
+    expect(CONNECTION_SOURCES).toEqual(['git', 'tmux', 'workmux', 'sessionlog', 'otel', 'beacon'])
   })
 
   /**
@@ -103,6 +103,59 @@ describe('selectConnection — the five sources', () => {
       })
     }
     expect(connection.uninstrumentedSessions).toEqual([])
+  })
+
+  /**
+   * The sixth source (#307, closing #283's local workaround in the status bar).
+   * The window is over the STANDING declarations, not over every beacon ever
+   * seen: the fold keeps the newest record per lane (#283), so the third beacon
+   * below REPLACES the first lane's record rather than adding to it — count is
+   * 2 (two lanes declaring), and the window's floor is the lane that has not
+   * re-declared, not the log's own first line.
+   */
+  it('folds declared attention as beacon flow — window from the records\' own clocks, count per lane', () => {
+    const state = reduceAll([
+      f.beaconReceived(
+        { writer: 'claude-hook', kind: 'waiting', lane: 'a', digest: 'a'.repeat(64), file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 10 },
+      ),
+      f.beaconReceived(
+        { writer: 'claude-hook', kind: 'working', lane: 'b', digest: 'b'.repeat(64), file: 'claude-hook.jsonl', offset: 1 },
+        { ts: 20 },
+      ),
+      f.beaconReceived(
+        { writer: 'claude-hook', kind: 'stopped', lane: 'a', digest: 'c'.repeat(64), file: 'claude-hook.jsonl', offset: 2 },
+        { ts: 30 },
+      ),
+    ])
+
+    expect(selectConnection(state).beacon).toEqual({
+      source: 'beacon',
+      firstEventTs: 20,
+      lastEventTs: 30,
+      count: 2,
+    })
+  })
+
+  /**
+   * A beacon the attention vocabulary does not know never becomes a declaration
+   * (the fold drops it), so it cannot make the beacon source look like it has
+   * proved flow — ruling 4's "silence is never live" for the sixth source.
+   */
+  it('a beacon of a kind outside the vocabulary contributes nothing to beacon flow', () => {
+    const state = reduceAll([
+      f.beaconReceived(
+        { writer: 'gate', kind: 'landed', lane: 'a', digest: 'd'.repeat(64), file: 'gate.jsonl', offset: 0 },
+        { ts: 40 },
+      ),
+    ])
+
+    expect(selectConnection(state).beacon).toEqual({
+      source: 'beacon',
+      firstEventTs: null,
+      lastEventTs: null,
+      count: 0,
+    })
   })
 
   it('splits the money layer by the origin the envelope stamped, never by lane', () => {
