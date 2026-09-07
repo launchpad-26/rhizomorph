@@ -1,4 +1,4 @@
-import type { ThreadGeometry } from '../geometry.js'
+import type { ThreadGeometry, WorldGeometry } from '../geometry.js'
 import { ICE_1000, ink } from '../palette.js'
 import { ambientScreenMarks, ambientWorldMarks } from './ambient.js'
 import { dissolveMarks } from './dissolve.js'
@@ -46,6 +46,19 @@ export * from './types.js'
  *    is never dimmed by the fog laid over the picture it is about.
  */
 export function sceneMarks(frame: SceneFrame): Mark[] {
+  return [...colonyMarks(frame), ...screenMarks(frame)]
+}
+
+/**
+ * Layers 0–7: everything belonging to **one colony**, in world space.
+ *
+ * Split out of {@link sceneMarks} for prd-52 ruling 1, so a world can run it
+ * once per colony. The seam is the one the depth list above already draws:
+ * layer 8 is "the panel's own depth", a fact about the viewport rather than
+ * about any colony, and running it per colony would stack N fogs and print the
+ * gap voice N times over itself.
+ */
+export function colonyMarks(frame: SceneFrame): Mark[] {
   const { threads } = frame.geometry
   const depth = byDepth(threads)
   const marks: Mark[] = []
@@ -59,9 +72,51 @@ export function sceneMarks(frame: SceneFrame): Mark[] {
   marks.push(...dissolveMarks(frame))
   for (const thread of depth) marks.push(...nodeMarks(frame, thread))
   for (const thread of depth) marks.push(...labelMarks(frame, thread))
-  marks.push(...ambientScreenMarks(frame))
-  marks.push(...chromeMarks(frame))
 
+  return marks
+}
+
+/** Layer 8: the panel's own depth, and the scene's gap voice. Once per picture. */
+function screenMarks(frame: SceneFrame): Mark[] {
+  return [...ambientScreenMarks(frame), ...chromeMarks(frame)]
+}
+
+/**
+ * THE WHOLE WORLD, as one list (prd-52 ruling 1).
+ *
+ * Each colony's marks are already in world coordinates — `layoutScene` was
+ * handed that colony's `origin` and put it into the mass's centre — so
+ * composing is a **concatenation, not a walk**. That is the whole reason the
+ * origin lives in `LayoutOptions`: a translator over the composed list would
+ * need a case per mark kind, and every kind added afterwards would be a silent
+ * miss that drew one colony in the wrong place.
+ *
+ * Depth layers **within** each colony rather than across them. Colonies stand
+ * on separate ground — the ring keeps their content clear of each other, and
+ * `world.test.ts` proves it — so a finished strand in one is never crossed by
+ * a living one in another; interleaving nine builders across N colonies would
+ * reorder marks that never overlap.
+ *
+ * `frame` supplies the screen pass — fog, vignette, grain and the gap voice —
+ * which belongs to the panel, once, however many colonies it holds.
+ */
+export function worldMarks(world: WorldGeometry, frame: SceneFrame): Mark[] {
+  const marks: Mark[] = []
+  for (const colony of world.colonies) {
+    marks.push(
+      ...colonyMarks({
+        ...frame,
+        fleet: colony.fleet,
+        geometry: colony.geometry,
+        // The material ceiling is keyed on the WORLD's size, not this
+        // colony's (prd-52 ruling 5) — the frame budget is spent by the whole
+        // picture, and a colony that judged itself would thin at N times the
+        // fleet size the ruling means.
+        worldThreads: world.threadCount,
+      }),
+    )
+  }
+  marks.push(...screenMarks(frame))
   return marks
 }
 

@@ -225,6 +225,30 @@ export const SETTLE_MS = 1_750
 export const LABELS_ALL_MAX = 28
 
 /**
+ * Where the scene stops drawing the subsurface underglow, and then the bloom,
+ * as the **world** outgrows them (prd-52 ruling 5).
+ *
+ * The same shape of rule as {@link LABELS_ALL_MAX} above, and armed the same
+ * way: at a count, never at a clock. Keying off measured frame time would mean
+ * the app moving a setting the operator chose, which `ui-2.0-decisions.md`
+ * D36 rules is theirs. A count is a fact about the picture.
+ *
+ * The numbers are prd-33 ruling 13's own table read as thresholds rather than
+ * as a verdict: **90 threads** is the size it states holds 60 fps, so that is
+ * where the most expensive material stops being free; **180** is the size it
+ * states holds 30, so that is where the next layer goes.
+ *
+ * Nothing is removed at either step. A thread always draws its core ribbon —
+ * the material around it substitutes, per `marks/index.ts`'s own law that
+ * density is managed by thinness, stillness and depth layering, never by
+ * removal. These are ceilings on *material* and never on the encoded
+ * channels: thread hue, thread brightness, radial position and encoded width
+ * are identical at every level, and `marks.test.ts` asserts exactly that.
+ */
+export const MATERIAL_UNDERGLOW_MAX = 90
+export const MATERIAL_BLOOM_MAX = 180
+
+/**
  * THE RELAX REACH, **in px of arc length, not a fraction of it** (the rim is
  * a wide ellipse — see docs/design-notes/geometry-relax-reach.md, #102): how much
  * of a finished strand ({@link RETIRE_RELAX_PX} is how far it bends,

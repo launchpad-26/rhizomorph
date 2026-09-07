@@ -57,9 +57,91 @@ import type { Fleet } from '@rhizomorph/core'
  */
 export const MAIN_SELECTION = 'main'
 
-/** True when the selection is the root-mass rather than a worker lane. */
+/**
+ * True when the selection is a root-mass rather than a worker lane.
+ *
+ * Reads the selection's colony-local part, so it answers for the bare `main`
+ * and for any colony's own mass in a world (prd-52 ruling 1). A world of one
+ * colony uses the bare form, so this is unchanged for every existing caller —
+ * and unchanged for a bare lane id carrying slashes too, which is why
+ * {@link COLONY_SEP} is a character no lane id can hold.
+ */
 export function isMainSelected(selectedId: string | null): boolean {
-  return selectedId === MAIN_SELECTION
+  return withinColony(selectedId) === MAIN_SELECTION
+}
+
+// ── selection in a world of colonies (prd-52 ruling 1) ─────────────────────
+
+/**
+ * The separator between a colony's name and what is selected inside it.
+ *
+ * `:`, and the character is the whole of the design. A colony id comes from
+ * whoever composed the world; a lane id is a branch-derived slug, and branch
+ * names ordinarily contain `/` — `feat/thing` is nothing unusual. A `/`
+ * separator therefore makes the BARE, single-colony form ambiguous: `feat/main`
+ * is either a lone lane on branch `feat/main`, or lane `main` inside a colony
+ * called `feat`, and nothing in the string decides which. Reading it as the
+ * second is what this file did on first write, and it reported an ordinary
+ * worker lane as the root-mass through {@link isMainSelected} — the drawer and
+ * the trace panel both rendered the conductor for a selected lane (review of
+ * #321).
+ *
+ * `:` cannot appear in either half. `git check-ref-format` forbids it in a
+ * refname outright, so no branch-derived lane id can carry one, and
+ * {@link colonySelection} refuses it in a colony id AND in the selection it
+ * wraps. The split is therefore total, and the bare form is unambiguous by
+ * construction rather than by care — which is what lets the bare id go on
+ * meaning exactly what it meant before prd-52 (ruling 2, applied to identity).
+ */
+const COLONY_SEP = ':'
+
+/**
+ * Name a selection inside a colony.
+ *
+ * The bare {@link MAIN_SELECTION} is one hardcoded id for the root-mass, and a
+ * world holds one mass per colony — so in a world of more than one colony that
+ * id resolves to N different masses. This is the form that does not.
+ *
+ * A world of one colony keeps the bare form, which is prd-52 ruling 2 applied
+ * to identity rather than to geometry: nothing about a solo picture changes,
+ * down to the strings its surfaces pass around. That is what lets the eleven
+ * consumers of the bare id keep working untouched until #319 moves them
+ * together.
+ */
+export function colonySelection(colonyId: string | null, withinId: string): string {
+  // Checked before the bare-form return, not after it: a bare id carrying the
+  // separator would be mis-split by `colonyOf`/`withinColony` later, with no
+  // colony ever having been named. Refusing both halves is what makes the
+  // split total rather than merely likely.
+  if (withinId.includes(COLONY_SEP)) {
+    throw new Error(`a selection may not contain "${COLONY_SEP}": ${withinId}`)
+  }
+  if (colonyId === null || colonyId === '') return withinId
+  if (colonyId.includes(COLONY_SEP)) {
+    throw new Error(`a colony id may not contain "${COLONY_SEP}": ${colonyId}`)
+  }
+  return `${colonyId}${COLONY_SEP}${withinId}`
+}
+
+/** The colony a selection belongs to, or `null` for the bare single-colony form. */
+export function colonyOf(selectedId: string | null): string | null {
+  if (selectedId === null) return null
+  const at = selectedId.indexOf(COLONY_SEP)
+  return at === -1 ? null : selectedId.slice(0, at)
+}
+
+/**
+ * What is selected *inside* its colony — a `Lane.id` or {@link MAIN_SELECTION}.
+ *
+ * Splits on the **first** separator, never the last. Neither half can hold one
+ * — {@link COLONY_SEP} says why — so there is only ever one to find; taking the
+ * first keeps that true rather than assuming it, and a bare `feat/thing` finds
+ * none at all and comes back whole.
+ */
+export function withinColony(selectedId: string | null): string | null {
+  if (selectedId === null) return null
+  const at = selectedId.indexOf(COLONY_SEP)
+  return at === -1 ? selectedId : selectedId.slice(at + 1)
 }
 
 export interface SelectionValue {

@@ -114,3 +114,70 @@ describe('the outline cache', () => {
     expect(fresh).toEqual(a)
   })
 })
+
+describe('the pre-truncation cache (prd-52 ruling 4, #315)', () => {
+  /** Every lane at one growth value, so `growth` is the only term that moves. */
+  function growthOf(fleet: ReturnType<typeof fleetAt>, at: number): Map<string, number> {
+    return new Map(fleet.lanes.map((lane) => [lane.id, at]))
+  }
+
+  it('reuses the curve when only growth moved', () => {
+    // The living cache cannot answer either of these frames from the other:
+    // its key carries both growth terms and both differ here, so it misses.
+    // What survives the miss is the *base* — and both of these frames draw the
+    // whole curve (one because it is fully grown, one because travel is off),
+    // so a base hit is observable as literally the same array.
+    const fleet = fleetAt()
+    const a = layoutScene(fleet, { ...PANEL, now: NOW, growth: growthOf(fleet, 1) })
+    const b = layoutScene(fleet, {
+      ...PANEL,
+      now: NOW,
+      growth: growthOf(fleet, 0.4),
+      growthTravel: false,
+    })
+
+    expect(a.threads.length).toBeGreaterThan(0)
+    for (let i = 0; i < a.threads.length; i++) {
+      expect(b.threads[i]?.path).toBe(a.threads[i]?.path)
+    }
+  })
+
+  it('still truncates a growing lane, rather than handing it the whole curve', () => {
+    // The risk the cache introduces, stated as a law: a shared base must not
+    // leak the full curve to a lane that has not grown into it. A half-grown
+    // thread's tip is nearer the mass than a finished one's.
+    const fleet = fleetAt()
+    const grown = layoutScene(fleet, { ...PANEL, now: NOW, growth: growthOf(fleet, 1) })
+    const half = layoutScene(fleet, { ...PANEL, now: NOW, growth: growthOf(fleet, 0.5) })
+
+    let checked = 0
+    for (let i = 0; i < grown.threads.length; i++) {
+      const g = grown.threads[i]
+      const h = half.threads[i]
+      if (g === undefined || h === undefined) continue
+      const reach = (t: typeof g) => {
+        const tip = t.path[t.path.length - 1]
+        if (tip === undefined) return 0
+        return Math.hypot(tip.x - grown.centre.x, tip.y - grown.centre.y)
+      }
+      expect(h.path).not.toBe(g.path)
+      expect(reach(h)).toBeLessThan(reach(g))
+      checked++
+    }
+    expect(checked).toBeGreaterThan(0)
+  })
+
+  it('keeps a fully-grown lane on one array, which is what the outline cache rides', () => {
+    // `ribbon.ts`'s OUTLINE_CACHE is a WeakMap keyed on the path array's own
+    // identity. It needs no change of its own precisely because a grown lane's
+    // path IS the base's curve rather than a copy of it — asserted here so
+    // that stays true, since a copy would silently cost every grown lane its
+    // outline every frame.
+    const fleet = fleetAt()
+    const a = layoutScene(fleet, { ...PANEL, now: NOW, growth: growthOf(fleet, 1) })
+    const b = layoutScene(fleet, { ...PANEL, now: NOW + 400, growth: growthOf(fleet, 1) })
+    for (let i = 0; i < a.threads.length; i++) {
+      expect(b.threads[i]?.path).toBe(a.threads[i]?.path)
+    }
+  })
+})
