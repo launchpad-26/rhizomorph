@@ -183,6 +183,27 @@ describe('era corpus fixture hygiene', () => {
    */
   function surfaces(text: string): readonly string[] {
     const out: string[] = [text]
+
+    /**
+     * WHOLE DOCUMENT FIRST, then line by line (fix re-review of #279, round 2).
+     * The two texts this runs over have different shapes: a recording is JSONL,
+     * one event per line, but a SNAPSHOT is pretty-printed JSON. An earlier
+     * version split on newlines and parsed each line, which decoded **81 of the
+     * snapshot's 5,979 lines** — the rest are fragments like `"agents": {` and
+     * threw, so 98.6% of the snapshot was only ever swept as raw text while
+     * CAPTURE.md claimed otherwise. EXECUTED: an escaped `/home/…` added as a
+     * snapshot property stayed green; the same value raw reddened.
+     *
+     * A recording does not parse as one document, so it falls through — the
+     * order is what makes one function correct for both shapes.
+     */
+    try {
+      walkInto(JSON.parse(text), out)
+      return out
+    } catch {
+      // not a single JSON document — it is JSONL, handled below
+    }
+
     for (const line of text.split('\n')) {
       if (line.trim().length === 0) continue
       let parsed: unknown
@@ -191,10 +212,20 @@ describe('era corpus fixture hygiene', () => {
       } catch {
         continue // a malformed line is the JSONL law's finding, not this one's
       }
-      const walk = (node: unknown): void => {
-        if (typeof node === 'string') out.push(node)
-        else if (Array.isArray(node)) for (const child of node) walk(child)
-        else if (node !== null && typeof node === 'object')
+      walkInto(parsed, out)
+    }
+    return out
+  }
+
+  /**
+   * ONE walker, shared by both paths above. Hoisted rather than duplicated: a
+   * second copy is how the whole-document path and the per-line path drift into
+   * covering different things, which is the defect this file exists to catch.
+   */
+  function walkInto(node: unknown, out: string[]): void {
+    if (typeof node === 'string') out.push(node)
+    else if (Array.isArray(node)) for (const child of node) walkInto(child, out)
+    else if (node !== null && typeof node === 'object')
           // KEYS as well as values (fix re-review of #279, both seats,
           // independently). `Object.values` alone let an escaped path ride in
           // as a key: `"\u002fhome\u002fx": "benign"` passed all 25 tests,
@@ -202,14 +233,10 @@ describe('era corpus fixture hygiene', () => {
           // reachable today — no payload schema uses `z.record`, so no emitter
           // writes a data-derived key — but the claim this function makes is
           // about JSON-representable spellings, and a key is one.
-          for (const [key, child] of Object.entries(node)) {
-            out.push(key)
-            walk(child)
-          }
+      for (const [key, child] of Object.entries(node)) {
+        out.push(key)
+        walkInto(child, out)
       }
-      walk(parsed)
-    }
-    return out
   }
 
   const BANNED: readonly (readonly [string, RegExp])[] = [
@@ -302,12 +329,33 @@ describe('era corpus fixture hygiene', () => {
    * commit message, which is exactly the "a test that cannot fail for the
    * reason it claims" shape this file exists to catch.
    */
-  it('surfaces() bites — an escaped path and an escaped KEY both come back decoded', () => {
+  it('surfaces() bites — escaped value, escaped KEY, NESTED, and a pretty-printed document', () => {
     const line = '{"payload":{"\\u002fhome\\u002fx":"benign","note":"\\u002fhome\\u002fsomeone"}}'
     const found = surfaces(line)
 
     expect(found, 'the escaped VALUE must decode, or the raw-bytes sweep is all there is').toContain('/home/someone')
     expect(found, 'the escaped KEY must decode too — Object.values alone let this ride in').toContain('/home/x')
+
+    /**
+     * NESTED, because the round-2 re-review found this witness asserted an
+     * INSTANCE rather than the property: at one level deep, a walker that
+     * stopped recursing still passed it. Both a key and a value, two levels in.
+     */
+    const nested = '{"payload":{"inner":{"\\u002fhome\\u002fu":"benign","deep":{"note":"\\u002fhome\\u002fjane.doe"}}}}'
+    const deep = surfaces(nested)
+    expect(deep, 'a walker that stops recursing must not pass this').toContain('/home/u')
+    expect(deep, 'and it must reach a value two levels below that key').toContain('/home/jane.doe')
+
+    /**
+     * PRETTY-PRINTED, because a snapshot is not JSONL and the per-line path
+     * decoded 81 of its 5,979 lines. This is the shape that path cannot read.
+     */
+    const pretty = '{\n  "outer": {\n    "note": "\\u002fhome\\u002falice"\n  }\n}'
+    expect(
+      surfaces(pretty),
+      'a whole pretty-printed document must decode — none of its lines parse alone',
+    ).toContain('/home/alice')
+
     expect(BANNED.some(([, pattern]) => found.some((surface) => pattern.test(surface)))).toBe(true)
   })
 })
