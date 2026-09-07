@@ -102,7 +102,18 @@ function screenMarks(frame: SceneFrame): Mark[] {
 export function worldMarks(world: WorldGeometry, frame: SceneFrame): Mark[] {
   const marks: Mark[] = []
   for (const colony of world.colonies) {
-    marks.push(...colonyMarks({ ...frame, fleet: colony.fleet, geometry: colony.geometry }))
+    marks.push(
+      ...colonyMarks({
+        ...frame,
+        fleet: colony.fleet,
+        geometry: colony.geometry,
+        // The material ceiling is keyed on the WORLD's size, not this
+        // colony's (prd-52 ruling 5) — the frame budget is spent by the whole
+        // picture, and a colony that judged itself would thin at N times the
+        // fleet size the ruling means.
+        worldThreads: world.threadCount,
+      }),
+    )
   }
   marks.push(...screenMarks(frame))
   return marks

@@ -12,7 +12,7 @@ import {
 import { PERSIST, persistInks, persistWidths, toward } from '../retire.js'
 import type { WidthStop } from '../ribbon.js'
 import { SHIMMER_PERIOD_MS, variationFor, variationSeed } from '../variation.js'
-import { litStops, alarmInk, budget, motionMode, type SceneFrame } from './frame.js'
+import { drawnQuality, litStops, alarmInk, budget, motionMode, type SceneFrame } from './frame.js'
 import { THORN_OUT } from './glyphs.js'
 import { ribbonMark, type Mark, type RibbonMark } from './types.js'
 
@@ -98,7 +98,8 @@ export function threadMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   // wide, faint tissue ribbon beneath the bloom, brightest at the root end —
   // matter is dense where it meets the mass. Drawn as light material, so it
   // adds on the void and washes as ink on paper (the lightBlend seam).
-  if (frame.quality === 'maximum' && !thread.alarm) {
+  const drawn = drawnQuality(frame)
+  if (drawn === 'maximum' && !thread.alarm) {
     marks.push(
       ribbonMark({
         ...shape,
@@ -125,7 +126,7 @@ export function threadMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
   // Bloom first, wide and faint, then the core. Two ribbons rather than a shadow
   // blur: shadows on forty paths a frame is where canvas 2D falls over.
   // The bloom is material — calm quality draws the thread alone.
-  if (frame.quality !== 'calm') {
+  if (drawn !== 'calm') {
     marks.push(
       ribbonMark({
         ...shape,
@@ -167,7 +168,7 @@ export function threadMarks(frame: SceneFrame, thread: ThreadGeometry): Mark[] {
       // ribbon stays flat so nothing ambient touches the band it owes. Calm
       // quality drops the light with the rest of the material.
       paint:
-        thread.alarm || frame.quality === 'calm'
+        thread.alarm || drawn === 'calm'
           ? budget(frame, laneId, false, base)
           : litStops(frame, laneId, base, thread.path),
     }),

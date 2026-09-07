@@ -42,6 +42,8 @@ export type {
 export { BUD_ABSORB_MS, budLife } from './geometry/scale.js'
 export {
   LABELS_ALL_MAX,
+  MATERIAL_BLOOM_MAX,
+  MATERIAL_UNDERGLOW_MAX,
   LIFE_SPAN_MS,
   RADIAL_BORN,
   RADIAL_RIM,
