@@ -152,7 +152,8 @@ print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$GATE_OUTFIL
   # this very function, so it is ONE other invocation — the NUL-byte counter —
   # plus that presence check. The conclusion is unchanged and in fact stronger,
   # since a presence check that aborts is a better argument than a count.
-  python3 -c 'import json,sys,time
+
+  verdict_line=$(python3 -c 'import json,sys,time
 lane, held, reason, digest, load = sys.argv[1:6]
 line = {"v": 1, "at": int(time.time() * 1000), "writer": "gate", "kind": "gate.verdict",
         "lane": lane, "held": held == "true", "reason": reason}
@@ -160,7 +161,166 @@ if digest:
     line["outputDigest"] = digest
 if load != "0":
     line["loadBatches"] = int(load)
-print(json.dumps(line, separators=(",", ":")))' "$H" "$held" "$reason" "$digest" "${LOAD:-0}" 2>/dev/null
+print(json.dumps(line, separators=(",", ":")))' "$H" "$held" "$reason" "$digest" "${LOAD:-0}" 2>/dev/null)
+  VERDICT_LINE_RC=$?
+  # `[ -n ]`-gated, not a bare printf (review of #274, round 2 — cosmetic but
+  # a behaviour change): capturing python3's output into a variable means an
+  # empty result now prints an actual blank line via `printf '%s\n' ""` where
+  # the parent's uncaptured bare command printed nothing at all on the same
+  # failure. No consumer reads that line, but the terminal a human reads
+  # should stay silent on the path it was always silent on.
+  [ -n "$verdict_line" ] && printf '%s\n' "$verdict_line"
+
+  # prd17 w5 (#274): the line just printed above also has to reach the
+  # beacon directory a collector tails (ADR-0036), not only stdout — the
+  # SAME bytes, from the SAME variable, never re-derived by a second call
+  # (a second python3 invocation would mint its own "at" and produce a
+  # different line, which the collector would then see as two beacons for
+  # one landing rather than one beacon reaching two doors).
+  #
+  # Guarded on `verdict_line` FIRST (review of #274, round 2 — EXECUTED):
+  # resolving and creating the beacon directory used to run even when
+  # nothing would be appended — proven with python3 stubbed to exit 3 and
+  # the resolver stubbed to a marker file, which recorded an invocation on a
+  # run that wrote nothing. Nesting everything below inside this guard means
+  # that work is paid only when it can matter.
+  if [ "$VERDICT_LINE_RC" -ne 0 ] || [ -z "$verdict_line" ]; then
+    : # nothing to append — python3's own failure mode stays out of scope here (#273 round 2's "no hand-built fallback")
+  else
+    # The directory is RESOLVED, never re-derived here: repoSlug() hashes
+    # the absolute repo path, so a hand-built "$root/beacons"-shaped guess
+    # would collide for any two repos sharing a basename. beaconDirFor()
+    # itself (packages/server/src/collectors/beacon/paths.ts) is
+    # TypeScript; tsx — already a devDependency of packages/server, the
+    # same runtime its own `dev` script launches with — evaluates a loader
+    # that imports it.
+    #
+    # The RESOLVED BINARY, never `npx tsx` (review of #274, round 2 —
+    # MEASURED). `npx --no-install tsx` does not fail fast when the package
+    # is unresolvable: it falls back to a REGISTRY LOOKUP before honouring
+    # --no-install, and that lookup is unbounded — 70s measured against a
+    # connection-refused registry, still running past five minutes against
+    # a black-holed one. That is reachable here twice: root's own
+    # `node_modules` may not exist yet on a fresh checkout (root's install
+    # runs AFTER the merge — the same "first landing" case the DoD already
+    # names for mkdir), and `fail "npm install after merge broke"
+    # install-broken` correlates with exactly the offline operator
+    # `push_or_warn`'s own exemption exists for. The bound it violates is
+    # this script's own, set where the tee-drain deadline is and quoted here
+    # so a reader need not go and find it: "A landing may fail; it may not
+    # hang." That sentence used to be cited by a line offset instead, and
+    # the offset was already two dozen lines stale by the time anyone
+    # counted it — it would have been wrong again after this very edit.
+    # AGENTS.md already states the rule this breaks ("cite by job and
+    # step name, never by line number"), and the reason it is stated there
+    # applies verbatim here: a quoted sentence is greppable and survives the
+    # file moving, an offset is neither. Invoking the resolved binary
+    # directly never touches npm's own resolver, so there is no registry
+    # fallback to reach.
+    # `${root:-}`, not a bare `$root`: this dereference runs in THE CURRENT
+    # shell, not a subshell — an unset `root` under `set -u` (:13) would
+    # abort emit_gate_verdict itself mid-function, before the GATE_OUTFILE
+    # cleanup at the end of it ever runs (EXECUTED: a fixture that never
+    # defines `root` left a scratch file behind, the exact leak review of
+    # #273 finding 5 exists to prevent). Production always has `root`
+    # defined by :18, long before any fail() can reach here, so this changes
+    # nothing there — it only stops an absent `root` from being fatal to a
+    # function whose whole contract is that a landing may fail, never hang
+    # or crash outright.
+    if [ ! -x "${root:-}/node_modules/.bin/tsx" ]; then
+      echo "  ! gate: tsx not found at ${root:-<unset>}/node_modules/.bin/tsx — this landing will not reach the beacon collector" >&2
+    else
+      # `pathToFileURL()`, not the bare path (review of #274, round 2 —
+      # MEASURED). `import()` takes a MODULE SPECIFIER, which Node parses as
+      # a URL, not a filesystem path: a repo path containing a tab, LF, CR,
+      # `#` or `?` resolved to the wrong module or ERR_MODULE_NOT_FOUND, and
+      # one containing `%` threw a URIError — every one of them took the
+      # "could not resolve" branch below and appended nothing, silently.
+      # `pathToFileURL` is the escape a filesystem path needs to become a
+      # correct module URL; this repo already paid for the same lesson once
+      # (AGENTS.md cites the `pathToFileURL` fix in
+      # packages/server/bin/rhizomorph.mjs, which had no CI witness before
+      # it).
+      beacon_dir=$(REPO_PATH="$root" MODULE_PATH="$root/packages/server/src/collectors/beacon/paths.ts" \
+        "$root/node_modules/.bin/tsx" -e '
+          import { pathToFileURL } from "node:url"
+          import(pathToFileURL(process.env.MODULE_PATH).href).then(
+            (m) => { process.stdout.write(m.beaconDirFor(process.env.REPO_PATH)) },
+            () => { process.exitCode = 1 }
+          )
+        ' 2>/dev/null)
+      BEACON_DIR_RC=$?
+      if [ "$BEACON_DIR_RC" -ne 0 ] || [ -z "$beacon_dir" ]; then
+        echo "  ! gate: could not resolve the beacon directory (rc=$BEACON_DIR_RC) — this landing will not reach the beacon collector" >&2
+      else
+        # mkdir, an flock-guarded torn-write repair, and the append all
+        # happen in ONE python3 process (review of #274, round 2 —
+        # EXECUTED). A disk-full or otherwise interrupted append can leave a
+        # PARTIAL line with no trailing newline; a plain `>>` on the NEXT
+        # ordinary landing then concatenates directly onto that prefix,
+        # producing one unparseable "line" that costs the collector BOTH
+        # verdicts — the failed one and the good one right after it. The
+        # lock is held only around this file's own check-and-write, bounded
+        # to 5s of wall clock so a dead holder cannot wedge a landing (the
+        # same ethos as the tee-drain's 10s ceiling above): if the file does
+        # not already end in a newline, one is written first, isolating
+        # whatever came before from this landing's own line rather than
+        # fusing the two. The lock is per-inode, so it coordinates across
+        # CONCURRENT gate.sh processes — every writer of this file is this
+        # same code path, so every writer takes the same lock — the same
+        # guarantee the plain `>>` it replaces already leaned on POSIX
+        # append-atomicity for; the difference is only that check, repair
+        # and write are now one critical section instead of three separate,
+        # raceable steps.
+        #
+        # `f.flush()` BEFORE the unlock, and it is load-bearing (review of
+        # #274, round 3 — EXECUTED). Python's buffered writer flushes at
+        # close(), which runs when the `with` block exits — AFTER
+        # LOCK_UN — so without this line the bytes reached the file outside
+        # the critical section the comment above claims they are inside, and
+        # that claim was simply false. Instrumented at the unlock point:
+        # bytes-on-disk 0 with the write buffered, 31 with the flush; and
+        # with the unlock-to-close window widened to 300ms, two concurrent
+        # writers against a torn tail produced one spurious blank line
+        # (which read-beacon-lines.ts returns and parse-beacon-line refuses,
+        # costing one "malformed beacon line skipped" report). The window is
+        # microseconds against a 50ms poll and O_APPEND kept every verdict
+        # whole either way, so this repairs the guarantee rather than a
+        # measured loss.
+        #
+        # A write failure past this point is reported, never fatal (issue
+        # #274's DoD): the landing tool's job is to land, and a full disk or
+        # an unwritable directory must not turn a clean gate into a held
+        # one.
+        if ! python3 -c 'import fcntl, os, sys, time
+beacon_dir, line = sys.argv[1], sys.argv[2]
+os.makedirs(beacon_dir, exist_ok=True)
+path = os.path.join(beacon_dir, "gate.jsonl")
+with open(path, "a+b") as f:
+    deadline = time.time() + 5
+    while True:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except OSError:
+            if time.time() >= deadline:
+                sys.exit(1)
+            time.sleep(0.05)
+    try:
+        size = f.seek(0, os.SEEK_END)
+        if size > 0:
+            f.seek(size - 1)
+            if f.read(1) != b"\n":
+                f.write(b"\n")
+        f.write(line.encode() + b"\n")
+        f.flush()
+    finally:
+        fcntl.flock(f, fcntl.LOCK_UN)' "$beacon_dir" "$verdict_line" 2>/dev/null; then
+          echo "  ! gate: could not write the verdict to $beacon_dir/gate.jsonl — this landing will not reach the beacon collector" >&2
+        fi
+      fi
+    fi
+  fi
 
   # Every other mktemp in this script is cleaned; this one was not, so each
   # landing left a full copy of the gate's output in /tmp (review of #273).

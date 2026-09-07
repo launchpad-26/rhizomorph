@@ -2,10 +2,12 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync, chmodSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
 import { beaconReceivedPayloadSchema } from '@rhizomorph/core'
 import { parseBeaconLine } from './collectors/beacon/parse-beacon-line.js'
+import { beaconDirFor } from './collectors/beacon/paths.js'
 
 /**
  * #42's law — a guard in the landing tool may not print a verdict it did not
@@ -361,30 +363,46 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    *
    * MEASURED FALSE-POSITIVE RATE (EXECUTED, run against every real producer
    * of ANY spelling above in scripts/gate.sh — prd-46's own open question,
-   * re-run after #179's widening rather than retyped, and again after prd17
-   * w5 (#273) added the verdict's own output-capture producer): 18 such
-   * assignments exist — UP from 17 by exactly that one new producer, because
-   * gate.sh still contains no live instance of rows 2-7; every producer in
-   * the file today is still the bare, single-line form of row 1. Exactly 1
-   * is flagged as structurally unchecked — :23 (`W=$(workmux path ...)`),
-   * declared before this issue and still declared, because the very next
-   * line's existence check is the verdict rather than the redirect. 0 of the
-   * 18 are undeclared: the predicate does not convict a single honest line on
-   * this file.
+   * re-run after #179's widening rather than retyped, again after prd17 w5
+   * (#273) added the verdict's own output-capture producer, and again after
+   * prd17 w5 (#274) added the beacon write): 20 such assignments exist — UP
+   * from 18 by exactly the two new producers #274 adds. Both are also the
+   * FIRST live instance of row 7 (the multi-line `$(...)` form) in this
+   * file: `verdict_line=$(python3 -c '...'  ...)` and
+   * `beacon_dir=$(REPO_PATH=... "$root/node_modules/.bin/tsx" -e '...' ...)`
+   * each open their `$(` on one line and close it several lines down, past
+   * a quoted script argument that itself spans multiple lines — so the
+   * claim this paragraph made through #273, that every producer here was
+   * "still the bare, single-line form of row 1", is no longer true and is
+   * corrected rather than repeated.
    *
-   * The other 17 pass structurally on their own merits: 12 same-line forms
+   * producer-citations:begin — the 20 line numbers between these markers are
+   * checked against the real file by a law below. Do not hand-edit one
+   * without re-running it; do not move a marker to make a red build green.
+   *
+   * Exactly 1 is flagged as structurally
+   * unchecked — :23 (`W=$(workmux path ...)`), declared before this issue
+   * and still declared, because the very next line's existence check is the
+   * verdict rather than the redirect. 0 of the 20 are undeclared: the
+   * predicate does not convict a single honest line on this file.
+   *
+   * The other 19 pass structurally on their own merits: 12 same-line forms
    * (:17's `|| exit 2`, written before `fail` is even defined; 9 `|| fail` at
-   * :88 (#273's `GATE_OUTFILE`) :95 :110 :170 :264 :274 :338 :424 :479; 2
-   * `|| { ...; fail ...; }` rescue blocks at :111 :480) and 5 next-line
-   * `_RC=$?` captures (:127's `ANCESTOR_RC`, :207's `N_RC`, :211's
-   * `STATUS_RC`, :238's `DIRTY_RC`, :339's `CAT_RC`).
+   * :338 (`GATE_OUTFILE`) :345 :360 :420 :514 :524 :588 :674 :729; 2
+   * `|| { ...; fail ...; }` rescue blocks at :361 :730) and 7 next-line
+   * `_RC=$?` captures (:156's `VERDICT_LINE_RC` and :244's `BEACON_DIR_RC` —
+   * both new with #274 — plus :377's `ANCESTOR_RC`, :457's `N_RC`, :461's
+   * `STATUS_RC`, :488's `DIRTY_RC`, :589's `CAT_RC`).
    *
-   * (This paragraph's line citations had already drifted once before #273
-   * touched it — the previous revision cited :41 :56 :116 :210 :220 :284
-   * :370 :410 :411 and one rescue block at :57, none of which matched the
-   * file by the time this issue landed. Re-derived against the current file
-   * rather than nudged, the same trap the citations themselves are prose
-   * about.)
+   * producer-citations:end
+   *
+   * (This paragraph's line citations have drifted before — once across
+   * #273, and now again across #274, both times because lines were added
+   * ABOVE producers this paragraph already cited. Re-derived against the
+   * current file each time rather than nudged, the same trap the citations
+   * themselves are prose about — and the reason every citation here is
+   * re-checked on every touch instead of only the ones a diff happens to
+   * mention.)
    *
    * These counts moved with #71, and the reason is structural rather than
    * arithmetic: `DIFF_RC` and `GREP_RC` used to be next-line captures of
@@ -961,7 +979,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     expect(undeclared.map((u) => `${u.index + 1}: ${u.line.trim()}`), 'undeclared unchecked producer(s) in scripts/gate.sh — fix the shape (see the :82 commit-count fix below) or add a DECLARED_TOLERANCES entry with a reason').toEqual([])
   })
 
-  it('EXECUTED — the measured false-positive rate on the real file, RE-DERIVED after #179 widened the predicate and #273 added the verdict output-capture producer: still 1 of 18 flagged, it is declared, 0 undeclared', () => {
+  it('EXECUTED — the measured false-positive rate on the real file, RE-DERIVED after #179 widened the predicate, #273 added the verdict output-capture producer, and #274 added two more: still 1 of 20 flagged, it is declared, 0 undeclared', () => {
     // findAllProducers, not a codeLines()+regex filter: the widened predicate
     // recognises multi-line producers that a per-line filter cannot even
     // represent (row 7), so the count of "producers" and the count of
@@ -971,18 +989,33 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     const allProducers = findAllProducers(LINES)
     const unchecked = findUncheckedProducers(LINES)
     const undeclared = unchecked.filter((u) => !DECLARED_TOLERANCES.some((t) => u.line.includes(t.needle)))
-    // UNCHANGED from before #179's widening: gate.sh contains no live
-    // instance of the four newly-recognised spellings (rows 2-7 of the
-    // table above) today, so widening the predicate finds nothing NEW here —
-    // it only means a FUTURE line written that way would now be seen. Proven
-    // by count, not assumed: this would move the moment such a line landed.
-    expect(allProducers.length, 'total producers (any spelling) in scripts/gate.sh drifted — the doc comment above cites this count').toBe(18)
+    // UNCHANGED from before #179's widening THROUGH #273: gate.sh contained
+    // no live instance of rows 2-7 of the table above, so widening the
+    // predicate found nothing NEW there — it only meant a FUTURE line
+    // written that way would now be seen. That changed with #274, below.
+    //
+    // 18 -> 20 (#274): `emit_gate_verdict` gained two producers when the
+    // beacon write landed — `verdict_line=$(python3 ...)` (capturing the
+    // line that used to be printed directly, uncaptured, so it could also be
+    // appended byte-for-byte to the beacon file) and
+    // `beacon_dir=$(... "$root/node_modules/.bin/tsx" -e ...)` (resolving
+    // beaconDirFor() rather than re-deriving its path in shell). Both are
+    // CHECKED, not flagged: each is followed on the very next line by its
+    // own bare `_RC=$?` capture (`VERDICT_LINE_RC=$?`, `BEACON_DIR_RC=$?`),
+    // so `unchecked` does not move — see the next-line bucket below, which
+    // is where both land. Both are ALSO the first live instance of row 7
+    // (the multi-line `$(...)` form): each opens its `$(` on one line and
+    // closes it several lines down, past a quoted script argument that
+    // itself spans multiple lines — so "no live instance of rows 2-7" is no
+    // longer true of this file, proven by count rather than left as the
+    // stale claim above would still have it.
+    expect(allProducers.length, 'total producers (any spelling) in scripts/gate.sh drifted — the doc comment above cites this count').toBe(20)
     expect(unchecked.length, 'flagged (structurally unchecked) count drifted — the doc comment above cites this count').toBe(1)
     expect(undeclared.length).toBe(0)
 
-    // The doc comment's OTHER numbers, pinned for the first time. The
-    // revision before this one got all three wrong precisely because only
-    // the totals were pinned.
+    // The doc comment's OTHER numbers, pinned since #179. The revision before
+    // that one got all three wrong precisely because only the totals were
+    // pinned.
     //
     // `!p.hasKeywordPrefix` on both buckets: a keyword-prefixed producer
     // whose TAIL merely LOOKS like `|| fail` (or is followed by a `_RC=$?`
@@ -992,11 +1025,54 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     // No live instance changes today (gate.sh has no keyword-prefixed
     // producer), but the filters must agree with the real classification
     // rather than happen to agree by the accident of an empty case.
+    //
+    // 5 -> 7 (#274): both new producers land in the NEXT-LINE bucket, not
+    // same-line — `verdict_line=$(...)` and `beacon_dir=$(...)` are each
+    // checked by a bare `_RC=$?` assignment on the line right after them,
+    // never by a `||`-shaped tail on the same line. `sameLine` is unmoved.
     const sameLine = allProducers.filter((p) => !p.hasKeywordPrefix && tailChecksStatus(p.tail))
     const nextLine = allProducers.filter((p) => !p.hasKeywordPrefix && !tailChecksStatus(p.tail) && nextLineCapturesRC(LINES[p.endLineIndex + 1]))
     expect(sameLine.length, 'same-line-checked count drifted — the doc comment above cites it').toBe(12)
-    expect(nextLine.length, 'next-line _RC=$? count drifted — the doc comment above cites it').toBe(5)
+    expect(nextLine.length, 'next-line _RC=$? count drifted — the doc comment above cites it').toBe(7)
     expect(sameLine.length + nextLine.length + unchecked.length).toBe(allProducers.length)
+  })
+
+  /**
+   * Review of #274, round 3 (EXECUTED). The doc comment above cites all 20
+   * producers BY LINE NUMBER, and those numbers have now staled three times:
+   * across #273, across #274's first repair, and across #274's SECOND repair
+   * — which staled 17 of the 20 while its own commit body asserted the
+   * sibling sweep had found none left. Each time the counts were pinned and
+   * the citations were not, so each time the suite stayed green over a
+   * paragraph that had become false.
+   *
+   * The counts were already pinned; pinning them again would not have caught
+   * any of the three. What was missing is that the CITATIONS and the FILE
+   * never had to agree. They do now: the numbers between the markers are
+   * extracted from this file's own source and compared, as a set, against
+   * the producers `findAllProducers` finds. A line added anywhere above a
+   * cited producer reddens this the moment it lands.
+   *
+   * The two guards on the markers are not decoration — without them, deleting
+   * a marker turns the law into `expect([]).toEqual([])` and it passes
+   * having checked nothing, which is precisely how the pinned counts kept
+   * passing over stale prose.
+   */
+  it('every gate.sh line the producer doc comment cites IS a producer, and every producer is cited', () => {
+    const own = readFileSync(fileURLToPath(import.meta.url), 'utf8')
+    const begin = own.indexOf('producer-citations:begin')
+    const end = own.indexOf('producer-citations:end')
+    expect(begin, 'the opening marker is gone — a law that cannot find its subject passes vacuously, which is the failure this law exists to end').toBeGreaterThan(-1)
+    expect(end, 'the closing marker is gone, or precedes the opening one').toBeGreaterThan(begin)
+
+    const cited = [...new Set([...own.slice(begin, end).matchAll(/:(\d+)/g)].map((m) => Number(m[1])))].sort((a, b) => a - b)
+    const actual = findAllProducers(LINES).map((pr) => pr.index + 1).sort((a, b) => a - b)
+
+    expect(cited.length, 'the citation block must not be empty — see the marker guards above').toBeGreaterThan(0)
+    expect(
+      cited,
+      'the producer doc comment cites gate.sh line numbers that are no longer producers. Re-derive them against the current file — every one of them, not only the ones this diff happens to touch. This is the third recurrence; .swarm/coupling.txt:64 and the PRD both require the prose to move in the SAME edit as the pins.',
+    ).toEqual(actual)
   })
 
   describe("ruling 2 — the structural predicate's own controls run the REAL predicate, not a restatement of it", () => {
@@ -3468,6 +3544,481 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(raw.held).toBe(true)
       expect(raw.reason).toBe('suite-red')
       expect(typeof raw.outputDigest).toBe('string')
+    })
+
+    /**
+     * prd17 w5 (#274) — the SAME verdict line also has to reach `gate.jsonl`
+     * in the beacon directory (ADR-0036), not only stdout. Every fixture
+     * above runs `VERDICT_MACHINERY` with no `root` set at all, so every one
+     * of them takes the "could not resolve the beacon directory" branch —
+     * none of them ever reaches the write. That gap is the reason this
+     * describe block exists: it is the only place in this file that sets
+     * `root` to something real (`REPO_ROOT`, so that
+     * `$root/node_modules/.bin/tsx` exists and can evaluate
+     * `beaconDirFor()` from `packages/server/src/collectors/beacon/
+     * paths.ts`) and points `RHIZOMORPH_DATA_DIR` at a scratch directory, so
+     * the write lands somewhere disposable rather than a developer's real
+     * `~/.local/share/rhizomorph`.
+     *
+     * `beaconDirFor` is imported directly (the real function, not a
+     * restatement of its hash-and-join) to compute the expected path in
+     * each assertion below — the same "reuse, never reimplement" rule this
+     * file holds every other fixture to.
+     */
+    describe('prd17 w5 (#274) — the same verdict line also reaches gate.jsonl in the beacon directory', () => {
+      /** `root=$REPO_ROOT` (so `$root/node_modules/.bin/tsx` resolves, and with it the real module) and `RHIZOMORPH_DATA_DIR` pointed at a scratch dir (so the write never touches a real machine's data root) — both absent from `runVerdict` above by design. */
+      function runVerdictWithBeacon(setup: string, dataRoot: string): FragmentResult & { h: string } {
+        const h = `verdict-beacon-${process.pid}-${Math.random().toString(36).slice(2, 8)}`
+        const script =
+          `#!/bin/bash\n${SHELL_OPTS}\nH=${h}\nroot="${REPO_ROOT}"\nexport RHIZOMORPH_DATA_DIR="${dataRoot}"\n` +
+          `${VERDICT_MACHINERY}\n${setup}\n`
+        // cwd is REPO_ROOT for tidiness only — it is NOT what makes the
+        // resolution work, and this comment used to say it was (review of
+        // #274, round 3). That justification described the mechanism the
+        // round-2 repair removed: `npx --no-install tsx` resolved its binary
+        // by walking UP from cwd through node_modules, so a scratch cwd
+        // broke it. The machinery now invokes `$root/node_modules/.bin/tsx`
+        // by absolute path, and cwd never participates. EXECUTED from a
+        // scratch directory with no node_modules above it: the same beacon
+        // directory, rc=0, identical to the CONTROL run from REPO_ROOT.
+        // What the fixture actually needs is `root`, set above.
+        const res = runFragment(script, REPO_ROOT)
+        return { ...res, h }
+      }
+
+      it('EXECUTED — a fresh data root (no beacons/ directory yet) gets one created, and gate.jsonl holds byte-for-byte the same line just printed', () => {
+        const dataRoot = scratchDir('beacon-fresh')
+        const beaconDir = beaconDirFor(REPO_ROOT, dataRoot)
+        expect(existsSync(beaconDir), 'test setup: the directory must be genuinely absent for this to be the fresh-install case ADR-0036 names').toBe(false)
+
+        const { stdout, status } = runVerdictWithBeacon('echo "  build OK"\nMERGED=1\nemit_gate_verdict clean', dataRoot)
+        expect(status).toBe(0)
+        const printed = lastLine(stdout)
+        expect(JSON.parse(printed)).toMatchObject({ v: 1, writer: 'gate', kind: 'gate.verdict', held: false, reason: 'clean' })
+
+        const beaconFile = join(beaconDir, 'gate.jsonl')
+        expect(existsSync(beaconFile), 'gate.jsonl must exist after a landing — the directory-creation step must have run').toBe(true)
+        // Byte-for-byte, not "parses to the same object": the whole design
+        // decision (captured once into `verdict_line`, never re-derived by a
+        // second python3 call) is that stdout and the beacon file carry the
+        // IDENTICAL bytes, not merely equivalent JSON.
+        expect(readFileSync(beaconFile, 'utf8')).toBe(`${printed}\n`)
+      })
+
+      it('EXECUTED — a held (pre-merge fail) verdict reaches gate.jsonl too, not only a clean landing', () => {
+        const dataRoot = scratchDir('beacon-held')
+        const beaconDir = beaconDirFor(REPO_ROOT, dataRoot)
+        const { stdout } = runVerdictWithBeacon('fail "boom" suite-red', dataRoot)
+        const printed = lastLine(stdout)
+        expect(JSON.parse(printed)).toMatchObject({ held: true, reason: 'suite-red' })
+        expect(readFileSync(join(beaconDir, 'gate.jsonl'), 'utf8')).toBe(`${printed}\n`)
+      })
+
+      it('EXECUTED — a second landing appends a second line rather than rewriting the first', () => {
+        const dataRoot = scratchDir('beacon-append')
+        const first = lastLine(runVerdictWithBeacon('fail "first" suite-red', dataRoot).stdout)
+        const second = lastLine(runVerdictWithBeacon('fail "second" typecheck-red', dataRoot).stdout)
+        const contents = readFileSync(join(beaconDirFor(REPO_ROOT, dataRoot), 'gate.jsonl'), 'utf8')
+        expect(contents).toBe(`${first}\n${second}\n`)
+      })
+
+      /**
+       * Review of #274, round 2 (MEASURED): `npx --no-install tsx` does NOT
+       * fail fast when the package is unresolvable — it falls back to a
+       * REGISTRY LOOKUP first, measured at 70s against a connection-refused
+       * registry and still running past five minutes against a
+       * black-holed one. Reachable twice in this script: root's own
+       * `node_modules` may not exist yet on a fresh checkout (root's
+       * install runs AFTER the merge), and `install-broken` correlates with
+       * exactly the offline operator `push_or_warn`'s own exemption exists
+       * for. The fix is invoking the resolved binary directly, which never
+       * touches npm's resolver at all — proven structurally rather than by
+       * actually waiting out a black-holed registry in the suite, and
+       * proven as a PROPERTY (one permitted executable) rather than as a
+       * banned token, because `npx` is only one spelling of the defect.
+       */
+      it('the ONLY program this machinery invokes is the resolved tsx binary — a launcher of any spelling fails here', () => {
+        // CODE lines only — this very test, and the fix's own commit
+        // message, both say "npx" in prose explaining why it must not be
+        // used; the claim is about what RUNS, not what is discussed.
+        const code = VERDICT_MACHINERY.split('\n')
+          .filter((l) => !l.trim().startsWith('#'))
+          .join('\n')
+
+        // AN ALLOW-LIST OF ONE, not a deny-list of spellings (review of
+        // #274, round 3). This assertion used to be `.not.toMatch(/\bnpx\b/)`,
+        // which pins a TOKEN rather than the property that was measured:
+        // "does not go through npm's own resolver". `npx` IS a wrapper over
+        // `npm exec`, so `npm exec --offline --yes -- tsx` slips that regex
+        // and hangs identically — MEASURED against a connection-refused
+        // registry from a directory with no node_modules, both `npx
+        // --no-install tsx` and `npm exec -- tsx` were still running at 45s
+        // where the resolved binary took 307ms, and the old assertion
+        // stayed GREEN through that mutation (211 passed, control and
+        // mutant alike). Naming the one acceptable executable closes the
+        // class instead: every launcher spelling, enumerated or not, puts a
+        // different word in this position.
+        // A COMMAND pin, not a SUFFIX pin (round 3 re-review, finding 4). An
+        // earlier draft captured only the token adjacent to `-e`, which
+        // catches a launcher that REPLACES the binary and misses one that
+        // PREFIXES it: `npx --no-install "$root/node_modules/.bin/tsx" -e`
+        // passed. Measured, that prefixed form does not actually reach the
+        // registry (0.40s rc=0 against a refused registry, against 0.30s for
+        // the bare binary), so the exposure was nil and the CLAIM was the
+        // defect — but a pin whose stated property is "the only program this
+        // machinery invokes" must hold the whole command word, so it now
+        // anchors at the start of the invocation line.
+        //
+        // A LOGICAL line, not a physical one (review of #310, EXECUTED). That
+        // anchor is still a position pin, and a `\\` continuation moves the
+        // command word onto a DIFFERENT physical line from the `-e` it is
+        // anchored to — so a launcher prefixing the binary from the line above
+        // slips it exactly as the suffix pin was slipped:
+        //   beacon_dir=$(REPO_PATH=... MODULE_PATH=... npx --no-install \\
+        //     "$root/node_modules/.bin/tsx" -e '
+        // PROBE: that mutation, applied to the real committed scripts/gate.sh
+        // with the line count left unchanged so the producer-citation law
+        // could not mask it, left this whole file GREEN — 215/215.
+        //
+        // This is the THIRD spelling of one defect: round 3 pinned the token
+        // adjacent to `-e`, round 4 pinned the start of its physical line, and
+        // each fix left one position a launcher can still occupy. So the pin
+        // stops asking WHERE the program sits. Continuations are joined first,
+        // then the command substitution's opener and every leading `VAR=value`
+        // environment assignment — which are not a command word — are
+        // stripped, and what remains BEGINS with the program that actually
+        // runs, wherever the author chooses to break the line.
+        const invocation = VERDICT_MACHINERY.split('\n')
+          .filter((l) => !l.trim().startsWith('#'))
+          .join('\n')
+          .replace(/\\\n\s*/g, ' ')
+          .split('\n')
+          .filter((l) => /\s-e\b/.test(l))
+        expect(
+          invocation.map((l) => l.trim()),
+          'the pin is vacuous if the invocation cannot be found at all — renaming or reshaping it must fail here rather than pass silently',
+        ).toHaveLength(1)
+        // `\w+=$(` is the command substitution's own opener, not an argument.
+        const command = invocation[0]!
+          .trim()
+          .replace(/^\w+=\$\(\s*/, '')
+          .replace(/^(?:[A-Za-z_]\w*=(?:"[^"]*"|'[^']*'|\S*)\s+)+/, '')
+        expect(
+          command,
+          'a plain `npx tsx` was MEASURED to hang past five minutes against a black-holed registry when tsx is unresolvable locally, and `npm exec -- tsx` does the same. The resolved binary never reaches the npm resolver, and it is the only thing that may run here — as the whole command, on whatever physical line it is written, not merely as the word before `-e`.',
+        ).toMatch(/^"\$root\/node_modules\/\.bin\/tsx" -e\b/)
+        expect(
+          code,
+          'the binary must be existence-checked before being invoked, or a missing one fails as "command not found" instead of the reported warning',
+        ).toMatch(/-x\s+"\$\{root:-\}\/node_modules\/\.bin\/tsx"/)
+      })
+
+      /**
+       * Review of #274, round 3 (EXECUTED). The comment above the python3
+       * block claims check, repair and write are "one critical section".
+       * They were not: Python's buffered writer flushes at close(), which
+       * the `with` block runs AFTER `fcntl.flock(f, LOCK_UN)`, so the bytes
+       * left the buffer outside the lock the comment says they are inside.
+       * Instrumented at the unlock point, bytes-on-disk was 0 as committed
+       * and 31 with an explicit flush; widening the unlock-to-close window
+       * to 300ms gave two concurrent writers a spurious blank line, which
+       * `parse-beacon-line` refuses and the collector reports as a
+       * malformed line.
+       *
+       * This is pinned STRUCTURALLY, by order. The behavioural form needs
+       * the unlock point instrumented from inside the interpreter — which
+       * is how the review measured it, and is not something the suite can
+       * observe from outside a one-shot `python3 -c`. What the suite CAN
+       * guarantee is that nobody removes the flush or moves it after the
+       * unlock, which is the only way the defect returns.
+       */
+      it('the beacon append flushes INSIDE the lock — write, then flush, then unlock, in that order', () => {
+        // Matched as STATEMENTS, anchored at the start of each line, never as
+        // substrings (round 3 re-review, finding 3). The earlier draft
+        // searched the comment-filtered text with `indexOf`, and that filter
+        // is line-leading only — but these tokens live inside an embedded
+        // Python script, where a TRAILING `#` comment is ordinary. PROBE:
+        // deleting the real `f.flush()` and leaving
+        // `f.write(line.encode() + b"\\n")  # close() covers this` passed
+        // GREEN with the flush genuinely gone from the executed python.
+        // CONTROL: the same deletion without the comment reddened. Anchoring
+        // at `^` means a mention can never stand in for a statement.
+        const py = VERDICT_MACHINERY.split('\n').map((l) => l.trim())
+        const write = py.findIndex((l) => /^f\.write\(line\.encode\(\)/.test(l))
+        const flush = py.findIndex((l) => /^f\.flush\(\)\s*(#.*)?$/.test(l))
+        const unlock = py.findIndex((l) => /^fcntl\.flock\(f, fcntl\.LOCK_UN\)/.test(l))
+
+        expect(write, 'the append itself must be findable as a statement, or this test pins nothing').toBeGreaterThan(-1)
+        expect(flush, 'without an explicit flush STATEMENT the bytes reach the file at close(), after the unlock — a comment naming f.flush() is not one').toBeGreaterThan(-1)
+        expect(unlock, 'the unlock must be findable as a statement, or the ordering claim below is vacuous').toBeGreaterThan(-1)
+
+        expect(flush, 'the flush must come AFTER the append — flushing first flushes nothing').toBeGreaterThan(write)
+        expect(flush, 'the flush must come BEFORE the unlock, or the write is outside the critical section the comment claims it is inside').toBeLessThan(unlock)
+      })
+
+      /**
+       * Review of #274, round 3. A citation by OFFSET rots by construction:
+       * this script carried "this function's own comment 110 lines up",
+       * which was 133 lines up by the time anyone counted it, and would
+       * have been wrong again after the very edit that fixed it. AGENTS.md
+       * already states the rule for CI citations — "cite by job and step
+       * name, never by line number" — and records that the same class of
+       * pointer rotted twice there, once drifting BACK into correctness,
+       * which is the worse failure because spot-checking it says "fine".
+       *
+       * Scoped to gate.sh as a whole rather than to the machinery slice:
+       * the defect is a property of prose in this file, and the slice
+       * boundaries are not where a future author will happen to write one.
+       *
+       * WHAT THIS LAW DOES NOT COVER, stated because an unbounded claim over
+       * a bounded check is the defect this file exists to catch (round 3
+       * re-review, findings 2 and 5). The first draft of this test was named
+       * "cites another line by OFFSET" while checking one spelling of it. A
+       * PROBE appended eight forms and the law stayed green on every one:
+       * `gate.sh:156`, `line 156`, `lines 156-165`, `110 lines further up`,
+       * `12 lines prior`, `a dozen lines above`, `three lines below`,
+       * `~24 lines back`. CONTROL: the certified `N lines up` spelling
+       * reddens and names the line and its text, so the harness is sound.
+       *
+       * Two of those forms are LIVE in this file today, and both predate
+       * this branch (byte-identical at `d804b5a`): absolute `:NNN` citations
+       * at `:354` (`:41`), `:359` (`:116`), `:440` (`:142`), `:465` (`:96`)
+       * and `:472` (`:74-80`) — every one now landing on an unrelated
+       * comment line — and a spelled-out offset, "eighteen lines further
+       * down", at `:440`. They are recorded rather than swept in here: this
+       * commit is answering a review of #274, and re-deriving five
+       * pre-existing citations is its own change with its own reasoning.
+       * Filed as #306; do not widen this regex without fixing them in the
+       * same edit, because a law that ships red is a law that gets skipped.
+       *
+       * So the name and the message below say the one form this actually
+       * holds. A bounded true claim beats an unbounded one that needs a
+       * round per counter-example.
+       */
+      it('no COMMENT in scripts/gate.sh cites another line in the `N lines up/down` form — that one spelling, checked', () => {
+        // Comment lines only. The earlier draft scanned every line while its
+        // own name said "comment", so a CODE line containing the phrase
+        // reddened it (PROBE: `echo "… 3 lines below the threshold"`). It
+        // failed closed, but on the wrong subject.
+        const offsets = LINES.map((line, i) => ({ line, n: i + 1 }))
+          .filter(({ line }) => line.trim().startsWith('#'))
+          .filter(({ line }) => /\b\d+\s+lines?\s+(up|down|above|below|earlier|later|further|back|prior)\b/i.test(line))
+        expect(
+          offsets.map(({ n, line }) => `${n}: ${line.trim()}`),
+          'quote the sentence being cited instead — it is greppable and survives the file moving, which an offset is not',
+        ).toEqual([])
+      })
+
+      /**
+       * Review of #274, round 2 (MEASURED): `import()` takes a MODULE
+       * SPECIFIER, which Node parses as a URL, not a filesystem path — a
+       * repo path containing a tab, LF, CR, `#` or `?` resolved to the
+       * wrong module or ERR_MODULE_NOT_FOUND, and one containing `%` threw
+       * a URIError. Every one of them took the "could not resolve" branch
+       * and wrote nothing, silently. `#` is exercised here (the character
+       * this filesystem can hold in a plain directory name without any
+       * escaping tricks): a symlink whose OWN name carries the special
+       * character, pointing at the real repo, stands in for "the checkout
+       * lives at a path like this" without needing a second copy of
+       * packages/server on disk.
+       */
+      it('EXECUTED — a repo path containing `#` still resolves the beacon directory (pathToFileURL, not a bare-path import)', () => {
+        const linkParent = scratchDir('beacon-hash-path')
+        const specialRoot = join(linkParent, 'repo#with#hash')
+        symlinkSync(REPO_ROOT, specialRoot, 'dir')
+        const dataRoot = scratchDir('beacon-hash-dataroot')
+        const h = `verdict-hash-${process.pid}-${Math.random().toString(36).slice(2, 8)}`
+        const script =
+          `#!/bin/bash\n${SHELL_OPTS}\nH=${h}\nroot="${specialRoot}"\nexport RHIZOMORPH_DATA_DIR="${dataRoot}"\n` +
+          `${VERDICT_MACHINERY}\necho "  build OK"\nMERGED=1\nemit_gate_verdict clean\n`
+        // cwd stays REPO_ROOT — again for tidiness, not for resolution (see
+        // the note in runVerdictWithBeacon). `root` is the symlink whose own
+        // name carries the special character, and it is what both
+        // `$root/node_modules/.bin/tsx` and MODULE_PATH are built from.
+        const res = runFragment(script, REPO_ROOT)
+        expect(res.status).toBe(0)
+        const printed = lastLine(res.stdout)
+        const beaconDir = beaconDirFor(specialRoot, dataRoot)
+        const beaconFile = join(beaconDir, 'gate.jsonl')
+        expect(
+          existsSync(beaconFile),
+          'a bare (non-URL-encoded) path import takes the "could not resolve" branch on this path and writes nothing — this must exist',
+        ).toBe(true)
+        expect(readFileSync(beaconFile, 'utf8')).toBe(`${printed}\n`)
+      })
+
+      /**
+       * Review of #274, round 2 (EXECUTED): a full-disk or otherwise
+       * interrupted append can leave a PARTIAL line with no trailing
+       * newline. A plain `>>` on the NEXT ordinary landing concatenates
+       * directly onto that prefix — one unparseable "line" that costs the
+       * collector BOTH verdicts, the failed one and the good one right
+       * after it. The fix repairs the missing newline before appending its
+       * own line, so the leftover partial content is isolated onto its own
+       * (still genuinely malformed, but no longer contagious) line.
+       */
+      it('EXECUTED — a landing after an interrupted (no-trailing-newline) previous write gets its own line, not fused onto the leftover partial one', () => {
+        const dataRoot = scratchDir('beacon-torn-write')
+        const beaconDir = beaconDirFor(REPO_ROOT, dataRoot)
+        mkdirSync(beaconDir, { recursive: true })
+        // No trailing newline — simulates a write interrupted mid-append.
+        writeFileSync(join(beaconDir, 'gate.jsonl'), '{"v":1,"partial":true')
+
+        const { stdout } = runVerdictWithBeacon('echo "  build OK"\nMERGED=1\nemit_gate_verdict clean', dataRoot)
+        const printed = lastLine(stdout)
+        const contents = readFileSync(join(beaconDir, 'gate.jsonl'), 'utf8')
+        const lines = contents.split('\n').filter((l) => l.length > 0)
+        expect(lines, "the leftover partial line and this landing's own line must both survive, on separate lines").toEqual(['{"v":1,"partial":true', printed])
+        // The leftover line legitimately does not parse (it is genuinely
+        // truncated JSON) — the point is that it no longer poisons the one
+        // after it.
+        expect(() => JSON.parse(lines[1]!)).not.toThrow()
+      })
+
+      it("MUTATION — removing the trailing-newline repair fuses a leftover partial write onto the next landing's line", () => {
+        const repairCondition = 'if f.read(1) != b"\\n":'
+        expect(VERDICT_MACHINERY, 'the real repair condition must still be present for this mutation to say anything').toContain(repairCondition)
+        // `if False:` keeps the body (still indented beneath it) syntactically
+        // valid while making sure it never runs — the newline repair simply
+        // never happens.
+        const noRepair = VERDICT_MACHINERY.replace(repairCondition, 'if False:')
+        expect(noRepair).not.toBe(VERDICT_MACHINERY)
+
+        const dataRoot = scratchDir('beacon-torn-write-mutation')
+        const beaconDir = beaconDirFor(REPO_ROOT, dataRoot)
+        mkdirSync(beaconDir, { recursive: true })
+        writeFileSync(join(beaconDir, 'gate.jsonl'), '{"v":1,"partial":true')
+
+        const script =
+          `#!/bin/bash\n${SHELL_OPTS}\nH=torn-mutant\nroot="${REPO_ROOT}"\nexport RHIZOMORPH_DATA_DIR="${dataRoot}"\n` +
+          `${noRepair}\necho "  build OK"\nMERGED=1\nemit_gate_verdict clean\n`
+        const res = runFragment(script, REPO_ROOT)
+        expect(res.status).toBe(0)
+
+        const contents = readFileSync(join(beaconDir, 'gate.jsonl'), 'utf8')
+        const lines = contents.split('\n').filter((l) => l.length > 0)
+        // The control (the EXECUTED test above, unmutated) produces TWO
+        // separately parseable lines. Under this mutation the partial
+        // content and the new verdict fuse into ONE — the exact corruption
+        // the review measured, costing the collector both.
+        expect(lines).toHaveLength(1)
+        expect(() => JSON.parse(lines[0]!)).toThrow()
+      })
+
+      /**
+       * MUTATION 1 (the issue's own words): "make the write a no-op and
+       * assert only that the gate still exits 0. That passes." Proven here
+       * against the REAL extracted machinery with one line mutated, so the
+       * fixture is exercising the actual defect shape rather than an
+       * imagined one — and the test above it is what the mutation reddens.
+       */
+      it('MUTATION — a no-op write still exits 0; only reading gate.jsonl back catches it', () => {
+        const appendStatement = 'f.write(line.encode() + b"\\n")'
+        expect(VERDICT_MACHINERY, 'the real write statement must still be present for this mutation to say anything').toContain(appendStatement)
+        // `pass`, a python no-op with the same indentation the statement it
+        // replaces already had — the write simply never happens, and the
+        // surrounding lock/flush/close still run normally.
+        const noop = VERDICT_MACHINERY.replace(appendStatement, 'pass')
+        expect(noop).not.toBe(VERDICT_MACHINERY)
+
+        const dataRoot = scratchDir('beacon-noop-mutation')
+        const script =
+          `#!/bin/bash\n${SHELL_OPTS}\nH=noop-mutant\nroot="${REPO_ROOT}"\nexport RHIZOMORPH_DATA_DIR="${dataRoot}"\n` +
+          `${noop}\necho "  build OK"\nMERGED=1\nemit_gate_verdict clean\n`
+        const res = runFragment(script, REPO_ROOT)
+        // The weak assertion — exactly what the issue warns is insufficient.
+        expect(res.status, 'a no-op write must not be fatal — this alone is not proof the write happened').toBe(0)
+        // The assertion that actually catches it: `open(path, "a+b")` alone
+        // already creates an empty file, so EXISTENCE is not enough either
+        // (that would just be a second exit-status-shaped check) — only
+        // reading the CONTENT back and finding it empty (never mind
+        // matching the printed line) proves nothing was appended.
+        const beaconFile = join(beaconDirFor(REPO_ROOT, dataRoot), 'gate.jsonl')
+        expect(existsSync(beaconFile), 'a no-op write still leaves an empty file behind — that is not the same claim as "nothing happened"').toBe(true)
+        expect(readFileSync(beaconFile, 'utf8'), 'the mutation deleted the write — exit-status-only (or existence-only) coverage is blind to this').toBe('')
+      })
+
+      /**
+       * MUTATION 2 (the issue's own words): "delete the directory-creation
+       * step. On a machine that has run the instrument before, the directory
+       * already exists and every test stays green — so the test has to run
+       * against a data root that does not have one yet." Both halves proven
+       * here: the SAME mutation is invisible on a warm data root and fatal
+       * to the write on a genuinely fresh one.
+       */
+      it('MUTATION — deleting mkdir passes on a machine that already has the directory, and only reddens against a genuinely fresh data root', () => {
+        const mkdirStatement = 'os.makedirs(beacon_dir, exist_ok=True)'
+        expect(VERDICT_MACHINERY, 'the real makedirs statement must still be present for this mutation to say anything').toContain(mkdirStatement)
+        // `pass` models "directory creation removed but nothing complains" —
+        // `open(path, "a+b")` still succeeds as long as the directory it
+        // sits in already exists.
+        const noMkdir = VERDICT_MACHINERY.replace(mkdirStatement, 'pass')
+        expect(noMkdir).not.toBe(VERDICT_MACHINERY)
+
+        // Warm: the directory already exists (a machine that ran the
+        // instrument before) — the mutation is INVISIBLE here, which is
+        // exactly the trap the issue names.
+        const warmDataRoot = scratchDir('beacon-mkdir-mutation-warm')
+        const warmBeaconDir = beaconDirFor(REPO_ROOT, warmDataRoot)
+        mkdirSync(warmBeaconDir, { recursive: true })
+        const warmScript =
+          `#!/bin/bash\n${SHELL_OPTS}\nH=mkdir-mutant-warm\nroot="${REPO_ROOT}"\nexport RHIZOMORPH_DATA_DIR="${warmDataRoot}"\n` +
+          `${noMkdir}\necho "  build OK"\nMERGED=1\nemit_gate_verdict clean\n`
+        const warmRes = runFragment(warmScript, REPO_ROOT)
+        expect(warmRes.status).toBe(0)
+        expect(existsSync(join(warmBeaconDir, 'gate.jsonl')), 'on a warm machine the mutation is invisible — this is the trap the issue names, not a bug in this test').toBe(true)
+
+        // Fresh: no pre-existing directory. The SAME mutation now leaves the
+        // write with nowhere to append to.
+        const freshDataRoot = scratchDir('beacon-mkdir-mutation-fresh')
+        const freshBeaconDir = beaconDirFor(REPO_ROOT, freshDataRoot)
+        expect(existsSync(freshBeaconDir)).toBe(false)
+        const freshScript =
+          `#!/bin/bash\n${SHELL_OPTS}\nH=mkdir-mutant-fresh\nroot="${REPO_ROOT}"\nexport RHIZOMORPH_DATA_DIR="${freshDataRoot}"\n` +
+          `${noMkdir}\necho "  build OK"\nMERGED=1\nemit_gate_verdict clean\n`
+        const freshRes = runFragment(freshScript, REPO_ROOT)
+        expect(freshRes.status, 'the write staying non-fatal is correct even under this mutation — the DoD asks for that much').toBe(0)
+        expect(existsSync(join(freshBeaconDir, 'gate.jsonl')), 'without directory creation, a genuinely fresh data root must show the beacon missing').toBe(false)
+      })
+
+      /**
+       * A third mutation, not named by the issue but the direct converse of
+       * the "same bytes, never re-derived" design decision this file's own
+       * comments make: if the append line diverged from the printed line —
+       * a stray extra call, a re-serialised copy, a differently-escaped
+       * `$verdict_line` — nothing above catches it unless the comparison is
+       * BYTE-FOR-BYTE. Proven by planting exactly that divergence.
+       */
+      it('MUTATION — an append that writes something OTHER than the printed line reddens the byte-for-byte check', () => {
+        const appendStatement = 'f.write(line.encode() + b"\\n")'
+        expect(VERDICT_MACHINERY).toContain(appendStatement)
+        // Double-quote delimited, internal quotes escaped — NOT a single-
+        // quoted python literal. The whole python script is itself embedded
+        // in one bash single-quoted string (`python3 -c '...'`), and bash
+        // single quotes cannot be escaped or nested: a bare `'` inside this
+        // replacement would close that string early and corrupt the
+        // surrounding shell syntax (EXECUTED: the first version of this
+        // mutation did exactly that and left gate.sh unable to even create
+        // the directory).
+        const diverged = VERDICT_MACHINERY.replace(
+          appendStatement,
+          String.raw`f.write(b"{\"v\":1,\"writer\":\"gate\",\"kind\":\"gate.verdict\",\"mutated\":true}\n")`,
+        )
+        expect(diverged).not.toBe(VERDICT_MACHINERY)
+
+        const dataRoot = scratchDir('beacon-divergent-mutation')
+        const script =
+          `#!/bin/bash\n${SHELL_OPTS}\nH=divergent-mutant\nroot="${REPO_ROOT}"\nexport RHIZOMORPH_DATA_DIR="${dataRoot}"\n` +
+          `${diverged}\necho "  build OK"\nMERGED=1\nemit_gate_verdict clean\n`
+        const res = runFragment(script, REPO_ROOT)
+        expect(res.status).toBe(0)
+        const printed = lastLine(res.stdout)
+        const written = readFileSync(join(beaconDirFor(REPO_ROOT, dataRoot), 'gate.jsonl'), 'utf8')
+        // A schema-shape or "it parses" check would pass here too — `written`
+        // is valid, v1-shaped JSON. Only the exact-bytes comparison the real
+        // test above makes tells them apart.
+        expect(written).not.toBe(`${printed}\n`)
+      })
     })
   })
 })
