@@ -118,7 +118,7 @@ describe('the golden era corpus', () => {
     //
     // `agent.removed` (#306) is newer than ERA-1's capture — not both, which the
     // rewrite claimed without re-deriving: it entered the union 2026-08-12 in
-    // `6bead13`, four weeks BEFORE era-2 was captured. Its real reason in era-2
+    // `6bead13`, 26 days BEFORE era-2 was captured. Its real reason in era-2
     // is stronger and checkable: era-2's window carries ZERO `workmux` and ZERO
     // `tmux` events, because both collectors were disabled for its whole span —
     // which is what those 90 `collector.disabled` events are. So the one
@@ -194,7 +194,18 @@ describe('era corpus fixture hygiene', () => {
       const walk = (node: unknown): void => {
         if (typeof node === 'string') out.push(node)
         else if (Array.isArray(node)) for (const child of node) walk(child)
-        else if (node !== null && typeof node === 'object') for (const child of Object.values(node)) walk(child)
+        else if (node !== null && typeof node === 'object')
+          // KEYS as well as values (fix re-review of #279, both seats,
+          // independently). `Object.values` alone let an escaped path ride in
+          // as a key: `"\u002fhome\u002fx": "benign"` passed all 25 tests,
+          // while the identical string as that key's VALUE reddened. Not
+          // reachable today — no payload schema uses `z.record`, so no emitter
+          // writes a data-derived key — but the claim this function makes is
+          // about JSON-representable spellings, and a key is one.
+          for (const [key, child] of Object.entries(node)) {
+            out.push(key)
+            walk(child)
+          }
       }
       walk(parsed)
     }
@@ -206,21 +217,50 @@ describe('era corpus fixture hygiene', () => {
     ['a NUL byte', /\0/],
     ['the source repo\'s real basename', /worktrees-challenge/i],
     /**
-     * A SHAPE, not a name (review of #279). This row was `/lachlan/i` — one
-     * contributor's literal name, which for era-2 asserted the absence of a
-     * string that was never going to be present: injecting a plausible bare
-     * username left the entire suite at exit 0. AGENTS.md already records the
-     * general form of that mistake — *a guard scoped by a naming convention
-     * misses the files that predate it* — and the fix it names is to scope by
-     * what a thing IS. A dash-slugged home is what a leaked path looks like
-     * once a tool has encoded it for a filename, and AGENTS.md states that a
-     * path and its encoding are ONE fact written twice.
+     * BOTH ROWS, and the reason is the whole finding of this repair's own
+     * re-review. An earlier version of this commit REPLACED the name row with
+     * the shape row below, calling `lachlan` "one contributor's literal name …
+     * a string that was never going to be present". That was measured on
+     * era-2 — a different operator's machine, and the one era for which the
+     * row was already inert. It is the OS username of the machine that
+     * produced **era-1's** recording: `fa5377d`, which added this row together
+     * with era-1, is authored by Lachlan Kelliher and dated 2026-08-06, era-1's
+     * own capture date. Deleting it was a NET NARROWING dressed as a widening —
+     * A/B proven, ` reviewed by lachlan` in an additive-only payload: 25 passed
+     * with the row gone, 1 failed with it present.
      *
-     * `no-personal-paths-law.test.ts` remains the repo-wide guard, sweeping
-     * every tracked file with no exclusions; this row is the era-local one that
-     * bites on the corpus's own bytes.
+     * `CAPTURE.md` says lane and branch names are byte-identical from the
+     * capture, so a bare username can still reach era-1's bytes as
+     * `lachlan/fix-x`, a tmux session name or an author line. The two rows
+     * close different classes, which is the same argument this commit makes for
+     * decoding beside raw bytes.
      */
-    ['a dash-slugged host home', /[-/](home|Users)-/i],
+    ['the era-1 capture host\'s username', /lachlan/i],
+    /**
+     * A SHAPE as well as the name. A dash-slugged home is what a leaked path
+     * looks like once a tool has encoded it for a filename, and AGENTS.md
+     * states that a path and its encoding are ONE fact written twice.
+     *
+     * The lookbehind is not decoration: without it this fired on ordinary
+     * hyphenated English — `real-home-directory`, `feature/new-home-page`,
+     * `user-Users-guide`. The first is the exact compound
+     * `no-personal-paths-law.test.ts` has a dedicated test forbidding its own
+     * slug detector to match, and it avoids it with this same lookbehind
+     * (`HOME_SLUG_PATTERNS`). A capture is real unedited bytes, so a false
+     * positive here is not a quick edit — it is a re-capture or a re-blessing,
+     * and `fold.ts` names that cost: a corpus that cries wolf gets re-blessed
+     * reflexively, which is how a golden snapshot stops guarding anything.
+     *
+     * `no-personal-paths-law.test.ts` is the repo-wide guard and it does NOT
+     * subsume this one: it excludes `OWN_PATH` and five binary extensions, and
+     * it has no bare-name detector at all — its home, slug and machine patterns
+     * each require path, slug or hostname context. EXECUTED: a bare username
+     * staged into era-2's recording leaves it at 40 passed, while
+     * `/home/someone/x` reddens it. An earlier draft of this comment
+     * claimed that law swept "every tracked file with no exclusions" and made
+     * this row redundant; both halves were false.
+     */
+    ['a dash-slugged host home', /(?<![A-Za-z0-9])[-/](home|Users)-/i],
   ]
 
   for (const era of ERA_CORPUS) {
@@ -252,5 +292,22 @@ describe('era corpus fixture hygiene', () => {
   it('the detector bites — a rigged line would fail the sweep above', () => {
     const rigged = '{"payload":{"path":"/home/someone/repo"}}'
     expect(BANNED.some(([, pattern]) => pattern.test(rigged))).toBe(true)
+  })
+
+  /**
+   * The sibling of the test above, and it was missing until the fix re-review
+   * of #279 pointed out that nothing in the suite witnessed the decode half at
+   * all: replacing `surfaces()`'s body with `return [text]` on a clean corpus
+   * left 25 passing. The proof that decoding is load-bearing lived only in a
+   * commit message, which is exactly the "a test that cannot fail for the
+   * reason it claims" shape this file exists to catch.
+   */
+  it('surfaces() bites — an escaped path and an escaped KEY both come back decoded', () => {
+    const line = '{"payload":{"\\u002fhome\\u002fx":"benign","note":"\\u002fhome\\u002fsomeone"}}'
+    const found = surfaces(line)
+
+    expect(found, 'the escaped VALUE must decode, or the raw-bytes sweep is all there is').toContain('/home/someone')
+    expect(found, 'the escaped KEY must decode too — Object.values alone let this ride in').toContain('/home/x')
+    expect(BANNED.some(([, pattern]) => found.some((surface) => pattern.test(surface)))).toBe(true)
   })
 })

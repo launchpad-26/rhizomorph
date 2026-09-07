@@ -85,14 +85,15 @@ real (`operator.ack`/`.verdict`/`.note`), a tmux socket missing at startup —
 `collector.degraded` twice each on two collectors, and then
 `collector.disabled` **re-announced on every poll for the rest of the window**,
 45 times each and 90 in all (corrected in review of #279, which measured them;
-"twice each" was true of `degraded` and wrong by 45x for `disabled`) — seven
+"twice each" was true of `degraded` and wrong by 22.5x for `disabled` —
+2 per collector against 45, 4 total against 90) — seven
 `judge.finding` records, and a worktree whose git status came back
 listing 500 deleted files (a real, unexplained-but-genuine `worktree.dirty`
 shape nobody would think to write by hand).
 
 The cost of that storm is worth stating rather than leaving for a reader to
 discover: those 90 events are **19.5% of the committed bytes** (42,407 of
-217,723), and only the last one per collector survives into the fold, because
+217,739), and only the last one per collector survives into the fold, because
 `collectorDisabled` overwrites `state.collectors[collector]`. So 88 of the 90
 contribute nothing but `eventCount` and `lastEventTs`. They are kept because the
 window is contiguous and a real slice is not edited — not because each one earns
@@ -160,9 +161,20 @@ caught.
 
 `eras.test.ts` re-checks the result structurally on every run — no host home,
 no NUL byte, no email outside `example.com`, no trace of the source repo's real
-basename or the operator's username, newline-terminated JSONL with no blank
-lines — over both the recording **and** its snapshot. Same grep-law discipline
-as `collectors/otel/fixture-hygiene-law.test.ts`.
+basename, no era-1 capture-host username, and no dash-slugged home,
+newline-terminated JSONL with no blank lines — over both the recording **and**
+its snapshot, and over **both the raw bytes and the JSON-decoded strings**,
+keys included (#279). Same grep-law discipline as
+`collectors/otel/fixture-hygiene-law.test.ts`.
+
+That decoded pass is not belt-and-braces. A host path written with standard
+JSON `\u` escapes is still a leak, still valid JSON, and `JSON.parse` hands the
+original back — and because prd17 ruling 1's families are additive-only in the
+reducer, such a leak never reaches the fold, so the snapshot's byte-equality
+assertion cannot see it either. Both halves of the law missed it until #279's
+review. Percent-encoded forms are deliberately NOT covered: `%2Fhome%2Fx` is a
+different string rather than another spelling of this one, and this is a text
+law, not a decoder chain.
 
 ## Re-deriving a capture
 
