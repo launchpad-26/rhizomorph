@@ -62,10 +62,14 @@ describe('Frame — one switch over five ways of looking (prd53 ruling 8, S1)', 
     expect(screen.queryByTestId('frame-cost-fork-elsewhere')).toBeNull()
   })
 
-  it('the scene position holds its place for wave 4 and cites the charter record, not a reversal', () => {
-    render(<Frame position={3} onPosition={() => {}} seated={SEATED} experiments={[]} />)
-    expect(screen.getByTestId('frame-gap-scene').textContent).toMatch(/wave 4 \(#329\)/)
-    expect(screen.getByTestId('frame-gap-scene').textContent).toMatch(/coexist-by-surface/)
+  it('the scene position draws the lane canvas for the experiments forked here — one organism per run — and says so when there is none (ruling 5, wave 4)', () => {
+    const { rerender } = render(<Frame position={3} onPosition={() => {}} seated={SEATED} experiments={[]} />)
+    expect(screen.getByTestId('frame-scene-empty')).toBeInTheDocument()
+    rerender(<Frame position={3} onPosition={() => {}} seated={SEATED} experiments={[HERE]} failedArmsByFork={{ 'fork-1': [{ arm: 2, error: 'restore failed' }] }} />)
+    const canvas = screen.getByTestId('lane-canvas-fork-1')
+    expect(canvas.dataset.organisms).toBe('2')
+    expect(canvas.dataset.stubs).toBe('1')
+    expect(screen.getByTestId('frame-scene').querySelector('[data-basis="scene"]')?.textContent).toMatch(/charter §8/)
   })
 
   it('the divergence position reads what Trace read, or says how to make it', () => {

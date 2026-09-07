@@ -1,5 +1,7 @@
 import type { KeyboardEvent } from 'react'
 import { AXIS_INSET, markerX, percentLabel, sessionFraction } from '../axis/index.js'
+import { LaneCanvas } from '../canvas/index.js'
+import type { FailedArm } from '../compare/types.js'
 import { experimentSpend } from '../metrics/spend.js'
 import type { LabCheckpoint, LabExperiment } from '../types.js'
 
@@ -40,10 +42,12 @@ export interface FrameProps {
   experiments: readonly LabExperiment[]
   /** What Trace last read for the selected arm, or null when no arm's trace is open. */
   divergence?: DivergenceSummary | null
+  /** Arms a launch asked for that never dispatched, by forkId — drawn as stubs on the canvas (ruling 7). */
+  failedArmsByFork?: Readonly<Record<string, readonly FailedArm[]>>
   width?: number
 }
 
-export function Frame({ position, onPosition, seated, experiments, divergence = null, width = 1000 }: FrameProps) {
+export function Frame({ position, onPosition, seated, experiments, divergence = null, failedArmsByFork = {}, width = 1000 }: FrameProps) {
   function onKeyDown(event: KeyboardEvent<HTMLElement>) {
     if (/^[1-5]$/.test(event.key)) {
       event.preventDefault()
@@ -97,9 +101,22 @@ export function Frame({ position, onPosition, seated, experiments, divergence = 
         ) : position === 2 ? (
           <CostPanel experiments={here} />
         ) : position === 3 ? (
-          <Gap label="scene" basis="ruling 5 — n organisms, one per run, drawn from real multi-run experiments">
-            the lane canvas is wave 4 (#329). This position holds its place, and the charter's coexist-by-surface record says why it may: a different surface, a different picture, both lawful.
-          </Gap>
+          here.length === 0 ? (
+            <p data-testid="frame-scene-empty" className="text-(--ink-dim)">
+              no experiment was forked from this checkpoint — there is no organism to draw
+            </p>
+          ) : (
+            <div data-testid="frame-scene" className="flex flex-col gap-2">
+              {here.map((experiment) => (
+                <div key={experiment.forkId} className="flex flex-col gap-1">
+                  <LaneCanvas experiment={experiment} checkpoint={seated} failedArms={failedArmsByFork[experiment.forkId] ?? []} width={width} height={Math.max(120, 24 + 18 * experiment.arms.flatMap((arm) => arm.runs).length)} />
+                  <span data-basis="scene" className="text-(--ink-dim)">
+                    {experiment.forkId} — one organism per run of the record (ruling 5); a different surface from the scene, and lawful beside it (charter §8)
+                  </span>
+                </div>
+              ))}
+            </div>
+          )
         ) : position === 4 ? (
           divergence === null ? (
             <Gap label="divergence" basis="Trace's own step-by-step classification, accumulated">
