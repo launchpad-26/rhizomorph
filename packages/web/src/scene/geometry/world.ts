@@ -48,13 +48,25 @@ export interface ColonyGeometry {
   /** The id the caller supplied for this colony. */
   id: string
   /**
-   * Top-left of this colony's allocated box, in world coordinates. Add it to
-   * any point in {@link geometry} to place that point in the world.
-   * `{ x: 0, y: 0 }` for the single-colony case, by construction.
+   * Top-left of this colony's allocated box, in world coordinates, and the
+   * origin {@link geometry} was **laid out with** — not an offset still owed to
+   * it. `{ x: 0, y: 0 }` for the single-colony case, by construction.
+   *
+   * Kept on the colony because the placement is a fact worth reading back (the
+   * camera frames by it, and a test asserts the boxes tile), not because
+   * anything downstream has to apply it.
    */
   origin: Point
-  /** The colony's own geometry, in colony-local coordinates. */
+  /** The colony's geometry, already placed in world coordinates. */
   geometry: SceneGeometry
+  /**
+   * The fleet this geometry was laid out from. Carried because the mark
+   * builders read the fleet as well as the geometry — the gap voice asks it
+   * whether a lane manifest arrived — so composing a world means composing a
+   * frame per colony, and a colony that could not answer for its own fleet
+   * would have to borrow its neighbour's.
+   */
+  fleet: Fleet
 }
 
 export interface WorldGeometry {
@@ -127,16 +139,13 @@ export function layoutWorld(
   let threadCount = 0
 
   for (const [i, { id, fleet }] of sources.entries()) {
-    const col = i % cols
-    const row = Math.floor(i / cols)
+    const origin = single
+      ? ORIGIN
+      : { x: (i % cols) * cellWidth, y: Math.floor(i / cols) * cellHeight }
     const geometry = single
       ? layoutScene(fleet, options)
-      : layoutScene(fleet, { ...options, width: cellWidth, height: cellHeight })
-    colonies.push({
-      id,
-      origin: single ? ORIGIN : { x: col * cellWidth, y: row * cellHeight },
-      geometry,
-    })
+      : layoutScene(fleet, { ...options, width: cellWidth, height: cellHeight, origin })
+    colonies.push({ id, origin, geometry, fleet })
     threadCount += geometry.threads.length
   }
 

@@ -216,7 +216,14 @@ function retiredSpineCacheFor(world: string): Map<string, ThreadSpine> {
 
 export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry {
   const { width, height, now } = options
-  const centre: Point = { x: width / 2, y: height / 2 }
+  // prd-52 ruling 1: the colony is laid out where it sits in the world. The
+  // origin is the only term that places it, so every position downstream must
+  // derive from this centre — `world.test.ts` asserts exactly that by shifting
+  // the origin and requiring every point to move by the same vector.
+  const centre: Point = {
+    x: width / 2 + (options.origin?.x ?? 0),
+    y: height / 2 + (options.origin?.y ?? 0),
+  }
   // Big enough to read as the *mass* the threads are threaded into, rather than
   // as one more node that happens to sit in the middle. This is the mass at rest,
   // before anything has landed on it — a quiet session's centre, and the floor
@@ -272,7 +279,14 @@ export function layoutScene(fleet: Fleet, options: LayoutOptions): SceneGeometry
   // lane that its cached spine is a function of. See
   // docs/design-notes/geometry-cache-audit-178.md for why each term is here and
   // what a lane's own per-lane cache key (below) carries instead.
-  const world = `${width}x${height}|${rootRadius.toFixed(3)}|${spacing.toFixed(3)}`
+  // `centre` and not `width`x`height`: two colonies in one world can share a
+  // box size and sit in different places (prd-52 ruling 1), and a spine is a
+  // function of where its mass IS, not of how big its panel is. Keyed on the
+  // size alone, the second colony was served the first one's cached spines and
+  // drew on top of it — caught by the origin-shift law in `worldMarks.test.ts`,
+  // which is the whole reason that law walks every point rather than a
+  // remembered list of fields.
+  const world = `${centre.x.toFixed(3)},${centre.y.toFixed(3)}|${width}x${height}|${rootRadius.toFixed(3)}|${spacing.toFixed(3)}`
 
   const threads: ThreadGeometry[] = []
   const byLane = new Map<string, ThreadGeometry>()
