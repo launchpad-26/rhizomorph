@@ -7,18 +7,19 @@ import {
   SCALE_EXTENT,
   type Camera,
   contentBounds,
+  worldBounds,
   gestureFilter,
   isContentVisible,
   translateExtentFor,
   wheelDelta,
 } from '../camera.js'
-import { layoutScene, type SceneGeometry } from '../geometry.js'
+import { layoutWorld, type SceneGeometry } from '../geometry.js'
 import { createScenePainter } from '../gl/index.js'
 import type { ViewOrigin } from './hitTest.js'
 import {
   breathOf,
   motionMode,
-  sceneMarks,
+  worldMarks,
   vibrancyOf,
   type Mark,
   type SceneFrame,
@@ -172,6 +173,18 @@ export const CONTEXT_LOST_MESSAGE = 'the graphics context was lost — recoverin
  */
 export const CANVAS_UNAVAILABLE_MESSAGE =
   'the canvas did not come up — this environment gave a 2D context but refused WebGL2'
+
+/**
+ * The one colony a solo instrument renders (prd-52 ruling 1).
+ *
+ * Named rather than derived: `RootMass` carries `repoName` and `worktreePath`
+ * and neither identifies a colony — several people on one repository is the
+ * case the world layer exists for, so `repoName` collides exactly there. The
+ * caller names its colony, and this is the local swarm's name. While there is
+ * one colony, selection keeps its bare form (#317), so this id reaches no
+ * user-visible string.
+ */
+const LOCAL_COLONY = 'local'
 
 export function useFrameLoop(
   hostRef: RefObject<HTMLDivElement | null>,
@@ -421,7 +434,13 @@ export function useFrameLoop(
       current.field.step(clock)
 
       const mode = motionMode(current)
-      const geometry = layoutScene(current.fleet, {
+      // THE WORLD IS THE PATH (prd-52 ruling 1). One colony today — the
+      // multi-colony fixture is test-only by the 2026-09-07 ruling — but the
+      // loop goes through `layoutWorld` regardless, so N colonies render the
+      // moment a real source exists rather than after another rewiring. At one
+      // colony this is byte-identical to the call it replaces, which puts
+      // ruling 2 in front of production rather than only in front of a test.
+      const world = layoutWorld([{ id: LOCAL_COLONY, fleet: current.fleet }], {
         width,
         height,
         // The state clock: everything `layoutScene` reads this for is an age.
@@ -450,8 +469,15 @@ export function useFrameLoop(
         retire: current.retire.progress(current.fleet, clock, mode),
         hideFinished: current.hideFinished,
       })
+      const colony = world.colonies[0]
+      // `layoutWorld` returns one colony per source, and it was handed one.
+      if (colony === undefined) return
+      const geometry = colony.geometry
       geometryRef.current = geometry
-      rig.boundsRef.current = contentBounds(geometry)
+      // Null only for a world holding no colonies at all, which this cannot
+      // be. The fallback keeps the empty-scene path honest rather than
+      // asserting a shape the return type does not promise.
+      rig.boundsRef.current = worldBounds(world) ?? contentBounds(geometry)
 
       const palette = paletteFor(current.theme)
       const sceneFrame: SceneFrame = {
@@ -473,7 +499,7 @@ export function useFrameLoop(
         palette,
       }
 
-      const marks = sceneMarks(sceneFrame)
+      const marks = worldMarks(world, sceneFrame)
       if (current.selectedId === MAIN_SELECTION) marks.push(...rootSpotlight(sceneFrame))
 
       // The painter owns the transform, camera and device scale together: the GL
