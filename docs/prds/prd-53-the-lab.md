@@ -1,6 +1,7 @@
 # prd-53 — the lab: the experiment is one fork, and the console stops lying about it
 
-> **Status:** proposed — drafted 2026-09-07 in session with Lachlan Kelliher. **Kind: specifying.**
+> **Status:** **BLESSED** — Lachlan Kelliher, 2026-09-07, in session. Milestone `prd53`. **Kind:
+> specifying.** Drafted the same session.
 > Completes prd-12 (the engine, shipped) and prd-14 (the console, ruled 2026-08-24, two issues
 > open), and **resurrects prd-28 "the standing axis"**, whose paper — eight proposed rulings, nine
 > issues #433–#441 — died in the 2026-08-19 deletion and 2026-08-21 re-upload together with
