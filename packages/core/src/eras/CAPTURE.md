@@ -81,11 +81,22 @@ What is in it, and why this window: it opens on `session.started` — this log's
 birth, which era-1 deliberately holds none of, since it starts mid-session —
 and closes on `summons.cleared`: a lane frozen long enough to raise a summons,
 then recovered, clearing it. In between: the wave-2 operator route driven for
-real (`operator.ack`/`.verdict`/`.note`), a tmux socket missing at startup
-(`collector.degraded`/`.disabled`, twice each, on two different collectors),
-seven `judge.finding` records, and a worktree whose git status came back
+real (`operator.ack`/`.verdict`/`.note`), a tmux socket missing at startup —
+`collector.degraded` twice each on two collectors, and then
+`collector.disabled` **re-announced on every poll for the rest of the window**,
+45 times each and 90 in all (corrected in review of #279, which measured them;
+"twice each" was true of `degraded` and wrong by 45x for `disabled`) — seven
+`judge.finding` records, and a worktree whose git status came back
 listing 500 deleted files (a real, unexplained-but-genuine `worktree.dirty`
 shape nobody would think to write by hand).
+
+The cost of that storm is worth stating rather than leaving for a reader to
+discover: those 90 events are **19.5% of the committed bytes** (42,407 of
+217,723), and only the last one per collector survives into the fold, because
+`collectorDisabled` overwrites `state.collectors[collector]`. So 88 of the 90
+contribute nothing but `eventCount` and `lastEventTs`. They are kept because the
+window is contiguous and a real slice is not edited — not because each one earns
+its bytes.
 
 It was chosen from the full Pareto frontier of contiguous windows against the
 ten gap-list families this log can close: the smallest window closing all ten

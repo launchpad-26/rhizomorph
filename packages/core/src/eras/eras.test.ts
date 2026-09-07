@@ -108,10 +108,31 @@ describe('the golden era corpus', () => {
     // saw happen. `gate.verdict`/`dispatch.brief`/`fence.declared` are still
     // unemitted anywhere — no surface writes them yet. `session.closed` needs
     // a clean server shutdown, which no capture has caught mid-session.
-    // `telemetry.refused` needs a misconfigured lane, and `fork.*` need the lab
-    // and the judge to have run — neither era's window hit either. `agent.removed`
-    // (#306) is newer than both captures and needs a workmux handle to depart
-    // mid-recording. `worktree.dirtyStatusFailed`/`.dirtyStatusRecovered` (#429)
+    // `telemetry.refused` needs a misconfigured lane. `fork.*` need THE LAB to
+    // have been driven — not the judge, which era-2 did run: it holds seven
+    // `judge.finding` events, and `fork.checkpoint`/`.dispatched` come only from
+    // `server/src/lab/{fork,checkpoint,restore}.ts`, which no collector reaches.
+    // (Corrected in review of #279. The clause was inherited from the pre-diff
+    // comment, where `judge.finding` was still on this list and pairing the two
+    // was correct; moving it out left the clause behind.)
+    //
+    // `agent.removed` (#306) is newer than ERA-1's capture — not both, which the
+    // rewrite claimed without re-deriving: it entered the union 2026-08-12 in
+    // `6bead13`, four weeks BEFORE era-2 was captured. Its real reason in era-2
+    // is stronger and checkable: era-2's window carries ZERO `workmux` and ZERO
+    // `tmux` events, because both collectors were disabled for its whole span —
+    // which is what those 90 `collector.disabled` events are. So the one
+    // collector that emits `agent.removed` never emitted anything at all. The
+    // same correction applies to any family whose only emitter is those two.
+    //
+    // `beacon.received` is the absence that most needs a reason, and it is the
+    // one this comment omitted until review of #279 asked for it. Unlike the
+    // families above it EXISTED and COULD have fired: it landed 2026-09-04
+    // (`d1ffc05`, #217), it has a live emitter in
+    // `server/src/collectors/beacon/collector.ts`, and era-2's own base commit
+    // is the merge of #310. It did not fire because no rhizomorph-owned beacon
+    // directory existed in the watched tree during the window — the gate that
+    // writes one had merged minutes earlier and no landing had run since. `worktree.dirtyStatusFailed`/`.dirtyStatusRecovered` (#429)
     // need a worktree's `git status --porcelain` to cross the failure bound and
     // recover mid-recording, which neither capture's window hit either.
     expect(EVENT_TYPES.filter((type) => !covered.has(type)).sort()).toEqual([
@@ -141,21 +162,74 @@ describe('the golden era corpus', () => {
  * Grep-law style, over the raw source text rather than the parsed shape, so it
  * also catches a leak in a field no reducer reads and no schema mentions — and
  * over the SNAPSHOT too, since a fold copies payload strings into state.
+ *
+ * **And over the DECODED text as well as the raw bytes** (review of #279). Raw
+ * bytes alone are not the whole surface: a path written with standard JSON
+ * `\u` escapes is still a leak, still valid JSON, and `JSON.parse` hands the
+ * original back. EXECUTED — `/home/someone/worktrees-challenge` escaped into a
+ * `summons.raised` payload's `lane` passed all 25 tests here; the same path as
+ * a raw literal reddened 2. Both halves of this law missed it at once, and the
+ * second half is the interesting one: prd17 ruling 1's families are
+ * additive-only in `reduce.ts` (they return `state` unchanged), so a payload
+ * leak never reaches the fold and the snapshot's byte-equality assertion cannot
+ * see it either. Decoding closes every JSON-representable spelling in one edit
+ * rather than one per round.
  */
 describe('era corpus fixture hygiene', () => {
+  /**
+   * Every string the text can yield: the raw source, and every string leaf of
+   * every parsed line. `decoded` is derived, never a second hand-maintained
+   * copy — a leak is a leak in whichever form it is committed.
+   */
+  function surfaces(text: string): readonly string[] {
+    const out: string[] = [text]
+    for (const line of text.split('\n')) {
+      if (line.trim().length === 0) continue
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(line)
+      } catch {
+        continue // a malformed line is the JSONL law's finding, not this one's
+      }
+      const walk = (node: unknown): void => {
+        if (typeof node === 'string') out.push(node)
+        else if (Array.isArray(node)) for (const child of node) walk(child)
+        else if (node !== null && typeof node === 'object') for (const child of Object.values(node)) walk(child)
+      }
+      walk(parsed)
+    }
+    return out
+  }
+
   const BANNED: readonly (readonly [string, RegExp])[] = [
-    ['a host home directory', /\/(home|Users)\//],
+    ['a host home directory', /\/(home|Users)\//i],
     ['a NUL byte', /\0/],
-    ['the source repo\'s real basename', /worktrees-challenge/],
-    ['the operator\'s username', /lachlan/i],
+    ['the source repo\'s real basename', /worktrees-challenge/i],
+    /**
+     * A SHAPE, not a name (review of #279). This row was `/lachlan/i` — one
+     * contributor's literal name, which for era-2 asserted the absence of a
+     * string that was never going to be present: injecting a plausible bare
+     * username left the entire suite at exit 0. AGENTS.md already records the
+     * general form of that mistake — *a guard scoped by a naming convention
+     * misses the files that predate it* — and the fix it names is to scope by
+     * what a thing IS. A dash-slugged home is what a leaked path looks like
+     * once a tool has encoded it for a filename, and AGENTS.md states that a
+     * path and its encoding are ONE fact written twice.
+     *
+     * `no-personal-paths-law.test.ts` remains the repo-wide guard, sweeping
+     * every tracked file with no exclusions; this row is the era-local one that
+     * bites on the corpus's own bytes.
+     */
+    ['a dash-slugged host home', /[-/](home|Users)-/i],
   ]
 
   for (const era of ERA_CORPUS) {
     describe(era.name, () => {
       for (const [what, pattern] of BANNED) {
-        it(`carries no ${what}`, () => {
-          expect(era.recordingText).not.toMatch(pattern)
-          expect(era.snapshotText).not.toMatch(pattern)
+        it(`carries no ${what}, raw or JSON-decoded`, () => {
+          for (const text of [era.recordingText, era.snapshotText]) {
+            for (const surface of surfaces(text)) expect(surface).not.toMatch(pattern)
+          }
         })
       }
 
