@@ -83,27 +83,40 @@ describe('the golden era corpus', () => {
     // coverage is a fact to state rather than a target to hit. Stated as the
     // exact GAP, not a floor: adding an era, or losing an arm from an existing
     // one, changes this list and has to be acknowledged here — which is the
-    // point. What era-1 misses is the rare and the deliberately-invoked:
-    // `session.started`/`session.closed` bracket a log rather than living
-    // mid-flight, the four `collector.*` families only fire when a collector is
-    // unhealthy, `telemetry.refused` needs a misconfigured lane, and
-    // `fork.*`/`judge.finding` need the lab and the judge to have run.
-    // `agent.removed` (#306) is newer than era-1's 2026-08-06 capture and
-    // needs a workmux handle to actually depart mid-recording — neither
-    // happened in it. `worktree.dirtyStatusFailed`/`.dirtyStatusRecovered`
-    // (#429) are newer still and need a worktree's `git status --porcelain`
-    // to actually cross the failure bound and recover mid-recording, which
-    // era-1's capture never hit. prd17 ruling 1's eight families (#219) are
-    // newer than every capture in the corpus and none of them has an emitter
-    // yet — this issue defines their contracts and deliberately does not emit
-    // them — so a recording cannot contain one until the gate, dispatch and
-    // operator surfaces that raise them exist. They join the gap list for that
-    // reason, and each should leave it in the wave that starts emitting it.
+    // point.
+    //
+    // era-2 (#279) closes nine of the families era-1 left open. Four of them
+    // now fold real state for the first time in this corpus — `session.started`
+    // (era-1 deliberately starts mid-session and holds none),
+    // `collector.degraded`/`collector.disabled` (both fired for real, a tmux
+    // socket going missing on startup), and `judge.finding`. The other five —
+    // `operator.ack`/`.verdict`/`.note` (the wave-2 route, driven for real) and
+    // `summons.raised`/`.cleared` (a lane frozen and then recovered) — are
+    // genuinely present and understood, but prd17 ruling 1 (#219) made every
+    // one of them additive-only in the reducer: `reduce.ts` returns `state`
+    // unchanged for all eight of that ruling's families, so their presence
+    // here proves the union accepts them and nothing yet reads them out of a
+    // recording, not that folding one moves anything.
+    //
+    // What still isn't here, and why, era-2 included: `collector.error` DID
+    // fire in the source log era-2 was sliced from, once — but ~200 lines past
+    // the window's own close (`summons.cleared`), and reaching it would have
+    // cost another ~80KB of committed bytes for one single-fire family already
+    // adjacent to the two `collector.*` arms the window already covers. Left
+    // out on purpose (see CAPTURE.md), not missed. `collector.recovered` needs
+    // a collector to recover after degrading, which neither era's window ever
+    // saw happen. `gate.verdict`/`dispatch.brief`/`fence.declared` are still
+    // unemitted anywhere — no surface writes them yet. `session.closed` needs
+    // a clean server shutdown, which no capture has caught mid-session.
+    // `telemetry.refused` needs a misconfigured lane, and `fork.*` need the lab
+    // and the judge to have run — neither era's window hit either. `agent.removed`
+    // (#306) is newer than both captures and needs a workmux handle to depart
+    // mid-recording. `worktree.dirtyStatusFailed`/`.dirtyStatusRecovered` (#429)
+    // need a worktree's `git status --porcelain` to cross the failure bound and
+    // recover mid-recording, which neither capture's window hit either.
     expect(EVENT_TYPES.filter((type) => !covered.has(type)).sort()).toEqual([
       'agent.removed',
       'beacon.received',
-      'collector.degraded',
-      'collector.disabled',
       'collector.error',
       'collector.recovered',
       'dispatch.brief',
@@ -111,14 +124,7 @@ describe('the golden era corpus', () => {
       'fork.checkpoint',
       'fork.dispatched',
       'gate.verdict',
-      'judge.finding',
-      'operator.ack',
-      'operator.note',
-      'operator.verdict',
       'session.closed',
-      'session.started',
-      'summons.cleared',
-      'summons.raised',
       'telemetry.refused',
       'worktree.dirtyStatusFailed',
       'worktree.dirtyStatusRecovered',

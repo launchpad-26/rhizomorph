@@ -66,6 +66,44 @@ other key moved (checked by diff). The reducer change is the `beacon.received`
 arm; the new fold is the correct meaning of the old log because that log
 contains no beacon and now says so.
 
+### era-2 — `era-2/recording.jsonl`
+
+| | |
+|---|---|
+| source | this repo's own live instrument session log |
+| captured | 2026-09-07 |
+| slice | lines **0–452** (0-based), contiguous, from the log's own birth |
+| size | 453 lines, ~218 KB |
+| families | **18** distinct types in the slice; **9** of them close gap-list families era-1 left open (see `eras.test.ts` for the exact remaining gap) |
+| span | `ts` 1788757348268 – 1788758720748 |
+
+What is in it, and why this window: it opens on `session.started` — this log's
+birth, which era-1 deliberately holds none of, since it starts mid-session —
+and closes on `summons.cleared`: a lane frozen long enough to raise a summons,
+then recovered, clearing it. In between: the wave-2 operator route driven for
+real (`operator.ack`/`.verdict`/`.note`), a tmux socket missing at startup
+(`collector.degraded`/`.disabled`, twice each, on two different collectors),
+seven `judge.finding` records, and a worktree whose git status came back
+listing 500 deleted files (a real, unexplained-but-genuine `worktree.dirty`
+shape nobody would think to write by hand).
+
+It was chosen from the full Pareto frontier of contiguous windows against the
+ten gap-list families this log can close: the smallest window closing all ten
+is 660 lines (~300 KB), but the tenth, `collector.error`, fires only once,
+~200 lines past this window's own close, and reaching it would nearly double
+the committed bytes for one single-fire family — not worth it by the same
+"most families per committed byte" test era-1's own note applies.
+`collector.error` is therefore left out **on purpose**, not missed; see
+`eras.test.ts`'s gap-list comment for the rest of what's still absent and why.
+
+**Four of the nine closed families fold real state for the first time in this
+corpus:** `session.started`, `collector.degraded`, `collector.disabled`,
+`judge.finding`. The other five — `operator.ack`/`.verdict`/`.note` and
+`summons.raised`/`.cleared` — are additive-only in the reducer today (prd17
+ruling 1, #219: every one of that ruling's eight families returns `state`
+unchanged), so their presence here proves the union accepts them and the
+recording is understood, not that folding one changes anything yet.
+
 ## Redaction
 
 A real slice, mechanically redacted. Every field the reducer reads is
@@ -86,12 +124,28 @@ Replaced:
 | `payload.sessionId` (agent CLI session UUIDs) | `00000000-0000-4000-8000-0000000000NN` |
 | `payload.requestId` | `req_TEST00000000000000000N` |
 | `payload.toolUseId` | `toolu_TEST000000000000000N` |
+| `payload.lane` (**era-2 only**) — a `summons.raised`/`.cleared` diagnostic that mostly carries a short lane handle, but the raiser sometimes reports the lane as its full worktree path instead; a real inconsistency in what it emits, not a capture artifact | same host-home substitution as the path fields above |
+| a tool-activity `filePath` into the CLI's own scratchpad directory (**era-2 only**) — the dirname *slugifies* the worktree path: every `/` and `_` becomes `-` | the same host-home prefix, dash-encoded: `-home-<user>-<org-dir>-` → `-repo-` |
 
 The three id pools are **injective**: two redacted values are equal exactly
 when the originals were, so every dedup and join the reducer performs
 (`requestId` cross-collector dedup, the `sessionId` place join) behaves on the
 redacted log as it did on the real one. That is why they are numbered pools
 rather than one fixed placeholder each.
+
+**Redact by scanning the whole file for the path's literal text, in whatever
+encoding it appears — never only by walking the field list above.** era-2 is
+why: the field list doesn't name `payload.lane`, and it never fired for
+era-1, but this log's raiser puts a full path there some of the time. And the
+same path leaks a *second* time from an unrelated field, dash-encoded rather
+than slash-encoded, which no `/home/`-substring guard would catch either — the
+same lesson AGENTS.md already states for guards in general: "the path and its
+encoding are one edit." The field-name table above still documents *what*
+gets touched for a reviewer's sake; it must not be read as exhaustive of
+*where*. era-2's redaction pass applied both substitutions as plain text
+replacements over the raw file rather than a key-by-key JSON walk, precisely
+so a value sitting in an unlisted field, or encoded differently, still gets
+caught.
 
 `eras.test.ts` re-checks the result structurally on every run — no host home,
 no NUL byte, no email outside `example.com`, no trace of the source repo's real

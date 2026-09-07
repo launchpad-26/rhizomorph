@@ -66,6 +66,14 @@ export const ERAS: readonly EraRecording[] = [
     provenance:
       "a 100-line contiguous slice of a real 2026-08-06 session log, mid-flight across four lanes: 15 event families (of the 16 that log ever emitted, and of the 25 this era declares), timestamps that are not monotonic in the log's own order, a worktree and a branch disappearing together, eight commits landing on one git poll.",
   },
+  {
+    era: 2,
+    name: 'era-2',
+    recordingFile: 'era-2/recording.jsonl',
+    snapshotFile: 'era-2/session-state.snapshot.json',
+    provenance:
+      "a 453-line contiguous slice of this repo's own live instrument session log, captured 2026-09-07 from the log's own birth: `session.started` opens it, and `collector.degraded`/`collector.disabled`/`judge.finding` fold real state for the first time in this corpus. The wave-2 operator route (`operator.ack`/`.verdict`/`.note`) and a summons raised then cleared on a lane that came back from frozen are both driven for real here too, though additive-only in the reducer today — present in the fold's union, folding no state yet.",
+  },
 ]
 
 /**
