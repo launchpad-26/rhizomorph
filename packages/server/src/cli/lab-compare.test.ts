@@ -6,11 +6,12 @@ describe('parseLabCompareArgs', () => {
     forkId: 'fork-1',
     verify: 'npm test',
     skipVerify: false,
+    json: false,
     path: undefined,
     help: false,
   }
 
-  it('defaults the gate command to npm test', () => {
+  it('defaults the gate command to npm test, and the table over JSON', () => {
     expect(parseLabCompareArgs(['fork-1'])).toEqual(compareDefaults)
   })
 
@@ -24,6 +25,11 @@ describe('parseLabCompareArgs', () => {
 
   it('parses --no-verify as a valueless switch', () => {
     expect(parseLabCompareArgs(['fork-1', '--no-verify'])).toEqual({ ...compareDefaults, skipVerify: true })
+  })
+
+  it('parses --json as a valueless switch — the document the measure route reads (prd53 ruling 3)', () => {
+    expect(parseLabCompareArgs(['fork-1', '--json'])).toEqual({ ...compareDefaults, json: true })
+    expect(() => parseLabCompareArgs(['fork-1', '--json=yes'])).toThrow(/takes no value/)
   })
 
   it('refuses --verify and --no-verify together rather than silently preferring one', () => {
@@ -46,11 +52,12 @@ describe('parseLabCompareArgs', () => {
 })
 
 describe('labCompareHelpText', () => {
-  it('labCompareHelpText says plainly that it will not rank below three arms', () => {
+  it('labCompareHelpText says plainly that it will not rank below three arms, and documents --json', () => {
     const text = labCompareHelpText()
     expect(text).toContain('rhizomorph lab compare <fork-id>')
     expect(text).toContain('--verify')
     expect(text).toContain('--no-verify')
+    expect(text).toContain('--json')
     expect(text).toContain('never a winner')
     expect(text).toContain('three')
   })

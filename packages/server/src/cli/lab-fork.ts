@@ -23,6 +23,8 @@ export interface LabForkArgs {
   forkId: string | undefined
   /** Which arm this call dispatches; only meaningful with `--arms 1`, and refused otherwise. */
   armNumber: number | undefined
+  /** The operator's declared launch ceiling in spending lanes (prd53 ruling 6); undefined means the default holds. */
+  ceilingOverride: number | undefined
   /** The parent lane's worktree; undefined defaults to the current directory. */
   path: string | undefined
   /** Run the workmux launcher too. Off by default — see `lab/fork.ts`'s module doc. */
@@ -60,6 +62,10 @@ Options:
   --fork-id <id>          Dispatch into an existing experiment instead of minting a new one —
                           what the /lab launch passes so n treatments stay ONE fork
   --arm-number <k>        Which arm this call dispatches (default: 1; requires --arms 1)
+  --ceiling-override <n>  Authorise up to n spending lanes (arms × runs) for THIS dispatch, past
+                          the default launch ceiling. A declared act: the refusal that asks for
+                          it names it, and it is recorded on every fork.dispatched it produces
+                          (prd53 ruling 6)
   --path <dir>            The lane's worktree (default: current directory)
   --launch                Also run 'workmux add' for each arm. OFF by default: that
                           creates a refs/heads/ branch and a worktree of workmux's
@@ -82,6 +88,7 @@ export function parseLabForkArgs(argv: readonly string[]): LabForkArgs {
       runs: 1,
       forkId: undefined,
       armNumber: undefined,
+      ceilingOverride: undefined,
       path: undefined,
       launch: false,
       help: true,
@@ -95,6 +102,7 @@ export function parseLabForkArgs(argv: readonly string[]): LabForkArgs {
   let runsArg: string | undefined
   let forkIdArg: string | undefined
   let armNumberArg: string | undefined
+  let ceilingOverrideArg: string | undefined
   let pathArg: string | undefined
   let launch = false
 
@@ -106,6 +114,7 @@ export function parseLabForkArgs(argv: readonly string[]): LabForkArgs {
     { flag: '--runs', read: (v) => { runsArg = v } },
     { flag: '--fork-id', read: (v) => { forkIdArg = v } },
     { flag: '--arm-number', read: (v) => { armNumberArg = v } },
+    { flag: '--ceiling-override', read: (v) => { ceilingOverrideArg = v } },
     { flag: '--path', read: (v) => { pathArg = v } },
     { flag: '--launch', boolean: true, read: () => { launch = true } },
   ]
@@ -147,6 +156,10 @@ export function parseLabForkArgs(argv: readonly string[]): LabForkArgs {
   if (armNumber !== undefined && arms !== 1) {
     throw new Error(`--arm-number requires --arms 1 (received --arms ${arms}): the number names the one arm this call dispatches`)
   }
+  const ceilingOverride = ceilingOverrideArg === undefined ? undefined : Number(ceilingOverrideArg)
+  if (ceilingOverride !== undefined && (!Number.isInteger(ceilingOverride) || ceilingOverride < 1)) {
+    throw new Error(`invalid --ceiling-override value: "${ceilingOverrideArg}" (must be a positive integer of spending lanes)`)
+  }
 
   return {
     lane,
@@ -157,6 +170,7 @@ export function parseLabForkArgs(argv: readonly string[]): LabForkArgs {
     runs,
     forkId: forkIdArg,
     armNumber,
+    ceilingOverride,
     path: pathArg,
     launch,
     help: false,

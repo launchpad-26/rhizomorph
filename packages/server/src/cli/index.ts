@@ -198,6 +198,7 @@ async function runLabForkCommand(
       runs: args.runs,
       forkId: args.forkId,
       armNumber: args.armNumber,
+      ceilingOverride: args.ceilingOverride,
       model: args.model,
       promptFile: args.promptFile,
       launch: args.launch,
@@ -280,7 +281,10 @@ async function runLabCompareCommand(
       exec: options.exec,
       dataRoot: options.dataRoot,
     })
-    log.log(renderComparison(comparison))
+    // `--json` is the document `api/lab.ts`'s measure route reads back through
+    // `runCli` (prd53 ruling 3) — the whole `ForkComparison`, nothing summarised
+    // away. The table stays the human's.
+    log.log(args.json ? JSON.stringify(comparison) : renderComparison(comparison))
   } catch (err) {
     process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
     exit(1)

@@ -1155,6 +1155,48 @@ describe('reduce — fork.dispatched (prd12 ruling 3)', () => {
     expect(state.forks.byArm[armKey('fork-1', 1)]).toEqual([0])
   })
 
+  it('keeps the declared ceiling override on the record, and null — never a default — when none was declared (prd53 ruling 6)', () => {
+    const state = reduceAll([
+      f.forkDispatched({ forkId: 'fork-1', arm: 1, laneHandle: 'fork-1-arm-1' }, { ts: 100 }),
+      f.forkDispatched({ forkId: 'fork-1', arm: 2, laneHandle: 'fork-1-arm-2', ceilingOverride: 12 }, { ts: 101 }),
+    ])
+    expect(state.forks.dispatches.map((d) => d.ceilingOverride)).toEqual([null, 12])
+  })
+
+  describe('fork.measured (prd53 ruling 3 — measuring is a write)', () => {
+    it('appends every verdict and indexes the newest per lane — a re-measure supersedes without erasing', () => {
+      const state = reduceAll([
+        f.forkDispatched({ forkId: 'fork-1', arm: 1, laneHandle: 'fork-1-arm-1' }, { ts: 100 }),
+        f.forkMeasured({ forkId: 'fork-1', laneHandle: 'fork-1-arm-1', verified: 'fail', verifiedDetail: '1 failed' }, { ts: 200 }),
+        f.forkMeasured({ forkId: 'fork-1', laneHandle: 'fork-1-arm-1', verified: 'pass', verifiedDetail: null }, { ts: 300 }),
+      ])
+      expect(state.forks.measurements).toHaveLength(2)
+      expect(state.forks.measurements.map((m) => m.verified)).toEqual(['fail', 'pass'])
+      expect(state.forks.latestOutcomeByLane['fork-1-arm-1']).toBe(1)
+      expect(state.forks.measurements[1]).toMatchObject({
+        forkId: 'fork-1',
+        laneHandle: 'fork-1-arm-1',
+        verified: 'pass',
+        verifyCommand: 'npm test',
+        source: 'measure-route',
+        ts: 300,
+      })
+    })
+
+    it('an unmeasured lane has no entry at all — nothing stands in for a verdict nobody gave', () => {
+      const state = reduceAll([f.forkDispatched({ forkId: 'fork-1', arm: 1, laneHandle: 'fork-1-arm-1' }, { ts: 100 })])
+      expect(state.forks.measurements).toEqual([])
+      expect(Object.hasOwn(state.forks.latestOutcomeByLane, 'fork-1-arm-1')).toBe(false)
+    })
+
+    it('leaves the dispatch record exactly as it was — a measurement is about a run, it does not change what the run was', () => {
+      const dispatched = reduceAll([f.forkDispatched({ forkId: 'fork-1', arm: 1, laneHandle: 'fork-1-arm-1' }, { ts: 100 })])
+      const measured = reduce(dispatched, f.forkMeasured({ forkId: 'fork-1', laneHandle: 'fork-1-arm-1' }, { ts: 200 }))
+      expect(measured.forks.dispatches).toEqual(dispatched.forks.dispatches)
+      expect(measured.forks.byLane).toEqual(dispatched.forks.byLane)
+    })
+  })
+
   it('marks a lane that appears AFTER the dispatch synthetic — the forward direction', () => {
     const state = reduceAll([
       f.forkDispatched({ forkId: 'fork-1', laneHandle: 'fork-1-arm-1' }, { ts: 100 }),

@@ -11,21 +11,19 @@ describe('parseLabForkArgs', () => {
     runs: 1,
     forkId: undefined,
     armNumber: undefined,
+    ceilingOverride: undefined,
     path: undefined,
     launch: false,
     help: false,
   }
 
-  it('defaults to three arms — prd12 ruling 4\'s floor — one run of each, and no launch', () => {
+  it("defaults to three arms — prd12 ruling 4's floor — one run of each, no override, and no launch", () => {
     expect(parseLabForkArgs(['my-lane'])).toEqual(forkDefaults)
   })
 
   it('parses --at, --model, --prompt-file, --arms and --path', () => {
     expect(
-      parseLabForkArgs([
-        'my-lane', '--at', 'ckpt-1', '--model', 'opus',
-        '--prompt-file', './p.md', '--arms', '5', '--path', '../repo',
-      ]),
+      parseLabForkArgs(['my-lane', '--at', 'ckpt-1', '--model', 'opus', '--prompt-file', './p.md', '--arms', '5', '--path', '../repo']),
     ).toEqual({
       ...forkDefaults,
       at: 'ckpt-1',
@@ -37,15 +35,19 @@ describe('parseLabForkArgs', () => {
   })
 
   it('parses --runs, --fork-id and --arm-number (prd53 ruling 1)', () => {
-    expect(
-      parseLabForkArgs(['my-lane', '--arms', '1', '--runs', '3', '--fork-id', 'fork-x', '--arm-number', '2']),
-    ).toEqual({
+    expect(parseLabForkArgs(['my-lane', '--arms', '1', '--runs', '3', '--fork-id', 'fork-x', '--arm-number', '2'])).toEqual({
       ...forkDefaults,
       arms: 1,
       runs: 3,
       forkId: 'fork-x',
       armNumber: 2,
     })
+  })
+
+  it('parses --ceiling-override as a declared number of spending lanes, and refuses a zero or fractional one (prd53 ruling 6)', () => {
+    expect(parseLabForkArgs(['my-lane', '--ceiling-override', '12'])).toEqual({ ...forkDefaults, ceilingOverride: 12 })
+    expect(() => parseLabForkArgs(['my-lane', '--ceiling-override', '0'])).toThrow(/invalid --ceiling-override/)
+    expect(() => parseLabForkArgs(['my-lane', '--ceiling-override', '2.5'])).toThrow(/invalid --ceiling-override/)
   })
 
   it('parses the =value spelling too', () => {
@@ -100,7 +102,7 @@ describe('parseLabForkArgs', () => {
 })
 
 describe('labForkHelpText', () => {
-  it('labForkHelpText documents the treatment flags, the arm default, the run flags and why --launch is opt-in', () => {
+  it('labForkHelpText documents the treatment flags, the arm default, the run flags, the ceiling override and why --launch is opt-in', () => {
     const text = labForkHelpText()
     expect(text).toContain('rhizomorph lab fork <lane>')
     expect(text).toContain('--at <checkpointId>')
@@ -111,6 +113,7 @@ describe('labForkHelpText', () => {
     expect(text).toContain('--runs <r>')
     expect(text).toContain('--fork-id <id>')
     expect(text).toContain('--arm-number <k>')
+    expect(text).toContain('--ceiling-override <n>')
     expect(text).toContain('--launch')
     expect(text).toContain('ruling 1')
   })

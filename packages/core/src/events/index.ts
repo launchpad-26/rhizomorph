@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import { nonEmptyString, timestampSchema, type EventSource } from './common.js'
 import { beaconEventSchemas } from './beacon.js'
+import { type EventSource, nonEmptyString, timestampSchema } from './common.js'
 import { gateEventSchemas } from './gate.js'
 import { gitEventSchemas } from './git.js'
 import { judgeEventSchemas } from './judge.js'
@@ -13,8 +13,8 @@ import { tmuxEventSchemas } from './tmux.js'
 import { traceEventSchemas } from './trace.js'
 import { workmuxEventSchemas } from './workmux.js'
 
-export * from './common.js'
 export * from './beacon.js'
+export * from './common.js'
 export * from './gate.js'
 export * from './git.js'
 export * from './judge.js'
@@ -103,6 +103,7 @@ export const EVENT_SOURCE_BY_TYPE = {
   // prd12 ruling 3, phase 2: the same second hand, at dispatch. Its existence
   // is what marks an arm's lane synthetic — see events/lab.ts.
   'fork.dispatched': 'lab',
+  'fork.measured': 'lab',
   // prd11 ruling 6b, phase 1: the semantic judge's structural organ — a real
   // polled collector, unlike `lab`, but `'judge'` is still absent from
   // `eventSourceSchema` because this issue's fence (#152) doesn't reach
