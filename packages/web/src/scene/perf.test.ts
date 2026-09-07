@@ -3,8 +3,15 @@ import vm from 'node:vm'
 import { reduceAll } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { buildFleet, fixtureHistory, fleet20Spec, manifestFor, type Fleet } from '../fleet/index.js'
-import { layoutScene } from './geometry.js'
-import { breathOf, motionMode, sceneMarks, type Mark, type SceneFrame } from './marks/index.js'
+import { layoutScene, layoutWorld } from './geometry.js'
+import {
+  breathOf,
+  motionMode,
+  sceneMarks,
+  worldMarks,
+  type Mark,
+  type SceneFrame,
+} from './marks/index.js'
 import { ambientScreenMarks, ambientWorldMarks } from './marks/ambient.js'
 import { dissolveMarks } from './marks/dissolve.js'
 import { lightMarks } from './marks/light.js'
@@ -1314,6 +1321,14 @@ describe('the model floor (#579, prd-33 w2)', () => {
     { lanes: 30, colonies: 1 },
     { lanes: 30, colonies: 3 },
     { lanes: 60, colonies: 3 },
+    // ONE BIG COLONY (prd-52 #320). 180 threads either way, but the shape is
+    // not the same: `root`, `dissolve` and the two ambient passes are fixed
+    // costs *per colony*, so three colonies pay them three times and one pays
+    // once — while `faults.ts`'s `victimLaneId` scans its own colony's threads,
+    // so one colony of 180 scans a list three times longer. Which of those
+    // dominates is the question this cell exists to answer, and the
+    // three-colony rows cannot.
+    { lanes: 180, colonies: 1 },
   ]
 
   /** Enough that the median is a median; few enough that three cells stay quick. */
@@ -1366,9 +1381,15 @@ describe('the model floor (#579, prd-33 w2)', () => {
    * lane, so a spine is genuinely rebuilt rather than answered from a cache
    * that a still fleet would have made free.
    */
-  function growthFor(fleet: Fleet, tick: number): ReadonlyMap<string, number> {
+  function growthFor(
+    fleet: Fleet,
+    tick: number,
+    pinned = false,
+  ): ReadonlyMap<string, number> {
     return new Map(
-      fleet.lanes.map((lane, i) => [lane.id, ((i * 7 + tick) % 97) / 97] as const),
+      fleet.lanes.map(
+        (lane, i) => [lane.id, ((i * 7 + (pinned ? 0 : tick)) % 97) / 97] as const,
+      ),
     )
   }
 
@@ -1386,25 +1407,105 @@ describe('the model floor (#579, prd-33 w2)', () => {
     now: number,
     tick: number,
     cutAt: number | null,
+    pinned = false,
   ): Model {
-    const at = () => performance.now()
-    let layoutMs = 0
-    let marksMs = 0
-    let marks = 0
+    // THE COMPOSED PATH, not a sum of independent renders (prd-52 #320).
+    //
+    // This used to call `layoutScene` + `sceneMarks` once per fleet and add the
+    // milliseconds up, with each colony handed the full unshrunk viewport. That
+    // proxy charged nothing for placement, nothing for a shared camera, and
+    // nothing for composing one display list — so it was a floor on the real
+    // feature rather than a measurement of it. It now runs `layoutWorld` and
+    // `worldMarks`, which is what the frame loop itself runs since #319.
+    //
+    // The maps are merged across colonies because the world takes one options
+    // object: colony lane ids are suffixed per colony (`colonyFleet`), so the
+    // keys cannot collide.
+    const sources = fleets.map((fleet, i) => ({ id: `colony-${i}`, fleet }))
+    const growth = new Map<string, number>()
+    const retire = cutAt === null ? undefined : new Map<string, RetireState>()
     for (const fleet of fleets) {
-      const retire = cutAt === null ? undefined : cutsFor(fleet, cutAt)
-      const growth = growthFor(fleet, tick)
-      const t0 = at()
-      const geometry = layoutScene(fleet, { ...SIZE, now, retire, growth })
-      const t1 = at()
-      const built = sceneMarks(frameFor(fleet, geometry, now))
-      const t2 = at()
-      layoutMs += t1 - t0
-      marksMs += t2 - t1
-      marks += built.length
+      for (const [id, at] of growthFor(fleet, tick, pinned)) growth.set(id, at)
+      if (retire !== undefined) {
+        for (const [id, state] of cutsFor(fleet, cutAt as number)) retire.set(id, state)
+      }
     }
-    return { ms: layoutMs + marksMs, layoutMs, marksMs, marks }
+
+    const at = () => performance.now()
+    const t0 = at()
+    const world = layoutWorld(sources, { ...SIZE, now, retire, growth })
+    const t1 = at()
+    const first = world.colonies[0]
+    if (first === undefined) throw new Error('the world laid out no colonies')
+    const built = worldMarks(world, frameFor(fleets[0] as Fleet, first.geometry, now))
+    const t2 = at()
+
+    return {
+      ms: t2 - t0,
+      layoutMs: t1 - t0,
+      marksMs: t2 - t1,
+      marks: built.length,
+    }
   }
+
+  /**
+   * WHAT THE PRE-TRUNCATION CACHE BOUGHT (prd-52 #315, measured here per
+   * ruling 3 — the size is restated by measurement, never by promise).
+   *
+   * Two arms of the same cell, interleaved per round so a box that gets busy
+   * halfway through spoils both equally rather than one of them. `growing`
+   * advances every lane's growth every frame, which is this suite's own
+   * pessimal construction and the regime #315 targets. `pinned` holds growth
+   * still, so the living cache answers everything and the arms bracket the
+   * win: the real technique re-truncates every frame, so it lands between them
+   * and never at the pinned floor.
+   *
+   * Reported, never asserted. The law is a count.
+   */
+  /**
+   * Half the rounds of a single-arm cell, because this one runs two arms per
+   * round at the heaviest configuration. Still enough that the median is a
+   * median, and the claim is a ratio between two arms measured against each
+   * other rather than an absolute either of them owns.
+   */
+  const ARM_ROUNDS = 30
+
+  it('reports the growing and pinned arms of the heaviest cell', () => {
+    withPath2D(() => {
+      const fleets = Array.from({ length: 3 }, (_unused, c) => colonyFleet(60, c))
+      const growing: number[] = []
+      const pinned: number[] = []
+
+      // Eight warm rounds, the number every other cell in this file uses.
+      for (let round = 0; round < 8; round++) {
+        modelFrame(fleets, NOW, round, null, false)
+        modelFrame(fleets, NOW, round, null, true)
+      }
+      for (let round = 0; round < ARM_ROUNDS; round++) {
+        growing.push(modelFrame(fleets, NOW, round, null, false).ms)
+        pinned.push(modelFrame(fleets, NOW, round, null, true).ms)
+      }
+
+      const med = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] as number
+      const g = med(growing)
+      const p = med(pinned)
+      report(
+        `growing vs pinned at 60x3 (180 threads): growing ${g.toFixed(3)} ms · ` +
+          `pinned ${p.toFixed(3)} ms · ${(g / p).toFixed(2)}x — the bracket #315's ` +
+          `re-truncation lands inside`,
+      )
+
+      // The claim is a count: both arms ran every round, so neither figure is
+      // a median of an empty list.
+      expect(growing).toHaveLength(ARM_ROUNDS)
+      expect(pinned).toHaveLength(ARM_ROUNDS)
+    })
+    // The same timeout every other cell in this file carries. Two interleaved
+    // arms at the heaviest cell is twice the work of a single-arm round, and
+    // under `--maxWorkers` this file runs beside 140 others — which is the
+    // condition `// @gate-timing` exists to route it out of, and the reason
+    // the default five-second timeout is not the right ceiling here.
+  }, BENCH_TIMEOUT_MS)
 
   it('reports the model stage at every cell prd-33 asks for', () => {
     withPath2D(() => {
@@ -1570,6 +1671,14 @@ describe('the model floor (#579, prd-33 w2)', () => {
    * Reported, never asserted — a wall clock under `--maxWorkers` measures the
    * box. The verdict is prose, in `research/2026-08-28-variance-attribution.md`
    * and on #160. The laws below are counts.
+   *
+   * **The NO-GO this produced is conditional, and #190 / prd-49 hold the
+   * condition.** If you are here re-running these cells, that issue is the one
+   * that sent you and the one that says what order to work in — re-measure
+   * before building, and against a production build. Its 2026-09-07 amendment
+   * also pins which cell the trigger means now that the scene composes
+   * colonies: the composed one, with the threshold re-derived from the first
+   * composed reading rather than carried over from the summed one.
    */
   it('reports the model floor under forced out-of-band collection (prd-47 ruling 4)', () => {
     withPath2D(() => {

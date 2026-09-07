@@ -1,5 +1,12 @@
 import type { Fleet } from '../../fleet/index.js'
-import { RECENCY_SPAN_MS, type SceneGeometry, type ThreadGeometry } from '../geometry.js'
+import {
+  MATERIAL_BLOOM_MAX,
+  MATERIAL_UNDERGLOW_MAX,
+  RECENCY_SPAN_MS,
+  type Point,
+  type SceneGeometry,
+  type ThreadGeometry,
+} from '../geometry.js'
 import { allowance, type MotionMode } from '../motion.js'
 import { clamp01,
   capPresence,
@@ -12,7 +19,6 @@ import { clamp01,
   type Rgb,
   type ScenePalette,
 } from '../palette.js'
-import type { Point } from '../geometry.js'
 import type { Paint } from './types.js'
 import type { PulseField } from '../pulses.js'
 import { emphasisOf, spend, spendTip, type Salience } from '../salience.js'
@@ -47,6 +53,19 @@ export interface SceneFrame {
   quality: SceneQuality
   fleet: Fleet
   geometry: SceneGeometry
+  /**
+   * Threads across the whole **world**, not just this colony (prd-52 ruling 5).
+   *
+   * The frame budget is spent by the entire picture, so the material ceiling
+   * has to be keyed on the world's size. `geometry` is one colony, so
+   * `geometry.threads.length` would read 30 in a world of three colonies of
+   * thirty — thinning at three times the fleet size the ruling means.
+   *
+   * Absent means "this colony is the world", which is what a single-colony
+   * picture is and why every existing caller is unchanged: the two numbers are
+   * the same one there. `worldMarks` sets it from `WorldGeometry.threadCount`.
+   */
+  worldThreads?: number
   field: PulseField
   salience: Salience
   /**
@@ -266,4 +285,42 @@ export function litStops(
       { at: 1, ink: stop(swing) },
     ],
   }
+}
+
+/**
+ * THE MATERIAL CEILING (prd-52 ruling 5) — how much material a world this size
+ * may draw, whatever the operator asked for.
+ *
+ * Composed with the operator's own `quality` by taking whichever is lower, so
+ * this is a ceiling and never a floor: a person who chose `calm` on a small
+ * fleet still gets `calm`, and one who chose `maximum` on a 200-thread world
+ * gets what the world can afford. Their setting is never overwritten — D36
+ * keeps the dial theirs — it is read together with a fact about the picture.
+ *
+ * The thresholds are `geometry/scale.ts`'s, beside `LABELS_ALL_MAX`, which is
+ * the same shape of rule already shipped: a count-keyed retreat that thins and
+ * never hides.
+ */
+export function materialCeiling(worldThreads: number): SceneQuality {
+  if (worldThreads > MATERIAL_BLOOM_MAX) return 'calm'
+  if (worldThreads > MATERIAL_UNDERGLOW_MAX) return 'rich'
+  return 'maximum'
+}
+
+/** Material order, thinnest first — the axis {@link materialCeiling} clamps on. */
+const MATERIAL_ORDER: readonly SceneQuality[] = ['calm', 'rich', 'maximum']
+
+/**
+ * The quality a frame actually draws: the operator's choice, clamped by what
+ * the world's size can afford (prd-52 ruling 5).
+ *
+ * Every material gate reads this rather than `frame.quality` directly, so a
+ * gate cannot be added later that quietly ignores the ceiling.
+ */
+export function drawnQuality(frame: SceneFrame): SceneQuality {
+  const threads = frame.worldThreads ?? frame.geometry.threads.length
+  const ceiling = materialCeiling(threads)
+  const chosen = MATERIAL_ORDER.indexOf(frame.quality)
+  const capped = MATERIAL_ORDER.indexOf(ceiling)
+  return MATERIAL_ORDER[Math.min(chosen, capped)] as SceneQuality
 }

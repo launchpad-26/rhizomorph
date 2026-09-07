@@ -691,6 +691,8 @@ export interface ForkDispatchRecord {
   checkpointId: string
   /** 1-based arm number within its fork. */
   arm: number
+  /** 1-based run number within its arm (prd53 ruling 1); 1 for every record written before an arm could hold more than one. */
+  run: number
   /** Null when the arm inherits the fleet default model. */
   model: string | null
   /** sha256 of the arm's prompt file, or null when it was dispatched without one. */
@@ -700,21 +702,32 @@ export interface ForkDispatchRecord {
 }
 
 /**
- * prd12's dispatch slice. Same shape as {@link CheckpointState}, with two
+ * prd12's dispatch slice. Same shape as {@link CheckpointState}, with three
  * indexes rather than one: a comparison surface asks "which arms belong to
- * this fork" and every lane-keyed surface asks "is this lane an arm, and of
- * what". Both hold positions into `dispatches`, never copies.
+ * this fork", a summary asks "which runs belong to this arm" (prd53 ruling
+ * 1), and every lane-keyed surface asks "is this lane an arm, and of what".
+ * All hold positions into `dispatches`, never copies.
  */
 export interface ForkState {
   dispatches: ForkDispatchRecord[]
   /** forkId → positions in `dispatches`, in observation order. */
   byFork: Record<string, number[]>
-  /** Synthetic lane handle → positions in `dispatches`. One arm per handle in practice. */
+  /**
+   * {@link armKey} → positions in `dispatches`, in observation order — the r
+   * runs of one arm (prd53 ruling 1). A summary is a claim about exactly these.
+   */
+  byArm: Record<string, number[]>
+  /** Synthetic lane handle → positions in `dispatches`. One run per handle: a handle is minted per (fork, arm, run). */
   byLane: Record<string, number[]>
 }
 
+/** The `byArm` key. A fork id is `fork-<uuid>` and never holds `#`, so no key can collide with a neighbour's. */
+export function armKey(forkId: string, arm: number): string {
+  return `${forkId}#${arm}`
+}
+
 export function initialForkState(): ForkState {
-  return { dispatches: [], byFork: {}, byLane: {} }
+  return { dispatches: [], byFork: {}, byArm: {}, byLane: {} }
 }
 
 /**

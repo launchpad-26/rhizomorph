@@ -201,6 +201,18 @@ export interface LayoutOptions {
   width: number
   height: number
   /**
+   * Where this colony's box sits in the world (prd-52 ruling 1). Added to the
+   * mass's centre, so a colony is laid out **where it belongs** rather than at
+   * the viewport's middle and translated afterwards — which is what lets
+   * `worldMarks` compose N colonies by concatenation, with no walker that has
+   * to stay exhaustive over every mark kind.
+   *
+   * Absent means `{ x: 0, y: 0 }`, which is the single-colony case and is why
+   * prd-52 ruling 2 costs nothing: one colony is laid out with exactly the
+   * inputs it gets today.
+   */
+  origin?: Point
+  /**
    * The frame's **state** clock — `SceneFrame.asOf`, never `SceneFrame.now`
    * (#157's clock audit). Every use of it here judges a state by its age
    * (the lifecycle term, `ageFrac`, a bud's staleness) — never an animation;

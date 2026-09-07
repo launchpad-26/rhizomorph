@@ -8,12 +8,15 @@ describe('parseLabForkArgs', () => {
     model: undefined,
     promptFile: undefined,
     arms: 3,
+    runs: 1,
+    forkId: undefined,
+    armNumber: undefined,
     path: undefined,
     launch: false,
     help: false,
   }
 
-  it('defaults to three arms — prd12 ruling 4\'s floor — and no launch', () => {
+  it('defaults to three arms — prd12 ruling 4\'s floor — one run of each, and no launch', () => {
     expect(parseLabForkArgs(['my-lane'])).toEqual(forkDefaults)
   })
 
@@ -30,6 +33,18 @@ describe('parseLabForkArgs', () => {
       promptFile: './p.md',
       arms: 5,
       path: '../repo',
+    })
+  })
+
+  it('parses --runs, --fork-id and --arm-number (prd53 ruling 1)', () => {
+    expect(
+      parseLabForkArgs(['my-lane', '--arms', '1', '--runs', '3', '--fork-id', 'fork-x', '--arm-number', '2']),
+    ).toEqual({
+      ...forkDefaults,
+      arms: 1,
+      runs: 3,
+      forkId: 'fork-x',
+      armNumber: 2,
     })
   })
 
@@ -53,6 +68,20 @@ describe('parseLabForkArgs', () => {
     expect(() => parseLabForkArgs(['my-lane', '--arms', 'three'])).toThrow(/invalid --arms/)
   })
 
+  it('throws on a zero, negative or non-integer run count, and on an empty --fork-id', () => {
+    expect(() => parseLabForkArgs(['my-lane', '--runs', '0'])).toThrow(/invalid --runs/)
+    expect(() => parseLabForkArgs(['my-lane', '--runs', '-2'])).toThrow(/invalid --runs/)
+    expect(() => parseLabForkArgs(['my-lane', '--runs', '1.5'])).toThrow(/invalid --runs/)
+    expect(() => parseLabForkArgs(['my-lane', '--fork-id', ''])).toThrow(/invalid --fork-id/)
+  })
+
+  it('refuses --arm-number unless exactly one arm is being dispatched — the number names THIS arm', () => {
+    expect(() => parseLabForkArgs(['my-lane', '--arm-number', '2'])).toThrow(/--arm-number requires --arms 1/)
+    expect(() => parseLabForkArgs(['my-lane', '--arms', '2', '--arm-number', '2'])).toThrow(/--arm-number requires --arms 1/)
+    expect(() => parseLabForkArgs(['my-lane', '--arms', '1', '--arm-number', '0'])).toThrow(/invalid --arm-number/)
+    expect(parseLabForkArgs(['my-lane', '--arms', '1', '--arm-number', '4']).armNumber).toBe(4)
+  })
+
   it('throws on empty --at, --model or --prompt-file values', () => {
     expect(() => parseLabForkArgs(['my-lane', '--at', ''])).toThrow(/invalid --at/)
     expect(() => parseLabForkArgs(['my-lane', '--model', ''])).toThrow(/invalid --model/)
@@ -71,7 +100,7 @@ describe('parseLabForkArgs', () => {
 })
 
 describe('labForkHelpText', () => {
-  it('labForkHelpText documents the treatment flags, the arm default and why --launch is opt-in', () => {
+  it('labForkHelpText documents the treatment flags, the arm default, the run flags and why --launch is opt-in', () => {
     const text = labForkHelpText()
     expect(text).toContain('rhizomorph lab fork <lane>')
     expect(text).toContain('--at <checkpointId>')
@@ -79,6 +108,9 @@ describe('labForkHelpText', () => {
     expect(text).toContain('--prompt-file')
     expect(text).toContain('--arms <n>')
     expect(text).toContain('default: 3')
+    expect(text).toContain('--runs <r>')
+    expect(text).toContain('--fork-id <id>')
+    expect(text).toContain('--arm-number <k>')
     expect(text).toContain('--launch')
     expect(text).toContain('ruling 1')
   })

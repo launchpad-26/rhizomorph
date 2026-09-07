@@ -7,12 +7,15 @@ import type { EventSourceLike } from '../hooks/useEventStream.js'
 import FleetTable from '../panels/fleet/index.js'
 import { FleetProvider } from './FleetContext.js'
 import {
-  isMainSelected,
   MAIN_SELECTION,
+  SelectionProvider,
+  colonyOf,
+  colonySelection,
+  isMainSelected,
   needsYouLaneIds,
   nextJumpTarget,
-  SelectionProvider,
   useSelection,
+  withinColony,
 } from './selection.js'
 
 afterEach(cleanup)
@@ -463,5 +466,75 @@ describe('the selection is scoped to its repo (#390 review)', () => {
     view.rerender(<ScopedSurfaces />)
 
     expect(screen.getByTestId('selected').textContent).toBe('dev-1')
+  })
+})
+
+describe('a selection names its colony (prd-52 ruling 1)', () => {
+  it('keeps the bare form for a single colony, so nothing about a solo page changes', () => {
+    expect(colonySelection(null, MAIN_SELECTION)).toBe(MAIN_SELECTION)
+    expect(colonySelection(null, '72-thing')).toBe('72-thing')
+    expect(colonyOf(MAIN_SELECTION)).toBeNull()
+    expect(withinColony(MAIN_SELECTION)).toBe(MAIN_SELECTION)
+  })
+
+  it('tells two colonies apart when both hold a lane of the same name', () => {
+    // The assertion that fails today: MAIN_SELECTION is one id and N colonies
+    // are N masses, so a world of two resolves one id to two things.
+    const a = colonySelection('alpha', MAIN_SELECTION)
+    const b = colonySelection('beta', MAIN_SELECTION)
+    expect(a).not.toBe(b)
+
+    const laneA = colonySelection('alpha', '72-thing')
+    const laneB = colonySelection('beta', '72-thing')
+    expect(laneA).not.toBe(laneB)
+  })
+
+  it('round-trips both halves', () => {
+    const id = colonySelection('alpha', '72-thing')
+    expect(colonyOf(id)).toBe('alpha')
+    expect(withinColony(id)).toBe('72-thing')
+  })
+
+  it('carries a slashed lane id through both halves untouched', () => {
+    // A branch-derived lane id like `feat/thing` is ordinary, and the separator
+    // is deliberately a character it cannot contain, so neither half needs to
+    // escape anything.
+    const id = colonySelection('alpha', 'feat/thing')
+    expect(id).toBe('alpha:feat/thing')
+    expect(colonyOf(id)).toBe('alpha')
+    expect(withinColony(id)).toBe('feat/thing')
+  })
+
+  it('refuses a colony id that would make the split ambiguous', () => {
+    expect(() => colonySelection('al:pha', MAIN_SELECTION)).toThrow(/may not contain/)
+  })
+
+  it('refuses a SELECTION carrying the separator too — the sibling half of the same split', () => {
+    // The colony id was guarded from the start; this half was not, and a bare
+    // id holding the separator is mis-split by `colonyOf`/`withinColony` later
+    // with no colony ever having been named.
+    expect(() => colonySelection(null, 'weird:id')).toThrow(/may not contain/)
+    expect(() => colonySelection('alpha', 'weird:id')).toThrow(/may not contain/)
+  })
+
+  it('does NOT read a bare lane id as a namespaced one, however many slashes it carries', () => {
+    // The regression this separator exists to prevent (review of #321): with
+    // `/` as the separator, `withinColony('feat/main')` answered `main`, so a
+    // worker lane on an ordinary branch reported as the root-mass and the
+    // drawer showed the conductor instead of the lane.
+    expect(isMainSelected('feat/main')).toBe(false)
+    expect(colonyOf('feat/main')).toBeNull()
+    expect(withinColony('feat/main')).toBe('feat/main')
+
+    // And the deeper one, which the old first-split also flattened.
+    expect(isMainSelected('team/infra/main')).toBe(false)
+    expect(withinColony('team/infra/main')).toBe('team/infra/main')
+  })
+
+  it('recognises any colony mass as a mass, not only the bare one', () => {
+    expect(isMainSelected(MAIN_SELECTION)).toBe(true)
+    expect(isMainSelected(colonySelection('alpha', MAIN_SELECTION))).toBe(true)
+    expect(isMainSelected(colonySelection('alpha', '72-thing'))).toBe(false)
+    expect(isMainSelected(null)).toBe(false)
   })
 })

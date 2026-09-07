@@ -66,6 +66,14 @@ other key moved (checked by diff). The reducer change is the `beacon.received`
 arm; the new fold is the correct meaning of the old log because that log
 contains no beacon and now says so.
 
+**Re-blessed 2026-09-07 (prd-53 ruling 1, wave 1).** `ForkState` gained the `byArm`
+index — the r runs of one arm, keyed `armKey(forkId, arm)` — beside `byFork` and
+`byLane`. Era-1 predates the laboratory, so it folds to `byArm: {}` and no other
+key moved (checked by diff). The reducer change is the `fork.dispatched` arm
+(`forkDispatched` in `reduce.ts`, which now also reads a record's `run ?? 1`);
+the new fold is the correct meaning of the old log because that log contains no
+dispatch, and now says so under one more name.
+
 ### era-2 — `era-2/recording.jsonl`
 
 | | |
@@ -107,6 +115,15 @@ the committed bytes for one single-fire family — not worth it by the same
 "most families per committed byte" test era-1's own note applies.
 `collector.error` is therefore left out **on purpose**, not missed; see
 `eras.test.ts`'s gap-list comment for the rest of what's still absent and why.
+
+**Re-blessed 2026-09-08 (prd-53 ruling 1, wave 1), on the same reducer change
+as era-1 above.** `ForkState` gained the `byArm` index, so era-2's fold gained
+`byArm: {}` and **no other key moved — checked by diff, one line**. Era-2's
+window predates the laboratory exactly as era-1's does: it contains no
+`fork.dispatched`, so the empty index is the correct meaning of that recording
+rather than a loss of coverage. Re-blessed by regenerating the fold from the
+committed recording, never by editing the snapshot — the recording is the
+source, and the snapshot is what it folds to.
 
 **Four of the nine closed families fold real state for the first time in this
 corpus:** `session.started`, `collector.degraded`, `collector.disabled`,

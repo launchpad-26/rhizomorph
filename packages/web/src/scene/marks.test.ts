@@ -1,3 +1,5 @@
+import type { Rgb } from './palette.js'
+import type { Paint } from './marks/types.js'
 import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -14,6 +16,8 @@ import {
   type FixtureSpec,
 } from '../fleet/index.js'
 import {
+  MATERIAL_BLOOM_MAX,
+  MATERIAL_UNDERGLOW_MAX,
   RECENCY_SPAN_MS,
   ROOT_GROWTH,
   layoutScene,
@@ -4235,6 +4239,85 @@ describe('the specimen leaders (Plate stage 2 — loop 24)', () => {
           (label.anchor.x - node.x) * (point.y - node.y) - (label.anchor.y - node.y) * (point.x - node.x)
         expect(Math.abs(cross)).toBeLessThan(1e-6 * (1 + Math.abs(label.anchor.x) + Math.abs(label.anchor.y)))
       }
+    }
+  })
+})
+
+describe('the scene thins its material as the world grows (prd-52 ruling 5)', () => {
+  /** The same picture, told it is sitting in a world of `n` threads. */
+  function atWorldSize(n: number, quality: SceneQuality = 'maximum'): Mark[] {
+    const frame = frameFor({ quality })
+    return sceneMarks({ ...frame, worldThreads: n })
+  }
+
+  const roles = (marks: Mark[], role: MarkRole) => marks.filter((m) => m.role === role).length
+
+  it('draws every layer at the size the fixture actually is', () => {
+    const small = atWorldSize(20)
+    expect(roles(small, 'underglow')).toBeGreaterThan(0)
+    expect(roles(small, 'thread-bloom')).toBeGreaterThan(0)
+  })
+
+  it('drops the underglow past the size that holds sixty', () => {
+    // MATERIAL_UNDERGLOW_MAX is 90 — prd-33 ruling 13's own 60fps size.
+    expect(roles(atWorldSize(MATERIAL_UNDERGLOW_MAX), 'underglow')).toBeGreaterThan(0)
+    expect(roles(atWorldSize(MATERIAL_UNDERGLOW_MAX + 1), 'underglow')).toBe(0)
+    // …and the bloom is still there. One layer at a time.
+    expect(roles(atWorldSize(MATERIAL_UNDERGLOW_MAX + 1), 'thread-bloom')).toBeGreaterThan(0)
+  })
+
+  it('drops the bloom past the size that holds thirty', () => {
+    expect(roles(atWorldSize(MATERIAL_BLOOM_MAX), 'thread-bloom')).toBeGreaterThan(0)
+    expect(roles(atWorldSize(MATERIAL_BLOOM_MAX + 1), 'thread-bloom')).toBe(0)
+  })
+
+  it('never removes a thread, however big the world gets', () => {
+    // marks/index.ts' own law: density is managed by thinness, stillness and
+    // depth layering, never by removal. The core ribbon is not material.
+    const huge = atWorldSize(10_000)
+    expect(roles(huge, 'thread')).toBe(roles(atWorldSize(20), 'thread'))
+    expect(roles(huge, 'thread')).toBeGreaterThan(0)
+  })
+
+  it('is a ceiling and never a floor — a calm dial stays calm on a small world', () => {
+    // D36 keeps the dial the operator's. This reads their choice together with
+    // a fact about the picture; it never overwrites it upward.
+    const calm = atWorldSize(20, 'calm')
+    expect(roles(calm, 'thread-bloom')).toBe(0)
+    expect(roles(calm, 'underglow')).toBe(0)
+  })
+
+  it('LEAVES THE ENCODED CHANNELS EXACTLY WHERE THEY WERE, at every level', () => {
+    // The law that matters most: material may thin, meaning may not move.
+    // Radial position and encoded width are LOCKED channels (prd-33's S1 spec
+    // table), so a core thread's geometry must be byte-identical at every
+    // world size. Hue is locked too, and is read off the ribbon's base colour.
+    // `paint`'s SHAPE is deliberately not compared: the directional light is a
+    // "material, bounded" channel that carries nothing, so at `calm` the core
+    // is a flat ink where at `rich` it is a lit gradient. That difference is
+    // the ruling working, not the ruling being broken — which is why this
+    // asserts the locked channels by name instead of diffing the whole mark.
+    const baseHue = (paint: Paint): Rgb =>
+      isLinear(paint) ? (paint.stops[0]?.ink.rgb as Rgb) : paint.rgb
+
+    const core = (n: number) =>
+      atWorldSize(n)
+        .filter(
+          (m): m is Extract<Mark, { kind: 'ribbon' }> =>
+            m.kind === 'ribbon' && m.role === 'thread',
+        )
+        .map((m) => ({
+          laneId: m.laneId,
+          path: m.path,
+          widthRoot: m.widthRoot,
+          widthTip: m.widthTip,
+          hue: baseHue(m.paint),
+        }))
+
+    const small = core(20)
+    expect(small.length).toBeGreaterThan(0)
+    for (const n of [MATERIAL_UNDERGLOW_MAX + 1, MATERIAL_BLOOM_MAX + 1, 10_000]) {
+      expect(core(n)).toStrictEqual(small)
     }
   })
 })

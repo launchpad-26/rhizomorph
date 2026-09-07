@@ -91,8 +91,9 @@ export const forkTreatmentSchema = z.object({
 export type ForkTreatment = z.infer<typeof forkTreatmentSchema>
 
 /**
- * Additive phase-2 event (prd12 ruling 3): one per ARM, emitted at the moment
- * the lab hands that arm to the existing workmux machinery. Its existence is
+ * Additive phase-2 event (prd12 ruling 3): one per RUN of an arm — an arm
+ * holds r runs since prd53 ruling 1 — emitted at the moment the lab hands
+ * that run to the existing workmux machinery. Its existence is
  * what marks a lane synthetic — there is no separate "please mark me" flag to
  * forget, and no way for a lane to be a fork without the log saying so. The
  * reducer reads exactly this to set `synthetic: true`.
@@ -105,7 +106,10 @@ export type ForkTreatment = z.infer<typeof forkTreatmentSchema>
  */
 export const forkDispatchedPayloadSchema = z
   .object({
-    /** Groups the arms of one fork. Every arm of a dispatch shares it. */
+    /**
+     * Groups the arms of one fork — one experiment. Every run of every arm
+     * shares it, however many CLI calls dispatched them (prd53 ruling 1).
+     */
     forkId: nonEmptyString,
     /** The lane that was forked — the real one, whose checkpoint this arm resumes from. */
     parentLane: nonEmptyString,
@@ -113,6 +117,13 @@ export const forkDispatchedPayloadSchema = z
     checkpointId: nonEmptyString,
     /** 1-based arm number within the fork. */
     arm: z.number().int().positive(),
+    /**
+     * 1-based run number within the arm (prd53 ruling 1). Absent on every
+     * record written before an arm could hold more than one run — read as
+     * `run ?? 1`, the same additive convention `beacon.ts` and `git.ts` use.
+     * Not an `upcast()`: nothing is reshaped, one field is added.
+     */
+    run: z.number().int().positive().optional(),
     treatment: forkTreatmentSchema,
     /** The synthetic lane handle this arm runs under — what the observer will see it as. */
     laneHandle: nonEmptyString,

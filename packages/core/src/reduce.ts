@@ -32,10 +32,11 @@ import type {
   WorktreeState,
 } from './state.js'
 import {
-  MAX_ERRORS,
+  armKey,
   basename,
   commitsStateOf,
   initialSessionState,
+  MAX_ERRORS,
   refusalStateWith,
   traceStateOf,
 } from './state.js'
@@ -1595,6 +1596,7 @@ function forkDispatched(state: SessionState, event: EventOf<'fork.dispatched'>):
     parentLane: p.parentLane,
     checkpointId: p.checkpointId,
     arm: p.arm,
+    run: p.run ?? 1,
     model: p.treatment.model,
     promptDigest: p.treatment.promptDigest,
     laneHandle: p.laneHandle,
@@ -1608,6 +1610,7 @@ function forkDispatched(state: SessionState, event: EventOf<'fork.dispatched'>):
     forks: {
       dispatches: [...forks.dispatches, record],
       byFork: appendIndexed(forks.byFork, p.forkId, at),
+      byArm: appendIndexed(forks.byArm, armKey(p.forkId, p.arm), at),
       byLane: appendIndexed(forks.byLane, p.laneHandle, at),
     },
   }

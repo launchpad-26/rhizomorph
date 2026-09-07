@@ -1893,6 +1893,7 @@
   "eventCount": 453,
   "firstEventTs": 1788757348268,
   "forks": {
+    "byArm": {},
     "byFork": {},
     "byLane": {},
     "dispatches": []

@@ -1,5 +1,5 @@
 import { interpolateZoom } from 'd3-interpolate'
-import type { Point, SceneGeometry } from './geometry.js'
+import type { Point, SceneGeometry, WorldGeometry } from './geometry.js'
 
 /**
  * THE CAMERA — every law about where the scene is looked at from, as pure
@@ -167,6 +167,37 @@ export function contentBounds(geometry: SceneGeometry): Bounds {
   }
 
   return bounds
+}
+
+/**
+ * The box the whole **world** occupies — every colony's content, unioned
+ * (prd-52 ruling 1).
+ *
+ * A union of each colony's content rather than of their allocated cells, for
+ * exactly the reason {@link contentBounds} is not the viewport box: a colony's
+ * trespasses and labels reach past its own cell, and fitting to the cells would
+ * crop the parts that overflow them. A world of one colony answers what
+ * `contentBounds` answers — prd-52 ruling 2, reaching the camera.
+ *
+ * An empty world has no content and therefore no honest box. This returns
+ * `null` rather than a box at the origin, because the caller already has an
+ * empty-scene fallback and a fabricated box is something the camera would fly
+ * to.
+ */
+export function worldBounds(world: WorldGeometry): Bounds | null {
+  let union: Bounds | null = null
+  for (const colony of world.colonies) {
+    const bounds = contentBounds(colony.geometry)
+    if (union === null) {
+      union = { ...bounds }
+      continue
+    }
+    union.minX = Math.min(union.minX, bounds.minX)
+    union.minY = Math.min(union.minY, bounds.minY)
+    union.maxX = Math.max(union.maxX, bounds.maxX)
+    union.maxY = Math.max(union.maxY, bounds.maxY)
+  }
+  return union
 }
 
 function grow(bounds: Bounds, point: Point): void {

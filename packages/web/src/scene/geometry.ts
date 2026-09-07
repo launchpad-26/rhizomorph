@@ -42,6 +42,8 @@ export type {
 export { BUD_ABSORB_MS, budLife } from './geometry/scale.js'
 export {
   LABELS_ALL_MAX,
+  MATERIAL_BLOOM_MAX,
+  MATERIAL_UNDERGLOW_MAX,
   LIFE_SPAN_MS,
   RADIAL_BORN,
   RADIAL_RIM,
@@ -65,3 +67,5 @@ export {
 export { ringAngles, rimSpacing } from './geometry/ring.js'
 export { pointAt, tangentAt } from './geometry/curves.js'
 export { layoutScene } from './geometry/layout.js'
+export { RING_SLOTS, RING_SPACING, layoutWorld, ringOrigin } from './geometry/world.js'
+export type { ColonyGeometry, ColonySource, WorldGeometry } from './geometry/world.js'
