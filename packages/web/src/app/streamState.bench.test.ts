@@ -51,7 +51,7 @@ import { foldStreamEvent, foldStreamEvents, initialStreamState } from './streamS
  * read the `console.log` lines for this box's own numbers.
  *
  * SPLIT OUT OF `streamState.test.ts`, and the filename is the whole mechanism.
- * `scripts/gate.sh` derives its timing set from a `// @gate-timing` marker or a
+ * `scripts/gate.sh` derives its timing set from a `@gate-timing` marker or a
  * `*.bench.test.ts` name, and runs that set ALONE, serially, once — while
  * everything else runs four times concurrently as the load probe. This bench
  * carried neither, so it ran in all four copies of that probe: the
@@ -60,6 +60,15 @@ import { foldStreamEvent, foldStreamEvents, initialStreamState } from './streamS
  * with it; what changed is only which pass of the gate runs it — the one where
  * a wall clock means anything, which is the condition this bench always
  * documented needing.
+ *
+ * That marker is spelled above WITHOUT its leading comment slashes on
+ * purpose. gate.sh discovers markers with a fixed-string `grep -F`, which
+ * matches prose exactly as readily as a real marker, so writing it in full
+ * would enrol this file by CONTENT as well as by name — and the ratchet
+ * meant to fire when the `.bench.test.ts` name is lost would then find the
+ * count unchanged and stay silent, which is the #209 trap it exists to
+ * catch. `gate-honesty-law.test.ts` records the same accident happening to
+ * itself.
  */
 describe('the live fold cost, before vs after (#183)', () => {
   const SIZES = [5_000, 15_000, 55_000]
