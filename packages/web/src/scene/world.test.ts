@@ -8,13 +8,14 @@
  * same thing in product language ("solo must never show team scaffolding");
  * this file is that sentence as a test.
  *
- * The placement ruling adds two more of the same shape. **A teammate joining
- * never moves you**: the first colony's origin and geometry are the same
- * whether it is alone or one of nine. And **every colony looks the way its
- * owner sees it**: nobody is shrunk to make room, so a colony's mass radius
- * and rim are its solo values. Thread width is a locked channel meaning work
- * size, and a colony drawn smaller to signal distance would be lying about
- * the fleet it belongs to.
+ * The placement ruling adds three more of the same shape. **A colony joining
+ * moves nobody**: append a source and every existing colony's origin and
+ * geometry are the same object graph. **The layout has no viewer**: the same
+ * sources give the same world whoever is looking, because a shared world has
+ * one map. And **every colony looks the way its owner sees it**: nobody is
+ * shrunk to make room, so a colony's mass radius and rim are its solo values.
+ * Thread width is a locked channel meaning work size, and a colony drawn
+ * smaller to signal distance would be lying about the fleet it belongs to.
  *
  * "Byte-identical" is meant literally and is asserted structurally, against
  * the shipped 20-lane fixture rather than a hand-built one, because the
@@ -101,22 +102,38 @@ describe('one colony is unchanged (prd-52 ruling 2)', () => {
   })
 })
 
-describe('you stay at the origin (placement ruling, 2026-09-07)', () => {
-  it('does not move the first colony when others join — not by a float', () => {
+describe('one world, one arrangement, whoever is looking (placement ruling, 2026-09-07)', () => {
+  it('moves NOBODY when a colony joins — every existing origin and geometry is the same object graph', () => {
     // The property a grid cannot promise: every arrival re-flows every cell.
-    // Here the first source is laid out with the untouched options whether it
-    // is alone or one of nine, so its geometry is the SAME object graph.
-    const [you, ...others] = team(9)
-    if (you === undefined) throw new Error('no fleet')
-    const alone = layoutWorld(sourcesOf(you), { ...SIZE, now: NOW })
-    const crowded = layoutWorld(sourcesOf(you, ...others), { ...SIZE, now: NOW })
+    // Here sources are laid out in the caller's stable order, so appending a
+    // ninth leaves the first eight exactly where they were, to the identity.
+    // Generalised from "the viewer" to everyone on purpose: the viewer is not
+    // slot 0, they are wherever they landed, and they must not move either.
+    const fleets = team(9)
+    const eight = layoutWorld(sourcesOf(...fleets.slice(0, 8)), { ...SIZE, now: NOW })
+    const nine = layoutWorld(sourcesOf(...fleets), { ...SIZE, now: NOW })
 
-    expect(crowded.colonies).toHaveLength(9)
-    expect(colonyAt(crowded, 0).origin).toStrictEqual({ x: 0, y: 0 })
-    expect(colonyAt(crowded, 0).geometry).toStrictEqual(colonyAt(alone, 0).geometry)
+    expect(nine.colonies).toHaveLength(9)
+    for (let i = 0; i < 8; i++) {
+      expect(colonyAt(nine, i).origin).toStrictEqual(colonyAt(eight, i).origin)
+      expect(colonyAt(nine, i).geometry).toStrictEqual(colonyAt(eight, i).geometry)
+    }
   })
 
-  it('places every other colony off the origin, in the caller’s order', () => {
+  it('does not depend on who is looking — the layout has no viewer', () => {
+    // The same sources in the same order produce the same world no matter
+    // which colony the viewer happens to own. Two teammates opening one
+    // repository must see one map. This is a structural claim about the
+    // function's signature as much as its output, stated so a "viewer" or
+    // "focus" parameter can never be added to layout without turning it red.
+    const fleets = team(4)
+    const a = layoutWorld(sourcesOf(...fleets), { ...SIZE, now: NOW })
+    const b = layoutWorld(sourcesOf(...fleets), { ...SIZE, now: NOW })
+    expect(layoutWorld.length).toBe(2)
+    expect(b.colonies.map((c) => c.origin)).toStrictEqual(a.colonies.map((c) => c.origin))
+  })
+
+  it('places every colony after the first off the origin, in the caller’s order', () => {
     const world = layoutWorld(sourcesOf(...team(4)), { ...SIZE, now: NOW })
     expect(world.colonies.map((c) => c.id)).toEqual(['colony-0', 'colony-1', 'colony-2', 'colony-3'])
     for (let i = 1; i < world.colonies.length; i++) {
@@ -125,9 +142,9 @@ describe('you stay at the origin (placement ruling, 2026-09-07)', () => {
     }
   })
 
-  it('puts a two-person world’s other colony due east', () => {
-    // So "you, and them beside you" reads left-to-right rather than landing
-    // them above or below you at an angle nobody chose.
+  it('puts a two-colony world’s second colony due east', () => {
+    // So two colonies read left to right rather than landing one above the
+    // other at an angle nobody chose.
     const world = layoutWorld(sourcesOf(...team(2)), { ...SIZE, now: NOW })
     const other = colonyAt(world, 1).origin
     expect(other.y).toBeCloseTo(0, 9)

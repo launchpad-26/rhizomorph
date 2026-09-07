@@ -253,6 +253,17 @@ whether `1×180` and `3×60` should carry different supported sizes once measure
   stays decorative — it is a channel permitted to move on condition it carries nothing, and
   "someone else's" is something. Placing colonies by what they are touching would make the
   landscape mean something, and waits on cross-colony data that law 1 currently forbids.
+  > **Amendment, same day (operator, Lachlan Kelliher, 2026-09-07):** *the viewer is not at the
+  > origin.* The first answer put the viewer at slot 0 and everyone else around them, which made
+  > the world's geography depend on who was looking — two people opening the same repository
+  > would see their teammates in different places, which is N private worlds and not a shared
+  > one. Corrected: **placement is the world's and focus is the viewer's.** `layoutWorld` lays
+  > sources out in the caller's *stable arrival order* — slot 0 the centre, the rest the ring —
+  > and knows nothing about who is looking. The camera finds the viewer's colony **by id**,
+  > wherever it landed; most of the time that is on the ring, because most of the time someone
+  > else started first. The stability law generalises accordingly: a colony joining moves
+  > *nobody*, not just the viewer. Slot 0 is whoever arrived first and carries no meaning beyond
+  > arrival, stated so it is not read as a rank.
 - **Is `1×180` a configuration this product should support at all,** or is a colony always
   bounded and the world is what grows? The answer changes whether `victimLaneId`'s containment is
   a performance law or a correctness one. Open, not ruled.

@@ -30,6 +30,15 @@ import type { LayoutOptions, Point, SceneGeometry } from './types.js'
 /**
  * One colony to lay out: a fleet, and the name the caller knows it by.
  *
+ * **The order of sources is the world's arrangement, and it must be stable.**
+ * Slot 0 is the centre and slots 1.. are the ring, so the caller's order IS
+ * where people stand. Keep it as arrival order and append new colonies at the
+ * end: then a colony joining moves nobody, and `world.test.ts` holds that as a
+ * law. Never re-sort it — and in particular never reorder it to put the viewer
+ * first. Which colony is the viewer's is the camera's business, found by id; a
+ * world whose geography depended on who was looking would not be shared, it
+ * would be N private worlds that happened to hold the same people.
+ *
  * The id is the caller's to supply and is deliberately not derived here.
  * `RootMass` carries `repoName`, `mainBranch` and `worktreePath`, and none of
  * them identifies a colony: **several people working one repository is the
@@ -96,11 +105,11 @@ export interface WorldGeometry {
 export const RING_SPACING = 1.5
 
 /**
- * Where the `i`-th other colony sits, for `count` others on the ring.
+ * Where the `i`-th ring colony sits, for `count` on the ring.
  *
- * The first slot is due east so a two-person world reads as "you, and them
- * beside you"; the rest are spaced evenly. Elliptical in the box's own aspect,
- * because the colonies are: a wide panel gives a wide ring.
+ * The first slot is due east so a two-person world reads left to right; the
+ * rest are spaced evenly. Elliptical in the box's own aspect, because the
+ * colonies are: a wide panel gives a wide ring.
  */
 export function ringOrigin(i: number, count: number, width: number, height: number): Point {
   const angle = (i / count) * Math.PI * 2
@@ -111,31 +120,34 @@ export function ringOrigin(i: number, count: number, width: number, height: numb
 }
 
 /**
- * Lay out a world of colonies — **the caller at the origin, everyone else
- * around them** (prd-52, placement ruled 2026-09-07).
+ * Lay out a world of colonies — **one surface, one arrangement, whoever is
+ * looking** (prd-52, placement ruled 2026-09-07, amended the same day).
  *
  * Not a grid. One continuous surface: `sources[0]` is laid out exactly where
- * a solo colony is laid out today, and the others are placed on a ring around
- * it, each at the full box size and each byte-identical to how it would draw
+ * a solo colony is laid out today and the rest take slots on a ring around it,
+ * each at the full box size and each byte-identical to how it would draw
  * alone. Only the origin differs between colonies. Three things follow, and
  * each is a law in `world.test.ts`:
  *
  * - **a solo colony is unchanged** (ruling 2) — with one source this is
  *   `layoutScene(fleet, options)` and nothing else;
- * - **a teammate joining never moves you** — the first source's origin and
- *   geometry are the same whether it is alone or one of nine;
+ * - **a colony joining moves nobody** — append a source and every existing
+ *   colony's origin and geometry are the same object graph they were;
  * - **every colony looks the way its owner sees it** — no colony is shrunk,
  *   so its mass radius and rim half-axes are the solo values. Thread width is
  *   a locked channel meaning work size, and a colony drawn smaller to signal
  *   distance would be lying about its fleet. Perspective is the camera's job.
  *
- * Who is first is the caller's decision, not this file's — it does not know
- * or care whose work it is drawing (ruling 6). The order of the rest is the
- * caller's array order and carries no meaning; a ring has to put people
- * somewhere, and any ordering of people is a ranking waiting to be read as
- * one, so the honest ordering is the arbitrary one, stated. Placing colonies
- * by what they are touching would make the landscape mean something, and it
- * waits on cross-colony data that nothing can carry yet.
+ * **This layout does not know who is looking, and must not.** The viewer is
+ * not slot 0; the viewer is whichever colony the camera finds by id, and most
+ * of the time that is somewhere on the ring, because most of the time someone
+ * else arrived first. A world that put the viewer at the origin would give
+ * every teammate a different map of the same repository. Slot 0 is simply
+ * the first colony in the caller's stable order — in practice whoever started
+ * work first — and that carries no meaning beyond arrival, stated here so it
+ * is not read as one (prd-37 ruling 5: never rank people). Placing colonies
+ * by what they are touching would make the landscape mean something; it waits
+ * on cross-colony data that nothing can carry yet.
  */
 export function layoutWorld(
   sources: readonly ColonySource[],

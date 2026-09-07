@@ -7,6 +7,7 @@ import {
   SCALE_EXTENT,
   type Camera,
   contentBounds,
+  worldBounds,
   gestureFilter,
   isContentVisible,
   translateExtentFor,
@@ -182,6 +183,10 @@ export const CANVAS_UNAVAILABLE_MESSAGE =
  * caller names its colony, and this is the local swarm's name. While there is
  * one colony, selection keeps its bare form (#317), so this id reaches no
  * user-visible string.
+ *
+ * This is the id the CAMERA looks for, not a position in the world. When the
+ * team server hands this loop N colonies, the local one goes wherever the
+ * world's stable order puts it, and the camera finds it there.
  */
 const LOCAL_COLONY = 'local'
 
@@ -473,14 +478,21 @@ export function useFrameLoop(
       if (colony === undefined) return
       const geometry = colony.geometry
       geometryRef.current = geometry
-      // THE CAMERA OPENS ON YOU (prd-52, placement ruled 2026-09-07). The fit
-      // is the first colony's own content — the viewer's — so a person sees
-      // their work framed exactly as it is today, and the landscape beyond it
-      // is something they pull back into rather than something that shrinks
-      // their colony to fit on arrival. The union of everyone's content is
+      // THE CAMERA FINDS YOU (prd-52, placement ruled 2026-09-07). Focus is
+      // the viewer's, placement is the world's, and the two are kept apart on
+      // purpose: the fit is the LOCAL colony's content, found by id and not by
+      // index, because in a shared world the viewer is wherever they landed —
+      // usually somewhere on the ring, since usually someone else arrived
+      // first. A person sees their own work framed exactly as it is today and
+      // pulls back into the landscape from there. If the local colony is not
+      // in the world at all, the honest fit is the whole world. The union is
       // `worldBounds(world)`; wiring it as the pan extent is the follow-up
       // that comes with a second colony to pan to.
-      rig.boundsRef.current = contentBounds(geometry)
+      const local = world.colonies.find((c) => c.id === LOCAL_COLONY)
+      rig.boundsRef.current =
+        local === undefined
+          ? (worldBounds(world) ?? contentBounds(geometry))
+          : contentBounds(local.geometry)
 
       const palette = paletteFor(current.theme)
       const sceneFrame: SceneFrame = {
