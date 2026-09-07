@@ -226,7 +226,8 @@ function WaitedChipButton({
         // Shrinkable, but the duration is not: a chip whose whole point is
         // "this lane waited 6m" must lose its LABEL before it loses the span,
         // so the label carries `min-w-0` and the duration keeps
-        // `whitespace-nowrap`. The `title` above still holds the full text.
+        // `whitespace-nowrap`. The full text lives in the chip's disclosure
+        // card now (#220), so nothing is lost when the label truncates.
         'flex min-w-0 items-center gap-1 rounded-none border px-1.5 py-0.5 normal-case tracking-normal text-(--ink-dim)',
         selected ? 'border-(--ink-primary) bg-(--surface-raised)' : 'border-(--line-strong) bg-(--surface-panel)',
       ].join(' ')}
