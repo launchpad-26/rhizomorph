@@ -2,7 +2,22 @@ import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { assertInsideLabWorktrees, isInside, labWorktreesRoot } from './paths.js'
+import { armLeaf, armWorktreePath, assertInsideLabWorktrees, isInside, labWorktreesRoot } from './paths.js'
+
+describe('a run of an arm has one spelling, and -run-1 is elided (prd53 ruling 1)', () => {
+  it('run 1 spells exactly what every pre-prd53 worktree and fixture already spells', () => {
+    expect(armLeaf('fork-1', 2)).toBe('fork-1-arm-2')
+    expect(armLeaf('fork-1', 2, 1)).toBe('fork-1-arm-2')
+    expect(armWorktreePath('/data', 'fork-1', 2)).toBe(path.join(labWorktreesRoot('/data'), 'fork-1-arm-2'))
+  })
+
+  it('the second run onward carries its number, so no two runs of one arm can share a leaf', () => {
+    expect(armLeaf('fork-1', 2, 2)).toBe('fork-1-arm-2-run-2')
+    expect(armWorktreePath('/data', 'fork-1', 2, 3)).toBe(path.join(labWorktreesRoot('/data'), 'fork-1-arm-2-run-3'))
+    const leaves = new Set([1, 2, 3].map((run) => armLeaf('fork-1', 2, run)))
+    expect(leaves.size).toBe(3)
+  })
+})
 
 /**
  * #227: the macOS CI leg (#217) failed `namespace-law.test.ts`'s live

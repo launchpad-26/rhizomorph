@@ -14,8 +14,8 @@ import { captureCheckpoint } from './checkpoint.js'
 import {
   armLaneHandle,
   dispatchFork,
-  findCheckpoint,
   FORK_EXEC_TIMEOUT_MS,
+  findCheckpoint,
   MODEL_GRAMMAR,
   workmuxAddArgv,
 } from './fork.js'
@@ -328,6 +328,82 @@ describe('dispatchFork', () => {
       expect(session).toContain(arm.worktreePath)
       expect(session).not.toContain(`"cwd":"${repoDir}"`)
     }
+  })
+
+  it('restores arms × runs realities under ONE forkId, no two sharing a worktree or a handle (prd53 ruling 1)', async () => {
+    await capture()
+    const forkId = uniqueId('fork')
+
+    const result = await dispatchFork({
+      parentLane: 'parent-lane',
+      parentWorktreePath: repoDir,
+      arms: 2,
+      runs: 2,
+      forkId,
+      dataRoot,
+      claudeProjectsRoot,
+      exec: realExec,
+      install: false,
+      now: () => 1_000_100,
+    })
+
+    expect(result.runs).toBe(2)
+    expect(result.arms.map((d) => [d.arm, d.run])).toEqual([[1, 1], [1, 2], [2, 1], [2, 2]])
+    expect(new Set(result.arms.map((d) => d.worktreePath)).size).toBe(4)
+    expect(new Set(result.arms.map((d) => d.laneHandle)).size).toBe(4)
+    for (const d of result.arms) {
+      expect(d.event.payload.forkId).toBe(forkId)
+      expect(d.event.payload.run).toBe(d.run)
+      expect(d.laneHandle).toBe(armLaneHandle(forkId, d.arm, d.run))
+    }
+    // Run 1 keeps the pre-prd53 spelling; only the second run carries its number.
+    expect(result.arms[0]?.laneHandle).toBe(`${forkId}-arm-1`)
+    expect(result.arms[1]?.laneHandle).toBe(`${forkId}-arm-1-run-2`)
+  })
+
+  it('dispatches arm k of an existing fork when told which arm it is — how one launch becomes one experiment', async () => {
+    await capture()
+    const forkId = uniqueId('fork')
+    const common = {
+      parentLane: 'parent-lane',
+      parentWorktreePath: repoDir,
+      arms: 1,
+      forkId,
+      dataRoot,
+      claudeProjectsRoot,
+      exec: realExec,
+      install: false,
+      now: () => 1_000_100,
+    }
+
+    const first = await dispatchFork({ ...common, armNumber: 1 })
+    const second = await dispatchFork({ ...common, armNumber: 2, model: 'opus' })
+
+    expect(first.forkId).toBe(forkId)
+    expect(second.forkId).toBe(forkId)
+    expect(first.arms.map((d) => d.arm)).toEqual([1])
+    expect(second.arms.map((d) => d.arm)).toEqual([2])
+    expect(second.arms[0]?.laneHandle).toBe(`${forkId}-arm-2`)
+    expect(second.arms[0]?.event.payload.treatment.model).toBe('opus')
+  })
+
+  it('refuses a zero, negative or fractional run count or arm number before anything is restored', async () => {
+    await capture()
+    for (const bad of [{ runs: 0 }, { runs: -1 }, { runs: 1.5 }, { armNumber: 0 }, { armNumber: 2.5 }]) {
+      await expect(
+        dispatchFork({
+          parentLane: 'parent-lane',
+          parentWorktreePath: repoDir,
+          arms: 1,
+          dataRoot,
+          claudeProjectsRoot,
+          exec: realExec,
+          install: false,
+          ...bad,
+        }),
+      ).rejects.toThrow(/invalid (run count|arm number)/)
+    }
+    await expect(readdir(labWorktreesRoot(dataRoot))).rejects.toThrow(/ENOENT/)
   })
 
   it('records one valid fork.dispatched per arm, marking each lane synthetic', async () => {

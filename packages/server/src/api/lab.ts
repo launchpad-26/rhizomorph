@@ -63,6 +63,8 @@ export interface LabTreatmentDTO {
 export interface LabRunDTO {
   eventId: string
   dispatchedAt: number
+  /** 1-based run within its arm (prd53 ruling 1); 1 for every record written before an arm could hold more than one. */
+  run: number
   laneHandle: string
   worktreePath: string
 }
@@ -143,6 +145,7 @@ function experimentDTOs(events: readonly RhizomorphEvent[]): LabExperimentDTO[] 
       const run: LabRunDTO = {
         eventId: dispatch.eventId,
         dispatchedAt: dispatch.ts,
+        run: dispatch.run,
         laneHandle: dispatch.laneHandle,
         worktreePath: dispatch.worktreePath,
       }
@@ -305,19 +308,34 @@ export interface LaunchRequestBody {
   lane: string
   checkpointId: string
   arms: LaunchArmInput[]
+  /** Runs of every arm (prd53 ruling 1). 1 when the request did not say. */
+  runs: number
+}
+
+/** One run of a launched arm — its own worktree, its own handle, its own launch. */
+export interface LaunchedRunResult {
+  run: number
+  laneHandle: string
+  worktreePath: string
+  launched: boolean
 }
 
 export interface LaunchedArmResult {
   arm: number
   model: string | null
   briefProvided: boolean
+  /** The experiment's id — the same on every arm of one launch (prd53 ruling 1). */
   forkId: string
+  /** The first run's handle, worktree and launch state — kept so a reader of one run per arm still reads truthfully; `runs` holds all of them. */
   laneHandle: string
   worktreePath: string
   launched: boolean
+  runs: LaunchedRunResult[]
 }
 
 export interface LaunchResult {
+  /** ONE per launch, minted before the first arm is dispatched (prd53 ruling 1). */
+  forkId: string
   parentLane: string
   checkpointId: string
   arms: LaunchedArmResult[]
@@ -369,7 +387,7 @@ function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
   if (typeof body !== 'object' || body === null) {
     throw new LaunchValidationError('request body must be a JSON object')
   }
-  const { lane, checkpointId, arms } = body as Record<string, unknown>
+  const { lane, checkpointId, arms, runs: runsRaw } = body as Record<string, unknown>
 
   if (typeof lane !== 'string' || lane.trim().length === 0) {
     throw new LaunchValidationError('"lane" must be a non-empty string')
@@ -407,6 +425,19 @@ function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
       `"arms" may not exceed ${MAX_ARMS} — received ${arms.length}, and each arm forks a live, spending agent lane`,
     )
   }
+  const runs = runsRaw === undefined ? 1 : runsRaw
+  if (typeof runs !== 'number' || !Number.isInteger(runs) || runs < 1) {
+    throw new LaunchValidationError('"runs" must be a positive integer when present — how many times each arm is run (prd53 ruling 1)')
+  }
+  // The same ceiling, read for what it actually bounds: every RUN is a live,
+  // spending agent lane, so arms × runs is the count prd41 ruling 4 declared a
+  // ceiling over — not the arm count alone. prd53 ruling 6 (wave 2) makes this
+  // configurable and names the override; until then the fixed number holds.
+  if (arms.length * runs > MAX_ARMS) {
+    throw new LaunchValidationError(
+      `"arms" × "runs" may not exceed ${MAX_ARMS} spending lanes — received ${arms.length} arm(s) × ${runs} run(s) = ${arms.length * runs}, and every run forks a live, spending agent lane`,
+    )
+  }
 
   const parsedArms: LaunchArmInput[] = arms.map((arm, index) => {
     if (typeof arm !== 'object' || arm === null) {
@@ -440,7 +471,7 @@ function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
     return { model, brief }
   })
 
-  return { lane, checkpointId, arms: parsedArms }
+  return { lane, checkpointId, arms: parsedArms, runs }
 }
 
 /**
@@ -612,41 +643,54 @@ async function runLabCliOnce(argv: readonly string[], options: LabCliRunOptions)
   return { exitCode, stdout: stdoutLines.join('\n'), stderr: stderrChunks.join('') }
 }
 
-interface ParsedSingleArmDispatch {
-  forkId: string
-  checkpointId: string
+export interface ParsedForkRun {
+  arm: number
+  run: number
   laneHandle: string
   worktreePath: string
   launched: boolean
 }
 
-const FORK_HEADER_RE = /^fork (\S+) — \d+ arm\(s\) of lane "(?:[^"]*)" restored from checkpoint (\S+)$/m
-const ARM_LINE_RE = /^ {2}arm 1 {2}(\S+)$/m
-const WORKTREE_LINE_RE = /^ {4}worktree {2}(\S+)$/m
-const LAUNCH_LINE_RE = /^ {4}launch {4}(ran|not run)/m
+export interface ParsedForkDispatch {
+  forkId: string
+  checkpointId: string
+  /** Every run the CLI printed, in the order it printed them. Never empty — no run, no parse. */
+  runs: [ParsedForkRun, ...ParsedForkRun[]]
+}
+
+const FORK_HEADER_RE =
+  /^fork (\S+) — \d+ arm\(s\)(?: × \d+ run\(s\))? of lane "(?:[^"]*)" restored from checkpoint (\S+)$/m
+/**
+ * One run's block: its `arm N[ run R]  handle` line, its worktree line, then
+ * whatever session lines the CLI printed (one, or two when a launcher moved
+ * the arm), then its launch line. `run R` is absent for a first run — the
+ * elision `lab/paths.ts` documents — and read as 1.
+ */
+const RUN_BLOCK_RE = /^ {2}arm (\d+)(?: run (\d+))? {2}(\S+)\n {4}worktree {2}(\S+)\n(?:.*\n)*? {4}launch {4}(ran|not run)/gm
 
 /**
  * `rhizomorph lab fork`'s stdout is prose, not JSON — this reads back exactly
- * the shape `runLabForkCommand` (`cli/index.ts`) is documented to print for a
- * single-arm dispatch. `lab.test.ts` exercises this against the REAL CLI
- * output (not a hand-written fixture), so a future wording change in
- * `cli/index.ts` fails here rather than silently mis-parsing.
+ * the shape `runLabForkCommand` (`cli/index.ts`) is documented to print.
+ * `lab.test.ts` exercises this against the REAL CLI output (not only a
+ * hand-written fixture), so a future wording change in `cli/index.ts` fails
+ * here rather than silently mis-parsing.
  */
-export function parseSingleArmForkStdout(stdout: string): ParsedSingleArmDispatch | null {
+export function parseForkStdout(stdout: string): ParsedForkDispatch | null {
   const header = FORK_HEADER_RE.exec(stdout)
-  const armLine = ARM_LINE_RE.exec(stdout)
-  const worktreeLine = WORKTREE_LINE_RE.exec(stdout)
-  const launchLine = LAUNCH_LINE_RE.exec(stdout)
-  if (!header || !armLine || !worktreeLine || !launchLine) return null
-
+  if (!header) return null
   const [, forkId, checkpointId] = header
-  const [, laneHandle] = armLine
-  const [, worktreePath] = worktreeLine
-  if (forkId === undefined || checkpointId === undefined || laneHandle === undefined || worktreePath === undefined) {
-    return null
+  if (forkId === undefined || checkpointId === undefined) return null
+
+  const runs: ParsedForkRun[] = []
+  for (const block of stdout.matchAll(RUN_BLOCK_RE)) {
+    const [, arm, run, laneHandle, worktreePath, launch] = block
+    if (arm === undefined || laneHandle === undefined || worktreePath === undefined || launch === undefined) return null
+    runs.push({ arm: Number(arm), run: run === undefined ? 1 : Number(run), laneHandle, worktreePath, launched: launch === 'ran' })
   }
 
-  return { forkId, checkpointId, laneHandle, worktreePath, launched: launchLine[1] === 'ran' }
+  const [head, ...tail] = runs
+  if (head === undefined) return null
+  return { forkId, checkpointId, runs: [head, ...tail] }
 }
 
 export interface LaunchExperimentOptions {
@@ -660,29 +704,36 @@ export interface LaunchExperimentOptions {
 }
 
 /**
- * Dispatches one arm per entry in `request.arms`, each with its OWN model
- * and brief (prd14 ruling 2 — free-form, never constrained to a single
- * knob). `dispatchFork` (the engine, read-only to this issue) only ever
- * applies ONE treatment across however many arms one call makes, so the only
- * way to give arm 2 a different model or brief than arm 1 without touching
- * that engine is one `--arms 1` dispatch per arm — which is exactly what
- * this does, sequentially, through the lock above.
+ * Dispatches ONE experiment: an arm per entry in `request.arms`, each with its
+ * OWN model and brief (prd14 ruling 2 — free-form, never constrained to a
+ * single knob), each holding `request.runs` runs (prd53 ruling 1).
  *
- * Arms are independent forks (their own `forkId`, always arm 1 within it):
- * this is an honest reflection of what `dispatchFork` can express today, not
- * a synthesized "one experiment" the engine never actually recorded. Ruling
- * 3's grouped, multi-arm comparison view is wave 4's surface over whatever
- * the engine holds; this route's job stops at getting each arm dispatched
- * and reporting, per arm, exactly what happened.
+ * `dispatchFork` applies one treatment across however many arms one call
+ * makes, so giving arm 2 a different model or brief than arm 1 still takes
+ * one `--arms 1` call per arm — sequentially, through the lock above. What
+ * prd53 ruling 1 changed is what those calls SHARE: this function mints one
+ * `forkId` before the first call and passes it, with the arm's own number, on
+ * every call (`--fork-id`, `--arm-number`). The engine then records n arms of
+ * one fork, because that is what happened — not n forks of one arm each,
+ * which is what it recorded before and what left the comparison surface
+ * honestly, permanently empty (no arm could ever hold the runs a summary
+ * needs).
  *
  * Stops at the first failure rather than trying the rest: an arm that failed
  * to restore might mean the checkpoint itself is bad, and dispatching
  * further arms against it would spend more money chasing the same failure.
  * Arms already dispatched keep their result — they already spent real
- * money and that is never hidden (prd12 ruling 3).
+ * money and that is never hidden (prd12 ruling 3). An experiment stopped
+ * midway is a PARTIAL experiment: the arms before the failure are real, and
+ * recorded under the same `forkId` as the ones that never came. prd53 ruling
+ * 7 names that state; this function reports it as `failed` beside `arms`.
  */
 export async function launchExperiment(body: unknown, options: LaunchExperimentOptions): Promise<LaunchResult> {
   const request = parseLaunchRequestBody(body)
+  // One experiment, one id — minted here, before any arm exists, and handed
+  // to every dispatch. The engine's own default (`fork-${randomUUID()}`) is
+  // what it would mint per call, which is exactly the fragmentation this ends.
+  const forkId = `fork-${randomUUID()}`
   const arms: LaunchedArmResult[] = []
   let failed: LaunchResult['failed'] = null
 
@@ -709,7 +760,16 @@ export async function launchExperiment(body: unknown, options: LaunchExperimentO
       // rather than by another allowlist. `parseLaunchRequestBody` also
       // refuses a leading `-` up front, for the `--help`/`-h` scan that runs
       // before `parseFlags` and that `--` therefore cannot cover.
-      const argv = ['fork', '--path', options.repoPath, '--at', request.checkpointId, '--arms', '1', '--launch']
+      const argv = [
+        'fork',
+        '--path', options.repoPath,
+        '--at', request.checkpointId,
+        '--arms', '1',
+        '--fork-id', forkId,
+        '--arm-number', String(armNumber),
+        '--runs', String(request.runs),
+        '--launch',
+      ]
       if (hasModel) argv.push('--model', model)
       if (briefFile !== null) argv.push('--prompt-file', briefFile)
       argv.push('--', request.lane)
@@ -731,27 +791,45 @@ export async function launchExperiment(body: unknown, options: LaunchExperimentO
         break
       }
 
-      const parsed = parseSingleArmForkStdout(invocation.stdout)
+      const parsed = parseForkStdout(invocation.stdout)
       if (parsed === null) {
         failed = { arm: armNumber, error: `could not read the dispatch result for arm ${armNumber} — unexpected CLI output` }
         break
       }
+      // The CLI was told which fork to dispatch into. If it answered with
+      // another, the arm is real and recorded somewhere this launch cannot
+      // account for — said plainly rather than filed under the id it was
+      // supposed to have.
+      if (parsed.forkId !== forkId) {
+        failed = {
+          arm: armNumber,
+          error: `arm ${armNumber} was recorded under fork ${parsed.forkId}, not this experiment's ${forkId} — the dispatch ignored --fork-id`,
+        }
+        break
+      }
 
+      const [first] = parsed.runs
       arms.push({
         arm: armNumber,
         model: hasModel ? model : null,
         briefProvided: hasBrief,
         forkId: parsed.forkId,
-        laneHandle: parsed.laneHandle,
-        worktreePath: parsed.worktreePath,
-        launched: parsed.launched,
+        laneHandle: first.laneHandle,
+        worktreePath: first.worktreePath,
+        launched: first.launched,
+        runs: parsed.runs.map((run) => ({
+          run: run.run,
+          laneHandle: run.laneHandle,
+          worktreePath: run.worktreePath,
+          launched: run.launched,
+        })),
       })
     } finally {
       if (briefFile !== null) await rm(briefFile, { force: true })
     }
   }
 
-  return { parentLane: request.lane, checkpointId: request.checkpointId, arms, failed }
+  return { forkId, parentLane: request.lane, checkpointId: request.checkpointId, arms, failed }
 }
 
 export function registerLabRoutes(app: FastifyInstance, ctx: ServerContext): void {

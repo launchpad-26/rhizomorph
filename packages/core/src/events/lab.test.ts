@@ -107,6 +107,19 @@ describe('fork.dispatched', () => {
     expect(forkDispatchedPayloadSchema.safeParse({ ...validDispatch(), arm: -1 }).success).toBe(false)
   })
 
+  it('accepts a run number and rejects run 0, a negative run and a fractional run — runs are 1-based like arms (prd53 ruling 1)', () => {
+    expect(forkDispatchedPayloadSchema.safeParse({ ...validDispatch(), run: 2 }).success).toBe(true)
+    expect(forkDispatchedPayloadSchema.safeParse({ ...validDispatch(), run: 0 }).success).toBe(false)
+    expect(forkDispatchedPayloadSchema.safeParse({ ...validDispatch(), run: -1 }).success).toBe(false)
+    expect(forkDispatchedPayloadSchema.safeParse({ ...validDispatch(), run: 1.5 }).success).toBe(false)
+  })
+
+  it('still accepts a record with no run at all — every fork.dispatched written before prd53 parses unchanged, and carries no invented run', () => {
+    const parsed = forkDispatchedPayloadSchema.safeParse(validDispatch())
+    expect(parsed.success).toBe(true)
+    if (parsed.success) expect(parsed.data.run).toBeUndefined()
+  })
+
   it('rejects a promptDigest that is not a sha256 hex digest', () => {
     const bad = { ...validDispatch(), treatment: { model: 'opus', promptDigest: 'nope' } }
     expect(forkDispatchedPayloadSchema.safeParse(bad).success).toBe(false)

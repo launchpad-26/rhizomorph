@@ -8,18 +8,18 @@ import { runDoctorCommand } from './doctor.js'
 import { runEnvCommand } from './env.js'
 import { runExportOtlpCommand } from './export-otlp.js'
 import { runExportRecordCommand } from './export-record.js'
-import { runLabelCommand } from './label.js'
-import { labCompareHelpText, parseLabCompareArgs } from './lab-compare.js'
-import { labCheckpointHelpText, parseLabCheckpointArgs } from './lab-checkpoint.js'
-import { labForkHelpText, parseLabForkArgs } from './lab-fork.js'
 import { labHelpText } from './lab.js'
+import { labCheckpointHelpText, parseLabCheckpointArgs } from './lab-checkpoint.js'
+import { labCompareHelpText, parseLabCompareArgs } from './lab-compare.js'
+import { labForkHelpText, parseLabForkArgs } from './lab-fork.js'
+import { runLabelCommand } from './label.js'
 import { runReplayCommand } from './replay.js'
 import { runRotateCommand } from './rotate.js'
 import { runServerCommand } from './run.js'
 import { runSessionsCommand } from './sessions.js'
 import type { CliHandle, RunCliOptions } from './types.js'
 
-export type { RunCliOptions, CliHandle } from './types.js'
+export type { CliHandle, RunCliOptions } from './types.js'
 
 /**
  * The CLI's one entry point: dispatches on `argv[0]` to each subcommand's own
@@ -195,6 +195,9 @@ async function runLabForkCommand(
       parentWorktreePath,
       checkpointId: args.at,
       arms: args.arms,
+      runs: args.runs,
+      forkId: args.forkId,
+      armNumber: args.armNumber,
       model: args.model,
       promptFile: args.promptFile,
       launch: args.launch,
@@ -204,13 +207,17 @@ async function runLabForkCommand(
       claudeProjectsRoot: options.claudeProjectsRoot,
     })
 
+    // `api/lab.ts`'s `parseForkStdout` reads exactly these lines back; a run
+    // number appears only from the second run of an arm, so a single-run
+    // dispatch prints what it always printed.
+    const armCount = result.arms.length / result.runs
     log.log(
-      `fork ${result.forkId} — ${result.arms.length} arm(s) of lane "${result.parentLane}" ` +
+      `fork ${result.forkId} — ${armCount} arm(s)${result.runs > 1 ? ` × ${result.runs} run(s)` : ''} of lane "${result.parentLane}" ` +
         `restored from checkpoint ${result.checkpointId}`,
     )
     for (const arm of result.arms) {
       log.log(
-        `  arm ${arm.arm}  ${arm.laneHandle}\n` +
+        `  arm ${arm.arm}${arm.run > 1 ? ` run ${arm.run}` : ''}  ${arm.laneHandle}\n` +
           `    worktree  ${arm.worktreePath}\n` +
           `    session   ${arm.session.filePath} (${arm.session.linesCopied} lines, ` +
           `${arm.session.rewrites[0]?.count ?? 0} paths rewritten to this tree)` +
