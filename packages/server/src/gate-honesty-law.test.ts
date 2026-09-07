@@ -3668,14 +3668,44 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
         // defect — but a pin whose stated property is "the only program this
         // machinery invokes" must hold the whole command word, so it now
         // anchors at the start of the invocation line.
-        const invocation = VERDICT_MACHINERY.split('\n').filter((l) => !l.trim().startsWith('#') && /\s-e\b/.test(l))
+        //
+        // A LOGICAL line, not a physical one (review of #310, EXECUTED). That
+        // anchor is still a position pin, and a `\\` continuation moves the
+        // command word onto a DIFFERENT physical line from the `-e` it is
+        // anchored to — so a launcher prefixing the binary from the line above
+        // slips it exactly as the suffix pin was slipped:
+        //   beacon_dir=$(REPO_PATH=... MODULE_PATH=... npx --no-install \\
+        //     "$root/node_modules/.bin/tsx" -e '
+        // PROBE: that mutation, applied to the real committed scripts/gate.sh
+        // with the line count left unchanged so the producer-citation law
+        // could not mask it, left this whole file GREEN — 215/215.
+        //
+        // This is the THIRD spelling of one defect: round 3 pinned the token
+        // adjacent to `-e`, round 4 pinned the start of its physical line, and
+        // each fix left one position a launcher can still occupy. So the pin
+        // stops asking WHERE the program sits. Continuations are joined first,
+        // then the command substitution's opener and every leading `VAR=value`
+        // environment assignment — which are not a command word — are
+        // stripped, and what remains BEGINS with the program that actually
+        // runs, wherever the author chooses to break the line.
+        const invocation = VERDICT_MACHINERY.split('\n')
+          .filter((l) => !l.trim().startsWith('#'))
+          .join('\n')
+          .replace(/\\\n\s*/g, ' ')
+          .split('\n')
+          .filter((l) => /\s-e\b/.test(l))
         expect(
           invocation.map((l) => l.trim()),
           'the pin is vacuous if the invocation cannot be found at all — renaming or reshaping it must fail here rather than pass silently',
         ).toHaveLength(1)
+        // `\w+=$(` is the command substitution's own opener, not an argument.
+        const command = invocation[0]!
+          .trim()
+          .replace(/^\w+=\$\(\s*/, '')
+          .replace(/^(?:[A-Za-z_]\w*=(?:"[^"]*"|'[^']*'|\S*)\s+)+/, '')
         expect(
-          invocation[0]!.trim(),
-          'a plain `npx tsx` was MEASURED to hang past five minutes against a black-holed registry when tsx is unresolvable locally, and `npm exec -- tsx` does the same. The resolved binary never reaches the npm resolver, and it is the only thing that may run here — as the whole command, not merely as its last word before `-e`.',
+          command,
+          'a plain `npx tsx` was MEASURED to hang past five minutes against a black-holed registry when tsx is unresolvable locally, and `npm exec -- tsx` does the same. The resolved binary never reaches the npm resolver, and it is the only thing that may run here — as the whole command, on whatever physical line it is written, not merely as the word before `-e`.',
         ).toMatch(/^"\$root\/node_modules\/\.bin\/tsx" -e\b/)
         expect(
           code,
