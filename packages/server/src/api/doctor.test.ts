@@ -1104,4 +1104,46 @@ describe('declared attention and the L2 rung reach the route (#307)', () => {
       await teardown()
     }
   })
+
+  /**
+   * The SIBLING CALL SITE. `registerDoctorRoute` builds the prober twice — once
+   * at registration, once when a retarget re-points `ctx.repoPath` — and the
+   * fold seam has to be on both. Dropping it from the rebuild alone leaves
+   * every other test in this file green (EXECUTED: 38/38 still passed) while
+   * `/api/doctor` silently stops reporting L2 and the per-lane readings for the
+   * rest of the process's life. That is exactly the defect #307 closed,
+   * re-opened in the one path this route exists to survive — and the retarget
+   * test above pins `repoPath` through that rebuild without pinning the seam
+   * added to the same literal.
+   */
+  it('keeps the fold seam across a retarget — the REBUILT prober still reads L2 and still names the lane', async () => {
+    await setup()
+    const otherRepoPath = await mkdtemp(path.join(tmpdir(), 'rhizomorph-route-fold-repo-b-'))
+    try {
+      execState.workmuxMissing = true
+      const recorder = await recorderWith({ declaredAt: Date.now() - 30_000, workmuxDisabled: true })
+      const ctx = { repoPath, repoName: 'repo', sessionDir, recorder }
+      const app = buildApp(ctx)
+
+      const before: DoctorCheck[] = (
+        await app.inject({ method: 'GET', url: '/api/doctor', headers: capabilityHeaders(app) })
+      ).json()
+      expect(rungIn(checkFor(before, 'ladder').message)).toBe('L2')
+      expect(before.some((check) => check.id === 'attention:2-core')).toBe(true)
+
+      // The retarget mutation — no re-registration, so the prober this serves
+      // from is the one built by the SECOND `createRouteDoctorProbe` literal.
+      ctx.repoPath = otherRepoPath
+
+      const after: DoctorCheck[] = (
+        await app.inject({ method: 'GET', url: '/api/doctor', headers: capabilityHeaders(app) })
+      ).json()
+      expect(checkFor(after, 'session-boundary').message).toContain(otherRepoPath)
+      expect(rungIn(checkFor(after, 'ladder').message)).toBe('L2')
+      expect(after.some((check) => check.id === 'attention:2-core')).toBe(true)
+    } finally {
+      await rm(otherRepoPath, { recursive: true, force: true })
+      await teardown()
+    }
+  })
 })
