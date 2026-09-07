@@ -3506,8 +3506,9 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
      * of them takes the "could not resolve the beacon directory" branch —
      * none of them ever reaches the write. That gap is the reason this
      * describe block exists: it is the only place in this file that sets
-     * `root` to something real (`REPO_ROOT`, so `npx tsx` can actually
-     * resolve `beaconDirFor()` from `packages/server/src/collectors/beacon/
+     * `root` to something real (`REPO_ROOT`, so that
+     * `$root/node_modules/.bin/tsx` exists and can evaluate
+     * `beaconDirFor()` from `packages/server/src/collectors/beacon/
      * paths.ts`) and points `RHIZOMORPH_DATA_DIR` at a scratch directory, so
      * the write lands somewhere disposable rather than a developer's real
      * `~/.local/share/rhizomorph`.
@@ -3518,17 +3519,22 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
      * file holds every other fixture to.
      */
     describe('prd17 w5 (#274) — the same verdict line also reaches gate.jsonl in the beacon directory', () => {
-      /** `root=$REPO_ROOT` (so `npx tsx` resolves the real module) and `RHIZOMORPH_DATA_DIR` pointed at a scratch dir (so the write never touches a real machine's data root) — both absent from `runVerdict` above by design. */
+      /** `root=$REPO_ROOT` (so `$root/node_modules/.bin/tsx` resolves, and with it the real module) and `RHIZOMORPH_DATA_DIR` pointed at a scratch dir (so the write never touches a real machine's data root) — both absent from `runVerdict` above by design. */
       function runVerdictWithBeacon(setup: string, dataRoot: string): FragmentResult & { h: string } {
         const h = `verdict-beacon-${process.pid}-${Math.random().toString(36).slice(2, 8)}`
         const script =
           `#!/bin/bash\n${SHELL_OPTS}\nH=${h}\nroot="${REPO_ROOT}"\nexport RHIZOMORPH_DATA_DIR="${dataRoot}"\n` +
           `${VERDICT_MACHINERY}\n${setup}\n`
-        // cwd is REPO_ROOT, not a scratch dir: `npx --no-install tsx` resolves
-        // its binary by walking UP from cwd through node_modules, which a
-        // fresh scratchDir (usually under /tmp) never reaches. This is the
-        // one fixture in the file that needs the real tree as its cwd rather
-        // than a disposable one.
+        // cwd is REPO_ROOT for tidiness only — it is NOT what makes the
+        // resolution work, and this comment used to say it was (review of
+        // #274, round 3). That justification described the mechanism the
+        // round-2 repair removed: `npx --no-install tsx` resolved its binary
+        // by walking UP from cwd through node_modules, so a scratch cwd
+        // broke it. The machinery now invokes `$root/node_modules/.bin/tsx`
+        // by absolute path, and cwd never participates. EXECUTED from a
+        // scratch directory with no node_modules above it: the same beacon
+        // directory, rc=0, identical to the CONTROL run from REPO_ROOT.
+        // What the fixture actually needs is `root`, set above.
         const res = runFragment(script, REPO_ROOT)
         return { ...res, h }
       }
@@ -3580,24 +3586,104 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
        * exactly the offline operator `push_or_warn`'s own exemption exists
        * for. The fix is invoking the resolved binary directly, which never
        * touches npm's resolver at all — proven structurally rather than by
-       * actually waiting out a black-holed registry in the suite.
+       * actually waiting out a black-holed registry in the suite, and
+       * proven as a PROPERTY (one permitted executable) rather than as a
+       * banned token, because `npx` is only one spelling of the defect.
        */
-      it('the tsx invocation is the resolved binary directly, guarded by -x, never `npx`', () => {
+      it('the ONLY program this machinery invokes is the resolved tsx binary — a launcher of any spelling fails here', () => {
         // CODE lines only — this very test, and the fix's own commit
         // message, both say "npx" in prose explaining why it must not be
         // used; the claim is about what RUNS, not what is discussed.
         const code = VERDICT_MACHINERY.split('\n')
           .filter((l) => !l.trim().startsWith('#'))
           .join('\n')
+
+        // AN ALLOW-LIST OF ONE, not a deny-list of spellings (review of
+        // #274, round 3). This assertion used to be `.not.toMatch(/\bnpx\b/)`,
+        // which pins a TOKEN rather than the property that was measured:
+        // "does not go through npm's own resolver". `npx` IS a wrapper over
+        // `npm exec`, so `npm exec --offline --yes -- tsx` slips that regex
+        // and hangs identically — MEASURED against a connection-refused
+        // registry from a directory with no node_modules, both `npx
+        // --no-install tsx` and `npm exec -- tsx` were still running at 45s
+        // where the resolved binary took 307ms, and the old assertion
+        // stayed GREEN through that mutation (211 passed, control and
+        // mutant alike). Naming the one acceptable executable closes the
+        // class instead: every launcher spelling, enumerated or not, puts a
+        // different word in this position.
+        const invoked = [...code.matchAll(/(\S+)\s+-e\b/g)].map((m) => m[1])
         expect(
-          code,
-          'a plain `npx tsx` was MEASURED to hang past five minutes against a black-holed registry when tsx is unresolvable locally — this must never be `npx` again',
-        ).not.toMatch(/\bnpx\b/)
-        expect(code).toContain('node_modules/.bin/tsx')
+          invoked,
+          'the pin is vacuous if the invocation cannot be found at all — renaming or reshaping it must fail here rather than pass silently',
+        ).toHaveLength(1)
+        expect(
+          invoked[0],
+          'a plain `npx tsx` was MEASURED to hang past five minutes against a black-holed registry when tsx is unresolvable locally, and `npm exec -- tsx` does the same. The resolved binary never reaches the npm resolver, and it is the only thing that may run here.',
+        ).toBe('"$root/node_modules/.bin/tsx"')
         expect(
           code,
           'the binary must be existence-checked before being invoked, or a missing one fails as "command not found" instead of the reported warning',
         ).toMatch(/-x\s+"\$\{root:-\}\/node_modules\/\.bin\/tsx"/)
+      })
+
+      /**
+       * Review of #274, round 3 (EXECUTED). The comment above the python3
+       * block claims check, repair and write are "one critical section".
+       * They were not: Python's buffered writer flushes at close(), which
+       * the `with` block runs AFTER `fcntl.flock(f, LOCK_UN)`, so the bytes
+       * left the buffer outside the lock the comment says they are inside.
+       * Instrumented at the unlock point, bytes-on-disk was 0 as committed
+       * and 31 with an explicit flush; widening the unlock-to-close window
+       * to 300ms gave two concurrent writers a spurious blank line, which
+       * `parse-beacon-line` refuses and the collector reports as a
+       * malformed line.
+       *
+       * This is pinned STRUCTURALLY, by order. The behavioural form needs
+       * the unlock point instrumented from inside the interpreter — which
+       * is how the review measured it, and is not something the suite can
+       * observe from outside a one-shot `python3 -c`. What the suite CAN
+       * guarantee is that nobody removes the flush or moves it after the
+       * unlock, which is the only way the defect returns.
+       */
+      it('the beacon append flushes INSIDE the lock — write, then flush, then unlock, in that order', () => {
+        const code = VERDICT_MACHINERY.split('\n')
+          .filter((l) => !l.trim().startsWith('#'))
+          .join('\n')
+
+        const write = code.indexOf('f.write(line.encode()')
+        const flush = code.indexOf('f.flush()')
+        const unlock = code.indexOf('fcntl.LOCK_UN')
+
+        expect(write, 'the append itself must be findable, or this test pins nothing').toBeGreaterThan(-1)
+        expect(flush, 'without an explicit flush the bytes reach the file at close(), after the unlock').toBeGreaterThan(-1)
+        expect(unlock, 'the unlock must be findable, or the ordering claim below is vacuous').toBeGreaterThan(-1)
+
+        expect(flush, 'the flush must come AFTER the append — flushing first flushes nothing').toBeGreaterThan(write)
+        expect(flush, 'the flush must come BEFORE the unlock, or the write is outside the critical section the comment claims it is inside').toBeLessThan(unlock)
+      })
+
+      /**
+       * Review of #274, round 3. A citation by OFFSET rots by construction:
+       * this script carried "this function's own comment 110 lines up",
+       * which was 133 lines up by the time anyone counted it, and would
+       * have been wrong again after the very edit that fixed it. AGENTS.md
+       * already states the rule for CI citations — "cite by job and step
+       * name, never by line number" — and records that the same class of
+       * pointer rotted twice there, once drifting BACK into correctness,
+       * which is the worse failure because spot-checking it says "fine".
+       *
+       * Scoped to gate.sh as a whole rather than to the machinery slice:
+       * the defect is a property of prose in this file, and the slice
+       * boundaries are not where a future author will happen to write one.
+       */
+      it('no comment in scripts/gate.sh cites another line by offset — those pointers rot silently', () => {
+        const offsets = LINES
+          .map((line, i) => ({ line, n: i + 1 }))
+          .filter(({ line }) => /\b\d+\s+lines?\s+(up|down|above|below|earlier|later)\b/i.test(line))
+        expect(
+          offsets.map(({ n, line }) => `${n}: ${line.trim()}`),
+          'quote the sentence being cited instead — it is greppable and survives the file moving, which an offset is not',
+        ).toEqual([])
       })
 
       /**
@@ -3622,8 +3708,10 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
         const script =
           `#!/bin/bash\n${SHELL_OPTS}\nH=${h}\nroot="${specialRoot}"\nexport RHIZOMORPH_DATA_DIR="${dataRoot}"\n` +
           `${VERDICT_MACHINERY}\necho "  build OK"\nMERGED=1\nemit_gate_verdict clean\n`
-        // cwd stays REPO_ROOT (the real node_modules) — only `root`, used to
-        // build MODULE_PATH, needs to carry the special character.
+        // cwd stays REPO_ROOT — again for tidiness, not for resolution (see
+        // the note in runVerdictWithBeacon). `root` is the symlink whose own
+        // name carries the special character, and it is what both
+        // `$root/node_modules/.bin/tsx` and MODULE_PATH are built from.
         const res = runFragment(script, REPO_ROOT)
         expect(res.status).toBe(0)
         const printed = lastLine(res.stdout)

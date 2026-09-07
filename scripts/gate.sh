@@ -205,10 +205,18 @@ print(json.dumps(line, separators=(",", ":")))' "$H" "$held" "$reason" "$digest"
     # runs AFTER the merge — the same "first landing" case the DoD already
     # names for mkdir), and `fail "npm install after merge broke"
     # install-broken` correlates with exactly the offline operator
-    # `push_or_warn`'s own exemption exists for. This function's own comment
-    # 110 lines up is the bound that violated: "a landing may fail; it may
-    # not hang." Invoking the resolved binary directly never touches npm's
-    # own resolver, so there is no registry fallback to reach.
+    # `push_or_warn`'s own exemption exists for. The bound it violates is
+    # this script's own, set where the tee-drain deadline is and quoted here
+    # so a reader need not go and find it: "A landing may fail; it may not
+    # hang." That sentence used to be cited by a line offset instead, and
+    # the offset was already two dozen lines stale by the time anyone
+    # counted it — it would have been wrong again after this very edit.
+    # AGENTS.md already states the rule this breaks ("cite by job and
+    # step name, never by line number"), and the reason it is stated there
+    # applies verbatim here: a quoted sentence is greppable and survives the
+    # file moving, an offset is neither. Invoking the resolved binary
+    # directly never touches npm's own resolver, so there is no registry
+    # fallback to reach.
     # `${root:-}`, not a bare `$root`: this dereference runs in THE CURRENT
     # shell, not a subshell — an unset `root` under `set -u` (:13) would
     # abort emit_gate_verdict itself mid-function, before the GATE_OUTFILE
@@ -265,6 +273,21 @@ print(json.dumps(line, separators=(",", ":")))' "$H" "$held" "$reason" "$digest"
         # and write are now one critical section instead of three separate,
         # raceable steps.
         #
+        # `f.flush()` BEFORE the unlock, and it is load-bearing (review of
+        # #274, round 3 — EXECUTED). Python's buffered writer flushes at
+        # close(), which runs when the `with` block exits — AFTER
+        # LOCK_UN — so without this line the bytes reached the file outside
+        # the critical section the comment above claims they are inside, and
+        # that claim was simply false. Instrumented at the unlock point:
+        # bytes-on-disk 0 with the write buffered, 31 with the flush; and
+        # with the unlock-to-close window widened to 300ms, two concurrent
+        # writers against a torn tail produced one spurious blank line
+        # (which read-beacon-lines.ts returns and parse-beacon-line refuses,
+        # costing one "malformed beacon line skipped" report). The window is
+        # microseconds against a 50ms poll and O_APPEND kept every verdict
+        # whole either way, so this repairs the guarantee rather than a
+        # measured loss.
+        #
         # A write failure past this point is reported, never fatal (issue
         # #274's DoD): the landing tool's job is to land, and a full disk or
         # an unwritable directory must not turn a clean gate into a held
@@ -290,6 +313,7 @@ with open(path, "a+b") as f:
             if f.read(1) != b"\n":
                 f.write(b"\n")
         f.write(line.encode() + b"\n")
+        f.flush()
     finally:
         fcntl.flock(f, fcntl.LOCK_UN)' "$beacon_dir" "$verdict_line" 2>/dev/null; then
           echo "  ! gate: could not write the verdict to $beacon_dir/gate.jsonl — this landing will not reach the beacon collector" >&2
