@@ -178,6 +178,31 @@ comes back down onto anyone's laptop* — is not something this PRD is careful a
 something this PRD has no mechanism to violate. When the law changes, the composition layer is
 already built and takes its fleets from a new caller.
 
+## Ruling 7 — a departed colony stays as landed mass
+
+(Operator ruling, Lachlan Kelliher, 2026-09-07.) A colony is never removed from the world. When
+its person stops — for the night, for the week, for good — the colony keeps its slot and is drawn
+as what it is: landed mass with no living threads. The instrument already knows how to draw that;
+it is the finished-work vocabulary of prd10 ruling 16 — thin, still, layered behind the living —
+applied to a whole colony rather than to one lane. Nothing new is invented for absence.
+
+Two reasons, and the first is structural. The placement ruling's stability law says a colony
+joining moves nobody; that law is only true if a colony *leaving* moves nobody either, and
+removal from a slotted ring shifts every colony after the gap. Departure-as-removal breaks the
+shared map; departure-as-quiet-fleet preserves it. `world.test.ts` holds both halves: swapping
+a colony's fleet for a quieter one moves no one, and removing a colony is exactly what does.
+
+The second is honesty. A colony that vanished when its person logged off would make the landscape
+lie twice — about what was landed, which is still landed, and about who has worked here, which
+is a fact prd-37 exists to show. Absence is a state of a colony, not the end of it.
+
+**What this does not decide.** Whether the picture ever says *this person is not here right now*
+as a distinct mark — as opposed to the quiet the finished-work vocabulary already carries — is
+open. It would need presence data, and presence is exactly what the team server's first law
+keeps off the laptop in this version. Until that changes, "away" and "finished" look the same
+because the instrument cannot honestly tell them apart, and drawing a difference it cannot
+verify would be a guess wearing a mark.
+
 ## Sequencing (waves, each gated as ever)
 
 `scene/gl/` is not entered by any wave — composition happens above the painter, and the display

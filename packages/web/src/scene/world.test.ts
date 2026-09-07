@@ -25,6 +25,7 @@ import { reduceAll } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import {
   buildFleet,
+  finishedSpec,
   fixtureHistory,
   fleet20Spec,
   manifestFor,
@@ -200,6 +201,50 @@ describe('every colony looks the way its owner sees it', () => {
     expect(colonyAt(world, 0).geometry.threads.length).not.toBe(
       colonyAt(world, 1).geometry.threads.length,
     )
+  })
+})
+
+describe('a departed colony stays as landed mass (prd-52 ruling 7)', () => {
+  it('moves nobody when a colony goes quiet — its slot keeps its fleet swapped, not dropped', () => {
+    // Departure is a change to a slot's FLEET, never to the world's order.
+    // Swap the middle colony for one whose every lane has finished and every
+    // other colony is exactly where it was, to the identity.
+    const [a, b, c] = team(3)
+    if (a === undefined || b === undefined || c === undefined) throw new Error('no fleets')
+    const quiet = fleetFor(finishedSpec())
+
+    const before = layoutWorld(sourcesOf(a, b, c), { ...SIZE, now: NOW })
+    const after = layoutWorld(
+      [{ id: 'colony-0', fleet: a }, { id: 'colony-1', fleet: quiet }, { id: 'colony-2', fleet: c }],
+      { ...SIZE, now: NOW },
+    )
+
+    expect(colonyAt(after, 0).geometry).toStrictEqual(colonyAt(before, 0).geometry)
+    expect(colonyAt(after, 2).geometry).toStrictEqual(colonyAt(before, 2).geometry)
+    expect(colonyAt(after, 1).origin).toStrictEqual(colonyAt(before, 1).origin)
+  })
+
+  it('still lays the quiet colony out — landed mass, in its slot, at full size', () => {
+    const quiet = fleetFor(finishedSpec())
+    const world = layoutWorld(sourcesOf(fleetFor(fleet20Spec()), quiet), { ...SIZE, now: NOW })
+    const colony = colonyAt(world, 1)
+    expect(colony.geometry.rootRadius).toBeGreaterThan(0)
+    expect(colony.geometry.width).toBe(SIZE.width)
+    expect(colony.geometry.threads.length).toBe(quiet.lanes.length)
+  })
+
+  it('is REMOVAL that moves people — which is why removal is what the ruling forbids', () => {
+    // The contrapositive, so the ruling's reason is on the record as a test
+    // and not only as prose: drop the middle colony and the one after it
+    // slides into the gap.
+    const [a, b, c] = team(3)
+    if (a === undefined || b === undefined || c === undefined) throw new Error('no fleets')
+    const kept = layoutWorld(sourcesOf(a, b, c), { ...SIZE, now: NOW })
+    const dropped = layoutWorld(
+      [{ id: 'colony-0', fleet: a }, { id: 'colony-2', fleet: c }],
+      { ...SIZE, now: NOW },
+    )
+    expect(colonyAt(dropped, 1).origin).not.toStrictEqual(colonyAt(kept, 2).origin)
   })
 })
 

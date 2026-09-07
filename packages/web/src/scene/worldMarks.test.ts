@@ -18,6 +18,7 @@ import { reduceAll } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import {
   buildFleet,
+  finishedSpec,
   fixtureHistory,
   fleet20Spec,
   manifestFor,
@@ -210,6 +211,23 @@ describe('the world composes one display list', () => {
     for (const colony of world.colonies) {
       for (const thread of colony.geometry.threads) expect(lanes.has(thread.laneId)).toBe(true)
     }
+  })
+
+  it('draws a departed colony as a mass, so absence is a state and not a hole (ruling 7)', () => {
+    // A colony whose every lane has finished still emits its root-mass —
+    // landed work is still landed, and the slot is still occupied.
+    const living = fleetFor(fleet20Spec())
+    const quiet = fleetFor(finishedSpec())
+    const world = layoutWorld(sourcesOf(living, quiet), { ...SIZE, now: NOW })
+    const first = world.colonies[0]
+    if (first === undefined) throw new Error('no colony')
+    const marks = worldMarks(world, frameFor(living, first.geometry))
+    const masses = marks.filter((m) => m.role === 'root-mass').length
+    const solo = worldMarks(
+      layoutWorld(sourcesOf(living), { ...SIZE, now: NOW }),
+      frameFor(living, first.geometry),
+    ).filter((m) => m.role === 'root-mass').length
+    expect(masses).toBe(solo * 2)
   })
 
   it('grows the per-colony layers with the colony count', () => {

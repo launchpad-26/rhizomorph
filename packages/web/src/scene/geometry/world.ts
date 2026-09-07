@@ -39,6 +39,13 @@ import type { LayoutOptions, Point, SceneGeometry } from './types.js'
  * world whose geography depended on who was looking would not be shared, it
  * would be N private worlds that happened to hold the same people.
  *
+ * **And never remove one** (prd-52 ruling 7). A colony whose person has
+ * stopped keeps its slot and is drawn as landed mass with no living threads —
+ * the finished-work vocabulary the scene already has, applied to a colony.
+ * Removal from a slotted ring shifts every colony after the gap, which is the
+ * one thing the stability law forbids; swapping the slot's fleet for a quieter
+ * one moves no one. Absence is a state of a colony, not the end of it.
+ *
  * The id is the caller's to supply and is deliberately not derived here.
  * `RootMass` carries `repoName`, `mainBranch` and `worktreePath`, and none of
  * them identifies a colony: **several people working one repository is the
