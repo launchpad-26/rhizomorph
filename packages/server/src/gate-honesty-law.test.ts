@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync, chmodSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
 import { beaconReceivedPayloadSchema } from '@rhizomorph/core'
@@ -373,7 +374,13 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    * a quoted script argument that itself spans multiple lines — so the
    * claim this paragraph made through #273, that every producer here was
    * "still the bare, single-line form of row 1", is no longer true and is
-   * corrected rather than repeated. Exactly 1 is flagged as structurally
+   * corrected rather than repeated.
+   *
+   * producer-citations:begin — the 20 line numbers between these markers are
+   * checked against the real file by a law below. Do not hand-edit one
+   * without re-running it; do not move a marker to make a red build green.
+   *
+   * Exactly 1 is flagged as structurally
    * unchecked — :23 (`W=$(workmux path ...)`), declared before this issue
    * and still declared, because the very next line's existence check is the
    * verdict rather than the redirect. 0 of the 20 are undeclared: the
@@ -381,11 +388,13 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    *
    * The other 19 pass structurally on their own merits: 12 same-line forms
    * (:17's `|| exit 2`, written before `fail` is even defined; 9 `|| fail` at
-   * :314 (`GATE_OUTFILE`) :321 :336 :396 :490 :500 :564 :650 :705; 2
-   * `|| { ...; fail ...; }` rescue blocks at :337 :706) and 7 next-line
-   * `_RC=$?` captures (:156's `VERDICT_LINE_RC` and :236's `BEACON_DIR_RC` —
-   * both new with #274 — plus :353's `ANCESTOR_RC`, :433's `N_RC`, :437's
-   * `STATUS_RC`, :464's `DIRTY_RC`, :565's `CAT_RC`).
+   * :338 (`GATE_OUTFILE`) :345 :360 :420 :514 :524 :588 :674 :729; 2
+   * `|| { ...; fail ...; }` rescue blocks at :361 :730) and 7 next-line
+   * `_RC=$?` captures (:156's `VERDICT_LINE_RC` and :244's `BEACON_DIR_RC` —
+   * both new with #274 — plus :377's `ANCESTOR_RC`, :457's `N_RC`, :461's
+   * `STATUS_RC`, :488's `DIRTY_RC`, :589's `CAT_RC`).
+   *
+   * producer-citations:end
    *
    * (This paragraph's line citations have drifted before — once across
    * #273, and now again across #274, both times because lines were added
@@ -1026,6 +1035,44 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     expect(sameLine.length, 'same-line-checked count drifted — the doc comment above cites it').toBe(12)
     expect(nextLine.length, 'next-line _RC=$? count drifted — the doc comment above cites it').toBe(7)
     expect(sameLine.length + nextLine.length + unchecked.length).toBe(allProducers.length)
+  })
+
+  /**
+   * Review of #274, round 3 (EXECUTED). The doc comment above cites all 20
+   * producers BY LINE NUMBER, and those numbers have now staled three times:
+   * across #273, across #274's first repair, and across #274's SECOND repair
+   * — which staled 17 of the 20 while its own commit body asserted the
+   * sibling sweep had found none left. Each time the counts were pinned and
+   * the citations were not, so each time the suite stayed green over a
+   * paragraph that had become false.
+   *
+   * The counts were already pinned; pinning them again would not have caught
+   * any of the three. What was missing is that the CITATIONS and the FILE
+   * never had to agree. They do now: the numbers between the markers are
+   * extracted from this file's own source and compared, as a set, against
+   * the producers `findAllProducers` finds. A line added anywhere above a
+   * cited producer reddens this the moment it lands.
+   *
+   * The two guards on the markers are not decoration — without them, deleting
+   * a marker turns the law into `expect([]).toEqual([])` and it passes
+   * having checked nothing, which is precisely how the pinned counts kept
+   * passing over stale prose.
+   */
+  it('every gate.sh line the producer doc comment cites IS a producer, and every producer is cited', () => {
+    const own = readFileSync(fileURLToPath(import.meta.url), 'utf8')
+    const begin = own.indexOf('producer-citations:begin')
+    const end = own.indexOf('producer-citations:end')
+    expect(begin, 'the opening marker is gone — a law that cannot find its subject passes vacuously, which is the failure this law exists to end').toBeGreaterThan(-1)
+    expect(end, 'the closing marker is gone, or precedes the opening one').toBeGreaterThan(begin)
+
+    const cited = [...new Set([...own.slice(begin, end).matchAll(/:(\d+)/g)].map((m) => Number(m[1])))].sort((a, b) => a - b)
+    const actual = findAllProducers(LINES).map((pr) => pr.index + 1).sort((a, b) => a - b)
+
+    expect(cited.length, 'the citation block must not be empty — see the marker guards above').toBeGreaterThan(0)
+    expect(
+      cited,
+      'the producer doc comment cites gate.sh line numbers that are no longer producers. Re-derive them against the current file — every one of them, not only the ones this diff happens to touch. This is the third recurrence; .swarm/coupling.txt:64 and the PRD both require the prose to move in the SAME edit as the pins.',
+    ).toEqual(actual)
   })
 
   describe("ruling 2 — the structural predicate's own controls run the REAL predicate, not a restatement of it", () => {
@@ -3611,15 +3658,25 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
         // mutant alike). Naming the one acceptable executable closes the
         // class instead: every launcher spelling, enumerated or not, puts a
         // different word in this position.
-        const invoked = [...code.matchAll(/(\S+)\s+-e\b/g)].map((m) => m[1])
+        // A COMMAND pin, not a SUFFIX pin (round 3 re-review, finding 4). An
+        // earlier draft captured only the token adjacent to `-e`, which
+        // catches a launcher that REPLACES the binary and misses one that
+        // PREFIXES it: `npx --no-install "$root/node_modules/.bin/tsx" -e`
+        // passed. Measured, that prefixed form does not actually reach the
+        // registry (0.40s rc=0 against a refused registry, against 0.30s for
+        // the bare binary), so the exposure was nil and the CLAIM was the
+        // defect — but a pin whose stated property is "the only program this
+        // machinery invokes" must hold the whole command word, so it now
+        // anchors at the start of the invocation line.
+        const invocation = VERDICT_MACHINERY.split('\n').filter((l) => !l.trim().startsWith('#') && /\s-e\b/.test(l))
         expect(
-          invoked,
+          invocation.map((l) => l.trim()),
           'the pin is vacuous if the invocation cannot be found at all — renaming or reshaping it must fail here rather than pass silently',
         ).toHaveLength(1)
         expect(
-          invoked[0],
-          'a plain `npx tsx` was MEASURED to hang past five minutes against a black-holed registry when tsx is unresolvable locally, and `npm exec -- tsx` does the same. The resolved binary never reaches the npm resolver, and it is the only thing that may run here.',
-        ).toBe('"$root/node_modules/.bin/tsx"')
+          invocation[0]!.trim(),
+          'a plain `npx tsx` was MEASURED to hang past five minutes against a black-holed registry when tsx is unresolvable locally, and `npm exec -- tsx` does the same. The resolved binary never reaches the npm resolver, and it is the only thing that may run here — as the whole command, not merely as its last word before `-e`.',
+        ).toMatch(/^"\$root\/node_modules\/\.bin\/tsx" -e\b/)
         expect(
           code,
           'the binary must be existence-checked before being invoked, or a missing one fails as "command not found" instead of the reported warning',
@@ -3646,17 +3703,24 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
        * unlock, which is the only way the defect returns.
        */
       it('the beacon append flushes INSIDE the lock — write, then flush, then unlock, in that order', () => {
-        const code = VERDICT_MACHINERY.split('\n')
-          .filter((l) => !l.trim().startsWith('#'))
-          .join('\n')
+        // Matched as STATEMENTS, anchored at the start of each line, never as
+        // substrings (round 3 re-review, finding 3). The earlier draft
+        // searched the comment-filtered text with `indexOf`, and that filter
+        // is line-leading only — but these tokens live inside an embedded
+        // Python script, where a TRAILING `#` comment is ordinary. PROBE:
+        // deleting the real `f.flush()` and leaving
+        // `f.write(line.encode() + b"\\n")  # close() covers this` passed
+        // GREEN with the flush genuinely gone from the executed python.
+        // CONTROL: the same deletion without the comment reddened. Anchoring
+        // at `^` means a mention can never stand in for a statement.
+        const py = VERDICT_MACHINERY.split('\n').map((l) => l.trim())
+        const write = py.findIndex((l) => /^f\.write\(line\.encode\(\)/.test(l))
+        const flush = py.findIndex((l) => /^f\.flush\(\)\s*(#.*)?$/.test(l))
+        const unlock = py.findIndex((l) => /^fcntl\.flock\(f, fcntl\.LOCK_UN\)/.test(l))
 
-        const write = code.indexOf('f.write(line.encode()')
-        const flush = code.indexOf('f.flush()')
-        const unlock = code.indexOf('fcntl.LOCK_UN')
-
-        expect(write, 'the append itself must be findable, or this test pins nothing').toBeGreaterThan(-1)
-        expect(flush, 'without an explicit flush the bytes reach the file at close(), after the unlock').toBeGreaterThan(-1)
-        expect(unlock, 'the unlock must be findable, or the ordering claim below is vacuous').toBeGreaterThan(-1)
+        expect(write, 'the append itself must be findable as a statement, or this test pins nothing').toBeGreaterThan(-1)
+        expect(flush, 'without an explicit flush STATEMENT the bytes reach the file at close(), after the unlock — a comment naming f.flush() is not one').toBeGreaterThan(-1)
+        expect(unlock, 'the unlock must be findable as a statement, or the ordering claim below is vacuous').toBeGreaterThan(-1)
 
         expect(flush, 'the flush must come AFTER the append — flushing first flushes nothing').toBeGreaterThan(write)
         expect(flush, 'the flush must come BEFORE the unlock, or the write is outside the critical section the comment claims it is inside').toBeLessThan(unlock)
@@ -3675,11 +3739,40 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
        * Scoped to gate.sh as a whole rather than to the machinery slice:
        * the defect is a property of prose in this file, and the slice
        * boundaries are not where a future author will happen to write one.
+       *
+       * WHAT THIS LAW DOES NOT COVER, stated because an unbounded claim over
+       * a bounded check is the defect this file exists to catch (round 3
+       * re-review, findings 2 and 5). The first draft of this test was named
+       * "cites another line by OFFSET" while checking one spelling of it. A
+       * PROBE appended eight forms and the law stayed green on every one:
+       * `gate.sh:156`, `line 156`, `lines 156-165`, `110 lines further up`,
+       * `12 lines prior`, `a dozen lines above`, `three lines below`,
+       * `~24 lines back`. CONTROL: the certified `N lines up` spelling
+       * reddens and names the line and its text, so the harness is sound.
+       *
+       * Two of those forms are LIVE in this file today, and both predate
+       * this branch (byte-identical at `d804b5a`): absolute `:NNN` citations
+       * at `:354` (`:41`), `:359` (`:116`), `:440` (`:142`), `:465` (`:96`)
+       * and `:472` (`:74-80`) — every one now landing on an unrelated
+       * comment line — and a spelled-out offset, "eighteen lines further
+       * down", at `:440`. They are recorded rather than swept in here: this
+       * commit is answering a review of #274, and re-deriving five
+       * pre-existing citations is its own change with its own reasoning.
+       * Filed as #306; do not widen this regex without fixing them in the
+       * same edit, because a law that ships red is a law that gets skipped.
+       *
+       * So the name and the message below say the one form this actually
+       * holds. A bounded true claim beats an unbounded one that needs a
+       * round per counter-example.
        */
-      it('no comment in scripts/gate.sh cites another line by offset — those pointers rot silently', () => {
-        const offsets = LINES
-          .map((line, i) => ({ line, n: i + 1 }))
-          .filter(({ line }) => /\b\d+\s+lines?\s+(up|down|above|below|earlier|later)\b/i.test(line))
+      it('no COMMENT in scripts/gate.sh cites another line in the `N lines up/down` form — that one spelling, checked', () => {
+        // Comment lines only. The earlier draft scanned every line while its
+        // own name said "comment", so a CODE line containing the phrase
+        // reddened it (PROBE: `echo "… 3 lines below the threshold"`). It
+        // failed closed, but on the wrong subject.
+        const offsets = LINES.map((line, i) => ({ line, n: i + 1 }))
+          .filter(({ line }) => line.trim().startsWith('#'))
+          .filter(({ line }) => /\b\d+\s+lines?\s+(up|down|above|below|earlier|later|further|back|prior)\b/i.test(line))
         expect(
           offsets.map(({ n, line }) => `${n}: ${line.trim()}`),
           'quote the sentence being cited instead — it is greppable and survives the file moving, which an offset is not',
