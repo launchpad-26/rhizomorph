@@ -141,6 +141,14 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
    * from `withResilience`, which the raiser is never wrapped by, so without
    * this a single timed-out read left the fold unable to ever say `summons`
    * was healthy again.
+   *
+   * #301 — armed by the timeout's own alarm having been APPENDED to the log,
+   * not by the timeout merely having occurred: `recordAlarm` is the one
+   * publish-without-append path (`{ appended: false }` on a full disk), and a
+   * `collector.recovered` persisted with no persisted `collector.error`
+   * behind it is a replayed record claiming a recovery from nothing — exactly
+   * what prd-17's own integrity rulings exist to forbid. See the increment
+   * site below.
    */
   let summonsManifestFailures = 0
 
@@ -223,14 +231,23 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
    * The `console.error` stays beside the emit rather than behind it: the DoD
    * asks for a line the operator can find afterwards, and prd41 #10 owns the
    * `api/lab.ts` stderr override that can silence one. Two channels, not one.
+   *
+   * Returns whether the append actually landed (prd17 w7 #301) — a caller
+   * that arms a recovery on this alarm's say-so (the manifest-timeout path
+   * below) needs to know, since a failed append leaves nothing in the log for
+   * `collector.recovered` to answer.
    */
-  async function recordOrDegrade(event: EventOf<'collector.error'>, collectorName: string): Promise<void> {
+  async function recordOrDegrade(
+    event: EventOf<'collector.error'>,
+    collectorName: string,
+  ): Promise<{ appended: boolean }> {
     const { appended } = await recorder.recordAlarm(event)
     if (!appended) {
       console.error(
         `[rhizomorph] failed to report ${event.type} for ${collectorName}: the session log could not be written`,
       )
     }
+    return { appended }
   }
 
   /**
@@ -390,12 +407,24 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
         } catch (error) {
           if (error !== TIMED_OUT) throw error
           manifestDegradedThisTick = true
-          summonsManifestFailures += 1
           // Never aborts the whole tick — a hang here must never be worse
           // than a missing file — but no longer claims off-fence simply
           // "does not fire this tick" (round-2 finding 2's false comment):
           // see the preservation below for what actually happens to it.
-          await recordOrDegrade(
+          //
+          // prd17 w7 #301 — the recovery below is armed by this alarm having
+          // been APPENDED to the log, not by the timeout having merely
+          // occurred: `collector.recovered` answers a `collector.error` the
+          // fold can actually see, and a failed append (a full disk, same as
+          // any other alarm) leaves no such event for it to answer. Read
+          // `recordOrDegrade`'s own `{ appended }` rather than assuming the
+          // attempt counts — the sibling half of this pair (the recovery's
+          // OWN record failing to append) is handled a few lines down, by the
+          // same rule every other `recorder.record` in this function already
+          // follows (ADR-0029): a rejected append leaves the counter exactly
+          // where it was and re-throws, so the next tick re-attempts the same
+          // recovery rather than one that silently gave up on it.
+          const { appended } = await recordOrDegrade(
             createEvent(
               'collector.error',
               { collector: 'summons', message: `manifest read timed out after ${tickBudgetMs}ms` },
@@ -403,6 +432,7 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
             ),
             'summons',
           )
+          if (appended) summonsManifestFailures += 1
         }
       } else {
         // The previous tick's read is still wedged. Skip issuing a second

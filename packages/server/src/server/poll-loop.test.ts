@@ -1653,6 +1653,129 @@ describe('the summons raiser (prd17 ruling 5)', () => {
     }, 5000)
   })
 
+  describe('a recovery is recorded only for an error the log contains (review of #278 round 3 — #301)', () => {
+    afterEach(() => {
+      setManifestReadOverride(null)
+    })
+
+    it('a manifest-read timeout whose alarm failed to append never arms collector.recovered on a later healthy read', async () => {
+      const staged = reduceAll(fixtureHistory(fleet20Spec(), NOW))
+      // Only `record()` is the persisted log here — `recordAlarm` reports
+      // `{ appended: false }` (the full-disk shape ADR-0030 exists for)
+      // without pushing anywhere, so a test asserting against `persisted`
+      // is asserting against the log, not against what merely fired.
+      const persisted: RhizomorphEvent[] = []
+      const recorder = {
+        record: async (event: RhizomorphEvent) => {
+          persisted.push(event)
+        },
+        recordAlarm: async () => ({ appended: false }),
+        foldSoFar: () => staged,
+      } as unknown as SessionRecorder
+
+      const pollLoop = createPollLoop({
+        repoPath: REPO_PATH,
+        collectors: [],
+        recorder,
+        exec: nullExec,
+        now: () => NOW,
+        tickBudgetMs: 20,
+      })
+
+      // A plain object holds the resolver rather than a bare `let`: a `let`
+      // reassigned only inside a nested closure narrows to `never` at the
+      // read site under this repo's pinned typescript (7.0.2).
+      const control: { release: ((value: { available: false; reason: string }) => void) | null } = {
+        release: null,
+      }
+      setManifestReadOverride(
+        () =>
+          new Promise<{ available: false; reason: string }>((resolve) => {
+            control.release = resolve
+          }),
+      )
+      await pollLoop.tick() // times out at the budget; the alarm's own append fails
+
+      expect(persisted.filter((event) => event.type === 'collector.error')).toEqual([])
+
+      // Let the wedged read actually settle (late), clearing `manifestInFlight`.
+      control.release?.({ available: false, reason: 'late (test)' })
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+      setManifestReadOverride(() => Promise.resolve({ available: false, reason: 'fine now (test)' }))
+
+      await pollLoop.tick() // settles well within budget
+
+      // MUTATION (DoD): before the fix, the counter armed on the TIMEOUT
+      // alone, so this healthy read would emit `collector.recovered` for an
+      // error the persisted log never actually held. Assert on the log
+      // `record()` built, not on anything `recordAlarm` merely emitted.
+      expect(persisted.filter((event) => event.type === 'collector.recovered')).toEqual([])
+    }, 5000)
+
+    it('sibling case: a recovery whose own record() append fails is retried on the next healthy read, not lost', async () => {
+      const staged = reduceAll(fixtureHistory(fleet20Spec(), NOW))
+      const persisted: RhizomorphEvent[] = []
+      let failRecoveredRecord = false
+      const recorder = {
+        record: async (event: RhizomorphEvent) => {
+          if (failRecoveredRecord && event.type === 'collector.recovered') {
+            throw new Error('ENOSPC: no space left on device')
+          }
+          persisted.push(event)
+        },
+        recordAlarm: async (event: EventOf<'collector.error'>) => {
+          persisted.push(event)
+          return { appended: true }
+        },
+        foldSoFar: () => staged,
+      } as unknown as SessionRecorder
+
+      const pollLoop = createPollLoop({
+        repoPath: REPO_PATH,
+        collectors: [],
+        recorder,
+        exec: nullExec,
+        now: () => NOW,
+        tickBudgetMs: 20,
+      })
+
+      const control: { release: ((value: { available: false; reason: string }) => void) | null } = {
+        release: null,
+      }
+      setManifestReadOverride(
+        () =>
+          new Promise<{ available: false; reason: string }>((resolve) => {
+            control.release = resolve
+          }),
+      )
+      await pollLoop.tick() // times out; the alarm DOES append — the counter arms
+
+      control.release?.({ available: false, reason: 'late (test)' })
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+
+      // The read settles healthy, but the recovery's OWN append fails — the
+      // pair's other half (#301's sibling case). Per ADR-0029, a rejected
+      // `record()` throws before anything it would have advanced does, so
+      // this tick's whole `raiseSummons()` aborts rather than silently
+      // treating the counter as cleared.
+      failRecoveredRecord = true
+      setManifestReadOverride(() => Promise.resolve({ available: false, reason: 'fine now (test)' }))
+      await pollLoop.tick()
+
+      expect(persisted.filter((event) => event.type === 'collector.recovered')).toEqual([])
+
+      // Not lost: the NEXT healthy read still owes the recovery, because the
+      // failed append never reset the counter.
+      failRecoveredRecord = false
+      await pollLoop.tick()
+      expect(persisted.filter((event) => event.type === 'collector.recovered')).toHaveLength(1)
+    }, 5000)
+  })
+
   describe('reset() clears a wedged manifest read too (review of #278 round 2, finding 3)', () => {
     afterEach(() => {
       setManifestReadOverride(null)
