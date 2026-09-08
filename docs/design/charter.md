@@ -348,6 +348,10 @@ Two tensions were named here and **both have since resolved** (2026-08-24):
    ruled 2026-08-24 (ruling 5, the persistence seam). PR #431 is dead-repo
    provenance, and prd-28's paper did not survive the re-upload: the lab's design
    authority is its 2026-08-24 re-founding, not that review.
+   **Note (2026-09-08, prd-53 wave 5):** that re-founding resolves to the shared artifact
+   *The Lab Workspace*, which describes itself as proposed and unblessed; the lab's paper is
+   now prd-53 (`docs/prds/prd-53-the-lab.md`) and its design authority prd-53's companion
+   specification artifact, cited from the PRD. prd-28's number is retired, never reused.
 2. **prd-21 was cited but not on main.** It landed and shipped — `docs/prds/done/
    prd-21-scrub-bar.md`, closed out 2026-08-13. The prohibition on leaning on its
    text is lifted; prd-13 ruling 1's standing refusal (TIDE is never a panel) binds

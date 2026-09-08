@@ -1855,6 +1855,54 @@ alone rather than a hatch), the deep-linkable window, the transport's
 zoom/shift affordances, and ruling 1's framing — the dock is still the
 replay bar's body, never a panel.
 
+## prd14 — the experiment console, and prd53 — the lab it stopped lying about
+
+prd14 (`docs/prds/prd-14-experiment-console.md`) gave the laboratory a browser: the `/lab` tab
+(`packages/web/src/lab/LabPage.tsx`, a lazy route), read-and-launch routes in
+`packages/server/src/api/lab.ts`, and the branching picture (`packages/web/src/lab/branching/`).
+This section did not exist until 2026-09-08 — the walkthrough ran prd13 → prd15 — and the reason
+is instructive: the console shipped mounted, but its comparison never rendered against the real
+server, because the engine dispatched one `fork.dispatched` per arm with no run dimension and no
+outcome ever reached the wire. The user guide said so; the status lines did not. prd53
+(`docs/prds/prd-53-the-lab.md`, *Kind: specifying*) is the paper that closed that gap, and what
+follows describes the lab as it stands under both.
+
+**The record.** One experiment is one fork id; an arm is one treatment; a run is one restored
+reality of it — `fork.dispatched` carries a run number, read as 1 when absent. The fold indexes
+experiments by fork, by lane and by arm. Measuring is a write: `fork.measured` records one run's
+verdict with its provenance — the command that judged it and the source — and the fold keeps the
+measurements and the latest outcome per lane (`packages/core/src/state.ts`,
+`packages/core/src/reduce.ts`). The floors and the confound clause are pure laws in
+`packages/core/src/lab/laws.ts`, read by the CLI and every web surface alike.
+
+**The engine** (`packages/server/src/lab/`) is unchanged in kind since prd12 and prd41 —
+checkpoint, restore, fork, compare, paths — and confined by
+`packages/server/src/lab/namespace-law.test.ts`, which forks for real and walks the filesystem.
+The HTTP surface reaches it only through the CLI's `runCli`, so there is one implementation of
+every act; the launch ceiling and the model grammar are duplicated in the route with
+literal-pinned tests rather than imported, because the namespace law forbids the import. Five
+routes: checkpoints, experiments and estimate are reads; launch and measure are gated
+mutations (`packages/server/src/api/route-class-law.test.ts` pins the count).
+
+**The console** (`packages/web/src/lab/`) is one page assembled from fenced modules, each with
+its own law: `packages/web/src/lab/axis/` (one position function, held by
+`packages/web/src/lab/axis/position-law.test.ts`), `packages/web/src/lab/frame/` (five positions,
+two of them stating their gap), `packages/web/src/lab/launch/`, `packages/web/src/lab/compare/`
+(the per-run distribution; failed arms present and excluded), `packages/web/src/lab/trace/`
+(a content-aligned diff that persists nothing — `packages/web/src/lab/trace/no-persistence-law.test.ts`),
+`packages/web/src/lab/metrics/` (every figure with its basis in the DOM), and
+`packages/web/src/lab/canvas/` (n organisms, one per run, never synthesised), with
+`packages/web/src/lab/branching/` reused by the canvas rather than retired. Two laws hold the
+whole tree: `packages/web/src/lab/no-live-fleet-law.test.ts` — no fleet or panel import, and the
+scene's palette the only `packages/web/src/scene/` import, by exactly two named files — and
+`packages/web/src/lab/the-lab-guide-law.test.ts`, which reads `docs/user-guide/the-lab.md` and
+asserts each marked claim against the code (prd53 ruling 9: prd43's thesis reaching the lab).
+
+**Design authority.** The lab's vision (`docs/vision-the-lab.md`, recovered history) and its
+completion paper prd-28 died in the 2026-08-19 deletion; six PRDs still fence
+`packages/web/src/lab/` to that ghost, and each now carries a dated note pointing at prd-53. The
+ceiling argument against prd-50's fixed sibling is `docs/design-notes/lab-launch-ceiling-arms-runs.md`.
+
 ## prd15 — the anywhere instrument: system agnosticism
 
 **BLESSED**, operator, 2026-08-05: *"I am aiming for TRUE, FULL FEATURED
