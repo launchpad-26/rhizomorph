@@ -11,6 +11,13 @@ import type { Arm, ComparisonInput, Run } from './types.js'
  * would need lenient handling at — real validation now, so a real chokepoint
  * exists to make lenient later (the prd17 shape) rather than a `as` that
  * silently accepts garbage today.
+ *
+ * The run shape follows `types.ts`: since prd53 ruling 2's amendment a
+ * completed run carries its verdict and a value that may be null, and the
+ * old `failed` run status is RETIRED — a failed gate is a completed run. No
+ * production artifact was ever written in the old shape (this pair has no
+ * production caller yet — prd-14 ruling 5's #213 wires it), so the retired
+ * status is refused by name rather than silently reinterpreted.
  */
 export interface ComparisonArtifact {
   version: 1
@@ -66,18 +73,29 @@ function parseArm(value: unknown): Arm {
   return { id, model, brief, runs: runs.map(parseRun) }
 }
 
-function parseRun(value: unknown): Run {
-  if (!isRecord(value)) throw new ComparisonArtifactError('run is not a JSON object')
-  const { id, status } = value
+function parseRun(record: unknown): Run {
+  if (!isRecord(record)) throw new ComparisonArtifactError('run is not a JSON object')
+  const { id, status } = record
   if (typeof id !== 'string') throw new ComparisonArtifactError('run is missing id')
 
   if (status === 'complete') {
-    if (typeof value.value !== 'number') throw new ComparisonArtifactError(`complete run ${id} is missing a numeric value`)
-    return { id, status: 'complete', value: value.value }
+    const { verdict, value } = record
+    if (verdict !== 'pass' && verdict !== 'fail') throw new ComparisonArtifactError(`complete run ${id} is missing its verdict (pass or fail)`)
+    if (typeof value !== 'number' && value !== null) throw new ComparisonArtifactError(`complete run ${id} has a value that is neither a number nor null`)
+    return {
+      id,
+      status: 'complete',
+      verdict,
+      value,
+      ...(typeof record.note === 'string' ? { note: record.note } : {}),
+      ...(typeof record.detail === 'string' ? { detail: record.detail } : {}),
+    }
   }
-  if (status === 'pending') return { id, status: 'pending' }
+  if (status === 'pending') return typeof record.note === 'string' ? { id, status: 'pending', note: record.note } : { id, status: 'pending' }
   if (status === 'failed') {
-    return typeof value.error === 'string' ? { id, status: 'failed', error: value.error } : { id, status: 'failed' }
+    throw new ComparisonArtifactError(
+      `run ${id} carries the retired status "failed" — since prd53 ruling 2's amendment a failed gate is a completed run with verdict "fail"`,
+    )
   }
   throw new ComparisonArtifactError(`run ${id} has an unknown status: ${String(status)}`)
 }

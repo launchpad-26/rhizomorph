@@ -204,6 +204,16 @@ a ranked spread across arms that differ in model *and* brief. The counterfactual
 here: what actually happened is one observation, not a distribution, and an arm whose spread
 contains it has not beaten it. Extends prd-12 ruling 4; never loosens it.
 
+> **Amendment (the wave-3 review, ruled by Lachlan Kelliher 2026-09-08):** a run is **completed**
+> when a gate has judged it — `pass` or `fail`. A `not-run` verdict (the gate never ran) and an
+> unjudged run are not completed. Whether a value is booked under a given measure never enters the
+> floor; it enters the spread's *n*, stated beside it. The predicate is core's `isCompletedVerdict`
+> (`packages/core/src/lab/laws.ts`), and every surface — the CLI, Compare, Metrics — counts with it;
+> `packages/web/src/lab/floor-agreement-law.test.ts` holds them to one answer. Before this amendment
+> the ruling named the denominator and left it undefined, and the three surfaces fed one
+> `canSummariseArm` three different counts: an arm whose gate failed on every run read as
+> summarisable in Metrics and the CLI and as *too few runs to summarise* in Compare, on one page.
+
 ## Ruling 3 — an outcome is per run, typed with its provenance, and measuring is a write
 
 *(Carries prd-28 ruling 3; corrects its placement.)* `outcome` lands on `LabRunDTO`, not
@@ -303,7 +313,17 @@ unowned.** A residual with a false owner is worse than one honestly without.
 
 Four surfaces share one axis; each answers six questions. The design-spec artifact draws every
 state named here, one panel per surface, and its acceptance criteria are the wave-3 issues'
-definitions of done. The scoring measure is absent from all four except where ruling 7 places it.
+definitions of done.
+
+> **Amendment — the design-spec artifact exists (2026-09-08, wave 3).** Drawn as *The Lab, Specified*:
+> https://claude.ai/code/artifact/bd82d5d7-cff2-44fe-910e-3ebdb9840780 — the instrument's own palette and
+> type, one session axis repeated at the head of every surface, every S1–S4 state with its verbatim
+> copy, each acceptance criterion a test. Its URL is on #325–#328 as their definition of done. Two
+> corrections landed there with wave 3's code, as its own rule requires: S3 draws its own rows (the
+> instrument's trace furniture is span-typed and a transcript step is not a span), and S3 aligns the
+> parent and the arm by *content* with paths masked, because the arm's session is a path-rewritten
+> copy and byte offsets do not carry across it — the parent is still read, never copied. Built
+> without hchristina's hand, by ruling; to be shown to her before it is cited as authority. The scoring measure is absent from all four except where ruling 7 places it.
 
 ### S1 — the Workspace
 

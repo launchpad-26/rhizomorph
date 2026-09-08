@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -114,8 +114,17 @@ function sceneImportsIn(text: string): string[] {
   return extractImportSpecifiers(text).filter((specifier) => /^(?:\.\.\/)+scene\//.test(specifier))
 }
 
-/** The one named exception (`branching/geometry.ts`'s own doc: reused as-is, never forked). */
-const ALLOWED_SCENE_IMPORT = { file: path.join('branching', 'geometry.ts'), importPath: '../../scene/palette.js' }
+/**
+ * The named exceptions — every one of them the PALETTE, by path. `branching/geometry.ts`
+ * (its own doc: reused as-is, never forked); and, from prd53 wave 4 (#329), `canvas/organism.ts`,
+ * the lane canvas: n small organisms drawn in the lab's own SVG that read the scene's inks
+ * through its public exports and never its fold (charter §8, coexist-by-surface). A third
+ * importer, or any import of anything under `scene/` but the palette, fails here by name.
+ */
+const ALLOWED_SCENE_IMPORTS = [
+  { file: path.join('branching', 'geometry.ts'), importPath: '../../scene/palette.js' },
+  { file: path.join('canvas', 'organism.ts'), importPath: '../../scene/palette.js' },
+]
 
 interface LabSourceFile {
   readonly name: string
@@ -193,7 +202,9 @@ describe('the lab tab renders no live-fleet surface (prd14)', () => {
     // so `git log -- <this file>` reads as though the pin were present there
     // when only the walker is. The later waves each add a
     // directory of their own (`axis`, `canvas`, `frame`, `metrics`, `trace`)
-    // and each owes this pin a row as it lands —
+    // and each owes this pin a row as it lands — wave 3 pays here (axis,
+    // frame, metrics, trace; compare grows by two: fromExperiment and
+    // ExperimentComparison), wave 4 pays canvas 3 (#341 merged into this branch) —
     // pinned exactly, not a loose lower bound, and grouped rather than
     // totalled. Both halves are load-bearing. A lower bound at any floor lets
     // a file silently ADDED pass unnoticed, not just a file dropped. And a
@@ -206,9 +217,14 @@ describe('the lab tab renders no live-fleet surface (prd14)', () => {
     // and this assertion is the only thing that sees it.
     expect(sourceFileCountsByDirectory()).toEqual({
       '': 6,
+      axis: 3,
       branching: 2,
-      compare: 7,
+      canvas: 3,
+      compare: 9,
+      frame: 2,
       launch: 3,
+      metrics: 3,
+      trace: 4,
     })
   })
 
@@ -231,11 +247,12 @@ describe('the lab tab renders no live-fleet surface (prd14)', () => {
     }
   })
 
-  it('scene/palette.js is the only scene/ import anywhere in lab/, named and positive', () => {
+  it('scene/palette.js is the only scene/ import anywhere in lab/, and exactly two files make it, named and positive', () => {
     const sceneImports = sourceFiles().flatMap((file) =>
       sceneImportsIn(file.text).map((importPath) => ({ file: file.name, importPath })),
     )
-    expect(sceneImports).toEqual([ALLOWED_SCENE_IMPORT])
+    const byFile = (a: { file: string }, b: { file: string }) => a.file.localeCompare(b.file)
+    expect([...sceneImports].sort(byFile)).toEqual([...ALLOWED_SCENE_IMPORTS].sort(byFile))
   })
 
   it('no computed import specifier anywhere in lab/ — an interpolation ahead of the path would defeat every prefix check in this law', () => {

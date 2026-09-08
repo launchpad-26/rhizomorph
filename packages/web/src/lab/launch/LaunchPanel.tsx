@@ -3,7 +3,7 @@ import type { FetchLike } from '../../replay/api.js'
 import { fetchLabCheckpoints } from '../api.js'
 import type { LabCheckpoint } from '../types.js'
 import { fetchLabEstimate, type LabEstimate } from './estimate.js'
-import { requestLaunch, type LaunchArmInput, type LaunchFetchLike, type LaunchOutcome, type LaunchRequest } from './launch.js'
+import { type LaunchArmInput, type LaunchFetchLike, type LaunchOutcome, type LaunchRequest, requestLaunch } from './launch.js'
 
 /**
  * THE ACT OF LAUNCHING AN EXPERIMENT (prd14 rulings 2 and 4).
@@ -32,6 +32,18 @@ export interface LaunchPanelProps {
   fetchImpl?: FetchLike
   /** Test-only escape hatch for the one write this panel makes. */
   launchFetchImpl?: LaunchFetchLike
+  /**
+   * The checkpoint to start with selected — the Workspace's seated marker, whose
+   * *fork from here* is the one place that action lives (prd53 S1). The operator
+   * can still pick another row; this only seats the first.
+   */
+  initialCheckpointId?: string | null
+  /**
+   * Told once per launch, with the outcome — how the Workspace learns of a
+   * PARTIAL launch (prd53 ruling 7): the arms that failed are known only to
+   * the launch that saw them; the record holds no intent event.
+   */
+  onLaunched?: (outcome: LaunchOutcome) => void
 }
 
 interface ArmDraft {
@@ -80,9 +92,15 @@ function formatWindow(windowMs: number): string {
   return hours === 1 ? 'the last hour' : `the last ${hours}h`
 }
 
-export function LaunchPanel({ fetchImpl, launchFetchImpl }: LaunchPanelProps = {}) {
+export function LaunchPanel({ fetchImpl, launchFetchImpl, initialCheckpointId = null, onLaunched }: LaunchPanelProps = {}) {
   const [checkpoints, setCheckpoints] = useState<CheckpointsState>({ status: 'loading' })
-  const [checkpointId, setCheckpointId] = useState<string | null>(null)
+  const [checkpointId, setCheckpointId] = useState<string | null>(initialCheckpointId)
+
+  // The seated marker moved: follow it while still configuring — a launch in
+  // flight keeps the checkpoint it was confirmed against.
+  useEffect(() => {
+    if (initialCheckpointId !== null) setCheckpointId(initialCheckpointId)
+  }, [initialCheckpointId])
   const [arms, setArms] = useState<ArmDraft[]>(() => Array.from({ length: DEFAULT_ARM_COUNT }, freshArm))
   const [phase, setPhase] = useState<Phase>({ status: 'configuring' })
 
@@ -144,6 +162,7 @@ export function LaunchPanel({ fetchImpl, launchFetchImpl }: LaunchPanelProps = {
     try {
       const outcome = await requestLaunch(request, launchFetchImpl)
       setPhase({ status: 'done', outcome })
+      onLaunched?.(outcome)
     } catch (err) {
       setPhase({ status: 'launch-failed', message: err instanceof Error ? err.message : String(err) })
     }

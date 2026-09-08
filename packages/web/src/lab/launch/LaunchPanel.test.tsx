@@ -1,9 +1,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import type { FetchLike } from '../../replay/api.js'
 import { CAPABILITY_META_NAME } from '../../recordings/capability.js'
-import type { LaunchFetchLike, LaunchOutcome } from './launch.js'
+import type { FetchLike } from '../../replay/api.js'
 import { LaunchPanel } from './LaunchPanel.js'
+import type { LaunchFetchLike, LaunchOutcome } from './launch.js'
 
 afterEach(cleanup)
 
@@ -31,6 +31,9 @@ const CHECKPOINT = {
   snapshotRef: 'refs/rhizomorph/checkpoints/ckpt-1',
   snapshotSha: 'sha-1',
   headSha: 'sha-0',
+  eventIndex: 12,
+  sessionCutByte: 11_840,
+  sessionByteLength: 40_000,
 }
 
 function fetchImplFor(options: {
@@ -234,5 +237,20 @@ describe('LaunchPanel', () => {
     await waitFor(() => expect(screen.getByTestId('launch-error')).toBeInTheDocument())
     expect(screen.getByTestId('launch-error')).toHaveTextContent('this server is replaying a session record')
     expect(screen.queryByTestId('launch-result')).not.toBeInTheDocument()
+  })
+})
+
+describe('LaunchPanel — the Workspace seam (prd53 S1, ruling 7)', () => {
+  it('initialCheckpointId seats the panel on the marker the operator chose, and follows it when it moves', async () => {
+    const fetchImpl = ((async (input: string | URL | Request) => {
+      const href = String(input)
+      if (href === '/api/lab/checkpoints') return { ok: true, status: 200, json: async () => ({ checkpoints: [CHECKPOINT] }) } as Response
+      throw new Error(`unexpected fetch: ${href}`)
+    }) as unknown) as FetchLike
+    const { rerender } = render(<LaunchPanel fetchImpl={fetchImpl} initialCheckpointId="ckpt-1" />)
+    await waitFor(() => expect(screen.getByTestId('launch-checkpoint-ckpt-1')).toBeInTheDocument())
+    expect((screen.getByTestId('launch-checkpoint-ckpt-1').querySelector('input') as HTMLInputElement).checked).toBe(true)
+    rerender(<LaunchPanel fetchImpl={fetchImpl} initialCheckpointId={null} />)
+    expect((screen.getByTestId('launch-checkpoint-ckpt-1').querySelector('input') as HTMLInputElement).checked).toBe(true)
   })
 })

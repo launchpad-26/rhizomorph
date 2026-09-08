@@ -1,0 +1,160 @@
+import type { KeyboardEvent } from 'react'
+import type { LabCheckpoint } from '../types.js'
+import { AXIS_INSET, compareByPosition, markerX, percentLabel, sessionFraction } from './position.js'
+
+/**
+ * THE SESSION AXIS (prd53 S1, #325): one horizontal scale — the session — with
+ * checkpoints as chapter markers placed by BYTE (`position.ts`), a playhead
+ * seated on one of them, and the fork-from-here action on the seated marker
+ * and nowhere else. The operator stands in time here: "twenty minutes ago,
+ * before the summariser first ran" is a marker, not a row.
+ *
+ * States (ruling 7): live (markers on the track) · empty (no checkpoints —
+ * the copy says how to make one) · degraded (a checkpoint whose session file
+ * moved is a marker WITH ITS REASON at the axis start, never absent) ·
+ * partial launch (a fork whose arms did not all dispatch names its failed arm
+ * count at the marker). The playhead crosses what is on the axis and stops
+ * at what is not — nothing after the last event is drawn as a shape.
+ *
+ * Keyboard: click a marker to seat the playhead · ←/→ step markers ·
+ * Home/End first/last · Esc clears the selection.
+ */
+export interface SessionAxisProps {
+  checkpoints: readonly LabCheckpoint[]
+  /** The seated checkpoint's id, or null. */
+  seated: string | null
+  onSeat: (checkpointId: string | null) => void
+  /** Per checkpoint id: how many arms of a fork from it never dispatched (ruling 7). */
+  failedArmsByCheckpoint?: Readonly<Record<string, number>>
+  /** The ONE place the action lives: fires for the seated checkpoint only. */
+  onForkFromHere?: (checkpoint: LabCheckpoint) => void
+  width?: number
+}
+
+export const AXIS_EMPTY_COPY = 'there are no checkpoints yet — capture one with `rhizomorph lab checkpoint <lane>`'
+
+const HEIGHT = 84
+
+export function SessionAxis({ checkpoints, seated, onSeat, failedArmsByCheckpoint = {}, onForkFromHere, width = 1000 }: SessionAxisProps) {
+  const ordered = [...checkpoints].sort(compareByPosition)
+  const seatedIndex = ordered.findIndex((checkpoint) => checkpoint.checkpointId === seated)
+  const seatedCheckpoint = seatedIndex === -1 ? null : (ordered[seatedIndex] ?? null)
+
+  function onKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (ordered.length === 0) return
+    const step = (to: number) => {
+      const next = ordered[Math.min(ordered.length - 1, Math.max(0, to))]
+      if (next !== undefined) onSeat(next.checkpointId)
+    }
+    if (event.key === 'ArrowRight') {
+      event.preventDefault()
+      step(seatedIndex === -1 ? 0 : seatedIndex + 1)
+    } else if (event.key === 'ArrowLeft') {
+      event.preventDefault()
+      step(seatedIndex === -1 ? ordered.length - 1 : seatedIndex - 1)
+    } else if (event.key === 'Home') {
+      event.preventDefault()
+      step(0)
+    } else if (event.key === 'End') {
+      event.preventDefault()
+      step(ordered.length - 1)
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      onSeat(null)
+    }
+  }
+
+  if (ordered.length === 0) {
+    return (
+      <div data-testid="session-axis" data-state="empty" className="text-read-body text-(--ink-dim)">
+        <p data-testid="axis-empty">{AXIS_EMPTY_COPY}</p>
+      </div>
+    )
+  }
+
+  const playheadX = seatedCheckpoint === null ? null : markerX(seatedCheckpoint, width)
+  const playheadLabel = seatedCheckpoint === null ? null : percentLabel(sessionFraction(seatedCheckpoint.sessionCutByte, seatedCheckpoint.sessionByteLength))
+
+  return (
+    <div data-testid="session-axis" data-state="live" className="flex flex-col gap-1 text-read-body text-(--ink-body)">
+      <div role="listbox" aria-label="the session, as one scale" tabIndex={0} onKeyDown={onKeyDown} className="focus-ring outline-none">
+        <svg viewBox={`0 0 ${width} ${HEIGHT}`} className="block h-auto w-full" data-testid="axis-svg">
+          <line x1={AXIS_INSET} y1={50} x2={width - AXIS_INSET} y2={50} stroke="var(--line-strong)" strokeWidth={1} />
+          {[0, 0.25, 0.5, 0.75, 1].map((tick) => (
+            <g key={tick}>
+              <line x1={axisXFor(tick, width)} y1={46} x2={axisXFor(tick, width)} y2={54} stroke="var(--line-strong)" strokeWidth={1} />
+              <text x={axisXFor(tick, width)} y={72} textAnchor="middle" fill="var(--ink-dim)" fontSize={10} fontFamily="var(--font-mono)">
+                {tick === 0 ? '0 %' : tick === 1 ? '100 % of session' : `${tick * 100}`}
+              </text>
+            </g>
+          ))}
+          {ordered.map((checkpoint) => {
+            const x = markerX(checkpoint, width)
+            const isSeated = checkpoint.checkpointId === seated
+            const failed = failedArmsByCheckpoint[checkpoint.checkpointId] ?? 0
+            const degraded = x === null
+            const drawX = x ?? AXIS_INSET
+            return (
+              <g
+                key={checkpoint.eventId}
+                role="option"
+                aria-selected={isSeated}
+                aria-label={`checkpoint ${checkpoint.checkpointId}${degraded ? ' — session file moved, position unknown' : ''}`}
+                data-testid={`axis-marker-${checkpoint.checkpointId}`}
+                data-x={x === null ? 'unknown' : String(x)}
+                data-degraded={degraded ? 'true' : undefined}
+                data-failed-arms={failed > 0 ? String(failed) : undefined}
+                onClick={() => onSeat(checkpoint.checkpointId)}
+                className="cursor-pointer"
+              >
+                {degraded ? (
+                  <circle cx={drawX} cy={50} r={3.5} fill="var(--ink-dim)" />
+                ) : (
+                  <rect x={drawX - 5} y={42} width={10} height={16} rx={1} fill="var(--surface-panel)" stroke={failed > 0 ? 'var(--color-broken)' : isSeated ? 'var(--ink-primary)' : 'var(--ink-body)'} strokeWidth={1.25} />
+                )}
+                <text x={drawX} y={32} textAnchor="middle" fill={degraded ? 'var(--ink-dim)' : 'var(--ink-dim)'} fontSize={10} fontFamily="var(--font-mono)">
+                  {degraded ? 'ckpt · session file moved' : `ckpt · ${percentLabel(sessionFraction(checkpoint.sessionCutByte, checkpoint.sessionByteLength)) ?? ''}`}
+                  {failed > 0 ? ` · fork: ${failed} arm${failed === 1 ? '' : 's'} failed` : ''}
+                </text>
+              </g>
+            )
+          })}
+          {playheadX === null ? null : (
+            <g data-testid="axis-playhead" data-x={String(playheadX)}>
+              <line x1={playheadX} y1={6} x2={playheadX} y2={HEIGHT - 4} stroke="var(--color-calm, var(--ink-primary))" strokeWidth={1.5} />
+              <polygon points={`${playheadX - 6},6 ${playheadX + 6},6 ${playheadX},14`} fill="var(--color-calm, var(--ink-primary))" />
+              <text x={playheadX + 8} y={16} fill="var(--color-calm, var(--ink-primary))" fontSize={10} fontFamily="var(--font-mono)">
+                playhead · {playheadLabel}
+              </text>
+            </g>
+          )}
+        </svg>
+      </div>
+      {seatedCheckpoint === null ? (
+        <p className="text-(--ink-dim)">click a marker, or → to seat the playhead on a checkpoint</p>
+      ) : (
+        <div className="flex flex-wrap items-baseline gap-2">
+          <span className="figures text-(--ink-primary)">{seatedCheckpoint.checkpointId}</span>
+          <span className="text-(--ink-dim)">
+            lane {seatedCheckpoint.lane} · byte {seatedCheckpoint.sessionCutByte}
+            {seatedCheckpoint.sessionByteLength === null ? ' · session file moved — position unknown' : ` of ${seatedCheckpoint.sessionByteLength}`}
+          </span>
+          {onForkFromHere === undefined ? null : (
+            <button
+              type="button"
+              data-testid="axis-fork-from-here"
+              onClick={() => onForkFromHere(seatedCheckpoint)}
+              className="focus-ring heading border border-(--ink-primary) px-1.5 py-0.5 text-(--ink-primary)"
+            >
+              fork from here
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function axisXFor(fraction: number, width: number): number {
+  return AXIS_INSET + fraction * (width - 2 * AXIS_INSET)
+}

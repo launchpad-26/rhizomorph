@@ -21,6 +21,9 @@ const CHECKPOINT = {
   snapshotRef: 'refs/rhizomorph/checkpoints/ckpt-1',
   snapshotSha: 'sha-1',
   headSha: 'sha-0',
+  eventIndex: 12,
+  sessionCutByte: 11_840,
+  sessionByteLength: 40_000,
 }
 
 const EXPERIMENT = {
