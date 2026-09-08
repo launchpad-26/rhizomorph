@@ -65,9 +65,14 @@ operator's to raise, by name, per dispatch.
 
 ## What is not decided here
 
-The number eight is inherited from `lab-launch-ceilings.md`'s reasoning about
-what an operator can still read on a confirmation and reason about paying for;
-it has not been re-derived for runs. If real experiments show that eight lanes
-is routinely overridden, the default is the thing to revisit, in a ruling —
-not the override, which exists precisely so that the default need not be
-guessed right.
+The number eight predates this note, and was set for arms alone: a launch
+panel comparing treatments realistically spans 2–4, and 8 gives generous
+headroom without letting one click fork a lane farm — small enough that an
+operator can still read a confirmation and reason about what they are about
+to pay for (prd-41 ruling 4, *"a ceiling that spends money is declared"*).
+That reasoning is carried here rather than cited: it used to live in
+`docs/design-notes/lab-launch-ceilings.md`, which now argues only the lock
+ceiling. It has not been re-derived for runs. If real experiments show that
+eight lanes is routinely overridden, the default is the thing to revisit, in a
+ruling — not the override, which exists precisely so that the default need not
+be guessed right.
