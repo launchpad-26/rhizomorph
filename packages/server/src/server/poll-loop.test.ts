@@ -1521,6 +1521,137 @@ describe('the summons raiser (prd17 ruling 5)', () => {
     })
   })
 
+  describe('a rotation between two appends of one diff (review of #278 round 3 — #299)', () => {
+    /**
+     * A minimal recorder that only implements what `raiseSummons()` actually
+     * reads: `sessionId`, `record`, `recordAlarm`, `foldSoFar`. No file I/O,
+     * no real session machinery — `SessionRecorder#record` already refuses
+     * to publish an append that was IN FLIGHT when its own session closed
+     * (its own `writer !== writer` check); what it cannot see is a *later*,
+     * freshly-started append that still describes a diff computed for a
+     * session that closed in between. That is the gap this fixture isolates:
+     * `rotate()` flips `sessionId` synchronously, exactly like the real
+     * `openSession()` does, with no `writer`-identity machinery to get in
+     * the way of proving poll-loop's OWN recheck is what closes it.
+     */
+    function fakeRotatingRecorder(fold: () => ReturnType<SessionRecorder['foldSoFar']>) {
+      const state = { sessionId: 'old-session' }
+      const persisted: RhizomorphEvent[] = []
+      const recorder = {
+        get sessionId() {
+          return state.sessionId
+        },
+        record: async (event: RhizomorphEvent) => {
+          persisted.push(event)
+        },
+        recordAlarm: async (event: EventOf<'collector.error'>) => {
+          persisted.push(event)
+          return { appended: true }
+        },
+        foldSoFar: fold,
+      } as unknown as SessionRecorder
+      return { recorder, persisted, rotate: (id: string) => (state.sessionId = id) }
+    }
+
+    it('a rotation landing between the FIRST and SECOND append of one diff drops the remaining stale clears, not just the ones before the batch started', async () => {
+      const staged = reduceAll(fixtureHistory(pathologySpec(), NOW))
+      const calm = reduceAll(fixtureHistory(fleet20Spec(), NOW))
+      let fold = staged
+      const { recorder, persisted, rotate } = fakeRotatingRecorder(() => fold)
+
+      const pollLoop = createPollLoop({
+        repoPath: REPO_PATH,
+        collectors: [],
+        recorder,
+        exec: nullExec,
+        now: () => NOW,
+      })
+
+      // Tick 1: everything pathologySpec stages raises into 'old-session' —
+      // no rotation in play yet.
+      await pollLoop.tick()
+      const raisedLanes = summonsRaised(persisted).map((event) => `${event.payload.lane}:${event.payload.kind}`)
+      expect(raisedLanes.length).toBeGreaterThanOrEqual(3)
+
+      // Wrap `record` AFTER tick 1, so `calls` only counts tick 2's own
+      // batch — and rotate the instant the FIRST of THIS batch's appends
+      // resolves, not before the batch starts (the shape mutation 1 below
+      // survives): calm shares no lane names with pathologySpec, so every
+      // open point clears in one diff, and this is the one place that diff
+      // gets to append more than once.
+      const originalRecord = recorder.record
+      let calls = 0
+      recorder.record = async (event: RhizomorphEvent) => {
+        calls += 1
+        await originalRecord(event)
+        if (calls === 1) rotate('new-session')
+      }
+
+      fold = calm
+      const beforeRotationTick = persisted.length
+      await pollLoop.tick()
+      const duringRotationTick = persisted.slice(beforeRotationTick)
+
+      // MUTATION (DoD): re-checking the session ONCE, before the first
+      // append, still passes this — the check matches when the loop starts,
+      // and nothing re-asks it before the later appends. Only the first
+      // clear (already in flight when the rotation fired) may land; every
+      // clear after it belongs to a session that has already closed and must
+      // not be attempted at all.
+      expect(summonsCleared(duringRotationTick)).toHaveLength(1)
+      expect(summonsRaised(duringRotationTick)).toEqual([])
+
+      // Self-corrects next tick exactly like the read-side race already does:
+      // the top-of-function session check sees the mismatch, drops the
+      // stale remainder of `summonsState` silently (no clear for it — it
+      // belongs to a session that already closed), and recomputes fresh.
+      const beforeSettleTick = persisted.length
+      await pollLoop.tick()
+      const duringSettleTick = persisted.slice(beforeSettleTick)
+      expect(summonsRaised(duringSettleTick)).toEqual([])
+      expect(summonsCleared(duringSettleTick)).toEqual([])
+    })
+
+    it('sibling case: a rotation landing between the FIRST and SECOND raise of one diff drops the remaining stale raises', async () => {
+      const calm = reduceAll(fixtureHistory(fleet20Spec(), NOW))
+      const staged = reduceAll(fixtureHistory(pathologySpec(), NOW))
+      let fold = calm
+      const { recorder, persisted, rotate } = fakeRotatingRecorder(() => fold)
+
+      const pollLoop = createPollLoop({
+        repoPath: REPO_PATH,
+        collectors: [],
+        recorder,
+        exec: nullExec,
+        now: () => NOW,
+      })
+
+      // Tick 1: calm — nothing open, nothing appended, `calls` starts clean.
+      await pollLoop.tick()
+      expect(persisted).toEqual([])
+
+      const originalRecord = recorder.record
+      let calls = 0
+      recorder.record = async (event: RhizomorphEvent) => {
+        calls += 1
+        await originalRecord(event)
+        if (calls === 1) rotate('new-session')
+      }
+
+      // Everything pathologySpec stages appears at once — a raise, not a
+      // clear, computed against the OLD fold and due to append after the
+      // switch: "the same defect wearing the other hat" (the issue's own
+      // words for this half).
+      fold = staged
+      const beforeRotationTick = persisted.length
+      await pollLoop.tick()
+      const duringRotationTick = persisted.slice(beforeRotationTick)
+
+      expect(summonsRaised(duringRotationTick)).toHaveLength(1)
+      expect(summonsCleared(duringRotationTick)).toEqual([])
+    })
+  })
+
   describe('a degraded manifest read never clears an open off-fence summons (review of #278 round 2, finding 2)', () => {
     afterEach(() => {
       setManifestReadOverride(null)

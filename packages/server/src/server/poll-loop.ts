@@ -492,7 +492,32 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
       const { diff, next: diffedNext } = diffSummons(previousForDiff, conditions, tickNow)
       const next = manifestDegradedThisTick ? [...diffedNext, ...preservedOffFence] : diffedNext
 
+      // prd17 w7 #299 — the check above closes the READ window (a rotation
+      // landing before this line describes a fold that has already moved
+      // on); it does not close the WRITE one this loop opens by awaiting
+      // once PER EVENT. `SessionRecorder#record` already refuses to publish
+      // an append that was in flight when its own session closed — but it
+      // has no way to know that a *later*, freshly-started append still
+      // describes a diff computed for a session that closed in between: that
+      // call is, as far as the recorder is concerned, an ordinary record in
+      // whatever session is current now. Only the caller who computed the
+      // diff knows which session it was FOR, so the recheck has to live
+      // here. Structural, not another narrowing (the DoD's own words): every
+      // append rechecks identity, immediately before it, not once before the
+      // batch — and the moment it no longer matches, the rest of the batch
+      // is abandoned rather than attempted. That drops the remaining stale
+      // points exactly like the read-side guard above already drops the
+      // whole diff: without a clear, without a raise, because they describe
+      // a session that no longer exists. `summonsState` is left exactly
+      // where it was, so ADR-0029's own rule applies unchanged — the next
+      // tick's read-side check (above) sees the mismatch, drops the stale
+      // remainder of `summonsState` the same silent way, and recomputes a
+      // fresh diff against the new session's empty fold. Covers the raise
+      // side and the clear side alike (the sibling case): a raise computed
+      // against the old fold and appended after the switch is the same
+      // defect wearing the other hat.
       for (const raise of diff.raised) {
+        if (recorder.sessionId !== summonsSessionId) return
         await recorder.record(
           createEvent(
             'summons.raised',
@@ -507,6 +532,7 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
         )
       }
       for (const clear of diff.cleared) {
+        if (recorder.sessionId !== summonsSessionId) return
         await recorder.record(
           createEvent(
             'summons.cleared',
