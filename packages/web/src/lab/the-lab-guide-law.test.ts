@@ -421,7 +421,18 @@ function paragraphsOf(markdown: string): Paragraph[] {
 const BEHAVIOURAL = /\/api\/lab\/|\b(?:400|404|409|503)\b|(?:^|\s)`?--[a-z]|ruling \d/
 
 describe('the-lab.md — every behavioural claim is a test (prd53 ruling 9)', () => {
-  const guide = readFileSync(GUIDE, 'utf8')
+  /**
+   * CRLF-normalised at the read (review of #342). A Windows checkout hands
+   * this file back with `\r\n`, `paragraphsOf` splits on `\n`, and every
+   * paragraph then carries a trailing `\r` — invisible to the two laws that
+   * compare against `[]` or a `[\s\S]*` pattern, and fatal to the gap law
+   * below, which compares a 72-character slice against literal text. The
+   * `windows-suite` leg is the only one that sees it, and it did: this line
+   * is what a red `the behavioural blocks outside prose are exactly these`
+   * on Windows cost. What this law reads is prose, not bytes; `corpus-eol-law`
+   * is where line endings themselves are the subject.
+   */
+  const guide = readFileSync(GUIDE, 'utf8').replace(/\r\n/g, '\n')
   const paragraphs = paragraphsOf(guide)
   const prose = paragraphs.filter((p) => p.kind === 'prose')
   const marked = prose.filter((p) => p.claim !== null)
