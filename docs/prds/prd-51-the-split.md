@@ -575,3 +575,75 @@ a destination exists the deployment has no recovery story, and the runbook says 
   it, in both directions; and `.swarm/coupling.txt` allows **one** claimant per wave. Four waves
   therefore queue on one file. The Sequencing section above is written as though those pieces are
   independent, and they are not — wave 2 was regroomed to a single issue on discovering it.
+
+## Amendment — the fold's dedup targets the partition, not the parent (operator, 2026-09-08)
+
+Rulings 4 and 5 could not both hold. The collision was found while planning wave 2 (#355) and
+settled by **execution against PostgreSQL 18.4**, not by reading the manual — every verdict below
+was run, and the errors are quoted verbatim from the server.
+
+### The contradiction, executed
+
+Ruling 5 declines the unique key and points at ruling 4 for dedup: *"The natural unique key cannot
+exist on a ts-partitioned table; dedup is ingest's (ruling 4)."* Ruling 4's mechanism is
+`INSERT … ON CONFLICT (project, actor_instance, n) DO NOTHING` — a request for precisely the key
+ruling 5 just declined. Both halves are confirmed:
+
+```
+ERROR:  unique constraint on partitioned table must include all partitioning columns
+DETAIL:  UNIQUE constraint on table "events" lacks column "ts" which is part of the partition key.
+
+ERROR:  there is no unique or exclusion constraint matching the ON CONFLICT specification
+```
+
+Ruling 5's observation is correct. Ruling 4's statement, run against the table ruling 5 specifies,
+does not execute. It fails loudly rather than silently, which is the good version of this problem,
+but wave 3's ingest cannot be written as ruling 4 reads today.
+
+### The ruling — the insert targets the month's partition
+
+**Ruling 4's clause is unchanged.** `ON CONFLICT (project, actor_instance, n) DO NOTHING` stands
+exactly as written. What changes is the relation it is aimed at: the fold worker inserts into the
+**partition covering the batch's `ts`**, not into the parent. Against a partition, the targeted
+inference finds that partition's own unique index and behaves as ruling 4 intends — an exact
+replay dedups to one row, EXECUTED.
+
+**Ruling 5's index list gains** a unique index on `(project_id, actor_instance, n)` **on each
+partition**, created with the partition. Its sentence is amended to *"the natural unique key cannot
+exist on the partitioned table; it exists on each partition"* — the original observation was true
+of the parent and was read as true of the design.
+
+**A new invariant, because it is load-bearing and was never stated:** the same
+`(project, actor_instance, n)` always carries the same `ts`. It holds by construction today — `ts`
+is read from the event line, and `n` addresses that line — but nothing said so, and dedup depends
+on it. EXECUTED: the same key inserted with a `ts` one month later lands in the next partition and
+produces **two rows**. Per-partition uniqueness cannot see across a partition boundary. A shipper
+that ever recomputed `ts` rather than reading it would silently break dedup at every month
+boundary, and no error would appear anywhere.
+
+**Naming, reconciled:** ruling 4 writes the column `project`; ruling 5's schema declares
+`project_id`. The column is `project_id` everywhere, including in ruling 4's clause.
+
+### Two rejected options, and why each lost
+
+**Fold `ts` into the key** — `UNIQUE (project_id, actor_instance, n, ts)`. The parent accepts it and
+an identical replay dedups to one row. Rejected because it does not dedup: EXECUTED, **one
+microsecond** of `ts` drift produces two rows. It removes the error while leaving the duplicate,
+which is worse than the failure it replaces — and it would have changed the position key that
+ruling 3 and wave 1's wire are built on.
+
+**Untargeted `ON CONFLICT DO NOTHING` against the parent**, relying on per-partition indexes. This
+works for the intended case, and was the obvious repair. Rejected on a measured failure: an
+untargeted `DO NOTHING` skips **any** unique violation. EXECUTED — with a second unique index on
+the partition (`event_id`), a row carrying a brand-new `(project_id, actor_instance, n)` and a
+colliding `event_id` was **silently dropped**. That is precisely the gap in `n` ruling 3 forbids,
+created with no error emitted anywhere. Targeting the partition names the constraint, so the same
+collision raises instead:
+
+```
+ERROR:  duplicate key value violates unique constraint "ev3_09_eid"
+```
+
+This is also why **`event_id` is stored but never uniquely indexed** (ruling 5), a clause whose
+cost was previously unstated: with the targeted insert the swallowing case is unreachable, and the
+schema law that forbids the index is what keeps it that way.
