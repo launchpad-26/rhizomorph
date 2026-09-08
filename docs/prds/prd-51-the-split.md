@@ -494,3 +494,156 @@ blessing.
   scope. Open, not ruled.
 - **Who admins the VPS and holds the first project's key** — an operator act the wave-0 list
   books; the answer is recorded on the wave-4 issue, not here. Open, not ruled.
+
+## Amendment — the human plane is a GitHub App, and wave 0 is recorded (operator, 2026-09-08)
+
+Ruled in session after wave 1 landed. Ruling 8's machine plane — `rzk_` keys, the hash, the
+per-batch revocation check — and its "the planes never meet" clause are **untouched**. Only the
+human half changes, and wave 0's list is recorded rather than restated.
+
+### Ruling 8's human plane, amended
+
+Ruling 8 says the browser viewer signs in through **the OAuth web flow**. It does not. What was
+built is a **GitHub App**, and the difference is the reason it was chosen: an OAuth App acts *as*
+whichever person signed in, borrowing their permissions; a GitHub App is its own identity,
+installed on an organisation, its powers chosen from a list at creation and readable by anyone
+afterwards.
+
+As built on 2026-09-07:
+
+- The app is **`rhizomorph-team-server`**, installed on **`rhizomorph-team`** — rhizomorph's own
+  organisation, not the cohort's coursework org. Membership of that org remains the entire access
+  boundary, exactly as ruling 8 has it.
+- Its permissions are **Organization → Members → Read-only, and nothing else**. No repository
+  access of any kind. The rejected alternative was repository read, which would have handed the
+  server every private repository each member can reach in order to answer one yes-or-no question.
+- Humans are identified by **user-to-server authorization through the App**, whose callback is
+  `https://rhizomorph.devacademy.life/auth/github/callback`. The **membership check runs on an
+  installation token**, not the signed-in person's — so the boundary does not depend on any
+  individual's grant, and one member consenting more widely than another cannot widen it.
+- **The org third-party-access clause is deleted.** It was an OAuth App concern: a GitHub App is
+  *installed*, not approved, so there is no restriction to approve and nothing to check. Wave 0's
+  line naming it is superseded by this paragraph.
+- The app receives no webhooks; the webhook is off.
+
+Unchanged and still binding: the check is `GET /orgs/{org}/members/{user}` — 204 is a member,
+anything else is not, and **`state: pending` is not a member** (#169). An invitee who never
+accepted returns 404 by construction, so the pending clause survives the switch with no special
+handling.
+
+### Wave 0, recorded
+
+Wave 0 was booked as six operator acts. Where it actually stands, so this document stops implying
+all six happened at the blessing:
+
+| act | state |
+|---|---|
+| the leads bless this document, rulings 6 and 9 as written | **done** — 2026-09-03 |
+| the three ADRs move `proposed → accepted` | **done** — 0033, 0034, 0035 |
+| the organisation exists and an owner is named | **done** — `rhizomorph-team`, 2026-09-07 |
+| the VPS exists with a hostname, and an admin is named | **done** — `rhizomorph.devacademy.life` |
+| the identity app is registered and installed | **done** — as amended above |
+| the first project's key holder is named | **ruled otherwise** — below |
+
+**Responsibility is collective, not named.** Wave 0 asked for named individuals: an org owner, a
+VPS admin, a key holder. The cohort ruled instead that **everyone is responsible for every part**.
+That is the answer, and it closes the open question *"Who admins the VPS and holds the first
+project's key"* above — which is left standing rather than deleted, because it is the question this
+paragraph answers.
+
+One consequence travels forward rather than being argued here: wave 4 requires a **timed drill**,
+and a drill is performed by a person. Collective responsibility settles who *may* act; it does not
+settle who *will*. Wave 4's issue names whoever ran it, at the time they run it.
+
+**Backups are parked, and wave 4 narrows accordingly.** No off-VPS backup destination was
+provisioned. Wave 4's *"backup/restore verified by digest"* therefore cannot be witnessed as
+specified: a dump written to the same machine as the database is not a backup, and this PRD must
+not record a green drill against one. What wave 4 **can** still prove is ruling 13's **restore
+ordering** — restore runs into the empty database before the app's first boot, the step whose
+reversal the install spike found produces `duplicate key` errors. Wave 4 proves the ordering. Until
+a destination exists the deployment has no recovery story, and the runbook says so in those words.
+
+### Two facts wave 0 did not book, found since
+
+- **The Linode account belongs to the academy, not the cohort.** The team holds root on the machine
+  but not the account, so the instance can be resized, rebuilt or removed without notice. It is a
+  single point of failure for the whole deployment and cannot be fixed from inside it. Recorded
+  here so it is not rediscovered during wave 4.
+- **`README.md` serialises this PRD.** Ruling 12's Trust rewrite, `connect team`, `rhizomorph
+  archive` and the wave-5 sweep each require it;
+  `packages/server/src/cli/cli-surface-law.test.ts` forces any new top-level subcommand to touch
+  it, in both directions; and `.swarm/coupling.txt` allows **one** claimant per wave. Four waves
+  therefore queue on one file. The Sequencing section above is written as though those pieces are
+  independent, and they are not — wave 2 was regroomed to a single issue on discovering it.
+
+## Amendment — the fold's dedup targets the partition, not the parent (operator, 2026-09-08)
+
+Rulings 4 and 5 could not both hold. The collision was found while planning wave 2 (#355) and
+settled by **execution against PostgreSQL 18.4**, not by reading the manual — every verdict below
+was run, and the errors are quoted verbatim from the server.
+
+### The contradiction, executed
+
+Ruling 5 declines the unique key and points at ruling 4 for dedup: *"The natural unique key cannot
+exist on a ts-partitioned table; dedup is ingest's (ruling 4)."* Ruling 4's mechanism is
+`INSERT … ON CONFLICT (project, actor_instance, n) DO NOTHING` — a request for precisely the key
+ruling 5 just declined. Both halves are confirmed:
+
+```
+ERROR:  unique constraint on partitioned table must include all partitioning columns
+DETAIL:  UNIQUE constraint on table "events" lacks column "ts" which is part of the partition key.
+
+ERROR:  there is no unique or exclusion constraint matching the ON CONFLICT specification
+```
+
+Ruling 5's observation is correct. Ruling 4's statement, run against the table ruling 5 specifies,
+does not execute. It fails loudly rather than silently, which is the good version of this problem,
+but wave 3's ingest cannot be written as ruling 4 reads today.
+
+### The ruling — the insert targets the month's partition
+
+**Ruling 4's clause is unchanged.** `ON CONFLICT (project, actor_instance, n) DO NOTHING` stands
+exactly as written. What changes is the relation it is aimed at: the fold worker inserts into the
+**partition covering the batch's `ts`**, not into the parent. Against a partition, the targeted
+inference finds that partition's own unique index and behaves as ruling 4 intends — an exact
+replay dedups to one row, EXECUTED.
+
+**Ruling 5's index list gains** a unique index on `(project_id, actor_instance, n)` **on each
+partition**, created with the partition. Its sentence is amended to *"the natural unique key cannot
+exist on the partitioned table; it exists on each partition"* — the original observation was true
+of the parent and was read as true of the design.
+
+**A new invariant, because it is load-bearing and was never stated:** the same
+`(project, actor_instance, n)` always carries the same `ts`. It holds by construction today — `ts`
+is read from the event line, and `n` addresses that line — but nothing said so, and dedup depends
+on it. EXECUTED: the same key inserted with a `ts` one month later lands in the next partition and
+produces **two rows**. Per-partition uniqueness cannot see across a partition boundary. A shipper
+that ever recomputed `ts` rather than reading it would silently break dedup at every month
+boundary, and no error would appear anywhere.
+
+**Naming, reconciled:** ruling 4 writes the column `project`; ruling 5's schema declares
+`project_id`. The column is `project_id` everywhere, including in ruling 4's clause.
+
+### Two rejected options, and why each lost
+
+**Fold `ts` into the key** — `UNIQUE (project_id, actor_instance, n, ts)`. The parent accepts it and
+an identical replay dedups to one row. Rejected because it does not dedup: EXECUTED, **one
+microsecond** of `ts` drift produces two rows. It removes the error while leaving the duplicate,
+which is worse than the failure it replaces — and it would have changed the position key that
+ruling 3 and wave 1's wire are built on.
+
+**Untargeted `ON CONFLICT DO NOTHING` against the parent**, relying on per-partition indexes. This
+works for the intended case, and was the obvious repair. Rejected on a measured failure: an
+untargeted `DO NOTHING` skips **any** unique violation. EXECUTED — with a second unique index on
+the partition (`event_id`), a row carrying a brand-new `(project_id, actor_instance, n)` and a
+colliding `event_id` was **silently dropped**. That is precisely the gap in `n` ruling 3 forbids,
+created with no error emitted anywhere. Targeting the partition names the constraint, so the same
+collision raises instead:
+
+```
+ERROR:  duplicate key value violates unique constraint "ev3_09_eid"
+```
+
+This is also why **`event_id` is stored but never uniquely indexed** (ruling 5), a clause whose
+cost was previously unstated: with the targeted insert the swallowing case is unreachable, and the
+schema law that forbids the index is what keeps it that way.
