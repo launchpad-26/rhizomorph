@@ -336,7 +336,7 @@ export function LabPage({ fetchImpl, launchFetchImpl, seedLaunchOutcomes = [] }:
         </section>
 
         <section className="mb-6">
-          <Frame position={position} onPosition={setPosition} seated={seatedCheckpoint} experiments={experimentItems} divergence={divergence} />
+          <Frame position={position} onPosition={setPosition} seated={seatedCheckpoint} experiments={experimentItems} divergence={divergence} failedArmsByFork={partial.byFork} />
         </section>
 
         <section className="mb-6">
