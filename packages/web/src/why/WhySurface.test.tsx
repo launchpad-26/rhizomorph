@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createEventFactory, reduceAll } from '@rhizomorph/core'
 import { afterEach, describe, expect, it } from 'vitest'
+import { discloseText } from '../disclosure/testing.js'
 import type { FetchLike } from '../fleet/manifest.js'
 import { WhySurface } from './WhySurface.js'
 
@@ -65,6 +66,25 @@ describe('WhySurface', () => {
 
     fireEvent.click(files[1]!)
     expect(within(screen.getByTestId('why-chain')).getByText('Edit')).toBeInTheDocument()
+  })
+
+  it('discloses what a run did to a touched file, identically by hover and by focus (#220)', () => {
+    f = createEventFactory({ startTs: NOW - 60_000 })
+    const state = reduceAll([
+      f.toolActivity({ lane: 'feature', tool: 'Edit', branch: 'feature', filePath: 'src/a.ts', toolUseId: 'toolu_1' }),
+    ])
+
+    render(
+      <WhySurface state={state} laneLabel="feature" laneHandle="feature" now={NOW} fetchTranscript={noTranscript} />,
+    )
+
+    // The mark is itself a button, so it wears ADR-0040's inline trigger — the
+    // card must still open, and `discloseText` refuses to return unless hover
+    // and focus produce the same markup (charter §6).
+    const card = discloseText(screen.getAllByTestId('why-file')[0] as HTMLElement)
+    expect(card).toContain('what this run did to this file')
+    expect(card).toContain('1 tool call')
+    expect(card).toContain('select it to see the chain of work that touched it')
   })
 
   it('joins a tool call to its trace span and shows the kind glyph', () => {

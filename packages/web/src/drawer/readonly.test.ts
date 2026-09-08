@@ -121,6 +121,28 @@ function sourceFiles(): { name: string; text: string }[] {
 }
 
 /**
+ * Files per governed directory, keyed by the directory's path relative to
+ * `packages/web/src` in posix form — `drawer`, `why`, and `drawer/net` should
+ * a nested one ever appear. Pure over the names so the three rigs can feed it
+ * synthetic lists without touching the disk — of its four callers below, only
+ * the pin test hands it the real walk; `countByDirectory` itself never touches
+ * the disk.
+ *
+ * `Object.create(null)` and not `{}`: a directory named `__proto__` would
+ * otherwise assign through the inherited setter and create no own key, so a
+ * real source file under it would be invisible to the count (#235's third
+ * review round found exactly that). No prototype, no setter, no hole.
+ */
+function countByDirectory(names: readonly string[]): Record<string, number> {
+  const counts: Record<string, number> = Object.create(null)
+  for (const name of names) {
+    const dir = path.dirname(name).split(path.sep).join('/')
+    counts[dir] = (counts[dir] ?? 0) + 1
+  }
+  return counts
+}
+
+/**
  * Resolves `importPath` (as written in `index.tsx`, e.g. `'../why/index.js'`)
  * against `packages/web/src`, the same coordinate space `DRAWER_SURFACES`
  * and `CONSUMED` are written in — real path resolution, not a string strip,
@@ -172,12 +194,69 @@ function leavingImportsIn(text: string): string[] {
 }
 
 describe('the drawer sends only GETs', () => {
-  it('has source files to check at all, drawer/ AND every declared surface — an empty grep proves nothing', () => {
-    // 11 real files after #562 (8 in drawer/, 3 in why/): the peek retired
-    // `Tabs.tsx` and `Trace.tsx` outright, so this pin comes DOWN by two — with
-    // the count still exact-ish rather than a loose lower bound, so a surface
-    // quietly dropping out of the walk fails loudly here too.
-    expect(sourceFiles().length).toBeGreaterThanOrEqual(11)
+  it('walks exactly the files it claims to — per directory, exact, in both directions', () => {
+    // prd-43 ruling 2: a count stated in prose is derived from the thing it
+    // counts, and (ruling 1) this comment is prose. The old pin was a FLOOR
+    // under a comment that called itself "exact-ish": tight downward, blind
+    // upward — a twelfth file under drawer/ passed it in silence (#311,
+    // EXECUTED at e5895a4). And a single total, exact or not, would still pass
+    // a compensated shrink: why/ losing one while drawer/ gains one. So the pin
+    // is per directory and exact. A file added, removed, or moved between the
+    // two governed directories fails here, and the failure names the directory.
+    //
+    // Re-derive rather than edit: run the law, read the diff it prints, and
+    // move the number only once you can say which file moved it.
+    expect(countByDirectory(sourceFiles().map((file) => file.name))).toEqual({
+      drawer: 8,
+      why: 3,
+    })
+  })
+
+  it('the pin bites upward — a file added under either directory changes the count', () => {
+    // Synthetic, not sourceFiles(): this rig exercises countByDirectory alone,
+    // not the on-disk tree, so a legitimate rename or addition in drawer/ or
+    // why/ can never make this test fail for a reason its message doesn't
+    // name. Three names in one directory, two in the other — enough to prove
+    // "adding one changes exactly that directory's count by one" without
+    // depending on what actually lives on disk today.
+    const today = [
+      path.join('drawer', 'a.ts'),
+      path.join('drawer', 'b.ts'),
+      path.join('drawer', 'c.ts'),
+      path.join('why', 'x.tsx'),
+      path.join('why', 'y.tsx'),
+    ]
+    const grown = countByDirectory([...today, path.join('drawer', 'zz-probe.ts')])
+    expect(grown).not.toEqual(countByDirectory(today))
+    expect(grown.drawer).toBe((countByDirectory(today).drawer as number) + 1)
+  })
+
+  it('the pin bites on a compensated shrink — one lost in why/, one gained in drawer/, total unchanged', () => {
+    // Synthetic, not sourceFiles(): a hard-coded on-disk name here would tie
+    // this rig to one real file's continued existence under that exact name —
+    // a legitimate rename inside why/ would then redden this test with a
+    // message that names neither the rename nor the pinned filename. Feeding
+    // countByDirectory a literal list exercises the shrink-that-cancels-out
+    // shape directly, independent of what the tree currently holds.
+    const today = [
+      path.join('drawer', 'a.ts'),
+      path.join('drawer', 'b.ts'),
+      path.join('drawer', 'c.ts'),
+      path.join('why', 'x.tsx'),
+      path.join('why', 'y.tsx'),
+    ]
+    const shifted = today
+      .filter((name) => name !== path.join('why', 'x.tsx'))
+      .concat(path.join('drawer', 'zz-probe.ts'))
+    expect(shifted).toHaveLength(today.length) // the total is the same — a single-total pin would pass
+    expect(countByDirectory(shifted)).not.toEqual(countByDirectory(today))
+  })
+
+  it('a directory named __proto__ is counted, not swallowed by the accumulator', () => {
+    const counts = countByDirectory([path.join('__proto__', 'x.ts'), path.join('drawer', 'y.ts')])
+    expect(Object.keys(counts).sort()).toEqual(['__proto__', 'drawer'])
+    expect(counts.__proto__).toBe(1)
+    expect(Object.getPrototypeOf(counts)).toBeNull()
   })
 
   it('the walk actually reaches the WHY surface, not just drawer/ itself', () => {

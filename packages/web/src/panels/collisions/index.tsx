@@ -1,3 +1,4 @@
+import { Disclosure, type DisclosureContent } from '../../disclosure/index.js'
 import { useMemo, useRef, useState, type MouseEvent } from 'react'
 import { selectCollisionPairs, selectTouchesByBranch, type CollisionPair } from '@rhizomorph/core'
 import { laneUrl, navigate } from '../../app/router.js'
@@ -125,10 +126,16 @@ export default function CollisionsPanel() {
                       <th
                         key={branch}
                         scope="col"
-                        title={branch}
                         className="sticky top-(--dock-h) z-(--z-sticky) min-w-14 truncate bg-(--surface-panel) px-2 py-1.5 text-center font-medium text-(--ink-dim)"
                       >
-                        <OpenBranchLink branch={branch} />
+                        {/*
+                          Inline trigger: `OpenBranchLink` is itself a control,
+                          and a button around it would be the nesting ADR-0040
+                          exists to prevent.
+                        */}
+                        <Disclosure disclosure={branchColumnDisclosure(branch)} trigger="inline">
+                          <OpenBranchLink branch={branch} />
+                        </Disclosure>
                       </th>
                     ))}
                   </tr>
@@ -146,12 +153,13 @@ export default function CollisionsPanel() {
                       className={isFocused(row) ? 'bg-(--surface-raised)' : undefined}
                     >
                       <td
-                        title={row.path}
                         className={`figures min-w-[14rem] truncate px-2 py-1.5 leading-relaxed ${
                           row.collided ? 'glow-needs-you text-needs-you' : 'text-(--ink-body)'
                         }`}
                       >
-                        {elidePathMiddle(row.path)}
+                        <Disclosure disclosure={pathRowDisclosure(row)} triggerLabel={row.path}>
+                          {elidePathMiddle(row.path)}
+                        </Disclosure>
                       </td>
                       {columns.map((branch) => (
                         <td
@@ -211,4 +219,45 @@ function OpenBranchLink({ branch }: { branch: string }) {
       {shortenBranch(branch)}
     </a>
   )
+}
+
+/**
+ * A column header's disclosure (#220) — the branch name the header elides.
+ *
+ * `elapsedMs: 0`: the collision matrix is rebuilt from the fold on every tick,
+ * so the column's existence is a fact confirmed just now (core's own register
+ * in `selectors/condition.ts`), not an observation with a "since".
+ */
+function branchColumnDisclosure(branch: string): DisclosureContent {
+  return {
+    label: branch,
+    why: {
+      reason: 'a lane working in this repo right now',
+      evidence: { fact: `the fold carries work on ${branch}`, elapsedMs: 0 },
+    },
+    remedy: { kind: 'action', action: 'open the branch to see what it is touching' },
+  }
+}
+
+/**
+ * A row's disclosure — the full path the cell elides, and whether more than one
+ * lane is in it. The elision is why the native `title=` was here; the collision
+ * is why the row is worth asking about at all.
+ */
+function pathRowDisclosure(row: { path: string; collided: boolean }): DisclosureContent {
+  return {
+    label: row.path,
+    why: {
+      reason: row.collided ? 'more than one lane is touching this path' : 'one lane is touching this path',
+      evidence: {
+        fact: row.collided
+          ? 'the ticks across this row name which lanes'
+          : 'no other lane in this fold has touched it',
+        elapsedMs: 0,
+      },
+    },
+    remedy: row.collided
+      ? { kind: 'action', action: 'move the work to the lane that owns the path, or widen a fence on the issue before the change' }
+      : { kind: 'none', because: 'a path one lane owns is the wanted state — nothing to do' },
+  }
 }

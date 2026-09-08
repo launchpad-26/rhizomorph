@@ -612,13 +612,19 @@ describe('severity, read with luminance taken away', () => {
   it('would rank a dead lane below a notice, if it still read brightness', () => {
     // The trap, measured at the shipped light values. Brightness on paper
     // orders the ladder *wrongly*, not merely weakly: the worst rung is dimmer
-    // than the mildest alarm, and it sits within a thousandth of a calm
-    // thread's luminance — indistinguishable. A reader who kept the void's
+    // than the mildest alarm. Before #39, broken sat within four thousandths
+    // (0.0035) of a calm thread's luminance in this file's own alpha-weighted
+    // naive budget — that collapse is what the old assertion pinned, and it
+    // is broken vs a calm thread, not the pair law 9 holds. #39 deepened
+    // broken for law 9's own reason — the greyscale/dichromacy floor on
+    // broken vs WORKING, which `theme/category.test.ts` now holds apart in
+    // both axes — and as a side effect of taking broken that much darker, it
+    // is now the DIMMEST rung outright here too. A reader who kept the void's
     // encoding would put the dying lane at the bottom.
     const lit = (rank: LadderRank): number => luminance(LIGHT_PALETTE.severity[rank])
     expect(lit('broken')).toBeLessThan(lit('notice'))
     expect(lit('broken')).toBeLessThan(lit('needs-you'))
-    expect(Math.abs(lit('broken') - lit('calm'))).toBeLessThan(0.01)
+    expect(lit('broken')).toBeLessThan(lit('calm'))
     // The brightest rung on paper is a *notice* — the one rung that means
     // "nobody is needed yet". That is the inversion, named.
     const brightest = [...SEVERITY_LADDER].sort((a, b) => lit(b) - lit(a))[0]

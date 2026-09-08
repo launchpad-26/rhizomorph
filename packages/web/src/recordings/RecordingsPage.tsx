@@ -1,3 +1,4 @@
+import { Disclosure } from '../disclosure/index.js'
 import { BUTTON } from '../ui/controls.js'
 import { useCallback, useEffect, useState } from 'react'
 import { useReplay } from '../app/ModeContext.js'
@@ -8,8 +9,8 @@ import type { FetchLike } from '../replay/api.js'
 import { fetchRecordings, type RecordingListing } from './api.js'
 import { exportRecording, type DownloadEnv } from './export.js'
 import {
-  captureHoverTitle,
-  costHoverTitle,
+  captureHoverDisclosure,
+  costHoverDisclosure,
   costSuffix,
   formatCapture,
   formatCost,
@@ -223,7 +224,8 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
                 <td className="figures p-(--space-cell)">{recording.lanes}</td>
                 <td className="figures p-(--space-cell)">{recording.landed}</td>
                 <td className="figures p-(--space-cell)">{formatDuration(recording.durationMs)}</td>
-                <td className="figures p-(--space-cell)" title={costHoverTitle(recording)}>
+                <td className="figures p-(--space-cell)">
+                  <Disclosure disclosure={costHoverDisclosure(recording)} triggerLabel={`${recording.title}, cost`}>
                   {formatCost(recording)}
                   {costSuffix(recording) !== null && (
                     <span className="ml-1 text-(--ink-dim)">{costSuffix(recording)}</span>
@@ -233,17 +235,19 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
                       (no cost feed)
                     </span>
                   )}
+                  </Disclosure>
                 </td>
                 <td
                   className={`p-(--space-cell) ${isCaptureAbsent(recording) ? 'text-(--ink-dim)' : ''}`}
-                  title={captureHoverTitle(recording)}
                 >
+                  <Disclosure disclosure={captureHoverDisclosure(recording)} triggerLabel={`${recording.title}, capture`}>
                   {formatCapture(recording)}
                   {isCaptureGap(recording) && (
                     <span data-testid={`recording-capture-gap-${recording.id}`} className="ml-1 text-(--ink-dim)">
                       ⚠
                     </span>
                   )}
+                  </Disclosure>
                 </td>
                 <td className="p-(--space-cell)">
                   <div className="flex flex-wrap items-center gap-2">
@@ -260,7 +264,7 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
                       data-testid={`recording-export-${recording.id}`}
                       disabled={exportingId === recording.id}
                       onClick={() => void doExport(recording.id)}
-                      title="download the portable record — manifest + hash-chained log, captured transcripts included when this recording has them"
+                      aria-label="download the portable record — manifest + hash-chained log, captured transcripts included when this recording has them"
                       className={BUTTON}
                     >
                       {exportingId === recording.id ? 'exporting…' : 'export'}

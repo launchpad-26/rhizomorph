@@ -76,6 +76,8 @@ describe('the theme switch (prd-32 ruling 4, given its home by prd-35 ruling 1)'
 
   it('follows the system when told to, in both directions', () => {
     let restore = mockSystem({ light: true })
+    // Told to: since #337 the default is dark, so following the system is a choice.
+    writePreference('appearance.theme', 'system')
     try {
       render(<SettingsPage />)
       expect(document.documentElement.dataset.theme).toBe('light')
@@ -85,6 +87,7 @@ describe('the theme switch (prd-32 ruling 4, given its home by prd-35 ruling 1)'
 
     cleanup()
     restore = mockSystem({ light: false })
+    writePreference('appearance.theme', 'system')
     try {
       render(<SettingsPage />)
       expect(document.documentElement.dataset.theme).toBe('dark')
@@ -174,13 +177,15 @@ describe('ruling 4 — a changed setting looks changed, and can be put back', ()
     adoptRepoScope('/repos/a')
     writePreference('appearance.panelsCollapsed', { fleet: true })
     render(<SettingsPage repoPath="/repos/a" />)
-    choose('appearance.theme', 'dark')
+    // Light, not dark: dark IS the default since #337, so choosing it and
+    // restoring would prove nothing about the restore.
+    choose('appearance.theme', 'light')
 
     act(() => {
       fireEvent.click(screen.getByTestId('restore-appearance-machine'))
     })
 
-    expect(readPreference('appearance.theme')).toBe('system')
+    expect(readPreference('appearance.theme')).toBe('dark')
     expect(readRecordOverlay('appearance.panelsCollapsed')).toEqual({ fleet: true })
     // The repo-scoped restore is a separate button, and it is the one that
     // reaches the panels.

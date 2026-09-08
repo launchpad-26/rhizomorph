@@ -1,17 +1,18 @@
 import { selectSpendForLane, type LaneSpend, type SessionState } from '@rhizomorph/core'
 import type { Fleet, Gap, Lane } from '../fleet/index.js'
 import { formatTokenBreakdown, formatTokens, formatUsd } from '../lib/format.js'
+import { Disclosure, type DisclosureContent } from '../disclosure/index.js'
 import {
   costCellText,
-  costCellTitle,
+  costCellDisclosure,
   outputCellText,
-  outputCellTitle,
+  outputCellDisclosure,
   threadShort,
 } from '../panels/fleet/format.js'
 import {
   costCellText as threadCostText,
-  costCellTitle as threadCostTitle,
-  tokensCellTitle as threadTokensTitle,
+  costCellDisclosure as threadCostDisclosure,
+  tokensCellDisclosure as threadTokensDisclosure,
 } from '../panels/ledger/format.js'
 
 /** The telemetry lane string the conductor's own usage/cost events carry (`fleet/fixtures.ts`'s `conductorBurn`). */
@@ -72,15 +73,15 @@ export function SpendDetail({ subject, fleet, state }: SpendDetailProps) {
       <h3 className="text-inst-dense font-semibold uppercase tracking-[0.2em] text-(--ink-dim)">Spend</h3>
 
       <dl className="mt-2 grid grid-cols-3 gap-2 text-inst">
-        <Cell label="output" value={cells.outputText} title={cells.outputTitle} />
+        <Cell label="output" value={cells.outputText} disclosure={cells.outputDisclosure} />
         <Cell
           label="$"
           value={cells.costText}
-          title={cells.costTitle}
+          disclosure={cells.costDisclosure}
           muted={cells.costMuted}
           suffix={cells.costSuffix}
         />
-        <Cell label="req" value={cells.reqText} title={cells.reqTitle} muted={cells.reqMuted} />
+        <Cell label="req" value={cells.reqText} disclosure={cells.reqDisclosure} muted={cells.reqMuted} />
       </dl>
 
       {threads.length === 0 ? (
@@ -100,12 +101,24 @@ export function SpendDetail({ subject, fleet, state }: SpendDetailProps) {
               className="flex items-baseline justify-between gap-2 border-t border-(--line-hair)/60 pt-1 font-mono text-inst-dense text-(--ink-dim) first:border-t-0"
             >
               <span className="uppercase text-(--ink-dim)">{threadShort(thread.thread)}</span>
-              <span title={threadTokensTitle(thread)}>{formatTokens(thread.tokens.output)} out</span>
-              <span title={threadCostTitle(thread)}>
-                {threadCostText(thread)}
-                {thread.costIsAuthoritative === false ? (
-                  <span className="ml-1 text-(--ink-dim)">est.</span>
-                ) : null}
+              <span>
+                <Disclosure
+                  disclosure={threadTokensDisclosure(thread)}
+                  triggerLabel={`${threadShort(thread.thread)}, tokens`}
+                >
+                  {formatTokens(thread.tokens.output)} out
+                </Disclosure>
+              </span>
+              <span>
+                <Disclosure
+                  disclosure={threadCostDisclosure(thread)}
+                  triggerLabel={`${threadShort(thread.thread)}, cost`}
+                >
+                  {threadCostText(thread)}
+                  {thread.costIsAuthoritative === false ? (
+                    <span className="ml-1 text-(--ink-dim)">est.</span>
+                  ) : null}
+                </Disclosure>
               </span>
             </li>
           ))}
@@ -117,26 +130,38 @@ export function SpendDetail({ subject, fleet, state }: SpendDetailProps) {
 
 interface SpendCells {
   outputText: string
-  outputTitle: string
+  outputDisclosure: DisclosureContent
   costText: string
-  costTitle: string
+  costDisclosure: DisclosureContent
   costMuted: boolean
   costSuffix: string | undefined
   reqText: string
-  reqTitle: string
+  reqDisclosure: DisclosureContent
   reqMuted: boolean
+}
+
+/** The REQ cell's disclosure — a plain count, and the honest absence when it is zero. */
+function requestsDisclosure(count: number, subject: string): DisclosureContent {
+  return {
+    label: 'req',
+    why: {
+      reason: count === 0 ? `no model request has been counted for ${subject} yet` : `model requests counted for ${subject}`,
+      evidence: { fact: `${count} llm.usage event${count === 1 ? '' : 's'} folded`, elapsedMs: 0 },
+    },
+    remedy: { kind: 'none', because: 'a request count is a reading, not a condition' },
+  }
 }
 
 function laneSpendCells(lane: Lane, gaps: readonly Gap[]): SpendCells {
   return {
     outputText: outputCellText(lane),
-    outputTitle: outputCellTitle(lane),
+    outputDisclosure: outputCellDisclosure(lane),
     costText: costCellText(lane),
-    costTitle: costCellTitle(lane, gaps),
+    costDisclosure: costCellDisclosure(lane, gaps),
     costMuted: lane.costEventCount === 0,
     costSuffix: lane.costIsAuthoritative === false ? 'est.' : undefined,
     reqText: String(lane.requestCount),
-    reqTitle: 'model requests counted for this lane',
+    reqDisclosure: requestsDisclosure(lane.requestCount, 'this lane'),
     reqMuted: lane.requestCount === 0,
   }
 }
@@ -152,18 +177,62 @@ function conductorSpendCells(spend: LaneSpend | null, gaps: readonly Gap[]): Spe
   const costEventCount = spend?.costEventCount ?? 0
   return {
     outputText: spend === null ? '—' : formatTokens(spend.tokens.output),
-    outputTitle: spend === null ? 'no telemetry from the conductor yet' : formatTokenBreakdown(spend.tokens),
+    outputDisclosure:
+      spend === null
+        ? {
+            label: 'output',
+            why: {
+              reason: 'no telemetry from the conductor yet',
+              evidence: { fact: 'the telemetry lane the conductor would report on has said nothing', elapsedMs: 0 },
+            },
+            remedy: {
+              kind: 'action',
+              action: "instrument the conductor — its burn is unknown, not zero",
+            },
+          }
+        : {
+            label: 'output',
+            why: {
+              reason: 'output tokens the conductor has produced',
+              evidence: { fact: formatTokenBreakdown(spend.tokens), elapsedMs: 0 },
+            },
+            remedy: { kind: 'none', because: 'a token count is a reading, not a condition' },
+          },
     costText: costEventCount === 0 ? '—' : formatUsd(spend!.costUsd),
-    costTitle:
+    costDisclosure:
       costEventCount === 0
-        ? (gaps.find((gap) => gap.id === 'no-cost-feed')?.line ?? 'no cost telemetry for the conductor')
+        ? {
+            label: '$',
+            why: {
+              reason: gaps.find((gap) => gap.id === 'no-cost-feed')?.line ?? 'no cost telemetry for the conductor',
+              evidence: { fact: 'no cost event has been folded for the conductor', elapsedMs: 0 },
+            },
+            remedy: {
+              kind: 'action',
+              action: "turn on the agent CLI's own cost telemetry for the conductor",
+            },
+          }
         : spend!.costIsAuthoritative === false
-          ? `estimated — not authoritative (${formatTokenBreakdown(spend!.tokens)})`
-          : 'authoritative dollar cost (OTel)',
+          ? {
+              label: '$',
+              why: {
+                reason: 'estimated — not the agent CLI\'s own figure',
+                evidence: { fact: `priced from ${formatTokenBreakdown(spend!.tokens)}`, elapsedMs: 0 },
+              },
+              remedy: { kind: 'none', because: 'an estimate is the best figure the conductor has reported' },
+            }
+          : {
+              label: '$',
+              why: {
+                reason: 'authoritative dollar cost',
+                evidence: { fact: 'the agent CLI reported this figure itself (OTel)', elapsedMs: 0 },
+              },
+              remedy: { kind: 'none', because: 'the figure comes from the CLI itself' },
+            },
     costMuted: costEventCount === 0,
     costSuffix: spend?.costIsAuthoritative === false ? 'est.' : undefined,
     reqText: String(spend?.requestCount ?? 0),
-    reqTitle: 'model requests counted for the conductor',
+    reqDisclosure: requestsDisclosure(spend?.requestCount ?? 0, 'the conductor'),
     reqMuted: (spend?.requestCount ?? 0) === 0,
   }
 }
@@ -171,20 +240,27 @@ function conductorSpendCells(spend: LaneSpend | null, gaps: readonly Gap[]): Spe
 interface CellProps {
   label: string
   value: string
-  title: string
+  disclosure: DisclosureContent
   muted?: boolean
   suffix?: string
 }
 
-function Cell({ label, value, title, muted = false, suffix }: CellProps) {
+/**
+ * One spend cell — and, since #220, one disclosure, on the `<dd>` for the same
+ * markup reason the drawer's `Vital` puts it there: a `<dl>`'s `<div>` may hold
+ * only `<dt>` and `<dd>`.
+ */
+function Cell({ label, value, disclosure, muted = false, suffix }: CellProps) {
   return (
-    <div className="min-w-0" title={title}>
+    <div className="min-w-0">
       <dt className="text-inst-dense uppercase tracking-wider text-(--ink-dim)">{label}</dt>
       <dd className={`figures truncate ${muted ? 'text-(--ink-dim)' : 'text-(--ink-primary)'}`}>
+        <Disclosure disclosure={disclosure} triggerLabel={`${label}, ${value}`}>
         {value}
         {suffix === undefined ? null : (
           <span className="ml-1 text-inst-dense font-normal text-(--ink-dim)">{suffix}</span>
         )}
+        </Disclosure>
       </dd>
     </div>
   )

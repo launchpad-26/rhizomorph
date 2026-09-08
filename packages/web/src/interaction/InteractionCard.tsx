@@ -1,5 +1,5 @@
 import { useState, type ReactElement } from 'react'
-import { Disclosure } from '../disclosure/index.js'
+import { Disclosure, type DisclosureContent } from '../disclosure/index.js'
 import { formatDuration, formatTokens, formatUsd } from '../lib/format.js'
 import { kindEdgeClass, kindInkClass } from '../theme/kind.js'
 import type { InteractionCardModel, InteractionCost } from './model.js'
@@ -219,13 +219,47 @@ function CostFact({ cost }: { cost: InteractionCost }): ReactElement {
       data-testid="interaction-fact-cost"
       data-cost-provenance={cost.kind}
       className="flex items-baseline gap-1"
-      title={cost.kind === 'estimated' ? `estimated from ${cost.sources.join(', ') || 'a vendored price table'}` : 'the agent CLI’s own figure'}
     >
       <dt className="text-(--ink-dim)">$</dt>
       <dd className="text-(--ink-body)">
-        {formatUsd(cost.usd)}
-        {cost.kind === 'estimated' ? <span className="ml-1 text-(--ink-dim)">est.</span> : null}
+        <Disclosure disclosure={costProvenanceDisclosure(cost)} triggerLabel="cost provenance">
+          {formatUsd(cost.usd)}
+          {cost.kind === 'estimated' ? <span className="ml-1 text-(--ink-dim)">est.</span> : null}
+        </Disclosure>
       </dd>
     </div>
   )
+}
+
+/**
+ * Where this interaction's dollar figure came from (#220).
+ *
+ * `elapsedMs: 0` — an interaction card renders a recorded interaction, and its
+ * provenance is a property of the record rather than an observation that ages
+ * at the reading position.
+ */
+function costProvenanceDisclosure(
+  cost: { kind: 'authoritative'; usd: number } | { kind: 'estimated'; usd: number; sources: string[] },
+): DisclosureContent {
+  if (cost.kind === 'estimated') {
+    return {
+      label: '$',
+      why: {
+        reason: 'estimated — not the agent CLI’s own figure',
+        evidence: {
+          fact: `priced from ${cost.sources.join(', ') || 'a vendored price table'}`,
+          elapsedMs: 0,
+        },
+      },
+      remedy: { kind: 'none', because: 'the record carries no authoritative figure for this interaction' },
+    }
+  }
+  return {
+    label: '$',
+    why: {
+      reason: 'authoritative dollar cost',
+      evidence: { fact: 'the agent CLI reported this figure itself', elapsedMs: 0 },
+    },
+    remedy: { kind: 'none', because: 'the figure comes from the CLI itself' },
+  }
 }

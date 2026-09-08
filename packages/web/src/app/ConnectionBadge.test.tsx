@@ -103,7 +103,9 @@ describe('ConnectionBadge', () => {
     expect(screen.getByText('0:00 / 0:03')).toBeInTheDocument()
     expect(screen.queryByText('live')).not.toBeInTheDocument()
 
-    const sse = screen.getByTitle('Stream: live')
+    // `aria-label`, not `title` (#220): the badge's name is what a screen
+    // reader reads, and the native tooltip that used to duplicate it is gone.
+    const sse = screen.getByLabelText('Stream: live')
     expect(sse).toHaveTextContent('sse')
   })
 

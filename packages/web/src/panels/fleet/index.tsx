@@ -5,6 +5,7 @@ import { laneUrl, navigate } from '../../app/router.js'
 import { useStream } from '../../app/StreamContext.js'
 import { copyToClipboard, type CopyText } from '../../drawer/AttachButton.js'
 import { attachPlan } from '../../drawer/attach.js'
+import { Disclosure } from '../../disclosure/index.js'
 import {
   RANK_GLOW_CLASS,
   SIGIL_ROW_SIZE,
@@ -21,22 +22,24 @@ import { formatTokens } from '../../lib/format.js'
 import { Sparkline } from '../../spark/index.js'
 import {
   ageActiveCellText,
-  ageActiveCellTitle,
+  ageActiveCellDisclosure,
   branchingFilaments,
   costCellText,
-  costCellTitle,
+  costCellDisclosure,
+  inferredDisclosure,
+  laneIdentityDisclosure,
   fenceCell,
-  gitStatusIncidentTitle,
+  gitStatusIncidentDisclosure,
   outputCellText,
-  outputCellTitle,
+  outputCellDisclosure,
   PARKED_TEXT_CLASS,
   showsGitStatusIncidentMark,
   showsTerminalDoneMark,
   stateSigilKind,
-  stateTitle,
-  terminalDoneTitle,
+  stateDisclosure,
+  terminalDoneDisclosure,
   threadShort,
-  threadsCellTitle,
+  threadsCellDisclosure,
 } from './format.js'
 
 /**
@@ -339,15 +342,18 @@ function Row({ lane, fleet, selected, onToggle }: RowProps) {
         selected ? 'border-l-(--ink-primary) bg-(--surface-raised)' : 'border-l-transparent'
       }`}
     >
-      <td className="py-1.5 pr-2 font-mono text-(--ink-body)" title={lane.worktreePath ?? lane.id}>
-        {lane.label}
+      <td className="py-1.5 pr-2 font-mono text-(--ink-body)">
+        <Disclosure disclosure={laneIdentityDisclosure(lane)} triggerLabel={`${lane.label}, lane`}>
+          {lane.label}
+        </Disclosure>
         {lane.issue === null ? null : (
           <span className="ml-1 text-inst-dense text-(--ink-dim)">#{lane.issue}</span>
         )}
         <OpenLaneLink handle={lane.id} label={lane.label} />
       </td>
-      <td className="py-1.5 pr-2" title={stateTitle(lane, fleet.now)}>
-        <span className={`inline-flex items-center gap-1 ${stateClass}`}>
+      <td className="py-1.5 pr-2">
+        <Disclosure disclosure={stateDisclosure(lane, fleet.now)} triggerLabel={`${lane.label}, state`}>
+          <span className={`inline-flex items-center gap-1 ${stateClass}`}>
           {lane.parked ? null : (
             <Sigil
               kind={sigilKind}
@@ -355,11 +361,14 @@ function Row({ lane, fleet, selected, onToggle }: RowProps) {
               className={lane.rank === 'calm' ? '' : RANK_GLOW_CLASS[lane.rank]}
             />
           )}
-          <span className="figures uppercase tracking-wide">{lane.parked ? 'PARKED' : SIGIL_WORD[sigilKind]}</span>
-        </span>
+            <span className="figures uppercase tracking-wide">{lane.parked ? 'PARKED' : SIGIL_WORD[sigilKind]}</span>
+          </span>
+        </Disclosure>
         {!lane.parked && lane.pathologies.some((p) => p.inferred) ? (
-          <span className="ml-1 text-(--ink-dim)" title="inferred from a weaker signal">
-            ~
+          <span className="ml-1 text-(--ink-dim)">
+            <Disclosure disclosure={inferredDisclosure(lane)} triggerLabel={`${lane.label}, state inferred`}>
+              ~
+            </Disclosure>
           </span>
         ) : null}
         {!lane.parked && lane.pathologies.length > 1 ? (
@@ -372,35 +381,37 @@ function Row({ lane, fleet, selected, onToggle }: RowProps) {
           // text ("done") is otherwise indistinguishable from the sigil
           // word's — the mark only appears beside an alarm; a plain DONE
           // lane already says so via the sigil word alone.
-          <span className="ml-1 text-inst-dense text-done" title={terminalDoneTitle()} data-testid="terminal-done-mark">
-            done
+          <span className="ml-1 text-inst-dense text-done" data-testid="terminal-done-mark">
+            <Disclosure disclosure={terminalDoneDisclosure(lane)} triggerLabel={`${lane.label}, finished`}>
+              done
+            </Disclosure>
           </span>
         ) : null}
         {showsGitStatusIncidentMark(lane) ? (
-          <span
-            role="status"
-            aria-label={`${lane.label}: git status failing`}
-            title={gitStatusIncidentTitle(lane)}
-            className="ml-1 text-inst-dense text-needs-you"
-          >
-            ⚠ git
+          <span role="status" aria-label={`${lane.label}: git status failing`} className="ml-1 text-inst-dense text-needs-you">
+            <Disclosure disclosure={gitStatusIncidentDisclosure(lane)} triggerLabel={`${lane.label}, git status failing`}>
+              ⚠ git
+            </Disclosure>
           </span>
         ) : null}
       </td>
-      <td className="figures py-1.5 pr-2 text-right text-(--ink-body)" title={outputCellTitle(lane)}>
-        <span className="inline-flex items-center justify-end gap-1.5">
-          <Sparkline values={lane.recentOutputTokens} width={36} height={12} className="shrink-0 text-(--ink-dim)" />
-          {outputCellText(lane)}
-        </span>
+      <td className="figures py-1.5 pr-2 text-right text-(--ink-body)">
+        <Disclosure disclosure={outputCellDisclosure(lane)} triggerLabel={`${lane.label}, output tokens`}>
+          <span className="inline-flex items-center justify-end gap-1.5">
+            <Sparkline values={lane.recentOutputTokens} width={36} height={12} className="shrink-0 text-(--ink-dim)" />
+            {outputCellText(lane)}
+          </span>
+        </Disclosure>
       </td>
       <td
         className={`figures py-1.5 pr-2 text-right ${lane.costEventCount === 0 ? 'text-(--ink-dim)' : 'text-(--ink-body)'}`}
-        title={costCellTitle(lane, fleet.gaps)}
       >
-        {costCellText(lane)}
-        {lane.costIsAuthoritative === false ? (
-          <span className="ml-1 text-inst-dense font-normal text-(--ink-dim)">est.</span>
-        ) : null}
+        <Disclosure disclosure={costCellDisclosure(lane, fleet.gaps)} triggerLabel={`${lane.label}, cost`}>
+          {costCellText(lane)}
+          {lane.costIsAuthoritative === false ? (
+            <span className="ml-1 text-inst-dense font-normal text-(--ink-dim)">est.</span>
+          ) : null}
+        </Disclosure>
       </td>
       <td className={`figures py-1.5 pr-2 text-right ${lane.requestCount === 0 ? 'text-(--ink-dim)' : 'text-(--ink-body)'}`}>
         {lane.requestCount}
@@ -408,7 +419,8 @@ function Row({ lane, fleet, selected, onToggle }: RowProps) {
       <td className={`figures py-1.5 pr-2 text-right ${lane.toolCallCount === 0 ? 'text-(--ink-dim)' : 'text-(--ink-body)'}`}>
         {lane.toolCallCount}
       </td>
-      <td className="py-1.5 pr-2 text-(--ink-dim)" title={threadsCellTitle(lane)}>
+      <td className="py-1.5 pr-2 text-(--ink-dim)">
+        <Disclosure disclosure={threadsCellDisclosure(lane)} triggerLabel={`${lane.label}, threads`}>
         {lane.filaments.length === 0 ? (
           <span className="text-(--ink-dim)">—</span>
         ) : branching.length === 0 ? (
@@ -421,17 +433,21 @@ function Row({ lane, fleet, selected, onToggle }: RowProps) {
             </span>
           ))
         )}
+        </Disclosure>
       </td>
-      <td className="figures py-1.5 pr-2 text-right text-(--ink-dim)" title={ageActiveCellTitle(lane)}>
-        {ageActiveCellText(lane)}
+      <td className="figures py-1.5 pr-2 text-right text-(--ink-dim)">
+        <Disclosure disclosure={ageActiveCellDisclosure(lane)} triggerLabel={`${lane.label}, age`}>
+          {ageActiveCellText(lane)}
+        </Disclosure>
       </td>
       <td
         className={`figures py-1.5 text-right ${
           fence.kind === 'breach' ? 'text-needs-you' : fence.kind === 'clean' ? 'text-(--ink-body)' : 'text-(--ink-dim)'
         }`}
-        title={fence.title}
       >
-        {fence.text}
+        <Disclosure disclosure={fence.disclosure} triggerLabel={`${lane.label}, fence`}>
+          {fence.text}
+        </Disclosure>
       </td>
     </tr>
   )

@@ -1,20 +1,22 @@
 import type { ReactNode } from 'react'
 import { useFleet } from '../../fleet/index.js'
 import { formatTokens } from '../../lib/format.js'
+import { Disclosure, type DisclosureContent } from '../../disclosure/index.js'
 import {
   COST_FEED_COMMAND,
   NO_COST_FEED_LEAD,
-  burnRateHoverTitle,
-  dollarsHoverTitle,
+  burnRateHoverDisclosure,
+  dollarsGapDisclosure,
+  dollarsHoverDisclosure,
   errorCount,
-  errorsHoverTitle,
+  errorsHoverDisclosure,
   formatBurnRate,
   formatDollarsOrGap,
   formatOverheadOrGap,
   isDollarsGap,
   isOverheadGap,
-  outputHoverTitle,
-  overheadHoverTitle,
+  outputHoverDisclosure,
+  overheadHoverDisclosure,
 } from './format.js'
 
 /**
@@ -81,7 +83,7 @@ export default function BurnStrip() {
     <div className="flex flex-col gap-3" data-panel="burn">
       <div className="panel-card grid grid-cols-5 divide-x divide-(--line-hair)">
         <Cell label="Burn">
-          <Figure testId="burn-output-tokens" unit="out" title={outputHoverTitle(burn.tokens)}>
+          <Figure testId="burn-output-tokens" unit="out" disclosure={outputHoverDisclosure(burn.tokens)}>
             {formatTokens(burn.outputTokens)}
           </Figure>
         </Cell>
@@ -94,25 +96,25 @@ export default function BurnStrip() {
         */}
         <Cell label="Dollars">
           {dollarsGap ? (
-            <Missing title="no authoritative cost feed — see the gap below" short="no cost feed" />
+            <Missing disclosure={dollarsGapDisclosure()} short="no cost feed" />
           ) : (
-            <Figure testId="burn-dollars" title={dollarsHoverTitle(burn)}>
+            <Figure testId="burn-dollars" disclosure={dollarsHoverDisclosure(burn)}>
               {formatDollarsOrGap(burn)}
             </Figure>
           )}
         </Cell>
 
         <Cell label="Rate">
-          <Figure testId="burn-rate" title={burnRateHoverTitle(burn)}>
+          <Figure testId="burn-rate" disclosure={burnRateHoverDisclosure(burn)}>
             {formatBurnRate(burn)}
           </Figure>
         </Cell>
 
         <Cell label="Overhead">
           {overheadGap ? (
-            <Missing title="the conductor is not instrumented — see the gap below" short="not instrumented" />
+            <Missing disclosure={overheadHoverDisclosure(burn)} short="not instrumented" />
           ) : (
-            <Figure testId="burn-overhead" unit="overhead" title={overheadHoverTitle(burn)}>
+            <Figure testId="burn-overhead" unit="overhead" disclosure={overheadHoverDisclosure(burn)}>
               {formatOverheadOrGap(burn)}
             </Figure>
           )}
@@ -122,7 +124,7 @@ export default function BurnStrip() {
           <Figure
             testId="burn-errors"
             unit="err"
-            title={errorsHoverTitle(burn)}
+            disclosure={errorsHoverDisclosure(burn)}
             alarm={errorCount(burn) > 0}
           >
             {errorCount(burn)}
@@ -166,7 +168,7 @@ function Cell({ label, children }: { label: string; children: ReactNode }): Reac
 
 interface FigureProps {
   testId: string
-  title: string
+  disclosure: DisclosureContent
   /** The dim label after the number. A `$` figure is its own unit and takes none. */
   unit?: string
   /**
@@ -187,17 +189,21 @@ interface FigureProps {
  * figure's own brightness, and outside the test-id, so what a hover reports
  * and what a test reads is the figure.
  */
-function Figure({ testId, title, unit, alarm, children }: FigureProps) {
+function Figure({ testId, disclosure, unit, alarm, children }: FigureProps) {
   const tone = alarm === true ? 'text-read-body font-bold text-broken' : 'text-read-body font-bold text-(--ink-primary)'
   return (
     <span className="flex shrink-0 items-baseline gap-1.5">
       {/*
-        The hover sits on the *figure*, not on the group around it: ruling 11's
-        "full precision on hover" is a promise about the number, and a title on
-        a wrapper would also fire over the unit label beside it.
+        The disclosure sits on the *figure*, not on the group around it: ruling
+        11's "full precision on hover" is a promise about the number, and a
+        card on a wrapper would also open over the unit label beside it. That
+        was true of the `title=` this replaces and it is true of the card —
+        what changed (#220) is that the keyboard now reaches it.
       */}
-      <span className={`figures ${tone}`} data-testid={testId} title={title}>
-        {children}
+      <span className={`figures ${tone}`} data-testid={testId}>
+        <Disclosure disclosure={disclosure} triggerLabel={disclosure.label}>
+          {children}
+        </Disclosure>
       </span>
       {unit === undefined ? null : <Unit>{unit}</Unit>}
     </span>
@@ -213,13 +219,15 @@ function Figure({ testId, title, unit, alarm, children }: FigureProps) {
  * never nothing at all — `short` names which kind of absence this is, in the
  * cell itself, and the gap card below gives the whole sentence.
  */
-function Missing({ short, title }: { short: string; title: string }) {
+function Missing({ short, disclosure }: { short: string; disclosure: DisclosureContent }) {
   return (
-    <span className="flex shrink-0 items-baseline gap-1.5" title={title}>
-      <span className="figures text-read-body font-bold text-(--ink-dim)" aria-hidden>
-        —
-      </span>
-      <span className="text-read-floor text-(--ink-dim)">{short}</span>
+    <span className="flex shrink-0 items-baseline gap-1.5">
+      <Disclosure disclosure={disclosure} triggerLabel={short}>
+        <span className="figures text-read-body font-bold text-(--ink-dim)" aria-hidden>
+          —
+        </span>
+        <span className="text-read-floor text-(--ink-dim)">{short}</span>
+      </Disclosure>
     </span>
   )
 }

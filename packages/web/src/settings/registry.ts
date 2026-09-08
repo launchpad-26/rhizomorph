@@ -261,7 +261,13 @@ export const PREFERENCES: readonly PrefEntry[] = [
       { value: 'dark', label: 'Dark' },
       { value: 'light', label: 'Light' },
     ],
-    fallback: 'system',
+    // Operator ruling 2026-09-08 (#337): the instrument opens DARK unless the
+    // operator chose otherwise. ui-2.0 D26 makes dark the source of truth and
+    // light a re-derivation on paper, so a fresh machine opens in the source.
+    // "Follow system" is still on offer; it is simply no longer what nobody
+    // chose. `apply.ts`'s `resolveTheme` is untouched — `system` keeps meaning
+    // follow-the-OS for anyone who picks it.
+    fallback: 'dark',
     words: null,
     control: 'settings',
     unavailable: null,

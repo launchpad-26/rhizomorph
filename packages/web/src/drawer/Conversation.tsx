@@ -1,3 +1,5 @@
+import { useModeClock } from '../app/ModeContext.js'
+import { Disclosure, type DisclosureContent } from '../disclosure/index.js'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FetchLike } from '../fleet/manifest.js'
 import { formatTokens } from '../lib/format.js'
@@ -203,21 +205,70 @@ export function Conversation({ lane, fetchImpl, pollMs }: ConversationProps) {
  * up as something a human typed.
  */
 function Turn({ entry }: { entry: TranscriptEntry }) {
+  // The fold's reading position, never `Date.now()` — in replay the elapsed
+  // time on a turn must be measured from the playhead, which is the rule
+  // `disclosure/vocabulary.ts` states for every card in the instrument.
+  const now = useModeClock()
   return (
     <li
       data-testid="turn"
       data-role={entry.role}
-      title={entry.ts}
       className={`mt-2 first:mt-0 ${entry.role === 'subagent' ? 'border-l border-(--line-hair) pl-2' : ''}`}
     >
+      {/*
+        The turn's timestamp was a `title=` on this `<li>` (#220). The trigger
+        is `inline` and wraps the turn's own body rather than adding a mark of
+        its own: a turn may contain links and controls from `Block`, so a button
+        trigger here would nest one (ADR-0040) — and inventing a visible
+        timestamp chip to hang a card on would be a design change this sweep has
+        no mandate for.
+      */}
+      <Disclosure disclosure={turnDisclosure(entry, now)} trigger="inline">
       {entry.role === 'subagent' ? (
         <p className="text-inst-floor uppercase tracking-[0.18em] text-(--ink-dim)">subagent</p>
       ) : null}
       {entry.blocks.map((block, index) => (
         <Block key={index} block={block} role={entry.role} />
       ))}
+      </Disclosure>
     </li>
   )
+}
+
+/**
+ * When a turn was recorded (#220).
+ *
+ * `entry.ts` is an ISO stamp the transcript carries, and the age is the
+ * distance from the reader's own position to it — `Date.parse` can return
+ * `NaN` on a malformed stamp, and `requireAge` refuses that outright, so the
+ * unparseable case is its own honest arm rather than a card that renders
+ * "NaN ago".
+ */
+function turnDisclosure(entry: TranscriptEntry, now: number): DisclosureContent {
+  const at = entry.ts === undefined ? Number.NaN : Date.parse(entry.ts)
+  if (Number.isNaN(at)) {
+    return {
+      label: entry.role,
+      why: {
+        reason: 'this turn carries no readable timestamp',
+        evidence: { fact: `the transcript records it as ${entry.ts ?? '(absent)'}`, elapsedMs: 0 },
+      },
+      remedy: { kind: 'none', because: 'the turn is still shown with everything else the record holds' },
+    }
+  }
+  return {
+    label: entry.role,
+    why: {
+      reason: 'when this turn was recorded',
+      evidence: {
+        fact: `the transcript stamps it ${entry.ts}`,
+        // `Math.max(0, …)` because a replay playhead scrubbed behind the entry
+        // would otherwise hand the card a negative age.
+        elapsedMs: Math.max(0, now - at),
+      },
+    },
+    remedy: { kind: 'none', because: 'a timestamp is a reading, not a condition' },
+  }
 }
 
 /**
