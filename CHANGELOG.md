@@ -38,6 +38,25 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Added
 
+- **One hover vocabulary, and a law that says the whole sentence (prd-30 S1,
+  #221).** The disclosure card's law used to check one thing — that nobody had
+  copied *this* card — which said nothing about a surface growing a different
+  one. It now asserts prd-30's actual sentence: no directory outside
+  `disclosure/` renders card chrome, where card chrome is a positioned panel
+  opened on hover or focus whose content is prose rather than controls
+  ([ADR-0044](docs/adr/0044-card-chrome-is-prose-on-hover-not-a-menu.md)). The
+  timeline's mark menu stays a menu — it is a list of places to jump to, not a
+  condition — and it stays by definition rather than by exception, so the law
+  needs no allowlist and none of it has to be revisited when the next panel is
+  written.
+
+### Changed
+
+- **The timeline dock's four transport buttons dropped their tooltips (#221).**
+  Every one already carried its name for a screen reader; the `title=` beside it
+  was a second, slower, pointer-only copy. The zoom-in button's name now says
+  what its tooltip said — that it zooms on the playhead — rather than losing it.
+
 - **Every mark explains itself on hover *and on focus* (prd-30 ruling 1,
   charter §6, #220).** The instrument's 50 remaining native `title=` tooltips
   are gone. A native tooltip is delayed by about a second, invisible to a
