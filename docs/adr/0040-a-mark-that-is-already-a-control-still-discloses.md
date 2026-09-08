@@ -78,3 +78,22 @@ exactly the mark a stranger needs explained.
 - **Bad:** it widened #220's fence into `packages/web/src/disclosure/`, which
   prd-30 wave 2 (#221) owns. #221 was Backlog and unstarted when this landed; had
   it been in flight, this would have been a rebase conflict.
+
+## Note, 2026-09-08 — a sibling case the decision did not consider
+
+The problem statement answers *a mark that already **is** a control*. Review of
+PR #335 found the sibling it does not cover: *a mark **inside** a control*. The
+trace row's token headline sat inside the interaction toggle `<button>` wearing
+the inline trigger, which relocated both harms rather than removing them — one
+tap on the headline pinned the card **and** expanded the interaction (two click
+handlers for one tap), and a focusable `role="note"` span inside a `<button>` is
+the content-model violation the mode was introduced to avoid. The inline mode is
+the right answer only when the control is the mark's *child*, never its
+ancestor.
+
+The trace row now renders the mark **beside** the toggle, where it is inert text
+again and takes the default trigger (`trace/TraceTree.tsx`, asserted by
+`TraceTree.test.tsx`'s "beside the toggle, never inside it" case). The
+Consequences above therefore over-count by one: **six** already-interactive
+marks wear the inline trigger, not seven. The decision itself stands; this note
+records the boundary it turned out to have.

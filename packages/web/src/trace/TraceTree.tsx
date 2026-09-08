@@ -76,24 +76,39 @@ export function TraceTree({ state, lane }: TraceTreeProps) {
 
         return (
           <li key={view.summary.traceId} data-testid="trace-interaction" className="border-t border-(--line-hair) pt-1 first:border-t-0 first:pt-0">
-            <button
-              type="button"
-              onClick={() => toggle(view.summary.traceId)}
-              aria-expanded={isOpen}
-              aria-label={`${isOpen ? 'Collapse' : 'Expand'} interaction ${ordinal}`}
-              data-testid="trace-interaction-toggle"
-              className="flex w-full items-baseline gap-2 text-left font-mono text-inst text-(--ink-body) hover:text-(--ink-primary)"
-            >
-              <span className="w-3 shrink-0 text-(--ink-dim)">{isOpen ? '▾' : '▸'}</span>
-              <span className="min-w-0 flex-1 truncate">
-                interaction #{ordinal} · {formatSpan(view.summary.wallDurationMs)} · Σ
-                {formatSpan(sumLeafDurationsMs(view.root))}
-                {' · '}
-                <Disclosure disclosure={tokenDisclosure(view.summary.tokens)} trigger="inline">
-                  {tokenHeadline(view.summary.tokens)}
-                </Disclosure>
+            {/*
+              The tokens mark sits BESIDE the toggle, not inside it (review of
+              #335). ADR-0040 answers "a mark that already IS a control" with the
+              inline trigger; this row was its unconsidered sibling — a mark
+              INSIDE a control. Nested there, one tap on the token headline both
+              pinned its card and expanded the interaction (two click handlers
+              racing for one tap), and a focusable span inside a `<button>` is
+              the invalid content model the inline mode exists to avoid. As a
+              sibling the mark is inert text again, so it takes the DEFAULT
+              trigger — its own button, the only one on the mark.
+            */}
+            <div className="flex items-baseline gap-2 font-mono text-inst text-(--ink-body)">
+              <button
+                type="button"
+                onClick={() => toggle(view.summary.traceId)}
+                aria-expanded={isOpen}
+                aria-label={`${isOpen ? 'Collapse' : 'Expand'} interaction ${ordinal}`}
+                data-testid="trace-interaction-toggle"
+                className="flex min-w-0 flex-1 items-baseline gap-2 text-left hover:text-(--ink-primary)"
+              >
+                <span className="w-3 shrink-0 text-(--ink-dim)">{isOpen ? '▾' : '▸'}</span>
+                <span className="min-w-0 flex-1 truncate">
+                  interaction #{ordinal} · {formatSpan(view.summary.wallDurationMs)} · Σ
+                  {formatSpan(sumLeafDurationsMs(view.root))}
+                </span>
+              </button>
+              <span aria-hidden="true" className="shrink-0 text-(--ink-dim)">
+                ·
               </span>
-            </button>
+              <Disclosure disclosure={tokenDisclosure(view.summary.tokens)} className="shrink-0">
+                {tokenHeadline(view.summary.tokens)}
+              </Disclosure>
+            </div>
 
             {isOpen ? (
               <ol className="mt-1 space-y-1">
