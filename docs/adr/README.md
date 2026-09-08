@@ -252,6 +252,7 @@ of an old decision will do the same thing.
 | [0040](0040-a-mark-that-is-already-a-control-still-discloses.md) | A mark that is already a control still discloses, without a second button — `Disclosure` gains a `trigger` mode (`'button'` / `'inline'`) so a chip, row or action button can carry a card without nesting a button inside a button | 2026-09-07 | accepted (prd-30 ruling 1 and charter §6, recorded on the build #220) |
 | [0041](0041-a-saved-comparison-is-a-sidecar-not-an-event.md) | A saved comparison is a sidecar artefact beside the recordings, not an event in the log | 2026-09-08 | accepted (prd-14 ruling 5) |
 | [0042](0042-the-server-parses-a-comparison-artifact-with-its-own-copy.md) | The server validates a comparison artifact with its own copy of the parser, not a shared schema | 2026-09-08 | accepted |
+| [0043](0043-the-team-server-speaks-postgres-through-one-tagged-template-driver.md) | The team server speaks Postgres through one tagged-template driver, and no SQL leaves the storage module | 2026-09-08 | accepted (prd-51 ruling 5, recorded on the prd-51 wave-2 build) |
 
 Records 0001–0011 were reconstructed on 2026-08-06 and say so in their Context.
 One, **ADR-0003**, has an inverted evidence shape worth knowing about: the
