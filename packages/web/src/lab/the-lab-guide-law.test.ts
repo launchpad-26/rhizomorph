@@ -378,9 +378,16 @@ const CLAIMS: Readonly<Record<string, Claim>> = {
 interface Paragraph {
   readonly text: string
   readonly claim: string | null
+  /** `prose` can carry a claim; `other` is a heading, blockquote or table — see the gap law below. */
+  readonly kind: 'prose' | 'other'
 }
 
-/** Prose paragraphs only: fenced blocks, headings, blockquotes and table rows are not claims. */
+/**
+ * Every block outside a fence, tagged. Headings, blockquotes and table rows are
+ * NOT claims and never were — but they are returned rather than dropped, so the
+ * gap law below can state which of them name behaviour and go unvouched-for
+ * (review of #330). Dropping them here is what made that gap silent.
+ */
 function paragraphsOf(markdown: string): Paragraph[] {
   const out: Paragraph[] = []
   let fenced = false
@@ -389,9 +396,8 @@ function paragraphsOf(markdown: string): Paragraph[] {
     if (current.length === 0) return
     const text = current.join('\n')
     current = []
-    if (/^(#|>|\|)/.test(text)) return
     const marker = /<!-- claim: ([a-z0-9-]+) -->/.exec(text)
-    out.push({ text, claim: marker?.[1] ?? null })
+    out.push({ text, claim: marker?.[1] ?? null, kind: /^(#|>|\|)/.test(text) ? 'other' : 'prose' })
   }
   for (const line of markdown.split('\n')) {
     if (line.startsWith('```')) {
@@ -417,7 +423,8 @@ const BEHAVIOURAL = /\/api\/lab\/|\b(?:400|404|409|503)\b|(?:^|\s)`?--[a-z]|ruli
 describe('the-lab.md — every behavioural claim is a test (prd53 ruling 9)', () => {
   const guide = readFileSync(GUIDE, 'utf8')
   const paragraphs = paragraphsOf(guide)
-  const marked = paragraphs.filter((p) => p.claim !== null)
+  const prose = paragraphs.filter((p) => p.kind === 'prose')
+  const marked = prose.filter((p) => p.claim !== null)
 
   it('the document marks its claims, and the ids here are exactly the ids there — neither side may drift', () => {
     const ids = marked.map((p) => p.claim as string)
@@ -426,7 +433,7 @@ describe('the-lab.md — every behavioural claim is a test (prd53 ruling 9)', ()
   })
 
   it('a prose paragraph naming a route, a status code, a flag or a ruling carries a claim marker', () => {
-    const unmarked = paragraphs.filter((p) => p.claim === null && BEHAVIOURAL.test(p.text)).map((p) => p.text.slice(0, 90))
+    const unmarked = prose.filter((p) => p.claim === null && BEHAVIOURAL.test(p.text)).map((p) => p.text.slice(0, 90))
     expect(unmarked).toEqual([])
   })
 
@@ -436,6 +443,36 @@ describe('the-lab.md — every behavioural claim is a test (prd53 ruling 9)', ()
       if (claim === undefined) continue // reported by the set test above
       expect(p.text, `claim "${p.claim}" no longer says what its test vouches for`).toMatch(claim.says)
     }
+  })
+
+  /**
+   * THE GAP IN THE LAW ABOVE, STATED RATHER THAN LEFT SILENT (review of #330).
+   * The marker law reads PROSE. A heading, a blockquote or a table is not a
+   * claimable paragraph and cannot carry a marker — so behaviour written in one
+   * is vouched for by nothing, and the document's own opening line says
+   * "every behavioural sentence on this page is a test". EXECUTED: six blocks
+   * name a route, a code, a flag or a ruling from outside the prose, three of
+   * them VERBATIM ERROR MESSAGES and one a table of status codes — the two
+   * shapes that rot fastest when the code moves.
+   *
+   * Stated as the exact gap rather than a count or a floor, the same way
+   * `eras.test.ts` states its uncovered families: this list may shrink freely
+   * (move a quote into marked prose, or drop it), but a NEW unvouched-for
+   * behavioural block cannot join it without this test going red and someone
+   * saying so out loud.
+   */
+  it('the behavioural blocks outside prose are exactly these — a new one may not join them silently', () => {
+    const uncovered = paragraphs
+      .filter((p) => p.kind === 'other' && BEHAVIOURAL.test(p.text))
+      .map((p) => (p.text.split('\n')[0] as string).slice(0, 72))
+    expect(uncovered).toEqual([
+      '> **Every behavioural sentence on this page is a test.** The paragraphs ',
+      '> `refusing to dispatch 9 spending lane(s) (3 arm(s) × 3 run(s)): the la',
+      '> "No tmux window was opened and no branch was created: prd12 ruling 1',
+      '> `<n> arm(s) — runs only. Ranking needs n >= 3 (prd12 ruling 4: a compa',
+      '| code | when | what the message names |',
+      '## Residuals — with owners, or honestly without (prd53 ruling 10)',
+    ])
   })
 
   for (const [id, claim] of Object.entries(CLAIMS)) {
