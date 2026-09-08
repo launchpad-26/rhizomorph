@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
-import { beaconReceivedPayloadSchema } from '@rhizomorph/core'
+import { beaconReceivedPayloadSchema, gateVerdictPayloadSchema } from '@rhizomorph/core'
 import { parseBeaconLine } from './collectors/beacon/parse-beacon-line.js'
 import { beaconDirFor } from './collectors/beacon/paths.js'
 
@@ -388,11 +388,15 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    *
    * The other 19 pass structurally on their own merits: 12 same-line forms
    * (:17's `|| exit 2`, written before `fail` is even defined; 9 `|| fail` at
-   * :338 (`GATE_OUTFILE`) :345 :360 :420 :514 :524 :588 :674 :729; 2
-   * `|| { ...; fail ...; }` rescue blocks at :361 :730) and 7 next-line
+   * :338 (`GATE_OUTFILE`) :414 :429 :489 :583 :593 :657 :743 :798; 2
+   * `|| { ...; fail ...; }` rescue blocks at :430 :799) and 7 next-line
    * `_RC=$?` captures (:156's `VERDICT_LINE_RC` and :244's `BEACON_DIR_RC` —
-   * both new with #274 — plus :377's `ANCESTOR_RC`, :457's `N_RC`, :461's
-   * `STATUS_RC`, :488's `DIRTY_RC`, :589's `CAT_RC`).
+   * both new with #274 — plus :446's `ANCESTOR_RC`, :526's `N_RC`, :530's
+   * `STATUS_RC`, :557's `DIRTY_RC`, :658's `CAT_RC`). Re-derived here twice:
+   * prd17 w7 (#293) inserted the `$3` (LOAD) validation above these
+   * producers (+48 lines), and a review of #293 added the load-batches
+   * upper-bound guard right beside it (+21 more) — each closed in the SAME
+   * edit as the insertion rather than left for the law below to find.
    *
    * producer-citations:end
    *
@@ -2249,7 +2253,9 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
      * A verification pass found that the round-1 fix above rejects
      * non-digit corruption but nothing bounds the MAGNITUDE: a 20-digit,
      * all-digit value passes the `case` guard and then breaks the
-     * comparison itself — bash's `[ -lt ]` errors "integer expected" at
+     * comparison itself — bash's `[ -lt ]` errors "integer expected" (5.3+;
+     * "integer expression expected" on 5.2 and earlier, which is why the
+     * assertion below matches both) at
      * exit code 2 (EXECUTED, verified below), and a bare `&&` never
      * distinguishes that from ordinary "false" (exit 1), so the ratchet
      * silently proceeds instead of holding. Exactly prd-45's thesis,
@@ -4019,6 +4025,186 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
         // test above makes tells them apart.
         expect(written).not.toBe(`${printed}\n`)
       })
+    })
+  })
+
+  /**
+   * prd17 w7 (#293) — `$3` (LOAD) is OPERATOR INPUT and, before this, reached
+   * no check of its own: a bare typo (`abc`) already aborted loudly (bash's
+   * own `set -u` unbound-variable trap on the load gate's `$((LOAD*4))`), but
+   * `3.0`, `3x`, `-1`, `007`/`010` and a transposed fence argument
+   * (`gate.sh 273 3 '^scripts/'`) are all ARITHMETIC-SYNTAX-SAFE or
+   * schema-unsafe in ways that stay silent until `emit_gate_verdict`'s own
+   * `int(load)` — many lines and a full suite run later — raises under its
+   * `2>/dev/null` and the landing emits NO VERDICT LINE AT ALL. Reviewed and
+   * reverted once already at the emitter itself (round 2 of #273's review):
+   * that fix guarded the one input (`abc`) that never reaches it while
+   * regressing one that does (`+3` was recorded as no load at all). Fixed
+   * instead where `$3` is FIRST used, right after `GATE_OUTFILE`/the tee are
+   * wired up so a refusal can still emit a verdict.
+   *
+   * The input class, extracted before the fix rather than restated after it:
+   *
+   * | spelling                  | example     | int() | schema (`nonnegative`) | arithmetic below (`$((LOAD*4))`) | verdict |
+   * |----------------------------|-------------|-------|--------------------------|-----------------------------------|---------|
+   * | default / bare zero        | `0`         | ok    | n/a (omitted, `!= "0"`)  | ok                                 | accept |
+   * | bare positive               | `3`         | ok    | ok                       | ok                                 | accept |
+   * | `+`-prefixed                | `+3`        | ok    | ok                       | ok                                 | accept, canonicalised to `3` |
+   * | non-numeric                 | `abc`       | raises| —                        | ALREADY aborts loudly (unbound var)| refuse (now earlier, WITH a verdict) |
+   * | transposed fence argument   | `^scripts/` | raises| —                        | non-fatal SYNTAX error, swallowed  | refuse |
+   * | decimal                     | `3.0`       | raises| —                        | non-fatal SYNTAX error, swallowed  | refuse |
+   * | trailing garbage            | `3x`        | raises| —                        | non-fatal SYNTAX error, swallowed  | refuse |
+   * | negative                    | `-1`        | ok    | REFUSED                  | ok (but the schema already refuses)| refuse |
+   * | leading zero                | `007`,`010` | ok    | ok (would be `7`/`10`)   | reads as OCTAL — same bug class as this file's own `$PREV` ratchet | refuse |
+   * | oversized                   | `99999999999999999999` | ok | ok (huge, but valid) | SILENTLY OVERFLOWS (rc=0, wrong number) — and `seq 1 "$LOAD"` must materialise the whole list before the loop starts: a landing may fail, it may not hang | refuse (bounded at 64, by STRING LENGTH first — comparing this numeral with `[ -gt ]` directly errors "integer expected" on bash 5.3+, "integer expression expected" on 5.2 and earlier) |
+   * | omitted / explicit empty   | (no `$3`), `''` | n/a (never reached) | n/a | n/a | `${3:-0}` — gate.sh's own argv line — defaults BOTH to `"0"` before this validation ever runs. Not a "refuse" case at all: review found a prior version of this test asserted `''` reaches `load-invalid`, which required bypassing `${3:-0}` in the test harness — a claim the real script never makes |
+   *
+   * What mutation would this test survive? Validating only `abc` — the one
+   * spelling that already failed loudly — while leaving every other row
+   * falling through silently, INCLUDING the oversized row (a magnitude bound
+   * is a different property from a syntax bound, and neither implies the
+   * other). Each row below is exercised, through the REAL `H=$1; FENCE=$2;
+   * LOAD=${3:-0}` argv line — not a harness that assigns `LOAD` directly and
+   * so never actually exercises that line's own defaulting behaviour.
+   */
+  describe('prd17 w7 (#293) — $3 (load-batches) is validated once, before anything else runs, never at the emitter', () => {
+    const VERDICT_MACHINERY = sliceLines('MERGED=0', 'GATE_TEE_PID=$!')
+    const LOAD_VALIDATION = sliceLines('LOAD_RAW=$LOAD', 'from the numeric value int() sees.')
+    /** The REAL argv line, extracted rather than re-typed — see the harness below for why this matters (review finding: a prior harness bypassed it entirely). */
+    const ARGV_LOAD_LINE = extractLine('H=$1; FENCE=$2; LOAD=${3:-0}')
+
+    /** The REAL extraction, from the current source — not a retyped copy. If this ever needs re-anchoring, the extraction failing loudly (see sliceLines) is itself proof the law is reading the live script. */
+    it('the extraction actually found the validation, not an empty slice', () => {
+      expect(LOAD_VALIDATION).toContain('case "$LOAD_DIGITS" in')
+      expect(LOAD_VALIDATION).toContain('load-invalid')
+    })
+
+    /**
+     * Runs the REAL argv-parsing line via actual positional parameters,
+     * never a direct `LOAD=` assignment (review finding, both seats: the
+     * prior harness set `LOAD` directly, bypassing `${3:-0}` — bash's own
+     * rule that a MISSING $3 and an EXPLICIT EMPTY $3 both default to "0",
+     * unconditionally, before this validation ever runs. A harness that
+     * skips this line can assert behaviour for `LOAD=''` that the real
+     * script can never produce, which is exactly what the previous version
+     * of this test did — a claim untethered from the code it names).
+     *
+     * `loadArg === undefined` omits $3 entirely (two positional params, not
+     * three); `''` passes it explicitly empty; anything else passes it
+     * verbatim. All three go through the SAME real line as production.
+     */
+    function runLoadValidation(loadArg: string | undefined): FragmentResult & { dir: string; h: string } {
+      const dir = scratchDir('load-validate')
+      const h = `load-${process.pid}-${Math.random().toString(36).slice(2, 8)}`
+      const argv = loadArg === undefined ? [`'${h}'`, `'^fence$'`] : [`'${h}'`, `'^fence$'`, `'${loadArg}'`]
+      const script = `#!/bin/bash\n${SHELL_OPTS}\nset -- ${argv.join(' ')}\n${ARGV_LOAD_LINE}\n${VERDICT_MACHINERY}\n${LOAD_VALIDATION}\necho "LOAD_AFTER=$LOAD"\n`
+      const res = runFragment(script, dir)
+      return { ...res, dir, h }
+    }
+
+    it('EXECUTED — the accepted spellings pass through, canonicalised to the string int() would parse', () => {
+      expect(runLoadValidation('0').stdout).toContain('LOAD_AFTER=0')
+      expect(runLoadValidation('3').stdout).toContain('LOAD_AFTER=3')
+      expect(runLoadValidation('+3').stdout, "int('+3') == 3, the same count as '3' — every downstream comparison ($((LOAD*4)), seq, != \"0\") must see the same string").toContain('LOAD_AFTER=3')
+      expect(runLoadValidation('64').stdout, 'the 64-batch ceiling is INCLUSIVE — 64 itself must still be accepted, not just values below it').toContain('LOAD_AFTER=64')
+    })
+
+    /**
+     * REVIEW FINDING (both seats): `./scripts/gate.sh <handle> '^$' ''`
+     * produces a normal `setup` verdict, never `load-invalid`, because
+     * `${3:-0}` zeroes an explicit empty argument before validation runs —
+     * and an OMITTED argument takes the identical path. This is not a defect
+     * in the validation; it is `${3:-0}`'s own, pre-existing, unconditional
+     * rule (bash's `:-` triggers on unset OR empty). Documented directly
+     * rather than asserted the other way, which is what the earlier version
+     * of this test did by never exercising this line at all.
+     */
+    it('EXECUTED — an omitted $3 and an explicit empty one both default to 0 via the REAL ${3:-0} line, identically', () => {
+      expect(runLoadValidation(undefined).stdout, 'omitted $3 (only two positional params)').toContain('LOAD_AFTER=0')
+      expect(runLoadValidation('').stdout, 'explicit empty $3 — must behave IDENTICALLY to omitted, per bash\'s own `:-` rule').toContain('LOAD_AFTER=0')
+    })
+
+    /**
+     * EVERY OTHER ROW OF THE TABLE ABOVE, refused with a verdict rather than
+     * falling through. `held` must be `true` (this refusal is pre-merge).
+     * Includes the oversized rows (review finding: a magnitude bound is a
+     * different property from a syntax bound — a fix for one does not imply
+     * the other, and both must be exercised).
+     *
+     * The `loadBatches` field is checked against the REAL, imported
+     * `gateVerdictPayloadSchema`'s own sub-schema for it — not the whole
+     * envelope: the shell emitter's other field names (`lane`, `outputDigest`)
+     * do not yet match the schema's (`handle`, `digest`) at all, a
+     * pre-existing gap this issue does not touch (the issue's own text: the
+     * schema "refuses the emitted shape today anyway... the blast radius
+     * until #274 is a record with no consumer"). What #293 owns is narrower
+     * and exactly what the sibling case names: `loadBatches` itself must
+     * round-trip, which for a refused LOAD means being ABSENT, not `-1` or
+     * any other out-of-band sentinel.
+     */
+    it('EXECUTED — every other spelling in the table above is refused, loudly, with a verdict whose loadBatches field is schema-valid', () => {
+      for (const bad of ['-1', '3.0', '3x', '^scripts/', 'abc', '007', '010', '65', '100', '99999999999999999999']) {
+        const { stdout, status } = runLoadValidation(bad)
+        expect(status, `'${bad}' must hold the gate`).toBe(1)
+        expect(stdout, `'${bad}' must print GATE FAILED`).toContain('GATE FAILED:')
+        const lines = stdout.split('\n').filter((l) => l.trim().startsWith('{'))
+        expect(lines, `'${bad}' must emit exactly one verdict line, not zero and not two`).toHaveLength(1)
+        const parsed = JSON.parse(lines[0]!)
+        expect(parsed.reason, `'${bad}' must be categorised as load-invalid, not lost or miscategorised`).toBe('load-invalid')
+        expect(parsed.held, 'this refusal happens before the merge').toBe(true)
+        const result = gateVerdictPayloadSchema.shape.loadBatches.safeParse(parsed.loadBatches)
+        expect(result.success, `'${bad}'\'s loadBatches must satisfy the REAL schema field: ${result.success ? '' : JSON.stringify(result.error?.issues)}`).toBe(true)
+        expect(parsed.loadBatches, 'a refused LOAD is reset before the emitter runs — it must never itself appear as a loadBatches count').toBeUndefined()
+      }
+    })
+
+    /**
+     * MUTATION — proves the length-first bound is load-bearing, not the
+     * arithmetic comparison alone: an oversized numeral run directly through
+     * `[ -gt 64 ]` (skipping the string-length guard) errors "integer
+     * expected" in bash itself — a DIFFERENT failure mode than the intended
+     * `load-invalid` refusal, and one that would surface as a raw shell
+     * error rather than a categorised verdict if the length guard were ever
+     * removed.
+     */
+    it('EXECUTED — a bare arithmetic comparison on the oversized value errors in bash itself, which is exactly what the length-first guard avoids', () => {
+      const res = spawnSync('bash', ['-c', 'set -uo pipefail; LOAD_DIGITS=99999999999999999999; [ "$LOAD_DIGITS" -gt 64 ]'], { encoding: 'utf8' })
+      expect(res.status, 'the bare comparison does not cleanly return 0 or 1').not.toBe(0)
+      expect(res.status).not.toBe(1)
+      // The WORDING of this diagnostic is bash's, not ours, and it changed:
+      // bash <= 5.2 says "integer expression expected", bash >= 5.3 says
+      // "integer expected". Pinned to the 5.3 spelling this assertion passed
+      // on the author's box and failed on all three CI legs — the first time
+      // it had ever run anywhere else, because the lane branch had no PR.
+      // Matched loosely enough to span both, and no looser: the negative
+      // control (a stderr with neither phrase) still fails.
+      expect(res.stderr, 'bash itself refuses to compare a numeral this large').toMatch(
+        /integer (expression )?expected/,
+      )
+    })
+
+    /**
+     * THE DEFECT ITSELF, proven by REMOVING the fix: the real emitter
+     * (VERDICT_MACHINERY, unmodified) called directly with an unvalidated bad
+     * LOAD past the merge — the issue's own scenario, "a landing that merged
+     * and pushed". `int(load)` raises inside python3, `2>/dev/null` swallows
+     * the traceback, and NOTHING downstream can tell a verdict ever went
+     * missing: the script's own exit status stays 0.
+     */
+    it('MUTATION — without this validation, a landing past the merge with a bad LOAD loses its verdict entirely, silently', () => {
+      const dir = scratchDir('load-validate-mutation')
+      const h = `load-mutant-${process.pid}-${Math.random().toString(36).slice(2, 8)}`
+      const script = `#!/bin/bash\n${SHELL_OPTS}\nH=${h}\n${VERDICT_MACHINERY}\nMERGED=1\necho "  build OK"\nLOAD='3.0'\nemit_gate_verdict clean\necho "REACHED_END"\n`
+      const res = runFragment(script, dir)
+      expect(res.status, 'emit_gate_verdict never calls fail() on its own — the script exits 0, which is exactly why this is dangerous').toBe(0)
+      expect(res.stdout).toContain('REACHED_END')
+      const beacons = res.stdout.split('\n').filter((l) => l.trim().startsWith('{'))
+      expect(beacons, 'int(load) raising inside python3 on an unvalidated bad LOAD leaves NO verdict line at all — the defect this issue closes').toHaveLength(0)
+    })
+
+    it('load-invalid is a declared category, not a fresh spelling nobody reviewed', () => {
+      const vocabLine = extractLine('GATE_VERDICT_VOCAB=')
+      expect(vocabLine).toContain('load-invalid')
     })
   })
 })
