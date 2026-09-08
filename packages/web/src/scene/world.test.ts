@@ -172,6 +172,30 @@ describe('every colony looks the way its owner sees it', () => {
     }
   })
 
+  /**
+   * EXPLICIT TIMEOUT, and why it is not the banned kind. This test is the most
+   * expensive in the file by roughly 4× — 926 ms against a 254 ms
+   * runner-up — because it lays out six worlds, the largest of them 17
+   * full-size colonies. Vitest's default bound is 5 s, and under a full suite
+   * run with an uncapped worker pool it measured **6044 ms** and timed out,
+   * failing the landing of an unrelated PR (the merge at `41775df8`). Idle it
+   * is 926 ms: a 6.5× starvation factor, not a slowdown in the code under
+   * test.
+   *
+   * AGENTS.md forbids fixing a flake by widening a timeout, and that rule is
+   * about masking a RACE. There is no race here to mask: every assertion below
+   * is pure geometry over `layoutWorld`'s output, with a fixed `now`, no wall
+   * clock, no randomness and no concurrency — so the only thing the default
+   * bound measures is how much CPU the test happened to get. Widening it
+   * removes a false negative rather than hiding a true one. `app/
+   * streamState.test.ts`'s 120k-event soak carries `}, 60_000)` for exactly
+   * this reason and states its determinism the same way.
+   *
+   * It is deliberately NOT a `@gate-timing` file: that set exists for tests
+   * that ASSERT wall-clock, so `gate.sh` runs them serially and their
+   * assertions mean something. This one asserts no duration at all — enrolling
+   * it would buy nothing and add to the serial pass every landing waits on.
+   */
   it('keeps every colony’s content clear of every other’s, across two full rings', () => {
     // Full-size colonies overlap unless they are a box apart in some axis, and
     // RING_SPACING is chosen so they are. Asserted over CONTENT bounds rather
@@ -190,7 +214,7 @@ describe('every colony looks the way its owner sees it', () => {
         }
       }
     }
-  })
+  }, 30_000)
 
   it('counts every thread in the world, not every thread in one colony', () => {
     const world = layoutWorld(sourcesOf(...team(2)), { ...SIZE, now: NOW })

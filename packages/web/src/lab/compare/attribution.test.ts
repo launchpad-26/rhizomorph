@@ -63,7 +63,7 @@ describe('classifyClaim', () => {
     expect(claim).toEqual({
       kind: 'confounded',
       dimensions: ['model', 'brief'],
-      reason: 'these arms differ in model and brief, so a difference cannot be attributed to either.',
+      reason: 'these arms differ in model and brief — a difference cannot be attributed to either',
     })
   })
 

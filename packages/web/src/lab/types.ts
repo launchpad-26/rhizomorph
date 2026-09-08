@@ -52,6 +52,12 @@ export interface LabCheckpoint {
   snapshotSha: string
   /** HEAD at capture time — the snapshot commit's parent. */
   headSha: string
+  /** Where in the lane's session the cut fell — the tie-break for two cuts at one byte (prd53 S1). */
+  eventIndex: number
+  /** The byte the session was cut at; position on the axis is this over `sessionByteLength`, never wall-clock. */
+  sessionCutByte: number
+  /** The session file's length now, or null when it cannot be read — S1's degraded state, a marker with its reason. */
+  sessionByteLength: number | null
 }
 
 /**

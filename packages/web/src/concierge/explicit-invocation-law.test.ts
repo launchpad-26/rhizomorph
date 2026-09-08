@@ -29,6 +29,14 @@ import { extractImportSpecifiers } from '../test/import-specifiers.js'
  * outside it. The clocks-and-effects bans stay scoped here, because those are
  * rules about what may live in this directory rather than about who may ask.
  *
+ * **AMENDED for #216.** This directory gained the app's SIXTH mutating call —
+ * `retarget.ts`, prd-20 ruling 5's repo switch — reached the identical way:
+ * one caller, `connect/wizard.tsx`'s conductor step, arming before it acts.
+ * The reach check that used to be `importsInstrumentModule` alone is now
+ * `importsModuleStem`, taking the module stem as an argument, so the same
+ * mechanism proves reachability for both acts rather than growing a second,
+ * differently-written copy of itself.
+ *
  * **The walk is the sibling law's recursive shape, defined here rather than
  * imported** — vitest re-executes a test module's top-level code, `describe`
  * blocks included, every time another test file imports it, so importing the
@@ -91,6 +99,7 @@ function appSourceFiles(): ConciergeSourceFile[] {
 const SCHEDULING_RE = /\b(setInterval|setTimeout|setImmediate)\s*\(/
 const CALLS_REQUEST_INSTRUMENT_RE = /\brequestInstrument\s*\(/
 const CALLS_REQUEST_CLONE_RE = /\brequestClone\s*\(/
+const CALLS_REQUEST_RETARGET_RE = /\brequestRetarget\s*\(/
 const USE_EFFECT_RE = /\buseEffect\s*\(/
 
 const FORBIDDEN_IDENTIFIERS: readonly RegExp[] = [
@@ -130,6 +139,8 @@ const FORBIDDEN_IMPORT_PREFIXES: readonly RegExp[] = [
  * and walked past this law while `tsc --noEmit` exited 0 (verify pass on #608).
  */
 const INSTRUMENT_MODULE_STEM = path.join(CONCIERGE_DIR, 'instrument')
+/** The retarget's own stem (#216), read by the identical mechanism below. */
+const RETARGET_MODULE_STEM = path.join(CONCIERGE_DIR, 'retarget')
 
 /** `…/instrument.ts` and `…/instrument.js` and `…/instrument` all reduce to one key. */
 function moduleStem(absolutePath: string): string {
@@ -183,8 +194,10 @@ function valueImportSpecifiers(text: string): string[] {
 }
 
 /**
- * Whether `file` imports the instrument module, by any of the forms
- * `extractImportSpecifiers` sees, at any depth, under any local name.
+ * Whether `file` imports the module named by `stem` (#216: generalised from
+ * an instrument-only check so the identical mechanism proves reachability for
+ * the retarget too), by any of the forms `extractImportSpecifiers` sees, at
+ * any depth, under any local name.
  *
  * This is the check the caller-count above cannot make. `CALLS_..._RE` reads
  * call *syntax*, so `import { requestInstrument as go }` + `go(…)` and
@@ -211,14 +224,18 @@ function valueImportSpecifiers(text: string): string[] {
  * Listing it as a reacher would make the assertion a census of who mentions the
  * module rather than of who can call it.
  */
-function importsInstrumentModule(file: ConciergeSourceFile, root: string = CONCIERGE_DIR): boolean {
+function importsModuleStem(file: ConciergeSourceFile, stem: string, root: string = CONCIERGE_DIR): boolean {
   const fromDir = path.dirname(path.join(root, file.name))
   return valueImportSpecifiers(file.text).some((specifier) => {
     const target = specifier.startsWith('.')
       ? path.resolve(fromDir, specifier)
       : packageExportTarget(specifier)
-    return target !== null && moduleStem(target) === INSTRUMENT_MODULE_STEM
+    return target !== null && moduleStem(target) === stem
   })
+}
+
+function importsInstrumentModule(file: ConciergeSourceFile, root: string = CONCIERGE_DIR): boolean {
+  return importsModuleStem(file, INSTRUMENT_MODULE_STEM, root)
 }
 
 function forbiddenImportsIn(text: string): string[] {
@@ -239,12 +256,13 @@ function computedImportsIn(text: string): string[] {
 describe('the concierge instrument path is reachable only from an explicit request (prd-20 ruling 6; ADR-0020 grant 4)', () => {
   it('has source files to check at all — an empty walk proves nothing', () => {
     const names = sourceFiles().map((file) => file.name)
-    // Today's three, named rather than counted loosely: a silently dropped file
+    // Today's four, named rather than counted loosely: a silently dropped file
     // fails here as loudly as an empty directory would.
     expect(names).toContain('instrument.ts')
     expect(names).toContain('InstrumentButton.tsx')
     expect(names).toContain('clone.ts')
-    expect(names.length).toBeGreaterThanOrEqual(3)
+    expect(names).toContain('retarget.ts')
+    expect(names.length).toBeGreaterThanOrEqual(4)
   })
 
   it('the app-wide walk really reaches the far corners — an enumeration over three files would prove nothing about a fourth caller', () => {
@@ -317,6 +335,35 @@ describe('the concierge instrument path is reachable only from an explicit reque
       .map((file) => file.name)
       .sort()
     expect(importers).toEqual([path.join('concierge', 'InstrumentButton.tsx'), path.join('connect', 'wizard.tsx')])
+  })
+
+  /**
+   * The sixth mutating call's own enumeration (#216). The switch is prd-20
+   * ruling 5's own act, and it is exactly as binding as the clone's — one
+   * caller, `connect/wizard.tsx`'s conductor step, behind its own arming
+   * click.
+   */
+  it('requestRetarget is invoked from exactly one file, app-wide — connect/wizard.tsx', () => {
+    const callers = appSourceFiles()
+      .filter((file) => file.name !== path.join('concierge', 'retarget.ts'))
+      .filter((file) => CALLS_REQUEST_RETARGET_RE.test(file.text))
+      .map((file) => file.name)
+    expect(callers).toEqual([path.join('connect', 'wizard.tsx')])
+  })
+
+  /**
+   * `connect/index.tsx`'s import of `RetargetFetchLike` is type-only (the
+   * fourth test seam, threaded through to the wizard) and is erased — see
+   * {@link TYPE_ONLY_IMPORT_RE} — so it is not counted as a reacher, exactly
+   * the way the instrument case above already documents.
+   */
+  it('retarget.ts is REACHED from exactly one file, app-wide — connect/wizard.tsx', () => {
+    const importers = appSourceFiles()
+      .filter((file) => file.name !== path.join('concierge', 'retarget.ts'))
+      .filter((file) => importsModuleStem(file, RETARGET_MODULE_STEM, WEB_SRC))
+      .map((file) => file.name)
+      .sort()
+    expect(importers).toEqual([path.join('connect', 'wizard.tsx')])
   })
 
   it('that detector bites — alias, namespace and dynamic imports are all seen, at any depth', () => {
@@ -418,21 +465,30 @@ describe('the concierge instrument path is reachable only from an explicit reque
     // …and `onLaunch` is reachable from nowhere else in the file, so the
     // confirming branch is the only door rather than merely one of them.
     expect(wizard.match(/onClick=\{onLaunch\}/g)).toHaveLength(1)
+
+    // The wizard's THIRD act, armed the identical way (#216).
+    expect(wizard).toMatch(/onArmRetarget=\{\(\)\s*=>\s*setRetarget\(\{ status: 'confirming' \}\)\}/)
+    expect(wizard).toMatch(/data-testid="wizard-retarget"[\s\S]{0,200}?onClick=\{onArmRetarget\}/)
+    expect(wizard).toMatch(/retarget\.status === 'confirming'/)
+    expect(wizard).toMatch(/data-testid="wizard-retarget-confirm"\s+onClick=\{onRetarget\}/)
+    expect(wizard.match(/onClick=\{onRetarget\}/g)).toHaveLength(1)
   })
 
   /**
-   * The wizard's two acts, pinned across BOTH hops of their wiring — the
+   * The wizard's three acts, pinned across BOTH hops of their wiring — the
    * handler the step component receives, and the `onClick` that is the only
    * thing which fires it. Pinning one hop alone would leave the other free to
    * become a `useEffect` or an `onChange` without this law noticing, which is
    * the whole failure mode it exists for.
    */
-  it("the wizard's clone and launch are each wired to one button's onClick, both hops named", () => {
+  it("the wizard's clone, launch and retarget are each wired to one button's onClick, both hops named", () => {
     const wizard = readFileSync(path.join(WEB_SRC, 'connect', 'wizard.tsx'), 'utf8')
     expect(wizard).toMatch(/onClone=\{\(\)\s*=>\s*void confirmClone\(\)\}/)
     expect(wizard).toMatch(/onLaunch=\{\(\)\s*=>\s*void confirmLaunch\(\)\}/)
+    expect(wizard).toMatch(/onRetarget=\{\(\)\s*=>\s*void confirmRetarget\(\)\}/)
     expect(wizard).toMatch(/onClick=\{onClone\}/)
     expect(wizard).toMatch(/onClick=\{onLaunch\}/)
+    expect(wizard).toMatch(/onClick=\{onRetarget\}/)
   })
 
   /**
@@ -448,7 +504,7 @@ describe('the concierge instrument path is reachable only from an explicit reque
     const effectBodies = [...wizard.matchAll(/useEffect\(([\s\S]*?), \[/g)].map((match) => match[1] ?? '')
     expect(effectBodies.length).toBeGreaterThan(0) // the check below would pass vacuously on an empty sweep
     for (const body of effectBodies) {
-      expect(body).not.toMatch(/requestClone|requestInstrument|confirmClone|confirmLaunch/)
+      expect(body).not.toMatch(/requestClone|requestInstrument|requestRetarget|confirmClone|confirmLaunch|confirmRetarget/)
     }
     expect(wizard).not.toMatch(SCHEDULING_RE)
   })

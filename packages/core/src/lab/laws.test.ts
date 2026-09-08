@@ -10,6 +10,7 @@ import {
   confoundVoice,
   dimensionsOf,
   isCleanlyControlled,
+  isCompletedVerdict,
   MIN_ARMS_TO_RANK,
   MIN_COMPLETED_RUNS_TO_SUMMARISE,
 } from './laws.js'
@@ -35,6 +36,10 @@ describe('the floors (prd53 ruling 2, extending prd12 ruling 4 — never looseni
 
   it('the counterfactual clause is one fixed sentence, so every surface says the same thing below the floor', () => {
     expect(COUNTERFACTUAL_CLAUSE).toBe('what actually happened is one observation, not a distribution')
+  })
+
+  it('a run is completed when a gate judged it — pass or fail; not-run and unjudged are not (ruling 2, amendment 2026-09-08)', () => {
+    expect((['pass', 'fail', 'not-run', undefined] as const).map(isCompletedVerdict)).toEqual([true, true, false, false])
   })
 })
 

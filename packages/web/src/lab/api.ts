@@ -33,7 +33,10 @@ function isLabCheckpoint(value: unknown): value is LabCheckpoint {
     isCapturedBy(value.capturedBy) &&
     typeof value.snapshotRef === 'string' &&
     typeof value.snapshotSha === 'string' &&
-    typeof value.headSha === 'string'
+    typeof value.headSha === 'string' &&
+    typeof value.eventIndex === 'number' &&
+    typeof value.sessionCutByte === 'number' &&
+    (typeof value.sessionByteLength === 'number' || value.sessionByteLength === null)
   )
 }
 

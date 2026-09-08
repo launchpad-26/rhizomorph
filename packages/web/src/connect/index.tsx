@@ -7,6 +7,7 @@ import { useStream } from '../app/StreamContext.js'
 import type { CloneFetchLike } from '../concierge/clone.js'
 import type { InstrumentFetchLike, InstrumentOutcome } from '../concierge/instrument.js'
 import { InstrumentButton } from '../concierge/InstrumentButton.js'
+import type { RetargetFetchLike } from '../concierge/retarget.js'
 import { copyToClipboard, type CopyText } from '../drawer/AttachButton.js'
 import { formatWallClock } from '../replay/format.js'
 import {
@@ -120,6 +121,13 @@ export interface ConnectPageProps {
    * where a test for one of them can drive the other.
    */
   cloneFetchImpl?: CloneFetchLike
+  /**
+   * Test seam for the wizard's switch — a FOURTH seam, for the reason the
+   * second and third exist: `RetargetFetchLike` is its own type naming its
+   * own body, so a test for one write cannot drive another through a shared
+   * seam.
+   */
+  retargetFetchImpl?: RetargetFetchLike
   /** Test seam for the clipboard — the same shape the drawer's `AttachButton` uses. */
   onCopy?: CopyText
   /** Test clock, for the uninstrumented row's first-export grace window. */
@@ -202,6 +210,7 @@ export function ConnectPage({
   fetchImpl,
   instrumentFetchImpl,
   cloneFetchImpl,
+  retargetFetchImpl,
   onCopy = copyToClipboard,
   now,
   refreshMs = DEFAULT_REFRESH_MS,
@@ -213,6 +222,10 @@ export function ConnectPage({
   // `absent` is the honest reading before the first GET resolves too: nothing
   // usable has arrived yet (#381).
   const [doctor, setDoctor] = useState<DoctorReading>({ kind: 'absent' })
+  // Bumped once after a switch the server confirmed (#216), so the read
+  // effect below re-runs AT ONCE rather than waiting out `refreshMs` — the
+  // wizard's later steps read against the new repo without a stale window.
+  const [metaTick, setMetaTick] = useState(0)
 
   useEffect(() => {
     let live = true
@@ -236,7 +249,7 @@ export function ConnectPage({
       live = false
       clearInterval(timer)
     }
-  }, [fetchImpl, refreshMs])
+  }, [fetchImpl, refreshMs, metaTick])
 
   const flow = useMemo(() => selectConnection(state.session), [state.session])
   const port = portFrom(location ?? (typeof window === 'undefined' ? { port: '', protocol: 'http:' } : window.location))
@@ -307,6 +320,8 @@ export function ConnectPage({
             fetchImpl={fetchImpl}
             instrumentFetchImpl={instrumentFetchImpl}
             cloneFetchImpl={cloneFetchImpl}
+            retargetFetchImpl={retargetFetchImpl}
+            onRetargeted={() => setMetaTick((tick) => tick + 1)}
             onCopy={onCopy}
           />
         </div>
