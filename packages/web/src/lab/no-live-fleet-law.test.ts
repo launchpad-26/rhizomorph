@@ -182,9 +182,18 @@ function sourceFileCountsByDirectory(): Record<string, number> {
 describe('the lab tab renders no live-fleet surface (prd14)', () => {
   it('has source files to check at all, from every governed subdirectory — a shallow walk proves nothing', () => {
     // Per-subdirectory counts, re-derived from this file's own
-    // sourceFiles() on 2026-09-07 (unchanged since the 2026-08-08 audit) —
-    // pinned exactly, not a loose lower bound, and grouped rather than
-    // totalled. Both halves are load-bearing. A lower bound at any floor lets
+    // sourceFiles() on 2026-09-08 — pinned exactly, not a loose lower bound,
+    // and grouped rather than totalled.
+    //
+    // The root went 5 -> 6 on 2026-09-08: `8f7a60ec` (#324, prd53 w2) added
+    // `measure.ts`, and this law caught it — two and a half hours after the
+    // pin landed in `b5de19ac` (#235), and one merge too late, because #336's
+    // CI green described a merge ref computed before the pin existed. The
+    // number moved because a named file moved it; that is the only reason it
+    // is ever allowed to move. `measure.ts` is now swept by every assertion
+    // below, which is the point of counting it rather than exempting it.
+    //
+    // Both halves are load-bearing. A lower bound at any floor lets
     // a file silently ADDED pass unnoticed, not just a file dropped. And a
     // single total, however exact, stays green through a compensated shrink:
     // 17 is still 17 when compare/ loses two files and the root gains two, so
@@ -194,7 +203,7 @@ describe('the lab tab renders no live-fleet surface (prd14)', () => {
     // outright is caught twice over — but a partial shrink is invisible to it,
     // and this assertion is the only thing that sees it.
     expect(sourceFileCountsByDirectory()).toEqual({
-      '': 5,
+      '': 6,
       branching: 2,
       compare: 7,
       launch: 3,
