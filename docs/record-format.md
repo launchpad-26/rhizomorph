@@ -337,6 +337,39 @@ emitter or reader must also honor:
    only by a human's hand — there is no push, no server-to-server exchange,
    no background sync. This format's whole design (one self-contained file)
    exists so that stays true by construction.
+
+   > **Amendment — the record also travels by protocol, under the fifth hand
+   > (2026-09-08).** The law above is unchanged for every path it was written
+   > about, and this document's opening stays true of the *format*: it defines
+   > no protocol, requires no server-to-server call, and needs no shared
+   > database. What is added is one path, argued in public and bounded.
+   > `docs/adr/0033-the-record-travels-by-protocol.md` (accepted, prd-51)
+   > amends this law to say so: a record's lines **also** travel by **protocol
+   > v1**, outbound from one member's machine to the one team server that
+   > member's project is connected to, and by no other route.
+   >
+   > **What travels** is exactly the lines `buildRecord`
+   > (`packages/core/src/record/build.ts`) would serialize for that session,
+   > re-serialized through the current event schema on the way out — never the
+   > log file's raw bytes, so the allowlist law 3 describes applies to the wire
+   > as well as to the file. **The key** is `(project, actorInstance, n)`,
+   > where `n` is the line's 1-based position in the source ledger — never the
+   > event id, for the reason "Merging two actors' records" above already
+   > gives. **Under whose act:** the shipper, the fifth hand
+   > (`docs/adr/0034-the-fifth-hand.md`), and only once a human has enabled it
+   > for that repo by an explicit CLI act (ADR-0034 names that act
+   > `rhizomorph connect team`). Never from a collector, a poll or a boot;
+   > never for a repo nobody connected; never inbound, because the shipper
+   > opens no listening socket.
+   >
+   > **What is unchanged.** A record still moves by a human's hand whenever a
+   > human wants it to, and that remains the only movement this format itself
+   > requires — an emitter that never ships anywhere is still a compatible
+   > emitter. The chain, the manifest, `signature: null` and the verifier all
+   > stand exactly as specified above; the server stores each `line` verbatim,
+   > so any actor's stream can be re-exported and re-verified, closing to the
+   > same `chainDigest` the local export closes to.
+
 3. **A record is never enriched.** Nothing reaches a record that the log did
    not already contain — no lookups, no re-reading of the repo, no facts
    added at export time. That is all this law requires of a compatible
