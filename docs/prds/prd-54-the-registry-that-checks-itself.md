@@ -120,8 +120,11 @@ A reason may quote an assertion literal, but the quoted form must occur **verbat
 file**. Where the pinned number lives in a named constant, the entry cites the **constant** and
 may give its value as an as-of statement, which the law resolves from the constant's initialiser.
 `.toBe(225)` against `.toBe(RAW_PIXEL_SIZES)` is exactly what this forbids: a quoted form that
-has never appeared in that file. Extent: every backticked `.toBe(N)` / `.toHaveLength(N)` in any
-reason. Not prose numbers outside backticks — Open question 1.
+has never appeared in that file. Extent: an assertion call inside a backticked span **selects**
+that span as in scope — see Ruling 7, which settles that this sentence selects and the body above
+checks, and which widens the selector to a symbolic argument as well as a numeric one. What must
+occur verbatim is the whole span, not the assertion token lifted out of it. Not prose numbers
+outside backticks — Open question 1.
 
 *Amendment note, 2026-09-08, same session as blessing.* [#353][i353]'s entry was audited against
 this ruling before landing and tripped it on a case the ruling does not anticipate: the entry
@@ -150,12 +153,14 @@ Extent lifts the assertion token out and asserts only that, and the ruling goes 
 entry whenever the retired number still occurs anywhere in the cited file for an unrelated reason.
 The exemplar cannot distinguish them, because the tokens entry's span *is* `` `.toBe(225)` ``.
 
-— **STILL OPEN as of 2026-09-09**, and now the *only* open edge of this ruling: note 1 above is
-answered by Ruling 6. This note asked for both of Ruling 2's edges to be settled by one wave-0
-act; they were not, because the absence question was decided before this note existed. Settling
-the unit is therefore its own wave-0 act, and the measurement recorded above — the span reading
-reddens all three false claims with no false positive across the other 18 entries, the token
-reading passes two of them — is what a ruling on it should be written against.
+— **ANSWERED (operator, 2026-09-09): the unit is the whole backticked span.** See **Ruling 7**
+below, which settles that this ruling's Extent sentence *selects* and its body *checks*, and
+widens the selector to symbolic arguments. This note asked for both of Ruling 2's edges to be
+settled by one wave-0 act; they were settled by two, because the absence question was decided
+before this note existed — Ruling 6 for the absence edge, Ruling 7 for this one. The measurement
+recorded above was re-derived independently before Ruling 7 was written, and held: the span
+reading reddens all three false claims, the token reading one of the three. Both of this ruling's
+edges are now closed.
 
 The route-class entry can, and `api/route-class-law.test.ts` carries the decoy that makes it bite:
 `expect(gatedFound.length).toBe(25)` counts gated routes, while the two pins that entry actually
@@ -311,6 +316,83 @@ inversion branch, no allowlist. That is the point: ruling 4 exists to keep a
 day-one allowlist out of this law, and the cheapest way to honour it is a rule
 with no exception to allowlist.
 
+## Ruling 7 — Extent selects, the body checks: the unit is the whole backticked span (settles ruling 2's unit edge)
+
+**Verdict.** Ruling 2's **body** is the check; its **Extent** sentence is only a
+*selector*. `.toBe(N)` / `.toHaveLength(N)` names which backticked spans are in
+scope, and what must then occur verbatim in the cited file is **the whole span**,
+matched as an exact substring. Extent is reworded from naming those forms to
+*selecting* them, so the two sentences stop reading as rival checks. Ruling 2's
+verdict is unchanged — the body already said "form".
+
+**The selector also widens to any assertion call, symbolic as well as numeric.**
+In scope is a backticked span containing `.toBe(`, `.toHaveLength(` or
+`.toEqual(`, whatever its argument.
+
+**Why, re-derived independently over all 21 entries on `main` at `5b9cc5e5`.**
+The measurement in ruling 2's amendment note 2 was reproduced rather than
+inherited, and it holds exactly:
+
+| span, and the entry it sits in | span present? | token present? | |
+|---|---|---|---|
+| `` `.toBe(225)` `` — tokens.test.ts | no | no | readings agree |
+| `` `expect(ROUTE_CLASSES.length).toBe(25)` `` — route-class-law.test.ts | no | **yes** | **disagree** |
+| `` `expect(routes.length).toBe(25)` `` — route-class-law.test.ts | no | **yes** | **disagree** |
+
+The decoy is `packages/server/src/api/route-class-law.test.ts:180`,
+`expect(gatedFound.length).toBe(25)` — it counts *gated* routes, while the two
+pins that entry describes stand at 30. So **the span reading reddens all three
+false claims; the token reading reddens one.** Two of the three claims this PRD
+exists to catch would pass, Success 4's own route-class example among them.
+
+There is no false-positive surface to weigh against that: only **two** of the
+21 entries carry a span in scope at all, and the remaining nineteen carry none.
+The law therefore lands with no allowlist, which is ruling 4's point.
+
+**Why the selector widens.** Under the numeric-only reading, ruling 2's own
+prescribed remedy goes unchecked: an entry that cites its pin by symbol —
+`` `.toBe(TEST_FILE_KNOWN_DEBT_COUNT)` ``, which is exactly what ruling 2 tells
+an author to write when the value lives in a constant — falls outside `.toBe(N)`
+and is checked by nothing. Widening closes that for free. EXECUTED: the widened
+selector matches **four** spans across the registry — the three above, all of
+which it reddens, and that symbolic one, which is present in its cited file and
+passes. Zero false positives. A renamed constant is a live failure mode here,
+not a hypothetical: this repo already records that a renamed symbol leaves a
+green suite and a lying doc.
+
+**Extent.**
+
+- The span is matched as an **exact substring**, whitespace included, of the
+  cited file's text. It is not normalised, and it is not parsed.
+- Because the match is a substring of the file rather than of a line, a source
+  assertion split across lines is still reachable **provided the quoted span
+  itself sits within one line** of the source. Worked case:
+  `prefix-comparison-law.test.ts:535` is `).toBe(TEST_FILE_KNOWN_DEBT_COUNT)`
+  and the entry's span `` `.toBe(TEST_FILE_KNOWN_DEBT_COUNT)` `` matches inside
+  it. A span that would have to cross a newline cannot match, and must be
+  shortened to the part that does not.
+- **An entry backticks only source text.** A span like `` `.toBe(25) twice` ``
+  can never occur verbatim and would be a false positive of the author's own
+  making; the count goes in prose beside the span, not inside it. All four spans
+  in the registry today comply — verified, each is code-only.
+- This ruling does not reach numbers or paths outside backticks. Prose numbers
+  remain Open question 1, and paths are rulings 3 and 5.
+- It does not settle which file is "the cited file" when a reason quotes a form
+  belonging to another file it names. Ruling 2's amendment note 2 records that
+  no entry does this today; it stays unfiled work.
+
+**Falsifier.** If an entry is found that must quote a span crossing a newline in
+the source — a genuinely multi-line assertion whose shorter forms are ambiguous
+— the substring rule fails a correct claim, and the answer is to amend this
+ruling, not to relax the law quietly into normalising whitespace. Normalising is
+the move that would let `.toBe( 25 )` satisfy a claim about `.toBe(25)`, and the
+whole value of the span reading is that it is literal.
+
+**Consequence: this unblocks #367**, which is the last wave-0 act it waits on.
+Wave 1 (#366) is unaffected — correcting the route-class entry does not settle
+this edge, because line 180's decoy makes the token reading pass regardless of
+what wave 1 writes.
+
 ## Sequencing (waves, each gated as ever)
 
 *Groomed 2026-09-09, operator sign-off in session; written to what was groomed rather than to the
@@ -324,15 +406,21 @@ file, so they are sequential by construction rather than parallel. No wave enter
 scripts/fence-lint.sh (Non-goals), and none enters `doc-citation-law.test.ts`, which is prd-17
 territory.
 
-**Wave 0 — operator acts, booked and not dispatchable. NOT complete.** Three items, two answered:
+**Wave 0 — operator acts, booked and not dispatchable. COMPLETE 2026-09-09.** Three items, all
+answered, and no issue minted for any of them:
 
 - Ruling 3's resolution edge — **answered**, as Ruling 5.
 - Ruling 2's absence edge — **answered**, as Ruling 6.
-- Ruling 2's *unit* edge — **open**. Raised by Ruling 2's amendment note 2, from the independent
-  review of `fa64a7a7`, after the other two were decided. Until it is settled, wave 2 cannot be
-  written: the two readings of Ruling 2 disagree on two of the three spans in the registry, and
-  the token reading passes two of the three false claims this PRD exists to catch — Success 4's
-  own route-class example among them. No issue is minted for any of the three.
+- Ruling 2's *unit* edge — **answered**, as Ruling 7. Raised by Ruling 2's amendment note 2, from
+  the independent review of `fa64a7a7`, after the other two were decided, and settled last: the
+  span reading reddens all three false claims in the registry while the token reading reddens one,
+  so the token reading would have passed two of the three claims this PRD exists to catch —
+  Success 4's own route-class example among them.
+
+All three edges were found the same way — by auditing an entry against a ruling rather than by
+writing code to it — and two of the three by a reader other than the ruling's author. That is the
+argument for the audit step wave 2's law replaces, and the reason wave 2 should not start until
+someone has audited the remaining entries against Rulings 5, 6 and 7 as well.
 
 **Wave 1 — the Keystone: the registry's own claims are true.** [#366][i366]. Claimed by nobody
 downstream but the law that checks it. One file, `.swarm/coupling.txt`:
@@ -359,7 +447,7 @@ because the pointer names the law's own filename, so they cannot be built at onc
 present and not a repeat of its own path — so they run in CI rather than only by hand; that reads
 Ruling 1's extent as covering registry checks while leaving its fence-lint behavioural cases in
 shell, and Success 1 is not met while those checks run only when someone remembers them.
-**Blocked on wave 0's third item as well as on wave 1.**
+**Blocked on wave 1 only, now that wave 0 is complete.**
 
 **Unfiled work implied, described not numbered:** whether an entry's reason should be generated
 from the law it describes rather than written beside it; a sweep of the other entries'
