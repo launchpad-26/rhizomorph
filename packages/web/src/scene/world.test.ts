@@ -174,7 +174,7 @@ describe('every colony looks the way its owner sees it', () => {
 
   /**
    * EXPLICIT TIMEOUT, and why it is not the banned kind. This test is the most
-   * expensive in the file by an order of magnitude — 906 ms against a 254 ms
+   * expensive in the file by roughly 4× — 926 ms against a 254 ms
    * runner-up — because it lays out six worlds, the largest of them 17
    * full-size colonies. Vitest's default bound is 5 s, and under a full suite
    * run with an uncapped worker pool it measured **6044 ms** and timed out,
