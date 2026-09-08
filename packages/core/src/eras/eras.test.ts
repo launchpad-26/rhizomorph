@@ -329,7 +329,7 @@ describe('era corpus fixture hygiene', () => {
    * commit message, which is exactly the "a test that cannot fail for the
    * reason it claims" shape this file exists to catch.
    */
-  it('surfaces() bites — escaped value, escaped KEY, NESTED, and a pretty-printed document', () => {
+  it('surfaces() bites — escaped value, escaped KEY, NESTED, inside an ARRAY, and a pretty-printed document', () => {
     const line = '{"payload":{"\\u002fhome\\u002fx":"benign","note":"\\u002fhome\\u002fsomeone"}}'
     const found = surfaces(line)
 
@@ -345,6 +345,21 @@ describe('era corpus fixture hygiene', () => {
     const deep = surfaces(nested)
     expect(deep, 'a walker that stops recursing must not pass this').toContain('/home/u')
     expect(deep, 'and it must reach a value two levels below that key').toContain('/home/jane.doe')
+
+    /**
+     * INSIDE AN ARRAY, because `walkInto`'s three branches are three siblings
+     * and only two of them were witnessed (review of #279). EXECUTED: leaving
+     * `Array.isArray(node)` matched but walking none of its children left this
+     * file at 28 passed, while the same deletion on the object branch reddened
+     * it — so the array arm could have been lost without a test moving. It is
+     * not hypothetical on this corpus: the four committed fixtures hold 148
+     * arrays with string members between them (era-2's snapshot alone has 75),
+     * and `tmux`/`workmux` payloads carry lists of handles.
+     */
+    const inArray = '{"payload":{"paths":["benign","\\u002fhome\\u002foperator"],"nested":[[{"note":"\\u002fhome\\u002ffixture"}]]}}'
+    const listed = surfaces(inArray)
+    expect(listed, 'a string leaf inside an array must decode').toContain('/home/operator')
+    expect(listed, 'and one inside an array of arrays of objects must too').toContain('/home/fixture')
 
     /**
      * PRETTY-PRINTED, because a snapshot is not JSONL and the per-line path
