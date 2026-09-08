@@ -658,7 +658,7 @@ const PAPER_WORKING: Rgb = [0, 113, 55]
 const PAPER_DONE: Rgb = [36, 127, 93]
 const PAPER_WAITING_BENIGN: Rgb = [146, 106, 18]
 const PAPER_NEEDS_YOU: Rgb = [120, 81, 0]
-const PAPER_BROKEN: Rgb = [169, 0, 53]
+const PAPER_BROKEN: Rgb = [122, 0, 36] // #7a0024 — deeper than it shipped, for law 9; docs/design-notes/palette-paper-broken-ink.md
 const PAPER_NOTICE: Rgb = [0, 115, 134]
 
 const PAPER_NECROTIC: Rgb = [173, 160, 170]
