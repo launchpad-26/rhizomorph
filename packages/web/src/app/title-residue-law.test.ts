@@ -52,6 +52,23 @@ import { describe, expect, it } from 'vitest'
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const WEB_SRC = path.resolve(HERE, '..')
 
+/**
+ * This file's own path, relative to {@link WEB_SRC} — **derived, never spelled**,
+ * so it cannot rot if the law moves (the docstring above already contemplates
+ * moving it beside `one-card-law.test.ts`). {@link directoriesWithParityTests}
+ * excludes it, for the reason `shippedFiles` excludes tests: a law test must be
+ * able to WRITE the pattern it looks for, and this one does — twice, in the
+ * remediation sentence it prints on failure and in the rigged fixtures below.
+ *
+ * Without the exclusion the law credits its own directory with the coverage it
+ * is supposed to demand of it: `app/` reads as proven because *this file* sits
+ * in `app/` and contains the text `discloseText(`, whether or not any test in
+ * `app/` ever opens a card. Measured in review of PR #335 — deleting the one
+ * real parity call in `app/Nav.test.tsx` left this law green at 10/10, which is
+ * precisely the failure the second half was added to make impossible.
+ */
+const THIS_FILE = path.relative(WEB_SRC, fileURLToPath(import.meta.url)).split(path.sep).join('/')
+
 interface SourceFile {
   name: string
   text: string
@@ -171,10 +188,15 @@ export function adoptingSurfaces(files: readonly SourceFile[]): string[] {
 }
 
 /** Directories holding a test that actually opens a card, via the shared helper. */
-export function directoriesWithParityTests(files: readonly SourceFile[]): Set<string> {
+export function directoriesWithParityTests(
+  files: readonly SourceFile[],
+  self: string = THIS_FILE,
+): Set<string> {
   const dirs = new Set<string>()
   for (const file of files) {
     if (!/\.test\.tsx?$/.test(file.name)) continue
+    // This law does not get to certify its own directory. See {@link THIS_FILE}.
+    if (file.name === self) continue
     if (!/\bdisclose(Text|TextOf)\s*\(/.test(withoutComments(file.text))) continue
     dirs.add(path.posix.dirname(file.name))
   }
@@ -334,5 +356,26 @@ describe('every surface that discloses has a test that opens it (charter §6)', 
     ]
 
     expect([...directoriesWithParityTests(rigged)]).toEqual(['panels/y'])
+  })
+
+  it('does not let this law certify its own directory on the strength of its own text', () => {
+    // `withoutComments` blanks comments, not string literals — and this file
+    // carries `discloseText(` in two of them: the remediation sentence it
+    // prints on failure, and the fixture one line above. Both are string
+    // literals, so without the {@link THIS_FILE} exclusion the law reads its
+    // own directory as proven and can never report `app` unproven.
+    const law = { name: 'app/the-law.test.ts', text: 'the message it prints says: call discloseText(mark)' }
+    const real = { name: 'app/Nav.test.tsx', text: 'expect(discloseText(mark)).toContain("x")' }
+
+    expect([...directoriesWithParityTests([law, real], law.name)]).toEqual(['app'])
+    expect([...directoriesWithParityTests([law], law.name)]).toEqual([])
+  })
+
+  it('resolves its own path, so that exclusion is not a silent no-op', () => {
+    // A derived exclusion that resolves to a file the walk never yields would
+    // exclude nothing and leave the hole open while reading as fixed. The name
+    // is deliberately not spelled out here: pinning it is the rot this
+    // derivation exists to avoid.
+    expect(allFiles(WEB_SRC).map((file) => file.name)).toContain(THIS_FILE)
   })
 })
