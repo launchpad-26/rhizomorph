@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createEventFactory, fixtureTraceSpans, type RhizomorphEvent } from '@rhizomorph/core'
 import { afterEach, describe, expect, it } from 'vitest'
+import { discloseText } from '../disclosure/testing.js'
 import type { ReactNode } from 'react'
 import { ModeProvider, useReplay } from '../app/ModeContext.js'
 import { StreamProvider } from '../app/StreamContext.js'
@@ -149,6 +150,23 @@ describe('LanePage — cold deep link', () => {
     expect(header.querySelector('svg[data-sigil]')).toBeTruthy()
     expect(screen.getByTestId('lane-page-role').textContent).toBe('worker')
     expect(screen.getByTestId('lane-page-branch').textContent).toBe(LANE)
+  })
+
+  it('discloses the branch and the spend cells, by hover and by focus alike (#220)', async () => {
+    await renderLanePage()
+
+    // PageHeader's BRANCH mark — three subjects, three honest absences; this
+    // is the ordinary one.
+    const branch = discloseText(screen.getByTestId('lane-page-branch'))
+    expect(branch).toContain('the branch this lane is working on')
+    expect(branch).toContain(LANE)
+
+    // SpendDetail's cells sit in a <dl>, so the card is on the <dd> — a <div>
+    // inside a definition list may hold only <dt> and <dd>.
+    const spend = screen.getByTestId('lane-page-spend')
+    const output = spend.querySelector('[aria-label^="output, "]')
+    expect(output, 'no output disclosure in the spend panel').not.toBeNull()
+    expect(discloseText(output as HTMLElement)).toMatch(/output tokens|no telemetry/)
   })
 })
 

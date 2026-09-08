@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createEventFactory, type RhizomorphEvent } from '@rhizomorph/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { discloseText } from '../disclosure/testing.js'
 import { StreamProvider } from '../app/StreamContext.js'
 import { FleetProvider } from '../fleet/FleetContext.js'
 import { MAIN_SELECTION } from '../fleet/index.js'
@@ -175,6 +176,25 @@ describe('the peek is four things and one action (S2)', () => {
     const lane = { outputTokens: 4_200, costEventCount: 0, costUsd: 0, costIsAuthoritative: null }
     expect(vitals.textContent).toContain(outputCellText(lane as never))
     expect(vitals.textContent).toContain(costCellText(lane as never))
+  })
+
+  it('discloses every vital, by hover and by focus alike (#220)', async () => {
+    await renderPeek()
+    const vitals = screen.getByTestId('drawer-vitals')
+
+    // Twelve `<Vital>` call sites funnelled into one native `title=` before
+    // #220; they now funnel into one `<Disclosure>` on the `<dd>`. Walking
+    // them all rather than sampling one is the point: the funnel is what makes
+    // this a single change, so a regression in it takes every vital with it.
+    const marks = vitals.querySelectorAll('[data-testid="disclosure"]')
+    expect(marks.length, 'the vitals grid discloses nothing').toBeGreaterThanOrEqual(6)
+
+    for (const mark of marks) {
+      // Throws unless the card opens on hover AND on focus with identical
+      // markup, and unless it renders — which means its evidence and its age
+      // survived `disclosureLines`.
+      expect(discloseText(mark as HTMLElement).length).toBeGreaterThan(0)
+    }
   })
 
   it('says the latest activity as one line — the newest thing the lane did', async () => {

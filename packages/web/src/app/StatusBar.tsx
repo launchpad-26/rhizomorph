@@ -435,7 +435,6 @@ export function StatusBar({ fetchMeta }: StatusBarProps = {}) {
               data-health={health}
               role="status"
               tabIndex={0}
-              title={message ?? undefined}
               aria-label={description}
               className="inline-flex items-center gap-1.5 focus-ring rounded-none"
             >
@@ -452,7 +451,6 @@ export function StatusBar({ fetchMeta }: StatusBarProps = {}) {
             data-testid="session-voice"
             role="status"
             tabIndex={0}
-            title={sessionVoice.title}
             aria-label={sessionVoice.title}
             className="figures text-(--ink-dim) focus-ring"
           >
@@ -461,7 +459,6 @@ export function StatusBar({ fetchMeta }: StatusBarProps = {}) {
         )}
         <span
           className="ml-auto inline-flex items-center gap-1.5"
-          title={CONNECTION_LABEL[status]}
           aria-label={`Stream: ${CONNECTION_LABEL[status]}`}
         >
           <span

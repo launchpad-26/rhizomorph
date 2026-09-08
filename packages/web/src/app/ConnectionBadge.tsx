@@ -57,7 +57,7 @@ export function ConnectionBadge({ status }: { status: ConnectionStatus }) {
         </span>
         <span
           className="inline-flex items-center gap-1 normal-case tracking-normal text-(--ink-dim)"
-          title={`Stream: ${CONNECTION_LABEL[status]}`}
+          aria-label={`Stream: ${CONNECTION_LABEL[status]}`}
         >
           <span className={`h-1.5 w-1.5 rounded-full ${CONNECTION_DOT_CLASS[status]}`} aria-hidden="true" />
           sse

@@ -1,5 +1,6 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
+import { discloseText } from '../disclosure/testing.js'
 import type { FetchLike } from '../fleet/manifest.js'
 import { MAX_LOOKBACK_PAGES, NearestEntry } from './NearestEntry.js'
 
@@ -65,6 +66,22 @@ describe('NearestEntry', () => {
     await waitFor(() => expect(screen.getByTestId('why-nearest-entry').textContent).toContain('turn 3'))
     // tail + two "before" pages reaches turn 3 (entries 2..7 loaded).
     expect(calls.length).toBe(3)
+  })
+
+  it('discloses the jump-to-nearest caveat on hover and on focus alike (#220)', async () => {
+    const log = fakeLog(8)
+    const { fetch } = fetchStub(log, 2)
+    const targetTs = Date.parse(log[3]!.ts)
+
+    render(<NearestEntry lane="feature" targetTs={targetTs} fetchImpl={fetch} />)
+    await waitFor(() => expect(screen.getByTestId('why-nearest-entry').textContent).toContain('turn 3'))
+
+    // This caveat used to be a `title=` on a <div>, which no keyboard could
+    // reach and which an `aria-label` would not have fixed either — an
+    // aria-label on a non-interactive element is ignored.
+    const card = discloseText(screen.getByTestId('why-nearest-entry'))
+    expect(card).toContain('jump-to-nearest, not exact tool-call alignment')
+    expect(card).toContain('exact tool-call alignment is future work')
   })
 
   it('never exceeds the lookback cap, even when the target is far older than what loaded', async () => {
