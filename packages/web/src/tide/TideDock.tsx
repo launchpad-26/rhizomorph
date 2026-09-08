@@ -435,7 +435,6 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
       <button
         type="button"
         aria-label="Shift window earlier"
-        title="Shift window earlier"
         onClick={() => shift(-1)}
         disabled={!canShiftEarlier}
         className={BUTTON_QUIET}
@@ -488,8 +487,7 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
         )}
         <button
           type="button"
-          aria-label="Zoom in"
-          title="Zoom in on the playhead"
+          aria-label="Zoom in on the playhead"
           onClick={zoomIn}
           disabled={zoomLevel >= loupeZoomLevel}
           className={BUTTON_QUIET}
@@ -499,8 +497,7 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
         <button
           type="button"
           aria-label="Zoom out"
-          title="Zoom out"
-          onClick={zoomOut}
+            onClick={zoomOut}
           disabled={zoomLevel === 0}
           className={BUTTON_QUIET}
         >
@@ -509,8 +506,7 @@ export function TideDock({ mode, events, start, end, value, onSeek, seekEnabled,
         <button
           type="button"
           aria-label="Shift window later"
-          title="Shift window later"
-          onClick={() => shift(1)}
+            onClick={() => shift(1)}
           disabled={!canShiftLater}
           className={BUTTON_QUIET}
         >

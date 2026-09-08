@@ -84,7 +84,6 @@ const NOT_YET_SWEPT: ReadonlyArray<{ dir: string; reason: string }> = [
   { dir: 'replay/', reason: '#216 owns replay/mutating-calls-law.test.ts, which reads the surfaces a sweep here would edit' },
   { dir: 'concierge/', reason: '#216 owns concierge/explicit-invocation-law.test.ts, same coupling' },
   { dir: 'lab/', reason: "#235 owns lab/'s two law tests; lab/ is prd-28's territory besides" },
-  { dir: 'tide/', reason: 'MarkHoverCard and the loupe are prd-30 wave 2 (#221) — they re-seat onto the card rather than being swept' },
 ]
 
 /**
@@ -245,7 +244,7 @@ describe('no surface explains itself with a native title attribute (prd-30, #220
     // A count would rot on every added file; what matters is that the walk got
     // into the directories the sweep touched, since a walk that silently
     // reached none would pass the law above having proved nothing.
-    for (const dir of ['panels/', 'drawer/', 'recordings/', 'lane-page/', 'app/', 'why/', 'trace/', 'interaction/']) {
+    for (const dir of ['panels/', 'drawer/', 'recordings/', 'lane-page/', 'app/', 'why/', 'trace/', 'interaction/', 'tide/']) {
       expect(
         files.some((file) => file.name.startsWith(dir)),
         `the walk never reached ${dir} — this law is vacuous`,
