@@ -96,10 +96,22 @@ const CHECKPOINT: LabCheckpoint = {
 }
 
 interface Claim {
-  /** A pattern the marked paragraph must match — the prose and the assertion stay tied. */
+  /** A pattern the marked block must match — the prose and the assertion stay tied. */
   says: RegExp
-  /** The assertion. `grep` in the name means source text was read, not code executed. */
-  check: () => void
+  /** The assertion, handed the block's own text. `grep` in the name means source text was read, not code executed. */
+  check: (text: string) => void
+}
+
+/** A quoted message, as the reader sees it: `> ` stripped, the marker gone, code ticks and straight quotes off the ends, whitespace collapsed. */
+function quotedText(block: string): string {
+  return block
+    .split('\n')
+    .map((line) => line.replace(/^>\s?/, ''))
+    .join(' ')
+    .replace(/<!-- claim: [a-z0-9-]+ -->/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^[`"]|[`"]$/g, '')
 }
 
 const CLAIMS: Readonly<Record<string, Claim>> = {
@@ -376,6 +388,70 @@ const CLAIMS: Readonly<Record<string, Claim>> = {
       expect(server.fork(), 'grep').toContain('export const FORK_EXEC_TIMEOUT_MS = 5000')
     },
   },
+  'law-itself': {
+    says: /Every behavioural sentence on this page is a test[\s\S]*held to the source text, word for word/,
+    check: () => {
+      // The sentence is true iff no behavioural block outside a heading lacks a marker — the marker law below, restated as a claim about the page.
+      const unvouched = paragraphsOf(readFileSync(GUIDE, 'utf8').replace(/\r\n/g, '\n')).filter((p) => p.kind !== 'heading' && p.claim === null && BEHAVIOURAL.test(p.text))
+      expect(unvouched.map((p) => p.text.slice(0, 60)), 'executed over the document').toEqual([])
+    },
+  },
+  'ceiling-refusal-quote': {
+    says: /refusing to dispatch 9 spending lane\(s\) \(3 arm\(s\) × 3 run\(s\)\)[\s\S]*pass --ceiling-override 9/,
+    check: (text) => {
+      const fork = server.fork()
+      // The three pieces of the template, as the source spells them — a changed word in fork.ts fails here.
+      expect(fork, 'grep: the refusal template, piece 1').toContain('`refusing to dispatch ${lanes} spending lane(s) (${options.arms} arm(s) × ${runs} run(s)): the launch ceiling is ${ceiling}`')
+      expect(fork, 'grep: piece 2').toContain("`${options.ceilingOverride === undefined ? ' (the default)' : ' (your override)'} — pass --ceiling-override ${lanes} to authorise `")
+      expect(fork, 'grep: piece 3').toContain("'exactly this many; the override is recorded on every fork.dispatched it produces (prd53 ruling 6)'")
+      expect(fork, 'grep: the default the quote names').toMatch(/LAUNCH_CEILING_LANES = 8/)
+      // The quote is that template rendered for 3 arms × 3 runs against the default — a changed word in the guide fails here.
+      expect(quotedText(text), 'the guide quotes the rendered refusal verbatim').toBe(
+        'refusing to dispatch 9 spending lane(s) (3 arm(s) × 3 run(s)): the launch ceiling is 8 (the default) — pass --ceiling-override 9 to authorise exactly this many; the override is recorded on every fork.dispatched it produces (prd53 ruling 6)',
+      )
+    },
+  },
+  'no-launch-quote': {
+    says: /No tmux window was opened and no branch was created/,
+    check: (text) => {
+      const cli = server.cli()
+      const pieces = [
+        'No tmux window was opened and no branch was created: prd12 ruling 1 confines the',
+        "laboratory's writes to refs/rhizomorph/, its own worktrees and its data dir, and",
+        "'workmux add' writes outside all three. Pass --launch to authorise that yourself.",
+      ]
+      for (const piece of pieces) expect(cli, `grep: the CLI prints "${piece.slice(0, 30)}…"`).toContain(piece)
+      expect(quotedText(text), 'the guide quotes the CLI verbatim').toBe(pieces.join(' '))
+    },
+  },
+  'rank-refusal-quote': {
+    says: /arm\(s\) — runs only\. Ranking needs n >= 3/,
+    check: (text) => {
+      const compare = server.compare()
+      expect(compare, 'grep: the refusal, line 1').toContain('`${arms} arm(s) — runs only. Ranking needs n >= ${MIN_ARMS_TO_RANK} (prd12 ruling 4:`')
+      expect(compare, 'grep: line 2').toContain("'a comparison below three arms reports what happened, never which arm was better).'")
+      expect(compare, 'grep: line 3').toContain('`${COUNTERFACTUAL_CLAUSE}.`')
+      expect(quotedText(text), 'executed: the guide quotes the refusal rendered with core\'s own constants').toBe(
+        `<n> arm(s) — runs only. Ranking needs n >= ${MIN_ARMS_TO_RANK} (prd12 ruling 4: a comparison below three arms reports what happened, never which arm was better). ${COUNTERFACTUAL_CLAUSE}.`,
+      )
+    },
+  },
+  'refusal-table': {
+    says: /\| \*\*400\*\* \| arms × runs above the ceiling[\s\S]*\| \*\*400\*\* \| `runs` or `ceilingOverride`[\s\S]*\| \*\*503\*\*[\s\S]*30 s[\s\S]*\| \*\*409\*\*/,
+    check: () => {
+      const api = server.api()
+      const start = api.indexOf("app.post('/api/lab/launch'")
+      expect(start, 'the launch route is registered').toBeGreaterThan(-1)
+      const launch = api.slice(start)
+      for (const code of [400, 503, 409]) expect(launch, `grep: the launch route answers ${code}`).toContain(`.code(${code})`)
+      expect(api, 'grep: row 1 — the ceiling refusal names the override to pass').toContain('pass "ceilingOverride": ${lanes} to authorise exactly this many')
+      expect(api, 'grep: row 2 — a bad runs value names the ruling').toContain('"runs" must be a positive integer when present (prd53 ruling 1)')
+      expect(api, 'grep: row 2 — a bad override names the ruling').toContain('"ceilingOverride" must be a positive integer of spending lanes when present')
+      expect(api, 'grep: row 3 — the lock ceiling is thirty seconds').toContain('LAB_CLI_LOCK_CEILING_MS = 30_000')
+      expect(api, 'grep: row 3 — the refusal names the holder').toContain('labCliQueueLabel')
+      expect(launch, 'grep: row 4 — replay answers with the reason').toContain('there is nothing live to fork')
+    },
+  },
 }
 
 // --- reading the document -----------------------------------------------------
@@ -383,15 +459,29 @@ const CLAIMS: Readonly<Record<string, Claim>> = {
 interface Paragraph {
   readonly text: string
   readonly claim: string | null
-  /** `prose` can carry a claim; `other` is a heading, blockquote or table — see the gap law below. */
-  readonly kind: 'prose' | 'other'
+  /**
+   * Prose, a blockquote and a table can all carry a claim (the marker rides the
+   * quote's last line, or the line after the table's last row). A heading names a
+   * section; its claims live in the blocks beneath it, and it may name a ruling
+   * but never a route, a code or a flag (the heading law below).
+   */
+  readonly kind: 'prose' | 'quote' | 'table' | 'heading'
+}
+
+function kindOf(text: string): Paragraph['kind'] {
+  if (text.startsWith('#')) return 'heading'
+  if (text.startsWith('>')) return 'quote'
+  if (text.startsWith('|')) return 'table'
+  return 'prose'
 }
 
 /**
- * Every block outside a fence, tagged. Headings, blockquotes and table rows are
- * NOT claims and never were — but they are returned rather than dropped, so the
- * gap law below can state which of them name behaviour and go unvouched-for
- * (review of #330). Dropping them here is what made that gap silent.
+ * Every block outside a fence, tagged. The first draft returned only prose and
+ * dropped the rest, which left a heading, a blockquote or a table free to name
+ * behaviour with nothing vouching for it (review of #330: three verbatim error
+ * messages and the status-code table, the shapes that rot fastest). Ruled
+ * 2026-09-08: the marker's reach extends to quotes and tables, and a quoted
+ * message is held to the source text word for word.
  */
 function paragraphsOf(markdown: string): Paragraph[] {
   const out: Paragraph[] = []
@@ -402,7 +492,7 @@ function paragraphsOf(markdown: string): Paragraph[] {
     const text = current.join('\n')
     current = []
     const marker = /<!-- claim: ([a-z0-9-]+) -->/.exec(text)
-    out.push({ text, claim: marker?.[1] ?? null, kind: /^(#|>|\|)/.test(text) ? 'other' : 'prose' })
+    out.push({ text, claim: marker?.[1] ?? null, kind: kindOf(text) })
   }
   for (const line of markdown.split('\n')) {
     if (line.startsWith('```')) {
@@ -439,8 +529,9 @@ describe('the-lab.md — every behavioural claim is a test (prd53 ruling 9)', ()
    */
   const guide = readFileSync(GUIDE, 'utf8').replace(/\r\n/g, '\n')
   const paragraphs = paragraphsOf(guide)
-  const prose = paragraphs.filter((p) => p.kind === 'prose')
-  const marked = prose.filter((p) => p.claim !== null)
+  const claimable = paragraphs.filter((p) => p.kind !== 'heading')
+  const marked = claimable.filter((p) => p.claim !== null)
+  const textOf = new Map(marked.map((p) => [p.claim as string, p.text]))
 
   it('the document marks its claims, and the ids here are exactly the ids there — neither side may drift', () => {
     const ids = marked.map((p) => p.claim as string)
@@ -448,12 +539,17 @@ describe('the-lab.md — every behavioural claim is a test (prd53 ruling 9)', ()
     expect(ids.sort()).toEqual(Object.keys(CLAIMS).sort())
   })
 
-  it('a prose paragraph naming a route, a status code, a flag or a ruling carries a claim marker', () => {
-    const unmarked = prose.filter((p) => p.claim === null && BEHAVIOURAL.test(p.text)).map((p) => p.text.slice(0, 90))
+  it('a prose paragraph, a quoted message or a table naming a route, a status code, a flag or a ruling carries a claim marker', () => {
+    const unmarked = claimable.filter((p) => p.claim === null && BEHAVIOURAL.test(p.text)).map((p) => `${p.kind}: ${p.text.slice(0, 80)}`)
     expect(unmarked).toEqual([])
   })
 
-  it('each marked paragraph still says what its assertion checks', () => {
+  it('a heading may name a ruling, never a route, a status code or a flag — behaviour lives in the blocks beneath it', () => {
+    const behaviouralHeading = /\/api\/lab\/|\b(?:400|404|409|503)\b|(?:^|\s)`?--[a-z]/
+    expect(paragraphs.filter((p) => p.kind === 'heading' && behaviouralHeading.test(p.text)).map((p) => p.text)).toEqual([])
+  })
+
+  it('each marked block still says what its assertion checks', () => {
     for (const p of marked) {
       const claim = CLAIMS[p.claim as string]
       if (claim === undefined) continue // reported by the set test above
@@ -475,25 +571,24 @@ describe('the-lab.md — every behavioural claim is a test (prd53 ruling 9)', ()
    * `eras.test.ts` states its uncovered families: this list may shrink freely
    * (move a quote into marked prose, or drop it), but a NEW unvouched-for
    * behavioural block cannot join it without this test going red and someone
-   * saying so out loud.
+   * saying so out loud. It shrank to nothing on 2026-09-08, when the marker's
+   * reach was extended to quotes and tables (Lachlan's ruling on this review)
+   * and headings got a law of their own; it stays as the guard.
    */
-  it('the behavioural blocks outside prose are exactly these — a new one may not join them silently', () => {
+  it('the behavioural blocks outside the marker law\'s reach are exactly these — none; a new one may not join silently', () => {
+    // Ruled 2026-09-08 (Lachlan, on this review): the six blocks this list once named
+    // — three verbatim messages, the status table, the opening quote, one heading —
+    // are claims now or headings held by their own law. The list stays, empty, as
+    // the guard it was built to be: a block the marker law cannot reach shows up here.
     const uncovered = paragraphs
-      .filter((p) => p.kind === 'other' && BEHAVIOURAL.test(p.text))
+      .filter((p) => p.kind === 'heading' && /\/api\/lab\/|\b(?:400|404|409|503)\b|(?:^|\s)`?--[a-z]/.test(p.text))
       .map((p) => (p.text.split('\n')[0] as string).slice(0, 72))
-    expect(uncovered).toEqual([
-      '> **Every behavioural sentence on this page is a test.** The paragraphs ',
-      '> `refusing to dispatch 9 spending lane(s) (3 arm(s) × 3 run(s)): the la',
-      '> "No tmux window was opened and no branch was created: prd12 ruling 1',
-      '> `<n> arm(s) — runs only. Ranking needs n >= 3 (prd12 ruling 4: a compa',
-      '| code | when | what the message names |',
-      '## Residuals — with owners, or honestly without (prd53 ruling 10)',
-    ])
+    expect(uncovered).toEqual([])
   })
 
   for (const [id, claim] of Object.entries(CLAIMS)) {
     it(`claim "${id}" holds against the code`, () => {
-      claim.check()
+      claim.check(textOf.get(id) ?? '')
     })
   }
 })

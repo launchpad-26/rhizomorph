@@ -4,8 +4,9 @@
 > claim markers (invisible when rendered), and `packages/web/src/lab/the-lab-guide-law.test.ts`
 > reads each one and asserts it against the code or the copy it describes — prd-43's
 > *the claim is a test*, reaching the lab with prd-53 ruling 9. A sentence here that
-> goes false fails the build; a paragraph that names a route, a status code, a flag or
-> a ruling without a marker fails it too.
+> goes false fails the build; a paragraph, a quoted message or a table that names a
+> route, a status code, a flag or a ruling without a marker fails it too — and a quoted
+> message is held to the source text, word for word. <!-- claim: law-itself -->
 
 The lab is the instrument's separate, opt-in second hand — reachable only by
 an explicit human act, and there are exactly two of those: your own command
@@ -108,14 +109,14 @@ in this page: <!-- claim: launch-ceiling -->
 > `refusing to dispatch 9 spending lane(s) (3 arm(s) × 3 run(s)): the launch
 > ceiling is 8 (the default) — pass --ceiling-override 9 to authorise exactly
 > this many; the override is recorded on every fork.dispatched it produces
-> (prd53 ruling 6)`
+> (prd53 ruling 6)` <!-- claim: ceiling-refusal-quote -->
 
 Without `--launch`, nothing runs — the exact message: <!-- claim: no-launch-message -->
 
 > "No tmux window was opened and no branch was created: prd12 ruling 1
 > confines the laboratory's writes to refs/rhizomorph/, its own worktrees
 > and its data dir, and 'workmux add' writes outside all three. Pass
-> --launch to authorise that yourself."
+> --launch to authorise that yourself." <!-- claim: no-launch-quote -->
 
 — followed by the exact command line to run each arm yourself, and a hint
 for comparing them once they have.
@@ -145,7 +146,7 @@ is one observation, not a distribution*: <!-- claim: floors -->
 
 > `<n> arm(s) — runs only. Ranking needs n >= 3 (prd12 ruling 4: a comparison
 > below three arms reports what happened, never which arm was better).
-> what actually happened is one observation, not a distribution.`
+> what actually happened is one observation, not a distribution.` <!-- claim: rank-refusal-quote -->
 
 At three or more arms it shows a *distribution* — verified count, cost and
 duration spread (min/median/max), one line per arm once any arm holds more
@@ -241,6 +242,7 @@ this sentence fails its test and is rewritten. <!-- claim: launch-panel-gap -->
 | **400** | `runs` or `ceilingOverride` not a positive integer | which field, and the ruling that made it a field |
 | **503** | the lab's CLI lock was held for 30 s | what the holder was doing |
 | **409** | the server is replaying a recording | that there is nothing live to fork or measure |
+<!-- claim: refusal-table -->
 
 The panel prints the refusal it received verbatim in its own status line;
 nothing is softened or summarised on the way. <!-- claim: refusals-verbatim -->
