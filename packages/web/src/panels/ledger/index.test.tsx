@@ -7,6 +7,7 @@ import {
   selectSpendByBranch,
 } from '@rhizomorph/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { discloseText } from '../../disclosure/testing.js'
 import { ModeProvider, useReplay } from '../../app/ModeContext.js'
 import { requestPanelFocus } from '../../app/panelPrefs.js'
 import { StreamProvider } from '../../app/StreamContext.js'
@@ -265,7 +266,7 @@ describe('LedgerPanel', () => {
     // Output-led (3_100), never the unlabelled all-tier sum (189_504).
     expect(tokensCell).toHaveTextContent(formatTokens(3_100))
     expect(tokensCell).not.toHaveTextContent(formatTokens(189_504))
-    expect(tokensCell.getAttribute('title')).toBe(
+    expect(discloseText(tokensCell)).toContain(
       formatTokenBreakdown({ input: 4, output: 3_100, cacheRead: 180_000, cacheCreation: 6_400, total: 189_504 }),
     )
   })
@@ -539,7 +540,7 @@ describe('LedgerPanel — the exemplar jump (issue #159)', () => {
 
     const row = screen.getAllByTestId('ledger-row').find((el) => el.textContent?.includes(branch))!
     const jump = within(row).getByTestId('ledger-exemplar-jump')
-    expect(jump.title).toContain(formatTokens(205))
+    expect(discloseText(jump)).toContain(formatTokens(205))
 
     // prd-36 ruling 2 cut FOCUS TRACE, so this jump follows the trace to the
     // surface that kept it. The selection is still written first, so the fleet

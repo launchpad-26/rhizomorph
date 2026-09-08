@@ -42,6 +42,22 @@ export function canRankArms(arms: number): boolean {
   return Number.isInteger(arms) && arms >= MIN_ARMS_TO_RANK
 }
 
+/** The three verdicts a gate can leave on a run. Absent means nobody has measured it. */
+export type Verdict = 'pass' | 'fail' | 'not-run'
+
+/**
+ * THE DENOMINATOR (ruling 2, amendment 2026-09-08): a run is COMPLETED when a
+ * gate has judged it — pass or fail. `not-run` (the gate never ran) and an
+ * absent verdict (nobody measured it) are not completed. Whether a value is
+ * booked under some measure never enters this predicate: that is the spread's
+ * n, stated beside it, not the floor. Before this function the CLI, Metrics
+ * and Compare each spelled their own count and disagreed about the same arm —
+ * `packages/web/src/lab/floor-agreement-law.test.ts` now holds them to one.
+ */
+export function isCompletedVerdict(verified: Verdict | undefined): verified is 'pass' | 'fail' {
+  return verified === 'pass' || verified === 'fail'
+}
+
 /**
  * Below the floor this is the whole of what may be said. One observation is a
  * fact about one run; it is not evidence about the treatment.

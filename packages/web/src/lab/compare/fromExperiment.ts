@@ -1,3 +1,4 @@
+import { isCompletedVerdict } from '@rhizomorph/core'
 import type { LabExperiment, LabRun } from '../types.js'
 import type { ComparisonInput, Run } from './types.js'
 
@@ -34,29 +35,28 @@ export const MEASURE_BASIS: Readonly<Record<Measure, string>> = {
 }
 
 /**
- * One run, read for one measure. An unmeasured run, and a run whose gate did
- * not run (`not-run`), are PENDING under every measure: no verdict exists, and
- * no number is invented in its place (ruling 3). A measured run whose value
- * for this measure is not booked (a pass with no cost yet) is pending too — a
- * fabricated `$0` would be a comparison against nothing.
+ * One run, read for one measure. Whether the run is COMPLETE is core's call
+ * and measure-independent (`isCompletedVerdict`: a gate judged it, pass or
+ * fail — ruling 2's amendment) — so the floor Compare applies is the floor
+ * Metrics and the CLI apply. An unmeasured run, and a run whose gate did not
+ * run (`not-run`), are PENDING under every measure: no verdict exists, and no
+ * number is invented in its place (ruling 3). A judged run whose value for
+ * THIS measure is not booked (a pass with no cost yet) is complete with a null
+ * value and a note — it counts toward the floor, not toward the spread; a
+ * fabricated `$0` would be a comparison against nothing. Under `verified` the
+ * value is the verdict itself: 1 for pass, 0 for fail.
  */
 export function runForMeasure(run: LabRun, measure: Measure): Run {
   const outcome = run.outcome
-  if (outcome === undefined || outcome.verified === 'not-run') return { id: run.eventId, status: 'pending', note: NOT_MEASURED }
-  if (measure === 'verified') {
-    if (outcome.verified === 'pass') return { id: run.eventId, status: 'complete', value: 1 }
-    return outcome.verifiedDetail === null
-      ? { id: run.eventId, status: 'failed' }
-      : { id: run.eventId, status: 'failed', error: outcome.verifiedDetail }
-  }
-  if (outcome.verified === 'fail') {
-    return outcome.verifiedDetail === null
-      ? { id: run.eventId, status: 'failed' }
-      : { id: run.eventId, status: 'failed', error: outcome.verifiedDetail }
-  }
+  if (outcome === undefined || !isCompletedVerdict(outcome.verified)) return { id: run.eventId, status: 'pending', note: NOT_MEASURED }
+  const verdict = outcome.verified
+  const detail = outcome.verifiedDetail === null ? {} : { detail: outcome.verifiedDetail }
+  if (measure === 'verified') return { id: run.eventId, status: 'complete', verdict, value: verdict === 'pass' ? 1 : 0, ...detail }
   const value = measure === 'cost' ? outcome.costUsd : measure === 'duration' ? outcome.durationMs : outcome.commits
-  if (value === null) return { id: run.eventId, status: 'pending', note: `verified, but no ${MEASURE_LABEL[measure]} is booked to its lane yet` }
-  return { id: run.eventId, status: 'complete', value }
+  if (value === null) {
+    return { id: run.eventId, status: 'complete', verdict, value: null, note: `judged, but no ${MEASURE_LABEL[measure]} is booked to its lane yet`, ...detail }
+  }
+  return { id: run.eventId, status: 'complete', verdict, value, ...detail }
 }
 
 function briefLabel(promptDigest: string | null): string {

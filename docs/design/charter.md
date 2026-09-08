@@ -37,7 +37,7 @@ than borrowing confidence from a suite that does not exist.
 
 | law | source ruling | test | meaning |
 | --- | --- | --- | --- |
-| **law 9** | prd-03 | by construction in `fleet/sigils.tsx` — every state is glyph + word; no automated greyscale test exists | colour is never the sole carrier of a state; every mark survives greyscale |
+| **law 9** | prd-03 | by construction in `fleet/sigils.tsx` — every state is glyph + word; `theme/category.test.ts` "law 9 — the two poles survive greyscale and a red-green reader" holds `--color-working` / `--color-broken` apart in greyscale and under both red-green dichromacies, per theme (#39) | colour is never the sole carrier of a state; every mark survives greyscale |
 | **law 9a** | prd-04 ruling 3 (`docs/prds/done/prd-04-human-facing.md:20-34`) | `scene/marks.test.ts:1415` "says what the fleet is doing in a colour a stranger can guess (law 9a)"; `:3297` "shimmers in luminance only, never in hue" | hue is meaning, and each hue means one thing — the full table is §2.1 |
 | **law 9b** | prd-04 ruling 3; amended once by prd-10 ruling 4 | `scene/marks.test.ts:497` (calm under the ceiling), `:546` (needs-you inside the band), `:507` (alarms exempt from fades); `:3000` "law 9b, amended within reason" | the brightness band and the alarm grammar own attention, not hue exclusivity — the numbers are §2.2 |
 | **the CALM_FLOOR law** | prd-04 ruling 3 | `scene/marks.test.ts:1403` "renders every thread bright enough to actually read (CALM_FLOOR)" | a living thread never dims below 0.15 on a calm fleet; a frozen thread sits below it on purpose — absence of light is what FROZEN encodes |

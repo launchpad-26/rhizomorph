@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { fixtureTraceSpans, initialSessionState, reduceAll } from '@rhizomorph/core'
 import { afterEach, describe, expect, it } from 'vitest'
+import { discloseText } from '../disclosure/testing.js'
 import { TraceTree } from './TraceTree.js'
 
 afterEach(cleanup)
@@ -44,9 +45,9 @@ describe('TraceTree', () => {
     const state = reduceAll(fixtureTraceSpans({ lane: '2-core' }))
     render(<TraceTree state={state} lane="2-core" />)
 
-    const title = screen.getByTitle(/output 3\.1K/)
-    expect(title.textContent).toBe('3.1K')
-    expect(title.getAttribute('title')).toBe('output 3.1K · input 4 · cache read 180K · cache write 6.4K')
+    // #220: the headline is the mark, the breakdown is its card.
+    const headline = screen.getByText('3.1K')
+    expect(discloseText(headline)).toContain('output 3.1K · input 4 · cache read 180K · cache write 6.4K')
   })
 
   it('expands to show every child row, indented, none hidden', () => {
@@ -114,5 +115,35 @@ describe('TraceTree', () => {
     // Neither orphan has had a chance to grow children yet — an empty child
     // list here is the honest state of a session still in flight, not a bug.
     expect(screen.queryAllByTestId('trace-row')).toHaveLength(0)
+  })
+
+  it('discloses the tokens mark beside the toggle, never inside it — one tap, one handler (review of #335)', () => {
+    // ADR-0040 covers a mark that IS a control; this row was the sibling it
+    // did not consider, a mark INSIDE a control. Measured before the fix: the
+    // disclosure trigger was a descendant of the toggle, one click on the
+    // token headline expanded four rows AND pinned the card, and the button
+    // carried a focusable descendant — invalid content model. Each of those
+    // is asserted here in the negative, against the real tree.
+    const state = reduceAll(fixtureTraceSpans({ lane: '2-core' }))
+    render(<TraceTree state={state} lane="2-core" />)
+
+    const toggle = screen.getByTestId('trace-interaction-toggle')
+    const trigger = screen.getByTestId('disclosure-trigger')
+
+    expect(toggle.contains(trigger)).toBe(false)
+    expect(toggle.querySelectorAll('[tabindex], button, [role="note"]')).toHaveLength(0)
+    // The mark is inert text now, so it wears the default trigger — its own
+    // button, and the only one on the mark.
+    expect(trigger.tagName).toBe('BUTTON')
+
+    fireEvent.click(trigger)
+    expect(trigger.getAttribute('data-open')).toBe('true') // the card pinned…
+    expect(toggle.getAttribute('aria-expanded')).toBe('false') // …and nothing else moved
+    expect(screen.queryAllByTestId('trace-row')).toHaveLength(0)
+
+    // The toggle still does its own job, and the tap on it does not touch the card.
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getAllByTestId('trace-row').length).toBeGreaterThan(0)
   })
 })

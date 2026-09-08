@@ -1,0 +1,5982 @@
+{
+  "agents": {
+    "HEAD": {
+      "branch": "HEAD",
+      "detail": "<agent detail elided>",
+      "dissent": null,
+      "elapsedSeconds": 0,
+      "firstSeenAt": 1788757577094,
+      "handle": "HEAD",
+      "present": true,
+      "previousStatus": null,
+      "removedAt": null,
+      "status": "working",
+      "updatedAt": 1788757577094,
+      "witness": "sessionlog",
+      "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+    }
+  },
+  "branches": {
+    "168-s3-windows": {
+      "aheadOfMain": 1,
+      "behindMain": 149,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "5b1185b0e5438338a62d37a5e0345edd6fa09846",
+      "name": "168-s3-windows",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "174-barrel-clause-axis": {
+      "aheadOfMain": 1,
+      "behindMain": 288,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "ba92765e32acf848fda48fb8e7e9c0fb34f65a77",
+      "name": "174-barrel-clause-axis",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "175-reconciler-marker-and-scale": {
+      "aheadOfMain": 1,
+      "behindMain": 288,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "031d2b23f15fe297bfe632370a36ba3985b2eaa8",
+      "name": "175-reconciler-marker-and-scale",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "176-win32-segment-rule": {
+      "aheadOfMain": 1,
+      "behindMain": 288,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "0d63e4956f8ebee016088f39a114d6aa2bc2fc03",
+      "name": "176-win32-segment-rule",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "225-demo-esc": {
+      "aheadOfMain": 1,
+      "behindMain": 148,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "243f8948aabdd832b9124173487cb344bfef9e49",
+      "name": "225-demo-esc",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "226-screenshot-tree-bound": {
+      "aheadOfMain": 1,
+      "behindMain": 148,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "a57f05108a48bf9eb613be70c3c68d828ee4e6af",
+      "name": "226-screenshot-tree-bound",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "231-remedy-token-grammar": {
+      "aheadOfMain": 1,
+      "behindMain": 148,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "d35e99b46e7113c6fa1b7b0305aba68738e392d5",
+      "name": "231-remedy-token-grammar",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "232-route-count-sweep": {
+      "aheadOfMain": 1,
+      "behindMain": 148,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "f0593fbcc343d4a4db3fe4f1a6dce86dc2e149f4",
+      "name": "232-route-count-sweep",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "233-watching-provenance": {
+      "aheadOfMain": 1,
+      "behindMain": 108,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "aea8dadf85e858b986ba25981b213721c525c472",
+      "name": "233-watching-provenance",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "234-outbound-vocabulary": {
+      "aheadOfMain": 1,
+      "behindMain": 108,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "1a40e04896969a217f2a344225dbcc053c49d311",
+      "name": "234-outbound-vocabulary",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "235-count-matches-assertion": {
+      "aheadOfMain": 1,
+      "behindMain": 28,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "4bd7c178491334912a457d03f34c63db4cabea99",
+      "name": "235-count-matches-assertion",
+      "previousHead": "4bd7c178491334912a457d03f34c63db4cabea99",
+      "updatedAt": 1788757348336,
+      "worktreePath": "/repo/rhizomorph__worktrees/235-count-matches-assertion"
+    },
+    "261-citation-ceiling-law": {
+      "aheadOfMain": 1,
+      "behindMain": 105,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "c8080988eb2ce4fd16575334efd3718f68308555",
+      "name": "261-citation-ceiling-law",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "266-sweep-timeout": {
+      "aheadOfMain": 1,
+      "behindMain": 103,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "4a5ac25ca8a0306a4cc755f38adafe943bb3b3a5",
+      "name": "266-sweep-timeout",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "270-sweep-budget": {
+      "aheadOfMain": 1,
+      "behindMain": 105,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "80ddb8f3c5509b825619c562289d6e16de018d44",
+      "name": "270-sweep-budget",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "274-preflatten-rescue": {
+      "aheadOfMain": 3,
+      "behindMain": 15,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "711749c30ce83aafa2d494c6f57db53b9d8b5b6b",
+      "name": "274-preflatten-rescue",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "274-verdict-to-beacon": {
+      "aheadOfMain": 5,
+      "behindMain": 15,
+      "commits": [
+        "27e695eb88bedd7d7aee97a3a95411a09b94ec52"
+      ],
+      "firstSeenAt": 1788757348336,
+      "head": "27e695eb88bedd7d7aee97a3a95411a09b94ec52",
+      "name": "274-verdict-to-beacon",
+      "previousHead": "0b07ea881b26d17f993a843a64796b7b41a93b19",
+      "updatedAt": 1788758662283,
+      "worktreePath": "/repo/rhizomorph__worktrees/274-verdict-to-beacon"
+    },
+    "275-outbound-row-titles": {
+      "aheadOfMain": 1,
+      "behindMain": 15,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "a07f85e1b619245741ba77a90fa20fdfae1f6174",
+      "name": "275-outbound-row-titles",
+      "previousHead": "a07f85e1b619245741ba77a90fa20fdfae1f6174",
+      "updatedAt": 1788757348336,
+      "worktreePath": "/repo/rhizomorph__worktrees/275-outbound-row-titles"
+    },
+    "276-operator-acts": {
+      "aheadOfMain": 1,
+      "behindMain": 91,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "b7421013f9787b7340e6fe19aaa7a3b9a57bf857",
+      "name": "276-operator-acts",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "277-tide-marks": {
+      "aheadOfMain": 1,
+      "behindMain": 91,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "40e259f8de7545e6fe6ef54e343abff1ee824510",
+      "name": "277-tide-marks",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "278-summons-raiser": {
+      "aheadOfMain": 0,
+      "behindMain": 10,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "786f86b0aa9263c7f9f16fb0c6d3e94171c2d214",
+      "name": "278-summons-raiser",
+      "previousHead": "786f86b0aa9263c7f9f16fb0c6d3e94171c2d214",
+      "updatedAt": 1788757348336,
+      "worktreePath": "/repo/rhizomorph__worktrees/278-summons-raiser"
+    },
+    "288-pinned-sha-landed": {
+      "aheadOfMain": 1,
+      "behindMain": 51,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "5953baa88359e2ca46df6228cfee3a717edaefcc",
+      "name": "288-pinned-sha-landed",
+      "previousHead": "5953baa88359e2ca46df6228cfee3a717edaefcc",
+      "updatedAt": 1788757348336,
+      "worktreePath": "/repo/rhizomorph__worktrees/288-pinned-sha-landed"
+    },
+    "289-exclusion-not-vacuous": {
+      "aheadOfMain": 1,
+      "behindMain": 51,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "a8867650a2278faa89ca537d54b65efb75861a9a",
+      "name": "289-exclusion-not-vacuous",
+      "previousHead": "a8867650a2278faa89ca537d54b65efb75861a9a",
+      "updatedAt": 1788757348336,
+      "worktreePath": "/repo/rhizomorph__worktrees/289-exclusion-not-vacuous"
+    },
+    "311-drawer-count": {
+      "aheadOfMain": 0,
+      "behindMain": 0,
+      "commits": [],
+      "firstSeenAt": 1788757843889,
+      "head": "e5895a46d8b3d4793e1d3809fb947e5ef46f578c",
+      "name": "311-drawer-count",
+      "previousHead": "e5895a46d8b3d4793e1d3809fb947e5ef46f578c",
+      "updatedAt": 1788757843889,
+      "worktreePath": "/repo/rhizomorph/__worktrees/311-drawer-count"
+    },
+    "66-prior-tracker-note": {
+      "aheadOfMain": 1,
+      "behindMain": 105,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "0e016641667272b1fe63c2f3123f495e4b95d489",
+      "name": "66-prior-tracker-note",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "73-gate-prints-honestly": {
+      "aheadOfMain": 1,
+      "behindMain": 285,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "f0bb21121abd968bb98dfb0b5f31bcf8b777a6fc",
+      "name": "73-gate-prints-honestly",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "87-rotation-entry-law-doors": {
+      "aheadOfMain": 1,
+      "behindMain": 401,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "3e3ab722f22ccf662071ab1bc1d9c05d164c8578",
+      "name": "87-rotation-entry-law-doors",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "91-shared-refusal-code": {
+      "aheadOfMain": 1,
+      "behindMain": 390,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "fc3e2026c9846c5ea7fddc103c4d3cb89a8d89a1",
+      "name": "91-shared-refusal-code",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "_verify16": {
+      "aheadOfMain": 1,
+      "behindMain": 270,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "ebc5715835768c296fd4d4f0f4bada599abdde1e",
+      "name": "_verify16",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "audit-2026-08-21": {
+      "aheadOfMain": 4,
+      "behindMain": 490,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "feb13282eb19aa0cf77ecf5808fbebbd23b80b97",
+      "name": "audit-2026-08-21",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "docs/prd-52-the-annotated-citation": {
+      "aheadOfMain": 1,
+      "behindMain": 51,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "651be23cdc3b9973487f42a2f15134143cd5c5a8",
+      "name": "docs/prd-52-the-annotated-citation",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "main": {
+      "aheadOfMain": 0,
+      "behindMain": 0,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "e5895a46d8b3d4793e1d3809fb947e5ef46f578c",
+      "name": "main",
+      "previousHead": "e5895a46d8b3d4793e1d3809fb947e5ef46f578c",
+      "updatedAt": 1788757348336,
+      "worktreePath": "/repo/rhizomorph"
+    },
+    "pr209-review": {
+      "aheadOfMain": 0,
+      "behindMain": 196,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "edbd430801011d5311f22005772776ea3730b1f1",
+      "name": "pr209-review",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "pr67-review": {
+      "aheadOfMain": 0,
+      "behindMain": 438,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "5ff9bd6786d2a66c89ebb7654144085d1ad49ea3",
+      "name": "pr67-review",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "prd17-amendment": {
+      "aheadOfMain": 1,
+      "behindMain": 80,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "91d0b27cb09cf3c330d72ceb98905d1630bbec78",
+      "name": "prd17-amendment",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "prd17-fold-order-fixture": {
+      "aheadOfMain": 1,
+      "behindMain": 115,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "411884ea8662b6d58a7e99c1ed289ce24b92ad79",
+      "name": "prd17-fold-order-fixture",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "prd39-paper": {
+      "aheadOfMain": 2,
+      "behindMain": 487,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "959c52162798a150873d7023197a907a15e66e44",
+      "name": "prd39-paper",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "prd42-sequencing-waves-8-9": {
+      "aheadOfMain": 0,
+      "behindMain": 400,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "6f2c4ceea455fe2677a56c8df6f66a3a20b09cae",
+      "name": "prd42-sequencing-waves-8-9",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "prd42-w11-wave": {
+      "aheadOfMain": 0,
+      "behindMain": 282,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "ab322d58370475feb8e9acc4f5a201e4ed1872df",
+      "name": "prd42-w11-wave",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "prd42-w8-doors-and-one-code": {
+      "aheadOfMain": 0,
+      "behindMain": 385,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "1fc441798ae51f36214c80b2968de9673df0bb96",
+      "name": "prd42-w8-doors-and-one-code",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "prd42-wave-map-reconciled": {
+      "aheadOfMain": 1,
+      "behindMain": 380,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "3e355edfcb4e46ff33723f1b89f17adbe8dc79fa",
+      "name": "prd42-wave-map-reconciled",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "prd42-waves-5-6-reconciled": {
+      "aheadOfMain": 0,
+      "behindMain": 389,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "cd88598c39f1fed2a02bef109ce10e3812b5efe1",
+      "name": "prd42-waves-5-6-reconciled",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "prd43-amendment-sequencing": {
+      "aheadOfMain": 1,
+      "behindMain": 80,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "bc3ada9a476acfe1fcc4f88228019f9cb09d6159",
+      "name": "prd43-amendment-sequencing",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "prd43-sequencing-tense": {
+      "aheadOfMain": 2,
+      "behindMain": 15,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "84c2580d9a4a109ab4079d7b1fc620f2413e3316",
+      "name": "prd43-sequencing-tense",
+      "previousHead": "84c2580d9a4a109ab4079d7b1fc620f2413e3316",
+      "updatedAt": 1788757348336,
+      "worktreePath": "/repo/rhizomorph__worktrees/_tense"
+    },
+    "prd43-w4-backup": {
+      "aheadOfMain": 2,
+      "behindMain": 184,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "91516132e5ffa88600e566db5f76a0d730ee42a1",
+      "name": "prd43-w4-backup",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "prd43-w6-sequencing": {
+      "aheadOfMain": 0,
+      "behindMain": 156,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "b686bcad8ad5e881ea07781c15c86d342f08d5fc",
+      "name": "prd43-w6-sequencing",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "prd43-w7-sequencing": {
+      "aheadOfMain": 0,
+      "behindMain": 120,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "3ad5fe2edeae2776747d14bbc104038b9b3add98",
+      "name": "prd43-w7-sequencing",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "prd43-w8-wave": {
+      "aheadOfMain": 4,
+      "behindMain": 0,
+      "commits": [
+        "c61a14c507efa33b721b9b500ea3f541175abd9a",
+        "1239e0a0b5cec51ff3e5f7a2d5f6cb0e9d22568a",
+        "98ce4d685942d7079c844b51b1ecbcbe9f2a16ef",
+        "8432d6bba388d9346d458e08db17d1e078155d93",
+        "3f36355d82486d019d6de495ce7ba7a8c70251fd",
+        "ca80fd3fc56c987ef138dadbd0c27108400f4653",
+        "8b1dd22cb3fc0d4c9d019c4e756dc71195c97d92",
+        "bdd7d7f4e88dd4638e94d64d93e8d990e8ed509d",
+        "e5895a46d8b3d4793e1d3809fb947e5ef46f578c",
+        "97aba310d66fdb06080fa759c6ba53fe9773f0d5",
+        "b312e05755c1e1c5ca134a95e914c72cc42d5289",
+        "29248b3480186d0d56b0ef6da19b58976ee4b356",
+        "03974d0ce74d70123979e927308322941a6c0c51"
+      ],
+      "firstSeenAt": 1788757348336,
+      "head": "03974d0ce74d70123979e927308322941a6c0c51",
+      "name": "prd43-w8-wave",
+      "previousHead": "64c2b23545055d7034d8f7d19ccde1e7b6606d64",
+      "updatedAt": 1788757422521,
+      "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+    },
+    "prd46": {
+      "aheadOfMain": 0,
+      "behindMain": 380,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "cedcf6ceb86ad75fca1ee1cd8ceb83a4a127b6a0",
+      "name": "prd46",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "prd46-declare-waves": {
+      "aheadOfMain": 1,
+      "behindMain": 288,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "c5017faa29851b48ecf4b3f9c98bc7dc1f9a183b",
+      "name": "prd46-declare-waves",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "prd46-w3-bundle": {
+      "aheadOfMain": 0,
+      "behindMain": 283,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "08a5c7411204b1e5ac8d70605bc882c248e23235",
+      "name": "prd46-w3-bundle",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "prd48": {
+      "aheadOfMain": 0,
+      "behindMain": 299,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "2b18a26607cd20eb70a2cb505086c29a42e5af3c",
+      "name": "prd48",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "review-180-fix": {
+      "aheadOfMain": 0,
+      "behindMain": 292,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "ec7437b8e72196f91a0e4ad2ed8aabffc0474468",
+      "name": "review-180-fix",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "review-182": {
+      "aheadOfMain": 0,
+      "behindMain": 282,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "7396fd180b9dd0fd05ae7db929b5181aeb896411",
+      "name": "review-182",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    },
+    "review-224": {
+      "aheadOfMain": 0,
+      "behindMain": 188,
+      "commits": [],
+      "firstSeenAt": 1788757348336,
+      "head": "50c59bdfca8a6dfc449edecac076fef36b01cb20",
+      "name": "review-224",
+      "previousHead": null,
+      "updatedAt": 1788757348336,
+      "worktreePath": null
+    }
+  },
+  "checkpoints": {
+    "byLane": {},
+    "records": []
+  },
+  "collectors": {
+    "tmux": {
+      "consecutiveFailures": 47,
+      "disabledAt": 1788758698520,
+      "disabledReason": "error connecting to /tmp/tmux-1000/default (No such file or directory) (after 47 consecutive failures)",
+      "errorCount": 2,
+      "lastErrorMessage": "error connecting to /tmp/tmux-1000/default (No such file or directory) (attempt 2/3 — retrying)",
+      "lastErrorTs": 1788757350520,
+      "name": "tmux",
+      "status": "disabled"
+    },
+    "workmux": {
+      "consecutiveFailures": 47,
+      "disabledAt": 1788758698525,
+      "disabledReason": "Error: tmux query failed: [\"list-panes\", \"-a\", \"-F\", \"#{pane_id}\\t#{pane_pid}\\t#{pane_current_command}\\t#{pane_current_path}\\t#{pane_title}\\t#{session_name}\\t#{window_name}\\t#{session_id}\\t#{window_id}\"]\n\nCaused by:\n    Command failed: tmux list-panes -a -F #{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_title}\t#{session_name}\t#{window_name}\t#{session_id}\t#{window_id}\n    error connecting to /tmp/tmux-1000/default (No such file or directory) (after 47 consecutive failures)",
+      "errorCount": 2,
+      "lastErrorMessage": "Error: tmux query failed: [\"list-panes\", \"-a\", \"-F\", \"#{pane_id}\\t#{pane_pid}\\t#{pane_current_command}\\t#{pane_current_path}\\t#{pane_title}\\t#{session_name}\\t#{window_name}\\t#{session_id}\\t#{window_id}\"]\n\nCaused by:\n    Command failed: tmux list-panes -a -F #{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_title}\t#{session_name}\t#{window_name}\t#{session_id}\t#{window_id}\n    error connecting to /tmp/tmux-1000/default (No such file or directory) (attempt 2/3 — retrying)",
+      "lastErrorTs": 1788757350525,
+      "name": "workmux",
+      "status": "disabled"
+    }
+  },
+  "commits": {
+    "bySha": {
+      "03974d0ce74d70123979e927308322941a6c0c51": {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788732321000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 1,
+        "files": [
+          {
+            "deletions": 1,
+            "insertions": 23,
+            "path": "docs/prds/prd-43-the-claim-is-a-test.md",
+            "status": "modified"
+          }
+        ],
+        "insertions": 23,
+        "landedAt": 1788757422521,
+        "message": "docs(prd-43): waves 5 and 8 merge, because the boundary between them records history",
+        "parents": [
+          "29248b3480186d0d56b0ef6da19b58976ee4b356"
+        ],
+        "sha": "03974d0ce74d70123979e927308322941a6c0c51",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      "1239e0a0b5cec51ff3e5f7a2d5f6cb0e9d22568a": {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788734294000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 3,
+        "files": [
+          {
+            "deletions": 3,
+            "insertions": 23,
+            "path": "AGENTS.md",
+            "status": "modified"
+          }
+        ],
+        "insertions": 23,
+        "landedAt": 1788757422521,
+        "message": "docs(runbook): CI's stated duration is the measured one",
+        "parents": [
+          "c61a14c507efa33b721b9b500ea3f541175abd9a"
+        ],
+        "sha": "1239e0a0b5cec51ff3e5f7a2d5f6cb0e9d22568a",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      "27e695eb88bedd7d7aee97a3a95411a09b94ec52": {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788757717000,
+        "branches": [
+          "274-verdict-to-beacon"
+        ],
+        "deletions": 3,
+        "files": [
+          {
+            "deletions": 3,
+            "insertions": 33,
+            "path": "packages/server/src/gate-honesty-law.test.ts",
+            "status": "modified"
+          }
+        ],
+        "insertions": 33,
+        "landedAt": 1788758662283,
+        "message": "test(gate-honesty-law): the tsx pin holds a logical line, so a launcher cannot prefix the binary  (review of #310)",
+        "parents": [
+          "0b07ea881b26d17f993a843a64796b7b41a93b19"
+        ],
+        "sha": "27e695eb88bedd7d7aee97a3a95411a09b94ec52",
+        "worktreePath": "/repo/rhizomorph__worktrees/274-verdict-to-beacon"
+      },
+      "29248b3480186d0d56b0ef6da19b58976ee4b356": {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788731781000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 1,
+        "files": [
+          {
+            "deletions": 1,
+            "insertions": 61,
+            "path": "docs/prds/prd-43-the-claim-is-a-test.md",
+            "status": "modified"
+          }
+        ],
+        "insertions": 61,
+        "landedAt": 1788757422521,
+        "message": "docs(prd-43): the Sequencing says how to read its own tense, instead of being rewritten",
+        "parents": [
+          "b312e05755c1e1c5ca134a95e914c72cc42d5289"
+        ],
+        "sha": "29248b3480186d0d56b0ef6da19b58976ee4b356",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      "3f36355d82486d019d6de495ce7ba7a8c70251fd": {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788748099000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 0,
+        "files": [],
+        "insertions": 0,
+        "landedAt": 1788757422521,
+        "message": "Merge pull request #304 from launchpad-26/prd27-w4-lapsed-declaration",
+        "parents": [
+          "45c61e355c4a6fd9ec35665a8c1f7a9fb5f4f4ae",
+          "98ce4d685942d7079c844b51b1ecbcbe9f2a16ef"
+        ],
+        "sha": "3f36355d82486d019d6de495ce7ba7a8c70251fd",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      "8432d6bba388d9346d458e08db17d1e078155d93": {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788745981000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 1,
+        "files": [
+          {
+            "deletions": 1,
+            "insertions": 10,
+            "path": "packages/web/src/app/streamState.bench.test.ts",
+            "status": "modified"
+          }
+        ],
+        "insertions": 10,
+        "landedAt": 1788757422521,
+        "message": "fix(web): the bench is enrolled in the timing set by its name alone  (review of #305)",
+        "parents": [
+          "1239e0a0b5cec51ff3e5f7a2d5f6cb0e9d22568a"
+        ],
+        "sha": "8432d6bba388d9346d458e08db17d1e078155d93",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      "8b1dd22cb3fc0d4c9d019c4e756dc71195c97d92": {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788750688000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 120,
+        "files": [
+          {
+            "deletions": 1,
+            "insertions": 2,
+            "path": ".citation-prior-tracker",
+            "status": "modified"
+          },
+          {
+            "deletions": 0,
+            "insertions": 1,
+            "path": "CHANGELOG.md",
+            "status": "modified"
+          },
+          {
+            "deletions": 1,
+            "insertions": 21,
+            "path": "docs/architecture.md",
+            "status": "modified"
+          },
+          {
+            "deletions": 3,
+            "insertions": 10,
+            "path": "docs/prds/prd-27-the-declared-voice.md",
+            "status": "modified"
+          },
+          {
+            "deletions": 2,
+            "insertions": 55,
+            "path": "packages/core/src/selectors/connection.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 4,
+            "insertions": 20,
+            "path": "packages/core/src/selectors/connection.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 1,
+            "insertions": 238,
+            "path": "packages/server/src/api/doctor.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 6,
+            "insertions": 51,
+            "path": "packages/server/src/api/doctor.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 1,
+            "insertions": 4,
+            "path": "packages/server/src/api/meta.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 5,
+            "insertions": 78,
+            "path": "packages/server/src/cli/doctor.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 54,
+            "insertions": 61,
+            "path": "packages/server/src/cli/doctor.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 2,
+            "insertions": 4,
+            "path": "packages/server/src/collectors/beacon/fixtures/CAPTURE.md",
+            "status": "modified"
+          },
+          {
+            "deletions": 1,
+            "insertions": 7,
+            "path": "packages/server/src/recorder/session-recorder.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 0,
+            "insertions": 3,
+            "path": "packages/server/src/server/build-app.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 5,
+            "insertions": 9,
+            "path": "packages/web/src/app/StatusBar.test.tsx",
+            "status": "modified"
+          },
+          {
+            "deletions": 34,
+            "insertions": 23,
+            "path": "packages/web/src/app/StatusBar.tsx",
+            "status": "modified"
+          }
+        ],
+        "insertions": 587,
+        "landedAt": 1788757422521,
+        "message": "fix(doctor): the wave follow-ups land — the route reads L2, beacon is a connection source, the PRD tells the truth  (#307)",
+        "parents": [
+          "ca80fd3fc56c987ef138dadbd0c27108400f4653"
+        ],
+        "sha": "8b1dd22cb3fc0d4c9d019c4e756dc71195c97d92",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      "97aba310d66fdb06080fa759c6ba53fe9773f0d5": {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788732276000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 1,
+        "files": [
+          {
+            "deletions": 1,
+            "insertions": 8,
+            "path": "packages/server/src/api/route-class-law.test.ts",
+            "status": "modified"
+          }
+        ],
+        "insertions": 8,
+        "landedAt": 1788757422521,
+        "message": "fix(server): outbound-call table rows state their real expected count (#275)",
+        "parents": [
+          "e5895a46d8b3d4793e1d3809fb947e5ef46f578c"
+        ],
+        "sha": "97aba310d66fdb06080fa759c6ba53fe9773f0d5",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      "98ce4d685942d7079c844b51b1ecbcbe9f2a16ef": {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788733257000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 98,
+        "files": [
+          {
+            "deletions": 0,
+            "insertions": 22,
+            "path": "CHANGELOG.md",
+            "status": "modified"
+          },
+          {
+            "deletions": 0,
+            "insertions": 71,
+            "path": "docs/adr/0039-attention-names-its-witness-on-the-manifest.md",
+            "status": "added"
+          },
+          {
+            "deletions": 0,
+            "insertions": 1,
+            "path": "docs/adr/README.md",
+            "status": "modified"
+          },
+          {
+            "deletions": 0,
+            "insertions": 222,
+            "path": "docs/design-notes/beacon-lapse-interval.md",
+            "status": "added"
+          },
+          {
+            "deletions": 0,
+            "insertions": 68,
+            "path": "packages/core/src/collector.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 19,
+            "insertions": 50,
+            "path": "packages/core/src/collector.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 2,
+            "insertions": 8,
+            "path": "packages/core/src/fleet/buildFleet.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 4,
+            "insertions": 89,
+            "path": "packages/core/src/fleet/diagnose.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 7,
+            "insertions": 23,
+            "path": "packages/core/src/fleet/diagnose.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 0,
+            "insertions": 31,
+            "path": "packages/core/src/selectors/condition.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 4,
+            "insertions": 11,
+            "path": "packages/core/src/selectors/condition.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 0,
+            "insertions": 1,
+            "path": "packages/core/src/selectors/index.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 0,
+            "insertions": 130,
+            "path": "packages/core/src/selectors/lapse.test.ts",
+            "status": "added"
+          },
+          {
+            "deletions": 0,
+            "insertions": 82,
+            "path": "packages/core/src/selectors/lapse.ts",
+            "status": "added"
+          },
+          {
+            "deletions": 13,
+            "insertions": 82,
+            "path": "packages/server/src/api/meta.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 10,
+            "insertions": 15,
+            "path": "packages/server/src/api/meta.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 2,
+            "insertions": 222,
+            "path": "packages/server/src/cli/doctor.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 7,
+            "insertions": 142,
+            "path": "packages/server/src/cli/doctor.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 5,
+            "insertions": 86,
+            "path": "packages/server/src/collectors/beacon/collector.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 20,
+            "insertions": 48,
+            "path": "packages/server/src/collectors/beacon/collector.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 1,
+            "insertions": 1,
+            "path": "packages/server/src/collectors/beacon/index.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 1,
+            "insertions": 20,
+            "path": "packages/server/src/collectors/sessionlog/collector.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 3,
+            "insertions": 6,
+            "path": "packages/server/src/collectors/sessionlog/collector.ts",
+            "status": "modified"
+          }
+        ],
+        "insertions": 1431,
+        "landedAt": 1788757422521,
+        "message": "feat(core): a lapsed declaration reads as lapsed, and configured-but-silent says so  (#218)",
+        "parents": [
+          "45c61e355c4a6fd9ec35665a8c1f7a9fb5f4f4ae"
+        ],
+        "sha": "98ce4d685942d7079c844b51b1ecbcbe9f2a16ef",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      "b312e05755c1e1c5ca134a95e914c72cc42d5289": {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788727626000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 12,
+        "files": [
+          {
+            "deletions": 4,
+            "insertions": 6,
+            "path": "packages/web/src/lab/launch/explicit-invocation-law.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 8,
+            "insertions": 50,
+            "path": "packages/web/src/lab/no-live-fleet-law.test.ts",
+            "status": "modified"
+          }
+        ],
+        "insertions": 56,
+        "landedAt": 1788757422521,
+        "message": "test(lab): the file-count laws assert what their own comment claims (#235)",
+        "parents": [
+          "97aba310d66fdb06080fa759c6ba53fe9773f0d5"
+        ],
+        "sha": "b312e05755c1e1c5ca134a95e914c72cc42d5289",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      "bdd7d7f4e88dd4638e94d64d93e8d990e8ed509d": {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788753270000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 0,
+        "files": [
+          {
+            "deletions": 0,
+            "insertions": 42,
+            "path": "packages/server/src/api/doctor.test.ts",
+            "status": "modified"
+          }
+        ],
+        "insertions": 42,
+        "landedAt": 1788757422521,
+        "message": "test(api): the retarget rebuild keeps the fold seam  (review of #309)",
+        "parents": [
+          "8b1dd22cb3fc0d4c9d019c4e756dc71195c97d92"
+        ],
+        "sha": "bdd7d7f4e88dd4638e94d64d93e8d990e8ed509d",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      "c61a14c507efa33b721b9b500ea3f541175abd9a": {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788734278000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 157,
+        "files": [
+          {
+            "deletions": 1,
+            "insertions": 1,
+            "path": "packages/web/src/app/StreamContext.test.tsx",
+            "status": "modified"
+          },
+          {
+            "deletions": 0,
+            "insertions": 188,
+            "path": "packages/web/src/app/streamState.bench.test.ts",
+            "status": "added"
+          },
+          {
+            "deletions": 154,
+            "insertions": 4,
+            "path": "packages/web/src/app/streamState.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 2,
+            "insertions": 3,
+            "path": "packages/web/src/hooks/useEventStream.ts",
+            "status": "modified"
+          }
+        ],
+        "insertions": 196,
+        "landedAt": 1788757422521,
+        "message": "perf(web): the #183 bench stops being the suite's most expensive file",
+        "parents": [
+          "d804b5ad1b4a29176f69779819c277086208d13f"
+        ],
+        "sha": "c61a14c507efa33b721b9b500ea3f541175abd9a",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      "ca80fd3fc56c987ef138dadbd0c27108400f4653": {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788751889000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 0,
+        "files": [],
+        "insertions": 0,
+        "landedAt": 1788757422521,
+        "message": "Merge pull request #305 from launchpad-26/ci-cost-bench-split",
+        "parents": [
+          "3f36355d82486d019d6de495ce7ba7a8c70251fd",
+          "8432d6bba388d9346d458e08db17d1e078155d93"
+        ],
+        "sha": "ca80fd3fc56c987ef138dadbd0c27108400f4653",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      "e5895a46d8b3d4793e1d3809fb947e5ef46f578c": {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788754875000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 0,
+        "files": [],
+        "insertions": 0,
+        "landedAt": 1788757422521,
+        "message": "Merge pull request #309 from launchpad-26/prd27-w5-follow-ups",
+        "parents": [
+          "ca80fd3fc56c987ef138dadbd0c27108400f4653",
+          "bdd7d7f4e88dd4638e94d64d93e8d990e8ed509d"
+        ],
+        "sha": "e5895a46d8b3d4793e1d3809fb947e5ef46f578c",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      }
+    },
+    "log": [
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788734278000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 157,
+        "files": [
+          {
+            "deletions": 1,
+            "insertions": 1,
+            "path": "packages/web/src/app/StreamContext.test.tsx",
+            "status": "modified"
+          },
+          {
+            "deletions": 0,
+            "insertions": 188,
+            "path": "packages/web/src/app/streamState.bench.test.ts",
+            "status": "added"
+          },
+          {
+            "deletions": 154,
+            "insertions": 4,
+            "path": "packages/web/src/app/streamState.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 2,
+            "insertions": 3,
+            "path": "packages/web/src/hooks/useEventStream.ts",
+            "status": "modified"
+          }
+        ],
+        "insertions": 196,
+        "landedAt": 1788757422521,
+        "message": "perf(web): the #183 bench stops being the suite's most expensive file",
+        "parents": [
+          "d804b5ad1b4a29176f69779819c277086208d13f"
+        ],
+        "sha": "c61a14c507efa33b721b9b500ea3f541175abd9a",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788734294000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 3,
+        "files": [
+          {
+            "deletions": 3,
+            "insertions": 23,
+            "path": "AGENTS.md",
+            "status": "modified"
+          }
+        ],
+        "insertions": 23,
+        "landedAt": 1788757422521,
+        "message": "docs(runbook): CI's stated duration is the measured one",
+        "parents": [
+          "c61a14c507efa33b721b9b500ea3f541175abd9a"
+        ],
+        "sha": "1239e0a0b5cec51ff3e5f7a2d5f6cb0e9d22568a",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788733257000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 98,
+        "files": [
+          {
+            "deletions": 0,
+            "insertions": 22,
+            "path": "CHANGELOG.md",
+            "status": "modified"
+          },
+          {
+            "deletions": 0,
+            "insertions": 71,
+            "path": "docs/adr/0039-attention-names-its-witness-on-the-manifest.md",
+            "status": "added"
+          },
+          {
+            "deletions": 0,
+            "insertions": 1,
+            "path": "docs/adr/README.md",
+            "status": "modified"
+          },
+          {
+            "deletions": 0,
+            "insertions": 222,
+            "path": "docs/design-notes/beacon-lapse-interval.md",
+            "status": "added"
+          },
+          {
+            "deletions": 0,
+            "insertions": 68,
+            "path": "packages/core/src/collector.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 19,
+            "insertions": 50,
+            "path": "packages/core/src/collector.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 2,
+            "insertions": 8,
+            "path": "packages/core/src/fleet/buildFleet.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 4,
+            "insertions": 89,
+            "path": "packages/core/src/fleet/diagnose.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 7,
+            "insertions": 23,
+            "path": "packages/core/src/fleet/diagnose.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 0,
+            "insertions": 31,
+            "path": "packages/core/src/selectors/condition.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 4,
+            "insertions": 11,
+            "path": "packages/core/src/selectors/condition.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 0,
+            "insertions": 1,
+            "path": "packages/core/src/selectors/index.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 0,
+            "insertions": 130,
+            "path": "packages/core/src/selectors/lapse.test.ts",
+            "status": "added"
+          },
+          {
+            "deletions": 0,
+            "insertions": 82,
+            "path": "packages/core/src/selectors/lapse.ts",
+            "status": "added"
+          },
+          {
+            "deletions": 13,
+            "insertions": 82,
+            "path": "packages/server/src/api/meta.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 10,
+            "insertions": 15,
+            "path": "packages/server/src/api/meta.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 2,
+            "insertions": 222,
+            "path": "packages/server/src/cli/doctor.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 7,
+            "insertions": 142,
+            "path": "packages/server/src/cli/doctor.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 5,
+            "insertions": 86,
+            "path": "packages/server/src/collectors/beacon/collector.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 20,
+            "insertions": 48,
+            "path": "packages/server/src/collectors/beacon/collector.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 1,
+            "insertions": 1,
+            "path": "packages/server/src/collectors/beacon/index.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 1,
+            "insertions": 20,
+            "path": "packages/server/src/collectors/sessionlog/collector.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 3,
+            "insertions": 6,
+            "path": "packages/server/src/collectors/sessionlog/collector.ts",
+            "status": "modified"
+          }
+        ],
+        "insertions": 1431,
+        "landedAt": 1788757422521,
+        "message": "feat(core): a lapsed declaration reads as lapsed, and configured-but-silent says so  (#218)",
+        "parents": [
+          "45c61e355c4a6fd9ec35665a8c1f7a9fb5f4f4ae"
+        ],
+        "sha": "98ce4d685942d7079c844b51b1ecbcbe9f2a16ef",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788745981000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 1,
+        "files": [
+          {
+            "deletions": 1,
+            "insertions": 10,
+            "path": "packages/web/src/app/streamState.bench.test.ts",
+            "status": "modified"
+          }
+        ],
+        "insertions": 10,
+        "landedAt": 1788757422521,
+        "message": "fix(web): the bench is enrolled in the timing set by its name alone  (review of #305)",
+        "parents": [
+          "1239e0a0b5cec51ff3e5f7a2d5f6cb0e9d22568a"
+        ],
+        "sha": "8432d6bba388d9346d458e08db17d1e078155d93",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788748099000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 0,
+        "files": [],
+        "insertions": 0,
+        "landedAt": 1788757422521,
+        "message": "Merge pull request #304 from launchpad-26/prd27-w4-lapsed-declaration",
+        "parents": [
+          "45c61e355c4a6fd9ec35665a8c1f7a9fb5f4f4ae",
+          "98ce4d685942d7079c844b51b1ecbcbe9f2a16ef"
+        ],
+        "sha": "3f36355d82486d019d6de495ce7ba7a8c70251fd",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788751889000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 0,
+        "files": [],
+        "insertions": 0,
+        "landedAt": 1788757422521,
+        "message": "Merge pull request #305 from launchpad-26/ci-cost-bench-split",
+        "parents": [
+          "3f36355d82486d019d6de495ce7ba7a8c70251fd",
+          "8432d6bba388d9346d458e08db17d1e078155d93"
+        ],
+        "sha": "ca80fd3fc56c987ef138dadbd0c27108400f4653",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788750688000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 120,
+        "files": [
+          {
+            "deletions": 1,
+            "insertions": 2,
+            "path": ".citation-prior-tracker",
+            "status": "modified"
+          },
+          {
+            "deletions": 0,
+            "insertions": 1,
+            "path": "CHANGELOG.md",
+            "status": "modified"
+          },
+          {
+            "deletions": 1,
+            "insertions": 21,
+            "path": "docs/architecture.md",
+            "status": "modified"
+          },
+          {
+            "deletions": 3,
+            "insertions": 10,
+            "path": "docs/prds/prd-27-the-declared-voice.md",
+            "status": "modified"
+          },
+          {
+            "deletions": 2,
+            "insertions": 55,
+            "path": "packages/core/src/selectors/connection.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 4,
+            "insertions": 20,
+            "path": "packages/core/src/selectors/connection.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 1,
+            "insertions": 238,
+            "path": "packages/server/src/api/doctor.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 6,
+            "insertions": 51,
+            "path": "packages/server/src/api/doctor.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 1,
+            "insertions": 4,
+            "path": "packages/server/src/api/meta.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 5,
+            "insertions": 78,
+            "path": "packages/server/src/cli/doctor.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 54,
+            "insertions": 61,
+            "path": "packages/server/src/cli/doctor.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 2,
+            "insertions": 4,
+            "path": "packages/server/src/collectors/beacon/fixtures/CAPTURE.md",
+            "status": "modified"
+          },
+          {
+            "deletions": 1,
+            "insertions": 7,
+            "path": "packages/server/src/recorder/session-recorder.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 0,
+            "insertions": 3,
+            "path": "packages/server/src/server/build-app.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 5,
+            "insertions": 9,
+            "path": "packages/web/src/app/StatusBar.test.tsx",
+            "status": "modified"
+          },
+          {
+            "deletions": 34,
+            "insertions": 23,
+            "path": "packages/web/src/app/StatusBar.tsx",
+            "status": "modified"
+          }
+        ],
+        "insertions": 587,
+        "landedAt": 1788757422521,
+        "message": "fix(doctor): the wave follow-ups land — the route reads L2, beacon is a connection source, the PRD tells the truth  (#307)",
+        "parents": [
+          "ca80fd3fc56c987ef138dadbd0c27108400f4653"
+        ],
+        "sha": "8b1dd22cb3fc0d4c9d019c4e756dc71195c97d92",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788753270000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 0,
+        "files": [
+          {
+            "deletions": 0,
+            "insertions": 42,
+            "path": "packages/server/src/api/doctor.test.ts",
+            "status": "modified"
+          }
+        ],
+        "insertions": 42,
+        "landedAt": 1788757422521,
+        "message": "test(api): the retarget rebuild keeps the fold seam  (review of #309)",
+        "parents": [
+          "8b1dd22cb3fc0d4c9d019c4e756dc71195c97d92"
+        ],
+        "sha": "bdd7d7f4e88dd4638e94d64d93e8d990e8ed509d",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788754875000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 0,
+        "files": [],
+        "insertions": 0,
+        "landedAt": 1788757422521,
+        "message": "Merge pull request #309 from launchpad-26/prd27-w5-follow-ups",
+        "parents": [
+          "ca80fd3fc56c987ef138dadbd0c27108400f4653",
+          "bdd7d7f4e88dd4638e94d64d93e8d990e8ed509d"
+        ],
+        "sha": "e5895a46d8b3d4793e1d3809fb947e5ef46f578c",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788732276000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 1,
+        "files": [
+          {
+            "deletions": 1,
+            "insertions": 8,
+            "path": "packages/server/src/api/route-class-law.test.ts",
+            "status": "modified"
+          }
+        ],
+        "insertions": 8,
+        "landedAt": 1788757422521,
+        "message": "fix(server): outbound-call table rows state their real expected count (#275)",
+        "parents": [
+          "e5895a46d8b3d4793e1d3809fb947e5ef46f578c"
+        ],
+        "sha": "97aba310d66fdb06080fa759c6ba53fe9773f0d5",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788727626000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 12,
+        "files": [
+          {
+            "deletions": 4,
+            "insertions": 6,
+            "path": "packages/web/src/lab/launch/explicit-invocation-law.test.ts",
+            "status": "modified"
+          },
+          {
+            "deletions": 8,
+            "insertions": 50,
+            "path": "packages/web/src/lab/no-live-fleet-law.test.ts",
+            "status": "modified"
+          }
+        ],
+        "insertions": 56,
+        "landedAt": 1788757422521,
+        "message": "test(lab): the file-count laws assert what their own comment claims (#235)",
+        "parents": [
+          "97aba310d66fdb06080fa759c6ba53fe9773f0d5"
+        ],
+        "sha": "b312e05755c1e1c5ca134a95e914c72cc42d5289",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788731781000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 1,
+        "files": [
+          {
+            "deletions": 1,
+            "insertions": 61,
+            "path": "docs/prds/prd-43-the-claim-is-a-test.md",
+            "status": "modified"
+          }
+        ],
+        "insertions": 61,
+        "landedAt": 1788757422521,
+        "message": "docs(prd-43): the Sequencing says how to read its own tense, instead of being rewritten",
+        "parents": [
+          "b312e05755c1e1c5ca134a95e914c72cc42d5289"
+        ],
+        "sha": "29248b3480186d0d56b0ef6da19b58976ee4b356",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788732321000,
+        "branches": [
+          "prd43-w8-wave"
+        ],
+        "deletions": 1,
+        "files": [
+          {
+            "deletions": 1,
+            "insertions": 23,
+            "path": "docs/prds/prd-43-the-claim-is-a-test.md",
+            "status": "modified"
+          }
+        ],
+        "insertions": 23,
+        "landedAt": 1788757422521,
+        "message": "docs(prd-43): waves 5 and 8 merge, because the boundary between them records history",
+        "parents": [
+          "29248b3480186d0d56b0ef6da19b58976ee4b356"
+        ],
+        "sha": "03974d0ce74d70123979e927308322941a6c0c51",
+        "worktreePath": "/repo/rhizomorph__worktrees/_verify-w8"
+      },
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "Era Author"
+        },
+        "authoredAt": 1788757717000,
+        "branches": [
+          "274-verdict-to-beacon"
+        ],
+        "deletions": 3,
+        "files": [
+          {
+            "deletions": 3,
+            "insertions": 33,
+            "path": "packages/server/src/gate-honesty-law.test.ts",
+            "status": "modified"
+          }
+        ],
+        "insertions": 33,
+        "landedAt": 1788758662283,
+        "message": "test(gate-honesty-law): the tsx pin holds a logical line, so a launcher cannot prefix the binary  (review of #310)",
+        "parents": [
+          "0b07ea881b26d17f993a843a64796b7b41a93b19"
+        ],
+        "sha": "27e695eb88bedd7d7aee97a3a95411a09b94ec52",
+        "worktreePath": "/repo/rhizomorph__worktrees/274-verdict-to-beacon"
+      }
+    ],
+    "order": [
+      "c61a14c507efa33b721b9b500ea3f541175abd9a",
+      "1239e0a0b5cec51ff3e5f7a2d5f6cb0e9d22568a",
+      "98ce4d685942d7079c844b51b1ecbcbe9f2a16ef",
+      "8432d6bba388d9346d458e08db17d1e078155d93",
+      "3f36355d82486d019d6de495ce7ba7a8c70251fd",
+      "ca80fd3fc56c987ef138dadbd0c27108400f4653",
+      "8b1dd22cb3fc0d4c9d019c4e756dc71195c97d92",
+      "bdd7d7f4e88dd4638e94d64d93e8d990e8ed509d",
+      "e5895a46d8b3d4793e1d3809fb947e5ef46f578c",
+      "97aba310d66fdb06080fa759c6ba53fe9773f0d5",
+      "b312e05755c1e1c5ca134a95e914c72cc42d5289",
+      "29248b3480186d0d56b0ef6da19b58976ee4b356",
+      "03974d0ce74d70123979e927308322941a6c0c51",
+      "27e695eb88bedd7d7aee97a3a95411a09b94ec52"
+    ]
+  },
+  "declared": {},
+  "errors": [],
+  "eventCount": 453,
+  "firstEventTs": 1788757348268,
+  "forks": {
+    "byArm": {},
+    "byFork": {},
+    "byLane": {},
+    "dispatches": [],
+    "latestOutcomeByLane": {},
+    "measurements": []
+  },
+  "judge": {
+    "byLane": {
+      "235-count-matches-assertion": [
+        0,
+        4
+      ],
+      "274-verdict-to-beacon": [
+        1,
+        2,
+        6
+      ],
+      "289-exclusion-not-vacuous": [
+        1,
+        6
+      ],
+      "_review-308": [
+        2
+      ],
+      "prd43-sequencing-tense": [
+        3,
+        5
+      ],
+      "prd43-w8-wave": [
+        0,
+        3,
+        4,
+        5
+      ]
+    },
+    "findings": [
+      {
+        "detectedAt": 1788757348746,
+        "eventId": "evt-000087",
+        "evidence": {
+          "conflictingFiles": [
+            "packages/web/src/lab/no-live-fleet-law.test.ts"
+          ]
+        },
+        "kind": "speculative-conflict",
+        "lanes": [
+          "235-count-matches-assertion",
+          "prd43-w8-wave"
+        ],
+        "severity": "log",
+        "ts": 1788757348746
+      },
+      {
+        "detectedAt": 1788757348746,
+        "eventId": "evt-000088",
+        "evidence": {
+          "symbols": [
+            "lines"
+          ]
+        },
+        "kind": "symbol-overlap",
+        "lanes": [
+          "274-verdict-to-beacon",
+          "289-exclusion-not-vacuous"
+        ],
+        "severity": "log",
+        "ts": 1788757348746
+      },
+      {
+        "detectedAt": 1788757348746,
+        "eventId": "evt-000089",
+        "evidence": {
+          "symbols": [
+            "dataRoot"
+          ]
+        },
+        "kind": "symbol-overlap",
+        "lanes": [
+          "274-verdict-to-beacon",
+          "_review-308"
+        ],
+        "severity": "log",
+        "ts": 1788757348746
+      },
+      {
+        "detectedAt": 1788757348746,
+        "eventId": "evt-000090",
+        "evidence": {
+          "conflictingFiles": [
+            "docs/prds/prd-43-the-claim-is-a-test.md"
+          ]
+        },
+        "kind": "speculative-conflict",
+        "lanes": [
+          "prd43-sequencing-tense",
+          "prd43-w8-wave"
+        ],
+        "severity": "log",
+        "ts": 1788757348746
+      },
+      {
+        "detectedAt": 1788757470958,
+        "eventId": "evt-000138",
+        "evidence": {
+          "conflictingFiles": [
+            "packages/web/src/lab/no-live-fleet-law.test.ts"
+          ]
+        },
+        "kind": "speculative-conflict",
+        "lanes": [
+          "235-count-matches-assertion",
+          "prd43-w8-wave"
+        ],
+        "severity": "log",
+        "ts": 1788757470958
+      },
+      {
+        "detectedAt": 1788757470958,
+        "eventId": "evt-000139",
+        "evidence": {
+          "conflictingFiles": [
+            "docs/prds/prd-43-the-claim-is-a-test.md"
+          ]
+        },
+        "kind": "speculative-conflict",
+        "lanes": [
+          "prd43-sequencing-tense",
+          "prd43-w8-wave"
+        ],
+        "severity": "log",
+        "ts": 1788757470958
+      },
+      {
+        "detectedAt": 1788758682480,
+        "eventId": "evt-000529",
+        "evidence": {
+          "symbols": [
+            "lines"
+          ]
+        },
+        "kind": "symbol-overlap",
+        "lanes": [
+          "274-verdict-to-beacon",
+          "289-exclusion-not-vacuous"
+        ],
+        "severity": "log",
+        "ts": 1788758682480
+      }
+    ]
+  },
+  "lastEventTs": 1788758720748,
+  "mainBranch": "main",
+  "panes": {},
+  "refusals": {
+    "byInstance": {},
+    "records": []
+  },
+  "session": {
+    "repoName": "rhizomorph",
+    "repoPath": "/repo/rhizomorph",
+    "sessionId": "00000000-0000-4000-8000-000000000001",
+    "startedAt": 1788757348268
+  },
+  "telemetry": {
+    "activeTime": [],
+    "costs": [],
+    "lanes": {
+      "HEAD": {
+        "branch": "HEAD",
+        "firstSeenAt": 1788757575037,
+        "lane": "HEAD",
+        "lastSeenAt": 1788757977903,
+        "sessionIds": [
+          "00000000-0000-4000-8000-000000000004"
+        ],
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      "unattributed": {
+        "branch": "main",
+        "firstSeenAt": 1788757327488,
+        "lane": "unattributed",
+        "lastSeenAt": 1788758705169,
+        "sessionIds": [
+          "00000000-0000-4000-8000-000000000002",
+          "00000000-0000-4000-8000-000000000003"
+        ],
+        "worktreePath": "/repo/rhizomorph"
+      }
+    },
+    "sessions": {
+      "00000000-0000-4000-8000-000000000002": {
+        "branch": "main",
+        "firstSeenAt": 1788757365716,
+        "lastSeenAt": 1788758703453,
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "worktreePath": "/repo/rhizomorph"
+      },
+      "00000000-0000-4000-8000-000000000003": {
+        "branch": "main",
+        "firstSeenAt": 1788757327488,
+        "lastSeenAt": 1788758705169,
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "worktreePath": "/repo/rhizomorph"
+      },
+      "00000000-0000-4000-8000-000000000004": {
+        "branch": "HEAD",
+        "firstSeenAt": 1788757575037,
+        "lastSeenAt": 1788757977903,
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      }
+    },
+    "tools": [
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000100",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000001",
+        "ts": 1788757366935,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000102",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "AskUserQuestion",
+        "toolUseId": "toolu_TEST0000000000000002",
+        "ts": 1788757344496,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000104",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000003",
+        "ts": 1788757376647,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000111",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000004",
+        "ts": 1788757410099,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000117",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000005",
+        "ts": 1788757417570,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000133",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000006",
+        "ts": 1788757430686,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000145",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000007",
+        "ts": 1788757498175,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000151",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000008",
+        "ts": 1788757517007,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000153",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000009",
+        "ts": 1788757524039,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000159",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000010",
+        "ts": 1788757540660,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000161",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000011",
+        "ts": 1788757552166,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000163",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000012",
+        "ts": 1788757557988,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000169",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000013",
+        "ts": 1788757563267,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000171",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000014",
+        "ts": 1788757573540,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000173",
+        "filePath": null,
+        "lane": "HEAD",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000015",
+        "ts": 1788757575433,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000176",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000016",
+        "ts": 1788757577040,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000178",
+        "filePath": null,
+        "lane": "HEAD",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000017",
+        "ts": 1788757578593,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000180",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000018",
+        "ts": 1788757584311,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000182",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000019",
+        "ts": 1788757587956,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000191",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000020",
+        "ts": 1788757593426,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000194",
+        "filePath": null,
+        "lane": "HEAD",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000021",
+        "ts": 1788757597498,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000196",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000022",
+        "ts": 1788757599290,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000198",
+        "filePath": null,
+        "lane": "HEAD",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000023",
+        "ts": 1788757603086,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000200",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000024",
+        "ts": 1788757615959,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000202",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000025",
+        "ts": 1788757621251,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000209",
+        "filePath": null,
+        "lane": "HEAD",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000026",
+        "ts": 1788757646004,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000212",
+        "filePath": null,
+        "lane": "HEAD",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000027",
+        "ts": 1788757649096,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000220",
+        "filePath": null,
+        "lane": "HEAD",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000028",
+        "ts": 1788757657537,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000226",
+        "filePath": null,
+        "lane": "HEAD",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000029",
+        "ts": 1788757674417,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000234",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000030",
+        "ts": 1788757688015,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000237",
+        "filePath": null,
+        "lane": "HEAD",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000031",
+        "ts": 1788757712433,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000244",
+        "filePath": null,
+        "lane": "HEAD",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000032",
+        "ts": 1788757717034,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000250",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000033",
+        "ts": 1788757724395,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000252",
+        "filePath": null,
+        "lane": "HEAD",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000034",
+        "ts": 1788757723859,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000255",
+        "filePath": null,
+        "lane": "HEAD",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000035",
+        "ts": 1788757729220,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000257",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000036",
+        "ts": 1788757729565,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000259",
+        "filePath": null,
+        "lane": "HEAD",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000037",
+        "ts": 1788757735775,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000261",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000038",
+        "ts": 1788757740269,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000263",
+        "filePath": null,
+        "lane": "HEAD",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000039",
+        "ts": 1788757740119,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000269",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000040",
+        "ts": 1788757747575,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000279",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000041",
+        "ts": 1788757806086,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000281",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000042",
+        "ts": 1788757811629,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000283",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000043",
+        "ts": 1788757822685,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000291",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000044",
+        "ts": 1788757835826,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000294",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000045",
+        "ts": 1788757840541,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000298",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000046",
+        "ts": 1788757849298,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000300",
+        "filePath": null,
+        "lane": "HEAD",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000047",
+        "ts": 1788757863137,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000302",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000048",
+        "ts": 1788757866885,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000304",
+        "filePath": "/tmp/claude-1000/-repo-rhizomorph--worktrees--fixrr-prd43-w8-wave-a/b6aa74be-29de-47cf-b058-84b65007aace/tasks/bq66a1hr3.output",
+        "lane": "HEAD",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tool": "Read",
+        "toolUseId": "toolu_TEST0000000000000049",
+        "ts": 1788757869125,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000311",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000050",
+        "ts": 1788757871709,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000313",
+        "filePath": null,
+        "lane": "HEAD",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tool": "ScheduleWakeup",
+        "toolUseId": "toolu_TEST0000000000000051",
+        "ts": 1788757871735,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000315",
+        "filePath": null,
+        "lane": "HEAD",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tool": "ToolSearch",
+        "toolUseId": "toolu_TEST0000000000000052",
+        "ts": 1788757882285,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000318",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000053",
+        "ts": 1788757883719,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000320",
+        "filePath": null,
+        "lane": "HEAD",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tool": "TaskOutput",
+        "toolUseId": "toolu_TEST0000000000000054",
+        "ts": 1788757884485,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000323",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000055",
+        "ts": 1788757887879,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000326",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000056",
+        "ts": 1788757899852,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000334",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000057",
+        "ts": 1788757908175,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000337",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000058",
+        "ts": 1788757921018,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000339",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000059",
+        "ts": 1788757921968,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000341",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000060",
+        "ts": 1788757928408,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000347",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000061",
+        "ts": 1788757935677,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000349",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000062",
+        "ts": 1788757947163,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000351",
+        "filePath": null,
+        "lane": "HEAD",
+        "origin": "sessionlog",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tool": "ReportFindings",
+        "toolUseId": "toolu_TEST0000000000000063",
+        "ts": 1788757959892,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000376",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000064",
+        "ts": 1788758097115,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000394",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000065",
+        "ts": 1788758199969,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000400",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000066",
+        "ts": 1788758221967,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000409",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000067",
+        "ts": 1788758249340,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000411",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000068",
+        "ts": 1788758261076,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000413",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000069",
+        "ts": 1788758269277,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000419",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000070",
+        "ts": 1788758282884,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000434",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000071",
+        "ts": 1788758369256,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000436",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000072",
+        "ts": 1788758381108,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000447",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000073",
+        "ts": 1788758454844,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000454",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000074",
+        "ts": 1788758480702,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000460",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000075",
+        "ts": 1788758491565,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000462",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000076",
+        "ts": 1788758497370,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000464",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000077",
+        "ts": 1788758503866,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000470",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000078",
+        "ts": 1788758524466,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000483",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000079",
+        "ts": 1788758537905,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000489",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000080",
+        "ts": 1788758553511,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000491",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000081",
+        "ts": 1788758558542,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000493",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000082",
+        "ts": 1788758564617,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000499",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000083",
+        "ts": 1788758578204,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000502",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000084",
+        "ts": 1788758597708,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000504",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000085",
+        "ts": 1788758605328,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000510",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000086",
+        "ts": 1788758610989,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000512",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000087",
+        "ts": 1788758634501,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000518",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000088",
+        "ts": 1788758656078,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000528",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000089",
+        "ts": 1788758668591,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000531",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000090",
+        "ts": 1788758692232,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000537",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000091",
+        "ts": 1788758703453,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000540",
+        "filePath": null,
+        "lane": "unattributed",
+        "origin": "sessionlog",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tool": "Bash",
+        "toolUseId": "toolu_TEST0000000000000092",
+        "ts": 1788758705169,
+        "worktreePath": "/repo/rhizomorph"
+      }
+    ],
+    "usage": [
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000099",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000001",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 609,
+          "cacheRead": 384894,
+          "input": 2,
+          "output": 459
+        },
+        "totalTokens": 385964,
+        "ts": 1788757365716,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000101",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000002",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 856,
+          "cacheRead": 370028,
+          "input": 2,
+          "output": 2011
+        },
+        "totalTokens": 372897,
+        "ts": 1788757327488,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000103",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000003",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 2205,
+          "cacheRead": 370884,
+          "input": 2,
+          "output": 616
+        },
+        "totalTokens": 373707,
+        "ts": 1788757371758,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000109",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000004",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 826,
+          "cacheRead": 385503,
+          "input": 2,
+          "output": 992
+        },
+        "totalTokens": 387323,
+        "ts": 1788757385476,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000110",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000005",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 873,
+          "cacheRead": 373089,
+          "input": 2,
+          "output": 1693
+        },
+        "totalTokens": 375657,
+        "ts": 1788757410099,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000116",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000006",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1822,
+          "cacheRead": 373962,
+          "input": 2,
+          "output": 421
+        },
+        "totalTokens": 376207,
+        "ts": 1788757414329,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000132",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000007",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 783,
+          "cacheRead": 375784,
+          "input": 2,
+          "output": 426
+        },
+        "totalTokens": 376995,
+        "ts": 1788757428788,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000144",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000008",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1027,
+          "cacheRead": 386329,
+          "input": 2,
+          "output": 1006
+        },
+        "totalTokens": 388364,
+        "ts": 1788757493874,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000150",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000009",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1284,
+          "cacheRead": 387356,
+          "input": 2,
+          "output": 1152
+        },
+        "totalTokens": 389794,
+        "ts": 1788757513495,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000152",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000010",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1529,
+          "cacheRead": 388640,
+          "input": 2,
+          "output": 331
+        },
+        "totalTokens": 390502,
+        "ts": 1788757524039,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000158",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000011",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 512,
+          "cacheRead": 390169,
+          "input": 2,
+          "output": 1073
+        },
+        "totalTokens": 391756,
+        "ts": 1788757540660,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000160",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000012",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 558,
+          "cacheRead": 376567,
+          "input": 2,
+          "output": 843
+        },
+        "totalTokens": 377970,
+        "ts": 1788757552166,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000162",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000013",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1128,
+          "cacheRead": 390681,
+          "input": 2,
+          "output": 1237
+        },
+        "totalTokens": 393048,
+        "ts": 1788757549635,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000168",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000014",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1303,
+          "cacheRead": 391809,
+          "input": 2,
+          "output": 140
+        },
+        "totalTokens": 393254,
+        "ts": 1788757563267,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000170",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000015",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 887,
+          "cacheRead": 393112,
+          "input": 2,
+          "output": 508
+        },
+        "totalTokens": 394509,
+        "ts": 1788757572399,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000172",
+        "lane": "HEAD",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000016",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 31623,
+          "cacheRead": 20710,
+          "input": 2,
+          "output": 124
+        },
+        "totalTokens": 52459,
+        "ts": 1788757575037,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000175",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000017",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1176,
+          "cacheRead": 377125,
+          "input": 2,
+          "output": 436
+        },
+        "totalTokens": 378739,
+        "ts": 1788757573418,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000177",
+        "lane": "HEAD",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000018",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 6760,
+          "cacheRead": 52333,
+          "input": 2,
+          "output": 114
+        },
+        "totalTokens": 59209,
+        "ts": 1788757578357,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000179",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000019",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 820,
+          "cacheRead": 393999,
+          "input": 2,
+          "output": 533
+        },
+        "totalTokens": 395354,
+        "ts": 1788757583077,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000181",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000020",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 752,
+          "cacheRead": 378301,
+          "input": 2,
+          "output": 647
+        },
+        "totalTokens": 379702,
+        "ts": 1788757582981,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000190",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000021",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 650,
+          "cacheRead": 394819,
+          "input": 2,
+          "output": 505
+        },
+        "totalTokens": 395976,
+        "ts": 1788757593426,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000193",
+        "lane": "HEAD",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000022",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 7187,
+          "cacheRead": 59093,
+          "input": 2,
+          "output": 1908
+        },
+        "totalTokens": 68190,
+        "ts": 1788757589008,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000195",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000023",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 619,
+          "cacheRead": 395469,
+          "input": 2,
+          "output": 139
+        },
+        "totalTokens": 396229,
+        "ts": 1788757599290,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000197",
+        "lane": "HEAD",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000024",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 2545,
+          "cacheRead": 66280,
+          "input": 2,
+          "output": 340
+        },
+        "totalTokens": 69167,
+        "ts": 1788757602918,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000199",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000025",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 869,
+          "cacheRead": 379053,
+          "input": 2,
+          "output": 1544
+        },
+        "totalTokens": 381468,
+        "ts": 1788757615959,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000201",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000026",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 640,
+          "cacheRead": 396088,
+          "input": 2,
+          "output": 1206
+        },
+        "totalTokens": 397936,
+        "ts": 1788757606590,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000207",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000027",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1306,
+          "cacheRead": 396728,
+          "input": 2,
+          "output": 812
+        },
+        "totalTokens": 398848,
+        "ts": 1788757636711,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000208",
+        "lane": "HEAD",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000028",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1761,
+          "cacheRead": 68825,
+          "input": 2,
+          "output": 3575
+        },
+        "totalTokens": 74163,
+        "ts": 1788757645523,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000211",
+        "lane": "HEAD",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000029",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 3723,
+          "cacheRead": 70586,
+          "input": 2,
+          "output": 161
+        },
+        "totalTokens": 74472,
+        "ts": 1788757648553,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000219",
+        "lane": "HEAD",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000030",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 804,
+          "cacheRead": 74309,
+          "input": 2,
+          "output": 719
+        },
+        "totalTokens": 75834,
+        "ts": 1788757653662,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000225",
+        "lane": "HEAD",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000031",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1848,
+          "cacheRead": 75113,
+          "input": 2,
+          "output": 1004
+        },
+        "totalTokens": 77967,
+        "ts": 1788757669825,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000233",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000032",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1597,
+          "cacheRead": 379922,
+          "input": 2,
+          "output": 294
+        },
+        "totalTokens": 381815,
+        "ts": 1788757688015,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000236",
+        "lane": "HEAD",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000033",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1745,
+          "cacheRead": 76961,
+          "input": 2,
+          "output": 2972
+        },
+        "totalTokens": 81680,
+        "ts": 1788757707434,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000243",
+        "lane": "HEAD",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000034",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 3150,
+          "cacheRead": 78706,
+          "input": 2,
+          "output": 480
+        },
+        "totalTokens": 82338,
+        "ts": 1788757715276,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000249",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000035",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 457,
+          "cacheRead": 381519,
+          "input": 2,
+          "output": 214
+        },
+        "totalTokens": 382192,
+        "ts": 1788757723367,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000251",
+        "lane": "HEAD",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000036",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 903,
+          "cacheRead": 81856,
+          "input": 2,
+          "output": 419
+        },
+        "totalTokens": 83180,
+        "ts": 1788757721767,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000254",
+        "lane": "HEAD",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000037",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 709,
+          "cacheRead": 82759,
+          "input": 2,
+          "output": 215
+        },
+        "totalTokens": 83685,
+        "ts": 1788757728664,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000256",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000038",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 460,
+          "cacheRead": 381976,
+          "input": 2,
+          "output": 376
+        },
+        "totalTokens": 382814,
+        "ts": 1788757729565,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000258",
+        "lane": "HEAD",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000039",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 431,
+          "cacheRead": 83468,
+          "input": 2,
+          "output": 195
+        },
+        "totalTokens": 84096,
+        "ts": 1788757735344,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000260",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000040",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 459,
+          "cacheRead": 382436,
+          "input": 2,
+          "output": 119
+        },
+        "totalTokens": 383016,
+        "ts": 1788757740269,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000262",
+        "lane": "HEAD",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000041",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 376,
+          "cacheRead": 83899,
+          "input": 2,
+          "output": 185
+        },
+        "totalTokens": 84462,
+        "ts": 1788757739384,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000268",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000042",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 160,
+          "cacheRead": 382895,
+          "input": 2,
+          "output": 289
+        },
+        "totalTokens": 383346,
+        "ts": 1788757747575,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000278",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000043",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 505,
+          "cacheRead": 383055,
+          "input": 2,
+          "output": 1590
+        },
+        "totalTokens": 385152,
+        "ts": 1788757802878,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000280",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000044",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 2320,
+          "cacheRead": 383560,
+          "input": 2,
+          "output": 246
+        },
+        "totalTokens": 386128,
+        "ts": 1788757811629,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000282",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000045",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 457,
+          "cacheRead": 385880,
+          "input": 2,
+          "output": 180
+        },
+        "totalTokens": 386519,
+        "ts": 1788757822685,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000290",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000046",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 841,
+          "cacheRead": 398034,
+          "input": 2,
+          "output": 428
+        },
+        "totalTokens": 399305,
+        "ts": 1788757835021,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000293",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000047",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 927,
+          "cacheRead": 386337,
+          "input": 2,
+          "output": 1013
+        },
+        "totalTokens": 388279,
+        "ts": 1788757835947,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000297",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000048",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1640,
+          "cacheRead": 398875,
+          "input": 2,
+          "output": 737
+        },
+        "totalTokens": 401254,
+        "ts": 1788757846904,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000299",
+        "lane": "HEAD",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000049",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 461,
+          "cacheRead": 84275,
+          "input": 2,
+          "output": 76
+        },
+        "totalTokens": 84814,
+        "ts": 1788757863061,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000301",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000050",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1237,
+          "cacheRead": 387264,
+          "input": 2,
+          "output": 1611
+        },
+        "totalTokens": 390114,
+        "ts": 1788757851714,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000303",
+        "lane": "HEAD",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000051",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 236,
+          "cacheRead": 84736,
+          "input": 2,
+          "output": 460
+        },
+        "totalTokens": 85434,
+        "ts": 1788757868778,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000310",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000052",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1464,
+          "cacheRead": 400515,
+          "input": 2,
+          "output": 1092
+        },
+        "totalTokens": 403073,
+        "ts": 1788757869914,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000312",
+        "lane": "HEAD",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000053",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 535,
+          "cacheRead": 84972,
+          "input": 2,
+          "output": 141
+        },
+        "totalTokens": 85650,
+        "ts": 1788757871074,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000314",
+        "lane": "HEAD",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000054",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 208,
+          "cacheRead": 85507,
+          "input": 2,
+          "output": 810
+        },
+        "totalTokens": 86527,
+        "ts": 1788757882272,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000317",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000055",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1665,
+          "cacheRead": 388501,
+          "input": 2,
+          "output": 721
+        },
+        "totalTokens": 390889,
+        "ts": 1788757883719,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000319",
+        "lane": "HEAD",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000056",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 4306,
+          "cacheRead": 85715,
+          "input": 2,
+          "output": 104
+        },
+        "totalTokens": 90127,
+        "ts": 1788757884485,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000322",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000057",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1275,
+          "cacheRead": 401979,
+          "input": 2,
+          "output": 1010
+        },
+        "totalTokens": 404266,
+        "ts": 1788757882161,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000325",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000058",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1078,
+          "cacheRead": 403254,
+          "input": 2,
+          "output": 333
+        },
+        "totalTokens": 404667,
+        "ts": 1788757898418,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000333",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000059",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 372,
+          "cacheRead": 404332,
+          "input": 2,
+          "output": 278
+        },
+        "totalTokens": 404984,
+        "ts": 1788757908175,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000336",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000060",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 492,
+          "cacheRead": 404704,
+          "input": 2,
+          "output": 424
+        },
+        "totalTokens": 405622,
+        "ts": 1788757919126,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000338",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000061",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1459,
+          "cacheRead": 390166,
+          "input": 2,
+          "output": 331
+        },
+        "totalTokens": 391958,
+        "ts": 1788757919634,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000340",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000062",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 937,
+          "cacheRead": 405196,
+          "input": 2,
+          "output": 156
+        },
+        "totalTokens": 406291,
+        "ts": 1788757928408,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000346",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000063",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 193,
+          "cacheRead": 406133,
+          "input": 2,
+          "output": 376
+        },
+        "totalTokens": 406704,
+        "ts": 1788757933811,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000348",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000064",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 593,
+          "cacheRead": 406326,
+          "input": 2,
+          "output": 409
+        },
+        "totalTokens": 407330,
+        "ts": 1788757945405,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000350",
+        "lane": "HEAD",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000065",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1900,
+          "cacheRead": 90021,
+          "input": 2,
+          "output": 145
+        },
+        "totalTokens": 92068,
+        "ts": 1788757959729,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000352",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000066",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 886,
+          "cacheRead": 406919,
+          "input": 2,
+          "output": 937
+        },
+        "totalTokens": 408744,
+        "ts": 1788757966202,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "HEAD",
+        "durationMs": null,
+        "eventId": "evt-000357",
+        "lane": "HEAD",
+        "model": "claude-sonnet-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000067",
+        "role": "worker",
+        "sessionId": "00000000-0000-4000-8000-000000000004",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 196,
+          "cacheRead": 91921,
+          "input": 2,
+          "output": 1544
+        },
+        "totalTokens": 93663,
+        "ts": 1788757977903,
+        "worktreePath": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000375",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000068",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 500,
+          "cacheRead": 391625,
+          "input": 2,
+          "output": 421
+        },
+        "totalTokens": 392548,
+        "ts": 1788758095458,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000393",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000069",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1022,
+          "cacheRead": 392125,
+          "input": 2,
+          "output": 834
+        },
+        "totalTokens": 393983,
+        "ts": 1788758196092,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000399",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000070",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 2082,
+          "cacheRead": 393147,
+          "input": 2,
+          "output": 1091
+        },
+        "totalTokens": 396322,
+        "ts": 1788758218339,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000403",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000071",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1269,
+          "cacheRead": 395229,
+          "input": 2,
+          "output": 944
+        },
+        "totalTokens": 397444,
+        "ts": 1788758241368,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000408",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000072",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 47,
+          "cacheRead": 408742,
+          "input": 2,
+          "output": 419
+        },
+        "totalTokens": 409210,
+        "ts": 1788758247113,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000410",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000073",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 666,
+          "cacheRead": 408789,
+          "input": 2,
+          "output": 416
+        },
+        "totalTokens": 409873,
+        "ts": 1788758258518,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000412",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000074",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 850,
+          "cacheRead": 409455,
+          "input": 2,
+          "output": 97
+        },
+        "totalTokens": 410404,
+        "ts": 1788758269277,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000418",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000075",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 812,
+          "cacheRead": 410305,
+          "input": 2,
+          "output": 748
+        },
+        "totalTokens": 411867,
+        "ts": 1788758281200,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000424",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000076",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1154,
+          "cacheRead": 411117,
+          "input": 2,
+          "output": 972
+        },
+        "totalTokens": 413245,
+        "ts": 1788758305715,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000433",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000077",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 996,
+          "cacheRead": 396498,
+          "input": 2,
+          "output": 664
+        },
+        "totalTokens": 398160,
+        "ts": 1788758365611,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000435",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000078",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1139,
+          "cacheRead": 397494,
+          "input": 2,
+          "output": 603
+        },
+        "totalTokens": 399238,
+        "ts": 1788758379263,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000441",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000079",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 989,
+          "cacheRead": 398633,
+          "input": 2,
+          "output": 764
+        },
+        "totalTokens": 400388,
+        "ts": 1788758396686,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000446",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000080",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 798,
+          "cacheRead": 399622,
+          "input": 2,
+          "output": 892
+        },
+        "totalTokens": 401314,
+        "ts": 1788758450393,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000453",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000081",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 2558,
+          "cacheRead": 400420,
+          "input": 2,
+          "output": 1292
+        },
+        "totalTokens": 404272,
+        "ts": 1788758476378,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000459",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000082",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1587,
+          "cacheRead": 402978,
+          "input": 2,
+          "output": 596
+        },
+        "totalTokens": 405163,
+        "ts": 1788758489426,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000461",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000083",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1265,
+          "cacheRead": 404565,
+          "input": 2,
+          "output": 206
+        },
+        "totalTokens": 406038,
+        "ts": 1788758497370,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000463",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000084",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 302,
+          "cacheRead": 405830,
+          "input": 2,
+          "output": 234
+        },
+        "totalTokens": 406368,
+        "ts": 1788758502647,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "311-drawer-count",
+        "durationMs": null,
+        "eventId": "evt-000469",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000085",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1148,
+          "cacheRead": 406132,
+          "input": 2,
+          "output": 905
+        },
+        "totalTokens": 408187,
+        "ts": 1788758521145,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000482",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000086",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1135,
+          "cacheRead": 407280,
+          "input": 2,
+          "output": 171
+        },
+        "totalTokens": 408588,
+        "ts": 1788758537905,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000488",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000087",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 210,
+          "cacheRead": 408415,
+          "input": 2,
+          "output": 982
+        },
+        "totalTokens": 409609,
+        "ts": 1788758550705,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000490",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000088",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1250,
+          "cacheRead": 408625,
+          "input": 2,
+          "output": 184
+        },
+        "totalTokens": 410061,
+        "ts": 1788758558542,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000492",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000089",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 289,
+          "cacheRead": 409875,
+          "input": 2,
+          "output": 258
+        },
+        "totalTokens": 410424,
+        "ts": 1788758564617,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000498",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000090",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 437,
+          "cacheRead": 410164,
+          "input": 2,
+          "output": 807
+        },
+        "totalTokens": 411410,
+        "ts": 1788758576098,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000500",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000091",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 950,
+          "cacheRead": 410601,
+          "input": 2,
+          "output": 941
+        },
+        "totalTokens": 412494,
+        "ts": 1788758595128,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000501",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000092",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 33,
+          "cacheRead": 413243,
+          "input": 2,
+          "output": 501
+        },
+        "totalTokens": 413779,
+        "ts": 1788758595810,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000503",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000093",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 754,
+          "cacheRead": 413276,
+          "input": 2,
+          "output": 151
+        },
+        "totalTokens": 414183,
+        "ts": 1788758605328,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000509",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000094",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 190,
+          "cacheRead": 414030,
+          "input": 2,
+          "output": 146
+        },
+        "totalTokens": 414368,
+        "ts": 1788758610989,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000511",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000095",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 776,
+          "cacheRead": 414220,
+          "input": 2,
+          "output": 1324
+        },
+        "totalTokens": 416322,
+        "ts": 1788758628408,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000517",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000096",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1479,
+          "cacheRead": 414996,
+          "input": 2,
+          "output": 1204
+        },
+        "totalTokens": 417681,
+        "ts": 1788758654518,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000527",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000097",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 1624,
+          "cacheRead": 416475,
+          "input": 2,
+          "output": 570
+        },
+        "totalTokens": 418671,
+        "ts": 1788758668591,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000530",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000098",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 970,
+          "cacheRead": 411551,
+          "input": 2,
+          "output": 566
+        },
+        "totalTokens": 413089,
+        "ts": 1788758690342,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000536",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000099",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000002",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 935,
+          "cacheRead": 418099,
+          "input": 2,
+          "output": 500
+        },
+        "totalTokens": 419536,
+        "ts": 1788758700667,
+        "worktreePath": "/repo/rhizomorph"
+      },
+      {
+        "branch": "main",
+        "durationMs": null,
+        "eventId": "evt-000539",
+        "lane": "unattributed",
+        "model": "claude-opus-5",
+        "origin": "sessionlog",
+        "requestId": "req_TEST000000000000000100",
+        "role": "unattributed",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "thread": "main",
+        "tokens": {
+          "cacheCreation": 667,
+          "cacheRead": 412521,
+          "input": 2,
+          "output": 356
+        },
+        "totalTokens": 413546,
+        "ts": 1788758703008,
+        "worktreePath": "/repo/rhizomorph"
+      }
+    ]
+  },
+  "traces": {
+    "bySession": {},
+    "byTrace": {},
+    "spans": []
+  },
+  "worktrees": {
+    "/repo/rhizomorph": {
+      "branch": "main",
+      "detached": false,
+      "dirtyFiles": [
+        {
+          "path": "__worktrees/",
+          "staged": false,
+          "status": "untracked"
+        }
+      ],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": 1788757841885,
+      "discoveredAt": 1788757348336,
+      "head": "e5895a46d8b3d4793e1d3809fb947e5ef46f578c",
+      "isMain": true,
+      "name": "rhizomorph",
+      "path": "/repo/rhizomorph",
+      "present": true,
+      "removedAt": null
+    },
+    "/repo/rhizomorph/__worktrees/311-drawer-count": {
+      "branch": "311-drawer-count",
+      "detached": false,
+      "dirtyFiles": [
+        {
+          "path": "packages/web/src/drawer/readonly.test.ts",
+          "staged": false,
+          "status": "modified"
+        },
+        {
+          "path": "docs/citation-law-untracked-fixture-1124530-1788758720464.md",
+          "staged": false,
+          "status": "untracked"
+        }
+      ],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": 1788758720403,
+      "discoveredAt": 1788757843889,
+      "head": "e5895a46d8b3d4793e1d3809fb947e5ef46f578c",
+      "isMain": false,
+      "name": "311-drawer-count",
+      "path": "/repo/rhizomorph/__worktrees/311-drawer-count",
+      "present": true,
+      "removedAt": null
+    },
+    "/repo/rhizomorph__worktrees/235-count-matches-assertion": {
+      "branch": "235-count-matches-assertion",
+      "detached": false,
+      "dirtyFiles": [
+        {
+          "path": "proof.txt",
+          "staged": false,
+          "status": "untracked"
+        }
+      ],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": 1788757348336,
+      "discoveredAt": 1788757348336,
+      "head": "4bd7c178491334912a457d03f34c63db4cabea99",
+      "isMain": false,
+      "name": "235-count-matches-assertion",
+      "path": "/repo/rhizomorph__worktrees/235-count-matches-assertion",
+      "present": true,
+      "removedAt": null
+    },
+    "/repo/rhizomorph__worktrees/274-verdict-to-beacon": {
+      "branch": "274-verdict-to-beacon",
+      "detached": false,
+      "dirtyFiles": [
+        {
+          "path": "packages/server/src/gate-honesty-law.test.ts",
+          "staged": true,
+          "status": "modified"
+        },
+        {
+          "path": "scripts/gate.sh",
+          "staged": false,
+          "status": "modified"
+        }
+      ],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": 1788758706381,
+      "discoveredAt": 1788757348336,
+      "head": "27e695eb88bedd7d7aee97a3a95411a09b94ec52",
+      "isMain": false,
+      "name": "274-verdict-to-beacon",
+      "path": "/repo/rhizomorph__worktrees/274-verdict-to-beacon",
+      "present": true,
+      "removedAt": null
+    },
+    "/repo/rhizomorph__worktrees/275-outbound-row-titles": {
+      "branch": "275-outbound-row-titles",
+      "detached": false,
+      "dirtyFiles": [],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": null,
+      "discoveredAt": 1788757348336,
+      "head": "a07f85e1b619245741ba77a90fa20fdfae1f6174",
+      "isMain": false,
+      "name": "275-outbound-row-titles",
+      "path": "/repo/rhizomorph__worktrees/275-outbound-row-titles",
+      "present": true,
+      "removedAt": null
+    },
+    "/repo/rhizomorph__worktrees/278-summons-raiser": {
+      "branch": "278-summons-raiser",
+      "detached": false,
+      "dirtyFiles": [],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": null,
+      "discoveredAt": 1788757348336,
+      "head": "786f86b0aa9263c7f9f16fb0c6d3e94171c2d214",
+      "isMain": false,
+      "name": "278-summons-raiser",
+      "path": "/repo/rhizomorph__worktrees/278-summons-raiser",
+      "present": true,
+      "removedAt": null
+    },
+    "/repo/rhizomorph__worktrees/288-pinned-sha-landed": {
+      "branch": "288-pinned-sha-landed",
+      "detached": false,
+      "dirtyFiles": [],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": null,
+      "discoveredAt": 1788757348336,
+      "head": "5953baa88359e2ca46df6228cfee3a717edaefcc",
+      "isMain": false,
+      "name": "288-pinned-sha-landed",
+      "path": "/repo/rhizomorph__worktrees/288-pinned-sha-landed",
+      "present": true,
+      "removedAt": null
+    },
+    "/repo/rhizomorph__worktrees/289-exclusion-not-vacuous": {
+      "branch": "289-exclusion-not-vacuous",
+      "detached": false,
+      "dirtyFiles": [
+        {
+          "path": "proof.txt",
+          "staged": false,
+          "status": "untracked"
+        },
+        {
+          "path": "proof2.txt",
+          "staged": false,
+          "status": "untracked"
+        }
+      ],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": 1788757348336,
+      "discoveredAt": 1788757348336,
+      "head": "a8867650a2278faa89ca537d54b65efb75861a9a",
+      "isMain": false,
+      "name": "289-exclusion-not-vacuous",
+      "path": "/repo/rhizomorph__worktrees/289-exclusion-not-vacuous",
+      "present": true,
+      "removedAt": null
+    },
+    "/repo/rhizomorph__worktrees/_fixrr-274-verdict-to-beacon-a": {
+      "branch": null,
+      "detached": true,
+      "dirtyFiles": [],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": null,
+      "discoveredAt": 1788757348336,
+      "head": "982a71a27ba66dabad221f62ddc6b629f4147f00",
+      "isMain": false,
+      "name": "_fixrr-274-verdict-to-beacon-a",
+      "path": "/repo/rhizomorph__worktrees/_fixrr-274-verdict-to-beacon-a",
+      "present": true,
+      "removedAt": null
+    },
+    "/repo/rhizomorph__worktrees/_fixrr-274-verdict-to-beacon-b": {
+      "branch": null,
+      "detached": true,
+      "dirtyFiles": [],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": null,
+      "discoveredAt": 1788757348336,
+      "head": "982a71a27ba66dabad221f62ddc6b629f4147f00",
+      "isMain": false,
+      "name": "_fixrr-274-verdict-to-beacon-b",
+      "path": "/repo/rhizomorph__worktrees/_fixrr-274-verdict-to-beacon-b",
+      "present": true,
+      "removedAt": null
+    },
+    "/repo/rhizomorph__worktrees/_fixrr-278-summons-raiser-a": {
+      "branch": null,
+      "detached": true,
+      "dirtyFiles": [],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": 1788758531997,
+      "discoveredAt": 1788757348336,
+      "head": "7f1beea47b643bd11d2a203704ac77bfd88cb4c6",
+      "isMain": false,
+      "name": "_fixrr-278-summons-raiser-a",
+      "path": "/repo/rhizomorph__worktrees/_fixrr-278-summons-raiser-a",
+      "present": false,
+      "removedAt": 1788758531997
+    },
+    "/repo/rhizomorph__worktrees/_fixrr-278-summons-raiser-b": {
+      "branch": null,
+      "detached": true,
+      "dirtyFiles": [],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": 1788758534006,
+      "discoveredAt": 1788757348336,
+      "head": "7f1beea47b643bd11d2a203704ac77bfd88cb4c6",
+      "isMain": false,
+      "name": "_fixrr-278-summons-raiser-b",
+      "path": "/repo/rhizomorph__worktrees/_fixrr-278-summons-raiser-b",
+      "present": false,
+      "removedAt": 1788758534006
+    },
+    "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a": {
+      "branch": null,
+      "detached": true,
+      "dirtyFiles": [],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": 1788757729362,
+      "discoveredAt": 1788757348336,
+      "head": "84ee6f344012310a956bbf4e41fb1e83bb2ff710",
+      "isMain": false,
+      "name": "_fixrr-prd43-w8-wave-a",
+      "path": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-a",
+      "present": true,
+      "removedAt": null
+    },
+    "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-b": {
+      "branch": null,
+      "detached": true,
+      "dirtyFiles": [],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": 1788758175148,
+      "discoveredAt": 1788757348336,
+      "head": "84ee6f344012310a956bbf4e41fb1e83bb2ff710",
+      "isMain": false,
+      "name": "_fixrr-prd43-w8-wave-b",
+      "path": "/repo/rhizomorph__worktrees/_fixrr-prd43-w8-wave-b",
+      "present": true,
+      "removedAt": null
+    },
+    "/repo/rhizomorph__worktrees/_review-304": {
+      "branch": "_review-304",
+      "detached": false,
+      "dirtyFiles": [],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": 1788758534006,
+      "discoveredAt": 1788757348336,
+      "head": "98ce4d685942d7079c844b51b1ecbcbe9f2a16ef",
+      "isMain": false,
+      "name": "_review-304",
+      "path": "/repo/rhizomorph__worktrees/_review-304",
+      "present": false,
+      "removedAt": 1788758534006
+    },
+    "/repo/rhizomorph__worktrees/_review-305": {
+      "branch": "_review-305",
+      "detached": false,
+      "dirtyFiles": [],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": 1788758534006,
+      "discoveredAt": 1788757348336,
+      "head": "8432d6bba388d9346d458e08db17d1e078155d93",
+      "isMain": false,
+      "name": "_review-305",
+      "path": "/repo/rhizomorph__worktrees/_review-305",
+      "present": false,
+      "removedAt": 1788758534006
+    },
+    "/repo/rhizomorph__worktrees/_review-308": {
+      "branch": "_review-308",
+      "detached": false,
+      "dirtyFiles": [],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": 1788758536011,
+      "discoveredAt": 1788757348336,
+      "head": "8144d9945f817c2c9d377fb694a51f10de9a45be",
+      "isMain": false,
+      "name": "_review-308",
+      "path": "/repo/rhizomorph__worktrees/_review-308",
+      "present": false,
+      "removedAt": 1788758536011
+    },
+    "/repo/rhizomorph__worktrees/_review-309": {
+      "branch": "_review-309",
+      "detached": false,
+      "dirtyFiles": [],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": 1788758536011,
+      "discoveredAt": 1788757348336,
+      "head": "bdd7d7f4e88dd4638e94d64d93e8d990e8ed509d",
+      "isMain": false,
+      "name": "_review-309",
+      "path": "/repo/rhizomorph__worktrees/_review-309",
+      "present": false,
+      "removedAt": 1788758536011
+    },
+    "/repo/rhizomorph__worktrees/_tense": {
+      "branch": "prd43-sequencing-tense",
+      "detached": false,
+      "dirtyFiles": [],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": null,
+      "discoveredAt": 1788757348336,
+      "head": "84c2580d9a4a109ab4079d7b1fc620f2413e3316",
+      "isMain": false,
+      "name": "_tense",
+      "path": "/repo/rhizomorph__worktrees/_tense",
+      "present": true,
+      "removedAt": null
+    },
+    "/repo/rhizomorph__worktrees/_verify-w8": {
+      "branch": "prd43-w8-wave",
+      "detached": false,
+      "dirtyFiles": [],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": null,
+      "discoveredAt": 1788757348336,
+      "head": "03974d0ce74d70123979e927308322941a6c0c51",
+      "isMain": false,
+      "name": "_verify-w8",
+      "path": "/repo/rhizomorph__worktrees/_verify-w8",
+      "present": true,
+      "removedAt": null
+    },
+    "/repo/rhizomorph__worktrees/_verifyseat-a": {
+      "branch": null,
+      "detached": true,
+      "dirtyFiles": [],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": null,
+      "discoveredAt": 1788757348336,
+      "head": "a6db39d95263564872fb3b69879fd24620fe7d74",
+      "isMain": false,
+      "name": "_verifyseat-a",
+      "path": "/repo/rhizomorph__worktrees/_verifyseat-a",
+      "present": true,
+      "removedAt": null
+    },
+    "/repo/rhizomorph__worktrees/_verifyseat-b": {
+      "branch": null,
+      "detached": true,
+      "dirtyFiles": [],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": null,
+      "discoveredAt": 1788757348336,
+      "head": "a6db39d95263564872fb3b69879fd24620fe7d74",
+      "isMain": false,
+      "name": "_verifyseat-b",
+      "path": "/repo/rhizomorph__worktrees/_verifyseat-b",
+      "present": true,
+      "removedAt": null
+    },
+    "/repo/rhizomorph__worktrees/_verifyseat-prd43-w8-wave-a": {
+      "branch": null,
+      "detached": true,
+      "dirtyFiles": [],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": null,
+      "discoveredAt": 1788757348336,
+      "head": "8870d56ef2a0ed9c5a937af6dedb144fe3e7e278",
+      "isMain": false,
+      "name": "_verifyseat-prd43-w8-wave-a",
+      "path": "/repo/rhizomorph__worktrees/_verifyseat-prd43-w8-wave-a",
+      "present": true,
+      "removedAt": null
+    },
+    "/repo/rhizomorph__worktrees/_verifyseat-prd43-w8-wave-b": {
+      "branch": null,
+      "detached": true,
+      "dirtyFiles": [],
+      "dirtyStatusFailedSince": null,
+      "dirtyUpdatedAt": null,
+      "discoveredAt": 1788757348336,
+      "head": "8870d56ef2a0ed9c5a937af6dedb144fe3e7e278",
+      "isMain": false,
+      "name": "_verifyseat-prd43-w8-wave-b",
+      "path": "/repo/rhizomorph__worktrees/_verifyseat-prd43-w8-wave-b",
+      "present": true,
+      "removedAt": null
+    }
+  }
+}

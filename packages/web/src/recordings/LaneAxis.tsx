@@ -1,3 +1,4 @@
+import { Disclosure, type DisclosureContent } from '../disclosure/index.js'
 import { laneUrl, navigate } from '../app/router.js'
 import { formatDuration } from '../lib/format.js'
 import type { LaneIndexPage, LaneIndexRow } from './laneIndex.js'
@@ -5,10 +6,10 @@ import {
   isLaneCostGap,
   laneCostSuffix,
   laneCostText,
-  laneCostTitle,
+  laneCostDisclosure,
   laneOutcome,
   laneSessionsText,
-  laneSessionsTitle,
+  laneSessionsDisclosure,
 } from './laneFormat.js'
 
 /**
@@ -93,17 +94,21 @@ function LaneRow({ lane }: { lane: LaneIndexRow }) {
         </a>
       </td>
       <td className="figures p-(--space-cell) text-(--ink-dim)">{lane.issue === null ? '—' : `#${lane.issue}`}</td>
-      <td className="figures p-(--space-cell) text-(--ink-dim)" title={whenTitle(lane)}>
-        {whenText(lane)}
+      <td className="figures p-(--space-cell) text-(--ink-dim)">
+        <Disclosure disclosure={whenDisclosure(lane)} triggerLabel={`${lane.handle}, when`}>
+          {whenText(lane)}
+        </Disclosure>
       </td>
       <td
         className={`p-2 ${outcome.inferred ? 'text-(--ink-dim)' : 'text-(--ink-body)'}`}
-        title={outcome.title}
         data-inferred={outcome.inferred}
       >
-        {outcome.word}
+        <Disclosure disclosure={outcome.disclosure} triggerLabel={`${lane.handle}, outcome`}>
+          {outcome.word}
+        </Disclosure>
       </td>
-      <td className="figures p-(--space-cell)" title={laneCostTitle(lane)}>
+      <td className="figures p-(--space-cell)">
+        <Disclosure disclosure={laneCostDisclosure(lane)} triggerLabel={`${lane.handle}, cost`}>
         {laneCostText(lane)}
         {laneCostSuffix(lane) !== null && <span className="ml-1 text-(--ink-dim)">{laneCostSuffix(lane)}</span>}
         {isLaneCostGap(lane) && (
@@ -111,9 +116,12 @@ function LaneRow({ lane }: { lane: LaneIndexRow }) {
             (no cost feed)
           </span>
         )}
+        </Disclosure>
       </td>
-      <td className="figures p-(--space-cell) text-(--ink-dim)" title={laneSessionsTitle(lane)}>
-        {laneSessionsText(lane)}
+      <td className="figures p-(--space-cell) text-(--ink-dim)">
+        <Disclosure disclosure={laneSessionsDisclosure(lane)} triggerLabel={`${lane.handle}, sessions`}>
+          {laneSessionsText(lane)}
+        </Disclosure>
       </td>
     </tr>
   )
@@ -130,9 +138,37 @@ function whenText(lane: Pick<LaneIndexRow, 'firstSeenAt' | 'lastSeenAt'>): strin
   return formatDuration(Math.max(0, lane.lastSeenAt - lane.firstSeenAt))
 }
 
-function whenTitle(lane: Pick<LaneIndexRow, 'firstSeenAt' | 'lastSeenAt'>): string {
+/**
+ * WHEN's disclosure (#220) — the two wall-clock stamps the span is measured
+ * between.
+ *
+ * `elapsedMs: 0` and not `now − lastSeenAt`: this is a recordings index, and
+ * the fact it holds is "the log carries these two timestamps", which is re-read
+ * whenever the table renders rather than dated to an observation. Ageing it
+ * against the reader's clock would turn a stable historical fact into a number
+ * that drifts every second for no reason — and the span the cell shows is
+ * already the elapsed time that matters here.
+ */
+function whenDisclosure(lane: Pick<LaneIndexRow, 'firstSeenAt' | 'lastSeenAt'>): DisclosureContent {
   if (lane.firstSeenAt === null || lane.lastSeenAt === null) {
-    return 'no event in any recording carried a timestamp for this lane'
+    return {
+      label: 'when',
+      why: {
+        reason: 'no event in any recording carried a timestamp for this lane',
+        evidence: { fact: 'the index has its name and nothing dated', elapsedMs: 0 },
+      },
+      remedy: { kind: 'none', because: 'the span cannot be computed from what was recorded — the dash says so rather than showing 0s' },
+    }
   }
-  return `${new Date(lane.firstSeenAt).toISOString()} → ${new Date(lane.lastSeenAt).toISOString()}`
+  return {
+    label: 'when',
+    why: {
+      reason: 'how long this lane ran, first event to last',
+      evidence: {
+        fact: `${new Date(lane.firstSeenAt).toISOString()} → ${new Date(lane.lastSeenAt).toISOString()}`,
+        elapsedMs: 0,
+      },
+    },
+    remedy: { kind: 'none', because: 'a recorded span is finished history — there is nothing to act on' },
+  }
 }

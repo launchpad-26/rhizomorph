@@ -1,20 +1,36 @@
 import { describe, expect, it } from 'vitest'
+import { disclosureLines, type DisclosureContent } from '../../disclosure/index.js'
 import type { Burn } from '../../fleet/index.js'
 import {
   CONDUCTOR_NOT_INSTRUMENTED_GAP,
   NO_COST_FEED_GAP,
-  burnRateHoverTitle,
-  dollarsHoverTitle,
+  burnRateHoverDisclosure,
+  dollarsHoverDisclosure,
   errorCount,
-  errorsHoverTitle,
+  errorsHoverDisclosure,
   formatBurnRate,
   formatDollarsOrGap,
   formatOverheadOrGap,
   isDollarsGap,
   isOverheadGap,
-  outputHoverTitle,
-  overheadHoverTitle,
+  outputHoverDisclosure,
+  overheadHoverDisclosure,
 } from './format.js'
+
+/**
+ * What the card actually puts on screen, joined for the assertions below.
+ *
+ * These used to read a `title=` string straight out of the formatter (#220).
+ * Going through `disclosureLines` is strictly stronger than that was: it is the
+ * same function the card renders through, and it THROWS on a disclosure with no
+ * evidence, no age or an unstated remedy — so a formatter that lost its
+ * evidence clause fails here rather than rendering a poorer card in silence.
+ */
+function lines(disclosure: DisclosureContent): string {
+  const rendered = disclosureLines(disclosure)
+  return [rendered.label, rendered.why, rendered.remedy, rendered.command ?? ''].join(' · ')
+}
+
 
 const BASE_BURN: Burn = {
   outputTokens: 1_234_567,
@@ -48,13 +64,13 @@ describe('formatDollarsOrGap / isDollarsGap', () => {
   it('still renders a real, non-zero dollar figure when the read is a mixed estimate', () => {
     const burn = { ...BASE_BURN, costIsAuthoritative: false }
     expect(formatDollarsOrGap(burn)).toBe('$42.56')
-    expect(dollarsHoverTitle(burn)).toContain('estimate')
+    expect(lines(dollarsHoverDisclosure(burn))).toContain('estimate')
   })
 })
 
-describe('dollarsHoverTitle', () => {
+describe('dollarsHoverDisclosure', () => {
   it('carries more precision than the headline figure ever shows', () => {
-    const title = dollarsHoverTitle(BASE_BURN)
+    const title = lines(dollarsHoverDisclosure(BASE_BURN))
     expect(title).toContain('42.556000')
     expect(title).toContain('authoritative')
   })
@@ -76,9 +92,9 @@ describe('formatBurnRate', () => {
   })
 })
 
-describe('burnRateHoverTitle', () => {
+describe('burnRateHoverDisclosure', () => {
   it('shows the exact out-tok/min count regardless of which unit is headlined', () => {
-    expect(burnRateHoverTitle(BASE_BURN)).toContain('1,500 out-tok/min')
+    expect(lines(burnRateHoverDisclosure(BASE_BURN))).toContain('1,500 out-tok/min')
   })
 })
 
@@ -109,21 +125,21 @@ describe('formatOverheadOrGap / isOverheadGap', () => {
   })
 })
 
-describe('overheadHoverTitle', () => {
+describe('overheadHoverDisclosure', () => {
   it('carries more precision than the two-decimal headline', () => {
-    expect(overheadHoverTitle(BASE_BURN)).toContain('0.4231×')
+    expect(lines(overheadHoverDisclosure(BASE_BURN))).toContain('0.4231×')
   })
 })
 
-describe('outputHoverTitle', () => {
+describe('outputHoverDisclosure', () => {
   it('carries the exact comma-grouped count and the full tier breakdown', () => {
-    const title = outputHoverTitle(BASE_BURN.tokens)
+    const title = lines(outputHoverDisclosure(BASE_BURN.tokens))
     expect(title).toContain('1,234,567')
     expect(title).toContain('cache read')
   })
 })
 
-describe('errorCount / errorsHoverTitle (issue #159)', () => {
+describe('errorCount / errorsHoverDisclosure (issue #159)', () => {
   it('reads the fleet-computed total straight through', () => {
     expect(errorCount(BASE_BURN)).toBe(2)
   })
@@ -133,7 +149,7 @@ describe('errorCount / errorsHoverTitle (issue #159)', () => {
   })
 
   it('breaks the total down into blocked/parked/off-fence on hover', () => {
-    const title = errorsHoverTitle(BASE_BURN)
+    const title = lines(errorsHoverDisclosure(BASE_BURN))
     expect(title).toContain('2 exactly')
     expect(title).toContain('1 blocked')
     expect(title).toContain('0 parked')

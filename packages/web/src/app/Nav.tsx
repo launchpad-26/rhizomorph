@@ -1,3 +1,4 @@
+import { Disclosure, type DisclosureContent } from '../disclosure/index.js'
 import type { MouseEvent } from 'react'
 import { useMode } from './ModeContext.js'
 import { navigate, useRoute, type Route } from './router.js'
@@ -109,7 +110,9 @@ function NavLink({ href, label, active }: { href: string; label: string; active:
 /**
  * S4's *unavailable* state, rendered — never removed from the strip, so its
  * place in the same-place-everywhere contract holds even while it cannot be
- * clicked. `title` surfaces the reason on hover; the visually-hidden span
+ * clicked. The disclosure card surfaces the reason on hover AND on focus
+ * (#220 — it was a `title=`, which did neither for a keyboard); the
+ * visually-hidden span
  * gives it to a screen reader (and to a test) without depending on hover at
  * all — the same "hover and focus disclose identically" posture D10 states
  * for the disclosure card.
@@ -118,12 +121,38 @@ function DisabledNavLink({ label, reason }: { label: string; reason: string }) {
   return (
     <span
       aria-disabled="true"
-      title={reason}
       data-testid={`nav-${label.toLowerCase()}`}
       className="flex cursor-not-allowed items-center border-b-2 border-transparent px-2.5 py-2 text-inst-dense font-semibold uppercase tracking-[0.16em] text-(--ink-dim)"
     >
-      {label}
+      <Disclosure disclosure={disabledNavDisclosure(label, reason)} triggerLabel={`${label}, unavailable`}>
+        {label}
+      </Disclosure>
+      {/*
+        The visually-hidden copy stays (#220). The card is what a pointer and a
+        keyboard now both reach, but it renders only while open — and a reader
+        tabbing PAST this item should still hear why it is dead without having
+        to stop on it. Two readers, one string: `reason` is passed to both, so
+        they cannot drift.
+      */}
       <span className="sr-only">{` — ${reason}`}</span>
     </span>
   )
+}
+
+/**
+ * Why a nav item is dead (#220).
+ *
+ * `elapsedMs: 0`: the reason is re-derived from the current mode on every
+ * render, so it is a fact confirmed just now rather than a dated observation —
+ * core's own register in `selectors/condition.ts`.
+ */
+function disabledNavDisclosure(label: string, reason: string): DisclosureContent {
+  return {
+    label,
+    why: {
+      reason: `this view is unavailable — ${reason}`,
+      evidence: { fact: 'the instrument is in a mode that cannot serve it', elapsedMs: 0 },
+    },
+    remedy: { kind: 'none', because: 'it becomes available again on its own when the mode changes' },
+  }
 }

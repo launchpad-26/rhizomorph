@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { resolveTheme } from './apply.js'
 import { HOST_GLOBAL, type HostCapability } from './host.js'
 import {
   adoptRepoScope,
@@ -54,7 +55,7 @@ describe('defaults, and what "unset" means', () => {
 
   it('refuses a value the entry does not offer, rather than storing it', () => {
     expect(() => writePreference('appearance.theme', 'sepia')).toThrow(/not a value/)
-    expect(readPreference('appearance.theme')).toBe('system')
+    expect(readPreference('appearance.theme')).toBe('dark')
   })
 
   it('refuses to store anything for a control that cannot act', () => {
@@ -68,12 +69,12 @@ describe('defaults, and what "unset" means', () => {
 
   it('falls back to the default when the stored JSON is malformed', () => {
     localStorage.setItem('rhizomorph.prefs.machine.v1', '{not json')
-    expect(readPreference('appearance.theme')).toBe('system')
+    expect(readPreference('appearance.theme')).toBe('dark')
   })
 
   it('treats a retired option as unset rather than as a value', () => {
     localStorage.setItem('rhizomorph.prefs.machine.v1', JSON.stringify({ 'appearance.theme': 'sepia' }))
-    expect(readPreference('appearance.theme')).toBe('system')
+    expect(readPreference('appearance.theme')).toBe('dark')
   })
 })
 
@@ -165,7 +166,8 @@ describe('ruling 3 — scope', () => {
 describe('ruling 4 — a changed setting looks changed, and can be put back', () => {
   it('marks a preference overridden only once it differs from its default', () => {
     expect(isOverridden('appearance.theme')).toBe(false)
-    writePreference('appearance.theme', 'system')
+    // Writing the default (dark, since #337) is not an override.
+    writePreference('appearance.theme', 'dark')
     expect(isOverridden('appearance.theme')).toBe(false)
 
     writePreference('appearance.theme', 'light')
@@ -180,7 +182,7 @@ describe('ruling 4 — a changed setting looks changed, and can be put back', ()
 
     restoreDefaults('appearance', 'machine')
 
-    expect(readPreference('appearance.theme')).toBe('system')
+    expect(readPreference('appearance.theme')).toBe('dark')
     // The repo-scoped member of the same group is untouched — a restore that
     // silently crossed scopes is the confusion ruling 3 exists to prevent.
     expect(readRecordOverlay('appearance.panelsCollapsed')).toEqual({ fleet: true })
@@ -301,5 +303,21 @@ describe('the change signal, and the error state', () => {
     })
 
     expect(writePreference('appearance.theme', 'dark')).toBe(false)
+  })
+})
+
+describe('the theme opens dark (#337 — operator ruling 2026-09-08; ui-2.0 D26)', () => {
+  const theme = PREFERENCES.find((entry) => entry.id === 'appearance.theme')
+
+  it("the registry's default is dark, not follow-the-system", () => {
+    expect(theme?.fallback).toBe('dark')
+  })
+
+  it('a fresh machine whose OS prefers light still opens dark — the source theme, not the derived one', () => {
+    expect(resolveTheme(String(theme?.fallback), { prefersLight: true, prefersReducedMotion: false })).toBe('dark')
+  })
+
+  it('following the system is still on offer — a choice, no longer the default', () => {
+    expect(theme?.options?.map((option) => option.value)).toContain('system')
   })
 })

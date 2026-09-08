@@ -1,3 +1,4 @@
+import type { DisclosureContent } from '../disclosure/index.js'
 import { formatTokens, formatUsd } from '../lib/format.js'
 import type { RecordingListing, TranscriptCaptureManifest } from './api.js'
 
@@ -28,10 +29,38 @@ export function isCostGap(recording: Pick<RecordingListing, 'costIsAuthoritative
 }
 
 /** The cost cell's hover: what "estimated" or "authoritative" means, or why there is no dollar figure at all. */
-export function costHoverTitle(recording: Pick<RecordingListing, 'costIsAuthoritative'>): string {
-  if (recording.costIsAuthoritative === null) return 'no cost telemetry recorded for this session'
-  if (recording.costIsAuthoritative === false) return 'estimated — not fully authoritative'
-  return 'authoritative dollar cost (OTel)'
+/** A finished recording's cost provenance (#220). Settled history — see `laneFormat.ts` on the age. */
+export function costHoverDisclosure(
+  recording: Pick<RecordingListing, 'costIsAuthoritative'>,
+): DisclosureContent {
+  if (recording.costIsAuthoritative === null) {
+    return {
+      label: '$',
+      why: {
+        reason: 'no cost telemetry was recorded for this session',
+        evidence: { fact: 'not one cost event was folded while it ran', elapsedMs: 0 },
+      },
+      remedy: { kind: 'none', because: 'the session is over — a cost never captured cannot be recovered from the record' },
+    }
+  }
+  if (recording.costIsAuthoritative === false) {
+    return {
+      label: '$',
+      why: {
+        reason: 'estimated — not fully authoritative',
+        evidence: { fact: 'part of this figure was priced from a vendored table rather than reported', elapsedMs: 0 },
+      },
+      remedy: { kind: 'none', because: 'this is the best figure the recording holds' },
+    }
+  }
+  return {
+    label: '$',
+    why: {
+      reason: 'authoritative dollar cost',
+      evidence: { fact: 'the agent CLI reported every figure itself (OTel)', elapsedMs: 0 },
+    },
+    remedy: { kind: 'none', because: 'the figure comes from the CLI itself' },
+  }
 }
 
 /** `est.` suffix beside the dollar figure — the same convention the fleet table and ledger already use for this exact state. */
@@ -82,14 +111,52 @@ function captureReasons(capture: TranscriptCaptureManifest): string {
 }
 
 /** The capture cell's hover: the size actually captured, and every gap's own reason — never just "incomplete". */
-export function captureHoverTitle(recording: Pick<RecordingListing, 'transcriptCapture'>): string {
+export function captureHoverDisclosure(
+  recording: Pick<RecordingListing, 'transcriptCapture'>,
+): DisclosureContent {
   const capture = recording.transcriptCapture
   if (capture === undefined) {
-    return 'this recording was made before transcript capture (prd16 ruling 3) existed — its conversations are not in this recording'
+    return {
+      label: 'capture',
+      why: {
+        reason: 'this recording predates transcript capture (prd16 ruling 3)',
+        evidence: { fact: 'its conversations are not in this recording', elapsedMs: 0 },
+      },
+      remedy: { kind: 'none', because: 'nothing can be captured retrospectively — later recordings carry their transcripts' },
+    }
   }
   if (capture === null) {
-    return 'no capture ever ran for this session — the still-open live session, or a recording from before this feature existed'
+    return {
+      label: 'capture',
+      why: {
+        reason: 'no capture ever ran for this session',
+        evidence: { fact: 'the still-open live session, or a recording from before this feature existed', elapsedMs: 0 },
+      },
+      remedy: { kind: 'none', because: 'a live session captures when it closes; an old one cannot be made to' },
+    }
   }
-  if (capture.complete) return `${capture.totalBytes.toLocaleString()} bytes captured, every attributed lane`
-  return `${capture.totalBytes.toLocaleString()} bytes captured — ${captureReasons(capture)}`
+  if (capture.complete) {
+    return {
+      label: 'capture',
+      why: {
+        reason: 'every attributed lane was captured',
+        evidence: { fact: `${capture.totalBytes.toLocaleString()} bytes captured`, elapsedMs: 0 },
+      },
+      remedy: { kind: 'none', because: 'a complete capture is the wanted state' },
+    }
+  }
+  return {
+    label: 'capture',
+    why: {
+      reason: 'the capture is incomplete',
+      evidence: {
+        fact: `${capture.totalBytes.toLocaleString()} bytes captured — ${captureReasons(capture)}`,
+        elapsedMs: 0,
+      },
+    },
+    remedy: {
+      kind: 'action',
+      action: 'the reasons above name what was missed; a lane whose transcript was unreadable at capture time cannot be recovered from this record',
+    },
+  }
 }

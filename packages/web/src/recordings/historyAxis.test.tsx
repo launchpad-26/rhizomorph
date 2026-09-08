@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { discloseText } from '../disclosure/testing.js'
 import { ModeProvider } from '../app/ModeContext.js'
 import { REPRESENTATION_INSTANCES } from '../fleet/TwoRepresentations.js'
 import type { FetchLike } from '../replay/api.js'
@@ -319,7 +320,12 @@ describe('an unreadable record is named and counted, never silently skipped (ADR
 
     const row = screen.getByTestId('history-lane-row-800-partial')
     expect(row).toHaveTextContent('1 unreadable')
-    expect(row.querySelector('[title*="6000"]')).not.toBeNull()
+    // #220: the session list is the SESSIONS cell's card. Named explicitly —
+    // the row has a card on every cell now, and taking the first one would
+    // assert against whichever column happens to come first.
+    const sessions = row.querySelector('[aria-label$=", sessions"]')
+    expect(sessions, 'no sessions disclosure on this row').not.toBeNull()
+    expect(discloseText(sessions as HTMLElement)).toContain('6000')
   })
 
   it('voices the lines a recording lost, which the listing has carried and never shown', async () => {

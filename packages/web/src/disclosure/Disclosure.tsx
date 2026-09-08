@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type ReactElement, type ReactNode } from 'react'
+import { useId, useRef, useState, type ReactElement, type ReactNode, type RefObject } from 'react'
 import { DisclosureCard } from './DisclosureCard.js'
 import type { DisclosureContent } from './vocabulary.js'
 
@@ -84,18 +84,61 @@ export interface DisclosureProps {
   triggerLabel?: string
   /** Classes for the trigger, beside the one focus token. */
   className?: string
+  /**
+   * What the trigger IS — `'button'` by default, `'inline'` when the mark it
+   * wraps is already a control (ADR-0040).
+   *
+   * A chip that filters, a row that navigates, a rename button: wrapping one of
+   * those in the default trigger nests a button inside a button, which is
+   * invalid markup, assembles the accessible name from two sources, and leaves
+   * two click handlers racing for one tap. `'inline'` renders a focusable
+   * `<span role="note">` instead, so the caller's own control stays the only
+   * button on the mark.
+   *
+   * **It is a mode, not a second path.** Everything below this line is shared:
+   * one `open` boolean, one `<DisclosureCard>`, one focus token, the same
+   * Escape and tap-to-pin behaviour. The mode chooses an element and nothing
+   * else — which is why `Disclosure.test.tsx` asserts hover/focus parity under
+   * both rather than trusting the sentence.
+   */
+  trigger?: 'button' | 'inline'
 }
 
-export function Disclosure({ disclosure, children, triggerLabel, className }: DisclosureProps): ReactElement {
+export function Disclosure({
+  disclosure,
+  children,
+  triggerLabel,
+  className,
+  trigger = 'button',
+}: DisclosureProps): ReactElement {
   const cardId = useId()
   const wrapperRef = useRef<HTMLSpanElement>(null)
-  const triggerRef = useRef<HTMLButtonElement>(null)
+  // `HTMLElement` rather than `HTMLButtonElement`: the inline mode's trigger is
+  // a span, and Escape's hand-back below only ever calls `focus()`.
+  const triggerRef = useRef<HTMLElement>(null)
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
   const [tapped, setTapped] = useState(false)
   const [dismissed, setDismissed] = useState(false)
 
   const open = !dismissed && (hovered || focused || tapped)
+
+  /**
+   * Everything the trigger wears, assembled once. The two branches below differ
+   * in their element and in nothing else; spelling these out twice is how the
+   * mode would become the second path the module note says it is not.
+   */
+  const triggerProps = {
+    'data-testid': 'disclosure-trigger',
+    'data-open': open,
+    'aria-label': triggerLabel,
+    'aria-describedby': open ? cardId : undefined,
+    className: className === undefined ? 'focus-ring' : `focus-ring ${className}`,
+    onClick: () => {
+      setTapped((pinned) => !pinned)
+      setDismissed(false)
+    },
+  }
 
   /** Is focus going somewhere still inside this disclosure — the trigger, or the card's teach control? */
   const withinDisclosure = (node: EventTarget | null): boolean =>
@@ -140,21 +183,24 @@ export function Disclosure({ disclosure, children, triggerLabel, className }: Di
         if (active !== triggerRef.current && withinDisclosure(active)) triggerRef.current?.focus()
       }}
     >
-      <button
-        ref={triggerRef}
-        type="button"
-        data-testid="disclosure-trigger"
-        data-open={open}
-        aria-label={triggerLabel}
-        aria-describedby={open ? cardId : undefined}
-        className={className === undefined ? 'focus-ring' : `focus-ring ${className}`}
-        onClick={() => {
-          setTapped((pinned) => !pinned)
-          setDismissed(false)
-        }}
-      >
-        {children}
-      </button>
+      {trigger === 'button' ? (
+        <button
+          ref={triggerRef as RefObject<HTMLButtonElement>}
+          type="button"
+          {...triggerProps}
+        >
+          {children}
+        </button>
+      ) : (
+        // `role="note"` and not `button`: the mark's own control is the button
+        // here, and announcing a second one would be the nested-button defect
+        // read aloud. It is focusable so the keyboard reaches the same card the
+        // pointer does — charter §6, which is the whole reason this mode exists
+        // rather than the eight sites keeping their `title=`.
+        <span ref={triggerRef as RefObject<HTMLSpanElement>} role="note" tabIndex={0} {...triggerProps}>
+          {children}
+        </span>
+      )}
       {open ? (
         <span className="absolute left-0 top-full z-(--z-card) pt-1">
           <DisclosureCard disclosure={disclosure} id={cardId} />

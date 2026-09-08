@@ -88,7 +88,6 @@ describe('StatusBar', () => {
 
     const workmux = pill(container, 'workmux')
     expect(workmux.dataset.health).toBe('disabled')
-    expect(workmux.title).toBe('workmux not found on PATH')
     expect(workmux.getAttribute('aria-label')).toContain('workmux not found on PATH')
 
     // Untouched sources have proved no flow either, so ruling 4 reads them
@@ -109,7 +108,7 @@ describe('StatusBar', () => {
 
     const sessionlog = pill(container, 'sessionlog')
     expect(sessionlog.dataset.health).toBe('disabled')
-    expect(sessionlog.title).toBe('no Claude session logs found')
+    expect(sessionlog.getAttribute('aria-label')).toContain('no Claude session logs found')
   })
 
   it('surfaces an errored collector with its last message on hover/focus', () => {
@@ -122,7 +121,6 @@ describe('StatusBar', () => {
 
     const tmux = pill(container, 'tmux')
     expect(tmux.dataset.health).toBe('errored')
-    expect(tmux.title).toBe('capture-pane timed out')
     expect(tmux.getAttribute('aria-label')).toContain('capture-pane timed out')
   })
 
@@ -236,7 +234,7 @@ describe('StatusBar', () => {
 
     const sessionlog = pill(container, 'sessionlog')
     expect(sessionlog.dataset.health).toBe('degraded')
-    expect(sessionlog.title).toBe('no Claude session logs found (attempt 1/3 — retrying)')
+    expect(sessionlog.getAttribute('aria-label')).toContain('no Claude session logs found (attempt 1/3 — retrying)')
 
     // Untouched sources have proved no flow either, so they still read waiting.
     expect(pill(container, 'git').dataset.health).toBe('waiting')
@@ -281,7 +279,7 @@ describe('StatusBar', () => {
 
     const tmux = pill(container, 'tmux')
     expect(tmux.dataset.health).toBe('live')
-    expect(tmux.title).toBe('')
+    expect(tmux.getAttribute('aria-label')).not.toMatch(/ — /)
   })
 
   it('a second consecutive degraded poll updates the same pill and gap line, never adds a second (#304)', async () => {
@@ -297,7 +295,7 @@ describe('StatusBar', () => {
 
     const tmux = pill(container, 'tmux')
     expect(tmux.dataset.health).toBe('degraded')
-    expect(tmux.title).toBe('tmux exited with code 1')
+    expect(tmux.getAttribute('aria-label')).toContain('tmux exited with code 1')
 
     const lines = queryAllByTestId('gap-voice')
     expect(lines).toHaveLength(1)
@@ -310,7 +308,7 @@ describe('StatusBar', () => {
     act(() => source()?.open())
 
     const sse = container.querySelector('[aria-label^="Stream:"]') as HTMLElement | null
-    expect(sse?.title).toBe('live')
+    expect(sse?.getAttribute('aria-label')).toContain('live')
   })
 })
 
@@ -351,7 +349,7 @@ describe('StatusBar — source health is proof-of-flow (prd19 ruling 4)', () => 
     // A proven source carries no message — `live` is silent, same as before
     // this ruling touched anything. (No `title` attribute rendered at all;
     // the DOM reflects that as `''`, never `null`.)
-    expect(otel.title).toBe('')
+    expect(otel.getAttribute('aria-label')).not.toMatch(/ — /)
   })
 
   it('the fix is general, not an OTel-only branch: a folded git record flips git to `live` too', () => {
@@ -384,7 +382,7 @@ describe('StatusBar — source health is proof-of-flow (prd19 ruling 4)', () => 
 
     const otel = pill(container, 'otel')
     expect(otel.dataset.health).toBe('disabled')
-    expect(otel.title).toBe('OTLP receiver disabled by flag')
+    expect(otel.getAttribute('aria-label')).toContain('OTLP receiver disabled by flag')
   })
 
   /**
@@ -467,7 +465,7 @@ describe('StatusBar — session voice', () => {
 
     const el = sessionVoice(container)
     expect(el).toHaveTextContent('session sess-live —')
-    expect(el.title).toContain('boot facts unavailable')
+    expect(el.getAttribute('aria-label')).toContain('boot facts unavailable')
   })
 
   it('speaks age, event count and resume count once the boot facts arrive', async () => {
@@ -492,8 +490,8 @@ describe('StatusBar — session voice', () => {
     // the boot that measured it.
     const el = sessionVoice(container)
     expect(el).toHaveTextContent('session 3d4h · 1 events · resumed x7')
-    expect(el.title).toContain('resumed:')
-    expect(el.title).toContain('4h')
+    expect(el.getAttribute('aria-label')).toContain('resumed:')
+    expect(el.getAttribute('aria-label')).toContain('4h')
   })
 
   it('omits the resumed clause for a session that has never been resumed', async () => {
@@ -508,7 +506,7 @@ describe('StatusBar — session voice', () => {
 
     const el = sessionVoice(container)
     expect(el.textContent).not.toMatch(/resumed/)
-    expect(el.title).toContain('starting:')
+    expect(el.getAttribute('aria-label')).toContain('starting:')
   })
 
   it('explains a stale boundary in the hover text', async () => {
@@ -521,7 +519,7 @@ describe('StatusBar — session voice', () => {
       source()?.emit(f.sessionStarted({ sessionId: 'sess-live' }, { ts: NOW }))
     })
 
-    expect(sessionVoice(container).title).toContain("previous session's activity was outside the 4h window")
+    expect(sessionVoice(container).getAttribute('aria-label')).toContain("previous session's activity was outside the 4h window")
   })
 
   /**
@@ -550,11 +548,11 @@ describe('StatusBar — session voice', () => {
     // The facts parsed at all — the pre-#384 bar rendered `session sess-live —`
     // here and called the boot facts unavailable.
     expect(el).toHaveTextContent('session 0m · 1 events')
-    expect(el.title).not.toContain('boot facts unavailable')
-    expect(el.title).toContain('another live rhizomorph still holds the previous session')
+    expect(el.getAttribute('aria-label')).not.toContain('boot facts unavailable')
+    expect(el.getAttribute('aria-label')).toContain('another live rhizomorph still holds the previous session')
     // It cannot name the pid — `liveWriter` is `SessionBootDecision`'s, not
     // `/api/meta`'s — so it names the command that can, rather than guessing.
-    expect(el.title).toContain('rhizomorph doctor')
+    expect(el.getAttribute('aria-label')).toContain('rhizomorph doctor')
   })
 
   /**
@@ -575,10 +573,10 @@ describe('StatusBar — session voice', () => {
     })
 
     const el = sessionVoice(container)
-    expect(el.title).not.toContain('boot facts unavailable')
-    expect(el.title).toContain('retargeted:')
-    expect(el.title).toContain('different repo')
-    expect(el.title).toContain("not in this repo's replay picker")
+    expect(el.getAttribute('aria-label')).not.toContain('boot facts unavailable')
+    expect(el.getAttribute('aria-label')).toContain('retargeted:')
+    expect(el.getAttribute('aria-label')).toContain('different repo')
+    expect(el.getAttribute('aria-label')).toContain("not in this repo's replay picker")
   })
 
   it('still reads a reason nobody has heard of as unavailable — forward-compat is not half-trust', async () => {
@@ -596,7 +594,7 @@ describe('StatusBar — session voice', () => {
 
     const el = sessionVoice(container)
     expect(el).toHaveTextContent('session sess-live —')
-    expect(el.title).toContain('boot facts unavailable')
+    expect(el.getAttribute('aria-label')).toContain('boot facts unavailable')
     // And it takes the resume count down with it rather than half-trusting
     // one field out of a body it could not read.
     expect(el.textContent).not.toMatch(/resumed/)

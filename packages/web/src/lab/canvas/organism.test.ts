@@ -77,6 +77,57 @@ describe('the lane canvas draws n organisms from n dispatch records — never a 
     // Absolute, never relative: the same dollar is the same width whatever its siblings cost.
     const alone = layoutCanvas({ experiment: experiment([{ arm: 1, treatment: { model: null, promptDigest: null }, runs: [run('x', 1, outcome({ verified: 'pass', costUsd: 1 }))] }]) })
     expect(alone.organisms[0]?.width).toBe(costWidth(1))
+
+    /**
+     * And with the SIBLINGS varied, which is what "whatever its siblings cost"
+     * claims and what the line above cannot show — it compares `layoutCanvas`
+     * to the very function `layoutCanvas` calls, so a fleet-relative rescale
+     * applied inside `costWidth` itself would satisfy it (review of #341).
+     * Here the same one-dollar run is laid out beside a ten-dollar and a
+     * one-cent sibling: a relative scale would move it, an absolute one cannot.
+     */
+    const crowded = layoutCanvas({
+      experiment: experiment([
+        {
+          arm: 1,
+          treatment: { model: null, promptDigest: null },
+          runs: [
+            run('x', 1, outcome({ verified: 'pass', costUsd: 1 })),
+            run('rich', 2, outcome({ verified: 'pass', costUsd: 10 })),
+            run('poor', 3, outcome({ verified: 'pass', costUsd: 0.01 })),
+          ],
+        },
+      ]),
+    })
+    expect(crowded.organisms.find((o) => o.id === 'lane-x')?.width).toBe(alone.organisms[0]?.width)
+  })
+
+  /**
+   * THE INTERIOR OF THE SCALE, which nothing pinned (review of #341). The test
+   * above holds the two endpoints and monotonicity, and both survive any
+   * monotone curve: EXECUTED — halving the interpolated span in `costWidth`
+   * (`* 100` → `* 50`) left all 31 lab test files at 249 passed, while making
+   * `costWidth(1)` return 0.9, BELOW the floor the same module declares.
+   *
+   * What "log-spaced from a cent to ten dollars" actually means is that equal
+   * cost RATIOS are equal width steps. Walking ×√10 six times from $0.01 to $10
+   * says exactly that, and a linear scale — or a rescaled one — fails it.
+   */
+  it('the scale is LOG-spaced between its ends, and never leaves them: equal cost ratios are equal width steps', () => {
+    const ROOT_TEN = Math.sqrt(10)
+    const costs = [0.01, 0.01 * ROOT_TEN, 0.1, 0.1 * ROOT_TEN, 1, ROOT_TEN, 10]
+    const widths = costs.map(costWidth)
+
+    for (const width of widths) {
+      expect(width).toBeGreaterThanOrEqual(WIDTH_FLOOR)
+      expect(width).toBeLessThanOrEqual(WIDTH_CAP)
+    }
+
+    const step = (WIDTH_CAP - WIDTH_FLOOR) / (costs.length - 1)
+    for (const [index, width] of widths.entries()) {
+      if (index === 0) continue
+      expect(width - (widths[index - 1] as number), `step ${index} is one sixth of the range`).toBeCloseTo(step, 1)
+    }
   })
 
   it('organismState maps every verdict, and no verdict, to one state', () => {

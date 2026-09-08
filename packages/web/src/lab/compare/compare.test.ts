@@ -3,7 +3,7 @@ import { compareArms } from './compare.js'
 import type { Arm, Run } from './types.js'
 
 function complete(id: string, value: number): Run {
-  return { id, status: 'complete', value }
+  return { id, status: 'complete', verdict: 'pass', value }
 }
 
 function arm(id: string, model: string, brief: string, runs: Run[]): Arm {

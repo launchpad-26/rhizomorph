@@ -1402,7 +1402,14 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     //    this row goes from 0 to 1 — the mutation this issue asks for.
     ['typeof with parens and no space is still a capability probe, not a call (#234)', 'typeof(globalThis.fetch)', 0],
   ])(
-    'counts %s exactly %i time(s) — the COUNT, not merely red-or-green',
+    // Row shape is [label, source, expected] and the specifiers below are in
+    // that exact order — %s, %s, %i — so a row's positional args and the
+    // title's positional specifiers can never drift out of correspondence the
+    // way [label, source, expected] against %s/%i alone did (#275): that
+    // string bound %s to label and %i to source, a string that coerces to
+    // NaN, and never read `expected` — the one number the title exists to
+    // state.
+    'counts %s (%s) exactly %i time(s) — the COUNT, not merely red-or-green',
     (_label, source, expected) => {
       // Every row is a scalar equality on purpose. The optional-call spelling
       // was added on the strength of a probe that only checked the law turned

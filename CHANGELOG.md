@@ -38,6 +38,32 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Added
 
+- **Every mark explains itself on hover *and on focus* (prd-30 ruling 1,
+  charter §6, #220).** The instrument's 50 remaining native `title=` tooltips
+  are gone. A native tooltip is delayed by about a second, invisible to a
+  keyboard, absent on touch and unstyleable — so the fleet table's state, cost,
+  age, threads and fence cells, the drawer's vitals, the burn strip's figures,
+  the ledger's rows and sub-rows, the recordings and lane pages, the attention
+  chips, the collision matrix, the trace tree and the why surface now open the
+  shared disclosure card instead: the condition's name, why it is so *with the
+  evidence and how old it is*, and the exact next act with a command where one
+  exists. Whatever hover discloses, focus discloses — every one of them is
+  reachable with the Tab key, and `Escape` closes the card and hands focus back
+  to the mark.
+- **A mark that is already a control discloses too, without a second button
+  ([ADR-0040](docs/adr/0040-a-mark-that-is-already-a-control-still-discloses.md),
+  #220).** `Disclosure` gained a `trigger` mode so an attention chip, a ledger
+  jump or a touched-file button can carry a card without nesting a button
+  inside a button.
+
+### Changed
+
+- **Some explanations are phrased differently (#220).** Sentences that used to
+  be one tooltip string are now the card's label, why-with-evidence and remedy.
+  The claims are the same; several read more fully, because a remedy that used
+  to be a clause is now a named act — and, where one exists, a command kept
+  apart from the prose so it can be copied.
+
 - **A lapsed declaration reads as lapsed, and configured-but-silent says so
   (prd-27 rulings 3 and 6, #218).** A hook beacon that goes quiet while the lane
   keeps working stops being believed after `BEACON_LAPSE_MS` — a value

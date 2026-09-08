@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { discloseText } from '../disclosure/testing.js'
 import type { FetchLike } from '../fleet/manifest.js'
 import { Conversation, TAIL_SLACK_PX, isAtTail } from './Conversation.js'
 import {
@@ -281,7 +282,8 @@ describe('Conversation — the CLI-style session (prd4 ruling 4)', () => {
     // A user turn is prompt-like, and nothing here is a <pre> wall (law 11).
     const prompt = turns[0]
     expect(prompt?.textContent).toContain('restructure the transcript endpoint')
-    expect(prompt?.getAttribute('title')).toBe('2026-08-01T11:59:00.000Z')
+    // #220: the stamp is in the turn's card now, not a native title.
+    expect(discloseText(prompt as HTMLElement)).toContain('2026-08-01T11:59:00.000Z')
     expect(screen.getByTestId('conversation-body').querySelector('pre')).toBeNull()
 
     // Tool calls are quiet one-liners between the assistant's prose.

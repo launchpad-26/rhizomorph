@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { experimentHasOutcome, NOT_MEASURED_VOICE, runOutcomeVoice, toBranchingArms, toComparisonInput } from './adapters.js'
+import { experimentHasOutcome, NOT_MEASURED_VOICE, runOutcomeVoice, toBranchingArms } from './adapters.js'
 import type { LabArm, LabExperiment, LabRun, LabRunOutcome } from './types.js'
 
 const provenance = { source: 'measure-route' as const, verifyCommand: 'npm test', measuredAt: 2000 }
@@ -81,52 +81,5 @@ describe('runOutcomeVoice (prd53 ruling 3 — not-run is legal, and voiced as no
     expect(runOutcomeVoice(run('b', 1, outcome({ verified: 'fail', verifiedDetail: '1 test failed' })))).toBe(
       'failed npm test (measure-route): 1 test failed',
     )
-  })
-})
-
-describe('toComparisonInput', () => {
-  it("an unmeasured run reads as pending — no fabricated value", () => {
-    const input = toComparisonInput(experiment([arm({ arm: 1, treatment: { model: 'opus', promptDigest: null } })]))
-    expect(input.arms).toEqual([{ id: 'arm-1', model: 'opus', brief: 'no-brief', runs: [{ id: 'evt-1', status: 'pending' }] }])
-  })
-
-  it('a promptDigest becomes its own first-8-characters label — the brief text itself never reaches this console', () => {
-    const digest = 'a'.repeat(64)
-    const input = toComparisonInput(experiment([arm({ arm: 1, treatment: { model: null, promptDigest: digest } })]))
-    expect(input.arms[0]?.brief).toBe('aaaaaaaa')
-    expect(input.arms[0]?.model).toBe('default')
-  })
-
-  it('each run carries ITS OWN verdict — two runs of one arm can differ, which the old arm-level outcome could not express (prd53 rulings 1 and 3)', () => {
-    const exp = experiment([
-      arm({
-        arm: 1,
-        runs: [
-          run('a', 1, outcome({ verified: 'pass', costUsd: 4.5 })),
-          run('b', 2, outcome({ verified: 'fail', verifiedDetail: 'gate exited 1' })),
-          run('c', 3),
-        ],
-      }),
-    ])
-    expect(toComparisonInput(exp).arms[0]?.runs).toEqual([
-      { id: 'a', status: 'complete', value: 4.5 },
-      { id: 'b', status: 'failed', error: 'gate exited 1' },
-      { id: 'c', status: 'pending' },
-    ])
-  })
-
-  it('a verified pass with no cost booked yet reads as pending, never a fabricated $0', () => {
-    const exp = experiment([arm({ arm: 1, runs: [run('a', 1, outcome({ verified: 'pass', costUsd: null }))] })])
-    expect(toComparisonInput(exp).arms[0]?.runs).toEqual([{ id: 'a', status: 'pending' }])
-  })
-
-  it('a "not-run" verdict reads as pending too — the gate did not run, so there is no result to report as failed', () => {
-    const exp = experiment([arm({ arm: 1, runs: [run('a', 1, outcome({ verified: 'not-run', verifiedDetail: 'restore failed', costUsd: null }))] })])
-    expect(toComparisonInput(exp).arms[0]?.runs).toEqual([{ id: 'a', status: 'pending' }])
-  })
-
-  it('a failed run with no detail carries no error field, rather than inventing one', () => {
-    const exp = experiment([arm({ arm: 1, runs: [run('a', 1, outcome({ verified: 'fail' }))] })])
-    expect(toComparisonInput(exp).arms[0]?.runs).toEqual([{ id: 'a', status: 'failed' }])
   })
 })

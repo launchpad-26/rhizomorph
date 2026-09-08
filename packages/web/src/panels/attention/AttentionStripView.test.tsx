@@ -1,6 +1,7 @@
 import { createEvent, createIdFactory, reduceAll, type RhizomorphEvent } from '@rhizomorph/core'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { discloseText } from '../../disclosure/testing.js'
 import {
   buildFleet,
   fixtureHistory,
@@ -160,7 +161,9 @@ describe('AttentionStripView — the staged pathology fleet', () => {
 
     // The count is the finding at this scale, the first path is the example,
     // and the rest are a number rather than a wall.
-    const evidence = chip?.getAttribute('title') ?? ''
+    // #220: the chip is a control, so its card opens from the inline trigger
+    // wrapping it (ADR-0040) rather than from a native title on the button.
+    const evidence = discloseText(chip as HTMLElement)
     expect(evidence).toContain('40 files outside fence')
     expect(evidence).toContain('+39 more')
 

@@ -9,6 +9,7 @@ import {
   type Ladder,
 } from '@rhizomorph/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { discloseText } from '../../disclosure/testing.js'
 import BurnStrip from './index.js'
 
 const { useFleetMock } = vi.hoisted(() => ({
@@ -139,8 +140,10 @@ describe('BurnStrip', () => {
 
     const cell = screen.getByTestId('burn-output-tokens')
     expect(cell.textContent).toContain('1.2M')
-    expect(cell.title).toContain('1,234,567')
-    expect(cell.title).not.toBe(cell.textContent)
+    // #220: the exact count is in the card the figure discloses, not a title.
+    const card = discloseText(cell)
+    expect(card).toContain('1,234,567')
+    expect(card).not.toBe(cell.textContent)
   })
 
   it('carries full precision on hover for dollars and overhead once both are live', () => {
@@ -152,8 +155,8 @@ describe('BurnStrip', () => {
       conductorInstrumented: true,
     })
 
-    expect(screen.getByTestId('burn-dollars').title).toContain('42.556000')
-    expect(screen.getByTestId('burn-overhead').title).toContain('0.4231×')
+    expect(discloseText(screen.getByTestId('burn-dollars'))).toContain('42.556000')
+    expect(discloseText(screen.getByTestId('burn-overhead'))).toContain('0.4231×')
   })
 
   it('never renders $0.00 anywhere, even alongside a real, tiny, non-zero cost', () => {
@@ -174,7 +177,7 @@ describe('BurnStrip — the errors figure (issue #159)', () => {
     const cell = screen.getByTestId('burn-errors')
     expect(cell.textContent).toBe('0')
     expect(cell.className).not.toContain('text-broken')
-    expect(cell.title).toContain('0 exactly')
+    expect(discloseText(cell)).toContain('0 exactly')
   })
 
   it('inks the figure in the alarm hue once the count is non-zero, never a new hue', () => {
@@ -188,7 +191,7 @@ describe('BurnStrip — the errors figure (issue #159)', () => {
   it('carries the blocked/parked/off-fence breakdown on hover', () => {
     renderWith({ errorCount: 3, errorBlockedCount: 1, errorParkedCount: 1, errorOffFenceCount: 1 })
 
-    const title = screen.getByTestId('burn-errors').title
+    const title = discloseText(screen.getByTestId('burn-errors'))
     expect(title).toContain('3 exactly')
     expect(title).toContain('1 blocked')
     expect(title).toContain('1 parked')

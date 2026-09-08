@@ -58,7 +58,7 @@ describe('Frame — one switch over five ways of looking (prd53 ruling 8, S1)', 
     render(<Frame position={2} onPosition={() => {}} seated={SEATED} experiments={[HERE, { ...HERE, forkId: 'fork-elsewhere', checkpointId: 'ckpt-9' }]} />)
     const row = screen.getByTestId('frame-cost-fork-1')
     expect(row.querySelector('[data-figure="cost"]')?.textContent).toBe('$2.00')
-    expect(row.querySelector('[data-basis="cost"]')?.textContent).toMatch(/over 1 measured run/)
+    expect(row.querySelector('[data-basis="cost"]')?.textContent).toMatch(/over 1 completed run/)
     expect(screen.queryByTestId('frame-cost-fork-elsewhere')).toBeNull()
   })
 
