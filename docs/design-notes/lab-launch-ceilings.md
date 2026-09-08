@@ -1,19 +1,13 @@
-# Lab launch ceilings — why 8 arms, why 30s on the lock
+# Lab launch ceilings — why 30s on the lock
 
-Two constants in `packages/server/src/api/lab.ts` bound `POST /api/lab/launch`
-(prd-41 ruling 2 and ruling 4):
+`POST /api/lab/launch` is bound by two ceilings (prd-41 ruling 2 and ruling 4),
+and only one of them is argued in this note.
 
-- `MAX_ARMS = 8` — the most arms one launch request may dispatch. Each arm
-  forks a real worktree and, with `--launch`, a real spending agent lane, so
-  this is a spend ceiling in the same family as the estimate ruling 4 already
-  requires an honest basis for (`estimateLaunchSpend`, this file). A launch
-  panel comparing treatments — different models, different briefs — realistically
-  spans a handful at a time (2–4 is the common case this file's own tests use);
-  8 gives generous headroom above that without letting one click fork a lane
-  count large enough that nobody is meaningfully reviewing each one before it
-  spends. Raise it if a real workflow needs more, but the ceiling should stay
-  small enough that an operator can look at the launch confirmation and
-  actually reason about what they're about to pay for.
+- The arms × runs spend ceiling (`LAUNCH_CEILING_LANES`) is prd-53's, not
+  this note's: it is deliberately **configurable**, with an operator-facing
+  override — see `docs/design-notes/lab-launch-ceiling-arms-runs.md`
+  (prd-53 ruling 6), whose own `## Why one is configurable and the other is
+  not` section argues both ceilings side by side.
 
 - `LAB_CLI_LOCK_CEILING_MS = 30_000` — how long a launch will wait for another
   launch's `runCli` call to clear before refusing rather than joining the
@@ -28,6 +22,13 @@ Two constants in `packages/server/src/api/lab.ts` bound `POST /api/lab/launch`
   `ROUTE_EXEC_TIMEOUT_MS` (`api/doctor.ts`) and
   `COLLECTOR_EXEC_TIMEOUT_MS` (`collector-tick-budget.md`), just wider because
   this bounds a multi-step CLI invocation rather than one subprocess call.
+  Unlike the rest of this family, this one is fixed by ruling as well as by
+  absence: prd50 ruling 1 holds it fixed in source rather than leaving it
+  merely unreachable, because a configurable threshold here would rebuild the
+  queue prd41 ruling 2 refused. `packages/server/src/api/lab-ceiling-law.test.ts`
+  fails the suite for every wiring point the constant has today — but that is
+  a single-file text scan, not a proof that no configuration path could ever
+  reach the value; what actually keeps it fixed is the ruling itself.
 
 This ceiling bounds the WAIT, not the in-flight call: the arm currently
 running keeps the lock until it settles on its own, however long that takes.
@@ -37,10 +38,11 @@ lab modules — a different constant, a different file, a different failure
 mode (a hung child process vs. an operator waiting behind someone else's
 request).
 
-Both ceilings are refusals, never queues: `MAX_ARMS` refuses before anything
-is dispatched (`LaunchValidationError`, 400), and the lock ceiling refuses a
-call that was still waiting for its turn (`LabCliLockCeilingError`, 503) —
-neither lets a request that failed loudly still spend money quietly later.
+The lock ceiling is a refusal, never a queue: it refuses a call that was
+still waiting for its turn (`LabCliLockCeilingError`, 503) rather than
+letting a request that failed loudly still spend money quietly later. The
+arms × runs ceiling refuses too (`LaunchValidationError`, 400), argued in its
+own note alongside the override that makes it configurable.
 
 ## The exec-timeout family, and where composition breaks it
 
