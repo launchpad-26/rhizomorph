@@ -182,7 +182,14 @@ function sourceFileCountsByDirectory(): Record<string, number> {
 describe('the lab tab renders no live-fleet surface (prd14)', () => {
   it('has source files to check at all, from every governed subdirectory — a shallow walk proves nothing', () => {
     // Per-subdirectory counts, re-derived from this file's own
-    // sourceFiles() on 2026-09-07 (unchanged since the 2026-08-08 audit) —
+    // sourceFiles() on 2026-09-08 — the root moved 5 -> 6 when prd53 wave 2
+    // (#324, `8f7a60ec`) added `measure.ts`. The pin did not move with it and
+    // `main` went red on the merge, staying red across three tips. It was a
+    // clean merge, not a conflict: this law was added to `main` by #235
+    // (`b5de19ac`) AFTER the prd53 branch forked, so no prd53 branch carries
+    // it and git had nothing to warn anyone about. The later waves each add a
+    // directory of their own (`axis`, `canvas`, `frame`, `metrics`, `trace`)
+    // and each owes this pin a row as it lands —
     // pinned exactly, not a loose lower bound, and grouped rather than
     // totalled. Both halves are load-bearing. A lower bound at any floor lets
     // a file silently ADDED pass unnoticed, not just a file dropped. And a
@@ -194,7 +201,7 @@ describe('the lab tab renders no live-fleet surface (prd14)', () => {
     // outright is caught twice over — but a partial shrink is invisible to it,
     // and this assertion is the only thing that sees it.
     expect(sourceFileCountsByDirectory()).toEqual({
-      '': 5,
+      '': 6,
       branching: 2,
       compare: 7,
       launch: 3,
