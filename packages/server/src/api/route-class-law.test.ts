@@ -967,7 +967,7 @@ describe('the README support matrix agrees with what ci.yml actually proves, in 
  * Walks `packages/web/src` and `packages/app/src` (the browser and
  * Electron-host code — the only places a page or the shell itself can
  * originate a request), excluding tests, and asserts the result is EXACTLY
- * today's ten modules / thirteen call sites, not merely "at least these".
+ * today's twelve modules / fifteen call sites, not merely "at least these".
  *
  * This opener used to quote README's old sentence, "grep for fetch(/
  * EventSource(/http.request(", which THIS COMMIT deleted — a comment citing
@@ -986,11 +986,11 @@ describe('the README support matrix agrees with what ci.yml actually proves, in 
  *    extension test skipped it silently. EXECUTED: a new `.mjs` file
  *    containing `fetch('/x')` left this law green; the identical content
  *    named `.ts` reddened it.
- * 2. **The pattern.** Five modules never write `fetch(` at all. They alias the
+ * 2. **The pattern.** Six modules never write `fetch(` at all. They alias the
  *    platform function first — `const impl = fetchImpl ?? globalThis.fetch`
  *    — and then call `impl(URL, …)`, which no literal-call regex can see:
- *    `concierge/clone.ts`, `concierge/instrument.ts`, `lab/launch/launch.ts`,
- *    `recordings/label.ts`, `replay/rotate.ts`.
+ *    `concierge/clone.ts`, `concierge/instrument.ts`, `concierge/retarget.ts`,
+ *    `lab/launch/launch.ts`, `recordings/label.ts`, `replay/rotate.ts`.
  *
  * `ALIAS_PATTERNS` closes (2), and the `typeof` lookbehind is load-bearing
  * rather than cosmetic. `typeof globalThis.fetch === 'function'` is a
@@ -1267,6 +1267,7 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     { file: path.join('packages', 'web', 'src', 'app', 'StreamContext.tsx'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'concierge', 'clone.ts'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'concierge', 'instrument.ts'), count: 1 },
+    { file: path.join('packages', 'web', 'src', 'concierge', 'retarget.ts'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'hooks', 'useEventStream.ts'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'lab', 'launch', 'launch.ts'), count: 1 },
     // prd53 ruling 3: the measure client — the app's sixth mutating call, one fetch.
@@ -1276,13 +1277,13 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     { file: path.join('packages', 'web', 'src', 'replay', 'rotate.ts'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'scene', 'parity', 'capture.mjs'), count: 2 },
   ]
-  const EXPECTED_TOTAL = 14
+  const EXPECTED_TOTAL = 15
 
   it('the sweep walks real source trees, not an empty directory — an empty sweep proves nothing', () => {
     expect(allSourceFiles().length).toBeGreaterThan(100)
   })
 
-  it('are exactly these eleven modules and fourteen call sites — no more, no fewer', () => {
+  it('are exactly these twelve modules and fifteen call sites — no more, no fewer', () => {
     const found = realCallSites()
     expect(found).toEqual(EXPECTED_CALL_SITES)
     expect(found.reduce((sum, entry) => sum + entry.count, 0)).toBe(EXPECTED_TOTAL)
@@ -1384,7 +1385,7 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     //    a bare key reddened it. #23's vocabulary names CONSTRUCTS, not
     //    spellings — a quoted or computed key is the same renamed destructure
     //    of `globalThis.fetch` — so excluding one spelling of an included
-    //    construct is what makes README's "eleven modules and fourteen call
+    //    construct is what makes README's "twelve modules and fifteen call
     //    sites" able to go quietly wrong. See `DESTRUCTURE_KEY` above.
     //
     //    Revert `DESTRUCTURE_KEY` to `\bfetch` and all three rows below go
@@ -1596,7 +1597,7 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     expect(stated.reduce((sum, entry) => sum + entry.count, 0)).toBe(EXPECTED_TOTAL)
   })
 
-  it('README states the same thirteen-across-ten the sweep above finds — every occurrence, not just the first', () => {
+  it('README states the same fifteen-across-twelve the sweep above finds — every occurrence, not just the first', () => {
     const README_MD = readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8')
     // Two anchors over the same sentence rather than one two-group match, so
     // each number goes through the same every-occurrence rule the mutating-
