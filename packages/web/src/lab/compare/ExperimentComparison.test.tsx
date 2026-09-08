@@ -51,17 +51,25 @@ describe('ExperimentComparison — the measure switch (prd53 S2, #326)', () => {
     expect(scoring.textContent).toBe('Scoring — no source yet')
   })
 
-  it('under "verified" the arm reports counts, not a spread — passes are not a distribution', () => {
-    const mixed = experiment([
+  it('under "verified" the arm reports counts once the floor is met, never a spread — and below the floor it refuses like every other measure (ruling 2, amended)', () => {
+    const judged = experiment([
       arm(1, 'opus', [
         run('a1', 1, outcome({ verified: 'pass' })),
         run('a2', 2, outcome({ verified: 'fail', verifiedDetail: '1 failed' })),
-        run('a3', 3),
+        run('a3', 3, outcome({ verified: 'pass' })),
+        run('a4', 4),
       ]),
     ])
-    render(<ExperimentComparison experiment={mixed} initialMeasure="verified" />)
-    expect(screen.getByTestId('arm-verified-counts').textContent).toBe('1 passed · 1 failed · 1 not measured')
+    const { unmount } = render(<ExperimentComparison experiment={judged} initialMeasure="verified" />)
+    expect(screen.getByTestId('arm-verified-counts').textContent).toBe('2 passed · 1 failed (n=3 completed)')
+    expect(screen.getByTestId('arm-incomplete-note').textContent).toBe('3 of 4 runs completed — 1 still pending')
     expect(screen.queryByTestId('arm-spread')).toBeNull()
+    unmount()
+
+    const below = experiment([arm(1, 'opus', [run('a1', 1, outcome({ verified: 'pass' })), run('a2', 2, outcome({ verified: 'fail' })), run('a3', 3)])])
+    render(<ExperimentComparison experiment={below} initialMeasure="verified" />)
+    expect(screen.queryByTestId('arm-verified-counts')).toBeNull()
+    expect(screen.getByTestId('arm-insufficient').textContent).toBe('2 of 3 runs completed so far — too few completed to summarise yet')
   })
 
   it('rows are in ARM order regardless of value, under every measure — a sorted table is a ranking', () => {

@@ -26,22 +26,28 @@ describe('runForMeasure — one run, read for one measure (prd53 S2)', () => {
     expect(read).toEqual({ id: 'a', status: 'pending', note: 'not measured yet — no outcome is invented in its place' })
   })
 
-  it('cost, duration and commits read their own field; a passed run with nothing booked under a measure is pending with that said', () => {
+  it('cost, duration and commits read their own field; a judged run with nothing booked under a measure is complete with a null value, and says so', () => {
     const passed = run('a', outcome({ verified: 'pass', costUsd: 1.25, durationMs: 900, commits: 2 }))
-    expect(runForMeasure(passed, 'cost')).toEqual({ id: 'a', status: 'complete', value: 1.25 })
-    expect(runForMeasure(passed, 'duration')).toEqual({ id: 'a', status: 'complete', value: 900 })
-    expect(runForMeasure(passed, 'commits')).toEqual({ id: 'a', status: 'complete', value: 2 })
-    const unbooked = run('b', outcome({ verified: 'pass', costUsd: null }))
-    const read = runForMeasure(unbooked, 'cost')
-    expect(read.status).toBe('pending')
-    if (read.status === 'pending') expect(read.note).toMatch(/verified, but no cost is booked/)
+    expect(runForMeasure(passed, 'cost')).toEqual({ id: 'a', status: 'complete', verdict: 'pass', value: 1.25 })
+    expect(runForMeasure(passed, 'duration')).toEqual({ id: 'a', status: 'complete', verdict: 'pass', value: 900 })
+    expect(runForMeasure(passed, 'commits')).toEqual({ id: 'a', status: 'complete', verdict: 'pass', value: 2 })
+    const unbooked = runForMeasure(run('b', outcome({ verified: 'pass', costUsd: null })), 'cost')
+    expect(unbooked).toEqual({ id: 'b', status: 'complete', verdict: 'pass', value: null, note: 'judged, but no cost is booked to its lane yet' })
   })
 
-  it('a failed verdict is a failed run under every numeric measure, carrying its detail; under "verified" a pass is 1 and a fail is failed', () => {
-    const failed = run('a', outcome({ verified: 'fail', verifiedDetail: '2 tests failed' }))
-    expect(runForMeasure(failed, 'cost')).toEqual({ id: 'a', status: 'failed', error: '2 tests failed' })
-    expect(runForMeasure(failed, 'verified')).toEqual({ id: 'a', status: 'failed', error: '2 tests failed' })
-    expect(runForMeasure(run('b', outcome({ verified: 'pass' })), 'verified')).toEqual({ id: 'b', status: 'complete', value: 1 })
+  it('a failed gate is a COMPLETED run under every measure — it counts toward the floor, carries its cost, and keeps the gate’s words (ruling 2, amendment 2026-09-08)', () => {
+    const failed = run('a', outcome({ verified: 'fail', verifiedDetail: '2 tests failed', costUsd: 3 }))
+    expect(runForMeasure(failed, 'cost')).toEqual({ id: 'a', status: 'complete', verdict: 'fail', value: 3, detail: '2 tests failed' })
+    expect(runForMeasure(failed, 'verified')).toEqual({ id: 'a', status: 'complete', verdict: 'fail', value: 0, detail: '2 tests failed' })
+    expect(runForMeasure(run('b', outcome({ verified: 'pass' })), 'verified')).toEqual({ id: 'b', status: 'complete', verdict: 'pass', value: 1 })
+    expect(runForMeasure(run('c', outcome({ verified: 'fail' })), 'commits')).toEqual({ id: 'c', status: 'complete', verdict: 'fail', value: 3 })
+  })
+
+  it('whether a run is complete never depends on the measure — the same run answers the same under all four', () => {
+    for (const measured of [run('u'), run('n', outcome({ verified: 'not-run' })), run('p', outcome({ verified: 'pass', costUsd: null })), run('f', outcome({ verified: 'fail' }))]) {
+      const answers = new Set(MEASURES.map((measure) => runForMeasure(measured, measure).status))
+      expect(answers.size, measured.eventId).toBe(1)
+    }
   })
 })
 

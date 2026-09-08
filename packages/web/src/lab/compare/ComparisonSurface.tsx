@@ -14,9 +14,12 @@ import type { ArmSummary, Comparison, ComparisonClaim, FailedArm, Run } from './
  * The measure switch (S2) is one radiogroup — cost, duration, commits,
  * verified, and Scoring as a DISABLED position, the honest gap where a score
  * would go (ruling 10). Switching re-reads the runs; nothing is stored per
- * measure. A confounded claim (ruling 2) gets core's own sentence in place of
- * any comparative statement. A failed arm (ruling 7) is present in the list
- * with its failure and excluded from every spread, and that is stated.
+ * measure. The FLOOR does not move with the switch (ruling 2's amendment: a
+ * run is completed when a gate judged it, whatever the measure) — under
+ * `verified` the same floor gates the pass/fail counts as gates a spread. A
+ * confounded claim (ruling 2) gets core's own sentence in place of any
+ * comparative statement. A failed arm (ruling 7) is present in the list with
+ * its failure and excluded from every spread, and that is stated.
  *
  * No native `title=` anywhere on this surface (#220, prd-30 w1): what a dot
  * means is written beside it, for every reader, not hidden in a hover.
@@ -172,20 +175,27 @@ function ArmPanel({ arm, measure }: { arm: ArmSummary; measure: Measure }) {
         <span className="max-w-[60%] truncate text-(--ink-dim)">brief {arm.brief}</span>
       </header>
 
-      <RunPoints runs={arm.runs} />
+      <RunPoints runs={arm.runs} measure={measure} />
 
-      {measure === 'verified' ? (
+      {/* One floor, whatever the measure: below it every measure refuses the same way (ruling 2, amended). */}
+      {arm.insufficientReason !== null ? (
+        <p role="status" data-testid="arm-insufficient" className="mt-1.5 text-(--ink-dim)">
+          {arm.insufficientReason}
+        </p>
+      ) : measure === 'verified' ? (
         <p data-testid="arm-verified-counts" className="figures mt-1.5 text-(--ink-body)">
-          {arm.completedValues.length} passed · {arm.failedCount} failed · {arm.pendingCount} not measured
+          {arm.passCount} passed · {arm.failCount} failed <span className="text-(--ink-dim)">(n={arm.completedCount} completed)</span>
         </p>
       ) : arm.spread !== null ? (
         <p data-testid="arm-spread" className="figures mt-1.5 text-(--ink-body)">
-          min {formatValue(arm.spread.min)} · median {formatValue(median(arm.completedValues) ?? arm.spread.min)} · max{' '}
-          {formatValue(arm.spread.max)} <span className="text-(--ink-dim)">(n={arm.completedValues.length})</span>
+          min {formatValue(arm.spread.min)} · median {formatValue(median(arm.values) ?? arm.spread.min)} · max {formatValue(arm.spread.max)}{' '}
+          <span className="text-(--ink-dim)">
+            (n={arm.values.length} of {arm.completedCount} completed)
+          </span>
         </p>
       ) : (
-        <p role="status" data-testid="arm-insufficient" className="mt-1.5 text-(--ink-dim)">
-          {arm.insufficientReason}
+        <p role="status" data-testid="arm-unbooked" className="mt-1.5 text-(--ink-dim)">
+          {arm.unbookedNote}
         </p>
       )}
 
@@ -198,9 +208,9 @@ function ArmPanel({ arm, measure }: { arm: ArmSummary; measure: Measure }) {
       {expanded ? (
         <ol data-testid={`arm-runs-${arm.armId}`} className="figures mt-2 flex flex-col gap-0.5 border-(--line-hair) border-t pt-2">
           {arm.runs.map((run) => (
-            <li key={run.id} data-run-status={run.status} className="flex flex-wrap gap-2">
+            <li key={run.id} data-run-status={run.status} data-run-verdict={run.status === 'complete' ? run.verdict : undefined} className="flex flex-wrap gap-2">
               <span className="text-(--ink-dim)">{run.id}</span>
-              <span className={runInk(run)}>{runWords(run)}</span>
+              <span className={runInk(run)}>{runWords(run, measure)}</span>
             </li>
           ))}
         </ol>
@@ -210,14 +220,19 @@ function ArmPanel({ arm, measure }: { arm: ArmSummary; measure: Measure }) {
 }
 
 /** Every run, always, as a point — with its meaning written beside it for the reader who cannot hover. */
-function RunPoints({ runs }: { runs: Run[] }) {
+function RunPoints({ runs, measure }: { runs: Run[]; measure: Measure }) {
   return (
     <ol data-testid="run-dots" className="flex flex-wrap gap-2">
       {runs.map((run) => (
-        <li key={run.id} data-run-status={run.status} className={`figures flex items-baseline gap-1 ${runInk(run)}`}>
+        <li
+          key={run.id}
+          data-run-status={run.status}
+          data-run-verdict={run.status === 'complete' ? run.verdict : undefined}
+          className={`figures flex items-baseline gap-1 ${runInk(run)}`}
+        >
           <span aria-hidden="true">●</span>
           <span className="sr-only">{run.id}: </span>
-          <span>{runWords(run)}</span>
+          <span>{runWords(run, measure)}</span>
         </li>
       ))}
     </ol>
@@ -225,15 +240,18 @@ function RunPoints({ runs }: { runs: Run[] }) {
 }
 
 function runInk(run: Run): string {
-  if (run.status === 'complete') return 'text-done'
   if (run.status === 'pending') return 'text-(--ink-dim)'
-  return 'text-broken'
+  return run.verdict === 'pass' ? 'text-done' : 'text-broken'
 }
 
-function runWords(run: Run): string {
-  if (run.status === 'complete') return formatValue(run.value)
+/** A judged run says its verdict first, then its value under this measure (or why it has none); the gate's own words follow a fail. */
+function runWords(run: Run, measure: Measure): string {
   if (run.status === 'pending') return run.note ?? 'pending'
-  return run.error === undefined ? 'failed' : `failed — ${run.error}`
+  const verdict = run.verdict === 'pass' ? 'passed' : 'failed'
+  const detail = run.detail === undefined ? '' : ` — ${run.detail}`
+  if (measure === 'verified') return `${verdict}${detail}`
+  if (run.value === null) return `${verdict} · ${run.note ?? 'no value booked under this measure'}${detail}`
+  return `${verdict} · ${formatValue(run.value)}${detail}`
 }
 
 function formatValue(value: number): string {

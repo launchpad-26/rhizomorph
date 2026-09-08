@@ -6,6 +6,7 @@ import {
   canSummariseArm,
   confoundVoice,
   dimensionsOf,
+  isCompletedVerdict,
   MIN_ARMS_TO_RANK,
   MIN_COMPLETED_RUNS_TO_SUMMARISE,
   reduceAll,
@@ -336,7 +337,7 @@ function distributionLines(comparison: ForkComparison): string[] {
   }
 
   const passed = comparison.arms.filter((arm) => arm.verified === 'pass').length
-  const judged = comparison.arms.filter((arm) => arm.verified !== 'not-run').length
+  const judged = comparison.arms.filter((arm) => isCompletedVerdict(arm.verified)).length
   const costs = comparison.arms.map((arm) => arm.costUsd).filter((cost): cost is number => cost !== null)
   const durations = comparison.arms
     .map((arm) => arm.durationMs)
@@ -359,8 +360,10 @@ function distributionLines(comparison: ForkComparison): string[] {
 /**
  * One line per arm, only once some arm holds more than one run — a single-run
  * fork prints exactly what it always printed. Whether an arm's runs may be
- * summarised is core's call (`canSummariseArm` over the runs that were
- * actually measured), the same call the console's summariser makes.
+ * summarised is core's call (`canSummariseArm` over the runs a gate JUDGED —
+ * core's `isCompletedVerdict`, pass or fail), the same count the console's
+ * summariser and Metrics use; `web/src/lab/floor-agreement-law.test.ts` holds
+ * the three to one answer.
  */
 function armSummaryLines(comparison: ForkComparison): string[] {
   if (comparison.arms.length === comparison.armCount) return []
@@ -370,7 +373,7 @@ function armSummaryLines(comparison: ForkComparison): string[] {
   }
   const lines: string[] = ['']
   for (const [arm, rows] of byArm) {
-    const measured = rows.filter((row) => row.verified !== 'not-run').length
+    const measured = rows.filter((row) => isCompletedVerdict(row.verified)).length
     const verdict = canSummariseArm(measured)
       ? 'a summary may be stated'
       : `no summary — ${COUNTERFACTUAL_CLAUSE} (needs ${MIN_COMPLETED_RUNS_TO_SUMMARISE} measured)`

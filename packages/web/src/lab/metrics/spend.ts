@@ -1,21 +1,28 @@
-import { canSummariseArm, MIN_COMPLETED_RUNS_TO_SUMMARISE } from '@rhizomorph/core'
+import { canSummariseArm, isCompletedVerdict, MIN_COMPLETED_RUNS_TO_SUMMARISE } from '@rhizomorph/core'
 import type { LabArm, LabExperiment, LabRun } from '../types.js'
 
 /**
  * METRICS' ARITHMETIC (prd53 S4, #328) — every number with the sentence that
  * says where it came from, and nothing that includes an unmeasured run as a
  * zero. Pure: the surface prints these; it never computes a figure of its own.
+ *
+ * "Completed" is core's word, not this module's (ruling 2, amendment
+ * 2026-09-08): a run is completed when a gate judged it, pass or fail —
+ * `isCompletedVerdict`. Compare and the CLI count with the same predicate, so
+ * the floor this module reports for an arm is the floor Compare reports for
+ * it (`../floor-agreement-law.test.ts`). Before that this file spelled its own
+ * `isMeasured`, and the two surfaces disagreed about the same arm on one page.
  */
 
 export interface ExperimentSpend {
   forkId: string
-  /** Dollars booked to the runs that were measured and have a cost — null when none has. */
+  /** Dollars booked to the runs that were completed and have a cost — null when none has. */
   bookedUsd: number | null
   /** Runs whose cost entered the sum. */
   bookedRuns: number
-  /** Measured runs with no cost booked to their lane — excluded, and said so. */
+  /** Completed runs with no cost booked to their lane — excluded, and said so. */
   unbookedRuns: number
-  /** Runs nobody has measured (or whose gate did not run) — excluded, and said so. */
+  /** Runs no gate has judged — unmeasured, or a gate that did not run — excluded, and said so. */
   unmeasuredRuns: number
   /** The basis line — printed beside the figure, always. */
   basis: string
@@ -23,8 +30,8 @@ export interface ExperimentSpend {
   exclusionNote: string | null
 }
 
-function isMeasured(run: LabRun): boolean {
-  return run.outcome !== undefined && run.outcome.verified !== 'not-run'
+function isCompleted(run: LabRun): boolean {
+  return isCompletedVerdict(run.outcome?.verified)
 }
 
 export function experimentSpend(experiment: LabExperiment): ExperimentSpend {
@@ -34,7 +41,7 @@ export function experimentSpend(experiment: LabExperiment): ExperimentSpend {
   let unmeasuredRuns = 0
   for (const arm of experiment.arms) {
     for (const run of arm.runs) {
-      if (!isMeasured(run)) {
+      if (!isCompleted(run)) {
         unmeasuredRuns += 1
         continue
       }
@@ -49,21 +56,22 @@ export function experimentSpend(experiment: LabExperiment): ExperimentSpend {
   }
   const parts: string[] = []
   if (unmeasuredRuns > 0) parts.push(`${unmeasuredRuns} run${unmeasuredRuns === 1 ? '' : 's'} not measured`)
-  if (unbookedRuns > 0) parts.push(`${unbookedRuns} measured run${unbookedRuns === 1 ? '' : 's'} with no cost booked`)
+  if (unbookedRuns > 0) parts.push(`${unbookedRuns} completed run${unbookedRuns === 1 ? '' : 's'} with no cost booked`)
   return {
     forkId: experiment.forkId,
     bookedUsd,
     bookedRuns,
     unbookedRuns,
     unmeasuredRuns,
-    basis: `booked from each arm lane's own recorded spend, over ${bookedRuns} measured run${bookedRuns === 1 ? '' : 's'}`,
+    basis: `booked from each arm lane's own recorded spend, over ${bookedRuns} completed run${bookedRuns === 1 ? '' : 's'}`,
     exclusionNote: parts.length === 0 ? null : `${parts.join(' and ')} — excluded from the total, never counted as zero`,
   }
 }
 
 export interface ArmFloor {
   arm: number
-  measuredRuns: number
+  /** Runs a gate has judged, pass or fail — core's denominator, the one Compare and the CLI count too. */
+  completedRuns: number
   totalRuns: number
   /** Core's floor (prd53 ruling 2): may a summary be stated about this arm? */
   canSummarise: boolean
@@ -71,15 +79,18 @@ export interface ArmFloor {
   refusal: string | null
 }
 
+/** What the word beside the floor's count means — printed as the count's basis, so the denominator is on the page. */
+export const FLOOR_BASIS = "completed = judged by the gate, pass or fail — core's floor, the same count Compare reads"
+
 export function armFloor(arm: LabArm): ArmFloor {
-  const measuredRuns = arm.runs.filter(isMeasured).length
-  const canSummarise = canSummariseArm(measuredRuns)
+  const completedRuns = arm.runs.filter(isCompleted).length
+  const canSummarise = canSummariseArm(completedRuns)
   return {
     arm: arm.arm,
-    measuredRuns,
+    completedRuns,
     totalRuns: arm.runs.length,
     canSummarise,
-    refusal: canSummarise ? null : `refuses to summarise — ${measuredRuns} of ${arm.runs.length} measured, needs ${MIN_COMPLETED_RUNS_TO_SUMMARISE}`,
+    refusal: canSummarise ? null : `refuses to summarise — ${completedRuns} of ${arm.runs.length} completed, needs ${MIN_COMPLETED_RUNS_TO_SUMMARISE}`,
   }
 }
 
@@ -110,7 +121,7 @@ export function provenanceRows(experiment: LabExperiment): ProvenanceRow[] {
         source: outcome?.provenance.source ?? null,
         verifyCommand: outcome?.provenance.verifyCommand ?? null,
         measuredAt: outcome?.provenance.measuredAt ?? null,
-        costUsd: outcome === undefined || outcome.verified === 'not-run' ? null : outcome.costUsd,
+        costUsd: outcome !== undefined && isCompletedVerdict(outcome.verified) ? outcome.costUsd : null,
       })
     }
   }

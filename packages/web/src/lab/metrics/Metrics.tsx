@@ -3,7 +3,7 @@ import type { FetchLike } from '../../replay/api.js'
 import type { FailedArm } from '../compare/types.js'
 import { fetchLabEstimate, type LabEstimate } from '../launch/estimate.js'
 import type { LabExperiment } from '../types.js'
-import { armFloor, dispatchedLine, experimentSpend, provenanceRows } from './spend.js'
+import { armFloor, dispatchedLine, experimentSpend, FLOOR_BASIS, provenanceRows } from './spend.js'
 
 /**
  * METRICS (prd53 S4, #328): every number with its basis line — a KPI cannot be
@@ -137,13 +137,23 @@ export function Metrics({ experiments, failedArmsByFork = {}, onOpenCompare, fet
                     <li key={arm.arm} data-testid={`metrics-arm-${experiment.forkId}-${arm.arm}`} className="flex flex-wrap items-baseline gap-2">
                       <span className="figures text-(--ink-dim)">arm {arm.arm}</span>
                       {floor.canSummarise ? (
-                        <span className="text-(--ink-body)">
-                          {floor.measuredRuns} of {floor.totalRuns} measured — a summary may be stated
+                        <span className="flex flex-wrap items-baseline gap-2">
+                          <span data-figure="floor" className="text-(--ink-body)">
+                            {floor.completedRuns} of {floor.totalRuns} completed — a summary may be stated
+                          </span>
+                          <span data-basis="floor" className="text-(--ink-dim)">
+                            {FLOOR_BASIS}
+                          </span>
                         </span>
                       ) : (
-                        <span data-testid={`metrics-refusal-${experiment.forkId}-${arm.arm}`} className="flex flex-1 items-baseline gap-2">
+                        <span data-testid={`metrics-refusal-${experiment.forkId}-${arm.arm}`} className="flex flex-1 flex-wrap items-baseline gap-2">
                           <span className="h-1.5 flex-1 border border-(--line-hair) border-dashed" aria-hidden="true" />
-                          <span className="text-(--ink-dim)">{floor.refusal}</span>
+                          <span data-figure="floor" className="text-(--ink-dim)">
+                            {floor.refusal}
+                          </span>
+                          <span data-basis="floor" className="text-(--ink-dim)">
+                            {FLOOR_BASIS}
+                          </span>
                         </span>
                       )}
                     </li>

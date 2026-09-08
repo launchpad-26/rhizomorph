@@ -66,7 +66,8 @@ describe('Metrics (prd53 S4, #328)', () => {
   it('a below-floor arm renders a track with the refusal copy — on the scale, not omitted from it', () => {
     render(<Metrics experiments={[MEASURED]} fetchImpl={estimates({})} />)
     expect(screen.queryByTestId('metrics-refusal-fork-1-1')).toBeNull()
-    expect(screen.getByTestId('metrics-refusal-fork-1-2').textContent).toMatch(/refuses to summarise — 1 of 3 measured, needs 3/)
+    expect(screen.getByTestId('metrics-arm-fork-1-1').textContent).toMatch(/3 of 3 completed — a summary may be stated/)
+    expect(screen.getByTestId('metrics-refusal-fork-1-2').textContent).toMatch(/refuses to summarise — 1 of 3 completed, needs 3/)
   })
 
   it('not-run and unmeasured rows carry no numeric cell', () => {
