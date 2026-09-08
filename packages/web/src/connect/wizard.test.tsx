@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { CloneFetchLike } from '../concierge/clone.js'
 import type { InstrumentFetchLike } from '../concierge/instrument.js'
+import { RETARGET_URL, type RetargetFetchLike } from '../concierge/retarget.js'
 import { CAPABILITY_META_NAME } from '../recordings/capability.js'
 import type { ChainLink, InstrumentableSession } from './links.js'
 import { REPO_SELECT_CAP, REPOS_URL, type FetchLike, type MetaFacts } from './meta.js'
@@ -61,6 +62,24 @@ const REPOS_BODY = {
     ],
   },
   scanned: { repos: [{ path: '/home/x/code/scanned' }, { path: WATCHED }], truncated: true, unreadable: ['/home/x/Desktop'] },
+}
+
+/** The route's own answer to a successful switch — spelled once, reused by every case below that needs one. */
+const SWITCHED = {
+  closed: { sessionId: '1000', filePath: '/data/repo-aaaa/session-1000.jsonl', eventCount: 12, closedAt: 5000, synced: true },
+  opened: { sessionId: '5000', filePath: '/data/other-bbbb/session-5000.jsonl', startedAt: 5000 },
+  from: { repoPath: '/home/x/repo', repoName: 'repo', repoSlug: 'repo-aaaa', sessionDir: '/data/repo-aaaa' },
+  to: { repoPath: '/home/x/other', repoName: 'other', repoSlug: 'other-bbbb', sessionDir: '/data/other-bbbb' },
+  telemetry: {
+    previousInstance: '1000',
+    instance: '5000',
+    lanes: ['lane-a', 'lane-b'],
+    reissue: ['rhizomorph env lane-a --port 4317', 'rhizomorph env lane-b --port 4317'],
+    reissueTemplate: 'rhizomorph env <lane> --port 4317',
+    lost: ['llm.cost', 'llm.usage (OTLP)', 'trace.span', 'active time'],
+    stillWorking: ['git', 'tmux', 'workmux', 'sessionlog transcripts'],
+    note: '2 lanes still export as instance 1000 and are now refused whole — re-issue the env above.',
+  },
 }
 
 function reposFetch(body: unknown = REPOS_BODY, ok = true): FetchLike {
@@ -126,12 +145,15 @@ interface RenderOptions {
   fetchImpl?: FetchLike
   instrumentFetchImpl?: InstrumentFetchLike
   cloneFetchImpl?: CloneFetchLike
+  retargetFetchImpl?: RetargetFetchLike
+  onRetargeted?: () => void
 }
 
 async function renderWizard(options: RenderOptions = {}) {
   const onCopy = vi.fn(async () => undefined)
+  let result: ReturnType<typeof render> | undefined
   await act(async () => {
-    render(
+    result = render(
       <SetupWizard
         links={options.links ?? someLinks()}
         meta={options.meta === undefined ? META : options.meta}
@@ -140,11 +162,18 @@ async function renderWizard(options: RenderOptions = {}) {
         fetchImpl={options.fetchImpl ?? reposFetch()}
         instrumentFetchImpl={options.instrumentFetchImpl}
         cloneFetchImpl={options.cloneFetchImpl}
+        retargetFetchImpl={options.retargetFetchImpl}
+        onRetargeted={options.onRetargeted}
         onCopy={onCopy}
       />,
     )
   })
-  return { onCopy }
+  return { onCopy, rerender: result!.rerender }
+}
+
+/** A transport that answers a fixed retarget body — the shape every switch case below needs, once. */
+function switching(body: unknown, status = 200): RetargetFetchLike {
+  return async () => ({ ok: status < 300, status, json: async () => body })
 }
 
 function step(name: (typeof WIZARD_STEPS)[number]) {
@@ -688,33 +717,312 @@ describe('step 2 — the conductor', () => {
   })
 
   /**
+   * TWO CLICKS, for the switch too (#216) — the identical bar `launch()`
+   * already holds the fourth mutating call to. Every test below that wants an
+   * outcome goes through this, so a switch that ever became reachable in one
+   * click would fail the arming test rather than quietly changing what these
+   * ones exercise.
+   */
+  async function armAndConfirmRetarget() {
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('wizard-retarget'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('wizard-retarget-confirm'))
+    })
+  }
+
+  function chooseRepo(path: string) {
+    fireEvent.change(screen.getByTestId('wizard-repo-select'), { target: { value: path } })
+  }
+
+  /**
    * THE HONESTY THIS WIZARD TURNS ON. The launch route takes no repo — it uses
    * the one this server was started in — so a repo that is not the watched one
-   * gets the command that starts a rhizomorph THERE, and no button at all.
+   * gets the switch instead of a launch button, never a silent one-click start
+   * somewhere else.
    */
-  it('offers a command and NOT a button for a repo this instrument is not watching', async () => {
+  it('offers the switch and the command, never the launch button, for a repo this instrument is not watching', async () => {
     const instrumentFetchImpl = vi.fn(answering(LAUNCHED_IN_TMUX))
-    await renderWizard({ instrumentFetchImpl })
+    const retargetFetchImpl = vi.fn(switching(SWITCHED))
+    await renderWizard({ instrumentFetchImpl, retargetFetchImpl })
 
     await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
-    fireEvent.change(screen.getByTestId('wizard-repo-select'), { target: { value: '/home/x/other' } })
+    chooseRepo('/home/x/other')
     step('conductor')
 
     expect(screen.queryByTestId('wizard-launch')).toBeNull()
-    const withheld = screen.getByTestId('wizard-not-watched').textContent ?? ''
-    expect(withheld).toContain('/home/x/other')
-    expect(withheld).toContain('cannot retarget')
+    expect(screen.getByTestId<HTMLButtonElement>('wizard-retarget').disabled).toBe(false)
     expect(screen.getByTestId('connect-command-wizard-start-there').textContent).toBe(
       'npm start -- /home/x/other --port 4317',
     )
+    const withheld = screen.getByTestId('wizard-not-watched').textContent ?? ''
+    expect(withheld).toContain('/home/x/other')
+    expect(withheld).not.toContain('not built')
+    expect(withheld).not.toContain('cannot retarget')
     expect(instrumentFetchImpl).not.toHaveBeenCalled()
+    expect(retargetFetchImpl).not.toHaveBeenCalled()
+  })
+
+  /** THE FIRST CLICK SPENDS NOTHING, for the switch too — the same finding `launch()`'s own arming test makes. */
+  it('arms before it switches', async () => {
+    const retargetFetchImpl = vi.fn(switching(SWITCHED))
+    await renderWizard({ retargetFetchImpl })
+
+    await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
+    chooseRepo('/home/x/other')
+    step('conductor')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('wizard-retarget'))
+    })
+    expect(retargetFetchImpl).not.toHaveBeenCalled()
+    // The arming panel STATES what the switch costs; it never COMPUTES a
+    // number to say it with — no digit anywhere in it.
+    const dialog = screen.getByTestId('wizard-retarget-confirm-dialog').textContent ?? ''
+    expect(dialog).toContain('/home/x/other')
+    expect(dialog).toContain('/home/x/repo')
+    expect(dialog).toContain('recording')
+    expect(dialog).toContain('re-issued')
+    expect(dialog).not.toMatch(/\d/)
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('wizard-retarget-cancel'))
+    })
+    expect(screen.queryByTestId('wizard-retarget-confirm-dialog')).toBeNull()
+    expect(screen.getByTestId('wizard-retarget')).toBeTruthy()
+    expect(retargetFetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('the confirm click sends the selected repo to the route, once', async () => {
+    const retargetFetchImpl = vi.fn(switching(SWITCHED))
+    await renderWizard({ retargetFetchImpl })
+
+    await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
+    chooseRepo('/home/x/other')
+    step('conductor')
+    await armAndConfirmRetarget()
+
+    expect(retargetFetchImpl).toHaveBeenCalledTimes(1)
+    expect(retargetFetchImpl).toHaveBeenCalledWith(
+      RETARGET_URL,
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ path: '/home/x/other' }) }),
+    )
+  })
+
+  it('a switch renders the route’s own figures', async () => {
+    const retargetFetchImpl = vi.fn(switching(SWITCHED))
+    const onRetargeted = vi.fn()
+    await renderWizard({ retargetFetchImpl, onRetargeted })
+
+    await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
+    chooseRepo('/home/x/other')
+    step('conductor')
+    await armAndConfirmRetarget()
+
+    const result = screen.getByTestId('wizard-retarget-result').textContent ?? ''
+    expect(result).toContain('1000')
+    expect(result).toContain('5000')
+    expect(result).toContain('/home/x/other')
+    expect(screen.getByTestId('wizard-retarget-telemetry').textContent).toBe(SWITCHED.telemetry.note)
+    expect(screen.getByTestId('connect-command-wizard-retarget-reissue').textContent).toBe(
+      SWITCHED.telemetry.reissue.join('\n'),
+    )
+    const lost = screen.getByTestId('wizard-retarget-lost').textContent ?? ''
+    expect(lost).toContain('llm.cost')
+    expect(lost).toContain('trace.span')
+    expect(screen.getByTestId('wizard-retarget-still-working').textContent).toContain('git')
+    expect(onRetargeted).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId('wizard-retarget-refused')).toBeNull()
+    expect(screen.queryByTestId('wizard-retarget-error')).toBeNull()
+  })
+
+  /** The wizard's later steps read against the new target — the DoD's own sentence, proven here at the seam that holds it. */
+  it('the journey continues in the new repo', async () => {
+    const retargetFetchImpl = vi.fn(switching(SWITCHED))
+    const { rerender } = await renderWizard({ retargetFetchImpl })
+
+    await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
+    chooseRepo('/home/x/other')
+    step('conductor')
+    await armAndConfirmRetarget()
+
+    await act(async () => {
+      rerender(
+        <SetupWizard
+          links={someLinks()}
+          meta={{ ...META, repoPath: '/home/x/other', repoName: 'other' }}
+          live={true}
+          port="4317"
+          fetchImpl={reposFetch()}
+          retargetFetchImpl={retargetFetchImpl}
+          onCopy={async () => undefined}
+        />,
+      )
+    })
+
+    expect(screen.getByTestId('wizard-launch')).toBeTruthy()
+    expect(screen.queryByTestId('wizard-not-watched')).toBeNull()
+    expect(screen.getByTestId('wizard-retarget-result')).toBeTruthy()
+
+    step('repo')
+    expect(screen.getByTestId('wizard-watched').textContent).toBe('/home/x/other')
+  })
+
+  it('a refusal is itself', async () => {
+    const onRetargeted = vi.fn()
+    const retargetFetchImpl = vi.fn(
+      switching({ code: 'writer-alive', error: 'another rhizomorph (pid 42) is already watching it' }, 409),
+    )
+    await renderWizard({ retargetFetchImpl, onRetargeted })
+
+    await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
+    chooseRepo('/home/x/other')
+    step('conductor')
+    await armAndConfirmRetarget()
+
+    const refused = screen.getByTestId('wizard-retarget-refused')
+    expect(refused.getAttribute('role')).toBe('status')
+    expect(refused.textContent).toContain('writer-alive')
+    expect(refused.textContent).toContain('another rhizomorph (pid 42) is already watching it')
+    expect(refused.textContent).toContain('/home/x/repo')
+    expect(onRetargeted).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('wizard-retarget-result')).toBeNull()
+    expect(screen.queryByTestId('wizard-retarget-error')).toBeNull()
+    expect(screen.getByTestId('connect-command-wizard-start-there')).toBeTruthy()
+  })
+
+  it('a failure is itself', async () => {
+    const onRetargeted = vi.fn()
+    const retargetFetchImpl = vi.fn(switching({ error: 'missing or invalid x-rhizomorph-capability header' }, 401))
+    await renderWizard({ retargetFetchImpl, onRetargeted })
+
+    await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
+    chooseRepo('/home/x/other')
+    step('conductor')
+    await armAndConfirmRetarget()
+
+    expect(screen.getByTestId('wizard-retarget-error').textContent).toMatch(/reload this page/i)
+    expect(screen.queryByTestId('wizard-retarget-refused')).toBeNull()
+    expect(screen.queryByTestId('wizard-retarget-result')).toBeNull()
+    expect(onRetargeted).not.toHaveBeenCalled()
+  })
+
+  it('a fixture withholds the switch entirely while it is driving the page', async () => {
+    await renderWizard({ live: false })
+
+    await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
+    chooseRepo('/home/x/other')
+    step('conductor')
+
+    expect(screen.getByTestId<HTMLButtonElement>('wizard-retarget').disabled).toBe(true)
+    expect(screen.getByTestId('wizard-retarget-fixture')).toBeTruthy()
+    expect(screen.getByTestId('connect-command-wizard-start-there')).toBeTruthy()
+  })
+
+  /**
+   * THE HOLE #216'S REVIEW FOUND. `live` gated the arm button
+   * (`disabled={!live}`) but the confirm button carried no such guard, and the
+   * two clicks are separated in time: arm while live, let the page move onto a
+   * fixture before the second click lands, and the switch fired anyway — while
+   * the panel beside it was already saying "nothing here will switch
+   * anything". `confirmRetarget` now re-checks `live` itself and the confirm
+   * button carries the same `disabled={!live}` the arm button always had, so
+   * a `live` drop between the two clicks withholds the SECOND one too, not
+   * just the first.
+   */
+  it('a live drop between arm and confirm withholds the switch, not just the arm button', async () => {
+    const retargetFetchImpl = vi.fn(switching(SWITCHED))
+    const { rerender } = await renderWizard({ retargetFetchImpl })
+
+    await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
+    chooseRepo('/home/x/other')
+    step('conductor')
+
+    // Arm while live — the same first click every other case in this
+    // describe block starts from.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('wizard-retarget'))
+    })
+    expect(screen.getByTestId('wizard-retarget-confirm-dialog')).toBeTruthy()
+
+    // The page moves onto a fixture between the two clicks, with the confirm
+    // dialog still open and armed.
+    await act(async () => {
+      rerender(
+        <SetupWizard
+          links={someLinks()}
+          meta={META}
+          live={false}
+          port="4317"
+          fetchImpl={reposFetch()}
+          retargetFetchImpl={retargetFetchImpl}
+          onCopy={async () => undefined}
+        />,
+      )
+    })
+
+    expect(screen.getByTestId<HTMLButtonElement>('wizard-retarget-confirm').disabled).toBe(true)
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('wizard-retarget-confirm'))
+    })
+    expect(retargetFetchImpl).not.toHaveBeenCalled()
+  })
+
+  /** Repetition — a second switch replaces the first answer, rather than the two piling up. */
+  it('repetition — a second switch replaces the first answer', async () => {
+    const SWITCHED_AGAIN = {
+      ...SWITCHED,
+      to: { ...SWITCHED.to, repoPath: '/home/x/code/scanned', repoName: 'scanned' },
+      opened: { ...SWITCHED.opened, sessionId: '6000' },
+    }
+    const retargetFetchImpl = vi.fn<RetargetFetchLike>()
+    retargetFetchImpl.mockImplementationOnce(switching(SWITCHED))
+    retargetFetchImpl.mockImplementationOnce(switching(SWITCHED_AGAIN))
+    const onRetargeted = vi.fn()
+    const { rerender } = await renderWizard({ retargetFetchImpl, onRetargeted })
+
+    await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
+    chooseRepo('/home/x/other')
+    step('conductor')
+    await armAndConfirmRetarget()
+
+    await act(async () => {
+      rerender(
+        <SetupWizard
+          links={someLinks()}
+          meta={{ ...META, repoPath: '/home/x/other', repoName: 'other' }}
+          live={true}
+          port="4317"
+          fetchImpl={reposFetch()}
+          retargetFetchImpl={retargetFetchImpl}
+          onRetargeted={onRetargeted}
+          onCopy={async () => undefined}
+        />,
+      )
+    })
+
+    step('repo')
+    await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
+    chooseRepo('/home/x/code/scanned')
+    step('conductor')
+    await armAndConfirmRetarget()
+
+    expect(retargetFetchImpl).toHaveBeenCalledTimes(2)
+    expect(retargetFetchImpl.mock.calls[1]?.[1].body).toBe(JSON.stringify({ path: '/home/x/code/scanned' }))
+    expect(document.querySelectorAll('[data-testid="wizard-retarget-result"]')).toHaveLength(1)
+    const result = screen.getByTestId('wizard-retarget-result').textContent ?? ''
+    expect(result).toContain('6000')
+    expect(result).not.toContain('5000')
+    expect(onRetargeted).toHaveBeenCalledTimes(2)
   })
 
   it('copies that command through the page’s own clipboard seam', async () => {
     const { onCopy } = await renderWizard()
 
     await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
-    fireEvent.change(screen.getByTestId('wizard-repo-select'), { target: { value: '/home/x/other' } })
+    chooseRepo('/home/x/other')
     step('conductor')
     await act(async () => {
       fireEvent.click(screen.getByTestId('connect-copy-wizard-start-there'))
@@ -723,7 +1031,7 @@ describe('step 2 — the conductor', () => {
     expect(onCopy).toHaveBeenCalledWith('npm start -- /home/x/other --port 4317')
   })
 
-  it('a freshly cloned repo is chosen, and is therefore one this instrument is not watching', async () => {
+  it('a freshly cloned repo can be switched to, and is therefore one this instrument is not watching', async () => {
     await renderWizard({
       cloneFetchImpl: async () => {
         const body = JSON.stringify({ type: 'done', path: '/home/x/.rhizomorph/clones/repo' })
@@ -738,9 +1046,18 @@ describe('step 2 — the conductor', () => {
     step('conductor')
 
     expect(screen.queryByTestId('wizard-launch')).toBeNull()
+    expect(screen.getByTestId('wizard-retarget')).toBeTruthy()
     expect(screen.getByTestId('connect-command-wizard-start-there').textContent).toBe(
       'npm start -- /home/x/.rhizomorph/clones/repo --port 4317',
     )
+  })
+})
+
+/** The sibling case the issue names, pinned in the file rather than trusted (#216). */
+describe('the wizard no longer says the switch is unbuilt', () => {
+  it('never spells the old refusal, in prose or in a doc comment', () => {
+    const source = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'wizard.tsx'), 'utf8')
+    expect(source).not.toMatch(/not built|open question/)
   })
 })
 

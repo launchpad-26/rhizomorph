@@ -153,13 +153,14 @@ lands only under `~/.claude/projects/<watched-repo-slug>/`, never elsewhere
 under `~/.claude`.
 
 A sixth, `POST /api/retarget` (prd-20 ruling 5's repo switch, #389), is
-gated the same way but has no caller wired to it yet:
-[`connect/wizard.tsx`](packages/web/src/connect/wizard.tsx) still tells the
-operator that switching the watched repo "is not built", which prd-20's
-2026-08-24 amendment names as the one piece of that PRD still open. So the
-route is proven, structurally, reachable only by a human's explicit act and
-by nothing else (`api/retarget-law.test.ts`) — without yet being reachable
-by anything at all.
+gated the same way and, since #216, has exactly one caller: the setup
+wizard's conductor step, through
+[`concierge/retarget.ts`](packages/web/src/concierge/retarget.ts) — the app's
+sixth mutating call, enumerated in `replay/mutating-calls-law.test.ts`,
+reachable from one file (`concierge/explicit-invocation-law.test.ts`), and
+armed by one click before a second one acts. `api/retarget-law.test.ts` still
+proves the server side is reachable only from the route registrar, never a
+collector or a poll.
 
 A seventh, `POST /api/operator/:act` (prd-17 ruling 1's operator door, #276),
 records one of three human acts — `operator.ack`, `operator.verdict`,

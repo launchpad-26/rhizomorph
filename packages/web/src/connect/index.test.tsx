@@ -7,6 +7,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { ModeProvider } from '../app/ModeContext.js'
 import { StreamProvider } from '../app/StreamContext.js'
 import type { InstrumentFetchLike } from '../concierge/instrument.js'
+import type { RetargetFetchLike } from '../concierge/retarget.js'
 import type { EventSourceLike } from '../hooks/useEventStream.js'
 import { CAPABILITY_META_NAME } from '../recordings/capability.js'
 import type { FetchLike as ReplayFetchLike } from '../replay/api.js'
@@ -106,6 +107,37 @@ const REPOS_BODY = {
   available: true,
   known: { available: true, projects: [{ slug: '-home-x-repo', path: '/home/x/repo', resolved: true }] },
   scanned: { repos: [], truncated: false, unreadable: [] },
+}
+
+/** The same repo list, plus a second repo the switch case (#216) needs to choose. */
+const REPOS_BODY_WITH_OTHER = {
+  available: true,
+  known: {
+    available: true,
+    projects: [
+      { slug: '-home-x-repo', path: '/home/x/repo', resolved: true },
+      { slug: '-home-x-other', path: '/home/x/other', resolved: true },
+    ],
+  },
+  scanned: { repos: [], truncated: false, unreadable: [] },
+}
+
+/** The retarget route's own answer to a successful switch (#216) — spelled once per file, as the sibling test files do. */
+const SWITCHED = {
+  closed: { sessionId: '1000', filePath: '/data/repo-aaaa/session-1000.jsonl', eventCount: 12, closedAt: 5000, synced: true },
+  opened: { sessionId: '5000', filePath: '/data/other-bbbb/session-5000.jsonl', startedAt: 5000 },
+  from: { repoPath: '/home/x/repo', repoName: 'repo', repoSlug: 'repo-aaaa', sessionDir: '/data/repo-aaaa' },
+  to: { repoPath: '/home/x/other', repoName: 'other', repoSlug: 'other-bbbb', sessionDir: '/data/other-bbbb' },
+  telemetry: {
+    previousInstance: '1000',
+    instance: '5000',
+    lanes: ['lane-a', 'lane-b'],
+    reissue: ['rhizomorph env lane-a --port 4317', 'rhizomorph env lane-b --port 4317'],
+    reissueTemplate: 'rhizomorph env <lane> --port 4317',
+    lost: ['llm.cost', 'llm.usage (OTLP)', 'trace.span', 'active time'],
+    stillWorking: ['git', 'tmux', 'workmux', 'sessionlog transcripts'],
+    note: '2 lanes still export as instance 1000 and are now refused whole — re-issue the env above.',
+  },
 }
 
 function stubFetch(meta: unknown = META_BODY, doctor: unknown = DOCTOR_BODY, previews: 'answer' | 'refuse' = 'answer'): FetchLike {
@@ -718,6 +750,58 @@ describe('the poll interval (#344)', () => {
     })
     // The unmount's cleanup cleared the interval — no polling a torn-down page.
     expect([doctorCalls, metaCalls]).toEqual([3, 3])
+  })
+
+  /**
+   * THE DoD'S OWN SENTENCE — "the wizard's later steps re-read against the new
+   * target" — proven at the seam that does the re-reading (#216).
+   * `refreshMs` is 0 here, so the interval is OFF entirely: a second
+   * `/api/meta` read can only mean the switch's own `onRetargeted` tick
+   * fired, never a timer nobody armed.
+   */
+  it('re-reads /api/meta at once after a switch — no timer involved', async () => {
+    let metaCalls = 0
+    const fetchImpl: FetchLike = async (input) => {
+      if (input === META_URL) {
+        metaCalls++
+        return {
+          ok: true,
+          json: async () => ({
+            ...META_BODY,
+            repoPath: metaCalls === 1 ? '/home/x/repo' : '/home/x/other',
+            repoName: metaCalls === 1 ? 'repo' : 'other',
+          }),
+        }
+      }
+      if (input === DOCTOR_URL) return { ok: true, json: async () => DOCTOR_BODY }
+      if (input === REPOS_URL) return { ok: true, json: async () => REPOS_BODY_WITH_OTHER }
+      throw new Error(`unexpected fetch: ${input}`)
+    }
+    const retargetFetchImpl: RetargetFetchLike = async () => ({ ok: true, status: 200, json: async () => SWITCHED })
+
+    await renderConnect({ fetchImpl, retargetFetchImpl, refreshMs: 0 })
+    expect(metaCalls).toBe(1)
+
+    await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('wizard-repo-select'), { target: { value: '/home/x/other' } })
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('wizard-step-conductor'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('wizard-retarget'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('wizard-retarget-confirm'))
+    })
+
+    expect(metaCalls).toBe(2)
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('wizard-step-repo'))
+    })
+    expect(screen.getByTestId('wizard-watched').textContent).toBe('/home/x/other')
   })
 })
 

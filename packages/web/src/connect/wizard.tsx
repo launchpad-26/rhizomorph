@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { BUTTON, BUTTON_PRIMARY, FIELD } from '../ui/controls.js'
 import { requestClone, type CloneFetchLike, type CloneOutcome } from '../concierge/clone.js'
 import { requestInstrument, type InstrumentFetchLike, type InstrumentMode, type InstrumentOutcome } from '../concierge/instrument.js'
+import { requestRetarget, type RetargetFetchLike, type RetargetOutcome, type RetargetSwitched } from '../concierge/retarget.js'
 import type { CopyText } from '../drawer/AttachButton.js'
 import { restartCommand, STATE_GLYPH, STATE_WORD, type ChainLink } from './links.js'
 import {
@@ -32,11 +33,12 @@ import {
  * is an anti-drift device, not a size limit, and its point is that every source
  * file here is one a reviewer has looked at and found to mutate nothing. This
  * file honours that exactly: it names no verb, builds no request init and
- * reaches for no execution channel — its two acts go out through
- * `../concierge/clone.js` and `../concierge/instrument.js`, the app's fifth and
- * fourth mutating calls, each behind its own module doc and its own law, the
- * same way `InstrumentButton` already worked from inside `index.tsx`. The list
- * gains `wizard.tsx` rather than this becoming a fifth section of a 900-line
+ * reaches for no execution channel — its three acts go out through
+ * `../concierge/clone.js`, `../concierge/instrument.js` and
+ * `../concierge/retarget.js`, the app's fifth, fourth and sixth mutating
+ * calls, each behind its own module doc and its own law, the same way
+ * `InstrumentButton` already worked from inside `index.tsx`. The list gains
+ * `wizard.tsx` rather than this becoming a fifth section of a 900-line
  * `index.tsx`, because the checklist and the wizard are two things a reader
  * reads separately.
  *
@@ -44,17 +46,18 @@ import {
  *
  * **A conductor is launched in the repo THIS server is watching, always.** The
  * launch route (`../concierge/instrument.js`'s one route) takes no repo: it
- * uses `ctx.repoPath`, and retarget-in-place is prd-20's own open question,
- * unbuilt (its spike is wave 3's, and the PRD's "Open questions" still names
- * the semantics as unruled). So the conductor step does two different things
- * depending on what the repo step chose:
+ * uses `ctx.repoPath`. So a repo other than the watched one gets THE SWITCH
+ * (ruling 5, the route prd-42 hardened) instead of a launch button — behind
+ * its own arming click, with the restart command kept beside it as ruling 3's
+ * no-trust path:
  *
  * - **the watched repo** — the conductor step is live, and the launch button
  *   acts;
  * - **any other repo, including one just cloned** — the conductor step
- *   withholds the button entirely and hands over `restartCommand`, the exact
- *   line that starts a rhizomorph in THAT repo. Ruling 3's no-trust path,
- *   applied to the one thing this hand cannot do.
+ *   withholds the launch button and offers the switch instead, with
+ *   `restartCommand` kept beside it: the exact line that starts a rhizomorph
+ *   in THAT repo, for the operator who would rather not trust this hand at
+ *   all.
  *
  * Offering a launch button that silently started a conductor in a different
  * repo than the one on screen is the single most expensive lie this page could
@@ -248,6 +251,13 @@ export interface SetupWizardProps {
   instrumentFetchImpl?: InstrumentFetchLike
   /** Test seam for the clone, and narrow for the same reason. */
   cloneFetchImpl?: CloneFetchLike
+  /** Test seam for the switch — a fourth narrow seam, for the reason the second and third exist. */
+  retargetFetchImpl?: RetargetFetchLike
+  /**
+   * Fired once after a switch the server confirmed, so the page re-reads
+   * which repo it is watching without waiting for its poll.
+   */
+  onRetargeted?: () => void
   onCopy: CopyText
 }
 
@@ -274,6 +284,19 @@ type LaunchState =
   | { status: 'done'; outcome: InstrumentOutcome }
   | { status: 'failed'; message: string }
 
+/**
+ * The switch's own arm-then-act state, the identical shape {@link LaunchState}
+ * carries and for the same reason: the current recording closes and a new one
+ * opens the moment this act runs, so the click that reaches it is the second
+ * one, after the operator has read what the switch costs.
+ */
+type RetargetState =
+  | { status: 'idle' }
+  | { status: 'confirming' }
+  | { status: 'working' }
+  | { status: 'done'; outcome: RetargetOutcome }
+  | { status: 'failed'; message: string }
+
 export function SetupWizard({
   links,
   meta,
@@ -282,6 +305,8 @@ export function SetupWizard({
   fetchImpl,
   instrumentFetchImpl,
   cloneFetchImpl,
+  retargetFetchImpl,
+  onRetargeted,
   onCopy,
 }: SetupWizardProps) {
   const [step, setStep] = useState<WizardStep>('repo')
@@ -292,12 +317,13 @@ export function SetupWizard({
   const [harness, setHarness] = useState<string>('claude')
   const [mode, setMode] = useState<Exclude<InstrumentMode, 'resume'>>('launch')
   const [launch, setLaunch] = useState<LaunchState>({ status: 'idle' })
+  const [retarget, setRetarget] = useState<RetargetState>({ status: 'idle' })
 
   // ONE READ, ONCE — never on the page's poll. The repo list is a filesystem
   // walk over the operator's home directory; re-running it every five seconds
   // to answer a question nobody asked again would be the unbounded-walk cost
   // #274 is about, paid on a timer. It is a read, so it is allowed to live in
-  // an effect at all; neither of this file's two ACTS ever appears in one, and
+  // an effect at all; none of this file's three ACTS ever appears in one, and
   // `../concierge/explicit-invocation-law.test.ts` is what proves that.
   useEffect(() => {
     let alive = true
@@ -331,6 +357,26 @@ export function SetupWizard({
       setLaunch({ status: 'done', outcome })
     } catch (err) {
       setLaunch({ status: 'failed', message: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  async function confirmRetarget() {
+    // `live` is checked HERE and not only on the arming button, because the
+    // two clicks are separated in time and the page's mode can change between
+    // them. Arm while live, move the page onto a fixture, and the confirm
+    // button was still sitting there armed: the switch fired while the panel
+    // beside it read "nothing here will switch anything". The arm button's
+    // `disabled={!live}` cannot see that — it guards the first click, and this
+    // is the one that spends. `ConductorStep`'s launch path has no equivalent
+    // hole because its `canAct` gates the only click it has.
+    if (target === null || !live) return
+    setRetarget({ status: 'working' })
+    try {
+      const outcome = await requestRetarget({ path: target }, retargetFetchImpl)
+      setRetarget({ status: 'done', outcome })
+      if (outcome.kind === 'switched') onRetargeted?.()
+    } catch (err) {
+      setRetarget({ status: 'failed', message: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -382,11 +428,16 @@ export function SetupWizard({
           live={live}
           isWatched={isWatched}
           target={target}
+          watched={watched}
           port={port}
           launch={launch}
           onArm={() => setLaunch({ status: 'confirming' })}
           onCancelLaunch={() => setLaunch({ status: 'idle' })}
           onLaunch={() => void confirmLaunch()}
+          retarget={retarget}
+          onArmRetarget={() => setRetarget({ status: 'confirming' })}
+          onCancelRetarget={() => setRetarget({ status: 'idle' })}
+          onRetarget={() => void confirmRetarget()}
           onCopy={onCopy}
         />
       )}
@@ -644,11 +695,16 @@ function ConductorStep({
   live,
   isWatched,
   target,
+  watched,
   port,
   launch,
   onArm,
   onCancelLaunch,
   onLaunch,
+  retarget,
+  onArmRetarget,
+  onCancelRetarget,
+  onRetarget,
   onCopy,
 }: {
   harness: string
@@ -659,6 +715,8 @@ function ConductorStep({
   live: boolean
   isWatched: boolean
   target: string | null
+  /** The repo this instrument is actually watching — what a refusal or a switch reports against. */
+  watched: string | null
   port: string
   launch: LaunchState
   /** The first click — it shows what is about to happen and spends nothing. */
@@ -667,6 +725,13 @@ function ConductorStep({
   onCancelLaunch: () => void
   /** The second click, and the only thing in this file that reaches the act. */
   onLaunch: () => void
+  retarget: RetargetState
+  /** The switch's first click — arms, and spends nothing. */
+  onArmRetarget: () => void
+  /** The way back out of an armed switch. */
+  onCancelRetarget: () => void
+  /** The switch's second click, and the only thing in this file that reaches the sixth mutating call. */
+  onRetarget: () => void
   onCopy: CopyText
 }) {
   const facts = HARNESSES.find((entry) => entry.id === harness) ?? HARNESSES[0]
@@ -747,12 +812,85 @@ function ConductorStep({
         </span>
       </p>
 
+      {/* THE SWITCH'S OWN OUTCOME, ABOVE THE BRANCH BELOW SO IT SURVIVES
+          `isWatched` FLIPPING (#216). Once a switch lands, `meta` catches up
+          and `!isWatched` turns false — a panel that lived only inside the
+          withheld branch would vanish the instant the very thing it reports
+          succeeded. Three test ids, three outcomes, and a fourth for the
+          switch's own result — never one id carrying two meanings (#532's
+          own lesson, restated here). */}
+      {retarget.status === 'working' && (
+        <p data-testid="wizard-retarget-working" className="text-read-body text-(--ink-dim)">
+          switching… the current recording is closing and the collectors are being re-pointed
+        </p>
+      )}
+      {retarget.status === 'failed' && (
+        <p role="status" data-testid="wizard-retarget-error" className="text-read-body text-broken">
+          {retarget.message}
+        </p>
+      )}
+      {retarget.status === 'done' && retarget.outcome.kind === 'refused' && (
+        <p role="status" data-testid="wizard-retarget-refused" className="text-read-body leading-snug text-waiting-benign">
+          the instrument refused to switch{retarget.outcome.code === null ? '' : ` (${retarget.outcome.code})`} —{' '}
+          {retarget.outcome.message}. Nothing changed: it is still watching {watched ?? UNAVAILABLE}.
+        </p>
+      )}
+      {retarget.status === 'done' && retarget.outcome.kind === 'switched' && (
+        <RetargetResult outcome={retarget.outcome} onCopy={onCopy} />
+      )}
+
       {!isWatched ? (
         <div data-testid="wizard-not-watched" className="flex flex-col gap-1 rounded-none border border-(--line-hair) px-2 py-2">
-          <p className="text-read-body leading-snug text-waiting-benign">
-            {target ?? UNAVAILABLE} is not the repo this instrument is watching, and this hand cannot retarget one —
-            switching the watched repo is prd-20’s own open question and is not built. Nothing below will start a
-            conductor there. Run a rhizomorph in that repo instead, and its own wizard picks up from here:
+          <p className="text-read-body leading-snug text-(--ink-body)">
+            {target ?? UNAVAILABLE} is not the repo this instrument is watching. This hand can switch to it: the recording
+            now open closes as retargeted and a new one opens under that repo's own slug, and every lane launched before that
+            boundary keeps exporting as the old instance and is refused whole until its env is re-issued — the answer names
+            each one. Nothing below starts a conductor until the switch has happened.
+          </p>
+          {retarget.status !== 'confirming' && (
+            <button
+              type="button"
+              data-testid="wizard-retarget"
+              disabled={!live || target === null || retarget.status === 'working'}
+              onClick={onArmRetarget}
+              className={BUTTON_PRIMARY}
+            >
+              switch the watched repo to it
+            </button>
+          )}
+          {retarget.status === 'confirming' && (
+            <div data-testid="wizard-retarget-confirm-dialog" className="flex flex-col gap-2 rounded-none border border-(--line-strong) p-3">
+              <p className="text-read-body text-(--ink-primary)">
+                Switch this instrument from {watched ?? UNAVAILABLE} to {target ?? UNAVAILABLE}?
+              </p>
+              <p className="text-read-body leading-snug text-(--ink-dim)">
+                The current recording ends here and is filed under the old repo; a new recording starts under the new one.
+                Lanes already running keep their old instance id and stop reporting cost, traces and active time until
+                re-issued — git, tmux, workmux and transcripts are unaffected. No process is started or stopped by this.
+              </p>
+              <div className="flex gap-2">
+                <button type="button" data-testid="wizard-retarget-cancel" onClick={onCancelRetarget} className={BUTTON}>
+                  cancel
+                </button>
+                <button
+                  type="button"
+                  data-testid="wizard-retarget-confirm"
+                  onClick={onRetarget}
+                  disabled={!live}
+                  className={BUTTON_PRIMARY}
+                >
+                  switch
+                </button>
+              </div>
+            </div>
+          )}
+          {!live && (
+            <p data-testid="wizard-retarget-fixture" className="text-read-floor leading-snug text-notice">
+              this page is reading a fixture, not the live log — nothing here will switch anything. Return to live to act.
+            </p>
+          )}
+          <p className="mt-1 text-read-floor leading-snug text-(--ink-dim)">
+            or run a rhizomorph in that repo yourself, and its own wizard picks up from here:
           </p>
           <CopyableCommand
             id="wizard-start-there"
@@ -941,6 +1079,54 @@ function LaunchResult({ outcome }: { outcome: InstrumentOutcome }) {
           {outcome.telemetry.remedy !== null && <> — what it would take: {outcome.telemetry.remedy}</>}
         </p>
       )}
+    </div>
+  )
+}
+
+/**
+ * WHAT THE SWITCH ACTUALLY DID — the route's own figures, rendered verbatim
+ * rather than recomputed (#216). There is no dry-run route, so "shows the
+ * consequences before it fires" is met in the arming panel's words and
+ * "never recompute" is met here: every field below is the answer's own,
+ * never a lane count or a re-issue command this page worked out itself.
+ */
+function RetargetResult({ outcome, onCopy }: { outcome: RetargetSwitched; onCopy: CopyText }) {
+  return (
+    <div data-testid="wizard-retarget-result" className="flex flex-col gap-1 rounded-none border border-(--line-hair) px-2 py-2">
+      <p role="status" className="text-read-body leading-snug text-notice">
+        switched — this instrument now watches {outcome.to.repoPath}. Recording {outcome.closed.sessionId} closed as
+        retargeted under {outcome.from.repoPath}; recording {outcome.opened.sessionId} opened under the new repo’s own
+        slug.
+      </p>
+      {!outcome.closed.synced && (
+        <p data-testid="wizard-retarget-unsynced" className="text-read-floor leading-snug text-waiting-benign">
+          the close line reached the file but its sync was not confirmed
+          {outcome.closed.syncError !== null ? `: ${outcome.closed.syncError}` : ''}
+        </p>
+      )}
+      <p data-testid="wizard-retarget-telemetry" className="text-read-body leading-snug text-(--ink-body)">
+        {outcome.telemetry.note}
+      </p>
+      {outcome.telemetry.reissue.length > 0 ? (
+        <CopyableCommand id="wizard-retarget-reissue" command={outcome.telemetry.reissue.join('\n')} onCopy={onCopy} />
+      ) : (
+        <code
+          data-testid="connect-command-wizard-retarget-reissue-template"
+          className="block overflow-x-auto whitespace-pre rounded-none bg-(--surface-floor) px-2 py-1 font-mono text-inst text-(--ink-primary)"
+        >
+          {outcome.telemetry.reissueTemplate}
+        </code>
+      )}
+      <p data-testid="wizard-retarget-lost" className="text-read-floor leading-snug text-(--ink-dim)">
+        stops for those lanes until re-issued: {outcome.telemetry.lost.join(', ')}
+      </p>
+      <p data-testid="wizard-retarget-still-working" className="text-read-floor leading-snug text-(--ink-dim)">
+        unaffected: {outcome.telemetry.stillWorking.join(', ')}
+      </p>
+      <p className="text-read-floor leading-snug text-(--ink-dim)">
+        step 2 now reads against {outcome.to.repoPath} — the conductor controls below are for it, and step 3’s rows will
+        refill as the new recording fills.
+      </p>
     </div>
   )
 }

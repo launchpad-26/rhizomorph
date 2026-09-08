@@ -14,12 +14,13 @@ import { CAPABILITY_TOKEN_HEADER } from '../recordings/capability.js'
  * mutating call ever; the recordings library's rename-in-place gave it its
  * second; the lab's launch gives it its third; the concierge's
  * relaunch-with-continuity gives it its fourth; the concierge's clone-by-URL
- * gives it its fifth. So this law enumerates instead of forbidding: across
- * every source file in `packages/web/src`, the mutating calls are EXACTLY
- * FIVE, each in exactly one file, each to exactly one route — and every verb
- * any one names is the same single verb, `POST`. A SIXTH one added tomorrow —
- * anywhere, in any panel, in a branch nothing renders — fails here and has to
- * say so in a diff a reviewer reads.
+ * gives it its fifth; the concierge's repo switch gives it its sixth. So this
+ * law enumerates instead of forbidding: across every source file in
+ * `packages/web/src`, the mutating calls are EXACTLY SIX, each in exactly one
+ * file, each to exactly one route — and every verb any one names is the same
+ * single verb, `POST`. A SEVENTH one added tomorrow — anywhere, in any panel,
+ * in a branch nothing renders — fails here and has to say so in a diff a
+ * reviewer reads.
  *
  * **The fifth (#266).** `concierge/clone.ts` is prd-20 ruling 1 / ADR-0019's
  * OTHER power — the one the fourth row's own module doc names and does not
@@ -33,6 +34,25 @@ import { CAPABILITY_TOKEN_HEADER } from '../recordings/capability.js'
  * one form (`concierge/explicit-invocation-law.test.ts` now proves that
  * app-wide, not merely within `concierge/`), and it appends nothing to the
  * event log at all — so there is no past for it to revise.
+ *
+ * **The sixth (#216).** `concierge/retarget.ts` is prd-20 ruling 5's repo
+ * switch — the route the fourth hand's spike settled in favour of
+ * rotate-and-reinit over supervised respawn (`api/retarget.ts`, #389). It
+ * clears the same three-reason bar its five siblings do, argued in its own
+ * module header rather than inherited: the route closes the current
+ * recording as `retargeted` and opens a new one under the adopted repo's own
+ * slug — never touching either working tree — validates the target is a real
+ * git work tree with no live writer BEFORE anything closes, and is reached
+ * only from `connect/wizard.tsx`'s own arming panel
+ * (`concierge/explicit-invocation-law.test.ts` proves that app-wide). Its
+ * payload is the one thing its five siblings' bodies avoid: a `path`. That is
+ * not a relaxation of the fence the others hold — the clone and the
+ * instrument button both derive their write's destination server-side
+ * precisely because their caller could otherwise name an arbitrary location
+ * on disk, and this route's whole subject is that a caller who already knows
+ * the machine may switch which EXISTING repo it watches, so the path IS the
+ * request; `validateRetargetTarget` decides whether that path is one this
+ * instrument may adopt before anything closes.
  *
  * **Why a fourth mutating call is allowed to exist at all, not just why it is
  * caught.** Rotation (`replay/rotate.ts`), the rename (`recordings/label.ts`),
@@ -78,8 +98,8 @@ const REPLAY_DIR = path.dirname(fileURLToPath(import.meta.url))
 const WEB_SRC = path.resolve(REPLAY_DIR, '..')
 
 /**
- * The five files allowed to mutate, the one route each may reach, and the
- * exact header set each may send — every verb across all five is `POST`.
+ * The six files allowed to mutate, the one route each may reach, and the
+ * exact header set each may send — every verb across all six is `POST`.
  *
  * AMENDED for #234: all these routes are token-gated now, not just
  * `/api/label`, so every call names {@link CAPABILITY_TOKEN_HEADER}.
@@ -96,6 +116,13 @@ const WEB_SRC = path.resolve(REPLAY_DIR, '..')
  * AMENDED for #266: the concierge's clone (`concierge/clone.ts`) is the fifth
  * row, with the identical header set for the identical reasons — a JSON
  * payload (one URL) and a route that writes to the operator's disk.
+ *
+ * AMENDED for #216: the concierge's retarget (`concierge/retarget.ts`) is the
+ * sixth row. Its payload is a JSON `{ path }` — one path, and a path is what
+ * this route takes, unlike the clone, because the switch is to a place the
+ * operator already named and the server validates it is a git work tree with
+ * no live writer before anything closes — and it carries the same two headers
+ * for the same three-reason bar argued in the module's own header.
  */
 const MUTATING_MODULES: ReadonlyArray<{ file: string; route: string; headers: readonly string[] }> = [
   { file: path.join(WEB_SRC, 'replay', 'rotate.ts'), route: '/api/rotate', headers: [CAPABILITY_TOKEN_HEADER] },
@@ -125,6 +152,11 @@ const MUTATING_MODULES: ReadonlyArray<{ file: string; route: string; headers: re
   {
     file: path.join(WEB_SRC, 'concierge', 'clone.ts'),
     route: '/api/concierge/clone',
+    headers: ['Content-Type', CAPABILITY_TOKEN_HEADER],
+  },
+  {
+    file: path.join(WEB_SRC, 'concierge', 'retarget.ts'),
+    route: '/api/retarget',
     headers: ['Content-Type', CAPABILITY_TOKEN_HEADER],
   },
 ]
@@ -352,7 +384,7 @@ function assertHeaderBlocksExact(text: string, allowed: readonly string[], fromD
   }
 }
 
-describe('the web app names exactly five mutating calls (prd16 rulings 2 and 4; prd12/prd14 for the launch; prd-20 ruling 6 / ADR-0020 for the instrument button; prd-20 ruling 1 / ADR-0019 for the clone)', () => {
+describe('the web app names exactly six mutating calls (prd16 rulings 2 and 4; prd12/prd14 for the launch; prd-20 ruling 6 / ADR-0020 for the instrument button; prd-20 ruling 1 / ADR-0019 for the clone; prd-20 ruling 5 for the retarget)', () => {
   it('has the whole app to check, not one directory — an empty grep proves nothing', () => {
     const files = sourceFiles()
     expect(files.length).toBeGreaterThan(80)
@@ -361,7 +393,7 @@ describe('the web app names exactly five mutating calls (prd16 rulings 2 and 4; 
     expect(files.map((file) => file.name)).toContain(path.join('drawer', 'useTranscript.ts'))
   })
 
-  it('are the ONLY five files in the app that name a mutating verb or build a request init', () => {
+  it('are the ONLY six files in the app that name a mutating verb or build a request init', () => {
     expect(mutatingFiles()).toEqual(
       MUTATING_MODULES.map((module) => path.relative(WEB_SRC, module.file)).sort(),
     )
@@ -742,15 +774,17 @@ describe('the web app names exactly five mutating calls (prd16 rulings 2 and 4; 
     expect(instrumentButton).not.toMatch(/\bfetch\s*\(/)
     expect(instrumentButton).not.toContain('/api/')
 
-    // The wizard (#266) is the one surface that drives TWO of the five, so it
-    // is held to the same rule twice over: both acts come in as modules, and
-    // nothing in the file names a route, builds a request, or calls `fetch`.
-    // The one path it may name is the READ its repo step makes, which lives in
-    // `connect/meta.ts` with the page's other GETs — `connect/index.test.tsx`'s
-    // ruling-7 law is what allows that one and no other.
+    // The wizard (#266, #216) is the one surface that drives THREE of the six,
+    // so it is held to the same rule three times over: all three acts come in
+    // as modules, and nothing in the file names a route, builds a request, or
+    // calls `fetch`. The one path it may name is the READ its repo step makes,
+    // which lives in `connect/meta.ts` with the page's other GETs —
+    // `connect/index.test.tsx`'s ruling-7 law is what allows that one and no
+    // other.
     const wizard = readFileSync(path.join(WEB_SRC, 'connect', 'wizard.tsx'), 'utf8')
     expect(wizard).toContain("from '../concierge/clone.js'")
     expect(wizard).toContain("from '../concierge/instrument.js'")
+    expect(wizard).toContain("from '../concierge/retarget.js'")
     expect(wizard).not.toMatch(/\bfetch\s*\(/)
     // Not "no `/api/` at all", as the three buttons above are held to: the
     // wizard's repo step legitimately NAMES the read route it reads (through

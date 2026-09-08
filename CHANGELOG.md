@@ -60,6 +60,19 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   can no longer read as the PTY rung. The sessionlog organ's remedy names
   `rhizomorph env <lane> --hooks claude` instead of a beacon that "would" exist.
 
+- **The setup wizard switches the watched repo (prd-20 ruling 5, #216).** Choosing a
+  repo other than the one this instrument is watching no longer ends in a sentence
+  saying the switch "is not built": the conductor step offers it, behind one arming
+  click that says what it costs — the current recording closes as `retargeted` and a
+  new one opens under the new repo's slug; lanes launched before the boundary are
+  refused whole until their env is re-issued — and the answer renders the route's
+  own account: both session ids, the lanes affected, the paste-ready re-issue
+  commands, what stops and what keeps working. A refusal (`already-watching`,
+  `writer-alive`, a replay server) is shown as itself, distinct from a failure and
+  from a success. The restart command stays beside the switch as the no-trust
+  path. `concierge/retarget.ts` is the app's sixth mutating call and carries its
+  own contract test. `SECURITY.md` no longer says the route has no caller.
+
 - **The fleet believes a declaration, and a disagreement says so (prd-27
   rulings 3–4, #283).** A hook beacon whose kind is in the ruled vocabulary now
   folds to one declared-attention record per lane (`SessionState.declared`,
