@@ -464,6 +464,15 @@
    * `waiting-benign` its muted one; here `needs-you` is the deeper ink (6.6:1
    * against the page) and `waiting-benign` the lighter (4.6:1). Same ladder,
    * same hue, opposite direction of travel.
+   *
+   * `broken` is the deepest of the six on purpose, and deeper than it first
+   * shipped: at #a90035 it and `working` measured 1.25:1 in greyscale and
+   * ΔE 1.4 under deuteranopia — one colour to a red-green reader, and nearly
+   * one grey. #7a0024 keeps the angle (15.5°) and takes the ink down until the
+   * pair separates as well as dark's does (1.84:1, ΔE 10.0; dark is 1.88:1,
+   * ΔE 10.9). `category.test.ts` holds both themes to it — law 9's first
+   * automated test. docs/design-notes/palette-paper-broken-ink.md has the
+   * search that picked the value and the alternatives it rejected.
    */
   --color-calm: var(--color-paper-800);
 
@@ -473,7 +482,7 @@
   --color-waiting-benign: #926a12;
   --color-needs-you: #785100;
 
-  --color-broken: #a90035;
+  --color-broken: #7a0024; /* the deepest of the six status inks (10.5:1) — see docs/design-notes/palette-paper-broken-ink.md */
   --color-notice: #007386;
 
   /* Dead tissue drains rather than greys: on the void a corpse is a mid grey
