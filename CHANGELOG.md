@@ -51,10 +51,24 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   reachable with the Tab key, and `Escape` closes the card and hands focus back
   to the mark.
 - **A mark that is already a control discloses too, without a second button
-  ([ADR-0040](docs/adr/0040-a-mark-that-is-already-a-control-still-discloses.md),
+  ([ADR-0041](docs/adr/0040-a-mark-that-is-already-a-control-still-discloses.md),
   #220).** `Disclosure` gained a `trigger` mode so an attention chip, a ledger
   jump or a touched-file button can carry a card without nesting a button
   inside a button.
+
+- **A finished comparison is stored beside the recordings it derives from
+  (prd-14 ruling 5, wave 1, #213).** `POST /api/lab/comparisons` saves a
+  comparison artifact as a sidecar under the repo's recording directory —
+  `comparisons/comparison-<id>.json`, the posture captured transcripts and
+  labels already hold ([ADR-0041](docs/adr/0041-a-saved-comparison-is-a-sidecar-not-an-event.md)) —
+  and `GET /api/lab/comparisons` / `GET /api/lab/comparisons/:id` list and
+  read them back. The save is token-gated exactly as `/api/lab/launch` is,
+  and refuses in replay mode the way the label save does. An artifact whose
+  format version is not the current one is refused **by name**
+  (`unsupported comparison artifact version: 2`) and left untouched — never
+  migrated silently. The server keeps its own copy of the web's parser
+  ([ADR-0042](docs/adr/0042-the-server-parses-a-comparison-artifact-with-its-own-copy.md)).
+  Nothing in the browser reaches these routes yet; that is wave 2 (#214).
 
 ### Changed
 

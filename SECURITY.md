@@ -139,7 +139,7 @@ exactly as the browser does. A value handed to a page over unauthenticated
 loopback HTTP cannot be hidden from something that can already reach that
 page.
 
-This server answers **twelve** mutating routes in total, not three. Three more
+This server answers **thirteen** mutating routes in total, not three. Three more
 are gated exactly as the three above are: `POST /api/lab/measure` (prd-53 ruling
 3 — measuring runs a gate and records its verdict, so it is gated like the launch
 it measures), and the concierge's granted powers,
@@ -168,6 +168,14 @@ Recording a decision is not routing one (the PRD's own non-goal): the route
 never gates, queues or notifies, it only appends the event the act already
 produced, the same posture `POST /api/rotate` holds over the instrument's
 own log.
+
+An eighth, `POST /api/lab/comparisons` (prd-14 ruling 5, #213), is gated the
+same way and, like the retarget, has no browser caller wired to it yet —
+#214 is where the comparison surface's save control arrives. Its one write is
+a sidecar file under the repo's own recording directory
+(`packages/server/src/comparisons/store.ts`), never the watched repo and
+never the laboratory's namespace
+(`docs/adr/0041-a-saved-comparison-is-a-sidecar-not-an-event.md`).
 
 The remaining four are the OTLP telemetry inbox (`POST /v1/metrics`,
 `/v1/logs`, `/v1/traces`, and the bare-path fallback `POST /` that
