@@ -151,6 +151,18 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
    * site below.
    */
   let summonsManifestFailures = 0
+  /**
+   * #302 round 2 — every lane id the last TRUSTWORTHY manifest read marked
+   * `parked`, kept across ticks because `Lane.parked` (core, `buildFleet`)
+   * is not: it is read fresh off `fence?.parked` every tick, and `fence`
+   * comes from `manifest`, which is `null` on a DEGRADED tick regardless of
+   * what the last real read said. Deriving "who is parked" from THIS tick's
+   * `fleet.lanes` therefore silently un-parks every lane for the one tick
+   * nobody can prove otherwise — this cache is what a degraded tick reads
+   * instead. Updated on a tick that can actually see the manifest (available
+   * or genuinely absent); left untouched on a degraded one. See `raiseSummons`.
+   */
+  let lastKnownParkedLaneIds: ReadonlySet<string> = new Set()
 
   let timer: ReturnType<typeof setInterval> | null = null
   /** The in-flight tick's own promise, held (not just a boolean) so `stop()` has something to await. */
@@ -353,25 +365,48 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
    * (ADR-0029's own rule — a rejected append leaves the state that would have
    * advanced past it exactly where it was).
    *
-   * **Round-2 review, the class both MUST-FIX findings share:** this function
-   * holds one `await` (the manifest read), and everything read BEFORE it may
+   * **Round-2 review, the class both MUST-FIX findings share:** the manifest
+   * read is this function's first `await`, and everything read BEFORE it may
    * describe a world that no longer exists by the time it resumes. Both
    * `recorder.sessionId`/`recorder.foldSoFar()` (finding 1) and off-fence's
    * dependence on a manifest that may have gone stale mid-read (finding 2)
-   * are read or decided AFTER that await now, never before it.
+   * are read or decided AFTER that await now, never before it. #299 (round 3)
+   * found the mirror gap on the WRITE side: the raise/clear loop below awaits
+   * once PER EVENT, and a session switch between two of those appends is the
+   * identical defect wearing a later costume — closed there by rechecking
+   * identity before each append, not by adding another read-side narrowing.
    */
+  function manifestGenuinelyAbsent(reason: string): boolean {
+    // `readLanesManifest` (api/lanes.ts) folds every non-ENOENT read failure
+    // into the same `{ available: false }` shape as a genuinely absent file —
+    // there is no error-code field on the wire to switch on, only this
+    // message. Matched on the one prefix that read ever produces for the
+    // genuinely-absent case; `cli/doctor.ts` makes the identical check
+    // (`result.reason.startsWith('no lane manifest')`) for the same reason —
+    // this loop cannot see the read's error code either.
+    return reason.startsWith('no lane manifest')
+  }
+
   async function raiseSummons(): Promise<void> {
     try {
       const tickNow = now()
 
       let manifest: LaneManifest | null = null
-      // Round-2 review, finding 2: a DEGRADED read (timed out, or still
-      // wedged from a prior tick) means "we do not know the current fence
-      // state" — absence of evidence, not evidence of absence — as distinct
-      // from a read that SETTLED and definitively found no manifest file.
-      // Only the former gets off-fence's special preservation below; the
-      // latter is a real, settled fact and off-fence correctly stops firing,
-      // exactly as it always has for an absent manifest.
+      // Round-2 review, finding 2 — generalized by #302 (absorbing #300): a
+      // DEGRADED read means "we do not know the current fence state" —
+      // absence of evidence, not evidence of absence — as distinct from a
+      // read that SETTLED and definitively found no manifest file. The read
+      // that TIMED OUT (or is still wedged from a prior tick) is one shape of
+      // that; a read that SETTLED but reported itself unavailable for any
+      // reason other than the file genuinely not being there (EACCES, an
+      // unparseable body, a schema mismatch) is another — the earlier
+      // version of this guard covered only the former, which is exactly the
+      // gap #300's own EXECUTED probe found (an EACCES read cleared every
+      // open off-fence summons, because the guard was keyed on "did the read
+      // TIME OUT" rather than on "did the read tell us anything the fence
+      // could actually be judged against"). Only a genuinely absent manifest
+      // (`manifestGenuinelyAbsent` below) is a real, settled fact, and
+      // off-fence correctly stops firing for it, exactly as it always has.
       let manifestDegradedThisTick = false
       if (!manifestInFlight) {
         const pending = readLanesManifest(repoPath)
@@ -388,13 +423,47 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
 
         try {
           const manifestResult = await raceBudget(pending, tickBudgetMs)
-          manifest = manifestResult.available ? parseLaneManifest(manifestResult) : null
+          if (manifestResult.available) {
+            manifest = parseLaneManifest(manifestResult)
+          } else if (manifestGenuinelyAbsent(manifestResult.reason)) {
+            // A settled, honest fact — no manifest, so nothing to report.
+          } else {
+            manifestDegradedThisTick = true
+            // #302 round 2 — the settled-but-unavailable shape (EACCES, an
+            // unparseable body, a schema mismatch) used to report NOTHING at
+            // all: only the TIMED_OUT catch below ever called
+            // `recordOrDegrade`, so a persistently malformed manifest
+            // degraded every tick with zero observable trace — the raiser
+            // silently going blind, forever, with no alarm an operator could
+            // find. Mirrors the TIMED_OUT branch exactly, counter included
+            // (#301's own rule: armed by the alarm having been APPENDED, not
+            // by the degradation having merely occurred).
+            const { appended } = await recordOrDegrade(
+              createEvent(
+                'collector.error',
+                { collector: 'summons', message: `manifest unavailable: ${manifestResult.reason}` },
+                { id: nextId(), ts: tickNow },
+              ),
+              'summons',
+            )
+            if (appended) summonsManifestFailures += 1
+          }
           // Round-2 review, finding 4: the read itself completed — whatever
           // it found — so the filesystem is no longer wedged. Symmetric with
           // `withResilience`'s own `collector.recovered` emission: recovery
           // means the ATTEMPT succeeded, not that it found anything in
           // particular.
-          if (summonsManifestFailures > 0) {
+          //
+          // #302 round 2 — gated on `!manifestDegradedThisTick`, which it was
+          // NOT before: this tick may have just recorded a brand-new
+          // `collector.error` a few lines up (the settled-but-unavailable
+          // branch), and running this unconditionally would report a
+          // recovery for the SAME tick that just reported the failure — "a
+          // tick that judges nothing reports recovery" (review's own words).
+          // Genuinely absent counts as recovered here exactly as it always
+          // has (an ENOENT settling is still the read succeeding); only a
+          // tick that is ITSELF degraded is excluded.
+          if (!manifestDegradedThisTick && summonsManifestFailures > 0) {
             await recorder.record(
               createEvent(
                 'collector.recovered',
@@ -460,8 +529,60 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
 
       const fleet = buildFleet(recorder.foldSoFar(), { now: tickNow, manifest })
 
+      // #302 (absorbing #300) — a lane the operator declared PARKED
+      // (`.swarm/lanes.json`) is a deliberate stand-down, not evidence any
+      // alarm on it cleared. `diagnose()` already gives FROZEN/LOOPING/
+      // WAITING that exemption for free (core reads `lane.parked` itself,
+      // never diagnosing them for a parked lane at all); OFF-FENCE alone is
+      // judged independent of parked — core's own comment on `Lane.parked`
+      // says why: a real trespass is still a real trespass, and *displaying*
+      // it is not what parked exempts. But the SUMMONS layer's stand-down is
+      // this raiser's own concern, not core's, and it was never applied here
+      // — the gap a parked-but-trespassing lane fell through.
+      //
+      // **Round 2 (review found it twice over):** `lane.parked` reaches
+      // THIS tick's `fleet.lanes` by exactly one route — `buildFleet` reads
+      // `fence?.parked === true`, and `fence` comes from `manifest`. On a
+      // DEGRADED tick `manifest === null`, so `fence` is undefined for
+      // EVERY lane and every lane's `parked` reads false — not because the
+      // operator unparked it, but because this tick could not see the
+      // manifest that says otherwise.
+      //
+      // The FIRST attempt at a fix answered this by suspending judgement for
+      // EVERY lane on a degraded tick (`conditions` stayed empty, every open
+      // point preserved unconditionally) — which fixed the parked case but
+      // broke every OTHER one: FROZEN, LOOPING and WAITING are not
+      // manifest-derived at all, and a lane that was never parked would stop
+      // raising or clearing them for as long as an UNRELATED `.swarm/lanes.json`
+      // stayed malformed — a bigger hole than the one it closed, and
+      // silent (a settled-but-unavailable read recorded no alarm at all; see
+      // the `collector.error` added above).
+      //
+      // The actual fix: CACHE the parked set from the last tick that could
+      // trust it (`lastKnownParkedLaneIds`, declared beside
+      // `summonsManifestFailures`), rather than re-deriving it from a fleet
+      // that a degraded tick cannot trust. `conditions` goes back to running
+      // on EVERY tick — FROZEN/LOOPING/WAITING for a never-parked lane are
+      // judged exactly as if this raiser had no parked handling at all —
+      // and the CACHED set (not this tick's, possibly-blind, `fleet.lanes`)
+      // is what excludes a genuinely parked lane's conditions, degraded tick
+      // or not.
+      if (manifest !== null) {
+        lastKnownParkedLaneIds = new Set(fleet.lanes.filter((lane) => lane.parked).map((lane) => lane.id))
+      } else if (!manifestDegradedThisTick) {
+        // Genuinely absent (ENOENT) — a settled fact, same footing as
+        // off-fence stopping cold for it: no manifest means no parked
+        // declarations exist any more, so the cache clears rather than
+        // holding on to a stale one.
+        lastKnownParkedLaneIds = new Set()
+      }
+      // else: degraded. Neither branch above runs — the cache is left
+      // exactly where it was, which is the whole point.
+      const parkedLaneIds = lastKnownParkedLaneIds
+
       const conditions: SummonsCondition[] = []
       for (const lane of fleet.lanes) {
+        if (parkedLaneIds.has(lane.id)) continue
         for (const pathology of lane.pathologies) {
           if (!isSummonsKind(pathology.kind)) continue
           conditions.push({
@@ -473,24 +594,56 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
         }
       }
 
-      // Round-2 review, finding 2: `off-fence` is the one kind `buildFleet`
-      // ever derives from the manifest, so when THIS tick's read was
-      // degraded, it is spliced out of both sides of the diff and carried
-      // into `next` untouched — neither cleared (the read failed, it did not
-      // learn the fence went away) nor spuriously re-raised next tick (it
-      // was never cleared in the first place). Without this, a timed-out
-      // read cleared an open off-fence summons and the next healthy read
-      // re-raised it: a clear-then-raise cycle on the one family whose
-      // stated purpose is making exactly that computable (chattering).
-      let previousForDiff = summonsState
-      let preservedOffFence: readonly SummonsPoint[] = []
-      if (manifestDegradedThisTick) {
-        preservedOffFence = summonsState.filter((point) => point.kind === 'off-fence')
-        previousForDiff = summonsState.filter((point) => point.kind !== 'off-fence')
+      /**
+       * A point is PRESERVED — excluded from this tick's diff and carried
+       * into `next` exactly as it was, neither raised nor cleared — whenever
+       * this tick cannot honestly judge it. Per-KIND, not per-tick (round 2's
+       * correction): a degraded tick still judges every lane normally, for
+       * every kind that is not off-fence.
+       *
+       * There is exactly ONE such case: the point's KIND is `off-fence` and
+       * the manifest read this tick was DEGRADED. `off-fence` is the one kind
+       * `buildFleet` ever derives from the manifest, so a read that could not
+       * be judged must not be read as "the fence went away". Without it a
+       * timed-out (or any settled-but-unavailable) read cleared an open
+       * off-fence summons and the next healthy read re-raised it —
+       * chattering on the one family whose stated purpose is making that
+       * computable.
+       *
+       * **A cached-parked lane is NOT preserved — operator ruling,
+       * 2026-09-09, on #302 round 3.** An earlier version of this function
+       * returned true for every point on a cached-parked lane, which is what
+       * `conditions` skipping that lane already implies for a RAISE. Applied
+       * to an open point it also blocked the CLEAR, and the two cache-emptying
+       * paths (ENOENT at the branch above, and a cold start before the first
+       * non-degraded read) then made any raise taken while the cache was
+       * empty **permanent for the rest of the park** — strictly worse than
+       * the pre-#302 behaviour, where the same transient self-healed on the
+       * next healthy read. Two of the four routes needed no cache-clearing at
+       * all, so the fix could not live in the cache rule.
+       *
+       * The ruling: `parked` suppresses a RAISE, never a CLEAR — a clear is
+       * the removal of an alarm, not the arrival of one, so it is not what a
+       * stand-down exists to silence. `conditions` skipping the lane is
+       * therefore the whole of parked's effect, and it is enough: an open
+       * point clears once when its condition lifts and is not re-raised while
+       * the park lasts. Unparking a lane whose pathology persists raises
+       * afresh, which is the intended reading of unpark.
+       *
+       * The accepted cost, stated because it reverses this commit's own
+       * part 2: a parked lane's GENUINE open point now clears while the lane
+       * is still parked, instead of freezing until unparked.
+       */
+      function isPreserved(point: SummonsPoint): boolean {
+        if (manifestDegradedThisTick && point.kind === 'off-fence') return true
+        return false
       }
 
+      const preserved = summonsState.filter(isPreserved)
+      const previousForDiff = summonsState.filter((point) => !isPreserved(point))
+
       const { diff, next: diffedNext } = diffSummons(previousForDiff, conditions, tickNow)
-      const next = manifestDegradedThisTick ? [...diffedNext, ...preservedOffFence] : diffedNext
+      const next = [...diffedNext, ...preserved]
 
       // prd17 w7 #299 — the check above closes the READ window (a rotation
       // landing before this line describes a fold that has already moved
@@ -615,6 +768,12 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
     // `reset()` already drops rather than carries across a boundary.
     manifestInFlight = null
     summonsManifestFailures = 0
+    // #302 round 2 — a retarget points `repoPath` at a DIFFERENT repo (or a
+    // rotation opens a new session); either way the cached parked set
+    // describes a manifest that no longer applies here. The next tick's own
+    // read establishes a fresh one, exactly like `summonsState` starting
+    // empty until this tick's fold says otherwise.
+    lastKnownParkedLaneIds = new Set()
     // Settle the hydration memo, so this function's own no-re-hydration
     // promise holds for a reset that lands BEFORE the first tick as well as
     // after one. `hydrate()` runs at most once and memoizes on its FIRST

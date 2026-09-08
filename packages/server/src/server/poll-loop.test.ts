@@ -1729,6 +1729,526 @@ describe('the summons raiser (prd17 ruling 5)', () => {
     }, 5000)
   })
 
+  describe('one rule governs what counts as degraded and what is preserved (review of #278 round 3 — #302, absorbing #300)', () => {
+    afterEach(() => {
+      setManifestReadOverride(null)
+    })
+
+    /**
+     * `wireManifestFor` (or its replacement) can express `parked` — the DoD's
+     * own requirement, since #278's original helper (still used by the
+     * describe block above) dropped the field entirely, leaving the whole
+     * `parked` axis unexercised by every fixture that drives the raiser.
+     */
+    function wireManifestFor(spec: ReturnType<typeof pathologySpec>, parkedHandle?: string) {
+      const manifest = manifestFor(spec)
+      return {
+        available: true as const,
+        version: 1,
+        lanes: Object.values(manifest).map((fence) => ({
+          handle: fence.handle,
+          branch: fence.handle,
+          fence: fence.fence,
+          issue: fence.issue,
+          model: fence.model,
+          ...(fence.handle === parkedHandle ? { parked: true as const } : {}),
+        })),
+      }
+    }
+
+    it('a parked lane that would otherwise raise off-fence never raises it, while its healthy neighbours still do', async () => {
+      const spec = pathologySpec()
+      const parkedManifest = wireManifestFor(spec, '45-ledger-subrows')
+      const staged = reduceAll(fixtureHistory(spec, NOW))
+      const { recorder, events } = recorderOn(() => staged)
+
+      const pollLoop = createPollLoop({
+        repoPath: REPO_PATH,
+        collectors: [],
+        recorder,
+        exec: nullExec,
+        now: () => NOW,
+      })
+
+      setManifestReadOverride(() => Promise.resolve(parkedManifest))
+      await pollLoop.tick()
+
+      const raisedKinds = summonsRaised(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)
+      // MUTATION (DoD): deleting the parked handling entirely leaves every
+      // committed test green (nothing else sets `parked`) — this is the one
+      // that would catch it.
+      expect(raisedKinds).not.toContain('45-ledger-subrows:off-fence')
+      // Not a blanket suppression: the OTHER pathology kinds, on OTHER lanes
+      // that are not parked, still raise exactly as they always did.
+      expect(raisedKinds).toEqual(expect.arrayContaining(['41-retry-parser:looping', '42-otel-receiver:frozen']))
+    })
+
+    /**
+     * OPERATOR RULING, 2026-09-09 (#302 round 3): `parked` suppresses a RAISE,
+     * never a CLEAR. This test asserted the opposite until that ruling — it
+     * required an open point on a parked lane to be frozen until unparked —
+     * and it is rewritten rather than deleted because the behaviour it pins
+     * is the one that changed, not a case that stopped mattering.
+     *
+     * Why it changed: blocking the clear is what made a false raise
+     * unrecoverable. Combined with the two paths that empty the cached parked
+     * set (ENOENT, and a cold start before the first non-degraded read), a
+     * raise taken while the cache was empty could never clear for the rest of
+     * the park. Two of the four routes to that state involved no
+     * cache-clearing at all, so the repair could not live in the cache rule.
+     * See the `isPreserved` docblock in `poll-loop.ts` for the full argument.
+     */
+    it('a parked lane CLEARS an already-open point once, is not re-raised while parked, and raises afresh on unpark (ruling 2026-09-09)', async () => {
+      const spec = pathologySpec()
+      const openManifest = wireManifestFor(spec)
+      const parkedManifest = wireManifestFor(spec, '45-ledger-subrows')
+      const staged = reduceAll(fixtureHistory(spec, NOW))
+      const { recorder, events } = recorderOn(() => staged)
+
+      const pollLoop = createPollLoop({
+        repoPath: REPO_PATH,
+        collectors: [],
+        recorder,
+        exec: nullExec,
+        now: () => NOW,
+      })
+
+      // Tick 1: not parked — off-fence raises normally.
+      setManifestReadOverride(() => Promise.resolve(openManifest))
+      await pollLoop.tick()
+      expect(summonsRaised(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)).toContain(
+        '45-ledger-subrows:off-fence',
+      )
+
+      // Tick 2: the operator parks the lane mid-alarm. The open point CLEARS —
+      // a clear is the removal of an alarm, not the arrival of one, so it is
+      // not what a stand-down suppresses.
+      setManifestReadOverride(() => Promise.resolve(parkedManifest))
+      await pollLoop.tick()
+      expect(summonsCleared(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)).toContain(
+        '45-ledger-subrows:off-fence',
+      )
+
+      // Tick 3: still parked, trespass unchanged. `conditions` skips the lane,
+      // so there is no SECOND clear and no re-raise while the park lasts.
+      await pollLoop.tick()
+      expect(
+        summonsCleared(events).filter(
+          (e) => e.payload.lane === '45-ledger-subrows' && e.payload.kind === 'off-fence',
+        ),
+      ).toHaveLength(1)
+      expect(
+        summonsRaised(events).filter(
+          (e) => e.payload.lane === '45-ledger-subrows' && e.payload.kind === 'off-fence',
+        ),
+      ).toHaveLength(1)
+
+      // Tick 4: unparked, and the trespass is still real — so it raises
+      // AFRESH. That is the intended reading of unpark: resume alarming.
+      setManifestReadOverride(() => Promise.resolve(openManifest))
+      await pollLoop.tick()
+      expect(
+        summonsRaised(events).filter(
+          (e) => e.payload.lane === '45-ledger-subrows' && e.payload.kind === 'off-fence',
+        ),
+      ).toHaveLength(2)
+    })
+
+    /**
+     * The blocker round 3 found, as a test: route C. Nothing here is parked at
+     * the moment of the raise — a single transient ENOENT read empties the
+     * cache, the lane's `frozen` raises because this tick believes nothing is
+     * parked, and before the ruling that raise was frozen open for the rest of
+     * the park. The routine cause is mundane: `.swarm/lanes.json` rewritten
+     * non-atomically by dispatch tooling, one ENOENT read landing on the 2s
+     * poll.
+     */
+    it('a transient ENOENT read does not strand a raise on a parked lane — it clears on the next tick that can see the manifest (#302 round 3, route C)', async () => {
+      const spec = pathologySpec()
+      const parkedManifest = wireManifestFor(spec, '42-otel-receiver')
+      const staged = reduceAll(fixtureHistory(spec, NOW))
+      const { recorder, events } = recorderOn(() => staged)
+
+      const pollLoop = createPollLoop({
+        repoPath: REPO_PATH,
+        collectors: [],
+        recorder,
+        exec: nullExec,
+        now: () => NOW,
+        tickBudgetMs: 20,
+      })
+
+      // Tick 1: healthy and parked — the cache learns 42-otel-receiver.
+      setManifestReadOverride(() => Promise.resolve(parkedManifest))
+      await pollLoop.tick()
+      expect(summonsRaised(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)).not.toContain(
+        '42-otel-receiver:frozen',
+      )
+
+      // Tick 2: ONE genuinely-absent read. This is the branch that clears the
+      // cache, so `frozen` raises — an ordinary, recoverable raise.
+      setManifestReadOverride(() =>
+        Promise.resolve({ available: false, reason: 'no lane manifest at .swarm/lanes.json' }),
+      )
+      await pollLoop.tick()
+      expect(summonsRaised(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)).toContain(
+        '42-otel-receiver:frozen',
+      )
+
+      // Ticks 3-4: healthy and parked again. It must CLEAR. Before the ruling
+      // this assertion failed forever, however many ticks followed.
+      setManifestReadOverride(() => Promise.resolve(parkedManifest))
+      await pollLoop.tick()
+      await pollLoop.tick()
+      expect(summonsCleared(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)).toContain(
+        '42-otel-receiver:frozen',
+      )
+    })
+
+    /**
+     * Route G — the structural sibling of route C, and the one that proves the
+     * fix could not have lived in the cache rule: the cache is COLD here, so
+     * no clearing happens at all. `lastKnownParkedLaneIds` starts empty and is
+     * only populated by the first read that can be trusted, so a first tick
+     * that is degraded raises on a lane the operator has parked.
+     */
+    /**
+     * `reset()` drops the cached parked set, and until round 3 NOTHING pinned
+     * that line: mutating it to a comment left the entire server package green
+     * (153 files, 3355 passed). It is load-bearing — a retarget would
+     * otherwise carry the previous repo's parked lanes into the new one.
+     *
+     * The discriminating condition is a DEGRADED tick after the reset, because
+     * that is the only state in which the cache is the sole source of parked
+     * information. A healthy tick would simply re-learn it and pass either way.
+     */
+    it('reset() drops the cached parked set — a degraded tick after a retarget does not inherit the old repo parked lanes (#302 round 3)', async () => {
+      const spec = pathologySpec()
+      const parkedManifest = wireManifestFor(spec, '42-otel-receiver')
+      const staged = reduceAll(fixtureHistory(spec, NOW))
+      const { recorder, events } = recorderOn(() => staged)
+
+      const pollLoop = createPollLoop({
+        repoPath: REPO_PATH,
+        collectors: [],
+        recorder,
+        exec: nullExec,
+        now: () => NOW,
+        tickBudgetMs: 20,
+      })
+
+      // Tick 1: healthy and parked — the cache learns 42-otel-receiver, and
+      // frozen is correctly suppressed.
+      setManifestReadOverride(() => Promise.resolve(parkedManifest))
+      await pollLoop.tick()
+      expect(summonsRaised(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)).not.toContain(
+        '42-otel-receiver:frozen',
+      )
+
+      await pollLoop.reset()
+
+      // Tick 2: degraded, so `fleet.lanes` reports nothing parked and the
+      // cache is the only thing that could still suppress. It was dropped, so
+      // frozen raises. Retain the cache across reset() and this goes silent.
+      setManifestReadOverride(() =>
+        Promise.resolve({
+          available: false,
+          reason: 'could not read .swarm/lanes.json: EACCES: permission denied',
+        }),
+      )
+      await pollLoop.tick()
+      expect(summonsRaised(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)).toContain(
+        '42-otel-receiver:frozen',
+      )
+    })
+
+    it('a raise taken on a COLD cache still clears once the manifest becomes readable (#302 round 3, route G)', async () => {
+      const spec = pathologySpec()
+      const parkedManifest = wireManifestFor(spec, '42-otel-receiver')
+      const staged = reduceAll(fixtureHistory(spec, NOW))
+      const { recorder, events } = recorderOn(() => staged)
+
+      const pollLoop = createPollLoop({
+        repoPath: REPO_PATH,
+        collectors: [],
+        recorder,
+        exec: nullExec,
+        now: () => NOW,
+        tickBudgetMs: 20,
+      })
+
+      // Tick 1: the very first read is degraded — cache never populated.
+      setManifestReadOverride(() =>
+        Promise.resolve({
+          available: false,
+          reason: 'could not read .swarm/lanes.json: EACCES: permission denied',
+        }),
+      )
+      await pollLoop.tick()
+      expect(summonsRaised(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)).toContain(
+        '42-otel-receiver:frozen',
+      )
+
+      // Ticks 2-3: healthy and parked. The raise must clear.
+      setManifestReadOverride(() => Promise.resolve(parkedManifest))
+      await pollLoop.tick()
+      await pollLoop.tick()
+      expect(summonsCleared(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)).toContain(
+        '42-otel-receiver:frozen',
+      )
+    })
+
+    it('a settled-but-unavailable read (EACCES) preserves an open off-fence summons exactly like a timed-out one', async () => {
+      const spec = pathologySpec()
+      const wireManifest = wireManifestFor(spec)
+      const staged = reduceAll(fixtureHistory(spec, NOW))
+      const { recorder, events } = recorderOn(() => staged)
+
+      const pollLoop = createPollLoop({
+        repoPath: REPO_PATH,
+        collectors: [],
+        recorder,
+        exec: nullExec,
+        now: () => NOW,
+      })
+
+      // Tick 1: manifest available — off-fence raises with everything else.
+      setManifestReadOverride(() => Promise.resolve(wireManifest))
+      await pollLoop.tick()
+      expect(summonsRaised(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)).toContain(
+        '45-ledger-subrows:off-fence',
+      )
+
+      // Tick 2: the read SETTLES (no timeout at all) but reports itself
+      // unavailable for a reason other than the file genuinely being absent
+      // — the exact wire shape `api/lanes.ts` returns for an EACCES.
+      // MUTATION (DoD): narrowing the degraded predicate back to
+      // `error === TIMED_OUT` passes every existing timeout-only test but
+      // would clear off-fence right here.
+      setManifestReadOverride(() =>
+        Promise.resolve({ available: false, reason: 'could not read .swarm/lanes.json: EACCES: permission denied' }),
+      )
+      await pollLoop.tick()
+      expect(summonsCleared(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)).not.toContain(
+        '45-ledger-subrows:off-fence',
+      )
+
+      // Tick 3: recovered. Off-fence must NOT be re-raised — it was never
+      // cleared.
+      setManifestReadOverride(() => Promise.resolve(wireManifest))
+      await pollLoop.tick()
+      const offFenceRaises = summonsRaised(events).filter(
+        (e) => e.payload.lane === '45-ledger-subrows' && e.payload.kind === 'off-fence',
+      )
+      expect(offFenceRaises).toHaveLength(1)
+    })
+
+    it('a genuinely absent manifest (ENOENT) still clears off-fence — the one settled fact that may', async () => {
+      // A real manifest on disk, then genuinely removed — never overridden,
+      // never degraded — isolates ENOENT from every other "unavailable"
+      // shape: the fold never changes between ticks, only the manifest's
+      // presence does.
+      const spec = pathologySpec()
+      const staged = reduceAll(fixtureHistory(spec, NOW))
+      const { recorder, events } = recorderOn(() => staged)
+      const dir = await mkdtemp(path.join(tmpdir(), 'rhizo-summons-enoent-'))
+      try {
+        const wireManifest = wireManifestFor(spec)
+        await mkdir(path.join(dir, '.swarm'), { recursive: true })
+        await writeFile(path.join(dir, '.swarm', 'lanes.json'), JSON.stringify(wireManifest), 'utf8')
+
+        const pollLoop = createPollLoop({
+          repoPath: dir,
+          collectors: [],
+          recorder,
+          exec: nullExec,
+          now: () => NOW,
+        })
+
+        await pollLoop.tick()
+        expect(summonsRaised(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)).toContain(
+          '45-ledger-subrows:off-fence',
+        )
+
+        // Remove the manifest file entirely — a genuine ENOENT, the fold
+        // otherwise unchanged.
+        await rm(path.join(dir, '.swarm', 'lanes.json'))
+        await pollLoop.tick()
+
+        expect(summonsCleared(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)).toContain(
+          '45-ledger-subrows:off-fence',
+        )
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    })
+
+    it('a parked lane never raises during a degraded tick, and is never left stuck raised once parked is visible again', async () => {
+      // `lane.parked` reaches this raiser by exactly one route — buildFleet
+      // reads it off the manifest — so a DEGRADED tick (manifest === null)
+      // makes every lane's `parked` read false, not just the ones that were
+      // never parked. `42-otel-receiver` (frozen) is parked for the whole
+      // test; if a degraded tick's false `parked: false` ever lets `frozen`
+      // through, `isPreserved` would then freeze that false raise open
+      // forever the moment `parked` becomes visible again (parked lanes
+      // never clear) — worse than the pre-#302 behaviour, where the same
+      // false raise would simply have cleared on the next healthy read.
+      const spec = pathologySpec()
+      const openManifest = wireManifestFor(spec, '42-otel-receiver')
+      const staged = reduceAll(fixtureHistory(spec, NOW))
+      const { recorder, events } = recorderOn(() => staged)
+
+      const pollLoop = createPollLoop({
+        repoPath: REPO_PATH,
+        collectors: [],
+        recorder,
+        exec: nullExec,
+        now: () => NOW,
+        tickBudgetMs: 20,
+      })
+
+      // CONTROL: two healthy ticks, parked throughout — never raised.
+      setManifestReadOverride(() => Promise.resolve(openManifest))
+      await pollLoop.tick()
+      await pollLoop.tick()
+      expect(summonsRaised(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)).not.toContain(
+        '42-otel-receiver:frozen',
+      )
+
+      // PROBE A: the read SETTLES but reports itself unavailable (EACCES) —
+      // a degraded tick. Must not raise.
+      setManifestReadOverride(() =>
+        Promise.resolve({ available: false, reason: 'could not read .swarm/lanes.json: EACCES: permission denied' }),
+      )
+      await pollLoop.tick()
+      expect(summonsRaised(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)).not.toContain(
+        '42-otel-receiver:frozen',
+      )
+
+      // PROBE B: the read wedges past the budget (TIMED_OUT) — the other
+      // degraded shape. Same must-not-raise.
+      const control: { release: ((value: { available: false; reason: string }) => void) | null } = {
+        release: null,
+      }
+      setManifestReadOverride(
+        () =>
+          new Promise<{ available: false; reason: string }>((resolve) => {
+            control.release = resolve
+          }),
+      )
+      await pollLoop.tick()
+      expect(summonsRaised(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)).not.toContain(
+        '42-otel-receiver:frozen',
+      )
+
+      // Let the wedged read settle (late), clearing `manifestInFlight`.
+      control.release?.({ available: false, reason: 'late (test)' })
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+
+      // PROBE C: healthy again, still parked, for two more ticks. MUST STAY
+      // at zero raises AND zero clears for this lane/kind — the regression
+      // this finding names: a false raise during A/B would, once parked was
+      // visible again, be preserved rather than cleared, and never chatter
+      // its way back to calm on its own.
+      setManifestReadOverride(() => Promise.resolve(openManifest))
+      await pollLoop.tick()
+      await pollLoop.tick()
+
+      const frozenEvents = events.filter(
+        (event): event is EventOf<'summons.raised'> | EventOf<'summons.cleared'> =>
+          (event.type === 'summons.raised' || event.type === 'summons.cleared') &&
+          event.payload.lane === '42-otel-receiver' &&
+          event.payload.kind === 'frozen',
+      )
+      expect(frozenEvents).toEqual([])
+    }, 5000)
+
+    it('an UNPARKED lane still raises frozen/looping/waiting on the very first tick, even though that tick is degraded — the structural sibling of every test above', async () => {
+      // Every test above asserts a PARKED lane does not chatter. None of
+      // them would go red if the fix over-corrected into suppressing
+      // EVERYTHING on a degraded tick — which is exactly what happened once
+      // (round 2 review, with a control against the pre-fix parent commit).
+      // This is the missing case: a lane that was NEVER parked must be
+      // judged normally regardless of what some unrelated manifest file is
+      // doing on disk.
+      const spec = pathologySpec()
+      const staged = reduceAll(fixtureHistory(spec, NOW))
+      const { recorder, events } = recorderOn(() => staged)
+
+      const pollLoop = createPollLoop({
+        repoPath: REPO_PATH,
+        collectors: [],
+        recorder,
+        exec: nullExec,
+        now: () => NOW,
+        tickBudgetMs: 20,
+      })
+
+      // The VERY FIRST tick this loop ever runs is already degraded
+      // (malformed JSON) — no healthy tick preceded it, so this cannot be
+      // "an unchanged condition quietly continuing"; it is the first-ever
+      // judgement, made while degraded.
+      setManifestReadOverride(() =>
+        Promise.resolve({ available: false, reason: '.swarm/lanes.json is not valid JSON: Unexpected token' }),
+      )
+      await pollLoop.tick()
+
+      const raisedKinds = summonsRaised(events).map((e) => `${e.payload.lane}:${e.payload.kind}`)
+      // MUTATION (DoD): suppressing the whole `conditions` loop whenever the
+      // manifest read is degraded reddens this — none of these three would
+      // raise at all while a wholly unrelated file stays malformed, which is
+      // precisely the over-correction round 2 found.
+      expect(raisedKinds).toEqual(
+        expect.arrayContaining(['42-otel-receiver:frozen', '41-retry-parser:looping', '43-drawer-attach:waiting']),
+      )
+      // Off-fence alone stays absent — it genuinely IS manifest-derived,
+      // unlike the other three.
+      expect(raisedKinds).not.toContain('45-ledger-subrows:off-fence')
+    })
+
+    it('a persistently malformed manifest reports its own collector.error every tick, and never claims recovery while it stays broken', async () => {
+      const staged = reduceAll(fixtureHistory(fleet20Spec(), NOW))
+      const { recorder, events } = recorderOn(() => staged)
+
+      const pollLoop = createPollLoop({
+        repoPath: REPO_PATH,
+        collectors: [],
+        recorder,
+        exec: nullExec,
+        now: () => NOW,
+        tickBudgetMs: 20,
+      })
+
+      setManifestReadOverride(() =>
+        Promise.resolve({ available: false, reason: '.swarm/lanes.json is not valid JSON: Unexpected token' }),
+      )
+      await pollLoop.tick()
+      await pollLoop.tick()
+      await pollLoop.tick()
+
+      const manifestErrors = events.filter(
+        (event): event is EventOf<'collector.error'> =>
+          event.type === 'collector.error' &&
+          event.payload.collector === 'summons' &&
+          event.payload.message.includes('manifest unavailable'),
+      )
+      // MUTATION (DoD): before this round, the settled-but-unavailable
+      // branch recorded NOTHING at all — a persistently broken manifest
+      // degraded silently, forever, with no alarm an operator could find.
+      // Now it reports every tick it stays broken, same as any other
+      // collector error.
+      expect(manifestErrors).toHaveLength(3)
+
+      // And never a false `collector.recovered` while it never actually
+      // recovers — "a tick that judges nothing reports recovery" (review's
+      // own words) is exactly what the `!manifestDegradedThisTick` guard on
+      // the recovery emission exists to prevent.
+      expect(events.filter((event) => event.type === 'collector.recovered')).toEqual([])
+    })
+  })
+
   describe('a timed-out manifest read does not permanently poison the fold (review of #278 round 2, finding 4)', () => {
     afterEach(() => {
       setManifestReadOverride(null)
@@ -1769,7 +2289,14 @@ describe('the summons raiser (prd17 ruling 5)', () => {
       await Promise.resolve()
       await Promise.resolve()
       await Promise.resolve()
-      setManifestReadOverride(() => Promise.resolve({ available: false, reason: 'fine now (test)' }))
+      // Genuinely absent (ENOENT-shaped), not merely "settled" — #302 round 2
+      // treats a settled-but-unavailable reason as DEGRADED now, and a
+      // degraded tick no longer fires `collector.recovered` in the same
+      // breath as reporting its own failure. Genuine absence is still a
+      // real recovery (the attempt succeeded, unambiguously).
+      setManifestReadOverride(() =>
+        Promise.resolve({ available: false, reason: 'no lane manifest — dispatch has not written .swarm/lanes.json' }),
+      )
 
       await pollLoop.tick() // settles well within budget — recovered
 
@@ -1834,7 +2361,14 @@ describe('the summons raiser (prd17 ruling 5)', () => {
       await Promise.resolve()
       await Promise.resolve()
       await Promise.resolve()
-      setManifestReadOverride(() => Promise.resolve({ available: false, reason: 'fine now (test)' }))
+      // Genuinely absent (ENOENT-shaped), not merely "settled" — #302 round 2
+      // treats a settled-but-unavailable reason as DEGRADED now, and a
+      // degraded tick no longer fires `collector.recovered` in the same
+      // breath as reporting its own failure. Genuine absence is still a
+      // real recovery (the attempt succeeded, unambiguously).
+      setManifestReadOverride(() =>
+        Promise.resolve({ available: false, reason: 'no lane manifest — dispatch has not written .swarm/lanes.json' }),
+      )
 
       await pollLoop.tick() // settles well within budget
 
@@ -1894,7 +2428,14 @@ describe('the summons raiser (prd17 ruling 5)', () => {
       // this tick's whole `raiseSummons()` aborts rather than silently
       // treating the counter as cleared.
       failRecoveredRecord = true
-      setManifestReadOverride(() => Promise.resolve({ available: false, reason: 'fine now (test)' }))
+      // Genuinely absent (ENOENT-shaped), not merely "settled" — #302 round 2
+      // treats a settled-but-unavailable reason as DEGRADED now, and a
+      // degraded tick no longer fires `collector.recovered` in the same
+      // breath as reporting its own failure. Genuine absence is still a
+      // real recovery (the attempt succeeded, unambiguously).
+      setManifestReadOverride(() =>
+        Promise.resolve({ available: false, reason: 'no lane manifest — dispatch has not written .swarm/lanes.json' }),
+      )
       await pollLoop.tick()
 
       expect(persisted.filter((event) => event.type === 'collector.recovered')).toEqual([])
