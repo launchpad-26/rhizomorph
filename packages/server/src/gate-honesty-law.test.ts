@@ -123,15 +123,109 @@ function uniqueLineIndex(needle: string): number {
 }
 
 /**
+ * The shell text of a line (or a rescue block) with every quoted RUN and any
+ * trailing COMMENT removed, so text that is merely QUOTED or MENTIONED — a
+ * printf argument, a message, a comment — is not mistaken for real, executed
+ * bash syntax. Used by {@link tailChecksStatus} below (a `fail`/`exit N`
+ * mentioned in a message is not one that is CALLED), by
+ * {@link isFailCallSite} (a bareword mentioning "fail" inside someone ELSE's
+ * quoted argument is not an invocation), and by
+ * {@link uniqueBareStatementLineIndex} (prd17 w7 #292 — `MERGED=1` appearing
+ * only inside a quoted `printf` argument is not the real assignment).
+ *
+ * Module scope, not nested in the describe block below: these are
+ * module-scope anchor helpers used throughout this file, and a module-scope
+ * function cannot close over a helper defined inside a later `describe`
+ * callback.
+ *
+ * A single left-to-right scan, not two `replace` passes: stripping `'...'`
+ * first would let an apostrophe inside a double-quoted message open a bogus
+ * run and swallow the rest of the line. A stripped run leaves a space behind
+ * so `fail"x"` cannot be glued into a new token, and a quoted `MERGED=1`
+ * cannot be glued onto whatever follows its closing quote either.
+ *
+ * A comment is the SIBLING of the quoted message and arrives at the same
+ * branch by the same route: `|| { echo no; }  # fail is handled elsewhere`
+ * was still credited with calling fail() after quoted runs alone were
+ * stripped (EXECUTED, review of #126). It is cut in the SAME scan rather than
+ * by a later `replace`, because whether a `#` opens a comment depends on
+ * quote state and on the character before it: bash starts a comment only at
+ * the start of a word, so `${LOG#/tmp/}` and `$#` are not comments, and
+ * neither is the `#` in `echo "x"# fail`, where the closing quote leaves a
+ * space in the OUTPUT that the original never had. Running the cut after the
+ * strip would read that manufactured space and eat a real call; running it
+ * inside the scan reads the source.
+ */
+function stripQuotedRunsAndComments(s: string): string {
+  let out = ''
+  let quote: "'" | '"' | null = null
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]!
+    if (quote === null) {
+      if (c === '#' && (i === 0 || /\s/.test(s[i - 1]!))) break
+      else if (c === "'" || c === '"') {
+        quote = c
+        out += ' '
+      } else if (c === '\\') {
+        i++
+        out += ' '
+      } else out += c
+    } else {
+      if (quote === '"' && c === '\\') i++
+      else if (c === quote) quote = null
+    }
+  }
+  return out
+}
+
+/**
+ * The MIRROR IMAGE of {@link stripQuotedRunsAndComments} — comments cut,
+ * but quoted content PRESERVED verbatim rather than blanked. Used by the
+ * no-second-verdict-site check (prd17 w7 #292, review finding): that check
+ * needs to look INSIDE quotes (a decoy's forbidden JSON text lives there),
+ * so blanking quoted runs would hide the very thing being scanned for — but
+ * a comment merely MENTIONING the verdict shape as an example
+ * (`# e.g. {"writer":"gate","kind":"gate.verdict"}`) must not be mistaken
+ * for a second site constructing it, which scanning raw (uncommented) text
+ * would do. Line-by-line (a `#` comment runs to end of LINE, never past it),
+ * same quote-state and word-boundary rule as `stripQuotedRunsAndComments`.
+ */
+function stripCommentsKeepQuotes(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => {
+      let quote: "'" | '"' | null = null
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i]!
+        if (quote === null) {
+          if (c === '#' && (i === 0 || /\s/.test(line[i - 1]!))) return line.slice(0, i)
+          if (c === "'" || c === '"') quote = c
+          else if (c === '\\') i++
+        } else {
+          if (quote === '"' && c === '\\') i++
+          else if (c === quote) quote = null
+        }
+      }
+      return line
+    })
+    .join('\n')
+}
+
+/**
  * {@link uniqueLineIndex}, but blind to comments — for an anchor whose claim is
  * about EXECUTABLE code (review of #273, round 2).
  *
  * `uniqueLineIndex` is a bare `includes`, deliberately: several anchors in this
- * file point AT comments, and filtering globally would break them. But an
- * assertion that `MERGED=1` sits between two checks is a claim about what RUNS,
- * and the bare form satisfied it against `# MERGED=1 deleted` — commenting a
- * line out is the ordinary way to disable it, and the boundary assertion passed
- * 200/201 with the post-merge truth inverted. Found by a review seat.
+ * file point AT comments, and filtering globally would break them. This one
+ * filters only FULL-LINE comments, deliberately too: several of ITS callers
+ * anchor on text that sits inside a quoted `fail` message or an `if [ "$X" =
+ * 1 ]`-shaped condition — the needle itself contains the quote characters —
+ * so a filter that also stripped quoted content would remove the very text
+ * being searched for (verified: widening this function to strip quotes, as
+ * an earlier draft of #292 did, broke three of its OWN other call sites
+ * outright). Quote-aware filtering lives in the narrower
+ * {@link uniqueBareStatementLineIndex} below, used only where the anchor
+ * itself is guaranteed to be a plain, unquoted statement.
  */
 function uniqueCodeLineIndex(needle: string): number {
   const matches: number[] = []
@@ -147,29 +241,143 @@ function uniqueCodeLineIndex(needle: string): number {
 }
 
 /**
+ * {@link uniqueCodeLineIndex}, additionally blind to quoted text — for an
+ * anchor that is itself a plain, unquoted statement (a bare `VAR=value`
+ * assignment, never a fail message or a `[ "$X" = ... ]` condition, both of
+ * which contain quote characters as part of what they mean). Prd17 w7 #292:
+ * the `MERGED=1` boundary assertion below is exactly this — a claim about
+ * what RUNS — and the plain comment-only filter was satisfied by TWO
+ * respellings of "disable the line without deleting it": a full-line comment
+ * (`# MERGED=1 deleted`) and `printf '# MERGED=1\n'`, a shell command whose
+ * OUTPUT happens to contain the text but which itself does nothing — both
+ * left the boundary assertion passing with the post-merge truth inverted
+ * (the comment case: 200/201 green, found by a review seat; the printf case:
+ * the same class, found reviewing #292).
+ *
+ * Reusing {@link stripQuotedRunsAndComments} closes both with one scan: a
+ * full-line comment strips to nothing (`#` at the start of the scan is a
+ * comment start by that function's own rule), and `printf '# MERGED=1\n'`
+ * strips to `printf ` — the quoted argument is data, never scanned as code.
+ * Kept SEPARATE from `uniqueCodeLineIndex` rather than folded into it,
+ * because that function's other six call sites anchor on text containing
+ * quote characters and would break under this stricter filter.
+ *
+ * DECLARED, NOT FIXED: a heredoc body containing `MERGED=1` as DATA (e.g.
+ * `cat <<EOF` / `MERGED=1` / `EOF`) is NOT caught — `stripQuotedRunsAndComments`
+ * has no heredoc awareness, only quote/comment awareness. `scripts/gate.sh`
+ * contains zero heredocs today (`grep -n '<<' scripts/gate.sh` is empty), so
+ * this is a latent gap rather than a live false-positive — the same
+ * "declared, not closed" posture this file already takes for row 21's own
+ * two-heredocs-on-one-line limit and the two dated KNOWN GAP entries below.
+ * A behavioural fixture that executes the real merge boundary, rather than
+ * reading the file at all, would close this (and every other respelling) at
+ * once — a seat's suggestion, not taken here because the printf respelling
+ * above was the one with a live decoy and this file's own cost/benefit for a
+ * fixture that runs a real merge is a separate, larger issue.
+ */
+function uniqueBareStatementLineIndex(needle: string): number {
+  const matches: number[] = []
+  LINES.forEach((line, i) => {
+    if (stripQuotedRunsAndComments(line).includes(needle)) matches.push(i)
+  })
+  if (matches.length !== 1) {
+    throw new Error(
+      `expected exactly one NON-COMMENT, NON-QUOTED line of ${GATE_PATH} containing ${JSON.stringify(needle)}, found ${matches.length}`,
+    )
+  }
+  return matches[0]!
+}
+
+/**
+ * The separator bash accepts between `fail` and its first argument: real
+ * whitespace, OR one-or-more UNQUOTED `$IFS`/`${IFS}` references — bash's
+ * own word-splitting variable, expanded then split on ITS OWN content
+ * before the command runs. `fail$IFS"message" bogus-category` is a REAL,
+ * working invocation (EXECUTED, review of #292: running it calls
+ * `fail message bogus-category` — a live bypass of a future unregistered
+ * category, since `\bfail\s+` requires a LITERAL space character that this
+ * line never contains).
+ *
+ * Bounded deliberately to `$IFS` alone, not "any variable whose value might
+ * contain whitespace": an arbitrary variable's runtime content is unbounded
+ * and unknowable from static text, but `$IFS` is bash's own, purpose-built
+ * name for "the word-splitting characters" — the canonical, deliberate
+ * obfuscation vector a reviewer (or an attacker) actually reaches for, not
+ * one spelling among infinitely many. Declared, not chased further: a
+ * `\`-newline continuation, `eval`, or an indirect variable holding "fail"
+ * itself would ALSO defeat a static scanner, and are out of scope for the
+ * same reason — this law extracts and RUNS the real script's fixed
+ * fragments elsewhere in this file; it does not re-implement a shell parser.
+ */
+const FAIL_ARG_SEP = String.raw`(?:\s|\$\{?IFS\}?)+`
+
+/**
  * Is this line a `fail` INVOCATION? Deliberately loose — anything that looks
  * like one — because the category is classified afterwards. The previous shape
  * filtered on a regex that already required a category, so a site lacking one
  * never entered the list and the "no site is untagged" assertion could not fail.
+ *
+ * WIDENED (prd17 w7 #292): the message argument's quoting form is one of
+ * FOUR bash productions — `"..."`, `'...'`, `$'...'` (ANSI-C, backslash
+ * escapes), or an unquoted bareword — and the original regex recognised only
+ * the first two. `fail $'cannot read branch'` is real bash and was invisible
+ * to `/\bfail\s+["']/`.
+ *
+ * Widening to admit an unquoted bareword argument (any non-quote,
+ * non-whitespace character after `fail\s+`) reopened the false positive
+ * `uniqueLineIndex`'s comment-only filtering already guards against
+ * elsewhere: `echo "no fail here"` contains the literal text `fail here`,
+ * which satisfies a bareword-shaped regex even though "fail" is never
+ * actually invoked — it is DATA inside echo's own quoted argument. The fix
+ * reuses {@link stripQuotedRunsAndComments} (the same live function
+ * `uniqueBareStatementLineIndex` and `tailChecksStatus` already reuse) as a
+ * precondition: `fail` must survive being stripped of quoted runs and
+ * comments to count as a real word on this line at all. The ORIGINAL,
+ * unstripped text still decides the invocation SHAPE (so an actual quoted
+ * message's contents are not lost from the shape check) — stripping only
+ * answers "is this occurrence of the word real", not "what does it say".
+ *
+ * WIDENED AGAIN (review of #292): the separator between `fail` and its
+ * argument is {@link FAIL_ARG_SEP} — real whitespace or an `$IFS`
+ * word-splitting reference — not bare `\s+`, which a `fail$IFS"..."`
+ * invocation never contains.
  */
 function isFailCallSite(line: string): boolean {
-  return (
-    !line.trim().startsWith('#') &&
-    /\bfail\s+["']/.test(line) &&
-    !line.includes('fail()  {') &&
-    !line.includes('emit_gate_verdict "${2:-uncategorized}"')
-  )
+  if (line.trim().startsWith('#')) return false
+  if (line.includes('fail()  {')) return false
+  if (line.includes('emit_gate_verdict "${2:-uncategorized}"')) return false
+  if (!/\bfail\b/.test(stripQuotedRunsAndComments(line))) return false
+  // The bareword-start alternative deliberately still ALLOWS a leading `$`
+  // (an unquoted variable-reference message, e.g. `fail $SOMEVAR category`,
+  // pre-existing and unaffected by this widening) — FAIL_ARG_SEP is
+  // REQUIRED (`+`) and consumes any `$IFS`/`${IFS}` run greedily and first,
+  // so there is no ambiguity about which `$` is the separator's and which
+  // (if any) starts the argument itself. EXECUTED: excluding `$` here during
+  // an earlier draft of this fix silently broke `fail $SOMEVAR category`
+  // (false where it must be true) — caught before landing.
+  return new RegExp(String.raw`\bfail${FAIL_ARG_SEP}(?:"|'|\$'|[^\s"'])`).test(line)
 }
 
 /**
  * The category a `fail` site names: its literal slug, or `untagged` when it
  * names none, or `dynamic` when it is computed and no static check can resolve
  * it. One implementation, used by the law and by the decoy that guards the law.
+ *
+ * WIDENED (prd17 w7 #292) to match {@link isFailCallSite}'s same four
+ * productions: `"..."` (with `\`-escapes), `'...'` (no escapes), `$'...'`
+ * (ANSI-C, `\`-escapes), and an unquoted bareword (no whitespace or quote
+ * characters — a real unquoted message cannot contain either) — and the
+ * same {@link FAIL_ARG_SEP} separator (real whitespace or `$IFS`).
  */
 function classifyFailSite(line: string): string {
-  // The message, either quoting style, then whatever follows it up to the end
-  // of the statement — `;`, `}`, a trailing comment, or EOL.
-  const after = line.match(/\bfail\s+(?:"(?:[^"\\]|\\.)*"|'[^']*')\s*(.*)$/)?.[1] ?? ''
+  // The message, any of the four quoting forms, then whatever follows it up
+  // to the end of the statement — `;`, `}`, a trailing comment, or EOL.
+  // The bareword alternative allows a leading `$` (see isFailCallSite's own
+  // note) so an unquoted variable-reference message is still consumed
+  // correctly and the REAL category token after it is still found.
+  const after = line.match(
+    new RegExp(String.raw`\bfail${FAIL_ARG_SEP}(?:"(?:[^"\\]|\\.)*"|'[^']*'|\$'(?:[^'\\]|\\.)*'|[^\s"']\S*)\s*(.*)$`),
+  )?.[1] ?? ''
   const token = after.replace(/[;}].*$/, '').replace(/#.*$/, '').trim()
   if (token === '') return 'untagged'
   if (/[$"'`]/.test(token)) return 'dynamic'
@@ -388,15 +596,18 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    *
    * The other 19 pass structurally on their own merits: 12 same-line forms
    * (:17's `|| exit 2`, written before `fail` is even defined; 9 `|| fail` at
-   * :338 (`GATE_OUTFILE`) :414 :429 :489 :583 :593 :657 :743 :798; 2
-   * `|| { ...; fail ...; }` rescue blocks at :430 :799) and 7 next-line
+   * :338 (`GATE_OUTFILE`) :414 :430 :490 :585 :595 :659 :745 :800; 2
+   * `|| { ...; fail ...; }` rescue blocks at :431 :801) and 7 next-line
    * `_RC=$?` captures (:156's `VERDICT_LINE_RC` and :244's `BEACON_DIR_RC` —
-   * both new with #274 — plus :446's `ANCESTOR_RC`, :526's `N_RC`, :530's
-   * `STATUS_RC`, :557's `DIRTY_RC`, :658's `CAT_RC`). Re-derived here twice:
-   * prd17 w7 (#293) inserted the `$3` (LOAD) validation above these
-   * producers (+48 lines), and a review of #293 added the load-batches
-   * upper-bound guard right beside it (+21 more) — each closed in the SAME
-   * edit as the insertion rather than left for the law below to find.
+   * both new with #274 — plus :447's `ANCESTOR_RC`, :527's `N_RC`, :531's
+   * `STATUS_RC`, :559's `DIRTY_RC`, :660's `CAT_RC`). Re-derived here THREE
+   * times now: prd17 w7 (#293) inserted the `$3` (LOAD) validation above
+   * these producers (+48 lines), prd17 w7 (#292) re-worded several of the
+   * stale citations these producers sit beside (+1 line net), and a review
+   * of #293 added the load-batches upper-bound guard right beside the
+   * validation (+21 more) — each closed in the SAME edit as the change that
+   * moved them, the exact recurrence this paragraph's own history warns
+   * about, rather than left for the law below to find red.
    *
    * producer-citations:end
    *
@@ -714,59 +925,12 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     return n % 256n !== 0n
   }
 
-  /**
-   * The shell text of a rescue block with every quoted RUN and any trailing
-   * COMMENT removed, so a `fail`/`exit N` that is merely MENTIONED — in a
-   * message or in a comment — is not mistaken for one that is CALLED.
-   *
-   * `tailChecksStatus`'s same-line branches anchor at the start of the
-   * right-hand side (`/^fail\b/`, `/^exit\s+(\d+)\b/`), so no string can
-   * precede them there. Its BLOCK branch scans the whole block with
-   * `\bfail\b` / `\bexit\s+(\d+)\b`, which a string literal satisfies —
-   * that is a spelling match inside the predicate whose whole subject is
-   * structure over spelling. EXECUTED, planted into a copy of the real
-   * scripts/gate.sh: `RES=$(some_new_check) || { echo "  fail to check"; }`
-   * left ruling 1's own test GREEN over a producer that swallows its
-   * failure entirely.
-   *
-   * A single left-to-right scan, not two `replace` passes: stripping `'...'`
-   * first would let an apostrophe inside a double-quoted message open a
-   * bogus run and swallow the rest of the line. A stripped run leaves a
-   * space behind so `fail"x"` cannot be glued into a new token.
-   *
-   * A comment is the SIBLING of the quoted message and arrives at the same
-   * branch by the same route: `|| { echo no; }  # fail is handled elsewhere`
-   * was still credited with calling fail() after quoted runs alone were
-   * stripped (EXECUTED, review of #126). It is cut in the SAME scan rather
-   * than by a later `replace`, because whether a `#` opens a comment depends
-   * on quote state and on the character before it: bash starts a comment
-   * only at the start of a word, so `${LOG#/tmp/}` and `$#` are not
-   * comments, and neither is the `#` in `echo "x"# fail`, where the closing
-   * quote leaves a space in the OUTPUT that the original never had. Running
-   * the cut after the strip would read that manufactured space and eat a
-   * real call; running it inside the scan reads the source.
-   */
-  function stripQuotedRunsAndComments(s: string): string {
-    let out = ''
-    let quote: "'" | '"' | null = null
-    for (let i = 0; i < s.length; i++) {
-      const c = s[i]!
-      if (quote === null) {
-        if (c === '#' && (i === 0 || /\s/.test(s[i - 1]!))) break
-        else if (c === "'" || c === '"') {
-          quote = c
-          out += ' '
-        } else if (c === '\\') {
-          i++
-          out += ' '
-        } else out += c
-      } else {
-        if (quote === '"' && c === '\\') i++
-        else if (c === quote) quote = null
-      }
-    }
-    return out
-  }
+  // stripQuotedRunsAndComments now lives at MODULE SCOPE, above
+  // uniqueBareStatementLineIndex and isFailCallSite (prd17 w7 #292) — both
+  // reuse it too, and a module-scope utility used by anchors near the top of
+  // the file cannot itself live inside this describe block's closure.
+  // tailChecksStatus below
+  // still calls the same, single implementation.
 
   /** Does the text AFTER the $(...)'s closing paren, on the SAME line, terminate the script on failure — `|| fail`, `|| exit N` (N != 0), or a `|| { ... }` block calling either? `exit 0` is deliberately NOT terminal-safe: it swallows a failure into a fake overall SUCCESS rather than an honest abort. */
   function tailChecksStatus(tail: string): boolean {
@@ -3200,7 +3364,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
      * classifier could drift back to the shape it just replaced and its own
      * "no site is untagged" assertion would go quiet again.
      */
-    it('the fail-site classifier sees every spelling, including the five that used to vanish', () => {
+    it('the fail-site classifier sees every spelling, including the five that used to vanish and the two quoting forms #292 adds', () => {
       // THE LIVE functions, not a retyped copy (review of #273, round 2). The
       // first version declared its own local `classify` with the regexes typed
       // out again, so it exercised a duplicate: reverting the real detector to
@@ -3220,6 +3384,23 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(classify('  fail "boom" suite_red')).toBe('suite_red')
       expect(classify('  fail "boom" "$CAT"')).toBe('dynamic')
       expect(classify('  echo "no fail here"')).toBe('not-a-site')
+      // The two productions #292 adds: ANSI-C quoting ($'...', backslash
+      // escapes) and an unquoted bareword message. Both are real bash — a
+      // `fail` call is not required to double- or single-quote its message.
+      expect(classify(`  fail $'cannot read branch' git-error`)).toBe('git-error')
+      expect(classify('  fail boom suite-red')).toBe('suite-red')
+      // REVIEW FINDING (Codex, EXECUTED): `$IFS` word-splitting is a REAL
+      // bash invocation with no literal whitespace in the source text at
+      // all — `fail$IFS"message" bogus-category` runs exactly as
+      // `fail message bogus-category`. Both `$IFS` and `${IFS}` spellings.
+      expect(classify('  fail$IFS"message" bogus-category')).toBe('bogus-category')
+      expect(classify('  fail${IFS}"message" bogus-category')).toBe('bogus-category')
+      // Unaffected by widening the separator: an unquoted VARIABLE message
+      // (not $IFS) still consumes correctly and still finds the real
+      // category — caught in review before landing, since an earlier draft
+      // of this fix excluded a leading `$` from the bareword-start
+      // alternative and broke this case (false where it must be true).
+      expect(classify('  fail $SOMEVAR category')).toBe('category')
     })
 
     it('every category is a short slug, never prose, and fits the v1 line\'s own 64-char cap', () => {
@@ -3290,9 +3471,27 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
      * Anchored on text rather than line numbers, per this file's own rule — a
      * reworded anchor throws at collection, loudly, instead of passing
      * vacuously.
+     *
+     * THE DECISION THIS ISSUE ASKED FOR (prd17 w7 #292): a text-position
+     * assertion is KEPT here, not replaced with a behavioural fixture that
+     * executes a real merge boundary. A seat's alternative would close every
+     * respelling of "disable this line" at once instead of one filter at a
+     * time — but it would also mean staging a real git merge inside this
+     * suite for a single boundary check, and the two respellings actually
+     * found (a full-line comment; `printf '# MERGED=1\n'`) are both closed
+     * more cheaply by widening the TEXT the position is read from, which is
+     * what the new, narrowly-scoped `uniqueBareStatementLineIndex` does (see
+     * its own docblock above `stripQuotedRunsAndComments`). Stated explicitly, as this issue
+     * requires, rather than left implying totality: a heredoc body
+     * containing `MERGED=1` as literal data is NOT caught by the positional
+     * form kept here — declared there, not fixed, because no heredoc exists
+     * in `scripts/gate.sh` today (`grep -n '<<' scripts/gate.sh` is empty)
+     * and adding heredoc-parsing machinery to guard a hypothetical future one
+     * is exactly the speculative-robustness this repo's own review history
+     * warns against.
      */
     it('MUTATION — the MERGED=1 boundary sits between the merge and the post-merge checks, and deleting it reddens', () => {
-      const boundary = uniqueCodeLineIndex('MERGED=1')
+      const boundary = uniqueBareStatementLineIndex('MERGED=1')
       const lastPreMerge = uniqueCodeLineIndex('is not contained in main — the merge did not complete')
       const install = uniqueCodeLineIndex('npm install after merge broke')
       const build = uniqueCodeLineIndex('if npm run build >')
@@ -3300,6 +3499,24 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
       expect(lastPreMerge, 'the containment check must precede the boundary').toBeLessThan(boundary)
       expect(boundary, 'npm install runs AFTER the merge — it holds the push, not the merge').toBeLessThan(install)
       expect(boundary, 'npm run build runs AFTER the merge — it holds the push, not the merge').toBeLessThan(build)
+    })
+
+    /**
+     * THE DECOY (prd17 w7 #292) — the two respellings of "disable MERGED=1
+     * without deleting it" that used to fool this file's own anchor helper,
+     * fed to the LIVE {@link stripQuotedRunsAndComments} that
+     * `uniqueBareStatementLineIndex` now runs every line through. A full-line
+     * comment was already excluded before this issue (via the old bare
+     * `!line.trim().startsWith('#')` check); it is re-asserted here against
+     * the SAME live function to prove the widening did not drop it.
+     */
+    it('the code-line filter sees through the printf-quoted decoy that used to fool the MERGED=1 boundary check', () => {
+      expect(
+        stripQuotedRunsAndComments("printf '# MERGED=1\\n'"),
+        'a printf argument is DATA — the shell never executes text inside a single-quoted string, so this must not read as the real assignment',
+      ).not.toContain('MERGED=1')
+      expect(stripQuotedRunsAndComments('# MERGED=1 deleted'), 'a full-line comment is not executed either').not.toContain('MERGED=1')
+      expect(stripQuotedRunsAndComments('MERGED=1   # every fail() past this point reports the post-merge truth'), 'the REAL assignment must still be found').toContain('MERGED=1')
     })
 
     /**
@@ -3460,18 +3677,286 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
        * Speculative robustness in the LANDING tool bought nothing and cost two
        * defects.
        */
-      it('emits at most ONE line, and no shell-built fallback can add a second', () => {
-        const machinery = VERDICT_MACHINERY
-        expect(machinery, 'a shell-built JSON line is how the double-emit and the unescaped handle arrived').not.toContain(
-          '"writer":"gate","kind":"gate.verdict"',
-        )
-        expect(machinery, 'branching the emit on python\'s exit status is what emitted twice').not.toMatch(/\|\|\s*printf/)
+      /**
+       * WIDENED (prd17 w7 #292): the two `expect`s this replaced forbade TWO
+       * SPELLINGS — compact JSON (`"writer":"gate","kind":"gate.verdict"`,
+       * no spaces) and a `||`-joined `printf`. Neither is the CLASS. A
+       * respelling using spaced JSON (matching this same file's own python
+       * dict-literal style), an `if [ $? -ne 0 ]` branch instead of `||`, an
+       * `echo` instead of a `printf`, or a heredoc would all have slipped
+       * through unnoticed — each still constructs a SECOND site that emits
+       * verdict-shaped JSON text, which is the actual property being
+       * forbidden.
+       *
+       * {@link withoutLegitimateVerdictLiteral} excludes the ONE legitimate
+       * site — the python dict literal `emit_gate_verdict` itself
+       * constructs — before scanning, which is what makes this a check for a
+       * SECOND site rather than a check that the text can never appear at
+       * all (it necessarily does, once, in the real emitter).
+       */
+      function withoutLegitimateVerdictLiteral(text: string): string {
+        const start = text.indexOf('line = {"v": 1,')
+        if (start === -1) {
+          throw new Error("the emitter's own verdict dict literal has moved or been reworded — this scan can no longer tell the one legitimate site from an added second one")
+        }
+        const end = text.indexOf('print(json.dumps(line', start)
+        if (end === -1) throw new Error('could not find the end of the verdict dict literal')
+        return text.slice(0, start) + text.slice(end)
+      }
+
+      /**
+       * THE CONSTRUCTION CLASS (round 2 of #292's own review — the same
+       * class this issue's DoD names, applied to this instrument a second
+       * time). Every way a shell can put the two field names of a verdict
+       * line's JSON in front of a reader (or a naive text scan), whether the
+       * SOURCE ever contains them as literal, adjacent text or not:
+       *
+       * | # | construction | example | source contains `writer`/`kind` literally, adjacent? | this scan |
+       * |---|---|---|---|---|
+       * | 1 | compact literal | `printf '{"writer":"gate","kind":"gate.verdict"}'` | yes | CAUGHT |
+       * | 2 | spaced literal | `printf '{"writer": "gate", "kind": "gate.verdict"}'` | yes (whitespace-tolerant) | CAUGHT |
+       * | 3 | reversed field order | `{"kind":"gate.verdict","writer":"gate"}` | yes | CAUGHT (both orders) |
+       * | 4 | escaped-quote literal, double-quoted arg | `printf "{\"writer\":\"gate\",\"kind\":\"gate.verdict\"}\n"` | yes, but with a `\` before each `"` (round 1 finding) | CAUGHT (optional backslash per quote) |
+       * | 5 | a bare, unquoted `$H`/`$VAR` field between the two | `{"writer":"gate","lane":"$H","kind":"gate.verdict"}` | yes, gap has no braces | CAUGHT |
+       * | 6 | a BRACED `${H}`/`${VAR}` field between the two (round 2 finding, Opus) | `{"writer":"gate","lane":"${H}","kind":"gate.verdict"}` | yes, but the gap contains `{`/`}` from the EXPANSION, not a second JSON object — `${LOAD:-0}`, `${2:-uncategorized}`, `${W:-none}` are this file's own idiom | now CAUGHT — the gap treats one whole `${...}` as an atomic non-splitting unit, same as any other single character |
+       * | 7 | fields further apart than the old fixed bound (round 2 finding, both seats: 201 and 210 bytes) | a verdict object with several extra fields in between | yes | now CAUGHT — bound raised and re-justified below |
+       * | 8 | `printf` FORMAT STRING, fields as SEPARATE `%s` arguments (round 2 finding, Codex) | `printf '{"%s":"%s","%s":"%s"}' writer gate kind gate.verdict` | **NO** — `writer`/`gate`/`kind`/`gate.verdict` are four separate shell WORDS, never adjacent in the format string itself | **NOT CAUGHT — DECLARED OUT OF SCOPE, not a bug** |
+       * | 9 | octal-escaped bytes decoded by `printf %b` (round 2 finding, Codex — the strongest proof) | `printf '%b' '\173\042writer\042...\175\n'` | **NO — the literal string "writer" never appears in the source at all**, in any form | **NOT CAUGHT — DECLARED OUT OF SCOPE, not a bug** |
+       * | 10 | hex escapes, base64, `eval`, or any other computed/decoded construction | (not yet demonstrated; the same argument as row 9 applies) | no | **NOT CAUGHT — same declared class as row 9** |
+       * | 11 | **NESTED** `${...}` expansion (round 3 finding, both seats) | `printf "{\"writer\":\"gate\",\"lane\":\"${H:-${FALLBACK}}\",...}"` | **NO** — but for a DIFFERENT reason from rows 8-10: the text IS present, literal and adjacent, and `bash -n` accepts it. `VERDICT_JSON_GAP`'s brace-admitting alternative is `\$\{[^{}]*\}`, which cannot consume a nested `${`, so the gap cannot span it | **NOT CAUGHT — declared, and the CLAIM is narrowed to match rather than the regex widened a fourth time** |
+       *
+       * ROWS 8–10 ARE WHY A TEXT PIN CANNOT BE THE WHOLE ANSWER, AND WHY THIS
+       * COMMIT NARROWS THE CLAIM RATHER THAN WIDENING THE REGEX A FOURTH TIME.
+       * Row 9 is a PROOF, not an inconvenience: bash can synthesise the exact
+       * forbidden bytes from a source string that never contains "writer" as
+       * a substring in ANY encoding a regex could reasonably enumerate (octal
+       * today; hex, unicode, or base64 tomorrow — an open-ended family of
+       * encodings, unlike `NUMBER_WORD`'s closed one). No amount of widening
+       * closes a class whose defining property is "the forbidden text need
+       * not exist in the source at all".
+       *
+       * THE DECISION (the issue's own two options, both named): a BEHAVIOURAL
+       * check — run the real machinery and count emitted lines — was
+       * considered and NOT taken as a replacement, because it has an
+       * equal-and-opposite blind spot: the double-emit defect this law
+       * exists to prevent was CONDITIONAL (the reverted fallback only fired
+       * when python3's own exit status was nonzero), and a behavioural test
+       * only observes what it specifically triggers — it would need to
+       * simulate every failure mode a future fallback might key off, which is
+       * exactly as unbounded as enumerating text spellings, just moved to a
+       * different axis (conditions instead of syntax). The existing
+       * behavioural test below ("EXECUTED — exactly one beacon line per
+       * run") already covers the ONE condition this file's fixture can
+       * cheaply and honestly simulate (a normal, successful run) and stays
+       * as a second, independent layer — not a replacement for either
+       * instrument, since each catches what the other cannot.
+       *
+       * So: the CLAIM is narrowed to what this scan actually verifies — no
+       * second site constructs verdict-shaped JSON as LITERAL, adjacent
+       * text (quoted, escaped, or brace-expansion-decorated) — stated in the
+       * test's own name below, not implied to be the unbounded class the
+       * issue is titled after. Rows 8–10 are proof this scan cannot promise
+       * more, tested directly (below) as CONFIRMED, DOCUMENTED gaps rather
+       * than left to be rediscovered by a third review round.
+       */
+
+      /**
+       * Whitespace-tolerant AND escape-tolerant (rows 1-4 of the table
+       * above): matches compact OR spaced JSON, either field order, either
+       * field's quotes literal OR backslash-escaped.
+       *
+       * The gap between the two fields (rows 5-7) is one-or-more repeats of
+       * EITHER a single non-brace character OR one COMPLETE `${...}`
+       * expansion treated as an atomic unit — not "exclude every brace",
+       * which is what missed row 6: `${H}` contains braces that belong to
+       * the EXPANSION, not to a second JSON object, and this file's own
+       * production code uses that exact idiom (`${LOAD:-0}`,
+       * `${2:-uncategorized}`, `${W:-none}`, `${DIFF_FILES[*]-}`). A bare,
+       * unmatched `{` or `}` — the real signal of "this is a different JSON
+       * object" — still ends the gap, verified directly below. The
+       * repetition count is raised from 80 (round 1) to 250 (round 2, both
+       * seats found the fixed bound itself, at two different values) —
+       * still a magic number, still arbitrary, and said so rather than
+       * reframed as principled: any FIXED count is a spelling of "how far
+       * apart", which is why this bound is generous rather than tight.
+       */
+      const Q = String.raw`\\?"`
+      const VERDICT_JSON_GAP = String.raw`(?:[^{}]|\$\{[^{}]*\}){0,250}`
+      const VERDICT_JSON_SHAPE = new RegExp(
+        String.raw`(${Q}writer${Q}\s*:\s*${Q}gate${Q}${VERDICT_JSON_GAP}${Q}kind${Q}\s*:\s*${Q}gate\.verdict${Q}` +
+          String.raw`|${Q}kind${Q}\s*:\s*${Q}gate\.verdict${Q}${VERDICT_JSON_GAP}${Q}writer${Q}\s*:\s*${Q}gate${Q})`,
+      )
+
+      it('no SECOND site constructs verdict-shaped JSON as LITERAL, adjacent text — quoted, escaped, or decorated with SINGLE-LEVEL `${...}` expansions (NOT a claim over every construction, and NOT over nested expansions — see rows 8-11 below)', () => {
+        // Comments stripped FIRST, quotes PRESERVED (review finding: a
+        // comment merely MENTIONING the shape as an example, e.g.
+        // `# looks like {"writer":"gate","kind":"gate.verdict"}`, is not a
+        // site CONSTRUCTING it — stripQuotedRunsAndComments would also hide
+        // the real decoys, which live inside quotes on purpose).
+        const outsideLegitimateSite = withoutLegitimateVerdictLiteral(stripCommentsKeepQuotes(VERDICT_MACHINERY))
+        expect(
+          outsideLegitimateSite,
+          'a second site emitting verdict-shaped JSON — compact/spaced/escaped/brace-decorated, via printf/echo/heredoc, joined with || or an if — is the double-emit and unescaped-handle defect class, not one spelling of it',
+        ).not.toMatch(VERDICT_JSON_SHAPE)
       })
+
+      /**
+       * THE DECOY — every respelling the issue names, at minimum: `|| printf`,
+       * `if [ $? -ne 0 ]`, spaced JSON, `echo` instead of `printf`, a
+       * heredoc, escaped-double-quote JSON, a braced `${H}`-style field
+       * between the two names (round 2), and a wide field gap (round 2).
+       * Each is planted AFTER the legitimate site is stripped out, so this
+       * proves the check catches a genuinely SECOND site rather than merely
+       * re-finding the first one.
+       */
+      it('the decoy — every LITERAL respelling of the reverted fallback, including the brace-expansion and wide-gap forms round 2 found, is caught', () => {
+        const base = withoutLegitimateVerdictLiteral(VERDICT_MACHINERY)
+        const decoys = [
+          `python3 -c '...' "$H" || printf '{"v":1,"writer":"gate","kind":"gate.verdict"}\\n'`,
+          `if [ $? -ne 0 ]; then printf '{"v":1,"writer":"gate","kind":"gate.verdict"}\\n'; fi`,
+          `python3 -c '...' "$H" || printf '{"v": 1, "writer": "gate", "kind": "gate.verdict"}\\n'`,
+          `python3 -c '...' "$H" || echo '{"v":1,"writer":"gate","kind":"gate.verdict"}'`,
+          `python3 -c '...' "$H" || cat <<'EOF'\n{"v":1,"writer":"gate","kind":"gate.verdict"}\nEOF`,
+          String.raw`python3 -c '...' "$H" || printf "{\"v\":1,\"writer\":\"gate\",\"kind\":\"gate.verdict\"}\n"`,
+          // Round 2, Opus: a braced ${H} field between the two names, and
+          // the same with field order reversed.
+          `python3 -c '...' "$H" || printf '{"v":1,"writer":"gate","lane":"\${H}","kind":"gate.verdict"}\\n'`,
+          `python3 -c '...' "$H" || printf '{"v":1,"kind":"gate.verdict","lane":"\${H}","writer":"gate"}\\n'`,
+          // Round 2, both seats: fields further apart than the old 80-char bound.
+          `python3 -c '...' "$H" || printf '{"writer":"gate","pad":"${'x'.repeat(200)}","kind":"gate.verdict"}\\n'`,
+        ]
+        for (const decoy of decoys) {
+          expect(`${base}\n${decoy}`, `this respelling must be caught: ${decoy}`).toMatch(VERDICT_JSON_SHAPE)
+        }
+      })
+
+      /**
+       * THE FALSE-POSITIVE CONTROL (review finding): a comment that merely
+       * MENTIONS the forbidden shape, as documentation or an example, must
+       * NOT trip this check — only a site that actually CONSTRUCTS it
+       * (inside real, executed quoting) should. Also confirms the widened
+       * GAP does not turn two SEPARATE, unrelated JSON-ish objects
+       * (delimited by a real, unmatched brace) into one false match.
+       */
+      it('a comment merely mentioning the verdict-shaped JSON as an example is NOT a false positive, and two unrelated objects across a real brace are not fused', () => {
+        const base = withoutLegitimateVerdictLiteral(VERDICT_MACHINERY)
+        const comment = `# e.g. {"writer":"gate","kind":"gate.verdict"} is the shape a fallback must never construct`
+        // base is already free of the one legitimate site — only the
+        // comment-stripping matters here, so withoutLegitimateVerdictLiteral
+        // is not re-run (it throws if its anchor is already gone).
+        const scanned = stripCommentsKeepQuotes(`${base}\n${comment}`)
+        expect(scanned, 'a comment is not code — mentioning the shape in prose is not constructing it').not.toMatch(VERDICT_JSON_SHAPE)
+        // CONTROL: the same text, comments NOT stripped, DOES match — proving
+        // this test would have caught the false positive before the fix.
+        expect(`${base}\n${comment}`, 'without comment-stripping, the mention alone would wrongly trip the check').toMatch(VERDICT_JSON_SHAPE)
+
+        // A real, unmatched brace between "writer" and "kind" — two
+        // genuinely separate objects, not one decorated with ${...} — must
+        // still end the gap. Proves the row-6 fix did not accidentally fuse
+        // unrelated braces the way excluding them entirely once did the
+        // opposite (missed ${...}).
+        const twoSeparateObjects = `${base}\n{"writer":"gate"} \${SOME_UNRELATED_EXPANSION} {"kind":"gate.verdict"}`
+        expect(twoSeparateObjects, 'a real unmatched brace must still separate two objects — this is not the same site').not.toMatch(VERDICT_JSON_SHAPE)
+      })
+
+      /**
+       * CONFIRMED, DOCUMENTED GAPS (rows 8-9 and 11 of the table above) — run
+       * directly against the LIVE regex so the boundary is executable
+       * evidence, not a prose claim nobody checks. Neither assertion
+       * reddening would be a regression: it is what "declared, not fixed"
+       * means made concrete. If either of these ever starts matching, the
+       * regex has changed in a way that deserves its own review, which is
+       * the other reason this test exists.
+       */
+      it('CONFIRMED OUT OF SCOPE — printf format-string substitution, octal-escaped bytes, and NESTED ${...} expansions are NOT caught, by design, not by oversight', () => {
+        const base = withoutLegitimateVerdictLiteral(VERDICT_MACHINERY)
+        const formatStringDecoy = `python3 -c '...' "$H" || printf '{"%s":"%s","%s":"%s"}\\n' writer gate kind gate.verdict`
+        expect(
+          `${base}\n${formatStringDecoy}`,
+          'the four field/value words are separate shell arguments, never adjacent in the format string itself — no text-adjacency scan can see this without parsing printf argument binding, which is out of scope for a source-text law',
+        ).not.toMatch(VERDICT_JSON_SHAPE)
+
+        const octalDecoy = String.raw`python3 -c '...' "$H" || printf '%b' '\173\042writer\042\072\042gate\042\054\042kind\042\072\042gate\056verdict\042\175\012'`
+        expect(
+          `${base}\n${octalDecoy}`,
+          'the literal string "writer" never appears in this source at all, in any encoding — the proof that a source-text scan cannot be the whole answer for this property',
+        ).not.toMatch(VERDICT_JSON_SHAPE)
+
+        // Row 11, round 3, found independently by both seats. This one is NOT
+        // like the two above and the difference is the whole point: the text
+        // IS here, literal and adjacent, and it emits
+        // `{"writer":"gate","lane":"my-lane","kind":"gate.verdict"}` for real.
+        // The gap cannot span it because `\$\{[^{}]*\}` stops at the inner
+        // `{`. Round 1 caught `printf` with escaped quotes, round 2 `${H}`
+        // plus five more, and this is the FOURTH spelling on one instrument —
+        // so per #292's own DoD the answer is to bound the CLAIM, not to move
+        // the boundary again. The test's name now says single-level.
+        //
+        // A single-quoted string, deliberately: in a TEMPLATE literal `${` is
+        // an interpolation and `${H:-${FALLBACK}}` will not even parse.
+        // `String.raw` does NOT suppress that, which is the trap the probe for
+        // this finding hit first.
+        const nestedExpansionDecoy =
+          'printf "{\\"writer\\":\\"gate\\",\\"lane\\":\\"${H:-${FALLBACK}}\\",\\"kind\\":\\"gate.verdict\\"}\\n"'
+        expect(
+          `${base}\n${nestedExpansionDecoy}`,
+          'a NESTED ${...} expansion is literal and adjacent, unlike rows 8-10 — declared out of scope because the gap cannot span nested braces, and widening it would be a fourth boundary move the DoD forbids',
+        ).not.toMatch(VERDICT_JSON_SHAPE)
+
+        // CONTROL, and it is load-bearing: the assertion above is a NEGATIVE,
+        // so it would pass just as happily if the decoy were malformed and
+        // matched nothing for uninteresting reasons. Collapsing the nesting to
+        // a SINGLE-LEVEL expansion must MATCH — that is what makes row 11 a
+        // statement about nesting rather than about a typo, and why this
+        // control lives in the test instead of someone's scratch buffer.
+        expect(
+          `${base}\n${nestedExpansionDecoy.replace('${H:-${FALLBACK}}', '${H}')}`,
+          'the single-level sibling MUST be caught — if this stops matching, the decoy above has rotted and its out-of-scope claim is no longer evidence of anything',
+        ).toMatch(VERDICT_JSON_SHAPE)
+      })
+
+      /**
+       * Is `line` a v1 `gate.verdict` beacon line? Spelling-independent:
+       * parses as JSON and checks the `kind` field, rather than matching
+       * text — so compact and spaced JSON both count. The ONE
+       * implementation, used by the law below AND by its own decoy (review
+       * finding, EXECUTED, both seats): this filter used to exist TWICE, as
+       * an inline literal in each `it()` — reverting the law's own copy left
+       * the decoy blind to the regression (36/36 passed with the law itself
+       * reverted to compact-only), and reverting only the decoy's copy left
+       * the decoy red over a correct law. Neither is the shape this file's
+       * own stated discipline ("reuse, never reimplement") allows.
+       */
+      function isGateVerdictBeaconLine(line: string): boolean {
+        if (line.trim().length === 0) return false
+        try {
+          const parsed: unknown = JSON.parse(line)
+          return parsed !== null && typeof parsed === 'object' && (parsed as { kind?: unknown }).kind === 'gate.verdict'
+        } catch {
+          return false
+        }
+      }
 
       it('EXECUTED — exactly one beacon line per run, counted rather than sampled', () => {
         const { stdout } = runVerdict('fail "boom" suite-red')
-        const beacons = stdout.split('\n').filter((l) => l.includes('"kind":"gate.verdict"'))
+        // WIDENED (prd17 w7 #292): counted via isGateVerdictBeaconLine — a
+        // SPELLING-INDEPENDENT property. The previous form,
+        // `l.includes('"kind":"gate.verdict"')`, matched only compact JSON
+        // with no space after the colon; a beacon printed with spaced JSON
+        // (the same style the emitter's own python dict literal uses) would
+        // have been silently uncounted.
+        const beacons = stdout.split('\n').filter(isGateVerdictBeaconLine)
         expect(beacons, 'lastLine() cannot see a second line — count them').toHaveLength(1)
+      })
+
+      it('DECOY — the LIVE, shared isGateVerdictBeaconLine still finds a spaced-JSON line the old compact-only check would have missed', () => {
+        const compactLine = '{"v":1,"kind":"gate.verdict","reason":"clean"}'
+        const spacedLine = '{"v": 1, "kind": "gate.verdict", "reason": "clean"}'
+        const stdout = `${compactLine}\n${spacedLine}\n`
+        const oldWayCount = stdout.split('\n').filter((l) => l.includes('"kind":"gate.verdict"')).length
+        expect(oldWayCount, 'the OLD check misses the spaced line — this is the gap being closed').toBe(1)
+        const newWayCount = stdout.split('\n').filter(isGateVerdictBeaconLine).length
+        expect(newWayCount, 'the widened check must find both').toBe(2)
       })
 
       it('EXECUTED — the captured-output scratch file is removed after the verdict (finding 5)', () => {
@@ -3776,43 +4261,132 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
        * the defect is a property of prose in this file, and the slice
        * boundaries are not where a future author will happen to write one.
        *
-       * WHAT THIS LAW DOES NOT COVER, stated because an unbounded claim over
-       * a bounded check is the defect this file exists to catch (round 3
-       * re-review, findings 2 and 5). The first draft of this test was named
-       * "cites another line by OFFSET" while checking one spelling of it. A
-       * PROBE appended eight forms and the law stayed green on every one:
-       * `gate.sh:156`, `line 156`, `lines 156-165`, `110 lines further up`,
-       * `12 lines prior`, `a dozen lines above`, `three lines below`,
-       * `~24 lines back`. CONTROL: the certified `N lines up` spelling
-       * reddens and names the line and its text, so the harness is sound.
+       * WIDENED (prd17 w7 #292 — the class, not the enumeration, a second
+       * time). The prior form matched only a DIGIT quantity before "lines" —
+       * "110 lines further up", "12 lines prior". A PROBE appended eight
+       * forms and the OLD regex caught only two of them: `gate.sh:156`,
+       * `line 156`, `lines 156-165` are a different citation SHAPE entirely
+       * (a colon or bare "line N", never "N lines <direction>") and stay
+       * correctly out of scope; but `a dozen lines above`, `three lines
+       * below` and `~24 lines back` are the SAME shape this law exists to
+       * name, spelled with a number WORD instead of a digit, and slipped
+       * through. `"eighteen lines further down"` — a live citation in
+       * `scripts/gate.sh` itself before this issue — is exactly that gap,
+       * not a new one: it is the same "N lines <direction>" form the digit
+       * regex was always meant to catch, just spelled in English.
        *
-       * Two of those forms are LIVE in this file today, and both predate
-       * this branch (byte-identical at `d804b5a`): absolute `:NNN` citations
-       * at `:354` (`:41`), `:359` (`:116`), `:440` (`:142`), `:465` (`:96`)
-       * and `:472` (`:74-80`) — every one now landing on an unrelated
-       * comment line — and a spelled-out offset, "eighteen lines further
-       * down", at `:440`. They are recorded rather than swept in here: this
-       * commit is answering a review of #274, and re-deriving five
-       * pre-existing citations is its own change with its own reasoning.
-       * Filed as #306; do not widen this regex without fixing them in the
-       * same edit, because a law that ships red is a law that gets skipped.
+       * English number words ARE a genuinely closed set — unlike shell
+       * quoting or JSON spacing, which admit unlimited spellings, there are
+       * only finitely many words for a count in English — so enumerating
+       * them here is not the open-set trap this file's own header warns
+       * against; it is closing one bounded class in a single edit rather
+       * than leaving it open. `NUMBER_WORD` below covers one through
+       * ninety-nine (a leading "a "/"an ", the units, and one hyphenated
+       * ones-digit suffix for compounds like "twenty-four"), plus "hundred",
+       * "dozen", "couple", "few" and "several" — every English quantity word
+       * a citation in this file has ever used or could plausibly use for a
+       * SMALL offset (the kind a hand-written citation names; nobody writes
+       * "eight hundred lines up").
        *
-       * So the name and the message below say the one form this actually
-       * holds. A bounded true claim beats an unbounded one that needs a
-       * round per counter-example.
+       * Two live citations existed at the time of this widening, both
+       * PREDATING this issue: the absolute `:NNN` form (`:41`, `:116`,
+       * `:142`, `:96`, `:74-80` — a DIFFERENT shape from the one this law
+       * checks, fixed by hand in the same commit as this widening, not by
+       * this regex) and the spelled-out `"eighteen lines further down"`
+       * this regex now catches directly. A THIRD, not named by either #306
+       * or the issue that opened this widening, was found only by widening
+       * this law and running it: `"$STATUS_OUT ... already RC-checked two
+       * lines up"` — genuinely stale (the real RC check sat dozens of lines
+       * above it, not two) and invisible to the old digit-only regex for the
+       * same reason "eighteen" was. All three are fixed in this same commit,
+       * per this file's own rule two paragraphs up: a law that ships red is
+       * a law that gets skipped.
+       *
+       * WHAT THIS LAW STILL DOES NOT COVER, stated for the same reason as
+       * before — an unbounded claim over a bounded check is the defect this
+       * file exists to catch. `gate.sh:156`, `line 156` and `lines 156-165`
+       * remain out of scope (a different citation shape, not this one
+       * widened); large or approximate quantities spelled as multi-word
+       * numbers ("one hundred and eighteen") are not in `NUMBER_WORD` — no
+       * citation in this file has ever needed one, and the day one does,
+       * that is the next widening, named as such rather than silently
+       * absorbed into this one.
+       *
+       * THE DIRECTION AXIS ITSELF IS ALSO NOT A CLOSED SET (review finding,
+       * both seats — EXECUTED: "two lines beneath this one", "two lines
+       * lower in the file", "a dozen lines ahead of this", "three lines
+       * onward" all passed against the original nine-word list). Unlike
+       * `NUMBER_WORD` — a genuinely closed grammatical class, English has
+       * exactly as many number words as it has and no more — English has
+       * MANY synonyms for "at a distance, in a direction": higher, lower,
+       * beneath, onward, hence, forward, ahead, behind, beyond, past, over,
+       * under, away, off, apart are all equally valid and none of them were
+       * in the original list. Widened below to the words actually found
+       * (plus obvious siblings), which is a real improvement — but stated
+       * HONESTLY rather than implied complete: this list is NOT linguistically
+       * exhaustive the way `NUMBER_WORD` is, and the reviewers' own sharpest
+       * point stands — the SEVENTH live citation this law found ("already
+       * RC-checked two lines up") would still be sitting in `scripts/gate.sh`
+       * today if it had been written "two lines higher up". The DoD allows a
+       * bounded TRUE claim; this paragraph is what keeps the claim bounded
+       * rather than naming an axis as closed when it is not.
        */
-      it('no COMMENT in scripts/gate.sh cites another line in the `N lines up/down` form — that one spelling, checked', () => {
+      // THE LIVE regex, shared by the law below and its decoy — never a
+      // retyped copy (this file's own stated discipline; see the "reuse,
+      // never reimplement" cost this issue's own #273 review paid once
+      // already when a decoy typed its own copy of a detector).
+      const NUMBER_WORD =
+        '(?:a\\s+|an\\s+)?(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|dozen|couple|few|several)(?:-(?:one|two|three|four|five|six|seven|eight|nine))?'
+      const DIRECTION_WORD =
+        '(?:up|down|above|below|beneath|earlier|later|further|back|forward|ahead|behind|beyond|over|under|past|away|off|apart|higher|lower|onward|hence|prior)'
+      const OFFSET_CITATION = new RegExp(`\\b(?:\\d+|${NUMBER_WORD})\\s+lines?\\s+${DIRECTION_WORD}\\b`, 'i')
+
+      it('no COMMENT in scripts/gate.sh cites another line in the `N lines up/down` form, digit OR spelled-out number word', () => {
         // Comment lines only. The earlier draft scanned every line while its
         // own name said "comment", so a CODE line containing the phrase
         // reddened it (PROBE: `echo "… 3 lines below the threshold"`). It
         // failed closed, but on the wrong subject.
         const offsets = LINES.map((line, i) => ({ line, n: i + 1 }))
           .filter(({ line }) => line.trim().startsWith('#'))
-          .filter(({ line }) => /\b\d+\s+lines?\s+(up|down|above|below|earlier|later|further|back|prior)\b/i.test(line))
+          .filter(({ line }) => OFFSET_CITATION.test(line))
         expect(
           offsets.map(({ n, line }) => `${n}: ${line.trim()}`),
           'quote the sentence being cited instead — it is greppable and survives the file moving, which an offset is not',
         ).toEqual([])
+      })
+
+      /**
+       * THE DECOY — every form the docblock above claims this law now
+       * catches, plus the two that must STAY out of scope (a different
+       * citation shape entirely) and the two that must still PASS (ordinary
+       * prose using a number word next to "lines" with no direction word,
+       * or a direction word not preceded by any quantity at all).
+       */
+      it('the decoy — digit and number-word offset citations are caught; a different citation shape and ordinary prose are not', () => {
+        const mustCatch = [
+          '110 lines further up',
+          '12 lines prior',
+          'a dozen lines above',
+          'three lines below',
+          '~24 lines back',
+          'eighteen lines further down',
+          'twenty-four lines up',
+          // The four review found against the ORIGINAL nine-word list —
+          // must all be caught now.
+          'two lines beneath this one',
+          'two lines lower in the file',
+          'a dozen lines ahead of this',
+          'three lines onward',
+        ]
+        for (const s of mustCatch) expect(OFFSET_CITATION.test(s), `must catch: "${s}"`).toBe(true)
+        const mustNotCatch = [
+          'gate.sh:156', // a different citation shape — the number follows a colon, not "lines"
+          'line 156', // the number follows "line", not the reverse
+          'lines 156-165', // a range, not an "N lines <direction>" offset
+          'a few lines INTO the stack trace', // "into" is not a direction word this class means
+          'these lines below explain the guard', // no quantity word precedes "lines" at all
+        ]
+        for (const s of mustNotCatch) expect(OFFSET_CITATION.test(s), `must not catch: "${s}"`).toBe(false)
       })
 
       /**

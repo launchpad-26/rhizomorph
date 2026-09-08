@@ -420,12 +420,13 @@ workmux rebase "$H" >/dev/null 2>&1 || echo "  (rebase reported an issue — the
 # In a linked worktree .git is a FILE, so a naive "$W/.git" fallback would
 # make $GD/rebase-merge structurally unable to exist — verified against a
 # real in-progress rebase: the correct resolution DETECTED it, the fallback
-# MISSED it. :41 already proved git works in this worktree, so a failure to
-# resolve the real git dir here is held rather than papered over with a path
-# that cannot do the job.
+# MISSED it. The "cannot read branch" check above already proved git works
+# in this worktree, so a failure to resolve the real git dir here is held
+# rather than papered over with a path that cannot do the job.
 #
 # mktemp, not a predictable "/tmp/gate-gitdir-$H.log" — a fixed path a
-# symlink can occupy before this runs, same class as :116's NUL_LIST.
+# symlink can occupy before this runs, same class as the NUL-byte guard's own
+# NUL_LIST mktemp below.
 GITDIR_LOG=$(mktemp "/tmp/gate-gitdir-$H.XXXXXX") || fail "cannot create a scratch log for the git-dir probe" setup
 GD=$(git -C "$W" rev-parse --absolute-git-dir 2>"$GITDIR_LOG") || { cat "$GITDIR_LOG"; rm -f "$GITDIR_LOG"; fail "cannot resolve the real git dir for $W — the mid-rebase guard below cannot run without it" git-error; }
 rm -f "$GITDIR_LOG"
@@ -505,8 +506,8 @@ rm -f "$FENCE_LIST"
 # there: a branch whose diff against main is empty aborted with a bare
 # "DIFF_FILES[*]: unbound variable", rc 1, WITHOUT passing through fail() — so
 # no "GATE FAILED" and no ">>> HOLDING" line, on the one code path the script
-# has a dedicated diagnosis for eighteen lines further down ("no commits on the
-# branch (a worker may have left work uncommitted)", :142). The old
+# has a dedicated diagnosis for further down (the `fail "no commits on the
+# branch (a worker may have left work uncommitted...)"` check). The old
 # line-delimited form printed "fence OK: " and reached it; this restores that.
 echo "  fence OK: ${DIFF_FILES[*]-}"
 
@@ -531,14 +532,15 @@ STATUS_OUT=$(git -C "$W" status --porcelain)
 STATUS_RC=$?
 [ "$STATUS_RC" -ne 0 ] && fail "git status failed in $W (rc=$STATUS_RC) — cannot verify the worktree is clean" git-error
 # SIBLING of the same shape (a $(...) pipeline whose own exit status feeds
-# no check), FIXED here rather than declared — the :96 fix above is its
-# twin (prd-46 #70 ruling 3). The guard is `-gt 1`, not `-ne 0`, and the
-# asymmetry is the whole point:
+# no check), FIXED here rather than declared — the N_RC check above (the
+# `git log | wc -l` commit count) is its twin (prd-46 #70 ruling 3). The
+# guard is `-gt 1`, not `-ne 0`, and the asymmetry is the whole point:
 #
 #   -ne 0  would misfire on EVERY clean landing. EXECUTED: grep -v's "no
 #          match" exit (1) is the ORDINARY outcome both on a clean tree and
 #          when nothing besides package-lock.json changed — the same
-#          masking bug the fence fix at :74-80 exists to avoid.
+#          masking bug the fence audit's own note above ("everything matched
+#          the fence, no violations") exists to avoid.
 #   -gt 1  cannot fire on a legitimate landing: grep returns only 0 or 1
 #          when it RUNS, and wc -l returns 0. It fires when a stage does
 #          not run or dies — EXECUTED: rc 127 with grep absent from PATH
@@ -553,7 +555,7 @@ STATUS_RC=$?
 # abolish, sitting inside its own tolerance table. Recorded rather than
 # quietly deleted: the wrong reason is why the fix looked unnecessary.
 #
-# $STATUS_OUT, the other fallible input, is already RC-checked two lines up.
+# $STATUS_OUT, the other fallible input, is already RC-checked above (STATUS_RC).
 dirty=$(printf '%s' "$STATUS_OUT" | grep -v package-lock.json | wc -l)
 DIRTY_RC=$?
 [ "$DIRTY_RC" -gt 1 ] && fail "the dirty-count pipeline failed (rc=$DIRTY_RC) — cannot verify the worktree is clean" git-error
