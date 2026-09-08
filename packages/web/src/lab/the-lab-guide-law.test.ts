@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { CONFOUND_VOICE, COUNTERFACTUAL_CLAUSE, MIN_ARMS_TO_RANK, MIN_COMPLETED_RUNS_TO_SUMMARISE } from '@rhizomorph/core'
+import { CONFOUND_VOICE, COUNTERFACTUAL_CLAUSE, isCompletedVerdict, MIN_ARMS_TO_RANK, MIN_COMPLETED_RUNS_TO_SUMMARISE } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { NOT_MEASURED_VOICE, runOutcomeVoice } from './adapters.js'
 import { markerX, sessionFraction } from './axis/position.js'
@@ -181,10 +181,15 @@ const CLAIMS: Readonly<Record<string, Claim>> = {
     },
   },
   floors: {
-    says: /\*\*3\*\* of its runs have completed[\s\S]*\*\*3\*\* of them[\s\S]*one observation, not a distribution/,
+    says: /\*\*3\*\* of its runs have completed[\s\S]*judged it, pass or fail[\s\S]*\*\*3\*\* of them[\s\S]*one observation, not a distribution/,
     check: () => {
       expect(MIN_COMPLETED_RUNS_TO_SUMMARISE, 'executed: the run floor').toBe(3)
       expect(MIN_ARMS_TO_RANK, 'executed: the arm floor').toBe(3)
+      expect((['pass', 'fail', 'not-run', undefined] as const).map(isCompletedVerdict), 'executed: completed = judged').toEqual([true, true, false, false])
+      for (const rel of ['packages/web/src/lab/metrics/spend.ts', 'packages/web/src/lab/compare/fromExperiment.ts', 'packages/web/src/lab/adapters.ts', 'packages/server/src/lab/compare.ts']) {
+        expect(read(rel), `grep: ${rel} counts with core's predicate`).toContain('isCompletedVerdict')
+      }
+      expect(existsSync(path.join(HERE, 'floor-agreement-law.test.ts')), 'the cross-surface law exists').toBe(true)
       expect(COUNTERFACTUAL_CLAUSE).toBe('what actually happened is one observation, not a distribution')
       expect(server.compare(), 'grep: the CLI reads both floors from core').toMatch(/MIN_ARMS_TO_RANK,\s+MIN_COMPLETED_RUNS_TO_SUMMARISE/)
       expect(server.compare(), 'grep: the refusal carries the clause').toContain('`${COUNTERFACTUAL_CLAUSE}.`')

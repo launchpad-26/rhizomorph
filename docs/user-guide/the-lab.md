@@ -135,8 +135,11 @@ reads back. <!-- claim: compare-table -->
 
 **Two floors, two denominators, one implementation** (prd53 ruling 2, in
 `packages/core/src/lab/laws.ts`, read by the CLI and every web surface alike):
-an arm is summarised only once **3** of its runs have completed, and arms are
-ranked only once there are **3** of them. Below the arm floor the CLI refuses to
+an arm is summarised only once **3** of its runs have completed — and a run is
+**completed** when a gate has judged it, pass or fail; a `not-run` verdict and an
+unjudged run are not (ruling 2's amendment of 2026-09-08, after the wave-3 review
+found three surfaces counting three different things) — and arms are ranked only
+once there are **3** of them. Below the arm floor the CLI refuses to
 rank at all and closes with the counterfactual clause — *what actually happened
 is one observation, not a distribution*: <!-- claim: floors -->
 
@@ -263,8 +266,10 @@ draws each one as a stub — named, and never counted as an organism. <!-- claim
 the outcome on the wire, per run). A measure switch — cost, duration, commits,
 verified — and a **Scoring** position that is disabled and says why: *Scoring —
 no source yet*, because no field in the record holds a score and none is
-fabricated. Each arm shows min · median · max over its completed runs, and
-every individual run is shown at every n. <!-- claim: comparison-surface -->
+fabricated. Each arm shows min · median · max over the values its completed runs
+have under the measure, stated as *n=k of N completed* — the floor itself never
+moves with the measure, and three judged runs with nothing booked say so rather
+than showing a `$0` — and every individual run is shown at every n. <!-- claim: comparison-surface -->
 
 For each experiment it computes (never asks you to declare) which dimension
 the arms differ on: *no arm varies from the others*, *arms differ in model
