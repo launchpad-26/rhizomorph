@@ -74,6 +74,13 @@ key moved (checked by diff). The reducer change is the `fork.dispatched` arm
 the new fold is the correct meaning of the old log because that log contains no
 dispatch, and now says so under one more name.
 
+**Re-blessed 2026-09-08 (prd-53 ruling 3, wave 2).** `ForkState` gained `measurements`
+and `latestOutcomeByLane` — every `fork.measured` verdict, with the newest per run
+indexed. Era-1 predates the laboratory, so both fold empty and no other key moved
+(checked by diff: two new keys, plus the comma the line before them needed). The reducer change is the new `fork.measured`
+arm; the new fold is the correct meaning of the old log because that log contains
+no measurement, and now says so where a measurement would go.
+
 ### era-2 — `era-2/recording.jsonl`
 
 | | |
@@ -124,6 +131,15 @@ window predates the laboratory exactly as era-1's does: it contains no
 rather than a loss of coverage. Re-blessed by regenerating the fold from the
 committed recording, never by editing the snapshot — the recording is the
 source, and the snapshot is what it folds to.
+
+**Re-blessed 2026-09-08 (prd-53 ruling 3, wave 2), on the same reducer change
+as era-1 above.** `ForkState` gained `measurements` and `latestOutcomeByLane`;
+era-2's window predates the laboratory exactly as era-1's does, so both fold
+empty and **no other key moved — checked by diff, three lines**. Regenerated
+from the committed recording, never by editing the snapshot. Recorded in review of #279:
+wave 2 landed on `main` after this branch last merged from it, so the
+committed fold was one reducer behind and `folds byte-identically to its
+committed snapshot` reddened on the merge.
 
 **Four of the nine closed families fold real state for the first time in this
 corpus:** `session.started`, `collector.degraded`, `collector.disabled`,

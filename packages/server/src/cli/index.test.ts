@@ -1543,7 +1543,7 @@ describe('runCli lab fork + compare subcommands (prd12 phase 2)', () => {
     const compare = await lab(['lab', 'compare', forkId, '--path', repoDir, '--no-verify'])
 
     expect(compare.code).toBe(0)
-    expect(compare.out).toContain('arm  lane')
+    expect(compare.out).toContain('arm  run  lane')
     expect(compare.out).toContain('distribution over 3 arms')
     expect(compare.out).toContain('no winner is named')
   })

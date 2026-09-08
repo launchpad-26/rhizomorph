@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createEvent, parseEvent, rhizomorphEventSchema } from './index.js'
-import { forkCheckpointPayloadSchema, forkDispatchedPayloadSchema } from './lab.js'
+import { forkCheckpointPayloadSchema, forkDispatchedPayloadSchema, forkMeasuredPayloadSchema } from './lab.js'
 
 const DIGEST = 'a'.repeat(64)
 
@@ -143,6 +143,55 @@ describe('fork.dispatched', () => {
 
   it('round-trips through parseEvent', () => {
     const event = createEvent('fork.dispatched', validDispatch(), { id: 'evt-1', ts: 1 })
+    const result = parseEvent(event)
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.event).toEqual(event)
+  })
+
+  it('accepts a declared ceiling override, refuses a zero or fractional one, and carries none when absent (prd53 ruling 6)', () => {
+    expect(forkDispatchedPayloadSchema.safeParse({ ...validDispatch(), ceilingOverride: 12 }).success).toBe(true)
+    expect(forkDispatchedPayloadSchema.safeParse({ ...validDispatch(), ceilingOverride: 0 }).success).toBe(false)
+    expect(forkDispatchedPayloadSchema.safeParse({ ...validDispatch(), ceilingOverride: 2.5 }).success).toBe(false)
+    const parsed = forkDispatchedPayloadSchema.safeParse(validDispatch())
+    if (parsed.success) expect(parsed.data.ceilingOverride).toBeUndefined()
+  })
+})
+
+function validMeasured() {
+  return {
+    forkId: 'fork-1',
+    laneHandle: 'fork-1-arm-1',
+    arm: 1,
+    run: 1,
+    verified: 'pass' as const,
+    verifiedDetail: null,
+    verifyCommand: 'npm test',
+    commits: 2,
+    source: 'measure-route' as const,
+  }
+}
+
+describe('fork.measured (prd53 ruling 3 — measuring is a write)', () => {
+  it('accepts a passing, a failing and a not-run outcome — not-run is legal, nothing is invented in its place', () => {
+    expect(forkMeasuredPayloadSchema.safeParse(validMeasured()).success).toBe(true)
+    expect(forkMeasuredPayloadSchema.safeParse({ ...validMeasured(), verified: 'fail', verifiedDetail: '1 test failed' }).success).toBe(true)
+    expect(forkMeasuredPayloadSchema.safeParse({ ...validMeasured(), verified: 'not-run', verifiedDetail: 'npm: not found', commits: null }).success).toBe(true)
+  })
+
+  it('refuses an outcome outside pass|fail|not-run, and a source outside the two hands that may measure', () => {
+    expect(forkMeasuredPayloadSchema.safeParse({ ...validMeasured(), verified: 'maybe' }).success).toBe(false)
+    expect(forkMeasuredPayloadSchema.safeParse({ ...validMeasured(), source: 'a-collector' }).success).toBe(false)
+  })
+
+  it('refuses an outcome with no verify command — a verdict means nothing without the gate that gave it', () => {
+    expect(forkMeasuredPayloadSchema.safeParse({ ...validMeasured(), verifyCommand: '' }).success).toBe(false)
+  })
+
+  it('stamps source "lab", rejects any other source, and round-trips through parseEvent', () => {
+    const event = createEvent('fork.measured', validMeasured(), { id: 'evt-m', ts: 5 })
+    expect(event.source).toBe('lab')
+    expect(rhizomorphEventSchema.safeParse(event).success).toBe(true)
+    expect(parseEvent({ ...event, source: 'workmux' }).ok).toBe(false)
     const result = parseEvent(event)
     expect(result.ok).toBe(true)
     if (result.ok) expect(result.event).toEqual(event)

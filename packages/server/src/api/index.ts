@@ -2,8 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import type { ServerContext } from '../server/context.js'
 import { registerConciergeCloneRoute, registerConciergeLaunchRoute, registerConciergeReposRoute } from './concierge.js'
 import { registerDoctorRoute } from './doctor.js'
-import { registerLabelRoute } from './label.js'
 import { registerLabRoutes } from './lab.js'
+import { registerLabelRoute } from './label.js'
 import { registerLaneIndexRoutes } from './lane-index.js'
 import { registerLanesRoute } from './lanes.js'
 import { registerMetaRoute } from './meta.js'
@@ -34,7 +34,7 @@ export function registerApiRoutes(app: FastifyInstance, ctx: ServerContext): voi
   // A session's first words (prd20 w6) — the read-only companion to the
   // transcript tail, sharing its attribution and its bounded-read shape.
   registerSessionPreviewRoute(app, ctx)
-  // The app's eleven mutating routes (prd16 rulings 2 and 4; prd1's OTLP inbox;
+  // The app's twelve mutating routes (prd16 rulings 2 and 4; prd1's OTLP inbox;
   // prd-20's two concierge powers and its repo switch; prd-17's operator
   // door) — see `ROUTE_CLASSES` below for the full classification, and
   // `rotate.ts` / `label.ts` for why each of these two is allowed to exist
@@ -99,7 +99,7 @@ export interface RouteClassification {
  * remembered.
  */
 export const ROUTE_CLASSES: readonly RouteClassification[] = [
-  // Gated mutations (7) — each carries `requireCapabilityToken` as a
+  // Gated mutations (8) — each carries `requireCapabilityToken` as a
   // route-local `preHandler` (`api/security.ts`).
   { method: 'POST', url: '/api/label', routeClass: 'gated-mutation' },
   { method: 'POST', url: '/api/rotate', routeClass: 'gated-mutation' },
@@ -107,6 +107,10 @@ export const ROUTE_CLASSES: readonly RouteClassification[] = [
   // repos' session directories (#389).
   { method: 'POST', url: '/api/retarget', routeClass: 'gated-mutation' },
   { method: 'POST', url: '/api/lab/launch', routeClass: 'gated-mutation' },
+  // prd53 ruling 3: measuring is a write — it runs a gate command in an arm's
+  // worktree and records the verdict — so it is gated like the launch it
+  // measures, and reaches the laboratory the same way (through `runCli`).
+  { method: 'POST', url: '/api/lab/measure', routeClass: 'gated-mutation' },
   // The concierge's two granted powers (prd-20 ruling 1 / ADR-0019): clone a
   // repo into its own namespace, and launch/relaunch the conductor. Both are
   // "never from a collector, never from a poll" — the gate is the grant.

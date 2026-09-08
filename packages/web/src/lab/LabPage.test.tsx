@@ -63,14 +63,31 @@ const MEASURED_EXPERIMENT = {
     {
       arm: 1,
       treatment: { model: 'opus', promptDigest: null },
-      runs: [{ eventId: 'evt-6', dispatchedAt: 1500, laneHandle: 'fork-3-arm-1', worktreePath: '/tmp/arm-5' }],
-      outcome: { verified: 'pass', verifiedDetail: null, costUsd: 3.5, durationMs: 4000, commits: 2 },
+      runs: [
+        {
+          eventId: 'evt-6',
+          dispatchedAt: 1500,
+          run: 1,
+          laneHandle: 'fork-3-arm-1',
+          worktreePath: '/tmp/arm-5',
+          // prd53 ruling 3: the outcome is the RUN's, with its provenance.
+          outcome: { verified: 'pass', verifiedDetail: null, costUsd: 3.5, durationMs: 4000, commits: 2, provenance: { source: 'measure-route', verifyCommand: 'npm test', measuredAt: 2000 } },
+        },
+      ],
     },
     {
       arm: 2,
       treatment: { model: 'sonnet', promptDigest: null },
-      runs: [{ eventId: 'evt-7', dispatchedAt: 1600, laneHandle: 'fork-3-arm-2', worktreePath: '/tmp/arm-6' }],
-      outcome: { verified: 'not-run', verifiedDetail: 'checkpoint restore failed', costUsd: null, durationMs: null, commits: null },
+      runs: [
+        {
+          eventId: 'evt-7',
+          dispatchedAt: 1600,
+          run: 1,
+          laneHandle: 'fork-3-arm-2',
+          worktreePath: '/tmp/arm-6',
+          outcome: { verified: 'not-run', verifiedDetail: 'checkpoint restore failed', costUsd: null, durationMs: null, commits: null, provenance: { source: 'measure-route', verifyCommand: 'npm test', measuredAt: 2000 } },
+        },
+      ],
     },
   ],
 }

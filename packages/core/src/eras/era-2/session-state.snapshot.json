@@ -1896,7 +1896,9 @@
     "byArm": {},
     "byFork": {},
     "byLane": {},
-    "dispatches": []
+    "dispatches": [],
+    "latestOutcomeByLane": {},
+    "measurements": []
   },
   "judge": {
     "byLane": {

@@ -1,7 +1,15 @@
 import path from 'node:path'
-import type { Exec, RhizomorphEvent } from '@rhizomorph/core'
-import { reduceAll } from '@rhizomorph/core'
-import type { ForkDispatchRecord } from '@rhizomorph/core'
+import type { Exec, ForkDispatchRecord, RhizomorphEvent } from '@rhizomorph/core'
+import {
+  COUNTERFACTUAL_CLAUSE,
+  canRankArms,
+  canSummariseArm,
+  confoundVoice,
+  dimensionsOf,
+  MIN_ARMS_TO_RANK,
+  MIN_COMPLETED_RUNS_TO_SUMMARISE,
+  reduceAll,
+} from '@rhizomorph/core'
 import { defaultDataRoot, sessionDirFor } from '../log/paths.js'
 import { listSessions, readSessionEvents } from '../log/session-log.js'
 import { describeExecFailure, exec as realExec, withTimeout } from '../server/exec.js'
@@ -29,8 +37,14 @@ import { runGit } from './git.js'
 
 export const DEFAULT_VERIFY_COMMAND = 'npm test'
 
-/** prd12 ruling 4's floor. Below this the surface shows runs, never conclusions. */
-export const MIN_ARMS_TO_RANK = 3
+/**
+ * prd12 ruling 4's floor — re-exported, not restated (prd53 ruling 2). The
+ * number lives once, in `@rhizomorph/core`'s lab laws, where the console's
+ * summariser reads it too; `compare.test.ts`'s grep law fails the build if a
+ * local copy ever comes back here. Below it the surface shows runs, never
+ * conclusions.
+ */
+export { MIN_ARMS_TO_RANK } from '@rhizomorph/core'
 
 /** Per-exec ceiling for the git plumbing this module runs (`countCommits`) — same value as `ROUTE_EXEC_TIMEOUT_MS` / `RETARGET_EXEC_TIMEOUT_MS`. A hung git call must not hang `compareFork` itself. NOT used for the verify command — see {@link COMPARE_VERIFY_TIMEOUT_MS}, which is the sibling of `RESTORE_EXEC_TIMEOUT_MS`, not of this one: a gate command is a wider thing to wait on than git plumbing, same as a dependency install is (`docs/design-notes/lab-launch-ceilings.md`). */
 export const COMPARE_EXEC_TIMEOUT_MS = 5000
@@ -52,6 +66,8 @@ export type VerifiedOutcome = 'pass' | 'fail' | 'not-run'
 
 export interface ArmComparison {
   arm: number
+  /** 1-based run within the arm (prd53 ruling 1) — one row per run, so an arm with three runs is three rows. */
+  run: number
   laneHandle: string
   worktreePath: string
   /** Model varied for this arm, or null when it ran the fleet default. */
@@ -73,8 +89,11 @@ export interface ForkComparison {
   forkId: string
   parentLane: string
   checkpointId: string
+  /** One row per RUN, arm-major then run order. `arms.length` is the run count, not the arm count. */
   arms: ArmComparison[]
-  /** True when there are enough arms for the table to say anything comparative. */
+  /** Distinct arms — the denominator a cross-arm claim is gated on (prd53 ruling 2), never the row count. */
+  armCount: number
+  /** True when there are enough ARMS for the table to say anything comparative — `canRankArms(armCount)`. */
   rankable: boolean
   verifyCommand: string
 }
@@ -111,7 +130,7 @@ export async function compareFork(options: CompareForkOptions): Promise<ForkComp
   const dispatches = positions
     .map((at) => state.forks.dispatches[at])
     .filter((record): record is ForkDispatchRecord => record !== undefined)
-    .sort((a, b) => a.arm - b.arm)
+    .sort((a, b) => a.arm - b.arm || a.run - b.run)
 
   const first = dispatches[0]
   if (!first) throw new Error(`fork "${options.forkId}" has no readable arms`)
@@ -124,6 +143,7 @@ export async function compareFork(options: CompareForkOptions): Promise<ForkComp
 
     arms.push({
       arm: dispatch.arm,
+      run: dispatch.run,
       laneHandle: dispatch.laneHandle,
       worktreePath: dispatch.worktreePath,
       model: dispatch.model,
@@ -136,12 +156,19 @@ export async function compareFork(options: CompareForkOptions): Promise<ForkComp
     })
   }
 
+  // Arms, not rows: since prd53 ruling 1 an arm holds r runs and each run is a
+  // row, so `arms.length` stopped meaning "arms" the moment runs became real.
+  // Three runs of one arm are three observations of one treatment — nothing
+  // to compare across (prd53 ruling 2).
+  const armCount = new Set(dispatches.map((dispatch) => dispatch.arm)).size
+
   return {
     forkId: options.forkId,
     parentLane: first.parentLane,
     checkpointId: first.checkpointId,
     arms,
-    rankable: arms.length >= MIN_ARMS_TO_RANK,
+    armCount,
+    rankable: canRankArms(armCount),
     verifyCommand,
   }
 }
@@ -237,16 +264,22 @@ async function readAllEvents(sessionDir: string): Promise<RhizomorphEvent[]> {
 
 // --- the table ------------------------------------------------------------------
 
-const COLUMNS = ['arm', 'lane', 'treatment', 'verified', 'cost', 'duration', 'commits'] as const
+const COLUMNS = ['arm', 'run', 'lane', 'treatment', 'verified', 'cost', 'duration', 'commits'] as const
 
 /**
  * The table, and nothing that resembles a verdict. Rows are always in arm
  * order — NOT sorted by any measurement, because a sorted table is a ranking
  * whether or not it says so.
+ *
+ * Three sentences core owns are printed here verbatim or not at all (prd53
+ * ruling 2): the confound voice when arms differ in both model and brief, the
+ * counterfactual clause below the floor, and the per-arm summary verdict once
+ * an arm holds more than one run — the same functions the console reads.
  */
 export function renderComparison(comparison: ForkComparison): string {
   const rows = comparison.arms.map((arm) => [
     String(arm.arm),
+    String(arm.run),
     arm.laneHandle,
     formatTreatment(arm),
     formatVerified(arm),
@@ -261,8 +294,10 @@ export function renderComparison(comparison: ForkComparison): string {
   const line = (cells: readonly string[]) =>
     cells.map((cell, column) => cell.padEnd(widths[column] ?? 0)).join('  ').trimEnd()
 
+  const runs = comparison.arms.length
+  const runsNote = runs === comparison.armCount ? '' : `, ${runs} run(s)`
   const out: string[] = [
-    `fork ${comparison.forkId} — ${comparison.arms.length} arm(s) of lane "${comparison.parentLane}" ` +
+    `fork ${comparison.forkId} — ${comparison.armCount} arm(s)${runsNote} of lane "${comparison.parentLane}" ` +
       `at checkpoint ${comparison.checkpointId}`,
     `verified by: ${comparison.verifyCommand}`,
     '',
@@ -273,19 +308,30 @@ export function renderComparison(comparison: ForkComparison): string {
   ]
 
   out.push(...distributionLines(comparison))
+  out.push(...armSummaryLines(comparison))
+
+  // The confound clause, whatever the arm count: two arms that differ in both
+  // dimensions are not an anecdote about a treatment, they are an anecdote
+  // about two. Printed in core's words, so the console says the same thing.
+  const voice = confoundVoice(dimensionsOf(comparison.arms))
+  if (voice !== null) out.push(voice)
+
   return out.join('\n')
 }
 
 /**
  * prd12 ruling 4, both halves. Under three arms this is a refusal; at three or
- * more it is a spread. Neither is a winner.
+ * more it is a spread. Neither is a winner. The denominator is ARMS (prd53
+ * ruling 2): the spread is still taken over every run, and says so.
  */
 function distributionLines(comparison: ForkComparison): string[] {
   const n = comparison.arms.length
+  const arms = comparison.armCount
   if (!comparison.rankable) {
     return [
-      `${n} arm(s) — runs only. Ranking needs n >= ${MIN_ARMS_TO_RANK} (prd12 ruling 4:`,
+      `${arms} arm(s) — runs only. Ranking needs n >= ${MIN_ARMS_TO_RANK} (prd12 ruling 4:`,
       'a comparison below three arms reports what happened, never which arm was better).',
+      `${COUNTERFACTUAL_CLAUSE}.`,
     ]
   }
 
@@ -297,7 +343,7 @@ function distributionLines(comparison: ForkComparison): string[] {
     .filter((duration): duration is number => duration !== null)
 
   const lines = [
-    `distribution over ${n} arms — verified ${passed}/${judged === 0 ? n : judged}` +
+    `distribution over ${arms} arms${n === arms ? '' : ` (${n} runs)`} — verified ${passed}/${judged === 0 ? n : judged}` +
       (judged < n ? ` (${n - judged} not run)` : ''),
   ]
   if (costs.length > 0) {
@@ -307,6 +353,29 @@ function distributionLines(comparison: ForkComparison): string[] {
     lines.push(`  duration  ${spread(durations, formatDuration)}`)
   }
   lines.push('no winner is named: prd12 ruling 4 reports distributions, and the choice stays yours.')
+  return lines
+}
+
+/**
+ * One line per arm, only once some arm holds more than one run — a single-run
+ * fork prints exactly what it always printed. Whether an arm's runs may be
+ * summarised is core's call (`canSummariseArm` over the runs that were
+ * actually measured), the same call the console's summariser makes.
+ */
+function armSummaryLines(comparison: ForkComparison): string[] {
+  if (comparison.arms.length === comparison.armCount) return []
+  const byArm = new Map<number, ArmComparison[]>()
+  for (const row of comparison.arms) {
+    byArm.set(row.arm, [...(byArm.get(row.arm) ?? []), row])
+  }
+  const lines: string[] = ['']
+  for (const [arm, rows] of byArm) {
+    const measured = rows.filter((row) => row.verified !== 'not-run').length
+    const verdict = canSummariseArm(measured)
+      ? 'a summary may be stated'
+      : `no summary — ${COUNTERFACTUAL_CLAUSE} (needs ${MIN_COMPLETED_RUNS_TO_SUMMARISE} measured)`
+    lines.push(`arm ${arm}: ${rows.length} run(s), ${measured} measured — ${verdict}`)
+  }
   return lines
 }
 

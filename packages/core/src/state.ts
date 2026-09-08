@@ -699,6 +699,29 @@ export interface ForkDispatchRecord {
   promptDigest: string | null
   laneHandle: string
   worktreePath: string
+  /** The launch ceiling the operator declared for this dispatch (prd53 ruling 6), or null when the default held. */
+  ceilingOverride: number | null
+}
+
+/**
+ * One `fork.measured` verdict, kept whole (prd53 ruling 3): the gate's word on
+ * one run, with its provenance. Cost and duration are NOT here — the fold
+ * already holds them per lane, and a surface derives them from the same state
+ * this record sits in.
+ */
+export interface ForkOutcomeRecord {
+  eventId: string
+  /** When the gate was run — the outcome's own timestamp. */
+  ts: number
+  forkId: string
+  laneHandle: string
+  arm: number
+  run: number
+  verified: 'pass' | 'fail' | 'not-run'
+  verifiedDetail: string | null
+  verifyCommand: string
+  commits: number | null
+  source: 'measure-route' | 'compare-cli'
 }
 
 /**
@@ -706,7 +729,9 @@ export interface ForkDispatchRecord {
  * indexes rather than one: a comparison surface asks "which arms belong to
  * this fork", a summary asks "which runs belong to this arm" (prd53 ruling
  * 1), and every lane-keyed surface asks "is this lane an arm, and of what".
- * All hold positions into `dispatches`, never copies.
+ * All hold positions into `dispatches`, never copies. Since prd53 ruling 3
+ * the slice also holds every measurement, with the latest per lane indexed —
+ * re-measuring appends, never overwrites, so the history stays readable.
  */
 export interface ForkState {
   dispatches: ForkDispatchRecord[]
@@ -719,6 +744,10 @@ export interface ForkState {
   byArm: Record<string, number[]>
   /** Synthetic lane handle → positions in `dispatches`. One run per handle: a handle is minted per (fork, arm, run). */
   byLane: Record<string, number[]>
+  /** Every `fork.measured`, in observation order (prd53 ruling 3). */
+  measurements: ForkOutcomeRecord[]
+  /** Lane handle → position in `measurements` of its newest verdict. Absent means never measured — and nothing stands in for that. */
+  latestOutcomeByLane: Record<string, number>
 }
 
 /** The `byArm` key. A fork id is `fork-<uuid>` and never holds `#`, so no key can collide with a neighbour's. */
@@ -727,7 +756,7 @@ export function armKey(forkId: string, arm: number): string {
 }
 
 export function initialForkState(): ForkState {
-  return { dispatches: [], byFork: {}, byArm: {}, byLane: {} }
+  return { dispatches: [], byFork: {}, byArm: {}, byLane: {}, measurements: [], latestOutcomeByLane: {} }
 }
 
 /**

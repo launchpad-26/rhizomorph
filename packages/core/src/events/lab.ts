@@ -124,6 +124,13 @@ export const forkDispatchedPayloadSchema = z
      * Not an `upcast()`: nothing is reshaped, one field is added.
      */
     run: z.number().int().positive().optional(),
+    /**
+     * The launch ceiling the operator declared for this dispatch, when they
+     * raised it past the default (prd53 ruling 6). Absent means the default
+     * held. A declared act, recorded where it happened — never a silent
+     * config. Optional and additive, like `run`.
+     */
+    ceilingOverride: z.number().int().positive().optional(),
     treatment: forkTreatmentSchema,
     /** The synthetic lane handle this arm runs under — what the observer will see it as. */
     laneHandle: nonEmptyString,
@@ -145,4 +152,51 @@ export const forkDispatchedEventSchema = z.object({
   payload: forkDispatchedPayloadSchema,
 })
 
-export const labEventSchemas = [forkCheckpointEventSchema, forkDispatchedEventSchema] as const
+/** Who ran the gate: the console's measure route (prd53 ruling 3) or, one day, the CLI's own compare. */
+export const forkMeasuredSourceSchema = z.enum(['measure-route', 'compare-cli'])
+export type ForkMeasuredSource = z.infer<typeof forkMeasuredSourceSchema>
+
+/** The gate's verdict on one run — `not-run` is legal and means exactly that: no outcome is invented in its place. */
+export const forkVerifiedOutcomeSchema = z.enum(['pass', 'fail', 'not-run'])
+export type ForkVerifiedOutcome = z.infer<typeof forkVerifiedOutcomeSchema>
+
+/**
+ * MEASURING IS A WRITE (prd53 ruling 3). One per RUN measured, emitted by
+ * whoever ran the gate in that run's worktree. The outcome is typed with its
+ * provenance — which command judged it, who ran that command, when (the
+ * event's own `ts`) — so a surface can say "verified by `npm test` on the
+ * measure route at 14:02" rather than a bare tick.
+ *
+ * Only what the gate produced travels here. Cost and duration are the fold's
+ * own — it already books `llm.cost` per lane and knows every event's `ts` —
+ * so repeating them on this record would let two numbers about one run
+ * disagree. Re-measuring appends another record; the fold keeps them all and
+ * indexes the latest per lane.
+ */
+export const forkMeasuredPayloadSchema = z.object({
+  forkId: nonEmptyString,
+  /** The run's synthetic lane handle — unique per (fork, arm, run) since prd53 ruling 1. */
+  laneHandle: nonEmptyString,
+  arm: z.number().int().positive(),
+  run: z.number().int().positive(),
+  verified: forkVerifiedOutcomeSchema,
+  /** The failing command's first line, or why it was not run. Null on a pass. */
+  verifiedDetail: z.string().nullable(),
+  /** The gate command, verbatim — the outcome means nothing without it. */
+  verifyCommand: nonEmptyString,
+  /** Commits the run made on top of its restored snapshot; null when its worktree could not be read. */
+  commits: z.number().int().nonnegative().nullable(),
+  source: forkMeasuredSourceSchema,
+})
+export type ForkMeasuredPayload = z.infer<typeof forkMeasuredPayloadSchema>
+
+/** Hand-built for the same reason `forkCheckpointEventSchema` is — see its doc comment. */
+export const forkMeasuredEventSchema = z.object({
+  id: nonEmptyString,
+  ts: timestampSchema,
+  source: z.literal('lab'),
+  type: z.literal('fork.measured'),
+  payload: forkMeasuredPayloadSchema,
+})
+
+export const labEventSchemas = [forkCheckpointEventSchema, forkDispatchedEventSchema, forkMeasuredEventSchema] as const
