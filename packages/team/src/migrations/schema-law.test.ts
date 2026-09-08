@@ -1,0 +1,381 @@
+import { readFileSync, readdirSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { describe, expect, it } from 'vitest'
+
+/**
+ * THE SCHEMA LAW — reading the migrations back (prd-51 ruling 5).
+ *
+ * This issue stands up no Postgres, by design: the ingest lane meets a real
+ * host in wave 4, and adding a database service to CI is a workflow change that
+ * belongs to another programme. So the schema is verified the only honest way
+ * left — by reading the tracked `.sql` files and asserting what they say.
+ *
+ * That is a weaker claim than "the database behaves this way", and the file
+ * says so rather than implying more: it proves the DDL this package will run is
+ * the DDL ruling 5 specifies. What it cannot prove — that partition pruning
+ * works, that BRIN behaves, that RLS actually refuses a cross-project read — is
+ * wave 4's, on the real host.
+ *
+ * ## Comments are stripped first, and that is load-bearing
+ *
+ * `0001_events.sql`'s header comment records the ruling 4 / ruling 5 collision
+ * verbatim, including the phrases `ON CONFLICT`, `PRIMARY KEY` and
+ * `CREATE INDEX CONCURRENTLY` — as the things this schema deliberately does NOT
+ * do. A law that swept the raw text would convict the file for explaining
+ * itself, and the next author would resolve that by deleting the explanation.
+ * So the forbidden-pattern clauses run on comment-stripped SQL, and only the
+ * citation clause reads the raw text.
+ *
+ * Cited: `docs/research/2026-08-28-shared-record-s4-schema.md` — the spike that
+ * measured `pages_per_range = 32` and found the planner never chose an
+ * index-only scan over the covering expression index.
+ */
+
+const MIGRATIONS_DIR = path.dirname(fileURLToPath(import.meta.url))
+const CONTRACT_PATH = path.join(MIGRATIONS_DIR, '..', 'storage', 'contract.ts')
+
+const RULING_5_COLUMNS = [
+  'project_id',
+  'actor_instance',
+  'n',
+  'event_id',
+  'ts',
+  'type',
+  'source',
+  'lane',
+  'worktree',
+  'payload',
+  'line',
+]
+
+/** Every tracked migration, LF-normalised, in ordinal order. */
+function migrations(): { id: string; raw: string }[] {
+  return readdirSync(MIGRATIONS_DIR)
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+    .map((f) => ({
+      id: f.slice(0, -'.sql'.length),
+      raw: readFileSync(path.join(MIGRATIONS_DIR, f), 'utf8').replace(/\r\n/g, '\n'),
+    }))
+}
+
+/** `-- …` to end of line, removed. These files contain no `--` inside a string literal. */
+export function stripSqlComments(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => {
+      const at = line.indexOf('--')
+      return at === -1 ? line : line.slice(0, at)
+    })
+    .join('\n')
+}
+
+function sqlOf(id: string): string {
+  const found = migrations().find((m) => m.id === id)
+  if (!found) throw new Error(`no migration ${id}`)
+  return stripSqlComments(found.raw)
+}
+
+function rawOf(id: string): string {
+  const found = migrations().find((m) => m.id === id)
+  if (!found) throw new Error(`no migration ${id}`)
+  return found.raw
+}
+
+function allStripped(): string {
+  return migrations()
+    .map((m) => stripSqlComments(m.raw))
+    .join('\n')
+}
+
+/** The column list of the `events` table declaration, as `[name, rest]` pairs. */
+function eventsColumns(): { name: string; declaration: string }[] {
+  const match = /CREATE TABLE IF NOT EXISTS events \(([\s\S]*?)\)\s*PARTITION BY RANGE \(ts\);/.exec(sqlOf('0001_events'))
+  if (!match) throw new Error('the events table declaration was not found')
+  return (match[1] as string)
+    .split('\n')
+    .map((line) => line.trim().replace(/,$/, ''))
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const [name = '', ...rest] = line.split(/\s+/)
+      return { name, declaration: rest.join(' ') }
+    })
+}
+
+interface IndexDeclaration {
+  readonly name: string
+  readonly table: string
+  readonly body: string
+  readonly concurrently: boolean
+}
+
+const CREATE_INDEX_RE =
+  /CREATE\s+(?:UNIQUE\s+)?INDEX\s+(CONCURRENTLY\s+)?(?:IF NOT EXISTS\s+)?(\w+)\s+ON\s+(\w+)\s+([^;]*);/gi
+
+export function indexDeclarations(sql: string): IndexDeclaration[] {
+  return [...sql.matchAll(CREATE_INDEX_RE)].map((m) => ({
+    name: m[2] as string,
+    table: m[3] as string,
+    body: (m[4] as string).replace(/\s+/g, ' ').trim(),
+    concurrently: m[1] !== undefined,
+  }))
+}
+
+/** `CREATE TABLE IF NOT EXISTS <name>` — the tables a migration declares. */
+export function createdTables(sql: string): string[] {
+  return [...sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?(\w+)/gi)].map((m) => m[1] as string)
+}
+
+/** `CREATE ROLE <name> <attributes>` — every role and whether it carries BYPASSRLS. */
+export function createdRoles(sql: string): { name: string; bypassRls: boolean }[] {
+  return [...sql.matchAll(/CREATE ROLE\s+(\w+)([^;]*);/gi)].map((m) => ({
+    name: m[1] as string,
+    bypassRls: /\bBYPASSRLS\b/i.test(m[2] as string),
+  }))
+}
+
+/** `GRANT <privileges> ON <tables> TO <roles>;` */
+export function grants(sql: string): { privileges: string[]; tables: string[]; roles: string[] }[] {
+  return [...sql.matchAll(/GRANT\s+([\w\s,]+?)\s+ON\s+([\w\s,]+?)\s+TO\s+([\w\s,]+?);/gi)].map((m) => ({
+    privileges: (m[1] as string).split(',').map((s) => s.trim().toUpperCase()),
+    tables: (m[2] as string).split(',').map((s) => s.trim()),
+    roles: (m[3] as string).split(',').map((s) => s.trim()),
+  }))
+}
+
+describe('case 26 — the walk really reads the tracked migrations', () => {
+  it('finds exactly the three that ship with this package', () => {
+    expect(migrations().map((m) => m.id)).toEqual(['0001_events', '0002_projections', '0003_roles_rls'])
+  })
+
+  it('and they contain real DDL, not empty files', () => {
+    for (const m of migrations()) expect(stripSqlComments(m.raw).trim().length).toBeGreaterThan(50)
+  })
+
+  it('comment stripping removes the header without eating the statements', () => {
+    const stripped = sqlOf('0001_events')
+    expect(rawOf('0001_events')).toContain('ON CONFLICT')
+    expect(stripped).not.toContain('ON CONFLICT')
+    expect(stripped).toContain('CREATE TABLE IF NOT EXISTS events (')
+    expect(stripped).toContain('PARTITION BY RANGE (ts)')
+    // …and it is a line-scoped strip, not a whole-file one.
+    expect(stripSqlComments('SELECT 1; -- why\nSELECT 2;')).toBe('SELECT 1; \nSELECT 2;')
+  })
+})
+
+describe('case 18 — the events table is exactly ruling 5', () => {
+  it('is partitioned by range on ts', () => {
+    expect(sqlOf('0001_events')).toContain('PARTITION BY RANGE (ts)')
+  })
+
+  it('declares exactly the eleven columns, as a set — an extra one fails too', () => {
+    expect(eventsColumns().map((c) => c.name).sort()).toEqual([...RULING_5_COLUMNS].sort())
+  })
+
+  it('line is `text NOT NULL` and payload is `jsonb NOT NULL`', () => {
+    const byName = new Map(eventsColumns().map((c) => [c.name, c.declaration]))
+    expect(byName.get('line')).toMatch(/^text\s+NOT NULL$/)
+    expect(byName.get('payload')).toMatch(/^jsonb\s+NOT NULL$/)
+    expect(byName.get('ts')).toMatch(/^timestamptz\s+NOT NULL$/)
+    expect(byName.get('n')).toMatch(/^bigint\s+NOT NULL$/)
+  })
+
+  it('the parser really parsed — a rigged declaration with a twelfth column would be seen', () => {
+    // The guard against a regex that matched nothing: the extractor is shown
+    // returning a different answer for different input.
+    expect(eventsColumns().length).toBe(11)
+    expect(RULING_5_COLUMNS.length).toBe(11)
+  })
+})
+
+describe('case 19 — a monthly window, with a top-up path', () => {
+  it('creates bounded monthly partitions derived from date_trunc', () => {
+    const sql = sqlOf('0001_events')
+    expect(sql).toContain("date_trunc('month'")
+    expect(sql).toMatch(/FOR VALUES FROM \(.+\) TO \(.+\)/)
+    expect(sql).toContain('PARTITION OF events')
+  })
+
+  it('and the port declares the top-up, because a window is not a promise', () => {
+    expect(readFileSync(CONTRACT_PATH, 'utf8')).toContain('ensureMonthlyPartition(month: string): Promise<void>')
+  })
+})
+
+describe('case 20 — exactly four indexes on events', () => {
+  it('one BRIN on ts and three btrees, and nothing else', () => {
+    const onEvents = indexDeclarations(allStripped()).filter((i) => i.table === 'events')
+    expect(onEvents.length).toBe(4)
+    expect(onEvents.map((i) => i.body).sort()).toEqual(
+      [
+        'USING brin (ts) WITH (pages_per_range = 32)',
+        '(lane, ts)',
+        '(project_id, lane)',
+        '(type, ts)',
+      ].sort(),
+    )
+  })
+
+  it('and the whole schema declares no index on any other table', () => {
+    expect(indexDeclarations(allStripped()).every((i) => i.table === 'events')).toBe(true)
+  })
+
+  it('the extractor bites — it finds a planted fifth index and reads its target', () => {
+    const rigged = indexDeclarations('CREATE INDEX IF NOT EXISTS x ON events (source);')
+    expect(rigged).toEqual([{ name: 'x', table: 'events', body: '(source)', concurrently: false }])
+    expect(indexDeclarations('-- CREATE INDEX nope ON events (source)')).toEqual([])
+  })
+})
+
+describe('case 21 — no covering expression index, and the note is cited', () => {
+  it('no index covers a jsonb expression the planner never chose', () => {
+    for (const index of indexDeclarations(allStripped())) {
+      expect(index.body).not.toContain('INCLUDE (')
+      expect(index.body).not.toContain('->>')
+    }
+  })
+
+  it('and the file cites the spike that measured it', () => {
+    expect(rawOf('0001_events')).toContain('docs/research/2026-08-28-shared-record-s4-schema.md')
+  })
+})
+
+describe('case 22 — the three projections exist, all of them', () => {
+  it('0002 creates exactly spend_by_project_day, lane_state and collisions', () => {
+    expect(createdTables(sqlOf('0002_projections')).sort()).toEqual([
+      'collisions',
+      'lane_state',
+      'spend_by_project_day',
+    ])
+  })
+})
+
+describe('case 23 — roles and RLS, both facts', () => {
+  it('the ingest writer bypasses RLS', () => {
+    const roles = createdRoles(sqlOf('0003_roles_rls'))
+    expect(roles.length).toBeGreaterThanOrEqual(3)
+    expect(roles.filter((r) => r.bypassRls).map((r) => r.name)).toEqual(['rz_ingest'])
+  })
+
+  it('every table has row level security enabled, and FORCEd so the owner is inside it too', () => {
+    const sql = sqlOf('0003_roles_rls')
+    for (const table of ['events', 'spend_by_project_day', 'lane_state', 'collisions']) {
+      expect(sql).toContain(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`)
+      expect(sql).toContain(`ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`)
+    }
+  })
+
+  /**
+   * The general form of the defect found reviewing #360, not the instance.
+   *
+   * `GRANT INSERT, UPDATE` on the projections without SELECT produced a role
+   * that could not perform the write it exists for: PostgreSQL requires SELECT
+   * on every column named in a WHERE clause and on the row that
+   * `ON CONFLICT ... DO UPDATE` reads. EXECUTED against PostgreSQL 18.4 --
+   * `ERROR: permission denied for table spend_by_project_day` -- and controlled
+   * by granting SELECT (both statements pass) and revoking it again (denied).
+   *
+   * Asserting the instance would pin one grant line. This asserts the rule, so
+   * a fourth projection added later with the same two verbs reddens here rather
+   * than in wave 3 against a real database.
+   *
+   * `events` is deliberately exempt and named: ingest appends and never reads
+   * it back, so INSERT alone is correct and a SELECT there would be a widening.
+   *
+   * MUTATION: drop SELECT from the projections grant -- red.
+   */
+  it('any table a role may UPDATE, it may also SELECT — UPDATE ... WHERE cannot run without it', () => {
+    const sql = sqlOf('0003_roles_rls')
+    const selectable = new Map<string, Set<string>>()
+    const updatable = new Map<string, Set<string>>()
+    for (const grant of grants(sql)) {
+      for (const role of grant.roles) {
+        for (const table of grant.tables) {
+          if (grant.privileges.includes('SELECT')) {
+            if (!selectable.has(role)) selectable.set(role, new Set())
+            selectable.get(role)?.add(table)
+          }
+          if (grant.privileges.includes('UPDATE')) {
+            if (!updatable.has(role)) updatable.set(role, new Set())
+            updatable.get(role)?.add(table)
+          }
+        }
+      }
+    }
+
+    // Not vacuous: some role must actually hold UPDATE somewhere.
+    expect([...updatable.values()].reduce((n, set) => n + set.size, 0)).toBeGreaterThan(0)
+
+    const missing: string[] = []
+    for (const [role, tables] of updatable) {
+      for (const table of tables) {
+        if (!selectable.get(role)?.has(table)) missing.push(`${role} may UPDATE ${table} but not SELECT it`)
+      }
+    }
+    expect(missing).toEqual([])
+  })
+
+  it('every policy predicates on project_id', () => {
+    const policies = [...sqlOf('0003_roles_rls').matchAll(/CREATE POLICY\s+(\w+)\s+ON\s+(\w+)([^;]*);/gi)]
+    expect(policies.length).toBe(4)
+    for (const policy of policies) {
+      expect(policy[3]).toContain('project_id = current_setting')
+    }
+  })
+
+  it('NO role granted SELECT on events also carries BYPASSRLS — the failure that makes isolation fiction', () => {
+    const sql = sqlOf('0003_roles_rls')
+    const bypassing = new Set(
+      createdRoles(sql)
+        .filter((r) => r.bypassRls)
+        .map((r) => r.name),
+    )
+    const readers = new Set<string>()
+    for (const grant of grants(sql)) {
+      if (!grant.privileges.includes('SELECT')) continue
+      if (!grant.tables.includes('events')) continue
+      for (const role of grant.roles) readers.add(role)
+    }
+    expect(readers.size).toBeGreaterThan(0)
+    expect([...readers].filter((r) => bypassing.has(r))).toEqual([])
+  })
+
+  it('the grant parser bites — it would see the violation it is asserting the absence of', () => {
+    const rigged = 'CREATE ROLE bad NOLOGIN BYPASSRLS;\nGRANT SELECT ON events TO bad;'
+    expect(createdRoles(rigged)).toEqual([{ name: 'bad', bypassRls: true }])
+    expect(grants(rigged)).toEqual([{ privileges: ['SELECT'], tables: ['events'], roles: ['bad'] }])
+  })
+})
+
+describe('case 24 — event_id is stored and never keyed', () => {
+  it('appears in the events column list', () => {
+    expect(eventsColumns().map((c) => c.name)).toContain('event_id')
+  })
+
+  it('appears in no index, no primary key, no ON CONFLICT and no WHERE in any tracked migration', () => {
+    for (const { id, raw } of migrations()) {
+      const sql = stripSqlComments(raw)
+      for (const index of indexDeclarations(sql)) {
+        expect(`${id}:${index.body}`).not.toContain('event_id')
+      }
+      for (const clause of [
+        ...sql.matchAll(/PRIMARY KEY\s*\(([^)]*)\)/gi),
+        ...sql.matchAll(/ON CONFLICT\s*\(([^)]*)\)/gi),
+        ...sql.matchAll(/\bWHERE\b([^;]*)/gi),
+      ]) {
+        expect(`${id}:${clause[1] ?? clause[0]}`).not.toContain('event_id')
+      }
+    }
+  })
+})
+
+describe('case 25 — no CONCURRENTLY, because applyMigration runs inside a transaction', () => {
+  it('no tracked migration uses it', () => {
+    expect(allStripped()).not.toMatch(/\bCONCURRENTLY\b/i)
+    expect(indexDeclarations(allStripped()).some((i) => i.concurrently)).toBe(false)
+  })
+
+  it('the detector would see it — the extractor flags a planted CONCURRENTLY', () => {
+    expect(indexDeclarations('CREATE INDEX CONCURRENTLY x ON events (n);')[0]?.concurrently).toBe(true)
+  })
+})
