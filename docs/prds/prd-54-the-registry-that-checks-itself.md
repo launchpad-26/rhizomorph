@@ -130,8 +130,15 @@ verbatim-occurrence check cannot tell that apart from a stale quote — it is th
 problem of Ruling 3 in the other direction, a claim that is true *because* the thing is absent. The
 entry was reworded to avoid quoting the absent form at all, which is the cheap fix and probably the
 right house style; whether the law needs an explicit "asserted absent" declaration, or whether
-forbidding the construction is enough, is **open, not ruled**. Recorded here rather than as a new
-ruling because Ruling 2's verdict is unchanged — only its edge is now known.
+forbidding the construction is enough, was open. Recorded here rather than as a new ruling
+because Ruling 2's verdict is unchanged — only its edge was then unknown.
+
+— **ANSWERED (operator, 2026-09-09): forbidding the construction is enough.** See **Ruling 6**
+below, which refuses a quoted form that does not appear in the cited file even when the point is
+its absence. This answers THIS note only. Amendment note 2 below, added the same day by the
+independent review of `fa64a7a7`, raises a second and separate edge of this ruling — which *unit*
+is checked — and that one is still **open, not ruled**. Ruling 6 does not settle it, and #367
+still blocks on it.
 
 *Amendment note 2, 2026-09-09, from the independent review of this document at `fa64a7a7`.* A
 second edge, of the same class as the one above and found the same way — by auditing an entry
@@ -142,6 +149,13 @@ body's check then applied to the whole backticked span — the two agree. Read a
 Extent lifts the assertion token out and asserts only that, and the ruling goes green on a stale
 entry whenever the retired number still occurs anywhere in the cited file for an unrelated reason.
 The exemplar cannot distinguish them, because the tokens entry's span *is* `` `.toBe(225)` ``.
+
+— **STILL OPEN as of 2026-09-09**, and now the *only* open edge of this ruling: note 1 above is
+answered by Ruling 6. This note asked for both of Ruling 2's edges to be settled by one wave-0
+act; they were not, because the absence question was decided before this note existed. Settling
+the unit is therefore its own wave-0 act, and the measurement recorded above — the span reading
+reddens all three false claims with no false positive across the other 18 entries, the token
+reading passes two of them — is what a ruling on it should be written against.
 
 The route-class entry can, and `api/route-class-law.test.ts` carries the decoy that makes it bite:
 `expect(gatedFound.length).toBe(25)` counts gated routes, while the two pins that entry actually
@@ -185,8 +199,13 @@ written to this ruling's literal wording would redden nearly every entry in the 
 run, including the three entries the ruling was written to protect. The verdict stands; its
 resolution rule does not exist yet. Whether the law resolves a reason's paths against the entry's
 own leading path — which would make the shorthand correct by construction — or the shorthand is
-expanded file-wide instead, is **open, not ruled**, and must be settled before wave 2 writes the
-check rather than during it.
+expanded file-wide instead, was open, and had to be settled before wave 2 wrote the check rather
+than during it.
+
+— **ANSWERED (operator, 2026-09-09): both, in a fixed order, and nothing else.** See **Ruling 5**
+below. Measured before deciding: the whole registry carries only nine backticked path citations,
+so the strict rule costs two path expansions in one entry rather than the file-wide sweep this
+note feared. This ruling's edge is now closed.
 
 ## Ruling 4 — the rot is corrected before the law exists, in its own wave
 
@@ -195,28 +214,158 @@ beside its own two red entries either arrives red or arrives with them allowlist
 allowlist minted on day one is how a ratchet becomes decoration. Extent: wave 1 corrects claims
 and nothing else — no new entries, no rewording beyond what truth requires.
 
+## Ruling 5 — a reason's path resolves repo-relative, or against the entry's own package root, and nowhere else (settles ruling 3's open edge)
+
+**Verdict.** A backticked path in a reason is checked by exactly two attempts, in
+order: as **repo-relative**, and — only if the entry's own leading path lies
+inside a package source root — as relative to **that one root**. Nothing else is
+tried. A citation that resolves under neither must be written repo-relative, and
+a citation that resolves nowhere at all fails, unless it is declared generated
+under ruling 3.
+
+**Why, measured over all 21 entries on `main` (2026-09-09).** There are only
+**nine** backticked path citations in the whole registry, and every one of them
+gets a defined verdict under this rule:
+
+| how it resolves | count | verdict |
+|---|---|---|
+| repo-relative | 2 | passes |
+| under the entry's own package source root | 4 | passes — this is the shorthand ruling 3's note found |
+| only under **another** package's root | 2 | **must be expanded** — both are `api/index.ts` and `cli/index.ts` in the `README.md` entry |
+| nowhere | 1 | `.swarm/timing-count`, handled by ruling 3's generated declaration |
+
+So the total cost of this rule is **two path expansions**, both in one entry, and
+both already in wave 1's file. That is what makes it affordable to be strict:
+the alternative rules below are only cheaper in theory.
+
+**Why not "try every package root".** It would pass all nine with no edits, and
+it is the wrong trade. `theme/tokens.test.ts` would be satisfied by the first
+package that happens to contain that relative path, so a citation could resolve
+against a **different file than the one the author meant** and still pass — a
+check that is true and useless, which is #649's lesson and the reason ruling 3
+exists at all. Determinism is the point: two attempts, both nameable in the
+failure message, no search.
+
+**Why not "require repo-relative everywhere".** It would also work, at the cost
+of expanding four legible shorthand citations into long paths inline, in a file
+whose entries are already long. The shorthand is genuinely readable *inside its
+own package* — `app/StatusBar.tsx` in a `packages/web/src/theme/…` entry is
+unambiguous to a reader and to this rule. It is only ambiguous across packages,
+which is exactly where this ruling forbids it.
+
+**Extent.** The two candidate roots and their order are asserted by the law, and
+the failure message names both attempts, so a red bar says what it tried rather
+than only that it failed. The package-source-root list is **derived** from the
+workspace, never hardcoded — a hardcoded list is the same rot class this PRD was
+written about, one level up. An entry whose leading path is not inside any
+package (`README.md`, `package-lock.json`, `scripts/gate.sh`, `.swarm/*`) has no
+second attempt and therefore no shorthand: its citations are repo-relative or
+they fail. A citation carrying a line or range suffix (`foo.sh:79-81`) is not a
+path claim and is not checked here; the registry's existing cite-anchor-text-
+never-a-line-number rule already governs those, and tightening that is a
+separate decision.
+
+**Answers Open question 1's sibling, not Open question 1.** Un-backticked prose
+numbers remain unchecked and unruled.
+
+## Ruling 6 — an entry may not quote a form that does not appear in the cited file, even to say it does not appear (settles ruling 2's absence edge)
+
+**Verdict.** The construction is **refused**. This settles Ruling 2's *absence* edge (its
+amendment note 1) and nothing else — the unit question raised by its amendment note 2 is a
+separate wave-0 act and remains open. Ruling 2's check stays a plain
+verbatim-occurrence test with no inversion, no marker and no exception: if a
+reason backticks an assertion form, that form occurs in the cited file. A fact
+about something being *absent* is stated in prose instead.
+
+**Why.** The asymmetry with ruling 3's generated-path declaration is the whole
+argument, and it is a real distinction rather than a preference:
+
+- A **generated path** must be named to be useful. "The gate writes a count file
+  under `.swarm/`" is not a substitute for `.swarm/timing-count` — the reader
+  needs the name, and the name cannot be checked by existence, so a declared,
+  asserted exception is the only way to carry it. Hence ruling 3.
+- An **absent form** never needs to be quoted. Everything a reader needs can be
+  said about what *is* there. #353's entry is the worked example: it went from
+  quoting `` `.toBe(14)` `` to say that form is absent, to *"the pin is written
+  against the constant and never against the literal"* — and the sentence got
+  **shorter, truer and more useful**, because it names what the reader will
+  actually find when they open the file.
+
+So the exception ruling 2 could have granted would buy expressiveness the file
+does not need, at the cost of the one property that makes the check worth having:
+that a backticked form in a reason is always something you can grep for and find.
+An entry whose quotations are sometimes assertions and sometimes anti-assertions
+cannot be read at a glance, and a reader who greps a quoted form and finds
+nothing would no longer know whether they had found rot or a footnote.
+
+**Extent.** Applies to every backticked `.toBe(N)` / `.toHaveLength(N)` /
+`.toEqual(…)` form in any reason — the same surface as ruling 2, unchanged. It
+does **not** forbid *mentioning* a form in prose without backticks, which is how
+an author who genuinely needs to name an absent spelling should do it; the law
+checks backticked forms only. It does not extend to paths, which ruling 5 and
+ruling 3 govern between them.
+
+**Consequence for wave 2, stated so it is not discovered late.** With this
+ruling, the law needs no absence machinery at all — no marker to parse, no
+inversion branch, no allowlist. That is the point: ruling 4 exists to keep a
+day-one allowlist out of this law, and the cheapest way to honour it is a rule
+with no exception to allowlist.
+
 ## Sequencing (waves, each gated as ever)
 
-`.swarm/coupling.txt` is also [#353][i353]'s and [#358][i358]'s fence; both are **charter-laws**
-issues and land before wave 1 starts, or wave 1 rebases onto them. No wave enters
-`scripts/fence-lint.sh` (Non-goals), and none enters `doc-citation-law.test.ts`, which is prd-17
+*Groomed 2026-09-09, operator sign-off in session; written to what was groomed rather than to the
+draft it replaced. Three deviations from that draft, each deliberate: the `.swarm/timing-count`
+declaration moved from wave 2 into wave 1; wave 2 became one issue rather than three parallel
+items; and the law also ports the shell script's presence checks. Reasons below.*
+
+`.swarm/coupling.txt` is also [#353][i353]'s and [#358][i358]'s fence. [#353][i353] landed on
+`main` as `4299adec`; [#358][i358] is still open, and wave 1 waits on it — all three edit that one
+file, so they are sequential by construction rather than parallel. No wave enters
+scripts/fence-lint.sh (Non-goals), and none enters `doc-citation-law.test.ts`, which is prd-17
 territory.
 
-**Wave 1 — the Keystone: the registry's own claims are true.** Claimed by nobody downstream but
-the law that checks it. Corrects the `tokens.test.ts` entry (`.toBe(225)` → the `RAW_PIXEL_SIZES`
-symbol, today 0, with the both-directions framing re-stated honestly at zero) and the
-`route-class-law.test.ts` entry (`.toBe(25)` → 30, twice). One file: `.swarm/coupling.txt`.
+**Wave 0 — operator acts, booked and not dispatchable. NOT complete.** Three items, two answered:
 
-**Wave 2 — parallel, fenced apart:** the law itself, asserting Ruling 2's verbatim-or-symbol check
-and Ruling 3's resolve-or-declared-generated check over every entry, in a new test file under
-`packages/server/src/` · the generated-path declaration for `.swarm/timing-count` in
-`.swarm/coupling.txt`, with `scripts/gate.sh` asserted as its generator ·
-`scripts/dev/coupling.test.sh` keeping its presence checks and gaining a pointer to the law, so
-the two cannot silently diverge.
+- Ruling 3's resolution edge — **answered**, as Ruling 5.
+- Ruling 2's absence edge — **answered**, as Ruling 6.
+- Ruling 2's *unit* edge — **open**. Raised by Ruling 2's amendment note 2, from the independent
+  review of `fa64a7a7`, after the other two were decided. Until it is settled, wave 2 cannot be
+  written: the two readings of Ruling 2 disagree on two of the three spans in the registry, and
+  the token reading passes two of the three false claims this PRD exists to catch — Success 4's
+  own route-class example among them. No issue is minted for any of the three.
+
+**Wave 1 — the Keystone: the registry's own claims are true.** [#366][i366]. Claimed by nobody
+downstream but the law that checks it. One file, `.swarm/coupling.txt`:
+
+- the `tokens.test.ts` entry — `.toBe(225)` becomes the `RAW_PIXEL_SIZES` symbol, today 0, with
+  the both-directions framing re-stated honestly at zero;
+- the `route-class-law.test.ts` entry — its two `.toBe(25)` spans re-derived from the file, which
+  pins 30. Note that this entry is the one Ruling 2's unit edge turns on, and correcting it does
+  not settle that edge: `api/route-class-law.test.ts:180` carries an unrelated `.toBe(25)` that
+  makes the token reading pass a stale claim regardless of what this wave writes;
+- the `.swarm/timing-count` generated declaration, with `scripts/gate.sh` asserted as its
+  generator. **Moved here from wave 2**, because the law arrives red without it: as drafted they
+  were siblings in one wave, which is an intra-wave dependency and a stack wearing a bundle's
+  clothes;
+- the two cross-package shorthand citations Ruling 5 forbids — `api/index.ts` and `cli/index.ts`
+  in the `README.md` entry — expanded to repo-relative. Both sit inside this wave's one file,
+  which is what makes Ruling 5 affordable.
+
+**Wave 2 — one issue, not a parallel set.** [#367][i367]. The law asserting Rulings 2, 3, 5 and 6
+over every entry, in a new file under `packages/server/src/`, **and** the pointer added to
+`scripts/dev/coupling.test.sh` so the two cannot silently diverge. One issue rather than two lanes
+because the pointer names the law's own filename, so they cannot be built at once. The law also
+**ports the shell script's presence checks** — each entry's leading path exists, each reason is
+present and not a repeat of its own path — so they run in CI rather than only by hand; that reads
+Ruling 1's extent as covering registry checks while leaving its fence-lint behavioural cases in
+shell, and Success 1 is not met while those checks run only when someone remembers them.
+**Blocked on wave 0's third item as well as on wave 1.**
 
 **Unfiled work implied, described not numbered:** whether an entry's reason should be generated
-from the law it describes rather than written beside it; and a sweep of the other 18 entries'
-un-backticked prose claims, which no ruling here makes checkable.
+from the law it describes rather than written beside it; a sweep of the other entries'
+un-backticked prose claims, which no ruling here makes checkable; and a position on which file is
+"the cited file" when a reason quotes a form belonging to another file it names — Ruling 2's
+amendment note 2 records that no entry does this today.
 
 ## Open questions
 
@@ -229,4 +378,6 @@ un-backticked prose claims, which no ruling here makes checkable.
 
 [i353]: https://github.com/launchpad-26/rhizomorph/issues/353
 [i358]: https://github.com/launchpad-26/rhizomorph/issues/358
+[i366]: https://github.com/launchpad-26/rhizomorph/issues/366
+[i367]: https://github.com/launchpad-26/rhizomorph/issues/367
 [i367]: https://github.com/launchpad-26/rhizomorph/issues/367
