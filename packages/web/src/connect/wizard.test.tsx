@@ -930,6 +930,18 @@ describe('step 2 — the conductor', () => {
    * button carries the same `disabled={!live}` the arm button always had, so
    * a `live` drop between the two clicks withholds the SECOND one too, not
    * just the first.
+   *
+   * WHAT THIS TEST PROVES, AND WHAT IT DOES NOT. The `not.toHaveBeenCalled()`
+   * below is carried entirely by the button's `disabled={!live}`: React
+   * delivers no click from a disabled form control, so `fireEvent.click` never
+   * reaches `confirmRetarget` and the `!live` arm inside it is not exercised
+   * here. Certified rather than assumed — removing that arm and keeping only
+   * the `disabled` leaves this test GREEN, caught 0/2 runs
+   * (`certify-mutation.sh`, review of #345). The act guard is kept anyway,
+   * because the dialog is reachable by state rather than only by that one
+   * button and `concierge/retarget.ts` takes the same refuse-before-the-wire
+   * posture rather than trusting its caller — but this test is not the
+   * evidence for it, and a later reader must not read it as such.
    */
   it('a live drop between arm and confirm withholds the switch, not just the arm button', async () => {
     const retargetFetchImpl = vi.fn(switching(SWITCHED))

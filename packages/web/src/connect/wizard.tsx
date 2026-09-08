@@ -367,8 +367,16 @@ export function SetupWizard({
     // button was still sitting there armed: the switch fired while the panel
     // beside it read "nothing here will switch anything". The arm button's
     // `disabled={!live}` cannot see that — it guards the first click, and this
-    // is the one that spends. `ConductorStep`'s launch path has no equivalent
-    // hole because its `canAct` gates the only click it has.
+    // is the one that spends.
+    //
+    // `confirmLaunch` above has the SAME two-click shape and is NOT guarded
+    // this way: `wizard-launch-confirm` carries no `disabled` and
+    // `confirmLaunch` re-checks nothing, so a `live` drop between ITS two
+    // clicks still spawns a conductor while `wizard-launch-fixture` says
+    // nothing here will start a process. That is prd-14 ruling 4's act rather
+    // than this one's and is tracked as #352 — recorded here because an
+    // earlier draft of this comment claimed the launch path had no equivalent
+    // hole, which was measured false rather than merely unproven.
     if (target === null || !live) return
     setRetarget({ status: 'working' })
     try {
