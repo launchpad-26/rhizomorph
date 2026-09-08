@@ -154,7 +154,7 @@ its gate. `read` therefore now means specifically a *tokenless* read.
 
 **Where the boundary actually stands** — as opposed to where it is ruled to
 stand — is worth stating plainly. Since prd-29's wave 2b landed the two no
-longer differ. Fourteen reads are gated: `/api/sessions`,
+longer differ. Sixteen reads are gated: `/api/sessions`,
 `/api/sessions/:id/events`, `/api/lanes`, `/api/transcript/:lane`, the
 laboratory's `/api/lab/checkpoints`, `/api/lab/experiments`,
 `/api/lab/estimate`, the four reads that postdated the route arithmetic —
@@ -163,7 +163,9 @@ laboratory's `/api/lab/checkpoints`, `/api/lab/experiments`,
 #58) — then, as of wave 2a, `/api/meta` and `/api/doctor` (prd-29 ruling 7,
 #59), and as of wave 2b `/api/stream` (prd-29 ruling 4, #60), which carries the
 same gate but additionally accepts the token from an HttpOnly, SameSite=Strict
-cookie, since `EventSource` cannot set a header at all. `GET /*` is the only
+cookie, since `EventSource` cannot set a header at all. Then, prd-14 ruling 5's
+comparison save and its two reads (#213), `/api/lab/comparisons` and
+`/api/lab/comparisons/:id`. `GET /*` is the only
 tokenless read left, and stays tokenless *forever* (prd-29 ruling 1): it is
 the bootstrap the browser's first paint and `rhizomorph rotate`'s scrape both
 read the in-band token from (ADR-0012), so gating it could not stop a local
@@ -2091,7 +2093,7 @@ other picker showing it, including the live dashboard's own session
 picker — a same-HEAD fix (`fix(web): renaming a recording also refreshes
 the balcony's session picker`) closed a gap where the two pickers cached
 independently and one went stale. **The count is not worth keeping here any
-more:** the route is one `gated-mutation` row among twelve mutating routes, and
+more:** the route is one `gated-mutation` row among thirteen mutating routes, and
 `ROUTE_CLASSES` (`packages/server/src/api/index.ts`) is the table that holds
 them and the law that walks them — see [Route classes and the trust
 boundary](#route-classes-and-the-trust-boundary-prd-23-ruling-5--adr-0014-adr-0024)

@@ -10,23 +10,27 @@ import {
   type Lane,
 } from '../fleet/index.js'
 import { formatTokens } from '../lib/format.js'
+import { Disclosure, type DisclosureContent } from '../disclosure/index.js'
 import {
-  dollarsHoverTitle,
+  dollarsGapDisclosure,
+  dollarsHoverDisclosure,
   formatDollarsOrGap,
   formatOverheadOrGap,
   isDollarsGap,
   isOverheadGap,
-  outputHoverTitle,
-  overheadHoverTitle,
+  outputHoverDisclosure,
+  overheadHoverDisclosure,
 } from '../panels/burn/format.js'
 import {
+  ageCellDisclosure,
   ageCellText,
-  ageCellTitle,
+  costCellDisclosure,
   costCellText,
-  costCellTitle,
   fenceCell,
+  laneBranchDisclosure,
+  laneIdentityDisclosure,
+  outputCellDisclosure,
   outputCellText,
-  outputCellTitle,
   stateSigilKind,
   worstPathology,
 } from '../panels/fleet/format.js'
@@ -82,31 +86,31 @@ export function Vitals({ lane, fleet }: VitalsProps) {
       </p>
 
       <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-inst sm:grid-cols-3">
-        <Vital label="output" value={outputCellText(lane)} title={outputCellTitle(lane)} />
+        <Vital label="output" value={outputCellText(lane)} disclosure={outputCellDisclosure(lane)} />
         <Vital
           label="$"
           value={costCellText(lane)}
-          title={costCellTitle(lane, fleet.gaps)}
+          disclosure={costCellDisclosure(lane, fleet.gaps)}
           muted={lane.costEventCount === 0}
         />
-        <Vital label="age" value={ageCellText(lane)} title={ageCellTitle(lane)} muted={lane.ageMs === null} />
+        <Vital label="age" value={ageCellText(lane)} disclosure={ageCellDisclosure(lane)} muted={lane.ageMs === null} />
         <Vital
           label="branch"
           value={lane.branch ?? '—'}
-          title={lane.branch ?? 'no branch — git never saw a worktree for this lane'}
+          disclosure={laneBranchDisclosure(lane)}
           muted={lane.branch === null}
         />
         <Vital
           label="fence"
           value={fence.text}
-          title={fence.title}
+          disclosure={fence.disclosure}
           muted={fence.kind === 'no-manifest' || fence.kind === 'unfenced'}
           alarm={fence.kind === 'breach'}
         />
         <Vital
           label="worktree"
           value={lane.worktreePath === null ? '—' : lane.present ? 'present' : 'folded'}
-          title={lane.worktreePath ?? 'no worktree path recorded for this lane'}
+          disclosure={laneIdentityDisclosure(lane)}
           muted={!lane.present}
         />
       </dl>
@@ -149,29 +153,25 @@ export function MainVitals({ fleet }: MainVitalsProps) {
         <Vital
           label="branch"
           value={root.mainBranch ?? '—'}
-          title={root.mainBranch ?? 'no main branch — git never named one for this repo'}
+          disclosure={mainBranchDisclosure(root)}
           muted={root.mainBranch === null}
         />
         <Vital
           label="landings"
           value={String(root.landings)}
-          title="worktrees that have gone away this session — lanes that landed and folded"
+          disclosure={landingsDisclosure(root)}
           muted={root.landings === 0}
         />
         <Vital
           label="commits home"
           value={String(root.commitsHome)}
-          title={
-            root.mainBranch === null
-              ? 'no main branch — nothing to count commits against'
-              : `commits observed landing on ${root.mainBranch}`
-          }
+          disclosure={commitsHomeDisclosure(root)}
           muted={root.commitsHome === 0}
         />
         <Vital
           label="output"
           value={formatTokens(burn.outputTokens)}
-          title={outputHoverTitle(burn.tokens)}
+          disclosure={outputHoverDisclosure(burn.tokens)}
         />
         {/*
           Dollars and overhead keep the table's gap idiom — an em dash with the
@@ -183,13 +183,13 @@ export function MainVitals({ fleet }: MainVitalsProps) {
         <Vital
           label="$"
           value={dollarsGap ? '—' : formatDollarsOrGap(burn)}
-          title={dollarsGap ? formatDollarsOrGap(burn) : dollarsHoverTitle(burn)}
+          disclosure={dollarsGap ? dollarsGapDisclosure() : dollarsHoverDisclosure(burn)}
           muted={dollarsGap}
         />
         <Vital
           label="overhead"
           value={overheadGap ? '—' : formatOverheadOrGap(burn)}
-          title={overheadGap ? formatOverheadOrGap(burn) : overheadHoverTitle(burn)}
+          disclosure={overheadHoverDisclosure(burn)}
           muted={overheadGap}
         />
       </dl>
@@ -220,22 +220,94 @@ function calmEvidence(lane: Lane): string {
   return `${lane.activity} — ${lane.requestCount} req, ${lane.toolCallCount} tool calls, ${age}`
 }
 
+/**
+ * MAIN's three vitals (#220). Local to this file because they are facts about
+ * the root mass rather than about a lane, and nothing outside the drawer shows
+ * them; `elapsedMs: 0` throughout, in core's own register for a fact re-read on
+ * every fold (`selectors/condition.ts`) — these are counts the fleet recomputes
+ * each tick, not observations with a "since".
+ */
+function mainBranchDisclosure(root: Fleet['root']): DisclosureContent {
+  if (root.mainBranch === null) {
+    return {
+      label: 'branch',
+      why: {
+        reason: 'git never named a main branch for this repo',
+        evidence: { fact: 'no default branch could be read from the watched repo', elapsedMs: 0 },
+      },
+      remedy: { kind: 'none', because: 'without a main branch there is nothing to count landings against — the cells below say so too' },
+    }
+  }
+  return {
+    label: 'branch',
+    why: {
+      reason: 'the branch lanes land onto',
+      evidence: { fact: `git reported ${root.mainBranch}`, elapsedMs: 0 },
+    },
+    remedy: { kind: 'none', because: 'a branch name is a reading, not a condition' },
+  }
+}
+
+function landingsDisclosure(root: Fleet['root']): DisclosureContent {
+  return {
+    label: 'landings',
+    why: {
+      reason: 'lanes that landed and folded this session',
+      evidence: { fact: `${root.landings} worktree${root.landings === 1 ? ' has' : 's have'} gone away since the session opened`, elapsedMs: 0 },
+    },
+    remedy: { kind: 'none', because: 'a landing is finished work — the count is here to be read, not acted on' },
+  }
+}
+
+function commitsHomeDisclosure(root: Fleet['root']): DisclosureContent {
+  if (root.mainBranch === null) {
+    return {
+      label: 'commits home',
+      why: {
+        reason: 'no main branch — nothing to count commits against',
+        evidence: { fact: 'git named no default branch for the watched repo', elapsedMs: 0 },
+      },
+      remedy: { kind: 'none', because: 'the count resolves itself as soon as the repo has a branch to land on' },
+    }
+  }
+  return {
+    label: 'commits home',
+    why: {
+      reason: 'work that has reached the branch everything lands on',
+      evidence: { fact: `${root.commitsHome} commit${root.commitsHome === 1 ? '' : 's'} observed landing on ${root.mainBranch}`, elapsedMs: 0 },
+    },
+    remedy: { kind: 'none', because: 'a landed commit is finished work' },
+  }
+}
+
 interface VitalProps {
   label: string
   value: string
-  title: string
+  disclosure: DisclosureContent
   muted?: boolean
   alarm?: boolean
 }
 
-function Vital({ label, value, title, muted = false, alarm = false }: VitalProps) {
+/**
+ * One cell of the vitals grid — and, since #220, one disclosure.
+ *
+ * The card is on the `<dd>` rather than on the wrapping `<div>`: a definition
+ * list's `<div>` may hold only `<dt>` and `<dd>`, so a trigger up there would
+ * be invalid markup, and the mark a reader is asking about is the *value*
+ * anyway, not the label naming it. The value keeps `truncate` — the card is
+ * what the clipped text now opens into, which is the whole reason the native
+ * `title=` was here.
+ */
+function Vital({ label, value, disclosure, muted = false, alarm = false }: VitalProps) {
   return (
-    <div className="min-w-0" title={title}>
+    <div className="min-w-0">
       <dt className="text-inst-dense uppercase tracking-wider text-(--ink-dim)">{label}</dt>
       <dd
         className={`figures truncate ${alarm ? 'text-needs-you' : muted ? 'text-(--ink-dim)' : 'text-(--ink-body)'}`}
       >
-        {value}
+        <Disclosure disclosure={disclosure} triggerLabel={`${label}, ${value}`}>
+          {value}
+        </Disclosure>
       </dd>
     </div>
   )

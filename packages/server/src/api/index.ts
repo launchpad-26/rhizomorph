@@ -34,7 +34,7 @@ export function registerApiRoutes(app: FastifyInstance, ctx: ServerContext): voi
   // A session's first words (prd20 w6) — the read-only companion to the
   // transcript tail, sharing its attribution and its bounded-read shape.
   registerSessionPreviewRoute(app, ctx)
-  // The app's twelve mutating routes (prd16 rulings 2 and 4; prd1's OTLP inbox;
+  // The app's thirteen mutating routes (prd16 rulings 2 and 4; prd1's OTLP inbox;
   // prd-20's two concierge powers and its repo switch; prd-17's operator
   // door) — see `ROUTE_CLASSES` below for the full classification, and
   // `rotate.ts` / `label.ts` for why each of these two is allowed to exist
@@ -54,7 +54,8 @@ export function registerApiRoutes(app: FastifyInstance, ctx: ServerContext): voi
   registerOperatorRoute(app, ctx)
   // Read-only routes over the laboratory's checkpoint/experiment slice
   // (prd14 wave 1) — see `lab.ts`'s own doc for why this never imports
-  // `server/src/lab/` directly.
+  // `server/src/lab/` directly — plus prd-14 ruling 5's comparison save and
+  // reads (#213), which never reach `lab/` at all.
   registerLabRoutes(app, ctx)
   // Read-only preflight reusing the CLI doctor's own check functions
   // (prd-19 ruling 5) — see `doctor.ts`'s own doc for which checks it drops
@@ -99,7 +100,7 @@ export interface RouteClassification {
  * remembered.
  */
 export const ROUTE_CLASSES: readonly RouteClassification[] = [
-  // Gated mutations (8) — each carries `requireCapabilityToken` as a
+  // Gated mutations (9) — each carries `requireCapabilityToken` as a
   // route-local `preHandler` (`api/security.ts`).
   { method: 'POST', url: '/api/label', routeClass: 'gated-mutation' },
   { method: 'POST', url: '/api/rotate', routeClass: 'gated-mutation' },
@@ -120,6 +121,9 @@ export const ROUTE_CLASSES: readonly RouteClassification[] = [
   // same posture as `/api/rotate` (a mutation of the instrument's own log,
   // never the watched repo), so no new route class is owed.
   { method: 'POST', url: '/api/operator/:act', routeClass: 'gated-mutation' },
+  // prd-14 ruling 5's save (#213): a finished comparison persisted beside the
+  // recordings it derives from (ADR-0041), gated exactly as `/api/lab/launch`.
+  { method: 'POST', url: '/api/lab/comparisons', routeClass: 'gated-mutation' },
 
   // Ungated mutations (4) — the OTLP inbox, ungated by design (prd-23 ruling
   // 6): an exporter has no channel to learn the capability token at all.
@@ -130,7 +134,7 @@ export const ROUTE_CLASSES: readonly RouteClassification[] = [
   { method: 'POST', url: '/v1/traces', routeClass: 'ungated-mutation' },
   { method: 'POST', url: '/', routeClass: 'ungated-mutation' },
 
-  // Gated reads (14) — prd-29 wave 1's keystone (ruling 1 / ADR-0024) plus
+  // Gated reads (16) — prd-29 wave 1's keystone (ruling 1 / ADR-0024) plus
   // wave 1b's four late arrivals (ruling 7, #58) plus wave 2a's two more
   // (ruling 7, #59): the reads that postdated the PRD's route math, and then
   // `/api/meta`/`/api/doctor` themselves — plus wave 2b's stream (ruling 4,
@@ -145,6 +149,9 @@ export const ROUTE_CLASSES: readonly RouteClassification[] = [
   { method: 'GET', url: '/api/lab/checkpoints', routeClass: 'gated-read' },
   { method: 'GET', url: '/api/lab/experiments', routeClass: 'gated-read' },
   { method: 'GET', url: '/api/lab/estimate', routeClass: 'gated-read' },
+  // prd-14 ruling 5 (#213): the saved comparisons, listed and read back by id.
+  { method: 'GET', url: '/api/lab/comparisons', routeClass: 'gated-read' },
+  { method: 'GET', url: '/api/lab/comparisons/:id', routeClass: 'gated-read' },
   // prd-31 ruling 5's durability read — the log's own history, never a worktree's.
   { method: 'GET', url: '/api/lane-index', routeClass: 'gated-read' },
   { method: 'GET', url: '/api/lane-index/:handle', routeClass: 'gated-read' },

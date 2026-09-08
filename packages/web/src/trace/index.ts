@@ -1,5 +1,5 @@
 export { EmptyTrace } from './EmptyTrace.js'
-export { formatSpan, tokenHeadline, tokenTitle } from './format.js'
+export { formatSpan, tokenHeadline, tokenDisclosure } from './format.js'
 export { DecisionBadge, KindTag, KIND_LABEL, KIND_WORD, DECISION_WORD } from './glyphs.js'
 export {
   flattenDescendants,

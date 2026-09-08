@@ -11,8 +11,12 @@ const CONTENT: DisclosureContent = {
   remedy: { kind: 'action', action: 'attach and see what it is asking', command: 'workmux attach lane-7' },
 }
 
-function mount() {
-  const view = render(<Disclosure disclosure={CONTENT}>WAITING</Disclosure>)
+function mount(trigger?: 'button' | 'inline') {
+  const view = render(
+    <Disclosure disclosure={CONTENT} trigger={trigger}>
+      WAITING
+    </Disclosure>,
+  )
   return {
     view,
     wrapper: screen.getByTestId('disclosure'),
@@ -188,5 +192,91 @@ describe('the mark keeps its own voice', () => {
 
     const trigger = screen.getByRole('button', { name: 'waiting' })
     expect(trigger).toHaveTextContent('◇')
+  })
+})
+
+/**
+ * THE MODE IS AN ELEMENT AND NOTHING ELSE (ADR-0040, #220).
+ *
+ * `trigger="inline"` exists because a third of the marks #220 converted are
+ * already controls, and a button around a button is invalid markup with two
+ * click handlers racing for one tap. The risk it introduces is the one every
+ * mode introduces: two paths that drift, with the keyboard path the one that
+ * quietly gets less. These are what stop that.
+ */
+describe('the inline trigger discloses everything the button trigger does', () => {
+  it('renders no button of its own, so a control it wraps stays the only one', () => {
+    const { trigger } = mount('inline')
+
+    expect(trigger.tagName).toBe('SPAN')
+    expect(trigger.getAttribute('role')).toBe('note')
+    // Focusable, or the keyboard cannot reach the card at all — which is the
+    // entire defect this mode was introduced to avoid re-creating.
+    expect(trigger.getAttribute('tabindex')).toBe('0')
+  })
+
+  it('still wears the one focus token, never a hue of its own (prd-32 ruling 9)', () => {
+    const { trigger } = mount('inline')
+    expect(trigger.className).toContain('focus-ring')
+  })
+
+  it('discloses byte-for-byte the same card by mouse and by keyboard', () => {
+    const { wrapper, trigger } = mount('inline')
+
+    fireEvent.mouseEnter(wrapper)
+    const byMouse = screen.getByTestId('disclosure-card').outerHTML
+    fireEvent.mouseLeave(wrapper)
+    expect(screen.queryByTestId('disclosure-card')).toBeNull()
+
+    fireEvent.focus(trigger)
+    const byKeyboard = screen.getByTestId('disclosure-card').outerHTML
+
+    expect(byKeyboard).toBe(byMouse)
+    expect(byKeyboard).toContain('last tool call was a file read 6m00s ago')
+  })
+
+  it('shows the same card the button trigger shows — the mode changes the element, not the disclosure', () => {
+    // Two mounts, so `useId` differs; the ids are normalised out and everything
+    // else must match. A mode that rendered a poorer card for the inline case —
+    // no remedy, no evidence — passes every assertion above and fails this one.
+    const asButton = mount('button')
+    fireEvent.mouseEnter(asButton.wrapper)
+    const buttonCard = screen.getByTestId('disclosure-card').textContent
+    cleanup()
+
+    const asInline = mount('inline')
+    fireEvent.mouseEnter(asInline.wrapper)
+    const inlineCard = screen.getByTestId('disclosure-card').textContent
+
+    expect(inlineCard).toBe(buttonCard)
+  })
+
+  it('closes on Escape and hands focus back, exactly as the button trigger does', () => {
+    const { wrapper, trigger } = mount('inline')
+
+    fireEvent.focus(trigger)
+    expect(screen.getByTestId('disclosure-card')).toBeInTheDocument()
+
+    fireEvent.keyDown(wrapper, { key: 'Escape' })
+    expect(screen.queryByTestId('disclosure-card')).toBeNull()
+  })
+
+  it('opens, closes and re-opens identically three times over', () => {
+    // The idempotence case the plan asked for: a card that accumulated state
+    // across openings — a second card left mounted, a stale `dismissed` — shows
+    // up here and nowhere else.
+    const { wrapper } = mount('inline')
+    const seen: string[] = []
+
+    for (let round = 0; round < 3; round += 1) {
+      fireEvent.mouseEnter(wrapper)
+      expect(screen.getAllByTestId('disclosure-card')).toHaveLength(1)
+      seen.push(screen.getByTestId('disclosure-card').outerHTML)
+      fireEvent.mouseLeave(wrapper)
+      expect(screen.queryByTestId('disclosure-card')).toBeNull()
+    }
+
+    expect(seen[1]).toBe(seen[0])
+    expect(seen[2]).toBe(seen[0])
   })
 })

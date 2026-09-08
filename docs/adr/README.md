@@ -249,6 +249,9 @@ of an old decision will do the same thing.
 | [0037](0037-agent-status-names-its-witness.md) | `agent.status` names its witness: a pinned envelope source widens to a second literal, and an inference may not withdraw a declared summons | 2026-09-05 | accepted (prd-27 ruling 2, recorded on the build #281) |
 | [0038](0038-a-summons-raiser-judges-the-fold-on-the-tick.md) | A summons raiser reads `buildFleet`'s own folded pathologies on the poll loop's tick and edge-triggers `summons.raised`/`summons.cleared`, keyed on `(lane, kind)` — never a collector, since the collector contract never hands folded state | 2026-09-06 | accepted (prd-17 ruling 5, ruled by the operator 2026-09-05) |
 | [0039](0039-attention-names-its-witness-on-the-manifest.md) | `attention` names its witness on the capability manifest — L2 is told from L4 by who declared, not by rank — extends [0010](0010-adapter-capabilities-named-not-ranked.md) | 2026-09-06 | accepted (prd-27 ruling 3, recorded on the build #218) |
+| [0040](0040-a-mark-that-is-already-a-control-still-discloses.md) | A mark that is already a control still discloses, without a second button — `Disclosure` gains a `trigger` mode (`'button'` / `'inline'`) so a chip, row or action button can carry a card without nesting a button inside a button | 2026-09-07 | accepted (prd-30 ruling 1 and charter §6, recorded on the build #220) |
+| [0041](0041-a-saved-comparison-is-a-sidecar-not-an-event.md) | A saved comparison is a sidecar artefact beside the recordings, not an event in the log | 2026-09-08 | accepted (prd-14 ruling 5) |
+| [0042](0042-the-server-parses-a-comparison-artifact-with-its-own-copy.md) | The server validates a comparison artifact with its own copy of the parser, not a shared schema | 2026-09-08 | accepted |
 
 Records 0001–0011 were reconstructed on 2026-08-06 and say so in their Context.
 One, **ADR-0003**, has an inverted evidence shape worth knowing about: the

@@ -15,10 +15,11 @@ import { capabilityHeaders } from './test-support.js'
  * `/api/doctor` themselves, held back from wave 1 so no consumer outside the
  * SPA broke mid-milestone) plus wave 2b's stream (ruling 4, #60 —
  * `/api/stream`, held back so it could gate once its cookie-based alternate
- * credential existed): fourteen SPA-only reads that answer only the
- * capability token's holder. This walks all fourteen against the real
- * `buildApp`, so "Done when: all fourteen answer 401 to a bare request and
- * pass with the header" is one law, not fourteen scattered assertions — and
+ * credential existed) plus prd-14 ruling 5's comparison save and its two
+ * reads (#213): sixteen SPA-only reads that answer only the
+ * capability token's holder. This walks all sixteen against the real
+ * `buildApp`, so "Done when: all sixteen answer 401 to a bare request and
+ * pass with the header" is one law, not sixteen scattered assertions — and
  * it fails the moment any one route loses its gate.
  *
  * `discoverRepos` (behind `/api/concierge/repos`) is left REAL here, not
@@ -45,6 +46,8 @@ const GATED_READS: ReadonlyArray<{ method: 'GET'; url: string }> = [
   { method: 'GET', url: '/api/meta' },
   { method: 'GET', url: '/api/doctor' },
   { method: 'GET', url: '/api/stream' },
+  { method: 'GET', url: '/api/lab/comparisons' },
+  { method: 'GET', url: '/api/lab/comparisons/00000000-0000-4000-8000-000000000000' },
 ]
 
 /**
@@ -73,7 +76,7 @@ async function injectGatedReadSuccess(
   return statusCode
 }
 
-describe('the fourteen gated reads answer only the token holder (prd-29 waves 1, 1b, 2a and 2b)', () => {
+describe('the sixteen gated reads answer only the token holder (prd-29 waves 1, 1b, 2a and 2b; prd-14 ruling 5, #213)', () => {
   let dir: string
 
   beforeEach(async () => {
@@ -93,7 +96,7 @@ describe('the fourteen gated reads answer only the token holder (prd-29 waves 1,
     return [...token].map((c) => (c === '0' ? '1' : '0')).join('')
   }
 
-  it('refuses a bare request — 401 for every one of the fourteen, before the handler runs', async () => {
+  it('refuses a bare request — 401 for every one of the sixteen, before the handler runs', async () => {
     const app = makeApp()
     for (const route of GATED_READS) {
       const response = await app.inject(route)
@@ -114,7 +117,7 @@ describe('the fourteen gated reads answer only the token holder (prd-29 waves 1,
     await app.close()
   })
 
-  it('passes the gate with the real header — no 401 for any of the fourteen', async () => {
+  it('passes the gate with the real header — no 401 for any of the sixteen', async () => {
     const app = makeApp()
     for (const route of GATED_READS) {
       const statusCode = await injectGatedReadSuccess(app, route, capabilityHeaders(app))
@@ -134,6 +137,7 @@ describe('the fourteen gated reads answer only the token holder (prd-29 waves 1,
       '/api/concierge/repos',
       '/api/meta',
       '/api/doctor',
+      '/api/lab/comparisons',
     ]
     for (const url of urls) {
       const response = await app.inject({ method: 'GET', url, headers: capabilityHeaders(app) })

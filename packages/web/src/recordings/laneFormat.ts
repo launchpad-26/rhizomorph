@@ -1,3 +1,4 @@
+import type { DisclosureContent } from '../disclosure/index.js'
 import { formatTokens, formatUsd } from '../lib/format.js'
 import type { LaneIndexRow } from './laneIndex.js'
 
@@ -33,17 +34,46 @@ export function laneCostSuffix(lane: Pick<LaneIndexRow, 'costIsAuthoritative'>):
 }
 
 /** S4's *cost with provenance*: what the figure is, and how it was arrived at. */
-export function laneCostTitle(lane: Pick<LaneIndexRow, 'costIsAuthoritative'>): string {
-  if (lane.costIsAuthoritative === null) return 'no cost telemetry recorded for this lane, in any session'
-  if (lane.costIsAuthoritative === false) {
-    return 'estimated — at least one of this lane’s sessions had no authoritative cost feed'
+/**
+ * The recorded cost's provenance (#220). `elapsedMs: 0` throughout, for the
+ * reason `LaneAxis`'s own `whenDisclosure` spells out: a recordings index holds
+ * finished history, and ageing a settled fact against the reader's clock would
+ * make it drift every second while meaning nothing more.
+ */
+export function laneCostDisclosure(lane: Pick<LaneIndexRow, 'costIsAuthoritative'>): DisclosureContent {
+  if (lane.costIsAuthoritative === null) {
+    return {
+      label: '$',
+      why: {
+        reason: 'no cost telemetry was recorded for this lane, in any session',
+        evidence: { fact: 'not one of its sessions carried a dollar figure', elapsedMs: 0 },
+      },
+      remedy: { kind: 'none', because: 'the recording is finished — a cost that was never captured cannot be recovered from it' },
+    }
   }
-  return 'authoritative dollar cost (OTel), in every session this lane ran in'
+  if (lane.costIsAuthoritative === false) {
+    return {
+      label: '$',
+      why: {
+        reason: 'estimated — at least one of this lane’s sessions had no authoritative cost feed',
+        evidence: { fact: 'the figure mixes the CLI’s own numbers with a vendored price table', elapsedMs: 0 },
+      },
+      remedy: { kind: 'none', because: 'this is the best figure the recording holds; the est. mark says so on the glance' },
+    }
+  }
+  return {
+    label: '$',
+    why: {
+      reason: 'authoritative dollar cost, in every session this lane ran in',
+      evidence: { fact: 'the agent CLI reported every figure itself (OTel)', elapsedMs: 0 },
+    },
+    remedy: { kind: 'none', because: 'the figure comes from the CLI itself — there is nothing better to reach for' },
+  }
 }
 
 export interface LaneOutcome {
   word: string
-  title: string
+  disclosure: DisclosureContent
   /** True for an outcome the log cannot actually claim — rendered dim rather than as a finding. */
   inferred: boolean
 }
@@ -62,34 +92,69 @@ export interface LaneOutcome {
  * *the log cannot say*.
  */
 export function laneOutcome(lane: Pick<LaneIndexRow, 'worktreeRemoved' | 'commitCount' | 'lastSeenAt'>): LaneOutcome {
+  /** Every arm is a settled historical reading — see {@link laneCostDisclosure} on the age. */
+  const card = (label: string, reason: string, fact: string, because: string): DisclosureContent => ({
+    label,
+    why: { reason, evidence: { fact, elapsedMs: 0 } },
+    remedy: { kind: 'none', because },
+  })
+
   if (lane.worktreeRemoved && lane.commitCount > 0) {
     return {
       word: 'landed',
-      title: `its worktree was removed after ${lane.commitCount} commit${lane.commitCount === 1 ? '' : 's'} landed — the shape of a lane that merged`,
+      disclosure: card(
+        'landed',
+        'the shape of a lane that merged',
+        `its worktree was removed after ${lane.commitCount} commit${lane.commitCount === 1 ? '' : 's'} landed`,
+        'landed work is finished — the row is here to be read, not acted on',
+      ),
       inferred: false,
     }
   }
   if (lane.worktreeRemoved) {
     return {
       word: 'folded',
-      title:
-        'its worktree was removed and no commit was ever recorded for it — abandoned, or landed in a session this index could not read',
+      disclosure: card(
+        'folded',
+        'abandoned, or landed in a session this index could not read',
+        'its worktree was removed and no commit was ever recorded for it',
+        'the log cannot tell the two apart, and says so rather than picking one',
+      ),
       inferred: false,
     }
   }
   if (lane.commitCount > 0) {
     return {
       word: `${lane.commitCount} commit${lane.commitCount === 1 ? '' : 's'}`,
-      title: 'commits landed and the worktree was still there when the last recording ended — unfinished, as far as the log saw',
+      disclosure: card(
+        'commits',
+        'unfinished, as far as the log saw',
+        'commits landed and the worktree was still there when the last recording ended',
+        'the recording ended before the lane did — nothing here is wrong, only unfinished',
+      ),
       inferred: true,
     }
   }
   if (lane.lastSeenAt === null) {
-    return { word: '—', title: 'nothing was ever recorded for this lane beyond its name', inferred: true }
+    return {
+      word: '—',
+      disclosure: card(
+        'no outcome',
+        'nothing was ever recorded for this lane beyond its name',
+        'no event in any readable recording carried it',
+        'an empty row is the honest reading of an empty record',
+      ),
+      inferred: true,
+    }
   }
   return {
     word: 'no outcome',
-    title: 'no commit and no worktree removal was recorded — the log cannot say how this ended',
+    disclosure: card(
+      'no outcome',
+      'the log cannot say how this ended',
+      'no commit and no worktree removal was recorded',
+      'the recording holds no evidence either way, and improvising one would be worse than the gap',
+    ),
     inferred: true,
   }
 }
@@ -102,8 +167,32 @@ export function laneSessionsText(lane: Pick<LaneIndexRow, 'sessionIds' | 'missin
   return missing === 0 ? base : `${base} · ${missing} unreadable`
 }
 
-export function laneSessionsTitle(lane: Pick<LaneIndexRow, 'sessionIds' | 'missingSessionIds'>): string {
+export function laneSessionsDisclosure(
+  lane: Pick<LaneIndexRow, 'sessionIds' | 'missingSessionIds'>,
+): DisclosureContent {
   const spanned = lane.sessionIds.length === 0 ? 'no recording holds this lane' : lane.sessionIds.join(', ')
-  if (lane.missingSessionIds.length === 0) return spanned
-  return `${spanned} — and ${lane.missingSessionIds.length} this index could not read: ${lane.missingSessionIds.join(', ')}`
+  const unread = lane.missingSessionIds.length
+  return {
+    label: 'sessions',
+    why: {
+      reason:
+        unread === 0
+          ? 'the recordings this lane’s life spans'
+          : `${unread} recording${unread === 1 ? '' : 's'} naming this lane could not be read`,
+      evidence: {
+        fact:
+          unread === 0
+            ? spanned
+            : `${spanned} — and ${unread} this index could not read: ${lane.missingSessionIds.join(', ')}`,
+        elapsedMs: 0,
+      },
+    },
+    remedy:
+      unread === 0
+        ? { kind: 'none', because: 'every recording naming this lane was read — the list is complete' }
+        : {
+            kind: 'action',
+            action: 'the unread recordings are named above; check they are present and readable in the session directory',
+          },
+  }
 }

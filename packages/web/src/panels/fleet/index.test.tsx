@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { createEventFactory, initialSessionState, reduce } from '@rhizomorph/core'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { discloseText } from '../../disclosure/testing.js'
 import { useFocusRequest } from '../../app/panelPrefs.js'
 import { StreamProvider } from '../../app/StreamContext.js'
 import type { CopyText } from '../../drawer/AttachButton.js'
@@ -317,7 +318,12 @@ describe('FleetTable — the staged-pathology fixture', () => {
     const stateSpan = (laneId: string): HTMLElement => {
       const row = rows().find((r) => r.getAttribute('data-lane') === laneId)
       expect(row, `no row for ${laneId}`).toBeDefined()
-      const span = (row as HTMLElement).querySelectorAll('td')[1]?.querySelector('span')
+      // #220 wrapped the STATE cell in a disclosure, so the cell's first span
+      // is now the trigger's wrapper. The state span — the one carrying the
+      // rung's ink — is the trigger's own child.
+      const span = (row as HTMLElement)
+        .querySelectorAll('td')[1]
+        ?.querySelector('[data-testid="disclosure-trigger"] > span')
       expect(span, `no state span for ${laneId}`).not.toBeNull()
       return span as HTMLElement
     }
@@ -355,15 +361,15 @@ describe('FleetTable — the staged-pathology fixture', () => {
 
     const loopingRow = rows().find((r) => r.getAttribute('data-lane') === '41-retry-parser') as HTMLElement
     const stateCell = loopingRow.querySelectorAll('td')[1] as HTMLElement
-    expect(stateCell.getAttribute('title')).toMatch(/Read→Edit→Bash ×\d+, no commit/)
+    expect(discloseText(stateCell)).toMatch(/Read→Edit→Bash ×\d+, no commit/)
 
     const frozenRow = rows().find((r) => r.getAttribute('data-lane') === '42-otel-receiver') as HTMLElement
     const frozenState = frozenRow.querySelectorAll('td')[1] as HTMLElement
-    expect(frozenState.getAttribute('title')).toMatch(/no events for/)
+    expect(discloseText(frozenState)).toMatch(/no events for/)
 
     const expensiveRow = rows().find((r) => r.getAttribute('data-lane') === '44-scene-pulses') as HTMLElement
     const expensiveState = expensiveRow.querySelectorAll('td')[1] as HTMLElement
-    expect(expensiveState.getAttribute('title')).toMatch(/out-tok\/min.*fleet median/)
+    expect(discloseText(expensiveState)).toMatch(/out-tok\/min.*fleet median/)
   })
 
   // Issue #226, defect 2 (voice): OFF-FENCE named no file, so the operator
@@ -374,7 +380,7 @@ describe('FleetTable — the staged-pathology fixture', () => {
 
     const row = rows().find((r) => r.getAttribute('data-lane') === '45-ledger-subrows') as HTMLElement
     const stateCell = row.querySelectorAll('td')[1] as HTMLElement
-    expect(stateCell.getAttribute('title')).toContain('packages/core/src/selectors/spend-subrows.ts')
+    expect(discloseText(stateCell)).toContain('packages/core/src/selectors/spend-subrows.ts')
   })
 
   // Issue #226, defect 1 (signal): a lane whose only trespass is uncommitted
@@ -399,7 +405,7 @@ describe('FleetTable — the staged-pathology fixture', () => {
     expect(row.textContent).not.toContain('FROZEN')
     expect(row.textContent).toContain('done')
     const stateCell = row.querySelectorAll('td')[1] as HTMLElement
-    expect(stateCell.getAttribute('title')).toMatch(/pane likely died/)
+    expect(discloseText(stateCell)).toMatch(/pane likely died/)
     // Not load-bearing without this: `showsTerminalDoneMark`'s own
     // `worstPathology(lane) !== null` guard is what keeps a plain terminal-done
     // lane (no alarm at all) from rendering the mark a second time.
@@ -430,7 +436,7 @@ describe('FleetTable — the staged-pathology fixture', () => {
     expect(mark?.textContent).toBe('done')
 
     // And the hover carries both facts — the trespassed path and the finish.
-    const title = stateCell.getAttribute('title') ?? ''
+    const title = discloseText(stateCell)
     expect(title).toContain('packages/web/src/panels/attention/churn-neighbour.ts')
     expect(title).toMatch(/pane likely died/)
   })
@@ -716,7 +722,7 @@ describe('FleetTable — gap-honest cells (law 12)', () => {
     const row = await renderGapScenario()
     const costCell = row.querySelectorAll('td')[3] as HTMLElement
     expect(costCell.textContent).toContain('—')
-    expect(costCell.getAttribute('title')).toMatch(/NO COST FEED.*dollars unavailable.*run:/)
+    expect(discloseText(costCell)).toMatch(/NO COST FEED.*dollars unavailable.*run:/)
   })
 
   it('labels threads honestly: a declared thread beside `unk` for the one the source never named', async () => {
@@ -730,7 +736,7 @@ describe('FleetTable — gap-honest cells (law 12)', () => {
     const row = await renderGapScenario()
     const fenceCellEl = row.querySelectorAll('td')[8] as HTMLElement
     expect(fenceCellEl.textContent).toBe('none')
-    expect(fenceCellEl.getAttribute('title')).toMatch(/NO LANE MANIFEST.*off-fence detection unavailable/)
+    expect(discloseText(fenceCellEl)).toMatch(/NO LANE MANIFEST.*off-fence detection unavailable/)
   })
 })
 
@@ -808,10 +814,12 @@ describe('FleetTable — parked lanes (prd4 ruling 5)', () => {
     // an unrelated glyph.
     expect(stateCell.querySelector('svg[data-sigil]')).toBeNull()
 
-    const span = stateCell.querySelector('span') as HTMLElement
+    // The trigger's child, not the cell's first span — see the note on
+    // `stateSpan` above: #220's disclosure wrapper sits between them now.
+    const span = stateCell.querySelector('[data-testid="disclosure-trigger"] > span') as HTMLElement
     expect(span.className).toContain('text-(--ink-dim)')
     expect(span.className).toContain('italic')
-    expect(stateCell.getAttribute('title')).toMatch(/parked/i)
+    expect(discloseText(stateCell)).toMatch(/parked/i)
   })
 
   it('still shows the lane\'s real output honestly — parked mutes the alarm, not the evidence', async () => {
@@ -882,14 +890,14 @@ describe('FleetTable — AGE / ACTIVE column (#141)', () => {
     const cell = row.querySelectorAll('td')[7] as HTMLElement
     expect(cell.textContent).not.toContain('/')
     expect(cell.textContent).not.toBe('')
-    expect(cell.getAttribute('title')).toMatch(/no OTel active-time reading/)
+    expect(discloseText(cell)).toMatch(/no OTel active-time reading/)
   })
 
   it('shows AGE / ACTIVE once OTel has reported active time for the lane', async () => {
     const row = await renderActiveTimeScenario(300)
     const cell = row.querySelectorAll('td')[7] as HTMLElement
     expect(cell.textContent).toMatch(/^.+ \/ 5m00s$/)
-    expect(cell.getAttribute('title')).toMatch(/claude_code\.active_time\.total/)
+    expect(discloseText(cell)).toMatch(/claude_code\.active_time\.total/)
   })
 })
 
@@ -1225,10 +1233,14 @@ describe('FleetTable — git status incident mark (#606)', () => {
     const mark = within(failingRow).getByRole('status', {
       name: `${FAILING_LANE}: git status failing`,
     })
-    expect(mark.getAttribute('title')).toBe(
-      `${FAILING_LANE}: git status --porcelain has failed repeatedly for 1m30s` +
-        ` — the underlying error is not retained in-app; check the server's own log`,
-    )
+    // #220 split this sentence across the card's triple. Every claim it made
+    // is still made — asserted in parts, because that is now how it is said:
+    // the reason, the measured span, and the remedy that says the error is not
+    // ours to show.
+    const card = discloseText(mark)
+    expect(card).toContain(`${FAILING_LANE}: git status --porcelain has failed repeatedly`)
+    expect(card).toContain('1m30s ago')
+    expect(card).toContain("the underlying error is not retained in-app — read the server's own log")
   })
 
   // ADR-0022's boundary, at the render layer: parking is the operator muting an

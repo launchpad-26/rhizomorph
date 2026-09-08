@@ -1,6 +1,7 @@
 import { createEvent, createIdFactory } from '@rhizomorph/core'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
+import { discloseText } from '../disclosure/testing.js'
 import type { FetchLike } from '../replay/api.js'
 import { ModeProvider, useReplay } from './ModeContext.js'
 import { Nav } from './Nav.js'
@@ -195,11 +196,17 @@ describe('Nav — S4 unavailable state (the lab during replay)', () => {
     expect(lab).toBeInTheDocument()
     expect(lab.tagName).not.toBe('A')
 
-    // The reason is present — by title (hover) and in the accessible text
-    // (a screen reader, and this assertion, need nothing to hover).
-    expect(lab.getAttribute('title')).toBeTruthy()
-    expect(lab.getAttribute('title')?.length).toBeGreaterThan(0)
-    expect(lab.textContent).toContain(lab.getAttribute('title'))
+    // The reason reaches a reader three ways, and this asserts all three
+    // rather than describing them. It used to be a `title=` (#220), which was
+    // one way, delayed, and not the keyboard's.
+    //
+    //   1. in the visually-hidden text, for a screen reader passing over it
+    expect(lab.textContent).toMatch(/ — \S/)
+    //   2. and 3. on hover and on focus, in the card — `discloseText` opens it
+    //      both ways and refuses to return unless the two agree (charter §6).
+    const card = discloseText(lab)
+    expect(card).toContain('this view is unavailable')
+    expect(card).toContain('it becomes available again on its own when the mode changes')
 
     // The other three hands are untouched by the lab's own unavailability.
     expect(screen.getByTestId('nav-observatory').tagName).toBe('A')

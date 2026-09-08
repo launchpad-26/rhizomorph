@@ -9,6 +9,7 @@ import {
   fx,
 } from '@rhizomorph/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { discloseText } from '../../disclosure/testing.js'
 import { StreamProvider } from '../../app/StreamContext.js'
 import type { EventSourceLike } from '../../hooks/useEventStream.js'
 import CollisionsPanel from './index.js'
@@ -104,6 +105,25 @@ describe('CollisionsPanel', () => {
     expect(await screen.findByText(expectedLine as string)).toBeInTheDocument()
   })
 
+  it('discloses a contended path and a branch column, by hover and by focus alike (#220)', async () => {
+    const { source } = renderPanel()
+    act(() => source()?.open())
+    for (const event of fixtureSession()) act(() => source()?.emit(event))
+
+    await waitFor(() => expect(screen.getByLabelText('packages/core/src/index.ts')).toBeInTheDocument())
+
+    // The row cell: the full path is the card's label, and the collision is
+    // what makes the row worth asking about at all.
+    const contended = discloseText(screen.getByLabelText('packages/core/src/index.ts'))
+    expect(contended).toContain('more than one lane is touching this path')
+    expect(contended).toContain('widen a fence on the issue before the change')
+
+    // The column header holds `OpenBranchLink`, so it wears ADR-0040's inline
+    // trigger — a button trigger there would nest one control inside another.
+    const header = screen.getAllByRole('columnheader')[2] as HTMLElement
+    expect(discloseText(header)).toContain('a lane working in this repo right now')
+  })
+
   it('renders the matrix from fixture events and glows the collided rows', async () => {
     const { source } = renderPanel()
     act(() => source()?.open())
@@ -114,7 +134,7 @@ describe('CollisionsPanel', () => {
 
     // packages/core/src/index.ts is touched by 2-core (commit), 3-git (dirty)
     // and 7-web (dirty) in the fixture — the three-way collision.
-    await waitFor(() => expect(screen.getByTitle('packages/core/src/index.ts')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByLabelText('packages/core/src/index.ts')).toBeInTheDocument())
 
     const columnHeaders = screen.getAllByRole('columnheader')
     expect(columnHeaders.map((header) => header.textContent)).toEqual([
@@ -125,19 +145,19 @@ describe('CollisionsPanel', () => {
       '7-web',
     ])
 
-    const collidedCell = screen.getByTitle('packages/core/src/index.ts')
+    const collidedCell = screen.getByLabelText('packages/core/src/index.ts')
     const collidedRow = collidedCell.closest('tr')
     expect(collidedRow).toHaveAttribute('data-collided', 'true')
     expect(within(collidedRow as HTMLElement).getAllByText('●')).toHaveLength(3)
 
     // docs/architecture.md: 2-core (commit) vs 3-git (dirty) — also a collision.
-    expect(screen.getByTitle('docs/architecture.md').closest('tr')).toHaveAttribute(
+    expect(screen.getByLabelText('docs/architecture.md').closest('tr')).toHaveAttribute(
       'data-collided',
       'true',
     )
 
     // packages/web/src/app/Shell.tsx: only 7-web has touched it.
-    const soleRow = screen.getByTitle('packages/web/src/app/Shell.tsx').closest('tr')
+    const soleRow = screen.getByLabelText('packages/web/src/app/Shell.tsx').closest('tr')
     expect(soleRow).toHaveAttribute('data-collided', 'false')
     expect(within(soleRow as HTMLElement).getAllByText('●')).toHaveLength(1)
 
@@ -145,7 +165,9 @@ describe('CollisionsPanel', () => {
     const rowPaths = screen
       .getAllByRole('row')
       .slice(1)
-      .map((row) => row.querySelector('td')?.title)
+      // #220: the full path is the disclosure trigger's accessible name now,
+      // not a native title on the cell.
+      .map((row) => row.querySelector('td [data-testid="disclosure-trigger"]')?.getAttribute('aria-label'))
     expect(rowPaths[0]).toBe('packages/core/src/index.ts')
     expect(rowPaths.slice(0, 2)).toEqual(
       expect.arrayContaining(['packages/core/src/index.ts', 'docs/architecture.md']),
@@ -171,7 +193,7 @@ describe('CollisionsPanel', () => {
       ),
     )
 
-    const cell = await screen.findByTitle(deepPath)
+    const cell = await screen.findByLabelText(deepPath)
     expect(cell.textContent).toContain('index.tsx')
     expect(cell.textContent).not.toBe('p…')
     expect(cell.textContent?.length).toBeGreaterThan(2)
@@ -185,7 +207,7 @@ describe('CollisionsPanel', () => {
     act(() => source()?.open())
     for (const event of fixtureSession()) act(() => source()?.emit(event))
 
-    await waitFor(() => expect(screen.getByTitle('packages/core/src/index.ts')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByLabelText('packages/core/src/index.ts')).toBeInTheDocument())
 
     // 2-core × 3-git contend over two files (index.ts and architecture.md);
     // the worst-first file leads the evidence string (g4: never a bare label).
@@ -193,8 +215,8 @@ describe('CollisionsPanel', () => {
       name: 'collision: 2-core × 3-git — packages/core/src/index.ts (+1 more)',
     })
 
-    const targetRow = screen.getByTitle('packages/core/src/index.ts').closest('tr') as HTMLElement
-    const otherRow = screen.getByTitle('packages/web/src/app/Shell.tsx').closest('tr') as HTMLElement
+    const targetRow = screen.getByLabelText('packages/core/src/index.ts').closest('tr') as HTMLElement
+    const otherRow = screen.getByLabelText('packages/web/src/app/Shell.tsx').closest('tr') as HTMLElement
     expect(targetRow).toHaveAttribute('data-focused', 'false')
 
     act(() => chip.click())
@@ -210,22 +232,28 @@ describe('CollisionsPanel', () => {
     act(() => source()?.open())
     for (const event of fixtureSession()) act(() => source()?.emit(event))
 
-    await waitFor(() => expect(screen.getByTitle('packages/core/src/index.ts')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByLabelText('packages/core/src/index.ts')).toBeInTheDocument())
 
-    const collidedRow = screen.getByTitle('packages/core/src/index.ts').closest('tr') as HTMLElement
+    const collidedRow = screen.getByLabelText('packages/core/src/index.ts').closest('tr') as HTMLElement
     for (const dot of within(collidedRow).getAllByText('●')) {
       expect(dot.className).toContain('text-needs-you')
     }
 
     // packages/web/src/app/Shell.tsx: only one branch touches it — no collision,
     // so its dot must carry no ladder hue at all.
-    const soleRow = screen.getByTitle('packages/web/src/app/Shell.tsx').closest('tr') as HTMLElement
+    const soleRow = screen.getByLabelText('packages/web/src/app/Shell.tsx').closest('tr') as HTMLElement
     const soleDot = within(soleRow).getByText('●')
     expect(soleDot.className).not.toMatch(/text-(needs-you|notice|broken|calm)/)
 
     // The evidence chip itself is the one other needs-you surface — never a
     // second colour standing in for the same alarm.
-    const chips = screen.getAllByRole('button')
+    // Disclosure triggers are buttons too since #220, and they wear the one
+    // focus token rather than a status hue (prd-32 ruling 9) — which is the
+    // whole point of that ruling, so they are excluded here by what they ARE
+    // rather than by a class this assertion is about to check.
+    const chips = screen
+      .getAllByRole('button')
+      .filter((button) => button.getAttribute('data-testid') !== 'disclosure-trigger')
     expect(chips.length).toBeGreaterThan(0)
     for (const chip of chips) expect(chip.className).toContain('text-needs-you')
   })
@@ -237,7 +265,7 @@ describe('CollisionsPanel — column drill-down (issue #159)', () => {
     act(() => source()?.open())
     for (const event of fixtureSession()) act(() => source()?.emit(event))
 
-    await waitFor(() => expect(screen.getByTitle('packages/core/src/index.ts')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByLabelText('packages/core/src/index.ts')).toBeInTheDocument())
 
     const links = screen.getAllByTestId('collisions-open-lane')
     expect(links.map((link) => link.textContent)).toEqual(['main', '2-core', '3-git', '7-web'])
@@ -254,7 +282,7 @@ describe('CollisionsPanel — column drill-down (issue #159)', () => {
     act(() => source()?.open())
     for (const event of fixtureSession()) act(() => source()?.emit(event))
 
-    await waitFor(() => expect(screen.getByTitle('packages/core/src/index.ts')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByLabelText('packages/core/src/index.ts')).toBeInTheDocument())
     window.history.replaceState(null, '', '/')
 
     const link = screen.getAllByTestId('collisions-open-lane').find((el) => el.textContent === '2-core')!

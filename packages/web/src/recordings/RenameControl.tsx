@@ -38,7 +38,7 @@ export function RenameControl({ sessionId, title, onRenamed, fetchImpl }: Rename
         type="button"
         data-testid={`rename-start-${sessionId}`}
         onClick={() => setPhase({ status: 'editing', draft: title })}
-        title="rename this recording"
+        aria-label="rename this recording"
         className="max-w-full truncate text-left font-mono text-(--ink-primary) underline decoration-dotted hover:text-(--ink-primary)"
       >
         {title}

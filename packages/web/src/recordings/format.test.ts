@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { disclosureLines, type DisclosureContent } from '../disclosure/index.js'
 import {
-  captureHoverTitle,
-  costHoverTitle,
+  captureHoverDisclosure,
+  costHoverDisclosure,
   costSuffix,
   formatCapture,
   formatCost,
@@ -11,6 +12,21 @@ import {
   isCaptureAbsent,
 } from './format.js'
 import type { RecordingListing } from './api.js'
+
+/**
+ * What the card actually puts on screen, joined for the assertions below.
+ *
+ * These used to read a `title=` string straight out of the formatter (#220).
+ * Going through `disclosureLines` is strictly stronger than that was: it is the
+ * same function the card renders through, and it THROWS on a disclosure with no
+ * evidence, no age or an unstated remedy — so a formatter that lost its
+ * evidence clause fails here rather than rendering a poorer card in silence.
+ */
+function lines(disclosure: DisclosureContent): string {
+  const rendered = disclosureLines(disclosure)
+  return [rendered.label, rendered.why, rendered.remedy, rendered.command ?? ''].join(' · ')
+}
+
 
 const BASE: Pick<RecordingListing, 'costUsd' | 'costIsAuthoritative' | 'outputTokens'> = {
   costUsd: 1.23,
@@ -33,7 +49,7 @@ describe('the cost cell — a null costIsAuthoritative is never a $0', () => {
     expect(formatCost(BASE)).toBe('$1.23')
     expect(isCostGap(BASE)).toBe(false)
     expect(costSuffix(BASE)).toBeNull()
-    expect(costHoverTitle(BASE)).toContain('authoritative')
+    expect(lines(costHoverDisclosure(BASE))).toContain('authoritative')
   })
 
   it('shows dollars marked estimated, still a real figure, when cost is a mixed/estimated read', () => {
@@ -41,7 +57,7 @@ describe('the cost cell — a null costIsAuthoritative is never a $0', () => {
     expect(formatCost(recording)).toBe('$1.23')
     expect(isCostGap(recording)).toBe(false)
     expect(costSuffix(recording)).toBe('est.')
-    expect(costHoverTitle(recording)).toContain('estimated')
+    expect(lines(costHoverDisclosure(recording))).toContain('estimated')
   })
 
   it('falls back to output tokens, and says so, when no cost telemetry ever arrived', () => {
@@ -49,7 +65,7 @@ describe('the cost cell — a null costIsAuthoritative is never a $0', () => {
     expect(formatCost(recording)).toBe('12.3K tok out')
     expect(isCostGap(recording)).toBe(true)
     expect(costSuffix(recording)).toBeNull()
-    expect(costHoverTitle(recording)).toContain('no cost telemetry')
+    expect(lines(costHoverDisclosure(recording))).toContain('no cost telemetry')
   })
 })
 
@@ -58,14 +74,18 @@ describe('the capture cell — three honest states, never one blank', () => {
     const recording: Pick<RecordingListing, 'transcriptCapture'> = {}
     expect(formatCapture(recording)).toContain('pre-dates transcript capture')
     expect(isCaptureGap(recording)).toBe(true)
-    expect(captureHoverTitle(recording)).toContain('before transcript capture')
+    // #220 split this sentence into the card's triple; the claim is unchanged
+    // — the recording predates the feature, so its conversations are not in it.
+    const card = lines(captureHoverDisclosure(recording))
+    expect(card).toContain('predates transcript capture')
+    expect(card).toContain('its conversations are not in this recording')
   })
 
   it('says "no transcripts captured" for null — never confused with "captured nothing"', () => {
     const recording: Pick<RecordingListing, 'transcriptCapture'> = { transcriptCapture: null }
     expect(formatCapture(recording)).toBe('no transcripts captured')
     expect(isCaptureGap(recording)).toBe(true)
-    expect(captureHoverTitle(recording)).toContain('no capture ever ran')
+    expect(lines(captureHoverDisclosure(recording))).toContain('no capture ever ran')
   })
 
   it('reports full capture cleanly when every attributed lane made it in', () => {
@@ -83,7 +103,10 @@ describe('the capture cell — three honest states, never one blank', () => {
     }
     expect(formatCapture(recording)).toBe("2 of 2 lanes' transcripts captured")
     expect(isCaptureGap(recording)).toBe(false)
-    expect(captureHoverTitle(recording)).toContain('9,000,000 bytes captured, every attributed lane')
+    // Both halves, now the reason and its evidence rather than one string.
+    const card = lines(captureHoverDisclosure(recording))
+    expect(card).toContain('every attributed lane was captured')
+    expect(card).toContain('9,000,000 bytes captured')
   })
 
   it('names which lanes are missing, and why, when capture is partial', () => {
@@ -101,7 +124,7 @@ describe('the capture cell — three honest states, never one blank', () => {
     }
     expect(formatCapture(recording)).toBe("1 of 2 lanes' transcripts captured — some missing")
     expect(isCaptureGap(recording)).toBe(true)
-    expect(captureHoverTitle(recording)).toContain('TRANSCRIPT NOT CAPTURED for "b"')
+    expect(lines(captureHoverDisclosure(recording))).toContain('TRANSCRIPT NOT CAPTURED for "b"')
   })
 })
 

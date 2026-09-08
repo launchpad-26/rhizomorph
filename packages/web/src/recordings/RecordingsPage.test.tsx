@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { discloseText } from '../disclosure/testing.js'
 import { ModeProvider } from '../app/ModeContext.js'
 import type { FetchLike } from '../replay/api.js'
 import { CAPABILITY_META_NAME } from './capability.js'
@@ -124,6 +125,23 @@ describe('RecordingsPage', () => {
     expect(row).toHaveTextContent('2') // landed
     expect(row).toHaveTextContent('1:05') // duration
     expect(row).toHaveTextContent('$4.50')
+  })
+
+  it('discloses cost provenance and capture state, identically by hover and by focus (#220)', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('recordings-table')).toBeInTheDocument())
+
+    const row = screen.getByTestId('recording-row-2000')
+    // `discloseText` opens each card both ways and refuses to return unless the
+    // two markups match, so these are charter §6 assertions as much as content
+    // ones. Named per column — a row has a card on more than one cell now.
+    const cost = row.querySelector('[aria-label$=", cost"]')
+    expect(cost, 'no cost disclosure on this row').not.toBeNull()
+    expect(discloseText(cost as HTMLElement)).toContain('estimated')
+
+    const capture = row.querySelector('[aria-label$=", capture"]')
+    expect(capture, 'no capture disclosure on this row').not.toBeNull()
+    expect(discloseText(capture as HTMLElement)).toMatch(/captur/)
   })
 
   it('shows the honest gap for an estimated cost — a real dollar figure, marked, not hidden', async () => {
