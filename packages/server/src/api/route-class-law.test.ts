@@ -86,12 +86,12 @@ describe('the route-class law (prd-23 ruling 5)', () => {
     // `api/otel.ts`'s four routes live inside their own `app.register(...)`
     // plugin — the plugin queue only actually runs its routes once `ready()`
     // resolves, so reading `registeredRoutes` any earlier would silently miss
-    // them and this law would walk vacuously over the other 22.
+    // them and this law would walk vacuously over the other 26.
     //
     // Both numbers are derived, not typed: the four are `ROUTE_CLASSES`'
     // `ungated-mutation` rows, which ARE the OTLP inbox (`/v1/metrics`,
     // `/v1/logs`, `/v1/traces` and the bare-path fallback `POST /`, ADR-0018),
-    // and 22 is the 26 asserted below minus those four. Re-derive rather than
+    // and 26 is the 30 asserted below minus those four. Re-derive rather than
     // trust: the previous wording said "three" and "14", which was true before
     // ADR-0018 added the fallback and never updated. #232's own ruling is that
     // a count stated in prose is derived from the thing it counts.
@@ -112,8 +112,11 @@ describe('the route-class law (prd-23 ruling 5)', () => {
     // (#276), `POST /api/operator/:act` — one route, three acts. 26 -> 27:
     // prd-53 ruling 3's measure route, `POST /api/lab/measure` — a gated
     // mutation, because measuring runs a gate and records its verdict.
-    expect(routes.length).toBe(27)
-    expect(ROUTE_CLASSES.length).toBe(27)
+    // 27 -> 30: prd-14 ruling 5's comparison save and its two reads (#213) —
+    // `POST /api/lab/comparisons`, `GET /api/lab/comparisons` and
+    // `GET /api/lab/comparisons/:id`.
+    expect(routes.length).toBe(30)
+    expect(ROUTE_CLASSES.length).toBe(30)
 
     await app.close()
   })
@@ -156,23 +159,25 @@ describe('the route-class law (prd-23 ruling 5)', () => {
 
     // Every `gated-*` row's real route holds the capability gate, and every
     // plain `read`/`ungated-mutation` holds none. Deleting a `preHandler` from
-    // any of the twenty-two gated routes turns this red — that is the law
+    // any of the twenty-five gated routes turns this red — that is the law
     // biting.
     expect(gatePresenceViolations(routes, ROUTE_CLASSES)).toEqual([])
 
     // A count pinned independently, so the walk cannot pass vacuously by
-    // matching zero gated routes: eight gated mutations (six plus prd-17
-    // ruling 1's operator door, #276, plus prd-53 ruling 3's measure route)
+    // matching zero gated routes: nine gated mutations (six plus prd-17
+    // ruling 1's operator door, #276, plus prd-53 ruling 3's measure route,
+    // plus prd-14 ruling 5's comparison save, #213)
     // + seven gated reads (prd-29 wave 1) + four gated reads (prd-29 wave 1b,
     // ruling 7, #58) + two gated reads (prd-29 wave 2a, ruling 7, #59) + one
-    // gated read (prd-29 wave 2b, ruling 4, #60 — `/api/stream`). If this
-    // number and the walk above disagree with the table, they cannot both
-    // pass.
+    // gated read (prd-29 wave 2b, ruling 4, #60 — `/api/stream`) + two gated
+    // reads (prd-14 ruling 5, #213 — the comparison listing and its by-id
+    // read). If this number and the walk above disagree with the table, they
+    // cannot both pass.
     const gatedFound = routes.filter((route) => {
       const entry = classify(route, ROUTE_CLASSES)
       return entry !== undefined && isGated(entry) && route.hasCapabilityGate
     })
-    expect(gatedFound.length).toBe(22)
+    expect(gatedFound.length).toBe(25)
 
     await app.close()
   })
@@ -962,7 +967,7 @@ describe('the README support matrix agrees with what ci.yml actually proves, in 
  * Walks `packages/web/src` and `packages/app/src` (the browser and
  * Electron-host code — the only places a page or the shell itself can
  * originate a request), excluding tests, and asserts the result is EXACTLY
- * today's ten modules / thirteen call sites, not merely "at least these".
+ * today's twelve modules / fifteen call sites, not merely "at least these".
  *
  * This opener used to quote README's old sentence, "grep for fetch(/
  * EventSource(/http.request(", which THIS COMMIT deleted — a comment citing
@@ -981,11 +986,11 @@ describe('the README support matrix agrees with what ci.yml actually proves, in 
  *    extension test skipped it silently. EXECUTED: a new `.mjs` file
  *    containing `fetch('/x')` left this law green; the identical content
  *    named `.ts` reddened it.
- * 2. **The pattern.** Five modules never write `fetch(` at all. They alias the
+ * 2. **The pattern.** Six modules never write `fetch(` at all. They alias the
  *    platform function first — `const impl = fetchImpl ?? globalThis.fetch`
  *    — and then call `impl(URL, …)`, which no literal-call regex can see:
- *    `concierge/clone.ts`, `concierge/instrument.ts`, `lab/launch/launch.ts`,
- *    `recordings/label.ts`, `replay/rotate.ts`.
+ *    `concierge/clone.ts`, `concierge/instrument.ts`, `concierge/retarget.ts`,
+ *    `lab/launch/launch.ts`, `recordings/label.ts`, `replay/rotate.ts`.
  *
  * `ALIAS_PATTERNS` closes (2), and the `typeof` lookbehind is load-bearing
  * rather than cosmetic. `typeof globalThis.fetch === 'function'` is a
@@ -1262,6 +1267,7 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     { file: path.join('packages', 'web', 'src', 'app', 'StreamContext.tsx'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'concierge', 'clone.ts'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'concierge', 'instrument.ts'), count: 1 },
+    { file: path.join('packages', 'web', 'src', 'concierge', 'retarget.ts'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'hooks', 'useEventStream.ts'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'lab', 'launch', 'launch.ts'), count: 1 },
     // prd53 ruling 3: the measure client — the app's sixth mutating call, one fetch.
@@ -1271,13 +1277,13 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     { file: path.join('packages', 'web', 'src', 'replay', 'rotate.ts'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'scene', 'parity', 'capture.mjs'), count: 2 },
   ]
-  const EXPECTED_TOTAL = 14
+  const EXPECTED_TOTAL = 15
 
   it('the sweep walks real source trees, not an empty directory — an empty sweep proves nothing', () => {
     expect(allSourceFiles().length).toBeGreaterThan(100)
   })
 
-  it('are exactly these eleven modules and fourteen call sites — no more, no fewer', () => {
+  it('are exactly these twelve modules and fifteen call sites — no more, no fewer', () => {
     const found = realCallSites()
     expect(found).toEqual(EXPECTED_CALL_SITES)
     expect(found.reduce((sum, entry) => sum + entry.count, 0)).toBe(EXPECTED_TOTAL)
@@ -1379,7 +1385,7 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     //    a bare key reddened it. #23's vocabulary names CONSTRUCTS, not
     //    spellings — a quoted or computed key is the same renamed destructure
     //    of `globalThis.fetch` — so excluding one spelling of an included
-    //    construct is what makes README's "eleven modules and fourteen call
+    //    construct is what makes README's "twelve modules and fifteen call
     //    sites" able to go quietly wrong. See `DESTRUCTURE_KEY` above.
     //
     //    Revert `DESTRUCTURE_KEY` to `\bfetch` and all three rows below go
@@ -1591,7 +1597,7 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     expect(stated.reduce((sum, entry) => sum + entry.count, 0)).toBe(EXPECTED_TOTAL)
   })
 
-  it('README states the same thirteen-across-ten the sweep above finds — every occurrence, not just the first', () => {
+  it('README states the same fifteen-across-twelve the sweep above finds — every occurrence, not just the first', () => {
     const README_MD = readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8')
     // Two anchors over the same sentence rather than one two-group match, so
     // each number goes through the same every-occurrence rule the mutating-

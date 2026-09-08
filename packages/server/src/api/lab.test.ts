@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -1343,6 +1343,216 @@ describe('POST /api/lab/launch (route wiring — validation and the read-only re
       payload: { lane: 'x', checkpointId: 'y', arms: [{ model: 'opus' }] },
     })
     expect(response.statusCode).toBe(409)
+  })
+})
+
+describe('POST/GET /api/lab/comparisons (prd-14 ruling 5, #213)', () => {
+  let repoPath: string
+  let sessionDir: string
+
+  beforeEach(async () => {
+    repoPath = await mkdtemp(path.join(tmpdir(), 'rhizomorph-lab-comparisons-repo-'))
+    sessionDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-lab-comparisons-dir-'))
+  })
+
+  afterEach(async () => {
+    await Promise.all([
+      rm(repoPath, { recursive: true, force: true }),
+      rm(sessionDir, { recursive: true, force: true }),
+    ])
+  })
+
+  const NOW = 1_700_000_000_000
+  const SAVED_AT = '2023-11-14T22:13:20.000Z'
+  const INPUT = {
+    arms: [
+      {
+        id: 'a',
+        model: 'opus',
+        brief: 'brief-x',
+        runs: [
+          { id: 'r1', status: 'complete', value: 4 },
+          { id: 'r2', status: 'pending' },
+          { id: 'r3', status: 'failed', error: 'timed out' },
+          { id: 'r4', status: 'failed' },
+        ],
+      },
+    ],
+  }
+
+  function authorised(app: ReturnType<typeof buildApp>): Record<string, string> {
+    return { [CAPABILITY_TOKEN_HEADER]: app.capabilityToken }
+  }
+
+  function makeApp(opts: { readOnly?: boolean } = {}) {
+    const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+    return buildApp({ repoPath, repoName: 'repo', sessionDir, recorder, now: () => NOW, ...opts })
+  }
+
+  describe('requires the capability token', () => {
+    it('401s a tokenless POST — the handler never ran, so no comparisons/ dir was ever created', async () => {
+      const app = makeApp()
+      const response = await app.inject({ method: 'POST', url: '/api/lab/comparisons', payload: { input: INPUT } })
+      expect(response.statusCode).toBe(401)
+      expect(existsSync(path.join(sessionDir, 'comparisons'))).toBe(false)
+    })
+
+    it('401s a tokenless GET on both reads', async () => {
+      const app = makeApp()
+      expect((await app.inject({ method: 'GET', url: '/api/lab/comparisons' })).statusCode).toBe(401)
+      expect(
+        (await app.inject({ method: 'GET', url: '/api/lab/comparisons/00000000-0000-4000-8000-000000000000' }))
+          .statusCode,
+      ).toBe(401)
+    })
+
+    it('401s a wrong token on the POST', async () => {
+      const app = makeApp()
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/lab/comparisons',
+        headers: { [CAPABILITY_TOKEN_HEADER]: 'not-the-real-token' },
+        payload: { input: INPUT },
+      })
+      expect(response.statusCode).toBe(401)
+    })
+  })
+
+  it('409s the save in readOnly mode, but the reads still answer — nowhere durable to save, nothing wrong with reading', async () => {
+    const app = makeApp({ readOnly: true })
+    const post = await app.inject({
+      method: 'POST',
+      url: '/api/lab/comparisons',
+      headers: authorised(app),
+      payload: { input: INPUT },
+    })
+    expect(post.statusCode).toBe(409)
+    expect((post.json() as { error: string }).error).toContain('nowhere durable to save a comparison')
+
+    const list = await app.inject({ method: 'GET', url: '/api/lab/comparisons', headers: authorised(app) })
+    expect(list.statusCode).toBe(200)
+    expect(list.json()).toEqual({ comparisons: [] })
+  })
+
+  it('400s a body with no "input"', async () => {
+    const app = makeApp()
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/lab/comparisons',
+      headers: authorised(app),
+      payload: {},
+    })
+    expect(response.statusCode).toBe(400)
+    expect((response.json() as { error: string }).error).toBe('body must be a JSON object carrying an "input" comparison')
+  })
+
+  it("400s an input whose arm is missing fields — the parser's own sentence, unchanged by the route", async () => {
+    const app = makeApp()
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/lab/comparisons',
+      headers: authorised(app),
+      payload: { input: { arms: [{ id: 'a' }] } },
+    })
+    expect(response.statusCode).toBe(400)
+    expect((response.json() as { error: string }).error).toBe('arm is missing one of id, model, brief, runs')
+  })
+
+  it('saves, lists and reads back a comparison — the happy path, whole body', async () => {
+    const app = makeApp()
+
+    const post = await app.inject({
+      method: 'POST',
+      url: '/api/lab/comparisons',
+      headers: authorised(app),
+      payload: { input: INPUT },
+    })
+    expect(post.statusCode).toBe(200)
+    const { id, savedAt } = post.json() as { id: string; savedAt: string }
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    expect(savedAt).toBe(SAVED_AT)
+
+    const read = await app.inject({ method: 'GET', url: `/api/lab/comparisons/${id}`, headers: authorised(app) })
+    expect(read.statusCode).toBe(200)
+    expect(read.json()).toEqual({ id, available: true, artifact: { version: 1, savedAt, input: INPUT } })
+
+    const list = await app.inject({ method: 'GET', url: '/api/lab/comparisons', headers: authorised(app) })
+    expect(list.statusCode).toBe(200)
+    expect(list.json()).toEqual({
+      comparisons: [{ id, available: true, savedAt, arms: 1, sizeBytes: expect.any(Number) }],
+    })
+  })
+
+  it('repeated POSTs get distinct ids, and the listing grows', async () => {
+    const app = makeApp()
+    const ids = new Set<string>()
+    for (let i = 0; i < 3; i++) {
+      const post = await app.inject({
+        method: 'POST',
+        url: '/api/lab/comparisons',
+        headers: authorised(app),
+        payload: { input: INPUT },
+      })
+      expect(post.statusCode).toBe(200)
+      ids.add((post.json() as { id: string }).id)
+    }
+    expect(ids.size).toBe(3)
+
+    const list = await app.inject({ method: 'GET', url: '/api/lab/comparisons', headers: authorised(app) })
+    expect((list.json() as { comparisons: unknown[] }).comparisons).toHaveLength(3)
+  })
+
+  it('404s a well-formed but unknown id', async () => {
+    const app = makeApp()
+    const id = '00000000-0000-4000-8000-000000000000'
+    const response = await app.inject({ method: 'GET', url: `/api/lab/comparisons/${id}`, headers: authorised(app) })
+    expect(response.statusCode).toBe(404)
+    expect((response.json() as { error: string }).error).toBe(`no comparison with id "${id}"`)
+  })
+
+  it('400s a malformed id, and a traversal-shaped one never reads a real session file', async () => {
+    const app = makeApp()
+    await writeFile(path.join(sessionDir, sessionFileName(1000)), '{}\n', 'utf8')
+
+    const traversal = await app.inject({
+      method: 'GET',
+      url: '/api/lab/comparisons/..%2Fsession-1000.jsonl',
+      headers: authorised(app),
+    })
+    expect(traversal.statusCode).toBe(400)
+    expect((traversal.json() as { error: string }).error).toBe('comparison id must be a UUID')
+
+    const malformed = await app.inject({
+      method: 'GET',
+      url: '/api/lab/comparisons/not-a-uuid',
+      headers: authorised(app),
+    })
+    expect(malformed.statusCode).toBe(400)
+    expect((malformed.json() as { error: string }).error).toBe('comparison id must be a UUID')
+  })
+
+  it("the issue's mutation, through the route: a version-2 rewrite refuses by name, on both the by-id read and the listing", async () => {
+    const app = makeApp()
+    const post = await app.inject({
+      method: 'POST',
+      url: '/api/lab/comparisons',
+      headers: authorised(app),
+      payload: { input: INPUT },
+    })
+    const { id } = post.json() as { id: string }
+
+    const filePath = path.join(sessionDir, 'comparisons', `comparison-${id}.json`)
+    const before = readFileSync(filePath, 'utf8')
+    await writeFile(filePath, before.replace('"version": 1', '"version": 2'), 'utf8')
+
+    const read = await app.inject({ method: 'GET', url: `/api/lab/comparisons/${id}`, headers: authorised(app) })
+    expect(read.statusCode).toBe(200)
+    expect(read.json()).toEqual({ id, available: false, reason: 'unsupported comparison artifact version: 2' })
+
+    const list = await app.inject({ method: 'GET', url: '/api/lab/comparisons', headers: authorised(app) })
+    expect(list.json()).toEqual({
+      comparisons: [{ id, available: false, reason: 'unsupported comparison artifact version: 2', sizeBytes: expect.any(Number) }],
+    })
   })
 })
 

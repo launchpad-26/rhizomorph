@@ -6,6 +6,8 @@ import path from 'node:path'
 import type { Exec, ForkDispatchRecord, ForkOutcomeRecord, RhizomorphEvent, SessionState } from '@rhizomorph/core'
 import { buildFleet, createEvent, createIdFactory, reduceAll } from '@rhizomorph/core'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
+import { ComparisonArtifactError, type ComparisonInput, parseComparisonInput } from '../comparisons/artifact.js'
+import { isComparisonId, listComparisons, readComparison, saveComparison } from '../comparisons/store.js'
 import { listSessions, readSessionEvents, sessionFilePath } from '../log/session-log.js'
 import type { ServerContext } from '../server/context.js'
 import type { SessionRecorder } from '../server/recorder.js'
@@ -26,16 +28,21 @@ import { requireCapabilityToken } from './security.js'
  * never write; it folds the same log every other route already reads.
  *
  * `POST /api/lab/launch` (prd14 ruling 2/4 — wave 2, "the act of launching an
- * experiment") is the one write this file adds, and it reaches the
- * laboratory the SAME way `namespace-law.test.ts` already requires: through
- * `runCli(['lab', 'fork', ...])`, in-process, exactly the call
+ * experiment") and `POST /api/lab/measure` (prd53 ruling 3) are the writes
+ * that reach the laboratory, each the SAME way `namespace-law.test.ts` already
+ * requires: through `runCli([...])`, in-process, exactly the call
  * `packages/server/src/cli/index.ts` is the one declared importer for. That
  * satisfies the namespace law's letter (this file's own import specifiers
  * never mention `lab/`) and its spirit (prd12 ruling 1's "a UI button is an
  * explicit human invocation and is permitted" — the CLI is still the only
- * hand that ever touches `fork.ts`/`checkpoint.ts`; this route is the human's
- * finger on it, not a new one). See `explicit-invocation-law` below for the
- * structural proof that nothing else reaches it.
+ * hand that ever touches `fork.ts`/`checkpoint.ts`; these routes are the
+ * human's finger on it, not a new one). See `explicit-invocation-law` below
+ * for the structural proof that nothing else reaches it.
+ *
+ * `POST /api/lab/comparisons` (prd-14 ruling 5, #213, ADR-0041) is a further
+ * write this file adds, but it never reaches the laboratory at all: it saves
+ * a finished comparison as a sidecar file beside the session logs, through
+ * `../comparisons/store.js`, so the namespace law above is not engaged by it.
  *
  * `runCli` is loaded with a dynamic `import()` inside {@link runLabCliOnce}
  * rather than a static import at the top of this file: `cli/index.ts` itself
@@ -1230,4 +1237,48 @@ export function registerLabRoutes(app: FastifyInstance, ctx: ServerContext): voi
       throw err
     }
   })
+
+  // prd-14 ruling 5 (#213): a finished comparison is a recording-adjacent
+  // artefact, saved beside the session logs the way `api/label.ts` writes its
+  // sidecar (ADR-0041) — this write never reaches the laboratory at all, so
+  // the namespace law above is not engaged. Gated exactly as `/api/lab/launch`
+  // is: the sibling miss AGENTS.md records is a save gated differently from
+  // the write beside it.
+  app.post('/api/lab/comparisons', { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') }, async (request: FastifyRequest, reply) => {
+    if (ctx.readOnly === true) {
+      return reply.code(409).send({
+        error: 'this server is replaying a session record, not watching a directory of recordings — there is nowhere durable to save a comparison here',
+      })
+    }
+    const body = request.body
+    if (typeof body !== 'object' || body === null || !('input' in body)) {
+      return reply.code(400).send({ error: 'body must be a JSON object carrying an "input" comparison' })
+    }
+    let input: ComparisonInput
+    try {
+      input = parseComparisonInput((body as { input: unknown }).input)
+    } catch (err) {
+      if (err instanceof ComparisonArtifactError) return reply.code(400).send({ error: err.message })
+      throw err
+    }
+    const savedAt = new Date((ctx.now ?? Date.now)()).toISOString()
+    return saveComparison(ctx.sessionDir, input, savedAt)
+  })
+
+  app.get('/api/lab/comparisons', { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') }, async () => {
+    return { comparisons: await listComparisons(ctx.sessionDir) }
+  })
+
+  app.get<{ Params: { id: string } }>(
+    '/api/lab/comparisons/:id',
+    { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') },
+    async (request, reply) => {
+      const { id } = request.params
+      if (!isComparisonId(id)) return reply.code(400).send({ error: 'comparison id must be a UUID' })
+      const read = await readComparison(ctx.sessionDir, id)
+      if (read.kind === 'missing') return reply.code(404).send({ error: `no comparison with id "${id}"` })
+      if (read.kind === 'refused') return { id, available: false, reason: read.reason }
+      return { id, available: true, artifact: read.artifact }
+    },
+  )
 }

@@ -62,6 +62,7 @@ const EXPECTED: ReadonlyArray<{ route: string; contractTest: string }> = [
   { route: '/api/lab/measure', contractTest: 'lab-measure.contract.test.ts' },
   { route: '/api/concierge/launch', contractTest: 'instrument.contract.test.ts' },
   { route: '/api/concierge/clone', contractTest: 'clone.contract.test.ts' },
+  { route: '/api/retarget', contractTest: 'retarget.contract.test.ts' },
 ]
 
 /**
@@ -150,15 +151,25 @@ const EXPECTED_READS: ReadonlyArray<{
 ]
 
 /**
- * `/api/stream` is `ROUTE_CLASSES`' 14th `gated-read` row and DELIBERATELY has
+ * `/api/stream` is `ROUTE_CLASSES`' 16th `gated-read` row and DELIBERATELY has
  * no row in {@link EXPECTED_READS} above (see the dedicated test below for why,
  * named rather than silently dropped): it is cookie-authenticated (ruling 4 /
  * #60) because `EventSource` cannot send a header at all, so there is no
  * `capabilityRead` caller and no fetch-shaped client this harness could drive
  * through a response-based refusal assertion. It is proven by its own
  * dedicated non-contract test (`stream.test.ts`), not by this law.
+ *
+ * `/api/lab/comparisons` and `/api/lab/comparisons/:id` (prd-14 ruling 5,
+ * #213) have no web caller until #214 (prd-14 w2) lands the comparison
+ * surface's save-and-reopen; #214 removes both from this set and adds their
+ * `EXPECTED_READS` rows and contract tests. Until then no fetch-shaped client
+ * exists for this harness to drive.
  */
-const DELIBERATELY_EXCLUDED_GATED_READS: ReadonlySet<string> = new Set(['/api/stream'])
+const DELIBERATELY_EXCLUDED_GATED_READS: ReadonlySet<string> = new Set([
+  '/api/lab/comparisons',
+  '/api/lab/comparisons/:id',
+  '/api/stream',
+])
 
 /**
  * THE PARSER DECISION (#61, prd-29 w3), decided here rather than left open:
@@ -283,19 +294,19 @@ describe('every mutating module has a contract test (prd-24 ruling 2)', () => {
  * not ruled, exactly as prd-23/prd-29's open questions leave it.
  */
 describe('every gated-read route has a contract test (prd-29 w3, #61) — the read axis joins the write side\'s law', () => {
-  it('/api/stream is the one gated-read this law does not cover, named rather than silently dropped', () => {
+  it('the gated reads this law does not cover are named rather than silently dropped', () => {
     const allGatedReads = gatedReadRoutesIn(readFileSync(SERVER_API_INDEX, 'utf8'))
 
     // Every gated-read row ROUTE_CLASSES declares today — the un-filtered
     // parse, before this law's own deliberate exclusion is applied. A
-    // fifteenth row added tomorrow (covered or not) moves this floor, which
+    // seventeenth row added tomorrow (covered or not) moves this floor, which
     // is the point: the number is derived from the parse, never hardcoded as
     // a vacuity floor ruling 3 forbids.
     expect(allGatedReads.length).toBeGreaterThan(0)
-    expect(allGatedReads).toHaveLength(14)
+    expect(allGatedReads).toHaveLength(16)
 
     const excludedByThisLaw = allGatedReads.filter((route) => !declaredGatedReadRoutes().includes(route))
-    expect(excludedByThisLaw).toEqual(['/api/stream'])
+    expect(excludedByThisLaw).toEqual(['/api/lab/comparisons', '/api/lab/comparisons/:id', '/api/stream'])
   })
 
   it('the server route table still declares exactly the 13 gated-read routes this law expects — the two enumerations cannot drift', () => {
