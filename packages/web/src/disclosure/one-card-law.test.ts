@@ -49,7 +49,13 @@ import { describe, expect, it } from 'vitest'
  * 2. **Opened by hover or focus.** The file drives it with `onMouseEnter`,
  *    `onPointerEnter` or `onFocus`. This is what makes the law about
  *    *disclosure* rather than about overlays: a modal, a click-opened menu and
- *    a dock panel opened by a zoom level are all out.
+ *    a dock panel opened by a zoom level are all out. **File-scoped, and that
+ *    is this law's widest hole** — a panel in one file opened from a parent in
+ *    another trips neither, since one has no panel block and the other no
+ *    trigger. This card is written that way (`Disclosure.tsx` opens,
+ *    `DisclosureCard.tsx` paints), so it is the ordinary shape and not a
+ *    contrivance. ADR-0044's Consequences names it; closing it needs an import
+ *    graph, which is a different scanner.
  * 3. **Prose, not controls.** The panel contains no interactive element. This
  *    is the clause that lets a menu stand, and ADR-0044 records why it is a
  *    principled line rather than a carve-out: if you are showing someone words

@@ -64,3 +64,14 @@ the teach affordance is already the one control the card carries, deliberately.
   and not for the timeline's menu.
 - Bad: the scanner reasons about markup, so a panel assembled through a helper
   it cannot see would be missed. Every law in this directory shares that limit.
+- Bad, and this is the widest hole: **a hover explanation split across two files
+  escapes the law entirely.** Clause 2 is file-scoped because the trigger is
+  commonly in the parent — but the parent can be in another *file*, and then the
+  trigger's file holds no panel block and the panel's file holds no trigger, so
+  neither trips. This card is itself written that way: `Disclosure.tsx` opens it,
+  `DisclosureCard.tsx` paints it, and relabelled outside `disclosure/` the
+  shipped card does not name itself. So the shape is this directory's own idiom
+  rather than a contrivance, and unlike the mixed panel above, falling into it
+  takes no design smell — which is why it is named here first and admitted to be
+  worse. Closing it needs an import graph, which is a different scanner and a
+  decision of its own.
