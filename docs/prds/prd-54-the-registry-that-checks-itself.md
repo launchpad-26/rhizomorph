@@ -133,6 +133,41 @@ right house style; whether the law needs an explicit "asserted absent" declarati
 forbidding the construction is enough, is **open, not ruled**. Recorded here rather than as a new
 ruling because Ruling 2's verdict is unchanged — only its edge is now known.
 
+*Amendment note 2, 2026-09-09, from the independent review of this document at `fa64a7a7`.* A
+second edge, of the same class as the one above and found the same way — by auditing an entry
+against the ruling rather than by writing code to it. **This ruling's two sentences disagree about
+what unit is checked.** The body requires the quoted *form* to occur verbatim; Extent names
+`` `.toBe(N)` / `.toHaveLength(N)` ``. Read as a selector — which spans are in scope, with the
+body's check then applied to the whole backticked span — the two agree. Read as the thing to check,
+Extent lifts the assertion token out and asserts only that, and the ruling goes green on a stale
+entry whenever the retired number still occurs anywhere in the cited file for an unrelated reason.
+The exemplar cannot distinguish them, because the tokens entry's span *is* `` `.toBe(225)` ``.
+
+The route-class entry can, and `api/route-class-law.test.ts` carries the decoy that makes it bite:
+`expect(gatedFound.length).toBe(25)` counts gated routes, while the two pins that entry actually
+claims stand at `30`. EXECUTED over all 21 entries at `fa64a7a7` — three spans are in scope in the
+whole registry, and the two readings disagree on two of them:
+
+| entry's cited file, and the span | whole span | token only |
+|---|---|---|
+| `theme/tokens.test.ts` — `` `.toBe(225)` `` | absent | absent |
+| `api/route-class-law.test.ts` — `` `expect(ROUTE_CLASSES.length).toBe(25)` `` | absent | **present** |
+| `api/route-class-law.test.ts` — `` `expect(routes.length).toBe(25)` `` | absent | **present** |
+
+So the token reading passes two of the three false claims this PRD was written to catch, including
+Success 4's own route-class example; the span reading reddens all three and nothing else, with no
+false positive on the other 18 entries — a law that lands with no allowlist, which is what Ruling 4
+exists to secure. **Open, not ruled**, and left to the same wave-0 act as the edge above, which
+[#367][i367] is already blocked on: the measurement says which reading works, but naming the unit
+is a change to this ruling's words and belongs to whoever settles it. Recorded here rather than as
+a new ruling because Ruling 2's verdict is unchanged — the body already says "form"; only the
+disagreement between its two sentences is now known.
+
+One thing the measurement does not reach, for whoever writes the law: it took each entry's **leading
+path** to be "the cited file". A reason quoting a form that belongs to some other file it names
+would be judged against the wrong file. No entry does that today — all three spans above belong to
+their own entry's file — so it is not a live defect, but the law will need a position on it.
+
 ## Ruling 3 — a cited path must resolve, or be declared generated in the entry itself
 
 Every backticked repo-relative path in a reason must exist, with one declared exception: a path
@@ -194,3 +229,4 @@ un-backticked prose claims, which no ruling here makes checkable.
 
 [i353]: https://github.com/launchpad-26/rhizomorph/issues/353
 [i358]: https://github.com/launchpad-26/rhizomorph/issues/358
+[i367]: https://github.com/launchpad-26/rhizomorph/issues/367
