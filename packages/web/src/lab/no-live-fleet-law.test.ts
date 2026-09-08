@@ -193,7 +193,9 @@ describe('the lab tab renders no live-fleet surface (prd14)', () => {
     // so `git log -- <this file>` reads as though the pin were present there
     // when only the walker is. The later waves each add a
     // directory of their own (`axis`, `canvas`, `frame`, `metrics`, `trace`)
-    // and each owes this pin a row as it lands —
+    // and each owes this pin a row as it lands — wave 3 pays here (axis,
+    // frame, metrics, trace; compare grows by two: fromExperiment and
+    // ExperimentComparison), wave 4 adds canvas —
     // pinned exactly, not a loose lower bound, and grouped rather than
     // totalled. Both halves are load-bearing. A lower bound at any floor lets
     // a file silently ADDED pass unnoticed, not just a file dropped. And a
@@ -206,9 +208,13 @@ describe('the lab tab renders no live-fleet surface (prd14)', () => {
     // and this assertion is the only thing that sees it.
     expect(sourceFileCountsByDirectory()).toEqual({
       '': 6,
+      axis: 3,
       branching: 2,
-      compare: 7,
+      compare: 9,
+      frame: 2,
       launch: 3,
+      metrics: 3,
+      trace: 4,
     })
   })
 
