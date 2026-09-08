@@ -204,7 +204,7 @@ describe('the lab tab renders no live-fleet surface (prd14)', () => {
     // directory of their own (`axis`, `canvas`, `frame`, `metrics`, `trace`)
     // and each owes this pin a row as it lands — wave 3 pays here (axis,
     // frame, metrics, trace; compare grows by two: fromExperiment and
-    // ExperimentComparison), wave 4 adds canvas —
+    // ExperimentComparison), wave 4 pays canvas 3 (#341 merged into this branch) —
     // pinned exactly, not a loose lower bound, and grouped rather than
     // totalled. Both halves are load-bearing. A lower bound at any floor lets
     // a file silently ADDED pass unnoticed, not just a file dropped. And a
@@ -219,6 +219,7 @@ describe('the lab tab renders no live-fleet surface (prd14)', () => {
       '': 6,
       axis: 3,
       branching: 2,
+      canvas: 3,
       compare: 9,
       frame: 2,
       launch: 3,
