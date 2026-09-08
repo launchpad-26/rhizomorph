@@ -12,7 +12,8 @@ import {
   capViolations,
   type CategoryWorld,
 } from './category.js'
-import { hueGap, oklch, rgbFromHex, type Rgb } from './oklch.js'
+import { contrastRatio } from './contrast.js'
+import { deltaE, hueGap, oklch, rgbFromHex, simulate, type Dichromacy, type Rgb } from './oklch.js'
 import { resolve, themesOf, type Declarations } from './tokens.js'
 
 /**
@@ -220,5 +221,104 @@ describe('a rigged violation of any cap turns the suite red', () => {
 
   it('finds nothing to complain about in the real sheet — no glow ships', () => {
     expect(capViolations(FAMILY, WORLD).filter((m) => m.startsWith('cap 2'))).toEqual([])
+  })
+})
+
+/**
+ * LAW 9, FOR THE STATUS FAMILY'S TWO POLES (#39).
+ *
+ * Cap 5 above is law 9 restated for the category tints: strip the hue and
+ * four tints must still be four things. The alarm colours that actually carry
+ * state never got the same treatment — and the light theme shipped a `broken`
+ * and a `working` that measured 1.25:1 in greyscale and ΔE 1.4 under
+ * deuteranopia: "fine" and "dead" were one colour to one reader in twelve.
+ *
+ * Scope, stated honestly: this holds the two POLES of the scale — the green
+ * that means "getting on with it" and the red that means "dead" — not all
+ * fifteen pairs. The six are not pairwise separable without their glyphs in
+ * EITHER theme (dark's done/broken sit at 1.01:1; light's done/waiting-benign
+ * at 1.01:1), and they are not meant to be: law 9's by-construction half —
+ * every state is glyph + word (`fleet/sigils.tsx`) — carries those. The poles
+ * are the one pair whose confusion inverts the whole instrument's reading, so
+ * they are held to a number. Both red-green dichromacies are checked, because
+ * a fix picked against one is exactly the sibling-case shape this repo keeps
+ * finding: the shipped pair passed protanopia (ΔE 15.3) while failing
+ * deuteranopia (1.4).
+ *
+ * Why not cap 5's own `luminance()`: it is `scene/palette.ts`'s gamma-naive
+ * budget, and it reports the shipped light pair 0.176 apart — comfortably
+ * over cap 5's 0.08 step — while a gamma-decoded grey puts them at 1.25:1.
+ * The naive mean errs little on the low-chroma tints cap 5 was written for and
+ * badly on saturated dark inks. So this law is denominated in WCAG contrast
+ * (`contrast.ts`), the same ratio the legibility law uses, and it would have
+ * seen the defect the day it shipped.
+ */
+const POLE_GREYSCALE_FLOOR = 1.5
+const POLE_CVD_FLOOR = 8
+const DICHROMACIES: readonly Dichromacy[] = ['deuteranopia', 'protanopia']
+
+/** Every way the two poles fail to separate, as sentences. Empty is the only pass. */
+function poleViolations(working: Rgb, broken: Rgb): string[] {
+  const found: string[] = []
+  const grey = contrastRatio(working, broken)
+  if (grey < POLE_GREYSCALE_FLOOR) {
+    found.push(`greyscale: working and broken are ${grey.toFixed(2)}:1 with colour removed, under ${POLE_GREYSCALE_FLOOR}:1`)
+  }
+  for (const kind of DICHROMACIES) {
+    const distance = deltaE(simulate(working, kind), simulate(broken, kind))
+    if (distance < POLE_CVD_FLOOR) {
+      found.push(`${kind}: working and broken are ΔE ${distance.toFixed(1)} apart to a ${kind.replace(/ia$/, 'e')}, under ${POLE_CVD_FLOOR}`)
+    }
+  }
+  return found
+}
+
+describe.each(THEMES)('law 9 — the two poles survive greyscale and a red-green reader in $name', (theme) => {
+  const working = token('--color-working', theme.tokens)
+  const broken = token('--color-broken', theme.tokens)
+
+  it('separates fine from dead without hue', () => {
+    expect(poleViolations(working, broken)).toEqual([])
+  })
+
+  it('reports its margin on every axis, so a retune can see its headroom', () => {
+    expect(contrastRatio(working, broken)).toBeGreaterThanOrEqual(POLE_GREYSCALE_FLOOR)
+    for (const kind of DICHROMACIES) {
+      expect(deltaE(simulate(working, kind), simulate(broken, kind)), kind).toBeGreaterThanOrEqual(POLE_CVD_FLOOR)
+    }
+  })
+})
+
+describe('a rigged pair of poles turns the suite red, on the axis it was rigged on', () => {
+  it.each([
+    // The defect itself: the light pair as it shipped before #39. Fails the
+    // grey and the deuteranope, passes the protanope — which is why both are checked.
+    ['greyscale + deuteranopia', '#007137', '#a90035', ['greyscale', 'deuteranopia']],
+    // Equal luminance, wildly different hue: one grey, two colours to everyone else.
+    ['greyscale', '#802000', '#0000e0', ['greyscale']],
+    // A green and a red a protanope cannot tell apart, that everyone else can.
+    ['protanopia', '#006040', '#e02040', ['protanopia']],
+    // …and the deuteranope's own confusion line, distinct from the protanope's.
+    ['deuteranopia', '#60a020', '#e00040', ['deuteranopia']],
+  ])('catches %s', (_label, working, broken, axes) => {
+    const found = poleViolations(rgbFromHex(working), rgbFromHex(broken))
+    expect(found.map((message) => message.split(':')[0]).sort()).toEqual([...axes].sort())
+  })
+
+  it('has floors the shipped dark pair clears with room, so the law is not tuned to a hair', () => {
+    const working = token('--color-working', DARK)
+    const broken = token('--color-broken', DARK)
+    expect(contrastRatio(working, broken)).toBeGreaterThan(POLE_GREYSCALE_FLOOR * 1.2)
+    expect(deltaE(simulate(working, 'deuteranopia'), simulate(broken, 'deuteranopia'))).toBeGreaterThan(POLE_CVD_FLOOR * 1.2)
+  })
+
+  it('simulates a colour, not the identity — a red loses its red to a protanope', () => {
+    // The one assertion that would catch a zero or identity matrix: pure red
+    // darkens sharply for a protanope (the L cones are gone) and barely for a
+    // deuteranope. Numbers from the matrix, not from taste.
+    const red = rgbFromHex('#ff0000')
+    expect(simulate(red, 'protanopia')[0]).toBeLessThan(120)
+    expect(simulate(red, 'deuteranopia')[0]).toBeGreaterThan(140)
+    expect(deltaE(red, red)).toBe(0)
   })
 })

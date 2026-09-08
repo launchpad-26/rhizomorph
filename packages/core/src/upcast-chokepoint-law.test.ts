@@ -128,6 +128,7 @@ function allFamilies(f: EventFactory) {
     f.traceSpan(),
     f.forkCheckpoint(),
     f.forkDispatched(),
+    f.forkMeasured(),
     f.judgeFinding(),
     // prd-27 wave 1's family (#217). The same law caught it: this branch added
     // `beacon.received` to the union while #219 was adding its eight, and the

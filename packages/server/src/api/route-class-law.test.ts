@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -109,9 +109,11 @@ describe('the route-class law (prd-23 ruling 5)', () => {
     // `/api/lane-index` and `/api/lane-index/:handle`. prd-29 ruling 7 (#58,
     // #59) reclassifies six existing rows to `gated-read` and adds none, so
     // the count is unchanged. 25 -> 26: prd-17 ruling 1's operator door
-    // (#276), `POST /api/operator/:act` — one route, three acts.
-    expect(routes.length).toBe(26)
-    expect(ROUTE_CLASSES.length).toBe(26)
+    // (#276), `POST /api/operator/:act` — one route, three acts. 26 -> 27:
+    // prd-53 ruling 3's measure route, `POST /api/lab/measure` — a gated
+    // mutation, because measuring runs a gate and records its verdict.
+    expect(routes.length).toBe(27)
+    expect(ROUTE_CLASSES.length).toBe(27)
 
     await app.close()
   })
@@ -154,22 +156,23 @@ describe('the route-class law (prd-23 ruling 5)', () => {
 
     // Every `gated-*` row's real route holds the capability gate, and every
     // plain `read`/`ungated-mutation` holds none. Deleting a `preHandler` from
-    // any of the twenty-one gated routes turns this red — that is the law
+    // any of the twenty-two gated routes turns this red — that is the law
     // biting.
     expect(gatePresenceViolations(routes, ROUTE_CLASSES)).toEqual([])
 
     // A count pinned independently, so the walk cannot pass vacuously by
-    // matching zero gated routes: seven gated mutations (six plus prd-17
-    // ruling 1's operator door, #276) + seven gated reads (prd-29 wave 1) +
-    // four gated reads (prd-29 wave 1b, ruling 7, #58) + two gated reads
-    // (prd-29 wave 2a, ruling 7, #59) + one gated read (prd-29 wave 2b,
-    // ruling 4, #60 — `/api/stream`). If this number and the walk above
-    // disagree with the table, they cannot both pass.
+    // matching zero gated routes: eight gated mutations (six plus prd-17
+    // ruling 1's operator door, #276, plus prd-53 ruling 3's measure route)
+    // + seven gated reads (prd-29 wave 1) + four gated reads (prd-29 wave 1b,
+    // ruling 7, #58) + two gated reads (prd-29 wave 2a, ruling 7, #59) + one
+    // gated read (prd-29 wave 2b, ruling 4, #60 — `/api/stream`). If this
+    // number and the walk above disagree with the table, they cannot both
+    // pass.
     const gatedFound = routes.filter((route) => {
       const entry = classify(route, ROUTE_CLASSES)
       return entry !== undefined && isGated(entry) && route.hasCapabilityGate
     })
-    expect(gatedFound.length).toBe(21)
+    expect(gatedFound.length).toBe(22)
 
     await app.close()
   })
@@ -1261,18 +1264,20 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     { file: path.join('packages', 'web', 'src', 'concierge', 'instrument.ts'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'hooks', 'useEventStream.ts'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'lab', 'launch', 'launch.ts'), count: 1 },
+    // prd53 ruling 3: the measure client — the app's sixth mutating call, one fetch.
+    { file: path.join('packages', 'web', 'src', 'lab', 'measure.ts'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'recordings', 'capabilityRead.ts'), count: 2 },
     { file: path.join('packages', 'web', 'src', 'recordings', 'label.ts'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'replay', 'rotate.ts'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'scene', 'parity', 'capture.mjs'), count: 2 },
   ]
-  const EXPECTED_TOTAL = 13
+  const EXPECTED_TOTAL = 14
 
   it('the sweep walks real source trees, not an empty directory — an empty sweep proves nothing', () => {
     expect(allSourceFiles().length).toBeGreaterThan(100)
   })
 
-  it('are exactly these ten modules and thirteen call sites — no more, no fewer', () => {
+  it('are exactly these eleven modules and fourteen call sites — no more, no fewer', () => {
     const found = realCallSites()
     expect(found).toEqual(EXPECTED_CALL_SITES)
     expect(found.reduce((sum, entry) => sum + entry.count, 0)).toBe(EXPECTED_TOTAL)
@@ -1374,7 +1379,7 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     //    a bare key reddened it. #23's vocabulary names CONSTRUCTS, not
     //    spellings — a quoted or computed key is the same renamed destructure
     //    of `globalThis.fetch` — so excluding one spelling of an included
-    //    construct is what makes README's "ten modules and thirteen call
+    //    construct is what makes README's "eleven modules and fourteen call
     //    sites" able to go quietly wrong. See `DESTRUCTURE_KEY` above.
     //
     //    Revert `DESTRUCTURE_KEY` to `\bfetch` and all three rows below go
@@ -1397,7 +1402,14 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     //    this row goes from 0 to 1 — the mutation this issue asks for.
     ['typeof with parens and no space is still a capability probe, not a call (#234)', 'typeof(globalThis.fetch)', 0],
   ])(
-    'counts %s exactly %i time(s) — the COUNT, not merely red-or-green',
+    // Row shape is [label, source, expected] and the specifiers below are in
+    // that exact order — %s, %s, %i — so a row's positional args and the
+    // title's positional specifiers can never drift out of correspondence the
+    // way [label, source, expected] against %s/%i alone did (#275): that
+    // string bound %s to label and %i to source, a string that coerces to
+    // NaN, and never read `expected` — the one number the title exists to
+    // state.
+    'counts %s (%s) exactly %i time(s) — the COUNT, not merely red-or-green',
     (_label, source, expected) => {
       // Every row is a scalar equality on purpose. The optional-call spelling
       // was added on the strength of a probe that only checked the law turned
@@ -1560,7 +1572,9 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     // validated the decoy and never read as far as the list a reader uses.
     // Two markers is now a loud failure rather than a silent choice between
     // them.
-    const markers = [...README_MD.matchAll(/call\s+sites\s+in\s+\*\*ten\*\*\s+modules:/g)]
+    // The marker matches the number WORD generically — the sibling test below checks its
+    // value. A literal here would be a number typed twice, by the law that forbids it.
+    const markers = [...README_MD.matchAll(/call\s+sites\s+in\s+\*\*\w+\*\*\s+modules:/g)]
     expect(
       markers.length,
       'README must introduce the fetch-recipe list exactly once — two occurrences means this law is validating whichever came first',

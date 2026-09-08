@@ -1,5 +1,7 @@
 import era1Recording from './era-1/recording.jsonl?raw'
 import era1Snapshot from './era-1/session-state.snapshot.json?raw'
+import era2Recording from './era-2/recording.jsonl?raw'
+import era2Snapshot from './era-2/session-state.snapshot.json?raw'
 import { ERAS, type EraRecording } from './fold.js'
 
 /**
@@ -24,6 +26,7 @@ export interface LoadedEra extends EraRecording {
 
 const TEXTS: Readonly<Record<string, { recordingText: string; snapshotText: string }>> = {
   'era-1': { recordingText: era1Recording, snapshotText: era1Snapshot },
+  'era-2': { recordingText: era2Recording, snapshotText: era2Snapshot },
 }
 
 /**

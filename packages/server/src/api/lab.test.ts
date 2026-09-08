@@ -10,7 +10,7 @@ import { armKey, createEventFactory, eventsToJsonl, reduceAll } from '@rhizomorp
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runCli } from '../cli/index.js'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
-import { sessionFileName } from '../log/paths.js'
+import { sessionDirFor, sessionFileName } from '../log/paths.js'
 import { sessionFilePath } from '../log/session-log.js'
 import { buildApp } from '../server/build-app.js'
 import { exec as realExec } from '../server/exec.js'
@@ -18,11 +18,14 @@ import { SessionRecorder } from '../server/recorder.js'
 import {
   estimateLaunchSpend,
   LAB_CLI_LOCK_CEILING_MS,
+  LAUNCH_CEILING_LANES,
   LabCliLockCeilingError,
   LaunchValidationError,
   launchExperiment,
-  MAX_ARMS,
+  MeasureUnknownForkError,
+  MeasureValidationError,
   MODEL_GRAMMAR,
+  measureExperiment,
   parseForkStdout,
 } from './lab.js'
 import { CAPABILITY_TOKEN_HEADER } from './security.js'
@@ -425,22 +428,22 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
    * before anything is dispatched. `exec` fails the test if anything is
    * executed, the same proof `MODEL_GRAMMAR`'s refusal above already uses.
    */
-  it(`refuses more than MAX_ARMS (${MAX_ARMS}) arms before touching the laboratory at all`, async () => {
+  it(`refuses more than LAUNCH_CEILING_LANES (${LAUNCH_CEILING_LANES}) arms before touching the laboratory at all`, async () => {
     const neverRuns: Exec = async (command, argv) => {
       throw new Error(`nothing should have been executed, but got: ${command} ${argv.join(' ')}`)
     }
-    const arms = Array.from({ length: MAX_ARMS + 1 }, () => ({}))
+    const arms = Array.from({ length: LAUNCH_CEILING_LANES + 1 }, () => ({}))
 
     await expect(
       launchExperiment({ lane: 'x', checkpointId: 'y', arms }, { repoPath: repoDir, exec: neverRuns }),
-    ).rejects.toThrow(new RegExp(`may not exceed ${MAX_ARMS}`))
+    ).rejects.toThrow(new RegExp(`may not exceed the launch ceiling of ${LAUNCH_CEILING_LANES}`))
   })
 
-  /** The other side of the ceiling: exactly MAX_ARMS is not refused. */
-  it(`dispatches exactly MAX_ARMS (${MAX_ARMS}) arms — the ceiling itself is accepted`, async () => {
+  /** The other side of the ceiling: exactly LAUNCH_CEILING_LANES is not refused. */
+  it(`dispatches exactly LAUNCH_CEILING_LANES (${LAUNCH_CEILING_LANES}) arms — the ceiling itself is accepted`, async () => {
     const checkpointId = await seedCheckpoint('lane-ceiling', () => 1_000_000)
     const exec = execWithStubs((command) => (command === 'workmux' ? OK : null))
-    const arms = Array.from({ length: MAX_ARMS }, () => ({ model: 'opus' }))
+    const arms = Array.from({ length: LAUNCH_CEILING_LANES }, () => ({ model: 'opus' }))
 
     const result = await launchExperiment(
       { lane: 'lane-ceiling', checkpointId, arms },
@@ -448,16 +451,16 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
     )
 
     expect(result.failed).toBeNull()
-    expect(result.arms).toHaveLength(MAX_ARMS)
+    expect(result.arms).toHaveLength(LAUNCH_CEILING_LANES)
   })
 
-  it(`refuses arms × runs above MAX_ARMS (${MAX_ARMS}) spending lanes before touching the laboratory — a run is a lane too`, async () => {
+  it(`refuses arms × runs above LAUNCH_CEILING_LANES (${LAUNCH_CEILING_LANES}) spending lanes before touching the laboratory — a run is a lane too`, async () => {
     const neverRuns: Exec = async (command, argv) => {
       throw new Error(`nothing should have been executed, but got: ${command} ${argv.join(' ')}`)
     }
     await expect(
       launchExperiment({ lane: 'x', checkpointId: 'y', arms: [{}, {}, {}], runs: 3 }, { repoPath: repoDir, exec: neverRuns }),
-    ).rejects.toThrow(new RegExp(`may not exceed ${MAX_ARMS} spending lanes`))
+    ).rejects.toThrow(new RegExp(`spending lanes may not exceed the launch ceiling of ${LAUNCH_CEILING_LANES}`))
     await expect(
       launchExperiment({ lane: 'x', checkpointId: 'y', arms: [{}], runs: 0 }, { repoPath: repoDir, exec: neverRuns }),
     ).rejects.toThrow(/"runs" must be a positive integer/)
@@ -499,6 +502,134 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
     expect(new Set(state.forks.dispatches.map((d) => d.worktreePath)).size).toBe(4)
     expect(new Set(state.forks.dispatches.map((d) => d.laneHandle)).size).toBe(4)
     expect(state.forks.dispatches.map((d) => d.model)).toEqual(['opus', 'opus', 'sonnet', 'sonnet'])
+  })
+
+  /** Every event of one type the laboratory wrote under `dataRoot` — read from the LOG, never from a result object. */
+  function recordedEvents(type: string): RhizomorphEvent[] {
+    return readdirSync(dataRoot, { recursive: true, encoding: 'utf8' })
+      .filter((file) => file.endsWith('.jsonl'))
+      .flatMap((file) =>
+        readFileSync(path.join(dataRoot, file), 'utf8')
+          .split('\n')
+          .filter((line) => line.length > 0)
+          .map((line) => JSON.parse(line) as RhizomorphEvent),
+      )
+      .filter((event) => event.type === type)
+  }
+
+  it('a launch above the ceiling refuses by name and override before the laboratory runs; a declared override lets it through and lands on EVERY fork.dispatched (prd53 ruling 6)', async () => {
+    expect(LAUNCH_CEILING_LANES).toBe(8)
+    const neverRuns: Exec = async (command, argv) => {
+      throw new Error(`nothing should have been executed, but got: ${command} ${argv.join(' ')}`)
+    }
+    await expect(
+      launchExperiment({ lane: 'x', checkpointId: 'y', arms: [{}, {}, {}], runs: 3 }, { repoPath: repoDir, exec: neverRuns }),
+    ).rejects.toThrow(/9 spending lanes may not exceed the launch ceiling of 8 \(the default\).*"ceilingOverride": 9/)
+    await expect(
+      launchExperiment({ lane: 'x', checkpointId: 'y', arms: [{}, {}, {}], runs: 3, ceilingOverride: 8 }, { repoPath: repoDir, exec: neverRuns }),
+    ).rejects.toThrow(/the launch ceiling of 8 \(your "ceilingOverride"\)/)
+    await expect(
+      launchExperiment({ lane: 'x', checkpointId: 'y', arms: [{}], ceilingOverride: 0 }, { repoPath: repoDir, exec: neverRuns }),
+    ).rejects.toThrow(/"ceilingOverride" must be a positive integer/)
+
+    const checkpointId = await seedCheckpoint('lane-override', () => 1_000_000)
+    const exec = execWithStubs((command) => (command === 'workmux' ? OK : null))
+    const result = await launchExperiment(
+      { lane: 'lane-override', checkpointId, arms: [{ model: 'opus' }], runs: 9, ceilingOverride: 9 },
+      { repoPath: repoDir, exec, dataRoot, claudeProjectsRoot, now: () => 2_000_000 },
+    )
+    expect(result.failed).toBeNull()
+    expect(result.arms[0]?.runs).toHaveLength(9)
+
+    const dispatched = recordedEvents('fork.dispatched').filter((event) => (event.payload as { forkId: string }).forkId === result.forkId)
+    expect(dispatched).toHaveLength(9)
+    expect(dispatched.map((event) => (event.payload as { ceilingOverride?: number }).ceilingOverride)).toEqual(Array(9).fill(9))
+  })
+
+  it('measuring runs the gate in every run\'s worktree through runCli, records one fork.measured per run with its provenance, and the listing then carries the outcome per run — and nothing before that (prd53 ruling 3)', async () => {
+    const checkpointId = await seedCheckpoint('lane-measure', () => 1_000_000)
+    let gateRuns = 0
+    const exec = execWithStubs((command) => {
+      if (command === 'workmux') return OK
+      if (command === 'fake-gate') {
+        gateRuns += 1
+        return gateRuns === 2 ? { stdout: '', stderr: '1 test failed', code: 1, failed: true } : OK
+      }
+      return null
+    })
+    const launched = await launchExperiment(
+      { lane: 'lane-measure', checkpointId, arms: [{ model: 'opus' }], runs: 2 },
+      { repoPath: repoDir, exec, dataRoot, claudeProjectsRoot, now: () => 2_000_000 },
+    )
+    expect(launched.failed).toBeNull()
+
+    const sessionDir = sessionDirFor(repoDir, dataRoot)
+    const recorder = new SessionRecorder('3000', sessionFilePath(sessionDir, '3000'))
+    const app = buildApp({ repoPath: repoDir, repoName: 'repo', sessionDir, recorder })
+    const listing = async () => {
+      const response = await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/experiments' })
+      const { experiments } = response.json() as {
+        experiments: Array<{ forkId: string; arms: Array<{ runs: Array<{ run: number; outcome?: Record<string, unknown> }> }> }>
+      }
+      const found = experiments.find((experiment) => experiment.forkId === launched.forkId)
+      if (found === undefined) throw new Error('the launched experiment is missing from the listing')
+      return found
+    }
+
+    // Before measuring: two runs, neither carrying an outcome — nothing stands in for a verdict nobody gave.
+    const before = await listing()
+    expect(before.arms[0]?.runs.map((run) => [run.run, 'outcome' in run])).toEqual([
+      [1, false],
+      [2, false],
+    ])
+
+    const result = await measureExperiment(
+      { forkId: launched.forkId, verifyCommand: 'fake-gate --ci' },
+      { repoPath: repoDir, exec, dataRoot, claudeProjectsRoot, now: () => 3_000_000, recorder },
+    )
+
+    expect(gateRuns).toBe(2)
+    expect(result.verifyCommand).toBe('fake-gate --ci')
+    expect(result.measured.map((run) => [run.arm, run.run, run.verified, run.verifiedDetail])).toEqual([
+      [1, 1, 'pass', null],
+      [1, 2, 'fail', '1 test failed'],
+    ])
+
+    const recorded = recorder.eventsSoFar().filter((event) => event.type === 'fork.measured')
+    expect(recorded).toHaveLength(2)
+    expect(recorded.map((event) => (event.payload as { source: string }).source)).toEqual(['measure-route', 'measure-route'])
+
+    // After measuring: each run carries ITS OWN verdict, with the provenance.
+    const after = await listing()
+    expect(after.arms[0]?.runs.map((run) => run.outcome?.verified)).toEqual(['pass', 'fail'])
+    expect(after.arms[0]?.runs[0]?.outcome?.provenance).toEqual({
+      source: 'measure-route',
+      verifyCommand: 'fake-gate --ci',
+      measuredAt: 3_000_000,
+    })
+    expect(after.arms[0]?.runs[0]?.outcome?.costUsd).toBeNull()
+    expect(after.arms[0]?.runs[1]?.outcome?.verifiedDetail).toBe('1 test failed')
+
+    await app.close()
+  })
+
+  it('a measure request is refused before the laboratory runs when malformed, and an unknown fork is named as such rather than crashing', async () => {
+    const neverRuns: Exec = async (command, argv) => {
+      throw new Error(`nothing should have been executed, but got: ${command} ${argv.join(' ')}`)
+    }
+    const recorder = new SessionRecorder('4000', sessionFilePath(sessionDirFor(repoDir, dataRoot), '4000'))
+    const refuse = (body: unknown) => measureExperiment(body, { repoPath: repoDir, exec: neverRuns, dataRoot, recorder })
+    await expect(refuse({})).rejects.toThrow(MeasureValidationError)
+    await expect(refuse({ forkId: '' })).rejects.toThrow(/"forkId"/)
+    await expect(refuse({ forkId: '--help' })).rejects.toThrow(/may not begin with "-"/)
+    await expect(refuse({ forkId: 'fork-x', verifyCommand: '' })).rejects.toThrow(/"verifyCommand"/)
+    await expect(refuse({ forkId: 'fork-x', verifyCommand: '--no-verify' })).rejects.toThrow(/may not begin with "-"/)
+
+    await seedCheckpoint('lane-unknown', () => 1_000_000)
+    await expect(
+      measureExperiment({ forkId: 'fork-never-recorded' }, { repoPath: repoDir, exec: realExec, dataRoot, claudeProjectsRoot, recorder }),
+    ).rejects.toThrow(MeasureUnknownForkError)
+    expect(recorder.eventsSoFar()).toEqual([])
   })
 
   /**

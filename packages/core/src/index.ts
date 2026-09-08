@@ -7,9 +7,10 @@
 
 export * from './collector.js'
 export * from './events/index.js'
-export * from './fleet/index.js'
 export * from './fixtures.js'
+export * from './fleet/index.js'
 export * from './jsonl.js'
+export * from './lab/index.js'
 export * from './placeholder.js'
 export * from './pricing/index.js'
 export * from './reduce.js'

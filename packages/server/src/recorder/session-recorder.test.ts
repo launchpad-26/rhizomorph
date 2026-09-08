@@ -838,6 +838,7 @@ describe('SessionRecorder — the fold handed out is frozen (#69, ADR-0031)', ()
       f.traceSpan(),
       f.forkCheckpoint(),
       f.forkDispatched(),
+      f.forkMeasured(),
       f.judgeFinding(),
       f.make('telemetry.refused', { instance: 'other', expectedInstance: 'fixture-instance', count: 1 }),
       f.sessionClosed(),

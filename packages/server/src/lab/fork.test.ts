@@ -16,6 +16,7 @@ import {
   dispatchFork,
   FORK_EXEC_TIMEOUT_MS,
   findCheckpoint,
+  LAUNCH_CEILING_LANES,
   MODEL_GRAMMAR,
   workmuxAddArgv,
 } from './fork.js'
@@ -385,6 +386,73 @@ describe('dispatchFork', () => {
     expect(second.arms.map((d) => d.arm)).toEqual([2])
     expect(second.arms[0]?.laneHandle).toBe(`${forkId}-arm-2`)
     expect(second.arms[0]?.event.payload.treatment.model).toBe('opus')
+  })
+
+  it('refuses arms × runs above the launch ceiling by name and override, before anything is restored (prd53 ruling 6)', async () => {
+    await capture()
+    expect(LAUNCH_CEILING_LANES).toBe(8)
+
+    await expect(
+      dispatchFork({
+        parentLane: 'parent-lane',
+        parentWorktreePath: repoDir,
+        arms: 3,
+        runs: 3,
+        dataRoot,
+        claudeProjectsRoot,
+        exec: realExec,
+        install: false,
+      }),
+    ).rejects.toThrow(/9 spending lane\(s\) .* the launch ceiling is 8 \(the default\) — pass --ceiling-override 9/)
+    await expect(readdir(labWorktreesRoot(dataRoot))).rejects.toThrow(/ENOENT/)
+
+    // An override that is still too low is refused the same way, naming the override as the ceiling.
+    await expect(
+      dispatchFork({
+        parentLane: 'parent-lane',
+        parentWorktreePath: repoDir,
+        arms: 3,
+        runs: 3,
+        ceilingOverride: 8,
+        dataRoot,
+        claudeProjectsRoot,
+        exec: realExec,
+        install: false,
+      }),
+    ).rejects.toThrow(/the launch ceiling is 8 \(your override\)/)
+  })
+
+  it('a declared override lets the dispatch through and is recorded on EVERY fork.dispatched; none is recorded when the default held', async () => {
+    await capture()
+    const forkId = uniqueId('fork')
+
+    const overridden = await dispatchFork({
+      parentLane: 'parent-lane',
+      parentWorktreePath: repoDir,
+      arms: 1,
+      runs: 2,
+      ceilingOverride: 2,
+      forkId,
+      dataRoot,
+      claudeProjectsRoot,
+      exec: realExec,
+      install: false,
+      now: () => 1_000_100,
+    })
+    expect(overridden.arms.map((d) => d.event.payload.ceilingOverride)).toEqual([2, 2])
+
+    const plain = await dispatchFork({
+      parentLane: 'parent-lane',
+      parentWorktreePath: repoDir,
+      arms: 1,
+      forkId: uniqueId('fork'),
+      dataRoot,
+      claudeProjectsRoot,
+      exec: realExec,
+      install: false,
+      now: () => 1_000_100,
+    })
+    expect(plain.arms[0]?.event.payload).not.toHaveProperty('ceilingOverride')
   })
 
   it('refuses a zero, negative or fractional run count or arm number before anything is restored', async () => {

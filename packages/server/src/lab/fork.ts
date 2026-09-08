@@ -74,6 +74,13 @@ export interface DispatchForkOptions extends ForkTreatmentInput {
    * ONE experiment: one `forkId` minted by the caller, one call per arm.
    */
   armNumber?: number | undefined
+  /**
+   * The operator's declared launch ceiling for THIS dispatch, in spending
+   * lanes (arms × runs), when they mean to go past {@link LAUNCH_CEILING_LANES}
+   * (prd53 ruling 6). Recorded on every `fork.dispatched` it produces — an
+   * override is an act with a name, never a config nobody can find later.
+   */
+  ceilingOverride?: number | undefined
   exec?: Exec
   now?: () => number
   dataRoot?: string
@@ -123,6 +130,21 @@ export const DEFAULT_ARMS = 3
 
 /** Per-exec ceiling for every subprocess this module spawns — same value as `ROUTE_EXEC_TIMEOUT_MS` / `RETARGET_EXEC_TIMEOUT_MS`. A hung git call or a hung `workmux add` must not hang `dispatchFork` itself. */
 export const FORK_EXEC_TIMEOUT_MS = 5000
+
+/**
+ * THE LAUNCH CEILING, in spending lanes — arms × runs — that one dispatch may
+ * create without the operator saying otherwise (prd53 ruling 6). Every run is
+ * a restored worktree, an install, and with `--launch` a live agent; this
+ * bounds machine LOAD, which is why it is configurable per dispatch where
+ * prd-50's lock ceiling (a bound on WAITING) is fixed. The number is a
+ * design-note decision: `docs/design-notes/lab-launch-ceiling-arms-runs.md`.
+ *
+ * Restated in `api/lab.ts` rather than imported — the namespace law
+ * (`lab/namespace-law.test.ts`) forbids that file from reaching this one, the
+ * same split `MODEL_GRAMMAR` lives with. Both copies are literal-pinned in
+ * their own tests.
+ */
+export const LAUNCH_CEILING_LANES = 8
 
 /**
  * THE MODEL GRAMMAR (#234's second defect), this side of the seam.
@@ -307,6 +329,23 @@ export async function dispatchFork(options: DispatchForkOptions): Promise<Dispat
   if (!Number.isInteger(firstArm) || firstArm < 1) {
     throw new Error(`invalid arm number: ${options.armNumber} (must be a positive integer)`)
   }
+  if (options.ceilingOverride !== undefined && (!Number.isInteger(options.ceilingOverride) || options.ceilingOverride < 1)) {
+    throw new Error(`invalid ceiling override: ${options.ceilingOverride} (must be a positive integer)`)
+  }
+
+  // The ceiling, before anything is restored (prd53 ruling 6 — prd41 ruling
+  // 4's "a ceiling that spends money is declared", read for what it bounds).
+  // The refusal names the number AND the override, so the operator's next
+  // command is in the message rather than in a doc.
+  const ceiling = options.ceilingOverride ?? LAUNCH_CEILING_LANES
+  const lanes = options.arms * runs
+  if (lanes > ceiling) {
+    throw new Error(
+      `refusing to dispatch ${lanes} spending lane(s) (${options.arms} arm(s) × ${runs} run(s)): the launch ceiling is ${ceiling}` +
+        `${options.ceilingOverride === undefined ? ' (the default)' : ' (your override)'} — pass --ceiling-override ${lanes} to authorise ` +
+        'exactly this many; the override is recorded on every fork.dispatched it produces (prd53 ruling 6)',
+    )
+  }
 
   // Before the checkpoint is even looked up, so a refused model restores no
   // workspace, creates no worktree, and records no `fork.dispatched`.
@@ -437,6 +476,7 @@ async function dispatchArm(ctx: DispatchArmContext): Promise<DispatchedArm> {
       checkpointId: ctx.checkpoint.checkpointId,
       arm,
       run,
+      ...(options.ceilingOverride === undefined ? {} : { ceilingOverride: options.ceilingOverride }),
       treatment: ctx.treatment,
       laneHandle,
       worktreePath,

@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -107,6 +107,14 @@ const MUTATING_MODULES: ReadonlyArray<{ file: string; route: string; headers: re
   {
     file: path.join(WEB_SRC, 'lab', 'launch', 'launch.ts'),
     route: '/api/lab/launch',
+    headers: ['Content-Type', CAPABILITY_TOKEN_HEADER],
+  },
+  // prd53 ruling 3: measuring is a write — it runs a gate in an arm's worktree
+  // and records the verdict — so it is the app's sixth mutating call, with
+  // the same two headers for the same reasons as the launch it measures.
+  {
+    file: path.join(WEB_SRC, 'lab', 'measure.ts'),
+    route: '/api/lab/measure',
     headers: ['Content-Type', CAPABILITY_TOKEN_HEADER],
   },
   {

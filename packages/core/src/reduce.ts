@@ -18,6 +18,7 @@ import type {
   DeclaredAttention,
   ErrorRecord,
   ForkDispatchRecord,
+  ForkOutcomeRecord,
   JudgeFindingRecord,
   LaneAttribution,
   PaneState,
@@ -237,6 +238,8 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
       return forkCheckpoint(state, event)
     case 'fork.dispatched':
       return forkDispatched(state, event)
+    case 'fork.measured':
+      return forkMeasured(state, event)
     case 'judge.finding':
       return judgeFinding(state, event)
     case 'summons.raised':
@@ -1601,6 +1604,7 @@ function forkDispatched(state: SessionState, event: EventOf<'fork.dispatched'>):
     promptDigest: p.treatment.promptDigest,
     laneHandle: p.laneHandle,
     worktreePath: p.worktreePath,
+    ceilingOverride: p.ceilingOverride ?? null,
   }
 
   const forks = state.forks
@@ -1608,6 +1612,7 @@ function forkDispatched(state: SessionState, event: EventOf<'fork.dispatched'>):
   const withDispatch: SessionState = {
     ...state,
     forks: {
+      ...forks,
       dispatches: [...forks.dispatches, record],
       byFork: appendIndexed(forks.byFork, p.forkId, at),
       byArm: appendIndexed(forks.byArm, armKey(p.forkId, p.arm), at),
@@ -1616,6 +1621,43 @@ function forkDispatched(state: SessionState, event: EventOf<'fork.dispatched'>):
   }
 
   return markLaneSynthetic(withDispatch, p.laneHandle)
+}
+
+/**
+ * prd53 ruling 3 — measuring is a write, and this is where it lands. The
+ * verdict is kept whole and appended; `latestOutcomeByLane` points at the
+ * newest per run, so a re-measure supersedes without erasing. Nothing here
+ * touches the run's dispatch record: a measurement is ABOUT a run, it does
+ * not change what the run was.
+ */
+function forkMeasured(state: SessionState, event: EventOf<'fork.measured'>): SessionState {
+  const p = event.payload
+  const record: ForkOutcomeRecord = {
+    eventId: event.id,
+    ts: event.ts,
+    forkId: p.forkId,
+    laneHandle: p.laneHandle,
+    arm: p.arm,
+    run: p.run,
+    verified: p.verified,
+    verifiedDetail: p.verifiedDetail,
+    verifyCommand: p.verifyCommand,
+    commits: p.commits,
+    source: p.source,
+  }
+
+  const forks = state.forks
+  const at = forks.measurements.length
+  return {
+    ...state,
+    forks: {
+      ...forks,
+      measurements: [...forks.measurements, record],
+      // A computed key never reaches the prototype (only a literal
+      // `__proto__:` does), so a hostile handle lands as an own property.
+      latestOutcomeByLane: { ...forks.latestOutcomeByLane, [p.laneHandle]: at },
+    },
+  }
 }
 
 /** Retro-marks whatever this handle has already folded to. Absent records need nothing: they are born marked. */
