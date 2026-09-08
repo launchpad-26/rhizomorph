@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
-  EVENT_SOURCE_BY_TYPE,
-  EVENT_TYPES,
   createEvent,
   createIdFactory,
+  EVENT_SOURCE_BY_TYPE,
+  EVENT_TYPES,
   eventSourceSchema,
   isEventOfType,
   isRhizomorphEvent,
-  rhizomorphEventSchema,
   parseEvent,
+  rhizomorphEventSchema,
   sourceOf,
 } from './index.js'
 
@@ -610,6 +610,18 @@ function oneOfEach() {
       treatment: { model: 'opus', promptDigest: 'b'.repeat(64) },
       laneHandle: 'fork-1-arm-1',
       worktreePath: '/data/rhizomorph/lab/worktrees/fork-1/arm-1',
+    }, { id: id(), ts: 21 }),
+    // prd53 ruling 3: one run's gate verdict with its provenance, source 'lab'.
+    createEvent('fork.measured', {
+      forkId: 'fork-1',
+      laneHandle: 'fork-1-arm-1',
+      arm: 1,
+      run: 1,
+      verified: 'pass',
+      verifiedDetail: null,
+      verifyCommand: 'npm test',
+      commits: 1,
+      source: 'measure-route',
     }, { id: id(), ts: 21 }),
     // prd11 ruling 6b, phase 1: the judge organ's own keystone, source 'judge'.
     createEvent('judge.finding', {

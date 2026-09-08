@@ -9,8 +9,11 @@
  *   (`packages/core/src/events/lab.ts`).
  * - {@link LabExperiment} / {@link LabArm} / {@link LabRun} mirror
  *   `ForkState`/`ForkDispatchRecord` — the fold of `fork.dispatched` events,
- *   grouped by `forkId` (an experiment) and then by `arm` (one arm, one or
- *   more recorded runs of it).
+ *   grouped by `forkId` (an experiment) and then by `arm` (one arm, r
+ *   recorded runs of it — prd53 ruling 1).
+ * - {@link LabRunOutcome} mirrors `LabRunOutcomeDTO`
+ *   (`packages/server/src/api/lab.ts`) — the fold of the newest
+ *   `fork.measured` for a run, with its provenance (prd53 ruling 3).
  *
  * prd14 ruling 2 — free-form arms, the reporting carries the rigour: each
  * arm carries its OWN {@link LabTreatment} (model + brief), configured
@@ -19,8 +22,14 @@
  * dimension the arms could then disagree with. What differs between arms is
  * never declared — {@link computeExperimentDimensions} always COMPUTES it
  * from the arms actually present, which is why every arm must carry its own
- * full treatment rather than pointing at a shared one.
+ * full treatment rather than pointing at a shared one. Since prd53 ruling 2
+ * the computation itself is core's (`dimensionsOf`), so this console and the
+ * CLI table cannot disagree about which dimensions vary or what a confound is.
  */
+
+import { dimensionsOf, type ExperimentDimensions } from '@rhizomorph/core'
+
+export { isCleanlyControlled } from '@rhizomorph/core'
 
 /** Who triggered a checkpoint capture — mirrors `forkCheckpointCapturedBySchema` (`core/events/lab.ts`). */
 export type LabCheckpointCapturedBy = 'dispatch' | 'gate' | 'operator'
@@ -63,54 +72,66 @@ export interface LabTreatment {
   promptDigest: string | null
 }
 
+/** Who ran the gate, which command, and when — an outcome without these is a bare tick nobody can check. */
+export interface LabOutcomeProvenance {
+  source: 'measure-route' | 'compare-cli'
+  verifyCommand: string
+  /** When the gate ran (the `fork.measured` event's ts, epoch ms). */
+  measuredAt: number
+}
+
 /**
- * One recorded dispatch of an arm. Today an arm is dispatched exactly once —
- * `dispatchFork` mints one `fork.dispatched` per arm number — so `LabArm.runs`
- * always holds one entry in practice. The shape is a list, not a single run,
- * so prd14 ruling 3's "n runs of one arm, shown individually, never
- * collapsed" is representable the day the engine grows repeat dispatch,
- * without another shape change rippling through every consumer.
+ * prd53 ruling 3 — ONE RUN's measured outcome. Absent until something has
+ * actually run the run's gate — never invented, never defaulted to a zero or
+ * a guess. `not-run` is a legal outcome and means exactly that: the gate did
+ * not run, and no outcome stands in for the one it would have given.
+ *
+ * This replaces prd14 wave 1's arm-level `LabArmOutcome`, which handed every
+ * run in an arm the same verdict — wrong the moment an arm held two runs
+ * (prd53 ruling 1).
+ */
+export interface LabRunOutcome {
+  verified: 'pass' | 'fail' | 'not-run'
+  /** Why `verified` is what it is — a failing command's first line, or the reason it was not run. */
+  verifiedDetail: string | null
+  /** Dollars booked to this run's lane in the event log. Null when nothing has been recorded yet. */
+  costUsd: number | null
+  /** Dispatch → newest recorded event for the run's lane, in ms. Null when nothing has been recorded since. */
+  durationMs: number | null
+  /** Commits the run made on top of its restored checkpoint. Null when its worktree could not be read. */
+  commits: number | null
+  provenance: LabOutcomeProvenance
+}
+
+/**
+ * One recorded run of an arm — its own worktree, its own handle, and (once
+ * measured) its own outcome. prd14 ruling 3's "n runs of one arm, shown
+ * individually, never collapsed" is a fact of the record since prd53 ruling 1.
  */
 export interface LabRun {
   /** The `fork.dispatched` event's own id. */
   eventId: string
   /** When this run was dispatched (event ts, epoch ms). */
   dispatchedAt: number
+  /** 1-based run within its arm (prd53 ruling 1). */
+  run: number
   /** The synthetic lane handle this run executes under. */
   laneHandle: string
   /** Absolute path of the restored worktree this run executes in. */
   worktreePath: string
-}
-
-/**
- * prd12 ruling 4 / prd14 ruling 3's measured result for one arm: runs and
- * spread, never a point. Absent until a comparison has actually run the
- * arm's gate — never invented, never defaulted to a zero or a guess. Wave 1
- * declares the shape; computing it is `lab/compare.ts`'s job (wave 4).
- */
-export interface LabArmOutcome {
-  verified: 'pass' | 'fail' | 'not-run'
-  /** Why `verified` is what it is — a failing command's first stderr line, or the reason it was not run. */
-  verifiedDetail: string | null
-  /** Dollars booked to this arm's lane in the event log. Null when nothing has been recorded yet. */
-  costUsd: number | null
-  /** Dispatch → newest recorded event for the arm's lane, in ms. Null when nothing has been recorded since. */
-  durationMs: number | null
-  /** Commits the arm made on top of its restored checkpoint. Null when its worktree could not be read. */
-  commits: number | null
+  /** Present only once this run has been measured (prd53 ruling 3). */
+  outcome?: LabRunOutcome
 }
 
 /**
  * One arm of an experiment: an independently-configured reality forked from
- * the same checkpoint (prd14 ruling 2). `outcome` is undefined until a
- * comparison has measured it — a wave-1 listing never fabricates one.
+ * the same checkpoint (prd14 ruling 2), holding r runs.
  */
 export interface LabArm {
   /** 1-based arm number within its experiment. */
   arm: number
   treatment: LabTreatment
   runs: LabRun[]
-  outcome?: LabArmOutcome
 }
 
 /**
@@ -132,26 +153,12 @@ export interface LabExperiment {
  * 2: "the dimensions that differ are computed from the arms, not declared by
  * the operator — a declared intent can be wrong, the configuration cannot."
  * Never stored, never carried on the wire: always derived fresh from
- * {@link LabExperiment.arms} by {@link computeExperimentDimensions}.
+ * {@link LabExperiment.arms} by {@link computeExperimentDimensions}. The
+ * shape is core's (`ExperimentDimensions`, prd53 ruling 2).
  */
-export interface LabExperimentDimensions {
-  modelVaries: boolean
-  promptVaries: boolean
-}
+export type LabExperimentDimensions = ExperimentDimensions
 
-/** How many of an experiment's arms actually differ on model and/or brief — computed, never declared (ruling 2). */
+/** How many of an experiment's arms actually differ on model and/or brief — computed by core, never declared (ruling 2). */
 export function computeExperimentDimensions(experiment: LabExperiment): LabExperimentDimensions {
-  const models = new Set(experiment.arms.map((arm) => arm.treatment.model))
-  const prompts = new Set(experiment.arms.map((arm) => arm.treatment.promptDigest))
-  return { modelVaries: models.size > 1, promptVaries: prompts.size > 1 }
-}
-
-/**
- * True exactly when arms differ in ONE dimension — ruling 2's "compared
- * properly" case, eligible for the full ruling-3 spread treatment. Two or
- * more varying dimensions means a difference cannot be attributed to either,
- * and the reporting surface must say so rather than imply a conclusion.
- */
-export function isCleanlyControlled(dimensions: LabExperimentDimensions): boolean {
-  return (dimensions.modelVaries ? 1 : 0) + (dimensions.promptVaries ? 1 : 0) === 1
+  return dimensionsOf(experiment.arms.map((arm) => arm.treatment))
 }

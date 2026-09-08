@@ -43,6 +43,7 @@
     "./recordings/capability-guidance": "./src/recordings/capability-guidance.ts",
     "./replay/rotate": "./src/replay/rotate.ts",
     "./lab/launch": "./src/lab/launch/launch.ts",
+    "./lab/measure": "./src/lab/measure.ts",
     "./concierge/instrument": "./src/concierge/instrument.ts",
     "./concierge/clone": "./src/concierge/clone.ts",
     "./replay/api": "./src/replay/api.ts",

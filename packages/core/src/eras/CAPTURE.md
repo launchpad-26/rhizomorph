@@ -74,6 +74,13 @@ key moved (checked by diff). The reducer change is the `fork.dispatched` arm
 the new fold is the correct meaning of the old log because that log contains no
 dispatch, and now says so under one more name.
 
+**Re-blessed 2026-09-08 (prd-53 ruling 3, wave 2).** `ForkState` gained `measurements`
+and `latestOutcomeByLane` — every `fork.measured` verdict, with the newest per run
+indexed. Era-1 predates the laboratory, so both fold empty and no other key moved
+(checked by diff: two new keys, plus the comma the line before them needed). The reducer change is the new `fork.measured`
+arm; the new fold is the correct meaning of the old log because that log contains
+no measurement, and now says so where a measurement would go.
+
 ## Redaction
 
 A real slice, mechanically redacted. Every field the reducer reads is

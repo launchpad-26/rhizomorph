@@ -1,10 +1,14 @@
+import { canSummariseArm } from '@rhizomorph/core'
 import type { Arm, ArmSummary } from './types.js'
 
 /**
  * PER-ARM SUMMARY (prd14 ruling 3, inheriting prd12 ruling 4). Every run is
  * kept on the summary unconditionally (law 1). A spread is computed only
- * from runs that actually completed, and only once there are at least 3 of
- * them (law 3) — under any code path, never a greyed-out number standing in.
+ * from runs that actually completed, and only once core's floor says there
+ * are enough of them (law 3; `canSummariseArm`, prd53 ruling 2) — under any
+ * code path, never a greyed-out number standing in. The number itself is not
+ * spelled here: the CLI's `compare.ts` reads the same function, so the two
+ * surfaces cannot disagree about when a summary may be stated.
  *
  * A partial experiment — an arm still waiting on pending runs, or one that
  * lost a run to failure — reports what is missing rather than silently
@@ -33,7 +37,7 @@ export function summariseArm(arm: Arm): ArmSummary {
     failedCount,
   }
 
-  if (completedValues.length < 3) {
+  if (!canSummariseArm(completedValues.length)) {
     return {
       ...base,
       spread: null,

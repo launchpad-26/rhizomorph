@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { EVENT_TYPES } from '../events/index.js'
 import { ERA_CORPUS } from './corpus.js'
-import { ERAS, canonicalStateJson, foldEraRecording } from './fold.js'
+import { canonicalStateJson, ERAS, foldEraRecording } from './fold.js'
 
 /**
  * THE GOLDEN ERA CORPUS LAW — prd17 ruling 3, item 2.
@@ -110,6 +110,7 @@ describe('the golden era corpus', () => {
       'fence.declared',
       'fork.checkpoint',
       'fork.dispatched',
+      'fork.measured',
       'gate.verdict',
       'judge.finding',
       'operator.ack',

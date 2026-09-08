@@ -5,8 +5,8 @@ import {
   type EventEnvelopeInit,
   type EventOf,
   type EventType,
-  type RhizomorphEvent,
   type PayloadOf,
+  type RhizomorphEvent,
 } from './events/index.js'
 
 /**
@@ -105,6 +105,12 @@ export interface EventFactory {
     payload?: Partial<PayloadOf<'fork.dispatched'>>,
     init?: Init<'fork.dispatched'>,
   ): EventOf<'fork.dispatched'>
+
+  /** prd53 ruling 3: one run's gate verdict, with its provenance, source `lab`. */
+  forkMeasured(
+    payload?: Partial<PayloadOf<'fork.measured'>>,
+    init?: Init<'fork.measured'>,
+  ): EventOf<'fork.measured'>
 
   /** prd11 ruling 6b, phase 1: the judge organ's own keystone, source `judge`, silent-log only. */
   judgeFinding(
@@ -310,6 +316,19 @@ const defaults = {
     laneHandle: 'fork-fixture-1-arm-1',
     worktreePath: '/data/rhizomorph/lab/worktrees/fork-fixture-1/arm-1',
   },
+  // prd53 ruling 3: the fixture arm's first run, judged by the default gate on
+  // the console's measure route — a pass, so no detail.
+  'fork.measured': {
+    forkId: 'fork-fixture-1',
+    laneHandle: 'fork-fixture-1-arm-1',
+    arm: 1,
+    run: 1,
+    verified: 'pass',
+    verifiedDetail: null,
+    verifyCommand: 'npm test',
+    commits: 1,
+    source: 'measure-route',
+  },
   'judge.finding': {
     kind: 'symbol-overlap',
     lanes: ['2-core', '3-git'],
@@ -430,6 +449,7 @@ export function createEventFactory(options: EventFactoryOptions = {}): EventFact
     traceSpan: sugar('trace.span'),
     forkCheckpoint: sugar('fork.checkpoint'),
     forkDispatched: sugar('fork.dispatched'),
+    forkMeasured: sugar('fork.measured'),
     judgeFinding: sugar('judge.finding'),
     summonsRaised: sugar('summons.raised'),
     summonsCleared: sugar('summons.cleared'),

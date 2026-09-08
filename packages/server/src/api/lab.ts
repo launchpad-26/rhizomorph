@@ -3,11 +3,12 @@ import { randomUUID } from 'node:crypto'
 import { rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Exec, RhizomorphEvent } from '@rhizomorph/core'
-import { buildFleet, reduceAll } from '@rhizomorph/core'
+import type { Exec, ForkDispatchRecord, ForkOutcomeRecord, RhizomorphEvent, SessionState } from '@rhizomorph/core'
+import { buildFleet, createEvent, createIdFactory, reduceAll } from '@rhizomorph/core'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { listSessions, readSessionEvents, sessionFilePath } from '../log/session-log.js'
 import type { ServerContext } from '../server/context.js'
+import type { SessionRecorder } from '../server/recorder.js'
 import { requireCapabilityToken } from './security.js'
 
 /**
@@ -60,6 +61,32 @@ export interface LabTreatmentDTO {
   promptDigest: string | null
 }
 
+export interface LabOutcomeProvenanceDTO {
+  /** Who ran the gate. */
+  source: 'measure-route' | 'compare-cli'
+  /** The gate command, verbatim — a verdict means nothing without it. */
+  verifyCommand: string
+  /** When the gate ran — the `fork.measured` event's own ts (epoch ms). */
+  measuredAt: number
+}
+
+/**
+ * prd53 ruling 3 — ONE RUN's measured outcome, typed with its provenance.
+ * Absent from a run nobody has measured; nothing stands in for it. The gate's
+ * facts (`verified`, `verifiedDetail`, `commits`) come from the newest
+ * `fork.measured` for the run; `costUsd` and `durationMs` are the fold's own
+ * (booked `llm.cost` per lane, dispatch → newest event) so they cannot
+ * disagree with what every other surface derives from the same state.
+ */
+export interface LabRunOutcomeDTO {
+  verified: 'pass' | 'fail' | 'not-run'
+  verifiedDetail: string | null
+  costUsd: number | null
+  durationMs: number | null
+  commits: number | null
+  provenance: LabOutcomeProvenanceDTO
+}
+
 export interface LabRunDTO {
   eventId: string
   dispatchedAt: number
@@ -67,6 +94,8 @@ export interface LabRunDTO {
   run: number
   laneHandle: string
   worktreePath: string
+  /** Present only once this run has been measured (prd53 ruling 3). */
+  outcome?: LabRunOutcomeDTO
 }
 
 export interface LabArmDTO {
@@ -142,12 +171,14 @@ function experimentDTOs(events: readonly RhizomorphEvent[]): LabExperimentDTO[] 
 
     const armsByNumber = new Map<number, LabArmDTO>()
     for (const dispatch of dispatches) {
+      const measured = latestOutcomeFor(state, dispatch.laneHandle)
       const run: LabRunDTO = {
         eventId: dispatch.eventId,
         dispatchedAt: dispatch.ts,
         run: dispatch.run,
         laneHandle: dispatch.laneHandle,
         worktreePath: dispatch.worktreePath,
+        ...(measured === undefined ? {} : { outcome: runOutcomeDTO(measured, state, events, dispatch) }),
       }
       const existing = armsByNumber.get(dispatch.arm)
       if (existing === undefined) {
@@ -174,6 +205,54 @@ function experimentDTOs(events: readonly RhizomorphEvent[]): LabExperimentDTO[] 
   return experiments
 }
 
+/** The newest `fork.measured` for this run's lane, or undefined when nobody has measured it. `Object.hasOwn`, so a hostile handle cannot read the prototype. */
+function latestOutcomeFor(state: SessionState, laneHandle: string): ForkOutcomeRecord | undefined {
+  const index = state.forks.latestOutcomeByLane
+  if (!Object.hasOwn(index, laneHandle)) return undefined
+  const at = index[laneHandle]
+  return at === undefined ? undefined : state.forks.measurements[at]
+}
+
+function runOutcomeDTO(
+  measured: ForkOutcomeRecord,
+  state: SessionState,
+  events: readonly RhizomorphEvent[],
+  dispatch: ForkDispatchRecord,
+): LabRunOutcomeDTO {
+  return {
+    verified: measured.verified,
+    verifiedDetail: measured.verifiedDetail,
+    costUsd: laneCost(state, dispatch.laneHandle),
+    durationMs: laneDuration(events, dispatch),
+    commits: measured.commits,
+    provenance: { source: measured.source, verifyCommand: measured.verifyCommand, measuredAt: measured.ts },
+  }
+}
+
+// The two derivations below restate `lab/compare.ts`'s `laneCost`/`laneDuration`
+// rather than import them: the namespace law (`lab/namespace-law.test.ts`)
+// forbids this file from reaching `server/src/lab/` — the same split
+// `MODEL_GRAMMAR` lives with, and the reason both are kept to a few lines.
+
+/** Dollars booked to the run's lane, or null when nothing has been — never a `$0` that reads as a measurement. */
+function laneCost(state: SessionState, laneHandle: string): number | null {
+  const booked = state.telemetry.costs.filter((cost) => cost.lane === laneHandle)
+  if (booked.length === 0) return null
+  return booked.reduce((sum, cost) => sum + cost.costUsd, 0)
+}
+
+/** Dispatch → the newest event recorded for the run's lane. Null while nothing has come back yet. */
+function laneDuration(events: readonly RhizomorphEvent[], dispatch: ForkDispatchRecord): number | null {
+  let newest: number | null = null
+  for (const event of events) {
+    if (event.ts <= dispatch.ts) continue
+    const payload = event.payload as Record<string, unknown>
+    if (payload['lane'] !== dispatch.laneHandle && payload['handle'] !== dispatch.laneHandle) continue
+    newest = newest === null ? event.ts : Math.max(newest, event.ts)
+  }
+  return newest === null ? null : newest - dispatch.ts
+}
+
 // --- estimate (prd14 ruling 4: an estimate never appears without its basis) ------
 
 /** An hour: long enough that one lane's ordinary lull between requests doesn't read as "no rate". */
@@ -182,11 +261,15 @@ const ESTIMATE_WINDOW_MS = 60 * 60_000
 export interface LabEstimateResult {
   lane: string
   arms: number
+  /** Runs of each arm (prd53 ruling 1). 1 unless the caller said otherwise. */
+  runs: number
+  /** arms × runs — the spending lanes this launch would create, which is what the estimate scales by. */
+  lanes: number
   /** False means "the rate cannot be established" — never a fabricated or bare-zero number (ruling 4). */
   available: boolean
   windowMs?: number
   costUsdPerHour?: number
-  /** `costUsdPerHour * arms` — one arm assumed to run about as long as the window the rate itself was measured over. */
+  /** `costUsdPerHour * lanes` — one lane assumed to run about as long as the window the rate itself was measured over. */
   estimatedTotalUsd?: number
   /** Set only when `available` is false — why no number is shown. */
   reason?: string
@@ -204,7 +287,8 @@ export interface LabEstimateResult {
  * reported as `available: false` with a `reason`, never as a `$0.00` that
  * reads as a real answer (ruling 4's own words: "a guess wearing a suit").
  */
-export async function estimateLaunchSpend(ctx: ServerContext, lane: string, arms: number): Promise<LabEstimateResult> {
+export async function estimateLaunchSpend(ctx: ServerContext, lane: string, arms: number, runs = 1): Promise<LabEstimateResult> {
+  const lanes = arms * runs
   const events = await readAllEvents(ctx)
   const state = reduceAll(events)
   const now = ctx.now?.() ?? Date.now()
@@ -221,6 +305,8 @@ export async function estimateLaunchSpend(ctx: ServerContext, lane: string, arms
     return {
       lane,
       arms,
+      runs,
+      lanes,
       available: false,
       reason: `"${lane}" has no recorded spend in the last hour — its rate cannot be established`,
     }
@@ -229,10 +315,14 @@ export async function estimateLaunchSpend(ctx: ServerContext, lane: string, arms
   return {
     lane,
     arms,
+    runs,
+    lanes,
     available: true,
     windowMs: ESTIMATE_WINDOW_MS,
     costUsdPerHour: laneRow.costUsdPerHour,
-    estimatedTotalUsd: laneRow.costUsdPerHour * arms,
+    // Every run is its own spending lane (prd53 ruling 1): an estimate that
+    // scaled by arms alone would understate a three-run experiment threefold.
+    estimatedTotalUsd: laneRow.costUsdPerHour * lanes,
   }
 }
 
@@ -310,6 +400,8 @@ export interface LaunchRequestBody {
   arms: LaunchArmInput[]
   /** Runs of every arm (prd53 ruling 1). 1 when the request did not say. */
   runs: number
+  /** The operator's declared launch ceiling in spending lanes, when they mean to go past the default (prd53 ruling 6). */
+  ceilingOverride?: number
 }
 
 /** One run of a launched arm — its own worktree, its own handle, its own launch. */
@@ -375,19 +467,22 @@ function refuseFlagShaped(value: string, label: string, why: string): void {
 }
 
 /**
- * The most arms one launch request may dispatch — each arm forks a real
- * worktree and, with `--launch`, a real spending agent lane (prd41 ruling 4:
- * "a ceiling that spends money is declared"). The number itself is a
- * design-note decision, not this file's own reasoning: see
- * docs/design-notes/lab-launch-ceilings.md.
+ * THE LAUNCH CEILING, in spending lanes — arms × runs — that one launch may
+ * create unless the operator declares otherwise (prd53 ruling 6; prd41 ruling
+ * 4: "a ceiling that spends money is declared"). Every run forks a real
+ * worktree and, with `--launch`, a real spending agent lane. Restated from
+ * `lab/fork.ts`'s `LAUNCH_CEILING_LANES` rather than imported — the namespace
+ * law forbids this file from reaching that one — and literal-pinned in both
+ * tests. The number and the override's shape are a design-note decision:
+ * docs/design-notes/lab-launch-ceiling-arms-runs.md.
  */
-export const MAX_ARMS = 8
+export const LAUNCH_CEILING_LANES = 8
 
 function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
   if (typeof body !== 'object' || body === null) {
     throw new LaunchValidationError('request body must be a JSON object')
   }
-  const { lane, checkpointId, arms, runs: runsRaw } = body as Record<string, unknown>
+  const { lane, checkpointId, arms, runs: runsRaw, ceilingOverride } = body as Record<string, unknown>
 
   if (typeof lane !== 'string' || lane.trim().length === 0) {
     throw new LaunchValidationError('"lane" must be a non-empty string')
@@ -418,24 +513,31 @@ function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
   if (!Array.isArray(arms) || arms.length === 0) {
     throw new LaunchValidationError('"arms" must be a non-empty array — an experiment needs at least one arm')
   }
-  // prd41 ruling 4: a ceiling that spends money is declared. See MAX_ARMS below —
-  // this is the same validation block ruling 4 says the ceiling belongs beside.
-  if (arms.length > MAX_ARMS) {
-    throw new LaunchValidationError(
-      `"arms" may not exceed ${MAX_ARMS} — received ${arms.length}, and each arm forks a live, spending agent lane`,
-    )
-  }
   const runs = runsRaw === undefined ? 1 : runsRaw
   if (typeof runs !== 'number' || !Number.isInteger(runs) || runs < 1) {
     throw new LaunchValidationError('"runs" must be a positive integer when present — how many times each arm is run (prd53 ruling 1)')
   }
-  // The same ceiling, read for what it actually bounds: every RUN is a live,
-  // spending agent lane, so arms × runs is the count prd41 ruling 4 declared a
-  // ceiling over — not the arm count alone. prd53 ruling 6 (wave 2) makes this
-  // configurable and names the override; until then the fixed number holds.
-  if (arms.length * runs > MAX_ARMS) {
+  if (
+    ceilingOverride !== undefined &&
+    (typeof ceilingOverride !== 'number' || !Number.isInteger(ceilingOverride) || ceilingOverride < 1)
+  ) {
     throw new LaunchValidationError(
-      `"arms" × "runs" may not exceed ${MAX_ARMS} spending lanes — received ${arms.length} arm(s) × ${runs} run(s) = ${arms.length * runs}, and every run forks a live, spending agent lane`,
+      '"ceilingOverride" must be a positive integer of spending lanes when present — the ceiling you are declaring for this launch (prd53 ruling 6)',
+    )
+  }
+  // prd41 ruling 4: a ceiling that spends money is declared — here, in the
+  // same validation block, before anything is dispatched. Read for what it
+  // bounds: every RUN is a live, spending agent lane, so arms × runs is the
+  // count. The refusal names the number AND the override that would authorise
+  // exactly this launch (prd53 ruling 6), so the operator's next move is in
+  // the message; an override still too low is refused the same way.
+  const ceiling = ceilingOverride ?? LAUNCH_CEILING_LANES
+  const lanes = arms.length * runs
+  if (lanes > ceiling) {
+    throw new LaunchValidationError(
+      `"arms" × "runs" = ${lanes} spending lanes may not exceed the launch ceiling of ${ceiling}` +
+        `${ceilingOverride === undefined ? ' (the default)' : ' (your "ceilingOverride")'} — received ${arms.length} arm(s) × ${runs} run(s); ` +
+        `pass "ceilingOverride": ${lanes} to authorise exactly this many, and it is recorded on every fork.dispatched this launch produces (prd53 ruling 6)`,
     )
   }
 
@@ -471,7 +573,7 @@ function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
     return { model, brief }
   })
 
-  return { lane, checkpointId, arms: parsedArms, runs }
+  return { lane, checkpointId, arms: parsedArms, runs, ...(ceilingOverride === undefined ? {} : { ceilingOverride }) }
 }
 
 /**
@@ -768,6 +870,9 @@ export async function launchExperiment(body: unknown, options: LaunchExperimentO
         '--fork-id', forkId,
         '--arm-number', String(armNumber),
         '--runs', String(request.runs),
+        // The operator's declared ceiling travels to the engine, which
+        // records it on every fork.dispatched (prd53 ruling 6).
+        ...(request.ceilingOverride === undefined ? [] : ['--ceiling-override', String(request.ceilingOverride)]),
         '--launch',
       ]
       if (hasModel) argv.push('--model', model)
@@ -832,6 +937,184 @@ export async function launchExperiment(body: unknown, options: LaunchExperimentO
   return { forkId, parentLane: request.lane, checkpointId: request.checkpointId, arms, failed }
 }
 
+// --- measure (prd53 ruling 3: an outcome is per run, typed with its provenance, and measuring is a write) ---
+
+export class MeasureValidationError extends Error {}
+
+/** The laboratory said no such fork is recorded — the one failure a caller can act on differently from a crash (404, not 500). */
+export class MeasureUnknownForkError extends Error {}
+
+export interface MeasureRequestBody {
+  forkId: string
+  /** The gate command run in every run's worktree. The CLI's default (`npm test`) when absent. */
+  verifyCommand?: string
+}
+
+export interface MeasuredRunResult {
+  arm: number
+  run: number
+  laneHandle: string
+  verified: 'pass' | 'fail' | 'not-run'
+  verifiedDetail: string | null
+  commits: number | null
+}
+
+export interface MeasureResult {
+  forkId: string
+  verifyCommand: string
+  measured: MeasuredRunResult[]
+}
+
+export interface MeasureExperimentOptions extends LaunchExperimentOptions {
+  /** Where the verdicts are written — the server's live recorder, the same log the experiments listing reads. */
+  recorder: Pick<SessionRecorder, 'record'>
+}
+
+function parseMeasureRequestBody(body: unknown): MeasureRequestBody {
+  if (typeof body !== 'object' || body === null) {
+    throw new MeasureValidationError('request body must be a JSON object')
+  }
+  const { forkId, verifyCommand } = body as Record<string, unknown>
+  if (typeof forkId !== 'string' || forkId.trim().length === 0) {
+    throw new MeasureValidationError('"forkId" must be a non-empty string — the experiment to measure')
+  }
+  // Both values reach the CLI as argv (`--verify <cmd>`, then `-- <forkId>`);
+  // the same `--help` pre-scan `refuseFlagShaped` guards the launch against
+  // reads this argv too, so the same first-character rule applies.
+  if (forkId.trim().startsWith('-')) {
+    throw new MeasureValidationError(`"forkId" may not begin with "-" (received "${forkId.trim()}") — a fork id names an experiment, not a flag`)
+  }
+  if (verifyCommand !== undefined) {
+    if (typeof verifyCommand !== 'string' || verifyCommand.trim().length === 0) {
+      throw new MeasureValidationError('"verifyCommand" must be a non-empty string when present — the gate every run is judged by')
+    }
+    if (verifyCommand.trim().startsWith('-')) {
+      throw new MeasureValidationError(`"verifyCommand" may not begin with "-" (received "${verifyCommand.trim()}") — a gate is a command, not a flag`)
+    }
+  }
+  return { forkId: forkId.trim(), ...(verifyCommand === undefined ? {} : { verifyCommand: verifyCommand.trim() }) }
+}
+
+/** The shape `rhizomorph lab compare --json` prints — `ForkComparison`, read back without importing `lab/compare.ts`. */
+interface ComparisonDocument {
+  forkId: string
+  verifyCommand: string
+  arms: Array<{
+    arm: number
+    run: number
+    laneHandle: string
+    verified: 'pass' | 'fail' | 'not-run'
+    verifiedDetail: string | null
+    commits: number | null
+  }>
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function parseComparisonJson(stdout: string): ComparisonDocument | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(stdout.trim())
+  } catch {
+    return null
+  }
+  if (!isRecord(parsed) || typeof parsed.forkId !== 'string' || typeof parsed.verifyCommand !== 'string') return null
+  if (!Array.isArray(parsed.arms)) return null
+  const arms: ComparisonDocument['arms'] = []
+  for (const row of parsed.arms) {
+    if (!isRecord(row)) return null
+    const { arm, run, laneHandle, verified, verifiedDetail, commits } = row
+    if (typeof arm !== 'number' || typeof run !== 'number' || typeof laneHandle !== 'string') return null
+    if (verified !== 'pass' && verified !== 'fail' && verified !== 'not-run') return null
+    if (typeof verifiedDetail !== 'string' && verifiedDetail !== null) return null
+    if (typeof commits !== 'number' && commits !== null) return null
+    arms.push({ arm, run, laneHandle, verified, verifiedDetail, commits })
+  }
+  return { forkId: parsed.forkId, verifyCommand: parsed.verifyCommand, arms }
+}
+
+/**
+ * Measures one experiment: runs `rhizomorph lab compare <forkId> --verify <cmd>
+ * --json` through `runCli` — the one door the namespace law leaves this file —
+ * so the gate command runs in every run's own worktree exactly as it would
+ * for a human typing it, then records ONE `fork.measured` per run on the live
+ * log (prd53 ruling 3). That record is what `GET /api/lab/experiments` reads
+ * back as each run's `outcome`, so the console sees what the CLI saw, from
+ * the same fold, with the provenance attached.
+ *
+ * Measuring is a write twice over — real minutes of CPU in the arms'
+ * worktrees, and events on the record — which is why this is a gated
+ * mutation and not the read it resembles. The CLI's own `compare` stays a
+ * read: it prints and records nothing. The route is the hand that writes.
+ */
+export async function measureExperiment(body: unknown, options: MeasureExperimentOptions): Promise<MeasureResult> {
+  const request = parseMeasureRequestBody(body)
+  const argv = [
+    'compare',
+    '--json',
+    '--path', options.repoPath,
+    ...(request.verifyCommand === undefined ? [] : ['--verify', request.verifyCommand]),
+    '--', request.forkId,
+  ]
+
+  const invocation = await withLabCliLock(
+    `measure of fork "${request.forkId}"`,
+    () =>
+      runLabCliOnce(argv, {
+        ...(options.exec === undefined ? {} : { exec: options.exec }),
+        ...(options.dataRoot === undefined ? {} : { dataRoot: options.dataRoot }),
+        ...(options.claudeProjectsRoot === undefined ? {} : { claudeProjectsRoot: options.claudeProjectsRoot }),
+        ...(options.now === undefined ? {} : { now: options.now }),
+      }),
+    options.lockCeilingMs,
+  )
+
+  if (invocation.exitCode !== 0) {
+    const detail = invocation.stderr.trim() || `rhizomorph lab compare exited ${invocation.exitCode}`
+    if (/^no fork "/.test(detail)) throw new MeasureUnknownForkError(detail)
+    throw new Error(`could not measure fork ${request.forkId}: ${detail}`)
+  }
+
+  const comparison = parseComparisonJson(invocation.stdout)
+  if (comparison === null || comparison.forkId !== request.forkId) {
+    throw new Error(`could not read the comparison for fork ${request.forkId} — unexpected CLI output`)
+  }
+
+  const nextId = createIdFactory('lab')
+  const now = options.now ?? Date.now
+  const measured: MeasuredRunResult[] = []
+  for (const row of comparison.arms) {
+    const event = createEvent(
+      'fork.measured',
+      {
+        forkId: comparison.forkId,
+        laneHandle: row.laneHandle,
+        arm: row.arm,
+        run: row.run,
+        verified: row.verified,
+        verifiedDetail: row.verifiedDetail,
+        verifyCommand: comparison.verifyCommand,
+        commits: row.commits,
+        source: 'measure-route',
+      },
+      { id: nextId(), ts: now() },
+    )
+    await options.recorder.record(event)
+    measured.push({
+      arm: row.arm,
+      run: row.run,
+      laneHandle: row.laneHandle,
+      verified: row.verified,
+      verifiedDetail: row.verifiedDetail,
+      commits: row.commits,
+    })
+  }
+
+  return { forkId: comparison.forkId, verifyCommand: comparison.verifyCommand, measured }
+}
+
 export function registerLabRoutes(app: FastifyInstance, ctx: ServerContext): void {
   app.get('/api/lab/checkpoints', { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') }, async () => {
     const events = await readAllEvents(ctx)
@@ -850,16 +1133,51 @@ export function registerLabRoutes(app: FastifyInstance, ctx: ServerContext): voi
       const query = request.query as Record<string, unknown>
       const lane = typeof query.lane === 'string' ? query.lane.trim() : ''
       const armsRaw = typeof query.arms === 'string' ? Number(query.arms) : NaN
+      const runsRaw = typeof query.runs === 'string' ? Number(query.runs) : 1
 
       if (lane.length === 0 || !Number.isInteger(armsRaw) || armsRaw < 1) {
         return reply
           .code(400)
           .send({ error: '"lane" (non-empty string) and "arms" (positive integer) query params are required' })
       }
+      if (!Number.isInteger(runsRaw) || runsRaw < 1) {
+        return reply.code(400).send({ error: '"runs" must be a positive integer when present (prd53 ruling 1)' })
+      }
 
-      return estimateLaunchSpend(ctx, lane, armsRaw)
+      return estimateLaunchSpend(ctx, lane, armsRaw, runsRaw)
     },
   )
+
+  // prd53 ruling 3: measuring is a write. It runs a gate command in every
+  // run's worktree (real CPU, real minutes) and records the verdicts on the
+  // live log, so it is gated exactly like the launch it measures and reaches
+  // the laboratory the same way — through `runCli`, never an import.
+  app.post('/api/lab/measure', { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') }, async (request: FastifyRequest, reply) => {
+    if (ctx.readOnly === true) {
+      return reply.code(409).send({
+        error: 'this server is replaying a session record, not watching a repo — there is nothing live to measure',
+      })
+    }
+
+    try {
+      return await measureExperiment(request.body, {
+        repoPath: ctx.repoPath,
+        recorder: ctx.recorder,
+        ...(ctx.now === undefined ? {} : { now: ctx.now }),
+      })
+    } catch (err) {
+      if (err instanceof MeasureValidationError) {
+        return reply.code(400).send({ error: err.message })
+      }
+      if (err instanceof MeasureUnknownForkError) {
+        return reply.code(404).send({ error: err.message })
+      }
+      if (err instanceof LabCliLockCeilingError) {
+        return reply.code(503).send({ error: err.message })
+      }
+      throw err
+    }
+  })
 
   // Token-gated since #234: this route forks a worktree and dispatches a live
   // agent that spends real money, and the app-wide guard deliberately lets a

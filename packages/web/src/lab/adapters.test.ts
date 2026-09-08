@@ -1,11 +1,28 @@
 import { describe, expect, it } from 'vitest'
-import { experimentHasOutcome, toBranchingArms, toComparisonInput } from './adapters.js'
-import type { LabArm, LabExperiment } from './types.js'
+import { experimentHasOutcome, NOT_MEASURED_VOICE, runOutcomeVoice, toBranchingArms, toComparisonInput } from './adapters.js'
+import type { LabArm, LabExperiment, LabRun, LabRunOutcome } from './types.js'
+
+const provenance = { source: 'measure-route' as const, verifyCommand: 'npm test', measuredAt: 2000 }
+
+function outcome(overrides: Partial<LabRunOutcome> & { verified: LabRunOutcome['verified'] }): LabRunOutcome {
+  return { verifiedDetail: null, costUsd: 1, durationMs: 1, commits: 1, provenance, ...overrides }
+}
+
+function run(id: string, runNumber: number, measured?: LabRunOutcome): LabRun {
+  return {
+    eventId: id,
+    dispatchedAt: 1000,
+    run: runNumber,
+    laneHandle: `lane-${id}`,
+    worktreePath: '/tmp/x',
+    ...(measured === undefined ? {} : { outcome: measured }),
+  }
+}
 
 function arm(overrides: Partial<LabArm> & { arm: number }): LabArm {
   return {
     treatment: { model: null, promptDigest: null },
-    runs: [{ eventId: `evt-${overrides.arm}`, dispatchedAt: 1000, laneHandle: `lane-${overrides.arm}`, worktreePath: '/tmp/x' }],
+    runs: [run(`evt-${overrides.arm}`, 1)],
     ...overrides,
   }
 }
@@ -15,22 +32,19 @@ function experiment(arms: LabArm[]): LabExperiment {
 }
 
 describe('toBranchingArms', () => {
-  it('an arm with no outcome yet reads as running — nothing has told the console otherwise', () => {
-    const arms = toBranchingArms(experiment([arm({ arm: 1 })]))
-    expect(arms).toEqual([{ id: 'arm-1', state: 'running' }])
+  it('an arm none of whose runs has an outcome reads as running — nothing has told the console otherwise', () => {
+    expect(toBranchingArms(experiment([arm({ arm: 1 })]))).toEqual([{ id: 'arm-1', state: 'running' }])
   })
 
-  it('a "not-run" verified outcome reads as dead — the gate never ran, read as abandoned', () => {
-    const exp = experiment([
-      arm({ arm: 1, outcome: { verified: 'not-run', verifiedDetail: 'checkpoint restore failed', costUsd: null, durationMs: null, commits: null } }),
-    ])
+  it('an arm whose every judged run is "not-run" reads as dead — the gate never ran, read as abandoned', () => {
+    const exp = experiment([arm({ arm: 1, runs: [run('a', 1, outcome({ verified: 'not-run', verifiedDetail: 'checkpoint restore failed', costUsd: null, durationMs: null, commits: null }))] })])
     expect(toBranchingArms(exp)).toEqual([{ id: 'arm-1', state: 'dead' }])
   })
 
-  it('a pass or fail verified outcome both read as finished — completion, not death', () => {
+  it('a pass or fail on any run reads as finished — completion, not death — even beside an unmeasured sibling run (prd53 ruling 3)', () => {
     const exp = experiment([
-      arm({ arm: 1, outcome: { verified: 'pass', verifiedDetail: null, costUsd: 1, durationMs: 1, commits: 1 } }),
-      arm({ arm: 2, outcome: { verified: 'fail', verifiedDetail: 'tests failed', costUsd: 1, durationMs: 1, commits: 1 } }),
+      arm({ arm: 1, runs: [run('a', 1, outcome({ verified: 'pass' })), run('b', 2)] }),
+      arm({ arm: 2, runs: [run('c', 1, outcome({ verified: 'fail', verifiedDetail: 'tests failed' }))] }),
     ])
     expect(toBranchingArms(exp)).toEqual([
       { id: 'arm-1', state: 'finished' },
@@ -45,21 +59,33 @@ describe('toBranchingArms', () => {
 })
 
 describe('experimentHasOutcome', () => {
-  it('false when every arm is still unmeasured', () => {
+  it('false when every run of every arm is still unmeasured', () => {
     expect(experimentHasOutcome(experiment([arm({ arm: 1 }), arm({ arm: 2 })]))).toBe(false)
   })
 
-  it('true once even one arm has been measured', () => {
-    const exp = experiment([
-      arm({ arm: 1 }),
-      arm({ arm: 2, outcome: { verified: 'pass', verifiedDetail: null, costUsd: 2, durationMs: 500, commits: 3 } }),
-    ])
+  it('true once even one run has been measured', () => {
+    const exp = experiment([arm({ arm: 1 }), arm({ arm: 2, runs: [run('m', 1, outcome({ verified: 'pass', costUsd: 2 }))] })])
     expect(experimentHasOutcome(exp)).toBe(true)
   })
 })
 
+describe('runOutcomeVoice (prd53 ruling 3 — not-run is legal, and voiced as not measured)', () => {
+  it('an unmeasured run and a not-run verdict speak the same sentence — no outcome is invented in either case', () => {
+    expect(runOutcomeVoice(run('a', 1))).toBe(NOT_MEASURED_VOICE)
+    expect(runOutcomeVoice(run('b', 1, outcome({ verified: 'not-run', verifiedDetail: 'npm: not found' })))).toBe(NOT_MEASURED_VOICE)
+    expect(NOT_MEASURED_VOICE).toBe('not measured yet — no outcome is invented in its place')
+  })
+
+  it('a verdict names the gate that gave it and the hand that ran it — provenance, not a bare tick', () => {
+    expect(runOutcomeVoice(run('a', 1, outcome({ verified: 'pass' })))).toBe('passed npm test (measure-route)')
+    expect(runOutcomeVoice(run('b', 1, outcome({ verified: 'fail', verifiedDetail: '1 test failed' })))).toBe(
+      'failed npm test (measure-route): 1 test failed',
+    )
+  })
+})
+
 describe('toComparisonInput', () => {
-  it('an unmeasured arm\'s run reads as pending — no fabricated value', () => {
+  it("an unmeasured run reads as pending — no fabricated value", () => {
     const input = toComparisonInput(experiment([arm({ arm: 1, treatment: { model: 'opus', promptDigest: null } })]))
     expect(input.arms).toEqual([{ id: 'arm-1', model: 'opus', brief: 'no-brief', runs: [{ id: 'evt-1', status: 'pending' }] }])
   })
@@ -71,38 +97,36 @@ describe('toComparisonInput', () => {
     expect(input.arms[0]?.model).toBe('default')
   })
 
-  it('a verified pass with a booked cost reads as a complete run, valued at that cost', () => {
+  it('each run carries ITS OWN verdict — two runs of one arm can differ, which the old arm-level outcome could not express (prd53 rulings 1 and 3)', () => {
     const exp = experiment([
-      arm({ arm: 1, outcome: { verified: 'pass', verifiedDetail: null, costUsd: 4.5, durationMs: 1000, commits: 2 } }),
+      arm({
+        arm: 1,
+        runs: [
+          run('a', 1, outcome({ verified: 'pass', costUsd: 4.5 })),
+          run('b', 2, outcome({ verified: 'fail', verifiedDetail: 'gate exited 1' })),
+          run('c', 3),
+        ],
+      }),
     ])
-    expect(toComparisonInput(exp).arms[0]?.runs).toEqual([{ id: 'evt-1', status: 'complete', value: 4.5 }])
+    expect(toComparisonInput(exp).arms[0]?.runs).toEqual([
+      { id: 'a', status: 'complete', value: 4.5 },
+      { id: 'b', status: 'failed', error: 'gate exited 1' },
+      { id: 'c', status: 'pending' },
+    ])
   })
 
   it('a verified pass with no cost booked yet reads as pending, never a fabricated $0', () => {
-    const exp = experiment([
-      arm({ arm: 1, outcome: { verified: 'pass', verifiedDetail: null, costUsd: null, durationMs: 1000, commits: 2 } }),
-    ])
-    expect(toComparisonInput(exp).arms[0]?.runs).toEqual([{ id: 'evt-1', status: 'pending' }])
+    const exp = experiment([arm({ arm: 1, runs: [run('a', 1, outcome({ verified: 'pass', costUsd: null }))] })])
+    expect(toComparisonInput(exp).arms[0]?.runs).toEqual([{ id: 'a', status: 'pending' }])
   })
 
-  it('a verified fail reads as a failed run, carrying its detail as the error', () => {
-    const exp = experiment([
-      arm({ arm: 1, outcome: { verified: 'fail', verifiedDetail: 'gate exited 1', costUsd: 1, durationMs: 1, commits: 1 } }),
-    ])
-    expect(toComparisonInput(exp).arms[0]?.runs).toEqual([{ id: 'evt-1', status: 'failed', error: 'gate exited 1' }])
-  })
-
-  it('a "not-run" verified outcome also reads as a failed run — there is no honest run value to show', () => {
-    const exp = experiment([
-      arm({ arm: 1, outcome: { verified: 'not-run', verifiedDetail: 'restore failed', costUsd: null, durationMs: null, commits: null } }),
-    ])
-    expect(toComparisonInput(exp).arms[0]?.runs).toEqual([{ id: 'evt-1', status: 'failed', error: 'restore failed' }])
+  it('a "not-run" verdict reads as pending too — the gate did not run, so there is no result to report as failed', () => {
+    const exp = experiment([arm({ arm: 1, runs: [run('a', 1, outcome({ verified: 'not-run', verifiedDetail: 'restore failed', costUsd: null }))] })])
+    expect(toComparisonInput(exp).arms[0]?.runs).toEqual([{ id: 'a', status: 'pending' }])
   })
 
   it('a failed run with no detail carries no error field, rather than inventing one', () => {
-    const exp = experiment([
-      arm({ arm: 1, outcome: { verified: 'fail', verifiedDetail: null, costUsd: 1, durationMs: 1, commits: 1 } }),
-    ])
-    expect(toComparisonInput(exp).arms[0]?.runs).toEqual([{ id: 'evt-1', status: 'failed' }])
+    const exp = experiment([arm({ arm: 1, runs: [run('a', 1, outcome({ verified: 'fail' }))] })])
+    expect(toComparisonInput(exp).arms[0]?.runs).toEqual([{ id: 'a', status: 'failed' }])
   })
 })
