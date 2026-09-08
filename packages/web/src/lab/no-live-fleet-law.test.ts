@@ -182,19 +182,20 @@ function sourceFileCountsByDirectory(): Record<string, number> {
 describe('the lab tab renders no live-fleet surface (prd14)', () => {
   it('has source files to check at all, from every governed subdirectory — a shallow walk proves nothing', () => {
     // Per-subdirectory counts, re-derived from this file's own
-    // sourceFiles() on 2026-09-07 (unchanged since the 2026-08-08 audit) —
+    // sourceFiles() on 2026-09-08 (#324 added `measure.ts` at the root, the
+    // first move since the 2026-08-08 audit — and this pin caught it) —
     // pinned exactly, not a loose lower bound, and grouped rather than
     // totalled. Both halves are load-bearing. A lower bound at any floor lets
     // a file silently ADDED pass unnoticed, not just a file dropped. And a
     // single total, however exact, stays green through a compensated shrink:
-    // 17 is still 17 when compare/ loses two files and the root gains two, so
+    // 18 is still 18 when compare/ loses two files and the root gains two, so
     // a directory can shed a quarter of its coverage with nothing going red.
     // Grouping is what makes that failure name the directory that moved. The
     // next test names one file per subdirectory, so a directory vanishing
     // outright is caught twice over — but a partial shrink is invisible to it,
     // and this assertion is the only thing that sees it.
     expect(sourceFileCountsByDirectory()).toEqual({
-      '': 5,
+      '': 6,
       branching: 2,
       compare: 7,
       launch: 3,
