@@ -616,6 +616,17 @@ function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
  * which keeps the lock until it settles on its own; that is a separate,
  * exec-level concern the other wave-2 issue gives the four lab modules. See
  * docs/design-notes/lab-launch-ceilings.md for the number.
+ *
+ * Fixed in source and not operator-settable (prd50 ruling 1): raising it
+ * would rebuild the queue prd41 ruling 2 refused — spend hidden behind
+ * latency, the trade prd12 ruling 3 forbids. What actually keeps the value
+ * fixed is that ruling — a fixed value, changed only in a reviewed diff.
+ * `packages/server/src/api/lab-ceiling-law.test.ts` fails the suite for
+ * every wiring point the constant has today — its declaration, a rebinding
+ * inside `withLabCliLock`'s body, a config-derived argument at either call
+ * site, or a `lockCeilingMs` key set from a literal object — but that is a
+ * text scan of one file, not a proof that no configuration path could ever
+ * reach the value.
  */
 export const LAB_CLI_LOCK_CEILING_MS = 30_000
 
@@ -832,7 +843,11 @@ export interface LaunchExperimentOptions {
   dataRoot?: string
   claudeProjectsRoot?: string
   now?: () => number
-  /** Overrides `LAB_CLI_LOCK_CEILING_MS` — a test seam; production takes the default. */
+  /**
+   * Overrides `LAB_CLI_LOCK_CEILING_MS` — a test seam; production takes the
+   * default and has no path to reach this seam (prd50 ruling 1: the ceiling
+   * is fixed, not operator-settable).
+   */
   lockCeilingMs?: number
 }
 
