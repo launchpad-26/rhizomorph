@@ -53,9 +53,17 @@ function armState(arm: LabArm): ArmState {
  * `lab/branching/`'s plain `ArmInput[]` (prd14 ruling 1) — one experiment's
  * arms, kept in the order they arrive in the experiment so the layout's own
  * "arms keep the order they arrive in" law has a caller that agrees with it.
+ *
+ * Since prd-55 ruling 11 (#385) each arm also carries HOW MANY RUNS it
+ * dispatched, because the branching diagram is now a header glyph drawing a
+ * strand per run rather than per arm — the same count the lane canvas below it
+ * draws from the record, so the header and the drawing cannot disagree about
+ * how many things there are. It is `arm.runs.length` and nothing else: an arm
+ * that has dispatched nothing says zero, and `branching/geometry.ts` is the one
+ * that decides an arm it was told about is an arm it draws.
  */
 export function toBranchingArms(experiment: LabExperiment): ArmInput[] {
-  return experiment.arms.map((arm) => ({ id: `arm-${arm.arm}`, state: armState(arm) }))
+  return experiment.arms.map((arm) => ({ id: `arm-${arm.arm}`, state: armState(arm), runs: arm.runs.length }))
 }
 
 /**
