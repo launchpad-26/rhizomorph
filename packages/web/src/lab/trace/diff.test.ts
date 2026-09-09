@@ -7,13 +7,17 @@ function say(role: TranscriptEntry['role'], text: string): TranscriptEntry {
   return { role, blocks: [{ kind: 'text', text }] }
 }
 
+function tool(name: string, hint: string): TranscriptEntry {
+  return { role: 'assistant', blocks: [{ kind: 'tool_use', name, hint }] }
+}
+
 const HISTORY: TranscriptEntry[] = [
   say('user', 'fix the summariser'),
   say('assistant', 'reading /home/x/repo/src/summarise.ts'),
   say('assistant', 'the floor is wrong'),
 ]
 
-describe('steps — a step is who spoke and what, with absolute paths masked (prd12 ruling 5)', () => {
+describe('steps — a step is who spoke and what, with absolute paths masked down to the file (prd12 ruling 5; prd-55 w3, #384)', () => {
   it("the parent's step and the arm's path-rewritten copy of it are the SAME step", () => {
     const parent = say('assistant', 'reading /home/x/repo/src/summarise.ts')
     const arm = say('assistant', 'reading /data/lab/worktrees/fork-1-arm-1/src/summarise.ts')
@@ -25,8 +29,21 @@ describe('steps — a step is who spoke and what, with absolute paths masked (pr
     expect(stepKey(say('assistant', 'ok'))).not.toBe(stepKey(say('user', 'ok')))
   })
 
-  it('masks every absolute path and nothing else', () => {
-    expect(maskPaths('see /home/x/a.ts and /tmp/b then a/relative one')).toBe('see /… and /… then a/relative one')
+  it("two arms reading two different files are two different steps — the file survives the mask (the wave-3 review's finding)", () => {
+    expect(stepKey(say('assistant', 'read /repo/a.ts'))).not.toBe(stepKey(say('assistant', 'read /fork/b.ts')))
+    // The same through a tool call's hint, which is where a file is usually named.
+    expect(stepKey(tool('Read', '/repo/a.ts'))).not.toBe(stepKey(tool('Read', '/fork/b.ts')))
+    // While the same file under two worktrees is still one step.
+    expect(stepKey(tool('Read', '/repo-wt/feature/src/a.ts'))).toBe(stepKey(tool('Read', '/data/lab/worktrees/fork-1-arm-1/src/a.ts')))
+  })
+
+  it('a bare directory — the worktree root itself, which the restore rewrites — masks whole, so `cd <worktree>` is one step on both sides', () => {
+    expect(maskPaths('cd /repo-wt/feature && npm test')).toBe(maskPaths('cd /data/lab/worktrees/fork-1-arm-1 && npm test'))
+    expect(maskPaths('cd /repo-wt/feature && npm test')).toBe('cd /… && npm test')
+  })
+
+  it('masks every absolute path and nothing else, keeping the file-shaped tail', () => {
+    expect(maskPaths('see /home/x/a.ts and /tmp/b then a/relative one')).toBe('see /…/a.ts and /… then a/relative one')
   })
 
   it('keeps every step, in order, with its index', () => {
@@ -59,6 +76,12 @@ describe('diffSteps — where an arm left the parent behind (prd53 S3)', () => {
     const longerArm = toSteps([...HISTORY, say('assistant', 'parent step A'), say('assistant', 'extra')])
     const parentShort = toSteps([...HISTORY, say('assistant', 'parent step A')])
     expect(diffSteps(parentShort, longerArm).rows.map((row) => row.kind)).toEqual(['same', 'added'])
+  })
+
+  it('two arms that read different files after the fork are `diverged`, not `same`', () => {
+    const parent = toSteps([...HISTORY, tool('Read', '/repo-wt/feature/a.ts')])
+    const arm = toSteps([...HISTORY, tool('Read', '/data/lab/worktrees/fork-1-arm-1/b.ts')])
+    expect(diffSteps(parent, arm).rows.map((row) => row.kind)).toEqual(['same', 'diverged'])
   })
 
   it("a dead arm's last row has no successor — every row after it is the parent's alone, and nothing dashes forward", () => {
