@@ -84,7 +84,13 @@ import { ComparisonArtifactError, parseComparisonArtifact } from './artifact.js'
  * being "coverage failed" (EXECUTED in round 3's verify — the law stayed
  * green at 41/41 with a reachable throw moved into a new sibling module).
  * Axis C asserts the module's construction sites all live in `artifact.ts`,
- * so relocating one reddens instead of hiding.
+ * so relocating one reddens instead of hiding. The scan RECURSES: scoped to
+ * this directory alone it would have pinned only the siblings, and a brand-new
+ * site one directory down would have been invisible to all three axes — a
+ * relocated one is caught by B's injectivity (its fixture would match no
+ * site), but a NEW one carries no fixture to go missing. Scoping the guard by
+ * what a file IS rather than by where it happens to sit is the same lesson
+ * AGENTS.md records for the fixture-hygiene law.
  *
  * WHAT IS STILL NOT CAUGHT, stated rather than hidden:
  *
@@ -330,10 +336,12 @@ describe('every ComparisonArtifactError throw site in this package\'s artifact.t
 // --- axis C: every construction site in this module lives in artifact.ts ---
 
 describe('this module constructs ComparisonArtifactError in artifact.ts and nowhere else', () => {
-  it('no other source file in this directory carries the constructor — axis B reads artifact.ts alone', () => {
-    const carriers = readdirSync(HERE)
+  it('no other source file in this module, at ANY depth, carries the constructor — axis B reads artifact.ts alone', () => {
+    const carriers = readdirSync(HERE, { recursive: true })
+      .map((entry) => String(entry))
       .filter((entry) => /\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry))
       .filter((entry) => readFileSync(path.join(HERE, entry), 'utf8').includes(THROW_SITE_MARKER))
+      .map((entry) => entry.split(path.sep).join('/'))
       .sort()
     expect(carriers, 'a throw relocated out of artifact.ts is invisible to axis B').toEqual(['artifact.ts'])
   })
