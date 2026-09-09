@@ -42,7 +42,7 @@ fail()  { echo "GATE FAILED: $1"
 # category gate.ts's own gateVerdictPayloadSchema doc comment already
 # illustrates with 'suite-red' and 'clean'. Declared here, once, so a new
 # failure mode cannot invent a fresh spelling nobody reviewed.
-GATE_VERDICT_VOCAB="clean push-failed uncategorized setup git-error mid-rebase rebase-stale fence-invalid off-boundary-file empty-branch stranded-work nul-byte suite-red typecheck-red timing-config timing-regression load-flake timing-red merge-failed lane-manifest install-broken build-broken"
+GATE_VERDICT_VOCAB="clean push-failed uncategorized setup load-invalid git-error mid-rebase rebase-stale fence-invalid off-boundary-file empty-branch stranded-work nul-byte suite-red typecheck-red timing-config timing-regression load-flake timing-red merge-failed lane-manifest install-broken build-broken"
 
 # prd17 w5 (#273): the gate derives its own verdict — one v1 beacon line
 # (ADR-0036; packages/core/src/events/beacon.ts) printed to the REAL stdout
@@ -341,6 +341,75 @@ GATE_TEE_PID=$!
 
 echo "════════ GATE: $H ════════"
 command -v python3 >/dev/null 2>&1 || fail "python3 not found — the NUL-byte guard cannot run without it" setup
+
+# prd17 w7 (#293): $3 (LOAD) is OPERATOR INPUT and, until now, reached no
+# check of its own before the load gate's own arithmetic (far below) and the
+# emitter's `int(load)` (inside emit_gate_verdict) both consumed it raw.
+# Validated ONCE, HERE — right after GATE_OUTFILE/the tee are wired up so
+# fail() can still emit a verdict, and before anything expensive runs — never
+# at the emitter (tried during #273's review and reverted: it guarded the one
+# input that never reaches it while regressing one that does, `LOAD=+3`).
+#
+# The input class, and where each spelling actually breaks today:
+#
+# | spelling                | example      | breaks at              | verdict |
+# |--------------------------|--------------|--------------------------|---------|
+# | default / bare zero      | `0`          | (none)                   | accept  |
+# | bare positive             | `3`          | (none)                   | accept  |
+# | `+`-prefixed              | `+3`         | (none — int('+3')==3)   | accept, canonicalised to `3` |
+# | non-numeric               | `abc`        | `$((LOAD*4))` today (bash's own `set -u` unbound-variable trap) — already loud | refuse, now earlier and WITH a verdict |
+# | transposed fence argument | `^scripts/`  | `int(load)` in the emitter — a SYNTAX error, non-fatal under `set -uo pipefail`, so NOTHING prints | refuse |
+# | decimal                   | `3.0`        | `int(load)` in the emitter, same silent non-fatal path | refuse |
+# | trailing garbage          | `3x`         | `int(load)` in the emitter, same silent non-fatal path | refuse |
+# | negative                  | `-1`         | nowhere in the shell — `int('-1')` succeeds; `gateVerdictPayloadSchema`'s `nonnegative()` refuses it downstream, silently (no consumer today, but the schema's own contract) | refuse |
+# | leading zero              | `007`, `010` | nowhere shell-visible today, but `$((LOAD*4))` below reads a leading `0` as an OCTAL prefix — the exact class this file's own `$PREV` ratchet already guards against | refuse |
+# | oversized                 | `99999999999999999999` | ACCEPTED by every check above (all-digit, no leading zero) — `$((LOAD*4))` overflows 64-bit arithmetic SILENTLY (rc=0, a wrong number, no error), and `seq 1 "$LOAD"` (the load-gate loop's own producer) must materialise the WHOLE list before the loop can even start — the outcome this issue forbids ("a landing may fail; it may not hang"), reached by MAGNITUDE instead of syntax | refuse |
+#
+# The three emitter-only rows are the actual defect: a landing that merges
+# and pushes still emits NO VERDICT LINE AT ALL, because `2>/dev/null` on the
+# python invocation swallows the traceback. Refusing all of them up front, in
+# one place, turns every one of those into a loud, categorised hold instead.
+LOAD_RAW=$LOAD
+LOAD_DIGITS=${LOAD#+}
+case "$LOAD_DIGITS" in
+  ('' | *[!0-9]*)
+    LOAD=0   # so emit_gate_verdict's own read of "${LOAD:-0}" — reached by
+             # fail(), below — never hands the emitter's int() the very
+             # value that would make it raise (the defect this issue closes)
+    fail "load-batches ('$LOAD_RAW') is not a non-negative integer — gate.sh <handle> <fence-regex> [load-batches]" load-invalid
+    ;;
+esac
+case "$LOAD_DIGITS" in
+  (0[0-9]*)
+    LOAD=0
+    fail "load-batches ('$LOAD_RAW') has a leading zero — bash arithmetic below (\$((LOAD*4))) would read it as octal; write it as a plain decimal" load-invalid
+    ;;
+esac
+# UPPER-BOUNDED BY STRING LENGTH FIRST, never by comparing an unbounded-length
+# numeral arithmetically (review of #293): bash's own `[ -gt ]` errors
+# "integer expected", rc=2, on a value this large — EXECUTED, `LOAD=` a
+# 20-digit number produces exactly that error from a bare `[ "$LOAD_DIGITS"
+# -gt 64 ]`, which `&&`/`||` would silently treat as neither true nor false.
+# Three or more digits is already >= 100, which fails a 64-batch ceiling in
+# spirit without ever being compared as a number.
+case "$LOAD_DIGITS" in
+  (???*)
+    LOAD=0
+    fail "load-batches ('$LOAD_RAW') is far larger than any real load-gate run needs — refusing before \$((LOAD*4)) silently overflows 64-bit arithmetic and \`seq 1 \"\$LOAD\"\` materialises the whole list before the loop even starts (a landing may fail; it may not hang)" load-invalid
+    ;;
+esac
+# Now safe: at most two digits (0-99), well inside bash's integer range, so
+# this comparison itself cannot repeat the overflow the guard above exists to
+# avoid.
+if [ "$LOAD_DIGITS" -gt 64 ]; then
+  LOAD=0
+  fail "load-batches ('$LOAD_RAW') is more than the 64-batch ceiling — no real gate run needs more; refusing before \$((LOAD*4)) and \`seq 1 \"\$LOAD\"\` run" load-invalid
+fi
+LOAD=$LOAD_DIGITS   # canonicalise '+3' to '3': every later use ($((LOAD*4)),
+                    # `seq 1 "$LOAD"`, the `!= "0"` check below) compares this
+                    # string directly, and a surviving '+' would desync those
+                    # from the numeric value int() sees.
+
 [ -d "$W" ] || fail "worktree missing (resolved: ${W:-none})" setup
 BRANCH=$(git -C "$W" rev-parse --abbrev-ref HEAD 2>/dev/null) || fail "cannot read branch" git-error
 echo "  worktree: $W (branch $BRANCH)"
@@ -351,12 +420,13 @@ workmux rebase "$H" >/dev/null 2>&1 || echo "  (rebase reported an issue — the
 # In a linked worktree .git is a FILE, so a naive "$W/.git" fallback would
 # make $GD/rebase-merge structurally unable to exist — verified against a
 # real in-progress rebase: the correct resolution DETECTED it, the fallback
-# MISSED it. :41 already proved git works in this worktree, so a failure to
-# resolve the real git dir here is held rather than papered over with a path
-# that cannot do the job.
+# MISSED it. The "cannot read branch" check above already proved git works
+# in this worktree, so a failure to resolve the real git dir here is held
+# rather than papered over with a path that cannot do the job.
 #
 # mktemp, not a predictable "/tmp/gate-gitdir-$H.log" — a fixed path a
-# symlink can occupy before this runs, same class as :116's NUL_LIST.
+# symlink can occupy before this runs, same class as the NUL-byte guard's own
+# NUL_LIST mktemp below.
 GITDIR_LOG=$(mktemp "/tmp/gate-gitdir-$H.XXXXXX") || fail "cannot create a scratch log for the git-dir probe" setup
 GD=$(git -C "$W" rev-parse --absolute-git-dir 2>"$GITDIR_LOG") || { cat "$GITDIR_LOG"; rm -f "$GITDIR_LOG"; fail "cannot resolve the real git dir for $W — the mid-rebase guard below cannot run without it" git-error; }
 rm -f "$GITDIR_LOG"
@@ -436,8 +506,8 @@ rm -f "$FENCE_LIST"
 # there: a branch whose diff against main is empty aborted with a bare
 # "DIFF_FILES[*]: unbound variable", rc 1, WITHOUT passing through fail() — so
 # no "GATE FAILED" and no ">>> HOLDING" line, on the one code path the script
-# has a dedicated diagnosis for eighteen lines further down ("no commits on the
-# branch (a worker may have left work uncommitted)", :142). The old
+# has a dedicated diagnosis for further down (the `fail "no commits on the
+# branch (a worker may have left work uncommitted...)"` check). The old
 # line-delimited form printed "fence OK: " and reached it; this restores that.
 echo "  fence OK: ${DIFF_FILES[*]-}"
 
@@ -462,14 +532,15 @@ STATUS_OUT=$(git -C "$W" status --porcelain)
 STATUS_RC=$?
 [ "$STATUS_RC" -ne 0 ] && fail "git status failed in $W (rc=$STATUS_RC) — cannot verify the worktree is clean" git-error
 # SIBLING of the same shape (a $(...) pipeline whose own exit status feeds
-# no check), FIXED here rather than declared — the :96 fix above is its
-# twin (prd-46 #70 ruling 3). The guard is `-gt 1`, not `-ne 0`, and the
-# asymmetry is the whole point:
+# no check), FIXED here rather than declared — the N_RC check above (the
+# `git log | wc -l` commit count) is its twin (prd-46 #70 ruling 3). The
+# guard is `-gt 1`, not `-ne 0`, and the asymmetry is the whole point:
 #
 #   -ne 0  would misfire on EVERY clean landing. EXECUTED: grep -v's "no
 #          match" exit (1) is the ORDINARY outcome both on a clean tree and
 #          when nothing besides package-lock.json changed — the same
-#          masking bug the fence fix at :74-80 exists to avoid.
+#          masking bug the fence audit's own note above ("everything matched
+#          the fence, no violations") exists to avoid.
 #   -gt 1  cannot fire on a legitimate landing: grep returns only 0 or 1
 #          when it RUNS, and wc -l returns 0. It fires when a stage does
 #          not run or dies — EXECUTED: rc 127 with grep absent from PATH
@@ -484,7 +555,7 @@ STATUS_RC=$?
 # abolish, sitting inside its own tolerance table. Recorded rather than
 # quietly deleted: the wrong reason is why the fix looked unnecessary.
 #
-# $STATUS_OUT, the other fallible input, is already RC-checked two lines up.
+# $STATUS_OUT, the other fallible input, is already RC-checked above (STATUS_RC).
 dirty=$(printf '%s' "$STATUS_OUT" | grep -v package-lock.json | wc -l)
 DIRTY_RC=$?
 [ "$DIRTY_RC" -gt 1 ] && fail "the dirty-count pipeline failed (rc=$DIRTY_RC) — cannot verify the worktree is clean" git-error

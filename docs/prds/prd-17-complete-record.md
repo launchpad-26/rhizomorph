@@ -7,12 +7,34 @@
 > the fold-order law — ruled on #205, append order is the truth. The chokepoint was built
 > on #62 and not before: three documents, this header among them, had said it existed from
 > the day the ruling reserved it, so #62 made the claim true rather than edit it.
-> **Ruling 1's nine families all exist** as of #219, and one of the three groups now has a
-> door: the operator's `ack`/`verdict`/`note` are emitted through
-> `POST /api/operator/:act` (wave 2, landed), joining `session.closed`, which the recorder
-> has raised since prd-40. The summons pair, `gate.verdict`, `dispatch.brief` and
-> `fence.declared` remain DEFINED AND UNEMITTED — each folds through a `reduce.ts` arm
-> that returns state unchanged, and no recording contains one.
+> **Ruling 1's nine families all exist** as of #219, and the emitted/unemitted split has
+> moved twice since this line was first written. Re-derived against `main` on 2026-09-08:
+>
+> | family | emitter | in a recording? |
+> |---|---|---|
+> | `operator.ack`/`verdict`/`note` | `POST /api/operator/:act` — wave 2 | yes, era-2 |
+> | `summons.raised`/`cleared` | the poll loop's tick — wave 3 (#278) | yes, era-2 |
+> | `gate.verdict` | `scripts/gate.sh` writes the beacon line — wave 5 (#274) | not yet |
+> | `session.closed` | the recorder, since prd-40 | not yet |
+> | `dispatch.brief`, `fence.declared` | **none** | no |
+>
+> **The reason differs by row and that is the part an earlier version of this block got
+> wrong**, by attaching one clause to all of them. `dispatch.brief` and `fence.declared`
+> are DEFINED AND UNEMITTED in the original sense: their `reduce.ts` arms return state
+> unchanged and nothing raises one. `gate.verdict` is EMITTED but not yet a first-class
+> timeline event — a landing reaches the log as `beacon.received`, and deriving the typed
+> event from that sidecar is wave 6. `session.closed` has an emitter and a fold; era-2's
+> window simply does not contain a clean shutdown. **SEVEN of the nine have an EMITTER;
+> FIVE appear in a real committed recording** — the three operator acts and the summons
+> pair. The two counts differ by TWO rows, not one: `gate.verdict`, which emits but has
+> not been captured, and `session.closed`, which has emitted from the recorder since
+> prd-40 and whose clean shutdown era-2's window does not contain. Both are named in the
+> table above and both must be named here, because the emitter total is the count that
+> has been wrong three times — each time in the sentence written to stop it being wrong,
+> and each time by omitting `session.closed`, whose emitter predates every wave this PRD
+> sequenced and so gets read as belonging to none of them. Six is the number of families
+> waves 2, 3 and 5 gave an emitter TO; seven is the number that HAVE one. Those are
+> different claims and the difference is `session.closed`.
 > **Ruling 4's mark kinds landed** in the same wave: `chapters.ts` now carries eight,
 > including a summons and its clearance, a gate verdict and an operator verdict. They are
 > readers waiting on emitters.
@@ -48,11 +70,30 @@ side effects. An unrecognised event line from a newer emitter is **counted and
 voiced**, never dropped, and a recording folded today matches its committed
 snapshot byte for byte.
 
-Partially met: the integrity laws landed, the fold-order law included — ruled
-on #205, append order is the truth — and the event families exist as of #219.
-The criterion itself does not yet hold: nothing emits those families, so a
-replay still shows no judgement and no decision as a first-class event, and the
-timeline dividend has not landed.
+Partially met, and **less partially than this paragraph used to say** — restated
+2026-09-08 against `main` rather than edited from the old sentence.
+
+The integrity laws landed, the fold-order law included — ruled on #205, append
+order is the truth — and the event families exist as of #219. Since then waves
+2, 3 and 5 gave emitters to the operator's three acts, the summons pair and
+`gate.verdict`, and wave 4's era-2 recording contains **nine** of era-1's
+gap-list families folding byte-identically to a committed snapshot. So the
+criterion's second clause — *"a recording folded today matches its committed
+snapshot byte for byte"* — now holds of these families rather than only of the
+ones era-1 happened to carry.
+
+**The first clause does not yet hold, and the gap is exactly one wave.** A
+replay shows the operator's decisions and the instrument's summonses as
+first-class events; it does not yet show a landing's verdict as one, because
+`gate.verdict` reaches the log as a `beacon.received` sidecar and the typed
+event's `reduce.ts` arm still returns state unchanged. **#280 (wave 6) is that
+derivation.**
+
+**So "this PRD closes" and "the Success criterion is met" are different
+statements**, and the ship-out line below deliberately chooses the first. The
+operator ruled ship-out at wave 4 with wave 6 declared after it — a decision
+taken with this gap visible, not in ignorance of it. A reader who conflates the
+two will think the PRD shipped incomplete by accident.
 
 ## Ruling 1 — the new event families, all additive
 
@@ -353,6 +394,67 @@ of sidecar-for-content actually lands, since ruling 2 names the split but no dir
 brief's full text today; the CLI door for operator acts, which ruling 2 mentions beside the UI
 and wave 2 does not build; prd18's whole dividend.
 
+**Wave 7 — the review residual, sequenced 2026-09-08 (#346).** Five issues that came out of
+reviewing waves 3 and 5, not out of this PRD's own plan. They were groomed onto this milestone
+as they were found and **carried no wave until now**, which `scripts/dev/prd-reconcile.sh`
+reports as drift for a concrete reason: `scripts/fence-lint.sh` reads a wave, so a wave-less
+issue is invisible to the one check that catches a bad fence *before* anyone is dispatched onto
+it. Five dispatchable issues were in that state.
+
+**Three lanes, one PR — and the lanes are forced by the fences, not chosen.** Two of them
+hold the code follow-ups and are tabled immediately below; the third is this issue itself
+(`#346`, docs only), described under *Third lane in wave 7* further down. The count is
+written as three here because an earlier version of this section said **two** above a
+two-row table and then declared a third lane twenty-five lines later — the same
+figure-contradicts-its-own-document shape this issue exists to close, reproduced inside
+the section added to close it. Found by round 3's review, not by the reconciler, which
+maps issues to waves from the issue title and never counts lanes:
+
+| lane | fence | issues |
+|---|---|---|
+| gate | `scripts/gate.sh`, `packages/server/src/gate-honesty-law.test.ts` | **#292** `prd17 w7: the gate law's pins forbid the classes they are named for` · **#293** `prd17 w7: a mistyped load-batch argument cannot cost the landing its verdict` |
+| poll-loop | `packages/server/src/server/poll-loop.ts`, `poll-loop.test.ts`, `summons.test.ts` | **#299** `prd17 w7: a rotation between two appends cannot leak stale summons clears` · **#301** `prd17 w7: a recovery is recorded only for an error the log contains` · **#302** `prd17 w7: one rule governs what counts as degraded and what is preserved` |
+
+Within a lane the issues **share a fence**, so they are sequential commits in one lane and never
+parallel: `fence-lint.sh 299 301 302` hard-fails with OVERLAP on `poll-loop.ts`, and that
+failure is correct for the question it asks rather than a blocker on the wave. Between all
+three lanes the fences are disjoint — `poll-loop.ts`+`poll-loop.test.ts`,
+`scripts/gate.sh`+`gate-honesty-law.test.ts`, and this PRD file — which is what makes this
+one wave and one PR rather than three of each.
+
+**Three of the eight were consolidated away before sequencing**, and the consolidation is the
+more useful record: #300 folded into #302 (they are the two halves of one rule — what counts as
+degraded, and what is preserved when it is), and #291 and #306 folded into #292 (three issues of
+one defect class in one file, where the class is *a pin that forbids the spelling a review
+reported and claims the class in its own name*). The argument for folding them got stronger the
+day it was made: the tsx-invocation pin in that same file went token → suffix → position →
+logical line across three commits and two reviewers on 2026-09-07, a fourth instance of the
+class, which is what turns three defects into one habit.
+
+**This wave is post-ship-out and does not gate the PRD closing.** It is real work and none of it
+changes what ships; it is sequenced so that it can be dispatched safely, not so that it must be
+done first.
+
+**Third lane in wave 7 — the plan of record says what is true. #346** `prd17 w7: the PRD says
+which families emit, and the review residual is a wave`. This document had drifted in two ways
+at once: the header called three now-emitted families unemitted, attaching one reason to all of
+them, and the residual above had no wave. Fence: this file only, disjoint from both other lanes,
+which is what puts it in the same wave rather than ahead of it.
+
+**A first draft of this paragraph numbered it wave 0 and said it had to land BEFORE wave 7,
+"because a wave that `fence-lint` cannot see is not sequenced merely by being written down
+here." That premise is false and is corrected here rather than shipped.** `scripts/fence-lint.sh`
+takes issue numbers and reads issue BODIES; it contains no reference to `docs/prds` at all, and
+neither does `scripts/gate.sh`. The only tool in the repo that reads a PRD is
+`scripts/dev/prd-reconcile.sh`, which REPORTS drift and gates nothing. So this amendment blocks
+no dispatch, and inventing a dependency to justify a separate wave would have cost an extra PR
+against the working agreement's own bundling rule — the toll it exists to avoid paying twice.
+
+Its exit condition stays mechanical but is only checkable AFTER it lands:
+`scripts/dev/prd-reconcile.sh 17` judges against `origin/main` by design — its own header
+records a stale checkout once reporting wave 7 vacant — and cannot be pointed at a working
+copy.
+
 ## Open questions
 
 - **Who raises a summons, and against whose clock.** — **ANSWERED (operator, in session,
@@ -437,12 +539,31 @@ is not a seam**, and nothing in the suite noticed for the length of a PRD.
 `summons.raised`/`cleared`, `gate.verdict`, `dispatch.brief`, `fence.declared`,
 `operator.ack`/`verdict`/`note`, joining `session.closed`, which this ruling also reserved
 and which landed earlier with the recorder's rotation work
-(`packages/core/src/events/system.ts` carries the attribution). Every one folds through an
-arm in `packages/core/src/reduce.ts` that returns state unchanged,
-nothing raises one, and no recording contains one. `packages/core/src/eras/eras.test.ts`
-states that fact as the corpus's gap list rather than leaving it to be discovered, and it
-also states the exit condition this PRD now sequences against: *each should leave it in the
-wave that starts emitting it.*
+(`packages/core/src/events/system.ts` carries the attribution). When this was written every one folded through an arm in
+`packages/core/src/reduce.ts` that returned state unchanged, nothing raised one, and no
+recording contained one.
+
+**SEVEN of the nine have since left that state** (restated 2026-09-08; the header's table
+is the current split). Waves 2, 3 and 5 gave emitters to the operator's three acts, the
+summons pair and `gate.verdict` — that is SIX, and it is a claim about what these waves
+BUILT, not about what emits. `session.closed` is the seventh: it has emitted from the
+recorder since prd-40, before this PRD sequenced anything, which is why every previous
+count of this number dropped it. Wave 4's era-2 recording contains nine gap-list families,
+of which **FIVE** are from this ruling — the two missing from the seven are `gate.verdict`,
+which emits but era-2's window holds no landing, and `session.closed`, which needs a clean
+shutdown it does not contain. Seven minus those two is five, and the arithmetic is written
+out here because the previous version of this passage named both exclusions while stating
+the total as six, which does not subtract to five and was the tell. What has NOT changed is the fold: `reduce.ts` still returns state
+unchanged for all nine, so a family being emitted and recorded is not yet the same as its
+folding into state. That is the distinction wave 6 closes for `gate.verdict`, and the reason
+this PRD's Success criterion is only half met at ship-out.
+
+`packages/core/src/eras/eras.test.ts` states the gap as an assertion rather than leaving it
+to be discovered, and it also states the exit condition this PRD sequences against: *each
+should leave it in the wave that starts emitting it.* Six have left it in a wave of THIS
+PRD's; `session.closed` left it in prd-40's recorder work, so seven have left it in all.
+The exit condition counts waves, the emitter table counts emitters, and this sentence is
+the seam the two counts have leaked across before.
 
 **Ruling 2 is prd-27's, and this PRD stops holding it.** The 2026-08-24 amendment above gave
 the doorway away — one rhizomorph-owned watched directory, one collector, never a POST route
@@ -496,6 +617,21 @@ the one union (`core/src/events/index.ts`): the summons pair, `gate.verdict`,
 one has a reducer arm, and every arm is `return state` under the comment *"additive only
 (prd17 ruling 1, #219)"*. Outside `fixtures.ts` and `reduce.ts`, **nothing in the tree
 emits any of them except `session.closed`** — which the recorder has raised since prd-40.
+
+> **Superseded on the emitter half, 2026-09-08 (#346).** This block is dated and stays as
+> ruled; the sentence above was true when written and is not now. Waves 2, 3 and 5 gave
+> emitters to the operator's three acts, the summons pair and `gate.verdict` — six of the
+> nine, and `session.closed` already had one from the recorder, making SEVEN that emit.
+> The header's table is the current split. **What this block got right is the part
+> that still holds:** every arm is still `return state`, so a contract is still not an
+> emitter and an emitter is still not a fold. That was the amendment's actual subject, and
+> the emitter count was incidental to it.
+>
+> Recorded here rather than edited above because this section is a dated ruling. It is also
+> the FIFTH site of a claim #346's own commit said appeared in four — the grep that found
+> the other four searched `nothing emits`, and this one says *"nothing in the tree emits"*.
+> A four-word window missed it, which is the argument for enumerating a class by what it
+> MEANS rather than by a phrase it happens to use.
 So the systems chair's proof stands exactly as written: a recording still contains no
 fences, and a trespass still cannot be re-derived from the record. The gap between "the
 family exists" and "the family appears in a log" is the whole of what rulings 1 and 4 have
@@ -507,6 +643,18 @@ beacon collector that tails the rhizomorph-owned directory and records each line
 amendment ruled. It is honest about its own emptiness — its manifest declares
 `attention: absent` with the reason *"no emitter exists yet"* rather than promising a rung
 it cannot serve. No script writes a beacon: `grep -rln beacon scripts/` returns nothing.
+
+> **That last claim went false on 2026-09-07 and is corrected here rather than edited above,
+> because this block is a dated ruling (#346, round 3).** Wave 5 (#274) landed the writer, so
+> `grep -rln beacon scripts/` now returns `scripts/gate.sh` — and the header table this
+> amendment's own commit rewrote already says so (*"`gate.verdict` | `scripts/gate.sh` writes
+> the beacon line — wave 5"*). It sits in the 2026-08-24 amendment and concerns ruling 2
+> rather than a count over ruling 1's nine families, so it fell outside that commit's declared
+> sweep — but it is an executable claim about emitters, eleven lines below a block the same
+> commit *did* give a forward pointer, and the commit's own stated method is to enumerate a
+> class *"by what it MEANS rather than by a phrase it happens to use."* A phrase-scoped sweep
+> is exactly what missed it. **Ruling 2's door now has its writer; what it still lacks is a
+> recording that contains one** — `beacon.received` remains absent from era-2.
 Waves 5 and 6 (#273, #274, #280) are that missing writer.
 
 **Ruling 4 stays in this PRD, as its own wave.** It was open whether the mark kinds belong
