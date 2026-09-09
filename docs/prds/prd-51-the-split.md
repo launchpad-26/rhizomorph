@@ -647,3 +647,80 @@ ERROR:  duplicate key value violates unique constraint "ev3_09_eid"
 This is also why **`event_id` is stored but never uniquely indexed** (ruling 5), a clause whose
 cost was previously unstated: with the targeted insert the swallowing case is unreachable, and the
 schema law that forbids the index is what keeps it that way.
+
+## Amendment — the wave numbering, as built (operator, 2026-09-09)
+
+The Sequencing section above stays as the plan of record and still reads correctly as the *intent*:
+which pieces exist, what each one owes, and what territory is refused. It is no longer the
+**numbering**. Three constraints split its waves, each found by running into it rather than by
+foresight, and this amendment records the map so the next groomer inherits it instead of
+rediscovering it lane by lane.
+
+### What split them
+
+1. **One migration-adding lane per wave.** `packages/team/src/migrations/schema-law.test.ts` pins
+   an exact enumeration of every migration file, so any lane adding one edits the same line. Ingest
+   needs the per-partition unique index the 2026-09-08 dedup amendment requires; membership needs a
+   keys table. They cannot be siblings.
+2. **One `README.md` claimant per wave.** `.swarm/coupling.txt` says so, and
+   `packages/server/src/cli/cli-surface-law.test.ts` enforces that `cli/index.ts`'s dispatch table
+   and README's CLI reference name the same subcommands **in both directions** — so every new
+   top-level command needs README. Four pieces of this PRD do: the shipper's Trust rewrite
+   (ruling 12), `connect team`, `rhizomorph archive`, and the wave-5 doc sweep.
+3. **The original wave 2 was not parallel.** Ingest and membership both needed `packages/team` to
+   exist, which made them a stack wearing a bundle's clothes. The package became its own wave.
+
+### The map
+
+| wave | what | state |
+|---|---|---|
+| 0 | operator acts | recorded in the 2026-09-08 amendment above |
+| 1 | the Keystone — the wire contract, the fifth hand's law, record-format Law 2 | **merged** (#257, #258, #259) |
+| 2 | `packages/team`: the storage port, ruling 5's schema, the migration runner | **merged** (#355) |
+| 3 | the shipper, outbound only (#372) · the ingest journals before it acks (#373) | groomed, lint-clean |
+| 4 | seal → archive → verify → tombstone → prune · membership is the boundary and a key is a hash | not groomed — archive claims README, membership claims the migration and the wave's single dependency |
+| 5+ | the three questions and the read-only role · retention under a named ceiling (rulings 9, 10) · the team server's doctor and `/connect`'s row (ruling 12's second half) · one image from `init.sh` (ruling 13) · #169 · #171 · the doc sweep | not groomed |
+
+Wave 5 and beyond are deliberately left as a set rather than a split. Every split above was forced
+by a constraint discovered at grooming time, and inventing one now for work whose fences nobody has
+derived would be the same guess this amendment exists to correct.
+
+**Consequence for issue titles.** A `w<N>` in an ungroomed issue's title is provisional — #169,
+#171 and #354 all carry numbers assigned before this renumbering. The ordering they encode binds;
+the digit does not, until that wave is groomed.
+
+### Ruling 12's roadmap citation has rotted
+
+Ruling 12 closes *"the Langfuse-forwarder gate in `docs/roadmap.md:328-331`"*. Those lines now
+carry prd-26 prose about the pi collector; the gate itself is the bullet beginning **"A Langfuse
+forwarder"**. The shipper issue cites it by that text. Left here as the correction rather than
+edited in place, because the citation is real provenance for where the gate was when ruling 12 was
+written — and because a line-number citation into a file that moves is the failure
+`.swarm/coupling.txt` already records for `scripts/gate.sh`.
+
+### The renumbering invalidates three wave citations elsewhere (review of #375)
+
+The consequence above is scoped to issue titles. Its sibling is **wave numbers cited in tracked
+files**, and nothing reads those: `packages/server/src/doc-citation-law.test.ts` resolves
+backticked paths and checks issue numbers against the tracker ceiling, so a renumbering can
+invalidate every `prd-51 wave <N>` in the corpus with the whole suite green. Swept by hand
+instead — five such citations exist, and three no longer hold:
+
+| where | anchor text | said | as built |
+|---|---|---|---|
+| `packages/server/src/shipper/hand-law.test.ts` | *"wave 2: the re-serializer this would test does not exist yet"* | wave 2 | **wave 3**, the shipper (#372) — and the re-serializer now exists, merged with the keystone |
+| `packages/server/src/shipper/hand-law.test.ts` | *"DEFERRED to prd-51 wave 3: the row"* | wave 3 | **wave 5+**, with the team-server doctor (ruling 12's second half) |
+| `docs/adr/0035-the-watcher-is-never-a-container.md` | *"one meaning and one timed drill (prd-51 wave 4)"* | wave 4 | **wave 5+** (#171) |
+
+Anchored on quoted text rather than line numbers, for the reason the section above gives.
+
+The first two are the ones that cost something. `packages/server/src/shipper/hand-law.test.ts` is
+in #372's fence and its docblock rests on those digits — *"clause declared deferred, by name and
+by wave, is honest instead"*. Under this map a wave-3 lane reads clause 5 deferring to **its own
+wave**, while #372's body rules the `/connect` row out of scope. That correction belongs in the
+shipper's commit, where the fence already allows it, not here.
+
+The other two citations were checked and still hold:
+`docs/adr/0033-the-record-travels-by-protocol.md` puts record-format Law 2 in wave 1, which the
+renumbering did not move, and `docs/prds/prd-52-the-world-composes.md` gives the doc sweep to
+wave 5, which stays the floor of the 5+ set.
