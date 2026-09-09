@@ -697,3 +697,30 @@ forwarder"**. The shipper issue cites it by that text. Left here as the correcti
 edited in place, because the citation is real provenance for where the gate was when ruling 12 was
 written — and because a line-number citation into a file that moves is the failure
 `.swarm/coupling.txt` already records for `scripts/gate.sh`.
+
+### The renumbering invalidates three wave citations elsewhere (review of #375)
+
+The consequence above is scoped to issue titles. Its sibling is **wave numbers cited in tracked
+files**, and nothing reads those: `packages/server/src/doc-citation-law.test.ts` resolves
+backticked paths and checks issue numbers against the tracker ceiling, so a renumbering can
+invalidate every `prd-51 wave <N>` in the corpus with the whole suite green. Swept by hand
+instead — five such citations exist, and three no longer hold:
+
+| where | anchor text | said | as built |
+|---|---|---|---|
+| `packages/server/src/shipper/hand-law.test.ts` | *"wave 2: the re-serializer this would test does not exist yet"* | wave 2 | **wave 3**, the shipper (#372) — and the re-serializer now exists, merged with the keystone |
+| `packages/server/src/shipper/hand-law.test.ts` | *"DEFERRED to prd-51 wave 3: the row"* | wave 3 | **wave 5+**, with the team-server doctor (ruling 12's second half) |
+| `docs/adr/0035-the-watcher-is-never-a-container.md` | *"one meaning and one timed drill (prd-51 wave 4)"* | wave 4 | **wave 5+** (#171) |
+
+Anchored on quoted text rather than line numbers, for the reason the section above gives.
+
+The first two are the ones that cost something. `packages/server/src/shipper/hand-law.test.ts` is
+in #372's fence and its docblock rests on those digits — *"clause declared deferred, by name and
+by wave, is honest instead"*. Under this map a wave-3 lane reads clause 5 deferring to **its own
+wave**, while #372's body rules the `/connect` row out of scope. That correction belongs in the
+shipper's commit, where the fence already allows it, not here.
+
+The other two citations were checked and still hold:
+`docs/adr/0033-the-record-travels-by-protocol.md` puts record-format Law 2 in wave 1, which the
+renumbering did not move, and `docs/prds/prd-52-the-world-composes.md` gives the doc sweep to
+wave 5, which stays the floor of the 5+ set.
