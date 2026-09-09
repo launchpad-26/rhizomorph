@@ -1,9 +1,9 @@
-# prd-54 — the lab, stage two: the R&D hand is the operator's own, and the workspace becomes one
+# prd-55 — the lab, stage two: the R&D hand is the operator's own, and the workspace becomes one
 
 > **Status:** **BLESSED** — Lachlan Kelliher, 2026-09-10, in session (*"you make the calls and we can
 > actually start building the lab out, including beautifully rendered graphics consistent with or
 > surpassing the quality of the observatory"*), with the design calls delegated to the implementer and
-> recorded under *Design calls* below. Milestone `prd54`. Drafted 2026-09-08 from a live walkthrough of
+> recorded under *Design calls* below. Milestone `prd55`. Drafted 2026-09-08 from a live walkthrough of
 > the Stage 1 console at `37f5f63f` (prd-53 waves 1–5, seeded with a real 2 × 3 experiment) and from
 > `docs/vision-the-lab.md`'s Stage 2. **Kind: specifying** — a stranger will build the R&D surface
 > and the redesigned workspace without the author in the room, so each surface answers the six
@@ -12,6 +12,11 @@
 > Stage 2 by this PRD's companion artifact *The Lab, Stage Two*
 > (https://claude.ai/code/artifact/f7cf1730-e99e-4fb9-8d37-1bf571b6984d), drawn alongside this
 > draft from the same walkthrough: today's console as it renders, then every surface's states.
+
+> **Number.** Drafted as prd-54 on 2026-09-08; renumbered **prd-55** at blessing on 2026-09-10, because
+> `docs/prds/prd-54-the-registry-that-checks-itself.md` had landed on the trunk under that number the
+> same day the draft was written. A number is an identity and is never reused; the branch name
+> `prd54-the-lab-stage-two` is historical.
 
 ## Problem
 
