@@ -37,6 +37,10 @@ case "${FAKE:-}" in
   merged)    echo '{"state":"MERGED","mergedAt":"2026-09-09T00:00:00Z","mergeCommit":{"oid":"'"${FAKE_SHA:-deadbeef}"'"},"baseRefName":"main"}' ;;
   mergedalt) echo '{"state":"MERGED","mergedAt":"2026-09-09T00:00:00Z","mergeCommit":{"oid":"'"${FAKE_SHA:-deadbeef}"'"},"baseRefName":"prd44"}' ;;
   closed)    echo '{"state":"CLOSED","mergedAt":null,"mergeCommit":null,"baseRefName":"main"}' ;;
+  # MERGED with the merge commit not yet published. Not contrived: this is what
+  # the API returns in the seconds after the merge, which is exactly when --wait
+  # asks.
+  mergednull) echo '{"state":"MERGED","mergedAt":"2026-09-09T00:00:00Z","mergeCommit":null,"baseRefName":"main"}' ;;
   open)      echo '{"state":"OPEN","mergedAt":null,"mergeCommit":null,"baseRefName":"main"}' ;;
   unauth)    echo "gh: not authenticated" >&2; exit 4 ;;
   garbage)   echo 'not json at all' ;;
@@ -104,6 +108,18 @@ saw "deadline reached"
 echo "── a sha git has never seen is 'not present', not 'not an ancestor' ────"
 FAKE_SHA=0000000000000000000000000000000000000000 run "unknown sha" 0 merged 378
 saw "not present locally"
+saw_not "NOT an ancestor"
+
+echo "── MERGED before GitHub has published the merge commit ────────────────"
+# The null-sha case used to borrow F9's sentence: "MERGED as -", then
+# "- is not present locally — fetch before citing it" — an instruction that can
+# never be satisfied, for a sha that does not exist. The merge is still a fact,
+# so this stays 0; what must not survive is a fabricated sha or an impossible
+# instruction.
+run "merged, merge commit not reported yet" 0 mergednull 378
+saw "has not reported its merge commit yet"
+saw_not "MERGED as -"
+saw_not "fetch before citing it"
 saw_not "NOT an ancestor"
 
 echo "── dependency and transport failures are 3, never 1 ───────────────────"

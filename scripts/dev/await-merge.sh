@@ -17,7 +17,8 @@
 # This does NOT merge anything, and must never learn how. Merges in this repo
 # are manual, on GitHub, by a human, after review. This only watches.
 #
-#   0  merged      (merge commit printed; ancestry on origin/main reported)
+#   0  merged      (merge commit printed, and its ancestry on origin/main — or,
+#                   when GitHub has not published that commit yet, exactly that)
 #   1  closed without merging
 #   2  still open (single-shot), or the deadline passed (--wait)
 #   3  usage or dependency error
@@ -90,6 +91,24 @@ DEADLINE=$(( $(date +%s) + TIMEOUT ))
 
 report_merged() {
   sha=$1
+
+  # A FOURTH unknown, and F9's shape one door over. GitHub reports `state`
+  # MERGED before it reports `mergeCommit`, so --wait — which fires on the
+  # instant of that flip — is the likeliest caller in the repo to be handed a
+  # null. The `// "-"` in the jq below anticipated the null and then routed it
+  # into a sentence written for a different case: "MERGED as -", followed by
+  # "- is not present locally — fetch before citing it", an instruction no fetch
+  # can ever satisfy. Three unknowns had sentences and the fourth borrowed one.
+  #
+  # Exit 0 still, because the fact the caller is blocked on is the merge and the
+  # merge is real. What changes is that nothing is claimed about a commit we were
+  # never given: no fetch, no ancestry, no sha to cite.
+  if [ -z "$sha" ] || [ "$sha" = "-" ]; then
+    echo "await-merge: PR #$PR is MERGED, but GitHub has not reported its merge commit yet"
+    echo "await-merge: nothing to cite yet — re-run in a moment for the sha and its ancestry"
+    return 0
+  fi
+
   echo "await-merge: PR #$PR MERGED as $sha"
   # AGENTS.md: close an issue against a commit on main, not against a merge —
   # "if a closure comment cannot name main, the work is still in flight". Say
