@@ -12,6 +12,14 @@ import type { FetchLike } from '../../replay/api.js'
 export interface LabEstimate {
   lane: string
   arms: number
+  /**
+   * Runs of each arm and the spending lanes the server counted — arms × runs
+   * (prd53 ruling 1; prd-55 ruling 7). Both present on every answer the server
+   * gives today; absent from an older server's, and the panel then states the
+   * arm count alone rather than multiplying anything itself.
+   */
+  runs?: number
+  lanes?: number
   /** False means "the rate cannot be established" — never a fabricated or bare-zero number. */
   available: boolean
   windowMs?: number
@@ -27,21 +35,36 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function parseEstimate(answer: unknown): LabEstimate | null {
   if (!isRecord(answer)) return null
-  const { lane, arms, available } = answer
+  const { lane, arms, available, runs, lanes } = answer
   if (typeof lane !== 'string' || typeof arms !== 'number' || typeof available !== 'boolean') return null
+  // The lanes counted travel with the answer when the server states them, and
+  // only then — never computed here from arms × runs, which would be this
+  // panel deriving a figure the server did not state.
+  const counted = {
+    ...(typeof runs === 'number' ? { runs } : {}),
+    ...(typeof lanes === 'number' ? { lanes } : {}),
+  }
 
   if (!available) {
     const { reason } = answer
     if (typeof reason !== 'string' || reason.length === 0) return null
-    return { lane, arms, available, reason }
+    return { lane, arms, ...counted, available, reason }
   }
 
   const { windowMs, costUsdPerHour, estimatedTotalUsd } = answer
   if (typeof windowMs !== 'number' || typeof costUsdPerHour !== 'number' || typeof estimatedTotalUsd !== 'number') {
     return null
   }
-  return { lane, arms, available, windowMs, costUsdPerHour, estimatedTotalUsd }
+  return { lane, arms, ...counted, available, windowMs, costUsdPerHour, estimatedTotalUsd }
 }
+
+/**
+ * What the estimate is asked for: the arm count alone (one run per arm, the
+ * server's own default, stated by the server), or arms × runs when the operator
+ * set runs per arm — `runs` then travels as its own query param, and the server
+ * scales by the lanes it counts (prd-55 ruling 7).
+ */
+export type EstimateCount = number | { arms: number; runs: number }
 
 /** The server's own `{ error }` when it sent one — a refusal explains itself. */
 async function refusalDetail(response: { json: () => Promise<unknown> }): Promise<string | null> {
@@ -62,10 +85,12 @@ async function refusalDetail(response: { json: () => Promise<unknown> }): Promis
  */
 export async function fetchLabEstimate(
   lane: string,
-  arms: number,
+  count: EstimateCount,
   fetchImpl: FetchLike = capabilityRead,
 ): Promise<LabEstimate> {
-  const url = `/api/lab/estimate?lane=${encodeURIComponent(lane)}&arms=${encodeURIComponent(String(arms))}`
+  const arms = typeof count === 'number' ? count : count.arms
+  const runsParam = typeof count === 'number' ? '' : `&runs=${encodeURIComponent(String(count.runs))}`
+  const url = `/api/lab/estimate?lane=${encodeURIComponent(lane)}&arms=${encodeURIComponent(String(arms))}${runsParam}`
 
   let response: Response
   try {
