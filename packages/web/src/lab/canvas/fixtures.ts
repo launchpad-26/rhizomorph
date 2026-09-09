@@ -1,3 +1,4 @@
+import { sessionFraction } from '../axis/position.js'
 import type { FailedArm } from '../compare/types.js'
 import type { LabCheckpoint, LabExperiment, LabRun, LabRunOutcome } from '../types.js'
 
@@ -39,8 +40,14 @@ export function experimentOf(arms: LabExperiment['arms'], forkId = 'fork-1'): La
   return { forkId, parentLane: 'feature', checkpointId: 'ckpt-1', arms }
 }
 
-/** A checkpoint at 38 % of its session — the walkthrough's own position. */
-export const CHECKPOINT_AT_38: LabCheckpoint = {
+/**
+ * How long the fixtures' session is, in bytes. One round number, so a fraction
+ * is a byte a reader can do in their head — and so the rounding below never
+ * lands the fixture somewhere the axis would not put it.
+ */
+const SESSION_BYTES = 1000
+
+const AT_THE_START: LabCheckpoint = {
   eventId: 'evt-ckpt-1',
   lane: 'feature',
   checkpointId: 'ckpt-1',
@@ -50,14 +57,28 @@ export const CHECKPOINT_AT_38: LabCheckpoint = {
   snapshotSha: 'snap',
   headSha: 'head',
   eventIndex: 3,
-  sessionCutByte: 380,
-  sessionByteLength: 1000,
+  sessionCutByte: 0,
+  sessionByteLength: SESSION_BYTES,
 }
 
-/** The same checkpoint at a given fraction of its session. */
+/**
+ * A checkpoint at a given fraction of its session — and the fraction read back
+ * through THE ONE POSITION FUNCTION (`axis/position.ts`, prd-53 ruling 4)
+ * before the fixture is handed out. A fixture states a position; the axis is
+ * what decides one, so a fixture that rounded to a byte the axis reads
+ * differently would lie quietly to every test that used it. It throws instead.
+ */
 export function checkpointAt(fraction: number): LabCheckpoint {
-  return { ...CHECKPOINT_AT_38, sessionCutByte: Math.round(fraction * 1000) }
+  const checkpoint: LabCheckpoint = { ...AT_THE_START, sessionCutByte: Math.round(fraction * SESSION_BYTES) }
+  const at = sessionFraction(checkpoint.sessionCutByte, checkpoint.sessionByteLength)
+  if (at === null || Math.abs(at - fraction) > 1 / SESSION_BYTES) {
+    throw new Error(`fixture claims ${fraction} of its session; the axis reads ${String(at)} at byte ${checkpoint.sessionCutByte}`)
+  }
+  return checkpoint
 }
+
+/** A checkpoint at 38 % of its session — the walkthrough's own position. */
+export const CHECKPOINT_AT_38: LabCheckpoint = checkpointAt(0.38)
 
 /** A checkpoint whose session file moved — its position cannot be known (S1's degraded state). */
 export const CHECKPOINT_MOVED: LabCheckpoint = { ...CHECKPOINT_AT_38, sessionByteLength: null }

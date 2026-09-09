@@ -21,10 +21,10 @@ import {
   costWidth,
   FAN_FLIP_FRACTION,
   layoutCanvas,
+  MASS_LEVELS,
   organismState,
   PINCH,
   TIP_FORM,
-  TISSUE_LEVELS,
   WIDTH_CAP,
   WIDTH_FLOOR,
 } from './organism.js'
@@ -261,16 +261,16 @@ describe('the root keeps its true x on the inset axis, and the fan opens toward 
 describe('the root-mass is the checkpoint, as tissue (ruling 11)', () => {
   it('contour layers on the tissue ramp — levels of one field, outermost first, climbing the ramp as they deepen, plus the rind — and a fan seeded by the checkpoint', () => {
     const picture = live()
-    expect(picture.root.shells).toHaveLength(TISSUE_LEVELS + 1)
+    expect(picture.root.shells).toHaveLength(MASS_LEVELS + 1)
     const ramp = DARK_PALETTE.tissue.map((rgb) => rgb.join(','))
-    const steps = picture.root.shells.slice(0, TISSUE_LEVELS).map((shell) => ramp.indexOf(shell.ink.rgb.join(',')))
+    const steps = picture.root.shells.slice(0, MASS_LEVELS).map((shell) => ramp.indexOf(shell.ink.rgb.join(',')))
     // Every level wears a step of the ramp, the skin its ground-ward end and the core its far end, never stepping back.
     for (const step of steps) expect(step).toBeGreaterThanOrEqual(0)
     expect(steps[0]).toBe(0)
     expect(steps.at(-1)).toBe(ramp.length - 1)
     for (let i = 1; i < steps.length; i += 1) expect(steps[i]).toBeGreaterThanOrEqual(steps[i - 1] as number)
     // Nearly transparent each: the accumulation is the body, and no single level is an edge (the observatory's own discipline).
-    for (const shell of picture.root.shells.slice(0, TISSUE_LEVELS)) expect(shell.ink.alpha).toBeLessThan(0.25)
+    for (const shell of picture.root.shells.slice(0, MASS_LEVELS)) expect(shell.ink.alpha).toBeLessThan(0.25)
     expect(picture.root.shells[0]?.rings.length).toBeGreaterThan(0)
     expect(picture.root.fan.paths.length).toBeGreaterThan(0)
     // Every point of the fan lies within the mass's own skin — anatomy inside the body, not hairs on it. The heart's

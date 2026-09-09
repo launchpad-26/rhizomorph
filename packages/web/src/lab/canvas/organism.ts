@@ -292,8 +292,16 @@ const SMOOTHING = 2
  * ramp is declared ground-ward first, so "deeper" is "further from the ground"
  * in both worlds. Twelve levels, not eighteen: the mass is forty units across,
  * and twelve is where the steps stop showing at the scale a panel draws it.
+ *
+ * The name is MASS, not the ramp's own: prd-10 ruling 5 keeps the accent inside
+ * the scene, and `scene/marks.test.ts` enforces it by scanning the whole web
+ * tree for that token family — the CSS custom properties, the numbered steps,
+ * and any identifier carrying the family's name as a prefix. The lab reads the
+ * ramp through the palette's own array, which IS the scene handing it over; a
+ * constant of the lab's own, named as though it were one of those tokens, would
+ * read as the accent escaping, and the law is right to say so.
  */
-export const TISSUE_LEVELS = 12
+export const MASS_LEVELS = 12
 const DEPTH = { reach: 0.6, bias: 1.4, alpha: 0.115 } as const
 const RIND_ALPHA = 0.45
 /** The heart's fan, held inside the skin — anatomy of the body, not hairs on it. */
@@ -474,9 +482,9 @@ function absenceMotes(spine: readonly Point[], seed: string, tissue: ScenePalett
   }))
 }
 
-/** The level `i` of {@link TISSUE_LEVELS} sits at, in units of the radius — the surface at 0, the deepest near `DEPTH.reach`. */
+/** The level `i` of {@link MASS_LEVELS} sits at, in units of the radius — the surface at 0, the deepest near `DEPTH.reach`. */
 function depthAt(i: number): number {
-  return -DEPTH.reach * (i / (TISSUE_LEVELS - 1)) ** DEPTH.bias
+  return -DEPTH.reach * (i / (MASS_LEVELS - 1)) ** DEPTH.bias
 }
 
 /**
@@ -485,7 +493,7 @@ function depthAt(i: number): number {
  * seeded by the checkpoint, and one growth ring per judged run.
  */
 function rootMass(centre: Point, radius: number, palette: ScenePalette, checkpointId: string, runs: readonly LabRun[]): RootMass {
-  const levels = Array.from({ length: TISSUE_LEVELS }, (_unused, i) => depthAt(i))
+  const levels = Array.from({ length: MASS_LEVELS }, (_unused, i) => depthAt(i))
   const layers = contourLayers(
     {
       falloffs: BODY.map((part) => ({
@@ -502,7 +510,7 @@ function rootMass(centre: Point, radius: number, palette: ScenePalette, checkpoi
   )
   const step = (i: number) => palette.tissue[Math.min(palette.tissue.length - 1, i)] ?? palette.necrotic
   /** Which step of the ramp level `i` wears — the skin the ground-ward end, the core the far end. */
-  const stepOfLevel = (i: number) => step(Math.floor((i / TISSUE_LEVELS) * palette.tissue.length))
+  const stepOfLevel = (i: number) => step(Math.floor((i / MASS_LEVELS) * palette.tissue.length))
 
   const judged = runs.filter((run) => run.outcome !== undefined && isCompletedVerdict(run.outcome.verified))
   const anatomy = heartAnatomy(
