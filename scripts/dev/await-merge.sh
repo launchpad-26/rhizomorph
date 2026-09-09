@@ -21,7 +21,7 @@
 #                   when GitHub has not published that commit yet, exactly that)
 #   1  closed without merging
 #   2  still open (single-shot), or the deadline passed (--wait)
-#   3  usage or dependency error
+#   3  usage or dependency error (gh unusable, or it never answered at all)
 set -euo pipefail
 
 REPO=${REPO:-launchpad-26/rhizomorph}
@@ -133,34 +133,84 @@ report_merged() {
   fi
 }
 
+# The exit status is the finding here, not only the row. Before this, every
+# non-zero was one status and the caller could not tell "you are not logged in"
+# from "the resolver blinked" — so the loop treated both as fatal, which is the
+# wrong call for exactly one of them.
+#
+#   0   read it
+#   4   gh's own exit status for an auth failure — fatal, no wait fixes it
+#   90  gh answered with something jq could not parse — fatal for the same reason
+#   *   anything else: a transport failure, and the one thing --wait should outlive
+#
+# 90 rather than jq's own 5, because 5 is inside the range gh itself can return
+# and this needs to stay one unambiguous fact.
 poll_once() {
-  gh pr view "$PR" --repo "$REPO" --json state,mergedAt,mergeCommit,baseRefName 2>/dev/null \
-    | jq -r '[.state, (.mergeCommit.oid // "-"), .baseRefName] | @tsv'
+  GH_RC=0
+  RAW=$(gh pr view "$PR" --repo "$REPO" --json state,mergedAt,mergeCommit,baseRefName 2>/dev/null) \
+    || GH_RC=$?
+  [ "$GH_RC" -eq 0 ] || return "$GH_RC"
+  printf '%s' "$RAW" | jq -r '[.state, (.mergeCommit.oid // "-"), .baseRefName] | @tsv' || return 90
 }
 
+# A transport blip is the single failure --wait exists to outlive, and it used to
+# be the one that ended the watch. Every non-zero from poll_once exited 3 — "usage
+# or dependency error" — so one `error connecting to api.github.com` killed a
+# thirty-minute watch after a single poll and handed the lane a status that reads
+# as "you called me wrong". Worth weighing rather than dismissing: on WSL the
+# resolver mangles concurrent A+AAAA lookups and gh fails intermittently, so a
+# backgrounded watch is likely to meet this and not merely able to.
+#
+# Auth and unparseable output stay fatal. Retrying an unauthenticated gh in a
+# loop spends the whole deadline learning nothing, which is worse than failing.
+#
+# SAW_STATE is what keeps the retry honest. Exit 2 says "still open" — a fact —
+# so it may only be returned by a run that actually read the PR at least once. A
+# deadline reached having never had an answer is a dependency failure and exits 3;
+# reporting "still open" there would be inventing the very fact the caller asked
+# for.
+SAW_STATE=0
 while :; do
-  ROW=$(poll_once) || { echo "await-merge: gh could not read PR #$PR" >&2; exit 3; }
-  STATE=$(printf '%s' "$ROW" | cut -f1)
-  SHA=$(printf   '%s' "$ROW" | cut -f2)
-  BASE=$(printf  '%s' "$ROW" | cut -f3)
+  RC=0
+  ROW=$(poll_once) || RC=$?
 
-  case "$STATE" in
-    MERGED)
-      report_merged "$SHA"
-      [ "$BASE" = "main" ] || echo "await-merge: NOTE base was '$BASE', not main"
-      exit 0 ;;
-    CLOSED)
-      echo "await-merge: PR #$PR was CLOSED without merging" >&2
-      exit 1 ;;
-  esac
+  if [ "$RC" -eq 0 ]; then
+    SAW_STATE=1
+    STATE=$(printf '%s' "$ROW" | cut -f1)
+    SHA=$(printf   '%s' "$ROW" | cut -f2)
+    BASE=$(printf  '%s' "$ROW" | cut -f3)
 
-  if [ "$WAIT" -eq 0 ]; then
-    echo "await-merge: PR #$PR is still OPEN (base $BASE)"
-    exit 2
+    case "$STATE" in
+      MERGED)
+        report_merged "$SHA"
+        [ "$BASE" = "main" ] || echo "await-merge: NOTE base was '$BASE', not main"
+        exit 0 ;;
+      CLOSED)
+        echo "await-merge: PR #$PR was CLOSED without merging" >&2
+        exit 1 ;;
+    esac
+
+    if [ "$WAIT" -eq 0 ]; then
+      echo "await-merge: PR #$PR is still OPEN (base $BASE)"
+      exit 2
+    fi
+  else
+    case "$RC" in
+      4)  echo "await-merge: gh cannot read PR #$PR — not authenticated" >&2; exit 3 ;;
+      90) echo "await-merge: gh could not read PR #$PR — unparseable response" >&2; exit 3 ;;
+    esac
+    [ "$WAIT" -eq 1 ] || { echo "await-merge: gh could not read PR #$PR" >&2; exit 3; }
+    echo "await-merge: gh could not read PR #$PR (status $RC) — retrying until the deadline" >&2
   fi
 
   NOW=$(date +%s)
   if [ "$NOW" -ge "$DEADLINE" ]; then
+    if [ "$SAW_STATE" -eq 0 ]; then
+      echo "await-merge: deadline reached after ${TIMEOUT}s and gh never answered." >&2
+      echo "await-merge: nothing was learned about PR #$PR — a dependency failure, not a state." >&2
+      echo "await-merge: check gh and the network, then re-run." >&2
+      exit 3
+    fi
     echo "await-merge: deadline reached after ${TIMEOUT}s; PR #$PR still open." >&2
     echo "await-merge: this is not a failure — re-run when you next have a reason to." >&2
     exit 2

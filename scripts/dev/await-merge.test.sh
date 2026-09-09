@@ -33,6 +33,14 @@ mkdir -p "$TMP/bin"
 # against the throwaway repo below, so ancestry logic is exercised, not faked.
 cat > "$TMP/bin/gh" <<'STUB'
 #!/usr/bin/env bash
+# Every call is counted when CALLS is set. Without a call count a --wait test
+# cannot tell "the loop ran" from "the loop was deleted": the exit status of a
+# watch that polls once and a watch that polls five times is identical.
+if [ -n "${CALLS:-}" ]; then
+  n=$(cat "$CALLS" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$CALLS"
+else
+  n=1
+fi
 case "${FAKE:-}" in
   merged)    echo '{"state":"MERGED","mergedAt":"2026-09-09T00:00:00Z","mergeCommit":{"oid":"'"${FAKE_SHA:-deadbeef}"'"},"baseRefName":"main"}' ;;
   mergedalt) echo '{"state":"MERGED","mergedAt":"2026-09-09T00:00:00Z","mergeCommit":{"oid":"'"${FAKE_SHA:-deadbeef}"'"},"baseRefName":"prd44"}' ;;
@@ -42,7 +50,14 @@ case "${FAKE:-}" in
   # asks.
   mergednull) echo '{"state":"MERGED","mergedAt":"2026-09-09T00:00:00Z","mergeCommit":null,"baseRefName":"main"}' ;;
   open)      echo '{"state":"OPEN","mergedAt":null,"mergeCommit":null,"baseRefName":"main"}' ;;
+  # 4 is gh's own exit status for an auth failure; the script keys on it to tell
+  # "not logged in" (fatal) from "the network blinked" (retryable in --wait).
   unauth)    echo "gh: not authenticated" >&2; exit 4 ;;
+  # a transport failure: gh's generic 1, the status a wedged resolver produces
+  netdown)   echo "error connecting to api.github.com" >&2; exit 1 ;;
+  # fails once, then answers. The blip a thirty-minute watch has to survive.
+  blip)      if [ "$n" -eq 1 ]; then echo "error connecting to api.github.com" >&2; exit 1; fi
+             echo '{"state":"MERGED","mergedAt":"2026-09-09T00:00:00Z","mergeCommit":{"oid":"'"${FAKE_SHA:-deadbeef}"'"},"baseRefName":"main"}' ;;
   garbage)   echo 'not json at all' ;;
   *)         echo "stub: unknown FAKE='${FAKE:-}'" >&2; exit 9 ;;
 esac
@@ -64,12 +79,20 @@ OFF_SHA=$(git -C "$TMP/repo" rev-parse HEAD)                          # NOT an a
 # run <label> <wanted-rc> <FAKE> [args...]
 run() {
   label=$1; want=$2; fake=$3; shift 3
-  out=$(cd "$TMP/repo" && FAKE="$fake" FAKE_SHA="${FAKE_SHA:-deadbeef}" bash "$SCRIPT" "$@" 2>&1); got=$?
+  rm -f "$TMP/calls"
+  started=$(date +%s)
+  out=$(cd "$TMP/repo" && FAKE="$fake" FAKE_SHA="${FAKE_SHA:-deadbeef}" \
+        CALLS="$TMP/calls" FLIP_AT="${FLIP_AT:-2}" bash "$SCRIPT" "$@" 2>&1); got=$?
+  ELAPSED=$(( $(date +%s) - started ))
+  CALLS_MADE=$(cat "$TMP/calls" 2>/dev/null || echo 0)
   LAST_OUT=$out
   if [ "$got" = "$want" ]; then ok "$label (exit $got)"
   else bad "$label — wanted $want, got $got"; printf '%s\n' "$out" | sed 's/^/          /' >&2; fi
 }
 saw()    { printf '%s' "$LAST_OUT" | grep -q "$1" && ok "  └ says: $1" || { bad "  └ expected output '$1'"; printf '%s\n' "$LAST_OUT" | sed 's/^/          /' >&2; }; }
+polled() { [ "$CALLS_MADE" -ge "$1" ] && ok "  └ polled gh $CALLS_MADE time(s), wanted >= $1" || bad "  └ polled gh $CALLS_MADE time(s), wanted >= $1"; }
+polled_once(){ [ "$CALLS_MADE" -eq 1 ] && ok "  └ polled gh exactly once — not retried" || bad "  └ polled gh $CALLS_MADE time(s), wanted exactly 1"; }
+took_under(){ [ "$ELAPSED" -lt "$1" ] && ok "  └ finished in ${ELAPSED}s, under ${1}s" || bad "  └ took ${ELAPSED}s, wanted under ${1}s"; }
 saw_not(){ printf '%s' "$LAST_OUT" | grep -q "$1" && { bad "  └ must NOT say '$1'"; printf '%s\n' "$LAST_OUT" | sed 's/^/          /' >&2; } || ok "  └ correctly silent on: $1"; }
 
 echo "── exit 3: every argument mistake, not just the one that was handled ───"
@@ -125,6 +148,30 @@ saw_not "NOT an ancestor"
 echo "── dependency and transport failures are 3, never 1 ───────────────────"
 run "gh unauthenticated"          3 unauth  378
 run "gh returns malformed json"   3 garbage 378
+
+echo "── a transport blip is what --wait exists to outlive ──────────────────"
+# One `error connecting to api.github.com` used to exit 3 after a single poll:
+# a two-minute watch dead on a blip, reporting "usage or dependency error".
+FAKE_SHA=$REAL_SHA run "one gh failure does not end a --wait" 0 blip 378 --wait --timeout 60 --interval 1
+saw "MERGED as $REAL_SHA"
+saw "retrying until the deadline"
+polled 2
+
+run "a transport failure single-shot is still 3" 3 netdown 378
+polled_once
+
+# Not retried, and not waited out: no amount of polling fixes a missing login.
+run "auth failure is fatal even in --wait" 3 unauth 378 --wait --timeout 60 --interval 1
+saw "not authenticated"
+polled_once
+took_under 10
+
+# The honest half of the retry: exit 2 means "still open", which is a FACT about
+# the PR. A run that never once read the PR has no such fact to report.
+run "gh never answering is 3, not a false 'still open'" 3 netdown 378 --wait --timeout 1 --interval 1
+saw "never answered"
+saw_not "still open"
+polled 2
 
 echo "── it must never mutate ───────────────────────────────────────────────"
 if grep -nE 'gh pr (merge|close|edit|comment|review)|git (push|commit|merge |checkout|reset|branch -)' "$SCRIPT" | grep -v '^[0-9]*:#' | grep -q .; then
