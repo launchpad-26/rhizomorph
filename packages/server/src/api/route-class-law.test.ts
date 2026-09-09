@@ -86,12 +86,12 @@ describe('the route-class law (prd-23 ruling 5)', () => {
     // `api/otel.ts`'s four routes live inside their own `app.register(...)`
     // plugin — the plugin queue only actually runs its routes once `ready()`
     // resolves, so reading `registeredRoutes` any earlier would silently miss
-    // them and this law would walk vacuously over the other 26.
+    // them and this law would walk vacuously over the other 27.
     //
     // Both numbers are derived, not typed: the four are `ROUTE_CLASSES`'
     // `ungated-mutation` rows, which ARE the OTLP inbox (`/v1/metrics`,
     // `/v1/logs`, `/v1/traces` and the bare-path fallback `POST /`, ADR-0018),
-    // and 26 is the 30 asserted below minus those four. Re-derive rather than
+    // and 27 is the 31 asserted below minus those four. Re-derive rather than
     // trust: the previous wording said "three" and "14", which was true before
     // ADR-0018 added the fallback and never updated. #232's own ruling is that
     // a count stated in prose is derived from the thing it counts.
@@ -114,9 +114,11 @@ describe('the route-class law (prd-23 ruling 5)', () => {
     // mutation, because measuring runs a gate and records its verdict.
     // 27 -> 30: prd-14 ruling 5's comparison save and its two reads (#213) —
     // `POST /api/lab/comparisons`, `GET /api/lab/comparisons` and
-    // `GET /api/lab/comparisons/:id`.
-    expect(routes.length).toBe(30)
-    expect(ROUTE_CLASSES.length).toBe(30)
+    // `GET /api/lab/comparisons/:id`. 30 -> 31: prd-55 ruling 6's lab
+    // transcript read (#384), `GET /api/lab/transcript` — a gated read of the
+    // lab's own record, so the lab no longer asks the fleet's attribution.
+    expect(routes.length).toBe(31)
+    expect(ROUTE_CLASSES.length).toBe(31)
 
     await app.close()
   })
@@ -159,7 +161,7 @@ describe('the route-class law (prd-23 ruling 5)', () => {
 
     // Every `gated-*` row's real route holds the capability gate, and every
     // plain `read`/`ungated-mutation` holds none. Deleting a `preHandler` from
-    // any of the twenty-five gated routes turns this red — that is the law
+    // any of the twenty-six gated routes turns this red — that is the law
     // biting.
     expect(gatePresenceViolations(routes, ROUTE_CLASSES)).toEqual([])
 
@@ -171,13 +173,14 @@ describe('the route-class law (prd-23 ruling 5)', () => {
     // ruling 7, #58) + two gated reads (prd-29 wave 2a, ruling 7, #59) + one
     // gated read (prd-29 wave 2b, ruling 4, #60 — `/api/stream`) + two gated
     // reads (prd-14 ruling 5, #213 — the comparison listing and its by-id
-    // read). If this number and the walk above disagree with the table, they
-    // cannot both pass.
+    // read) + one gated read (prd-55 ruling 6, #384 — `/api/lab/transcript`,
+    // the lab reading its own record). If this number and the walk above
+    // disagree with the table, they cannot both pass.
     const gatedFound = routes.filter((route) => {
       const entry = classify(route, ROUTE_CLASSES)
       return entry !== undefined && isGated(entry) && route.hasCapabilityGate
     })
-    expect(gatedFound.length).toBe(25)
+    expect(gatedFound.length).toBe(26)
 
     await app.close()
   })

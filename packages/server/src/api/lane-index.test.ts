@@ -17,7 +17,7 @@ import { capabilityHeaders } from './test-support.js'
  * wrong about: that it answers at all with the token, that a lane resolves by
  * every name it has, and that an unknown handle is a 404 which says **what was
  * searched** rather than a bare "not found". The token gate itself (401
- * without it, no 401 with it) is covered once for all sixteen gated reads by
+ * without it, no 401 with it) is covered once for all seventeen gated reads by
  * `gated-reads.test.ts`, not repeated per route here.
  */
 
