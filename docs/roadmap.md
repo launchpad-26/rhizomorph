@@ -331,10 +331,18 @@ project rather than this week's work:
   pi is one of the six live poll-loop collectors — 13.9 ms of a measured tick in
   `docs/review/2026-08-24-performance.md` §4. Launching it belongs to prd20. What
   is left unclaimed is the LiteLLM/OpenRouter passthrough route itself.*
-- **A Langfuse forwarder** — an opt-in outbound relay, filed as a future
-  issue and gated on a re-ruling of the Trust section (see
-  [docs/telemetry.md](telemetry.md#coexisting-with-langfuse)); "nothing
-  leaves the machine" stands until that re-ruling happens.
+- **A Langfuse forwarder** — an opt-in outbound relay. **Its gate is closed:**
+  it was gated on a re-ruling of the Trust section, and that re-ruling
+  happened — [ADR-0034](adr/0034-the-fifth-hand.md) grants a fifth hand, the
+  shipper, prd-51 ruling 2 bounds it, and the README's Trust section now says
+  what leaves, when, to whom and under whose key rather than "nothing, ever".
+  What is still unbuilt is the forwarder itself, and it is not a small
+  addition: a Langfuse relay is a **second destination and a second
+  credential**, and ADR-0034 clause 2 grants exactly one of each. It needs its
+  own argument and its own record before anyone builds it.
+  [docs/telemetry.md](telemetry.md#coexisting-with-langfuse) still carries the
+  old sentence; the prd-51 wave-5 doc sweep owns that file and this bullet does
+  not pretend otherwise.
 - **Dispatch-policy optimization** — the prd6-candidate research question
   above, still standing.
 

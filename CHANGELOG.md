@@ -38,6 +38,17 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Added
 
+- **The shipper, the fifth hand (`rhizomorph connect team`)** — off by
+  default and per repo. Once enabled by that explicit command, a batch timer
+  run in the foreground by `rhizomorph connect team --ship` tails this repo's
+  session ledgers and posts them, re-serialized through the current event
+  schema, to one team server under one project-scoped `rzk_` ingest key
+  (read on stdin, stored `0600`, never printed and never logged). Nothing in
+  the server, a collector or a poll can start it. The README's Trust section
+  is rewritten accordingly: it no longer says "nothing, ever, off this
+  machine", it says what leaves, when, to whom, under whose key and how to
+  see that it is on. ADR-0034, prd-51 rulings 2, 3, 7 and 12.
+
 - **One hover vocabulary, and a law that says the whole sentence (prd-30 S1,
   #221).** The disclosure card's law used to check one thing — that nobody had
   copied *this* card — which said nothing about a surface growing a different
