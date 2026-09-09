@@ -264,6 +264,10 @@ failure that never surfaces anywhere.
 
 `packages/web/src/lab/` is prd-28's territory; no wave of this PRD enters it.
 
+> **Note (2026-09-08, prd-53 wave 5):** prd-28's paper died in the 2026-08-19 deletion and its
+> number is retired, never reused. The fence stands; the territory's owner is prd-53
+> (`docs/prds/prd-53-the-lab.md`). The sentence above is kept as written — a number is an identity.
+
 No lockfile freeze exists today — zero open code PRs — but the Electron dependencies are a
 serializing `package.json` change: coordinate the lockfile with any open code PR at dispatch.
 
