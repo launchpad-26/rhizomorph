@@ -215,6 +215,12 @@ describe('the lab tab renders no live-fleet surface (prd14)', () => {
     // next test names one file per subdirectory, so a directory vanishing
     // outright is caught twice over — but a partial shrink is invisible to it,
     // and this assertion is the only thing that sees it.
+    //
+    // prd-55 wave 1 pays two rows: `launch` grows to 4 (`models.ts` — the
+    // model list `lab.models` offers, prd-55 ruling 5) and a new
+    // `measure-control` directory arrives with 1 (`MeasureControl.tsx`; its
+    // own `.test.tsx` is excluded from every count here, same as every other
+    // directory's tests).
     expect(sourceFileCountsByDirectory()).toEqual({
       '': 6,
       axis: 3,
@@ -222,7 +228,8 @@ describe('the lab tab renders no live-fleet surface (prd14)', () => {
       canvas: 3,
       compare: 9,
       frame: 2,
-      launch: 3,
+      launch: 4,
+      'measure-control': 1,
       metrics: 3,
       trace: 4,
     })
