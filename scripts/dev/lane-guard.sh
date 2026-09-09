@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# lane-guard.sh <target-branch> — assert this shell is standing in its own lane
-# before a build stage creates a branch in it.
+# lane-guard.sh <target-branch> [--no-fetch] — assert this shell is standing in
+# its own lane before a build stage commits anything in it.
 #
 # Run it, don't read it: the isolation rule it enforces was previously held in
 # the operator's head, which is why it was enforced by typing. Measured over
@@ -28,9 +28,26 @@ fail() { printf 'lane-guard: FAIL  %s\n' "$1" >&2; FAILED=$((FAILED + 1)); }
 warn() { printf 'lane-guard: warn  %s\n' "$1" >&2; }
 ok()   { printf 'lane-guard: ok    %s\n' "$1"; }
 
+usage() { echo "usage: lane-guard.sh <target-branch> [--no-fetch]" >&2; exit 2; }
+
 TARGET=${1:-}
-[ -n "$TARGET" ] || { echo "usage: lane-guard.sh <target-branch> [--no-fetch]" >&2; exit 2; }
-NO_FETCH=${2:-}
+[ -n "$TARGET" ] || usage
+case "$TARGET" in --*) echo "lane-guard: '$TARGET' looks like a flag, not a branch — the branch goes first" >&2; usage ;; esac
+shift
+
+# Exit 2 is documented as misuse, so misuse has to actually reach it. A bare
+# `NO_FETCH=${2:-}` accepted `--nofetch` (typo: silently fetched anyway), ignored
+# trailing garbage, and read `lane-guard.sh --no-fetch lane3` as a branch called
+# `--no-fetch`, cheerfully reporting it free. A guard that mis-parses its own
+# arguments and says "ok" is worse than no guard.
+NO_FETCH=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --no-fetch) NO_FETCH=1 ;;
+    *) echo "lane-guard: unknown argument '$1'" >&2; usage ;;
+  esac
+  shift
+done
 
 command -v git >/dev/null || { echo "lane-guard: needs git" >&2; exit 2; }
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
@@ -66,7 +83,13 @@ fi
 # line-level diff, backed up, and only later found to be a re-wrap of content
 # already on the PR branch — a wrong call made under a full work stoppage.
 # Refusing to start on a dirty tree removes the need to make that call at all.
-DIRTY=$(git status --porcelain)
+#
+# package-lock.json is excluded, matching `scripts/gate.sh:559`, whose own
+# comment records why: ".workmux.yaml"'s post_create runs `npm install` in every
+# new lane, so lockfile churn is the one dirty file this repo has already ruled
+# is not divergent work. Failing a lane for it would make the guard fire on the
+# normal case, which is how a check gets routed around.
+DIRTY=$(git status --porcelain | grep -v 'package-lock\.json' || true)
 if [ -n "$DIRTY" ]; then
   fail "working tree is dirty. Do not assume it is yours — another session may
                   hold this checkout. Stash or commit deliberately, with the paths named:"
@@ -94,19 +117,31 @@ fi
 
 # --- 4. HEAD is main, or already the target --------------------------------
 #
-# A fresh lane starts on main and branches off it; a resumed lane is already on
-# its own branch. Anything else means this worktree belongs to a different lane
-# and you are about to branch off its work — which produces a base nobody
-# intended and a diff full of someone else's commits.
+# Two shapes pass, and the FIRST is the common one — worth stating, because the
+# obvious reading of this script ("run it, then `git checkout -b`") describes the
+# rarer path. Check 1 requires a linked worktree, and a linked worktree usually
+# cannot check out `main` at all: while the primary holds it, `git checkout main`
+# fails with "already used by worktree at …". So in the normal workmux flow the
+# worktree ARRIVES on its lane branch, already created, and this check confirms
+# it rather than clearing the way for one. `git checkout -b` afterwards is the
+# other case — a worktree that happens to sit on main because the primary does
+# not.
+#
+# Anything else means this worktree belongs to a different lane, and branching
+# from here bases your work on theirs: a base nobody intended, and a diff full of
+# someone else's commits.
 HEAD_BRANCH=$(git symbolic-ref --quiet --short HEAD || echo "(detached)")
 if [ "$HEAD_BRANCH" = "$TARGET" ]; then
-  ok "already on '$TARGET' (resumed lane)"
+  ok "on '$TARGET' already — the normal workmux shape"
 elif [ "$HEAD_BRANCH" = "main" ]; then
   ok "on main, ready to branch"
+elif [ "$HEAD_BRANCH" = "(detached)" ]; then
+  fail "HEAD is detached. A lane commits to a branch; a detached HEAD loses the
+                  commit as soon as anything else is checked out. Check out '$TARGET' first."
 else
   fail "HEAD is '$HEAD_BRANCH' — neither main nor '$TARGET'. This worktree looks
                   like it belongs to another lane. Branching from here bases your work on
-                  theirs. Get a lane of your own, or check out main first if this really is
+                  theirs. Get a lane of your own, or check out '$TARGET' if this really is
                   yours."
 fi
 
@@ -118,13 +153,36 @@ fi
 # healthy and the diff carries reverts of things that already landed. Local main
 # was 4 commits behind origin when this script was written, in a clean tree, with
 # nothing on screen to suggest it.
-if [ "$NO_FETCH" != "--no-fetch" ]; then
+# Both refs are verified to EXIST before they are compared, and every branch
+# below says something. The first draft did neither, and the result was a check
+# that could not go red for the reason it existed for:
+#
+#   BEHIND=$(git rev-list --count main..origin/main 2>/dev/null || echo 0)
+#
+# With no local `main` — a clone whose default branch is named otherwise, or the
+# `--shared` review clone — rev-list exits 128 (`fatal: ambiguous argument`),
+# `|| echo 0` launders that into "0 behind", and the guard printed
+# "ok  main is level with origin/main": an assertion about a branch that did not
+# exist. Proven by mutation, not argued. And when `origin/main` was the missing
+# ref, the whole check vanished with no line at all — a silent skip in a script
+# whose header says "run it, don't read it".
+#
+# The lesson generalises past this line: `|| echo <default>` on a command that
+# can fail for reasons other than the one you mean turns an error into data, and
+# the data then reads as a pass.
+if [ -z "$NO_FETCH" ]; then
   if git fetch origin --quiet 2>/dev/null; then
-    if git rev-parse --verify --quiet origin/main >/dev/null; then
-      BEHIND=$(git rev-list --count main..origin/main 2>/dev/null || echo 0)
-      [ "$BEHIND" -gt 0 ] \
-        && warn "local main is $BEHIND commit(s) behind origin/main — branch off origin/main, not main" \
-        || ok "main is level with origin/main"
+    if ! git rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+      warn "no origin/main ref — base freshness UNCHECKED (is the default branch named something else?)"
+    elif ! git rev-parse --verify --quiet refs/heads/main >/dev/null 2>&1; then
+      warn "no local 'main' branch — base freshness UNCHECKED. Compare your own base against origin/main by hand."
+    else
+      BEHIND=$(git rev-list --count refs/heads/main..origin/main)
+      if [ "$BEHIND" -gt 0 ]; then
+        warn "local main is $BEHIND commit(s) behind origin/main — branch off origin/main, not main"
+      else
+        ok "main is level with origin/main"
+      fi
     fi
   else
     warn "could not fetch origin (offline?) — base freshness unchecked"
