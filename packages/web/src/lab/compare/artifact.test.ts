@@ -64,6 +64,13 @@ describe('serialiseComparison / parseComparisonArtifact', () => {
     expect(() => parseComparisonArtifact(badValue)).toThrow(/neither a number nor null/)
   })
 
+  it('rejects a complete run whose value is not finite — `1e400` is a legal JSON literal that parses to `Infinity` (still `typeof "number"`), the hole the write check used to admit', () => {
+    const raw =
+      '{"version":1,"savedAt":"x","input":{"arms":[{"id":"a","model":"opus","brief":"b","runs":[' +
+      '{"id":"r1","status":"complete","verdict":"pass","value":1e400}]}]}}'
+    expect(() => parseComparisonArtifact(raw)).toThrow(/has a value that is not finite/)
+  })
+
   it('refuses the retired "failed" run status by name — a failed gate is a completed run since prd53 ruling 2 was amended', () => {
     const raw = JSON.stringify({
       version: 1,

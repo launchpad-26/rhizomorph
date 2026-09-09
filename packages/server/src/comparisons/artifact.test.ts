@@ -14,10 +14,11 @@ const INPUT: ComparisonInput = {
       model: 'opus',
       brief: 'brief-x',
       runs: [
-        { id: 'r1', status: 'complete', value: 4 },
-        { id: 'r2', status: 'pending' },
-        { id: 'r3', status: 'failed', error: 'timed out' },
-        { id: 'r4', status: 'failed' },
+        { id: 'r1', status: 'complete', verdict: 'pass', value: 4 },
+        { id: 'r2', status: 'pending', note: 'not measured yet — no outcome is invented in its place' },
+        { id: 'r3', status: 'complete', verdict: 'fail', value: 2, detail: 'timed out' },
+        { id: 'r4', status: 'complete', verdict: 'pass', value: null, note: 'judged, but no cost is booked to its lane yet' },
+        { id: 'r5', status: 'pending' },
       ],
     },
   ],
@@ -53,13 +54,35 @@ describe('serialiseComparison / parseComparisonArtifact', () => {
     expect(() => parseComparisonArtifact(raw)).toThrow(ComparisonArtifactError)
   })
 
-  it('rejects a complete run with no numeric value', () => {
+  it('rejects a complete run with no verdict, and one whose value is neither a number nor null', () => {
+    const noVerdict = JSON.stringify({
+      version: 1,
+      savedAt: 'x',
+      input: { arms: [{ id: 'a', model: 'opus', brief: 'b', runs: [{ id: 'r1', status: 'complete', value: 1 }] }] },
+    })
+    expect(() => parseComparisonArtifact(noVerdict)).toThrow(/missing its verdict/)
+    const badValue = JSON.stringify({
+      version: 1,
+      savedAt: 'x',
+      input: { arms: [{ id: 'a', model: 'opus', brief: 'b', runs: [{ id: 'r1', status: 'complete', verdict: 'pass', value: '4' }] }] },
+    })
+    expect(() => parseComparisonArtifact(badValue)).toThrow(/neither a number nor null/)
+  })
+
+  it('rejects a complete run whose value is not finite — `1e400` is a legal JSON literal that parses to `Infinity` (still `typeof "number"`), the hole the write check used to admit', () => {
+    const raw =
+      '{"version":1,"savedAt":"x","input":{"arms":[{"id":"a","model":"opus","brief":"b","runs":[' +
+      '{"id":"r1","status":"complete","verdict":"pass","value":1e400}]}]}}'
+    expect(() => parseComparisonArtifact(raw)).toThrow(/has a value that is not finite/)
+  })
+
+  it('refuses the retired "failed" run status by name — a failed gate is a completed run since prd53 ruling 2 was amended', () => {
     const raw = JSON.stringify({
       version: 1,
       savedAt: 'x',
-      input: { arms: [{ id: 'a', model: 'opus', brief: 'b', runs: [{ id: 'r1', status: 'complete' }] }] },
+      input: { arms: [{ id: 'a', model: 'opus', brief: 'b', runs: [{ id: 'r1', status: 'failed', error: 'timed out' }] }] },
     })
-    expect(() => parseComparisonArtifact(raw)).toThrow(ComparisonArtifactError)
+    expect(() => parseComparisonArtifact(raw)).toThrow(/retired status "failed"/)
   })
 
   it('rejects an unknown run status', () => {
