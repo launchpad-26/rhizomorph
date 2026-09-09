@@ -1,13 +1,26 @@
-export { describeCanvas, LaneCanvas, type LaneCanvasProps } from './LaneCanvas.js'
+export { describeCanvas, LABELS_ALL_MAX, LaneCanvas, type LaneCanvasProps, runFacts, useCanvasTheme } from './LaneCanvas.js'
 export {
-  type CanvasLayout,
   type CanvasLayoutOptions,
+  type CanvasPicture,
+  canvasHeightFor,
+  costFraction,
   costWidth,
-  type FailedStub,
+  FAN_FLIP_FRACTION,
+  type FanDirection,
+  labelAnchor,
   layoutCanvas,
-  type Organism,
   type OrganismState,
   organismState,
+  pickRibbon,
+  type Ribbon,
+  ROOT_RADIUS,
+  type RootMass,
+  type Stub,
+  TIP_FORM,
+  TISSUE_LEVELS,
+  type TipForm,
+  verdictInks,
   WIDTH_CAP,
   WIDTH_FLOOR,
 } from './organism.js'
+export { type Highlight, type Paintable, type PaintTransform, paintHighlight, paintPicture } from './paint.js'
