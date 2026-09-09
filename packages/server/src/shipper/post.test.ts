@@ -50,6 +50,30 @@ describe('the one outbound call — protocol v1 to one team server', () => {
     }
   })
 
+  /**
+   * The sibling the case above cannot see, because both its bases are bare
+   * origins: `new URL(relative, base)` resolves against the base DIRECTORY, so
+   * a base carrying a path prefix and no trailing slash loses its last segment.
+   * `config.ts` accepts a path-bearing base at write time — a team server behind
+   * a proxy mounted on a prefix is an ordinary deployment — and the team
+   * server's own `INGEST_PATH` is absolute, so the dropped prefix 404s every
+   * batch, the cursor never advances, and the operator reads an error naming a
+   * URL they never typed.
+   */
+  it('keeps a path prefix on the base, trailing slash or not', async () => {
+    for (const base of ['https://team.example:8443/rhizomorph', 'https://team.example:8443/rhizomorph/']) {
+      const { fetch, calls } = recordingFetch(() => accepted())
+      await post(fetch, base)
+      expect(calls[0]?.url).toBe('https://team.example:8443/rhizomorph/v1/rhizomorph/ingest')
+    }
+  })
+
+  it('keeps every segment of a multi-segment prefix, which a single-segment case cannot prove', async () => {
+    const { fetch, calls } = recordingFetch(() => accepted())
+    await post(fetch, 'https://team.example/team/rhizomorph')
+    expect(calls[0]?.url).toBe('https://team.example/team/rhizomorph/v1/rhizomorph/ingest')
+  })
+
   it('carries the value on x-rz-ingest-key and on no other header', async () => {
     const { fetch, calls } = recordingFetch(() => accepted())
     await post(fetch)

@@ -76,6 +76,10 @@ describe('the destination is https, or loopback http, and nothing else', () => {
   it('accepts https anywhere', () => {
     expect(assertShippableUrl('https://team.example').protocol).toBe('https:')
     expect(assertShippableUrl('https://team.example:8443/base/').protocol).toBe('https:')
+    // A prefix WITHOUT a trailing slash is accepted too, and deliberately: a
+    // team server behind a proxy mounted on a path is an ordinary deployment.
+    // Keeping that prefix is `ingestUrlFor`'s job in `post.ts`, and pinned there.
+    expect(assertShippableUrl('https://team.example:8443/base').pathname).toBe('/base')
   })
 
   it('accepts plain http only for a loopback host, so a team server can be developed against', () => {

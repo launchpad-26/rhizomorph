@@ -36,8 +36,32 @@ export type FetchLike = typeof globalThis.fetch
 /** The header the team server reads the credential from. A header NAME, never a value — the law's own fixture pins that this is not a key prefix. */
 export const INGEST_KEY_HEADER = 'x-rz-ingest-key'
 
-/** Appended to the configured base URL. Relative on purpose: `new URL(path, base)` is what makes a base with or without a trailing slash land in the same place. */
+/** Appended to the configured base URL by {@link ingestUrlFor}. Relative on purpose — the absolute spelling would discard any prefix the base carries. */
 export const INGEST_PATH = 'v1/rhizomorph/ingest'
+
+/**
+ * The base URL the operator configured, plus {@link INGEST_PATH}.
+ *
+ * `new URL(relative, base)` resolves against the base's **directory**, so a
+ * base carrying a path prefix and no trailing slash silently loses its last
+ * segment: `https://team.example/rhizomorph` would post to
+ * `/v1/rhizomorph/ingest`, not `/rhizomorph/v1/rhizomorph/ingest`. That is not
+ * an exotic input — `config.ts` accepts a path-bearing base at write time, and
+ * a team server behind a proxy mounted on a prefix is an ordinary deployment.
+ * The failure it produces is also a bad one to debug: `api/http.ts`'s own
+ * `INGEST_PATH` is absolute, so the stripped request 404s, every batch is
+ * `rejected`, the cursor never advances, and the detail names a URL the
+ * operator never typed.
+ *
+ * So the slash is appended before resolving rather than assumed. A bare origin
+ * already has one, which is why a base with or without a trailing slash still
+ * lands in the same place.
+ */
+export function ingestUrlFor(base: string | URL): URL {
+  const root = new URL(base)
+  if (!root.pathname.endsWith('/')) root.pathname = `${root.pathname}/`
+  return new URL(INGEST_PATH, root)
+}
 
 /** At most this much of a server's own error body is carried into a `detail`. Enough to act on, short of pasting a page of HTML into a status line. */
 export const MAX_BODY_DETAIL = 200
@@ -81,7 +105,7 @@ export async function postBatch(options: PostBatchOptions): Promise<PostBatchRes
     return { ok: false, reason: 'invalid-request', detail: valid.error.message }
   }
 
-  const target = new URL(INGEST_PATH, options.url)
+  const target = ingestUrlFor(options.url)
   const send = options.fetch ?? globalThis.fetch
 
   let response: Response
