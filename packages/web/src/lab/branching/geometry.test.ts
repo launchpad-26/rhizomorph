@@ -78,11 +78,27 @@ describe('the glyph draws RUNS, not arms (prd-55 ruling 11)', () => {
     expect(layout.arms.map((strand) => strand.run)).toEqual([1, 1])
   })
 
+  it('a lone run’s name is its arm’s — an id tells a strand apart from its siblings, and one strand has none', () => {
+    const one = layoutBranching({ ...SIZE, arms: [{ id: 'arm-1', state: 'running', runs: 1 }, { id: 'arm-2', state: 'finished', runs: 1 }] })
+    expect(one.arms.map((strand) => strand.id)).toEqual(['arm-1', 'arm-2'])
+    expect(one.arms.map((strand) => strand.run)).toEqual([1, 1])
+    // …and the moment there IS a sibling, every strand of that arm is named for its run.
+    const two = layoutBranching({ ...SIZE, arms: [{ id: 'arm-1', state: 'running', runs: 2 }] })
+    expect(two.arms.map((strand) => strand.id)).toEqual(['arm-1-run-1', 'arm-1-run-2'])
+    // Whatever the count, no two strands ever share an id — it is a React key and a test handle.
+    for (const count of [1, 2, 3, 9]) {
+      const ids = layoutBranching({ ...SIZE, arms: [{ id: 'a', state: 'running', runs: count }, { id: 'b', state: 'dead', runs: count }] }).arms.map((strand) => strand.id)
+      expect(new Set(ids).size, `${count} runs per arm`).toBe(ids.length)
+    }
+  })
+
   it('an arm the caller mentions is an arm the glyph draws — no count, however written, erases it', () => {
-    expect(strandsOf([{ id: 'a', state: 'running', runs: 0 }]).map((s) => s.id)).toEqual(['a-run-1'])
-    expect(strandsOf([{ id: 'a', state: 'running', runs: -3 }]).map((s) => s.id)).toEqual(['a-run-1'])
+    expect(strandsOf([{ id: 'a', state: 'running', runs: 0 }]).map((s) => s.id)).toEqual(['a'])
+    expect(strandsOf([{ id: 'a', state: 'running', runs: -3 }]).map((s) => s.id)).toEqual(['a'])
     expect(strandsOf([{ id: 'a', state: 'running', runs: 2.7 }]).map((s) => s.id)).toEqual(['a-run-1', 'a-run-2'])
-    expect(strandsOf([{ id: 'a', state: 'running', runs: Number.NaN }]).map((s) => s.id)).toEqual(['a-run-1'])
+    expect(strandsOf([{ id: 'a', state: 'running', runs: Number.NaN }]).map((s) => s.id)).toEqual(['a'])
+    // Floored to one strand, but the arm's own count is not rewritten as one.
+    expect(strandsOf([{ id: 'a', state: 'running', runs: 0 }]).map((s) => s.run)).toEqual([1])
   })
 })
 

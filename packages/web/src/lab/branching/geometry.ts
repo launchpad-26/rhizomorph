@@ -26,9 +26,12 @@ import { DONE, ICE_300, type Ink, ink, NECROTIC, WORKING } from '../../scene/pal
  * about how many things there are.
  *
  * The strand count follows the caller: hand an arm its {@link ArmInput.runs}
- * and the glyph draws one strand per run, named `<arm>-run-<n>`; hand it
- * none and it draws the single strand an arm-shaped caller expects, under
- * the arm's own id. Telling the glyph about runs is what makes it draw runs.
+ * and the glyph draws one strand per run, named `<arm>-run-<n>` once there are
+ * siblings to tell apart; hand it none — or a lone run — and it draws the
+ * single strand under the arm's own id. Telling the glyph about runs is what
+ * makes it draw runs, and since #385 the lab's adapter does
+ * (`adapters.ts:toBranchingArms`), so the live header glyph draws the record's
+ * runs rather than its arms.
  *
  * This is **new geometry only** — the growth metaphor's canvas 2D approach,
  * its palette (`../../scene/palette.js`, imported and never forked) and its
@@ -92,7 +95,7 @@ export interface ForkMarker {
 export type ArmTerminal = 'arrow' | 'seal' | 'stub'
 
 export interface ArmGeometry {
-  /** The strand's own id: the arm's when the caller declared no runs, `<arm>-run-<n>` when it did. */
+  /** The strand's own id: `<arm>-run-<n>` when the arm has siblings to tell apart, the arm's own id when it does not. */
   readonly id: string
   /** The arm this strand belongs to, by the caller's own id — unchanged however the strand is named. */
   readonly arm: string
@@ -194,12 +197,27 @@ const ARM_REACH: Record<ArmState, number> = {
  * below one is one — an arm the caller mentions is an arm the glyph draws,
  * and a strand nobody can see would be a fork silently unreported. A
  * fractional or non-finite count is floored to whole runs the same way.
+ *
+ * THE NAME IS THE RUN'S, and a lone run's name is its arm's. A strand's id
+ * exists to tell it apart from its siblings — it is the caller's React key and
+ * its test handle — so an arm with a single run has nothing to tell apart and
+ * keeps the arm's own id, while an arm with two or more names each strand
+ * `<arm>-run-<n>`. That is not a shim for one caller: an id has to be unique
+ * among the strands actually drawn, and `-run-1` on an arm that has only ever
+ * had one run distinguishes nothing. An arm dispatching a second run does
+ * rename its first strand, and that is honest — the picture itself changed
+ * from one strand to two.
  */
 export function strandsOf(arms: readonly ArmInput[]): ReadonlyArray<{ id: string; arm: string; run: number; state: ArmState }> {
   return arms.flatMap((arm) => {
     if (arm.runs === undefined) return [{ id: arm.id, arm: arm.id, run: 1, state: arm.state }]
     const runs = Math.max(1, Math.floor(Number.isFinite(arm.runs) ? arm.runs : 1))
-    return Array.from({ length: runs }, (_unused, i) => ({ id: `${arm.id}-run-${i + 1}`, arm: arm.id, run: i + 1, state: arm.state }))
+    return Array.from({ length: runs }, (_unused, i) => ({
+      id: runs === 1 ? arm.id : `${arm.id}-run-${i + 1}`,
+      arm: arm.id,
+      run: i + 1,
+      state: arm.state,
+    }))
   })
 }
 
