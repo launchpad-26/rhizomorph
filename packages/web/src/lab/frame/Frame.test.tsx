@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { canvasHeightFor } from '../canvas/index.js'
 import type { LabCheckpoint, LabExperiment } from '../types.js'
 import { Frame } from './Frame.js'
 
@@ -62,14 +63,25 @@ describe('Frame — one switch over five ways of looking (prd53 ruling 8, S1)', 
     expect(screen.queryByTestId('frame-cost-fork-elsewhere')).toBeNull()
   })
 
-  it('the scene position draws the lane canvas for the experiments forked here — one organism per run — and says so when there is none (ruling 5, wave 4)', () => {
+  it('the scene position draws the lane canvas for the experiments forked here — one ribbon per dispatch record — and says so when there is none (ruling 5, ruling 11)', () => {
     const { rerender } = render(<Frame position={3} onPosition={() => {}} seated={SEATED} experiments={[]} />)
     expect(screen.getByTestId('frame-scene-empty')).toBeInTheDocument()
     rerender(<Frame position={3} onPosition={() => {}} seated={SEATED} experiments={[HERE]} failedArmsByFork={{ 'fork-1': [{ arm: 2, error: 'restore failed' }] }} />)
     const canvas = screen.getByTestId('lane-canvas-fork-1')
-    expect(canvas.dataset.organisms).toBe('2')
+    expect(canvas.dataset.ribbons).toBe('2')
     expect(canvas.dataset.stubs).toBe('1')
     expect(screen.getByTestId('frame-scene').querySelector('[data-basis="scene"]')?.textContent).toMatch(/charter §8/)
+  })
+
+  it('mounts the canvas at the height its ribbons need — the picture\'s own function, never the frame\'s guess (prd-55 ruling 11)', () => {
+    // Two runs and one stub: the height the canvas asks for, not a constant
+    // and not an SVG-era stroke pitch. A frame that hands its own number back
+    // reddens here, because the two numbers are only equal by construction.
+    render(<Frame position={3} onPosition={() => {}} seated={SEATED} experiments={[HERE]} failedArmsByFork={{ 'fork-1': [{ arm: 2, error: 'restore failed' }] }} />)
+    const canvas = screen.getByTestId('lane-canvas-fork-1')
+    expect(canvas.dataset.height).toBe(String(canvasHeightFor(2, 1)))
+    // …and it is a height a fan actually fits into: taller than the band's own margins.
+    expect(Number(canvas.dataset.height)).toBeGreaterThan(canvasHeightFor(0, 0) - 1)
   })
 
   it('the divergence position reads what Trace read, or says how to make it', () => {
