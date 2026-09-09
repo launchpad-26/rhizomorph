@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -18,6 +18,11 @@ import { SessionLogWriter } from '../recorder/index.js'
 import { readResumedCount, recordResume, RESUME_WINDOW_MS, sessionFilePath } from '../log/session-log.js'
 import { writeSessionLock } from '../log/session-lock.js'
 import { CAPABILITY_TOKEN_HEADER } from '../api/security.js'
+// Through `connect-team.ts`, the hand's one declared importer, never
+// `../shipper/index.js`: a second route in is what ADR-0034's clause-3 seam
+// exists to refuse, and `shipper/hand-law.test.ts` convicts a test file for it
+// exactly as it would a source file.
+import { enableShipper, shipperCursorPath, shipperKeyPath, shipperTeamConfigPath } from './connect-team.js'
 import {
   checkClaudeProjects,
   checkHarnessRoster,
@@ -174,6 +179,7 @@ describe('runDoctor', () => {
       'workmux',
       'telemetry',
       'lane-manifest',
+      'shipper',
       'cli-version-drift',
       'harness-roster',
       'attention',
@@ -809,6 +815,86 @@ describe('runDoctor', () => {
       expect(laneManifest.message).toContain('is broken')
       expect(laneManifest.message).toContain('not valid JSON')
       expect(report.exitCode).toBe(0)
+    })
+  })
+
+  describe('shipper check (ADR-0034 clause 2 — presence, never value)', () => {
+    const SHIPPER_KEY = 'rzk_DOCTORFIXTUREVALUE0123456789'
+
+    async function turnOn(key: string = SHIPPER_KEY): Promise<void> {
+      await enableShipper(sessionDirFor(repoPath, dataRoot), {
+        url: 'https://team.example',
+        project: 'acme-widgets',
+        key,
+        now: () => 1,
+      })
+    }
+
+    function report() {
+      return runDoctor({ path: repoPath, port: 0, exec: healthyExec, webDistDir, claudeProjectsRoot, dataRoot })
+    }
+
+    it('is ok and off by default, naming the command that would turn it on', async () => {
+      const shipper = checkFor((await report()).checks, 'shipper')
+      expect(shipper.status).toBe('ok')
+      expect(shipper.message).toContain('shipper: off')
+      expect(shipper.message).toContain('rhizomorph connect team')
+    })
+
+    it('is ok when on, and names the destination and the project but never the value', async () => {
+      await turnOn()
+      const shipper = checkFor((await report()).checks, 'shipper')
+      expect(shipper.status).toBe('ok')
+      expect(shipper.message).toContain('https://team.example')
+      expect(shipper.message).toContain('acme-widgets')
+      expect(shipper.message).toContain('credential present')
+      expect(shipper.message).not.toContain(SHIPPER_KEY)
+      expect(shipper.message).not.toContain(SHIPPER_KEY.slice(0, 12))
+    })
+
+    it('FAILS when the enable record is there and the credential is not, and names the path and the remedy', async () => {
+      await turnOn()
+      await rm(shipperKeyPath(repoPath, dataRoot))
+
+      const shipper = checkFor((await report()).checks, 'shipper')
+      expect(shipper.status).toBe('fail')
+      expect(shipper.message).toContain(shipperKeyPath(repoPath, dataRoot))
+      expect(shipper.message).toContain('rhizomorph connect team')
+    })
+
+    it.skipIf(process.platform === 'win32')('warns with the chmod when the credential is readable beyond you', async () => {
+      await turnOn()
+      await chmod(shipperKeyPath(repoPath, dataRoot), 0o644)
+
+      const shipper = checkFor((await report()).checks, 'shipper')
+      expect(shipper.status).toBe('warn')
+      expect(shipper.message).toContain(`chmod 600 ${shipperKeyPath(repoPath, dataRoot)}`)
+    })
+
+    it('warns and says the next pass cold-starts when the cursor could not be trusted', async () => {
+      await turnOn()
+      await writeFile(shipperCursorPath(repoPath, dataRoot), '{ not json')
+
+      const shipper = checkFor((await report()).checks, 'shipper')
+      expect(shipper.status).toBe('warn')
+      expect(shipper.message).toContain('cold-starts')
+    })
+
+    it('FAILS rather than reading a corrupt enable record as "off"', async () => {
+      await turnOn()
+      await writeFile(shipperTeamConfigPath(repoPath, dataRoot), '{ not json')
+
+      const shipper = checkFor((await report()).checks, 'shipper')
+      expect(shipper.status).toBe('fail')
+      expect(shipper.message).toContain('team.json')
+    })
+
+    it('never fails the exit code — a shipper problem does not stop the app running', async () => {
+      await turnOn()
+      await rm(shipperKeyPath(repoPath, dataRoot))
+      const result = await report()
+      expect(checkFor(result.checks, 'shipper').status).toBe('fail')
+      expect(result.exitCode).toBe(0)
     })
   })
 
