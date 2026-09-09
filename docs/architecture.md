@@ -154,7 +154,7 @@ its gate. `read` therefore now means specifically a *tokenless* read.
 
 **Where the boundary actually stands** — as opposed to where it is ruled to
 stand — is worth stating plainly. Since prd-29's wave 2b landed the two no
-longer differ. Sixteen reads are gated: `/api/sessions`,
+longer differ. Seventeen reads are gated: `/api/sessions`,
 `/api/sessions/:id/events`, `/api/lanes`, `/api/transcript/:lane`, the
 laboratory's `/api/lab/checkpoints`, `/api/lab/experiments`,
 `/api/lab/estimate`, the four reads that postdated the route arithmetic —
