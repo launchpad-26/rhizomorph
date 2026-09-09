@@ -138,6 +138,16 @@ q -C "$TMP/c4" worktree add -b lane7 "$TMP/c4-lane7"
 says yes "behind origin/main" "a genuinely stale base still warns" -- \
   bash -c "cd '$TMP/c4-lane7' && bash '$GUARD' lane7"
 
+# Review finding 7: --no-fetch used to skip the whole of check 5 and print
+# nothing at all. The comparison is refs/heads/main..origin/main — both already
+# on disk — so the flag can only cost the freshness of one side, never the
+# answer. Same worktree, same genuinely-behind base, run both ways: the warning
+# has to survive the flag, and the flag has to say what it skipped.
+says yes "behind origin/main" "a stale base still warns under --no-fetch" -- \
+  bash -c "cd '$TMP/c4-lane7' && bash '$GUARD' lane7 --no-fetch"
+says yes "not refreshed" "--no-fetch names the half it did skip" -- \
+  bash -c "cd '$TMP/c4-lane7' && bash '$GUARD' lane7 --no-fetch"
+
 echo
 printf 'lane-guard.test.sh: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

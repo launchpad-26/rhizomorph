@@ -170,22 +170,35 @@ fi
 # The lesson generalises past this line: `|| echo <default>` on a command that
 # can fail for reasons other than the one you mean turns an error into data, and
 # the data then reads as a pass.
-if [ -z "$NO_FETCH" ]; then
-  if git fetch origin --quiet 2>/dev/null; then
-    if ! git rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
-      warn "no origin/main ref — base freshness UNCHECKED (is the default branch named something else?)"
-    elif ! git rev-parse --verify --quiet refs/heads/main >/dev/null 2>&1; then
-      warn "no local 'main' branch — base freshness UNCHECKED. Compare your own base against origin/main by hand."
-    else
-      BEHIND=$(git rev-list --count refs/heads/main..origin/main)
-      if [ "$BEHIND" -gt 0 ]; then
-        warn "local main is $BEHIND commit(s) behind origin/main — branch off origin/main, not main"
-      else
-        ok "main is level with origin/main"
-      fi
-    fi
+# `--no-fetch` narrows the FETCH, not the check. The comparison below is
+# refs/heads/main..origin/main — two refs already on disk — so it is answerable
+# offline and answerable against a stale origin/main; all --no-fetch costs is
+# the freshness of one side, which is worth saying out loud rather than
+# withholding the whole answer over.
+#
+# The first version wrapped everything in `if [ -z "$NO_FETCH" ]` and so printed
+# NOTHING AT ALL under the flag: F3's defect ("a silent skip in a script whose
+# header says run it, don't read it") surviving in the sibling door, one branch
+# above where F3 was fixed. It had a second cost that is the more embarrassing
+# one — every hard-check case in this script's own test file passes --no-fetch,
+# so the suite systematically exercised the guard in the mode where check 5 was
+# mute, which is how the two defects the review found here stayed invisible.
+if [ -n "$NO_FETCH" ]; then
+  warn "--no-fetch: origin/main not refreshed — comparing against the ref already on disk"
+elif ! git fetch origin --quiet 2>/dev/null; then
+  warn "could not fetch origin (offline?) — comparing against the origin/main already on disk"
+fi
+
+if ! git rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+  warn "no origin/main ref — base freshness UNCHECKED (is the default branch named something else?)"
+elif ! git rev-parse --verify --quiet refs/heads/main >/dev/null 2>&1; then
+  warn "no local 'main' branch — base freshness UNCHECKED. Compare your own base against origin/main by hand."
+else
+  BEHIND=$(git rev-list --count refs/heads/main..origin/main)
+  if [ "$BEHIND" -gt 0 ]; then
+    warn "local main is $BEHIND commit(s) behind origin/main — branch off origin/main, not main"
   else
-    warn "could not fetch origin (offline?) — base freshness unchecked"
+    ok "main is level with origin/main"
   fi
 fi
 
