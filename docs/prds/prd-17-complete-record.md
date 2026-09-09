@@ -86,7 +86,7 @@ ones era-1 happened to carry.
 replay shows the operator's decisions and the instrument's summonses as
 first-class events; it does not yet show a landing's verdict as one, because
 `gate.verdict` reaches the log as a `beacon.received` sidecar and the typed
-event's `reduce.ts` arm still returns state unchanged. **Wave 6 (#280) is that
+event's `reduce.ts` arm still returns state unchanged. **#280 (wave 6) is that
 derivation.**
 
 **So "this PRD closes" and "the Success criterion is met" are different
