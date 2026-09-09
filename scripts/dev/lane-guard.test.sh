@@ -86,7 +86,7 @@ echo dirty > "$TMP/wt-lane1/scratch"
 expect 1 "dirty tree fails"                -- bash -c "cd '$TMP/wt-lane1' && bash '$GUARD' lane1 --no-fetch"
 rm -f "$TMP/wt-lane1/scratch"
 echo '{}' > "$TMP/wt-lane1/package-lock.json"
-expect 0 "lockfile churn alone still passes (matches gate.sh:559)" -- \
+expect 0 "lockfile churn alone still passes (matches gate.sh's grep -v package-lock.json)" -- \
   bash -c "cd '$TMP/wt-lane1' && bash '$GUARD' lane1 --no-fetch"
 rm -f "$TMP/wt-lane1/package-lock.json"
 
@@ -178,6 +178,25 @@ says yes "behind origin/main" "a stale base still warns under --no-fetch" -- \
   bash -c "cd '$TMP/c4-lane7' && bash '$GUARD' lane7 --no-fetch"
 says yes "not refreshed" "--no-fetch names the half it did skip" -- \
   bash -c "cd '$TMP/c4-lane7' && bash '$GUARD' lane7 --no-fetch"
+
+echo "── check 2's citation into gate.sh still resolves ──────────────────────"
+# Review finding 8: the comment behind check 2's carve-out cited
+# `scripts/gate.sh:559`. Correct on the day it was written, which is exactly the
+# failure AGENTS.md describes — a line citation that goes wrong and then drifts
+# back into correctness when an unrelated PR moves the file, so spot-checking it
+# says "fine". Text anchors do not rot silently, but they do need someone to
+# notice when the text goes; that is this assertion. Deliberately the one case
+# in this file that reads the real repo rather than a fixture: there is nothing
+# else in the tree that would catch it, since doc-citation-law.test.ts sweeps
+# markdown and not .sh.
+GATE=$(cd "$(dirname "$0")/../.." && pwd)/scripts/gate.sh
+if [ ! -f "$GATE" ]; then
+  bad "cannot find scripts/gate.sh — check 2's carve-out cites it"
+elif grep -q 'grep -v package-lock.json' "$GATE"; then
+  ok "gate.sh still carries the 'grep -v package-lock.json' check 2 matches"
+else
+  bad "gate.sh no longer contains 'grep -v package-lock.json' — check 2's comment cites nothing. Re-read gate.sh and re-quote it."
+fi
 
 echo
 printf 'lane-guard.test.sh: %d passed, %d failed\n' "$PASS" "$FAIL"

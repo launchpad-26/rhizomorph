@@ -84,11 +84,20 @@ fi
 # already on the PR branch — a wrong call made under a full work stoppage.
 # Refusing to start on a dirty tree removes the need to make that call at all.
 #
-# package-lock.json is excluded, matching `scripts/gate.sh:559`, whose own
-# comment records why: ".workmux.yaml"'s post_create runs `npm install` in every
-# new lane, so lockfile churn is the one dirty file this repo has already ruled
-# is not divergent work. Failing a lane for it would make the guard fire on the
-# normal case, which is how a check gets routed around.
+# package-lock.json is excluded, matching the `grep -v package-lock.json` in
+# `scripts/gate.sh`, whose own comment records why: ".workmux.yaml"'s post_create
+# runs `npm install` in every new lane, so lockfile churn is the one dirty file
+# this repo has already ruled is not divergent work. Failing a lane for it would
+# make the guard fire on the normal case, which is how a check gets routed around.
+#
+# Cited by TEXT, not by line. The first version said `scripts/gate.sh:559`, which
+# was exactly right the day it was written — AGENTS.md records why that is the
+# problem, having watched a line citation go "wrong and then drift back into
+# correctness when an unrelated PR moved the file — the worse failure, because
+# spot-checking it says 'fine'". .swarm/coupling.txt already bans line numbers
+# for this specific file, and doc-citation-law.test.ts sweeps markdown, not .sh,
+# so nothing would have caught this one rotting. lane-guard.test.sh checks the
+# anchor still resolves.
 DIRTY=$(git status --porcelain | grep -v 'package-lock\.json' || true)
 if [ -n "$DIRTY" ]; then
   fail "working tree is dirty. Do not assume it is yours — another session may
