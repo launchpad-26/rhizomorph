@@ -2,7 +2,7 @@
 
 > **What this is.** A one-evening spike, written the day after the model shipped, to know what
 > GPT-6 Astra is, how it is reached from this machine, and whether it earns a seat in this repo's
-> workflow — starting with the one job that was to hand: a second visual pass on the lab (prd-54).
+> workflow — starting with the one job that was to hand: a second visual pass on the lab (prd-55).
 > Everything in §1–§3 is read from the sources listed; §4 is what actually happened when the seat
 > ran here. Nothing here is a ruling; the operator decides what the seat is for.
 
@@ -72,7 +72,7 @@
 3. **Computer-use walkthroughs** of the console — the OSWorld figures are the strongest published
    numbers — as a second walker whose screenshots and findings we compare against ours.
 4. **Long-record reading.** A million-token context reads a whole session recording or a week of
-   retros in one pass. The prd-54 R&D hand (ruling 1: the operator's own agent CLI, spawned as an
+   retros in one pass. The prd-55 R&D hand (ruling 1: the operator's own agent CLI, spawned as an
    explicit act) could name `codex exec --output-schema` as one of its backends, if the operator's
    CLI is Codex — the schema flag is exactly the shape ruling 3 wants.
 
@@ -87,12 +87,12 @@
 ## 4 · The seat run — what actually happened
 
 The brief (`BRIEF.md`, kept beside this note's source in the session's scratchpad and reproduced
-in prd-54's companion artifact's next revision) asked for three single-file HTML mockups — the
+in prd-55's companion artifact's next revision) asked for three single-file HTML mockups — the
 rail-and-stage workspace, a drawing language for the lane canvas, Compare and Metrics density — and a
 `NOTES.md`, inside nine laws (no new hue: every colour mapped to a `theme.css` token or a
 `scene/palette.ts` constant; never a ranking; every figure with its basis; every state drawn first;
 nothing invented beyond the sample data; n organisms per run; mono figures; dark-first;
-keyboard-first). Package: the token file, the palette, the charter, the ui-2.0 decisions, prd-54, the
+keyboard-first). Package: the token file, the palette, the charter, the ui-2.0 decisions, prd-55, the
 Stage 2 spec HTML, two live screenshots, and three source files for vocabulary.
 
 Three launches on 2026-09-08, each stopped one layer deeper:
@@ -135,7 +135,7 @@ It ran for about fourteen minutes and produced the deliverables — by an unexpe
   keys 1–5; every position without data saying what was not supplied instead of drawing it.
 - **Its three objections to our own Stage 2 specification were all correct** — the late-fork
   acceptance criterion tested the wrong thing, a rail row contradicted its canvas, and the artifact's
-  type bypassed the theme — and are fixed in the artifact and prd-54's draft the same day.
+  type bypassed the theme — and are fixed in the artifact and prd-55's draft the same day.
 
 Verdict on the use case: **a design seat under a fixed brief and a law list works**, at medium
 effort, in one shot, for a few dollars of credits — provided the brief carries every decision and
@@ -148,7 +148,7 @@ https://claude.ai/code/artifact/e80d5794-1377-4fb0-9dd0-412c962fe4b2. What did v
 refusal arrives on stderr as a plain `ERROR:` line, which a monitor can catch. Cost of the three
 attempts: nothing — no tokens were served.
 
-**Next:** the operator's call on which of the seat's choices enter prd-54's wave 5 (the artifact's
+**Next:** the operator's call on which of the seat's choices enter prd-55's wave 5 (the artifact's
 §08 names what this note's author would adopt), and a visual pass of the three mockups in a
 connected browser to confirm what the source reading says.
 
