@@ -18,6 +18,12 @@ import type { Arm, ComparisonInput, Run } from './types.js'
  * production artifact was ever written in the old shape (this pair has no
  * production caller yet — prd-14 ruling 5's #213 wires it), so the retired
  * status is refused by name rather than silently reinterpreted.
+ *
+ * `parser-agreement-law.test.ts` (this directory, and its counterpart in
+ * `packages/server/src/comparisons/`) is the tripwire ADR-0042 named as
+ * missing: both copies read the same fixture bytes under
+ * `packages/contract/src/fixtures/comparison-artifact/` and must accept and
+ * refuse them identically, message and all.
  */
 export interface ComparisonArtifact {
   version: 1
@@ -82,6 +88,7 @@ function parseRun(record: unknown): Run {
     const { verdict, value } = record
     if (verdict !== 'pass' && verdict !== 'fail') throw new ComparisonArtifactError(`complete run ${id} is missing its verdict (pass or fail)`)
     if (typeof value !== 'number' && value !== null) throw new ComparisonArtifactError(`complete run ${id} has a value that is neither a number nor null`)
+    if (typeof value === 'number' && !Number.isFinite(value)) throw new ComparisonArtifactError(`complete run ${id} has a value that is not finite`)
     return {
       id,
       status: 'complete',
