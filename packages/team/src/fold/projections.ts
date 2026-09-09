@@ -86,12 +86,19 @@ export function projectionsFor(rows: readonly EventRow[]): ProjectionDelta {
       const state = agentStateOf(row)
       // Within one batch the newest ts wins; an older row still contributes a
       // state the newer one did not carry, which is why `state` is coalesced
-      // rather than overwritten.
+      // rather than overwritten. Both halves of that sentence are load-bearing,
+      // and `state` used to honour only the second: a coalesce that ignores
+      // `newest` lets an older row OVERWRITE a newer one, and the delta then
+      // carries the stale value stamped with the batch maximum ts — which the
+      // upsert's `EXCLUDED.last_event_ts >= lane_state.last_event_ts` guard
+      // accepts, so nothing downstream can ever correct it. Out-of-order
+      // arrival within a batch is legal (ADR-0033), so this is reachable input,
+      // not a hypothetical. `worktree` below has always read this way.
       const newest = current === undefined || row.tsMs >= current.lastEventTsMs
       lanes.set(laneKey, {
         projectId: row.projectId,
         lane: row.lane,
-        state: state ?? current?.state ?? null,
+        state: newest ? (state ?? current?.state ?? null) : (current?.state ?? state ?? null),
         worktree: newest
           ? (row.worktree ?? current?.worktree ?? null)
           : (current?.worktree ?? row.worktree ?? null),

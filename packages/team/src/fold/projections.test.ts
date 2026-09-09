@@ -115,6 +115,55 @@ describe('lane_state', () => {
     expect(forwards.lanes[0]?.worktree).toBe('/new')
     expect(backwards.lanes[0]?.worktree).toBe('/new')
   })
+
+  /**
+   * The sibling of the case above, and the one it could not see: both its rows
+   * are `llm.cost` with an empty payload, so `agentStateOf` is null for each and
+   * `state` is never varied in either direction. `state` is the field the
+   * database cannot correct afterwards — the `lane_state` upsert guards on
+   * `EXCLUDED.last_event_ts >= lane_state.last_event_ts`, and a stale state
+   * arrives here carrying the batch's MAXIMUM ts, so it is accepted and no
+   * later out-of-order batch can displace it. Out-of-order arrival is legal
+   * (ADR-0033), so the reversed order is not a hypothetical input.
+   */
+  it('an OLDER row cannot overwrite a newer row state, in either arrival order', () => {
+    const late = Date.UTC(2026, 7, 3, 18)
+    const early = Date.UTC(2026, 7, 3, 6)
+    const newer = row({ n: 2, type: 'agent.status', lane: 'l', tsMs: late, payload: { handle: 'l', status: 'running' } })
+    const older = row({ n: 1, type: 'agent.status', lane: 'l', tsMs: early, payload: { handle: 'l', status: 'idle' } })
+
+    for (const rows of [
+      [older, newer],
+      [newer, older],
+    ]) {
+      const lane = projectionsFor(rows).lanes[0]
+      expect(lane?.state).toBe('running')
+      expect(lane?.lastEventTsMs).toBe(late)
+    }
+  })
+
+  /**
+   * And the property the coalesce exists for, which the fix above must not
+   * cost: a newer row that says nothing about status does not erase a status an
+   * older row in the same batch carried. `null` is reserved for "this batch
+   * said nothing", which is what tells the adapter's `COALESCE` to leave the
+   * stored value alone.
+   */
+  it('a newer row carrying no status keeps the status an older row carried, rather than erasing it', () => {
+    const late = Date.UTC(2026, 7, 3, 18)
+    const early = Date.UTC(2026, 7, 3, 6)
+    const quiet = row({ n: 2, lane: 'l', tsMs: late, payload: { costUsd: 1 } })
+    const speaking = row({ n: 1, type: 'agent.status', lane: 'l', tsMs: early, payload: { handle: 'l', status: 'idle' } })
+
+    for (const rows of [
+      [speaking, quiet],
+      [quiet, speaking],
+    ]) {
+      const lane = projectionsFor(rows).lanes[0]
+      expect(lane?.state).toBe('idle')
+      expect(lane?.lastEventTsMs).toBe(late)
+    }
+  })
 })
 
 describe('collisions', () => {
