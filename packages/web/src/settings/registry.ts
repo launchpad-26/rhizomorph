@@ -212,9 +212,16 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
   {
     id: 'repo',
     title: 'Repo',
-    what: 'which repository this instrument is watching.',
-    unavailable:
-      "there is no picker to reuse and no hand to drive it. The concierge launches into the repo THIS server is watching — its one route takes no repo at all — and retarget-in-place is prd-20's own open question, still unruled (`connect/wizard.tsx` says the same thing to anyone who picks another repo). A control here would therefore have to invent both the semantics and a fifth mutating call, against a law that pins the four that exist. Until prd-20 rules it, the repo is shown here and set on the command line.",
+    what:
+      "which repository this instrument is watching, and what it remembers for that repo. The repo itself is shown, not chosen: there is no picker here and no hand to drive one — the concierge launches into the repo THIS server is watching, and retarget-in-place is prd-20's own open question, still unruled (`connect/wizard.tsx` says the same to anyone who picks another repo) — so it is set on the command line until prd-20 rules it.",
+    // LIVE since prd-55 wave 1 (ruling 5). This group used to be disabled whole,
+    // for the picker's absence, and `unavailabilityOf` reads the group FIRST —
+    // so the moment it held a control that works (`lab.models`, written by the
+    // launch panel's other… entry) that one sentence would have thrown from
+    // `writePreference` and disabled a row for a reason that is not the row's.
+    // The picker's absence is still stated, in `what` above, as a fact about
+    // the group rather than as a reason the group cannot act: it can.
+    unavailable: null,
     requires: null,
   },
   {
@@ -680,7 +687,7 @@ export const PREFERENCES: readonly PrefEntry[] = [
     control: 'settings',
     unavailable: null,
     requires: null,
-    gap: "nothing reads this map yet. The launch panel's per-arm model field is still free text (`lab/launch/LaunchPanel.tsx`, \"default if blank\"), so a model marked not offered here is still typed there, and one marked offered here is offered nowhere — a stored list that changes what nobody is shown is the setting that claims to have changed something, which this registry exists to prevent, so the page says so beside it. prd-55 wave 1's second half points that field's select at this map. The page's own half is separate: a map of flags is a shape it has no control for yet — a record has only ever been surveyed here, never edited here — so until that control lands, in its own diff, this row shows the list and its default and offers nothing to change it.",
+    gap: "this page has no control for a map of flags — a record has only ever been surveyed here, never edited here — so this row shows the list's default and whether it has been changed, and offers nothing to change it. The list is edited where it is read: the launch panel's per-arm select offers exactly the keys switched on here (`lab/launch/models.ts`), and its other… entry writes a typed name in as an offered key. Switching a name off again, or offering one without launching, is a settings-side record control that has not landed — its own diff, when it does; until then restore defaults is the one way back from here.",
     legacy: null,
   },
 ]
