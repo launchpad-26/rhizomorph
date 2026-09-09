@@ -54,7 +54,12 @@ describe('case 29 — an equal-or-stronger setting is accepted', () => {
     const result = await bootstrapTeamStorage(fake, config)
 
     expect(result).toMatchObject({ ok: true })
-    expect(result.ok && result.applied).toEqual(['0001_events', '0002_projections', '0003_roles_rls'])
+    expect(result.ok && result.applied).toEqual([
+      '0001_events',
+      '0002_projections',
+      '0003_roles_rls',
+      '0004_events_dedup',
+    ])
     expect(fake.migrationsTableExists).toBe(true)
   })
 
