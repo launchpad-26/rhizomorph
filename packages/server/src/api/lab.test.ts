@@ -238,6 +238,31 @@ describe('GET /api/lab/estimate (prd14 ruling 4 — an estimate never appears wi
     expect(body.estimatedTotalUsd).toBeCloseTo(3.6 * 3, 5)
   })
 
+  it('scales by arms × runs when runs is given, states the lanes it counted, and refuses a runs that is not a positive integer (prd53 ruling 1; prd-55 ruling 7)', async () => {
+    const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+    const f = createEventFactory({ startTs: 5_000_000 - 10 * 60_000 })
+    await recorder.record(f.llmCost({ lane: 'hot-lane', costUsd: 3.6, authoritative: true }))
+    const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder, now: () => 5_000_000 })
+
+    // The launch panel asks for arms × runs once runs per arm is set: every
+    // run is its own spending lane, and an estimate scaled by arms alone
+    // would understate a two-run experiment by half.
+    const response = await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/estimate?lane=hot-lane&arms=3&runs=2' })
+    expect(response.statusCode).toBe(200)
+    const body = response.json() as Record<string, number | boolean>
+    expect([body.arms, body.runs, body.lanes]).toEqual([3, 2, 6])
+    expect(body.estimatedTotalUsd).toBeCloseTo(3.6 * 6, 5)
+
+    // Without runs the answer still STATES one run and the lanes it counted,
+    // so the panel prints the server's basis and never assumes the default.
+    const alone = (await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/estimate?lane=hot-lane&arms=3' })).json() as Record<string, number>
+    expect([alone.runs, alone.lanes]).toEqual([1, 3])
+
+    const refused = await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/estimate?lane=hot-lane&arms=3&runs=0' })
+    expect(refused.statusCode).toBe(400)
+    expect((refused.json() as { error: string }).error).toBe('"runs" must be a positive integer when present (prd53 ruling 1)')
+  })
+
   it('400s without a lane or a positive integer arms count', async () => {
     const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
     const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })

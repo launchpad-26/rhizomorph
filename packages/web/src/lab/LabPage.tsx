@@ -9,6 +9,8 @@ import { ExperimentComparison, type FailedArm } from './compare/index.js'
 import { type DivergenceSummary, Frame, type FramePosition } from './frame/index.js'
 import { LaunchPanel } from './launch/LaunchPanel.js'
 import type { LaunchFetchLike, LaunchOutcome } from './launch/launch.js'
+import type { MeasureFetchLike } from './measure.js'
+import { MeasureControl } from './measure-control/MeasureControl.js'
 import { Metrics } from './metrics/index.js'
 import { TraceDiff } from './trace/index.js'
 import { computeExperimentDimensions, isCleanlyControlled, type LabCheckpoint, type LabExperiment } from './types.js'
@@ -40,6 +42,8 @@ export interface LabPageProps {
   fetchImpl?: FetchLike
   /** Test-only escape hatch for the one write the launch panel makes. */
   launchFetchImpl?: LaunchFetchLike
+  /** Test-only escape hatch for the one write every experiment's measure control makes. */
+  measureFetchImpl?: MeasureFetchLike
   /** Test-only: launches this page should already know about — how the partial state is rendered deterministically. */
   seedLaunchOutcomes?: readonly LaunchOutcome[]
 }
@@ -50,11 +54,22 @@ function goBalcony(): void {
   navigate('/')
 }
 
-function useLabLoad<T>(load: () => Promise<T[]>): LoadState<T> {
+/**
+ * One read, and the way to ask for it again. The read runs when `load` changes
+ * and whenever `reload()` is called — a launch that reported (prd-55 ruling 7:
+ * the new experiment reaches Compare and Metrics without a page reload) and a
+ * measurement that returned (its verdicts are on the record now) both ask.
+ * A re-read keeps the rows on screen until the new ones arrive: a panel
+ * mid-sentence — a measurement just reported, a trace open — is not torn down
+ * for a read that will put it straight back. A first read, or one after an
+ * error, still says loading.
+ */
+function useLabLoad<T>(load: () => Promise<T[]>): [LoadState<T>, () => void] {
   const [state, setState] = useState<LoadState<T>>({ status: 'loading' })
+  const [generation, setGeneration] = useState(0)
   useEffect(() => {
     let live = true
-    setState({ status: 'loading' })
+    setState((current) => (current.status === 'ready' ? current : { status: 'loading' }))
     load()
       .then((items) => {
         if (live) setState({ status: 'ready', items })
@@ -65,8 +80,9 @@ function useLabLoad<T>(load: () => Promise<T[]>): LoadState<T> {
     return () => {
       live = false
     }
-  }, [load])
-  return state
+  }, [load, generation])
+  const reload = useCallback(() => setGeneration((current) => current + 1), [])
+  return [state, reload]
 }
 
 function CheckpointsSection({ checkpoints }: { checkpoints: LoadState<LabCheckpoint> }) {
@@ -159,10 +175,13 @@ interface ExperimentPanelProps {
   experiment: LabExperiment
   failedArms: readonly FailedArm[]
   fetchImpl?: FetchLike
+  measureFetchImpl?: MeasureFetchLike
+  /** How the measure control tells the workspace to re-read its experiments once a measurement has landed (prd-55 ruling 7). */
+  reloadExperiments: () => void
   onDivergence: (summary: DivergenceSummary | null) => void
 }
 
-function ExperimentPanel({ experiment, failedArms, fetchImpl, onDivergence }: ExperimentPanelProps) {
+function ExperimentPanel({ experiment, failedArms, fetchImpl, measureFetchImpl, reloadExperiments, onDivergence }: ExperimentPanelProps) {
   const [openRun, setOpenRun] = useState<string | null>(null)
   const hasOutcome = experimentHasOutcome(experiment)
   const runs = experiment.arms.flatMap((arm) => arm.runs.map((run) => ({ arm: arm.arm, run })))
@@ -229,11 +248,25 @@ function ExperimentPanel({ experiment, failedArms, fetchImpl, onDivergence }: Ex
           />
         )}
       </div>
+
+      {/* Every experiment panel carries a measure control (prd-55 ruling 7):
+          success re-reads the workspace's experiments, so a fresh verdict
+          reaches Compare and Metrics without anyone reloading the page. */}
+      <MeasureControl experiment={experiment} {...(measureFetchImpl === undefined ? {} : { measureFetchImpl })} onMeasured={reloadExperiments} />
     </div>
   )
 }
 
-function ExperimentsSection({ experiments, failedByFork, fetchImpl, onDivergence }: { experiments: LoadState<LabExperiment>; failedByFork: Readonly<Record<string, readonly FailedArm[]>>; fetchImpl?: FetchLike; onDivergence: (summary: DivergenceSummary | null) => void }) {
+interface ExperimentsSectionProps {
+  experiments: LoadState<LabExperiment>
+  failedByFork: Readonly<Record<string, readonly FailedArm[]>>
+  fetchImpl?: FetchLike
+  measureFetchImpl?: MeasureFetchLike
+  reloadExperiments: () => void
+  onDivergence: (summary: DivergenceSummary | null) => void
+}
+
+function ExperimentsSection({ experiments, failedByFork, fetchImpl, measureFetchImpl, reloadExperiments, onDivergence }: ExperimentsSectionProps) {
   if (experiments.status === 'loading') return <p className="text-(--ink-dim)">loading experiments…</p>
   if (experiments.status === 'error') {
     return (
@@ -257,6 +290,8 @@ function ExperimentsSection({ experiments, failedByFork, fetchImpl, onDivergence
           experiment={experiment}
           failedArms={failedByFork[experiment.forkId] ?? []}
           {...(fetchImpl === undefined ? {} : { fetchImpl })}
+          {...(measureFetchImpl === undefined ? {} : { measureFetchImpl })}
+          reloadExperiments={reloadExperiments}
           onDivergence={onDivergence}
         />
       ))}
@@ -264,7 +299,17 @@ function ExperimentsSection({ experiments, failedByFork, fetchImpl, onDivergence
   )
 }
 
-/** The partial-launch facts, by fork and by checkpoint, from the launches this page has seen (ruling 7). */
+/**
+ * The partial-launch facts, by fork and by checkpoint, from the launches this
+ * page has seen (ruling 7). Dispatch stops at the first failed arm, so the
+ * failed arm is not the whole gap: every arm numbered after it, up to
+ * `requestedArms` (the count the request itself asked for — prd-55 ruling 7,
+ * never rebuilt from what came back), was NEVER ATTEMPTED. Both kinds are
+ * present in the comparison and excluded from every spread the same way
+ * (`compare/ComparisonSurface.tsx` renders whatever this list holds,
+ * unchanged); only the words beside a never-attempted arm say it never ran at
+ * all, rather than naming a failure it never had.
+ */
 function partialFacts(outcomes: readonly LaunchOutcome[]): { byFork: Record<string, FailedArm[]>; byCheckpoint: Record<string, number> } {
   const byFork: Record<string, FailedArm[]> = {}
   const byCheckpoint: Record<string, number> = {}
@@ -273,17 +318,23 @@ function partialFacts(outcomes: readonly LaunchOutcome[]): { byFork: Record<stri
     // Every dispatched arm carries the experiment's forkId (prd53 ruling 1); a
     // launch whose FIRST arm failed has no arm and no experiment to attach to.
     const forkId = outcome.arms[0]?.forkId ?? ''
-    if (forkId.length > 0) byFork[forkId] = [...(byFork[forkId] ?? []), { arm: outcome.failed.arm, error: outcome.failed.error }]
+    if (forkId.length > 0) {
+      const gap: FailedArm[] = [{ arm: outcome.failed.arm, error: outcome.failed.error }]
+      for (let arm = outcome.failed.arm + 1; arm <= outcome.requestedArms; arm += 1) {
+        gap.push({ arm, error: `never attempted — dispatch stopped at arm ${outcome.failed.arm}` })
+      }
+      byFork[forkId] = [...(byFork[forkId] ?? []), ...gap]
+    }
     byCheckpoint[outcome.checkpointId] = (byCheckpoint[outcome.checkpointId] ?? 0) + 1
   }
   return { byFork, byCheckpoint }
 }
 
-export function LabPage({ fetchImpl, launchFetchImpl, seedLaunchOutcomes = [] }: LabPageProps = {}) {
+export function LabPage({ fetchImpl, launchFetchImpl, measureFetchImpl, seedLaunchOutcomes = [] }: LabPageProps = {}) {
   const loadCheckpoints = useCallback(() => fetchLabCheckpoints(fetchImpl), [fetchImpl])
   const loadExperiments = useCallback(() => fetchLabExperiments(fetchImpl), [fetchImpl])
-  const checkpoints = useLabLoad(loadCheckpoints)
-  const experiments = useLabLoad(loadExperiments)
+  const [checkpoints] = useLabLoad(loadCheckpoints)
+  const [experiments, reloadExperiments] = useLabLoad(loadExperiments)
 
   const [seated, setSeated] = useState<string | null>(null)
   const [position, setPosition] = useState<FramePosition>(2)
@@ -350,13 +401,27 @@ export function LabPage({ fetchImpl, launchFetchImpl, seedLaunchOutcomes = [] }:
             {...(fetchImpl === undefined ? {} : { fetchImpl })}
             {...(launchFetchImpl === undefined ? {} : { launchFetchImpl })}
             initialCheckpointId={seated}
-            onLaunched={(outcome) => setLaunches((current) => [...current, outcome])}
+            onLaunched={(outcome) => {
+              setLaunches((current) => [...current, outcome])
+              // The record holds the new experiment now; read it back, so it
+              // reaches Compare and Metrics without anyone reloading the page
+              // (prd-55 ruling 7). The partial fact above is kept beside it —
+              // the record holds no intent event, only the launch knew.
+              reloadExperiments()
+            }}
           />
         </section>
 
         <section className="mb-6">
           <h2 className="heading mb-2 text-(--ink-dim)">Experiments</h2>
-          <ExperimentsSection experiments={experiments} failedByFork={partial.byFork} {...(fetchImpl === undefined ? {} : { fetchImpl })} onDivergence={setDivergence} />
+          <ExperimentsSection
+            experiments={experiments}
+            failedByFork={partial.byFork}
+            {...(fetchImpl === undefined ? {} : { fetchImpl })}
+            {...(measureFetchImpl === undefined ? {} : { measureFetchImpl })}
+            reloadExperiments={reloadExperiments}
+            onDivergence={setDivergence}
+          />
         </section>
 
         <section>

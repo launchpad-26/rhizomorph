@@ -91,7 +91,7 @@ shares the *same* treatment — the same `--model` and the same
 for measuring run-to-run variance under one configuration, rather than a way
 to compare genuinely different approaches side by side in one experiment.
 Free-form arms — each arm carrying its own model and brief — are the web
-Launch panel's (prd14 ruling 2): one model field and one brief field per arm
+Launch panel's (prd14 ruling 2): one model select and one brief field per arm
 row (`packages/web/src/lab/launch/LaunchPanel.tsx`). Mind which hand dispatched
 an experiment before you read its comparison. <!-- claim: cli-shares-treatment -->
 
@@ -172,6 +172,14 @@ flag in disguise), **404** for a fork the record does not hold, **503** when the
 lab's CLI lock could not be taken in time, and **409** on a server that is
 replaying a session record, where there is nothing live to measure. <!-- claim: measure-route -->
 
+Every experiment panel on `/lab` carries a **measure** control (prd-55 ruling
+7): a gate command field, defaulting to `npm test` — the CLI's own `--verify`
+default — and a *measure* button that asks once, naming how many worktrees the
+gate will run in (one per run of every arm), before anything is sent. When the
+measurement returns the page re-reads its experiments, so the verdicts reach
+Compare and Metrics without a reload; a refusal is printed verbatim, in the
+panel. <!-- claim: measure-control -->
+
 A run nobody has measured reads, everywhere in the console, as *not measured
 yet — no outcome is invented in its place*; a `not-run` verdict reads the
 same, because in neither case did a gate judge the run. A measured run reads
@@ -212,11 +220,13 @@ Six sections, in this order (prd53 rulings 4, 5, 7 and 8; the specification is
    canvas (below). <!-- claim: frame-five -->
 3. **Checkpoints** — every checkpoint this repo has captured, one row each.
 4. **Launch** — the act itself: pick a checkpoint from the rows the engine
-   actually holds, configure each arm's own model and brief, read the
-   estimate, press the one button. There is no second dialog after that one
-   (prd14 ruling 4 asks for one confirmation). <!-- claim: launch-one-confirmation -->
+   actually holds, give each arm its own model — from this repo's list, or
+   typed under *other…* — and its own brief, set runs per arm and a ceiling
+   override if you mean more than the defaults, read the estimate, press the
+   one button. There is no second dialog after that one (prd14 ruling 4 asks
+   for one confirmation). <!-- claim: launch-one-confirmation -->
 5. **Experiments** — one panel per experiment: the branching picture, the
-   comparison surface, and Trace.
+   comparison surface, Trace, and the measure control.
 6. **Metrics** — spend and outcome across experiments, every figure with its
    basis beside it.
 
@@ -229,10 +239,16 @@ runs — one lane is assumed to run about as long as the window the rate was
 measured over). When the lane has no rate yet the panel says the rate cannot
 be established, with the reason, and never shows a figure. <!-- claim: estimate-basis -->
 
-**The panel's own gap, stated:** the Launch panel launches one run per arm
-and sends no ceiling override today. Multi-run experiments and declared
-overrides are the CLI's until the panel grows those two fields; when it does,
-this sentence fails its test and is rewritten. <!-- claim: launch-panel-gap -->
+**Runs and the ceiling, from the panel** (prd-55 ruling 7): the Launch panel
+carries *runs per arm* and *ceiling override*, and each travels in the launch
+body only when set — a blank field sends no key, so the server's defaults (one
+run; the ceiling of 8) rule. With runs set, the estimate is asked for arms ×
+runs and its basis line says how many spending lanes it counted. The model is a
+select over this repo's own list (`lab.models`, prd-55 ruling 5) plus
+*other…*, which takes a typed name and adds it to the list for the next launch
+— a list, never a gate: a name the list does not hold is still legal on the
+CLI, and only the server's grammar refuses one. This paragraph replaced the
+panel's stated gap the day the fields landed, as that gap said it would. <!-- claim: launch-panel-gap -->
 
 ### Refusals you will actually see
 
@@ -258,9 +274,12 @@ fork a checkpoint with `rhizomorph lab fork <lane>`"*, and on a failed read
 A **partial launch** is a state of its own (prd53 ruling 7): a grouped launch
 is n sequential CLI calls with no atomicity, so *arm 2 failed to restore, arms
 1 and 3 already spent money* can happen. The panel names the arm that failed
-and where dispatch stopped; the comparison surface lists failed arms as
-present and excluded; Metrics books the spend that was real; the lane canvas
-draws each one as a stub — named, and never counted as an organism. <!-- claim: partial-launch -->
+and where dispatch stopped, and reads *k of N requested arms dispatched* with
+N the count that was asked for — never rebuilt from what came back; the
+comparison surface lists failed arms — the one that failed, and every one
+after it that was never attempted — as present and excluded; Metrics books
+the spend that was real; the lane canvas draws each one as a
+stub — named, and never counted as an organism. <!-- claim: partial-launch -->
 
 ### The comparison surface
 
