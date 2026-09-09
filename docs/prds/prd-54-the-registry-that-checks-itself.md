@@ -246,9 +246,9 @@ So the total cost of this rule is **three path expansions**, all three in one
 entry, and all three already in wave 1's file. That is what makes it affordable
 to be strict: the alternative rules below are only cheaper in theory.
 
-**This paragraph said nine.** The first draft of this
-ruling counted the population by eye and reached nine, missing
-`manifest-law.test.ts` — a bare filename with no `/` in it, which is exactly the
+**This paragraph said nine.** The first draft of this ruling counted the
+population by eye and reached nine, missing `manifest-law.test.ts` — a bare
+filename with no `/` in it, which is exactly the
 shape the eye reads as prose rather than as a citation. It was found by an
 independent re-derivation of all fourteen path-shaped spans in the review of
 this PR, not by the audit that produced the nine. That is the second time in
@@ -259,8 +259,9 @@ next reader re-does the judgement and gets a different number.
 
 **Why not "try every package root".** It would pass nine of the ten with no
 edits — `manifest-law.test.ts` sits at `host/` inside its package and resolves
-under no root at all — and it is the wrong trade. `theme/tokens.test.ts` would be satisfied by the first
-package that happens to contain that relative path, so a citation could resolve
+under no root at all — and it is the wrong trade. `theme/tokens.test.ts` would
+be satisfied by the first package that happens to contain that relative path,
+so a citation could resolve
 against a **different file than the one the author meant** and still pass — a
 check that is true and useless, which is #649's lesson and the reason ruling 3
 exists at all. Determinism is the point: two attempts, both nameable in the
@@ -285,9 +286,9 @@ generated-file case does not false-positive"* — is the criterion those four
 would fail against, so leaving the selector to the law's author is leaving wave
 2 a failing acceptance test with no rule to fix it by.
 
-The two candidate roots and their order are asserted by the law, and
-the failure message names both attempts, so a red bar says what it tried rather
-than only that it failed. The package-source-root list is **derived** from the
+The two candidate roots and their order are asserted by the law, and the
+failure message names both attempts, so a red bar says what it tried rather than
+only that it failed. The package-source-root list is **derived** from the
 workspace, never hardcoded — a hardcoded list is the same rot class this PRD was
 written about, one level up. An entry whose leading path is not inside any
 package (`README.md`, `package-lock.json`, `scripts/gate.sh`, `.swarm/*`) has no
