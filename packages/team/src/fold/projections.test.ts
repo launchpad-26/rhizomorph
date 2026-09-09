@@ -164,6 +164,80 @@ describe('lane_state', () => {
       expect(lane?.lastEventTsMs).toBe(late)
     }
   })
+
+  /**
+   * THE SHAPE THAT NEEDS THREE ROWS, AND WHY TWO CANNOT SEE IT.
+   *
+   * "Newer wins" has to be measured against the ts of the row that supplied
+   * the field, not against the lane's running maximum. At two rows those are
+   * the same number, so the two cases above hold under either reading — which
+   * is exactly how a fix that compared against `lastEventTsMs` passed them
+   * while leaving the defect open.
+   *
+   * Add one row that carries no status but the highest ts and they part: it
+   * lifts the maximum, and the genuinely newer `agent.status` behind it is then
+   * misread as older and dropped. The delta that leaves carries the STALE
+   * state stamped with the batch maximum — the one combination the database
+   * cannot correct, since `lane_state`'s
+   * `EXCLUDED.last_event_ts >= lane_state.last_event_ts` guard accepts it and
+   * then refuses the true row when a later batch brings it.
+   *
+   * Every arrival order is asserted because only some of them are wrong, and
+   * which ones depends on the defect: `fold/worker.ts` folds every journal
+   * record past the cursor in one call, so the fold does not get to choose.
+   */
+  it('a row carrying no status cannot make a newer status row look older, in any arrival order', () => {
+    const early = Date.UTC(2026, 7, 3, 1)
+    const middle = Date.UTC(2026, 7, 3, 3)
+    const latest = Date.UTC(2026, 7, 3, 5)
+    const stale = row({ n: 1, type: 'agent.status', lane: 'l', tsMs: early, payload: { handle: 'l', status: 'idle' } })
+    const truth = row({ n: 2, type: 'agent.status', lane: 'l', tsMs: middle, payload: { handle: 'l', status: 'running' } })
+    const quiet = row({ n: 3, lane: 'l', tsMs: latest, payload: { costUsd: 1 } })
+
+    const orders: ReadonlyArray<readonly [string, EventRow[]]> = [
+      ['stale, truth, quiet', [stale, truth, quiet]],
+      ['stale, quiet, truth', [stale, quiet, truth]],
+      ['truth, stale, quiet', [truth, stale, quiet]],
+      ['truth, quiet, stale', [truth, quiet, stale]],
+      ['quiet, stale, truth', [quiet, stale, truth]],
+      ['quiet, truth, stale', [quiet, truth, stale]],
+    ]
+
+    expect(orders.map(([name, rows]) => `${name} -> ${projectionsFor(rows).lanes[0]?.state}`)).toEqual(
+      orders.map(([name]) => `${name} -> running`),
+    )
+    // And the ts is still the batch maximum, which is what makes the wrong
+    // state permanent rather than merely wrong.
+    expect(projectionsFor([stale, quiet, truth]).lanes[0]?.lastEventTsMs).toBe(latest)
+  })
+
+  /**
+   * The same shape on `worktree`, the field `state` was originally written to
+   * match. It has always been coalesced against the running maximum too, so it
+   * has always had this defect — the two-row case above cannot see it, and
+   * `state`'s fix inherited the reading rather than the bug being new here.
+   */
+  it('a row carrying no worktree cannot make a newer worktree row look older, in any arrival order', () => {
+    const early = Date.UTC(2026, 7, 3, 1)
+    const middle = Date.UTC(2026, 7, 3, 3)
+    const latest = Date.UTC(2026, 7, 3, 5)
+    const stale = row({ n: 1, lane: 'l', tsMs: early, worktree: '/old' })
+    const truth = row({ n: 2, lane: 'l', tsMs: middle, worktree: '/new' })
+    const quiet = row({ n: 3, lane: 'l', tsMs: latest, payload: { costUsd: 1 } })
+
+    const orders: ReadonlyArray<readonly [string, EventRow[]]> = [
+      ['stale, truth, quiet', [stale, truth, quiet]],
+      ['stale, quiet, truth', [stale, quiet, truth]],
+      ['truth, stale, quiet', [truth, stale, quiet]],
+      ['truth, quiet, stale', [truth, quiet, stale]],
+      ['quiet, stale, truth', [quiet, stale, truth]],
+      ['quiet, truth, stale', [quiet, truth, stale]],
+    ]
+
+    expect(orders.map(([name, rows]) => `${name} -> ${projectionsFor(rows).lanes[0]?.worktree}`)).toEqual(
+      orders.map(([name]) => `${name} -> /new`),
+    )
+  })
 })
 
 describe('collisions', () => {

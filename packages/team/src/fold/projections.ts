@@ -68,6 +68,10 @@ export function projectionsFor(rows: readonly EventRow[]): ProjectionDelta {
   const spend = new Map<string, SpendDelta>()
   const lanes = new Map<string, LaneStateDelta>()
   const collisions = new Map<string, CollisionDelta>()
+  // Per lane, the ts of the row that actually SUPPLIED each coalesced field —
+  // which is not the same number as `lastEventTsMs`. See the note where it is
+  // read; the two being conflated is a defect this fold has already had once.
+  const supplied = new Map<string, { state: number; worktree: number }>()
 
   for (const row of rows) {
     const day = utcDay(row.tsMs)
@@ -84,25 +88,42 @@ export function projectionsFor(rows: readonly EventRow[]): ProjectionDelta {
       const laneKey = `${row.projectId} ${row.lane}`
       const current = lanes.get(laneKey)
       const state = agentStateOf(row)
-      // Within one batch the newest ts wins; an older row still contributes a
-      // state the newer one did not carry, which is why `state` is coalesced
-      // rather than overwritten. Both halves of that sentence are load-bearing,
-      // and `state` used to honour only the second: a coalesce that ignores
-      // `newest` lets an older row OVERWRITE a newer one, and the delta then
-      // carries the stale value stamped with the batch maximum ts — which the
-      // upsert's `EXCLUDED.last_event_ts >= lane_state.last_event_ts` guard
-      // accepts, so nothing downstream can ever correct it. Out-of-order
-      // arrival within a batch is legal (ADR-0033), so this is reachable input,
-      // not a hypothetical. `worktree` below has always read this way.
-      const newest = current === undefined || row.tsMs >= current.lastEventTsMs
+      // BOTH HALVES OF THIS ARE LOAD-BEARING, AND THEY ARE PER FIELD.
+      //
+      // Newer wins: an older row must never overwrite a newer row's value, or
+      // the delta leaves carrying a stale value stamped with the batch's
+      // MAXIMUM ts, and the `lane_state` upsert's
+      // `EXCLUDED.last_event_ts >= lane_state.last_event_ts` guard then accepts
+      // it and refuses the true row when it arrives in a later batch. Nothing
+      // downstream can correct that. Out-of-order arrival within a batch is
+      // legal (ADR-0033), and `fold/worker.ts` folds every journal record past
+      // the cursor in ONE call, so this is ordinary input.
+      //
+      // Coalesced: a newer row that says nothing about a field must not erase
+      // what an older row in the same batch carried — `null` is reserved for
+      // "this batch said nothing", which is what tells the adapter's `COALESCE`
+      // to leave the stored value alone.
+      //
+      // "Newer" therefore has to be measured against the ts of the row that
+      // supplied THIS FIELD, not against the lane's running maximum. Measured
+      // against the maximum, a row carrying no status at all (an `llm.cost`,
+      // say) lifts the bar, and a genuinely newer `agent.status` arriving after
+      // it is then misread as older and dropped. That defect survived a fix
+      // that only compared against `lastEventTsMs`: it is invisible at two rows
+      // — there the maximum IS the supplying row's ts — and appears at three.
+      const carried = supplied.get(laneKey)
+      const takeState = state !== null && (carried === undefined || row.tsMs >= carried.state)
+      const takeWorktree = row.worktree !== null && (carried === undefined || row.tsMs >= carried.worktree)
       lanes.set(laneKey, {
         projectId: row.projectId,
         lane: row.lane,
-        state: newest ? (state ?? current?.state ?? null) : (current?.state ?? state ?? null),
-        worktree: newest
-          ? (row.worktree ?? current?.worktree ?? null)
-          : (current?.worktree ?? row.worktree ?? null),
+        state: takeState ? state : (current?.state ?? null),
+        worktree: takeWorktree ? row.worktree : (current?.worktree ?? null),
         lastEventTsMs: Math.max(current?.lastEventTsMs ?? row.tsMs, row.tsMs),
+      })
+      supplied.set(laneKey, {
+        state: takeState ? row.tsMs : (carried?.state ?? Number.NEGATIVE_INFINITY),
+        worktree: takeWorktree ? row.tsMs : (carried?.worktree ?? Number.NEGATIVE_INFINITY),
       })
     }
 
