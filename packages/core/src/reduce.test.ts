@@ -2238,3 +2238,11 @@ describe('reduce — beacon.received folds declared attention per lane (prd-27 w
     ).toBe(canonicalStateJson(alone))
   })
 })
+
+describe('reduce — gate.verdict (prd17 w6, #280)', () => {
+  it('folds to state unchanged — the event is emitted now, but reading it back into SessionState is not this wave', () => {
+    const before = reduceAll(fixtureSession())
+    const after = reduce(before, f.gateVerdict({ handle: 'feature', held: true, reason: 'suite-red' }, { ts: 10 }))
+    expect({ ...after, eventCount: before.eventCount, lastEventTs: before.lastEventTs }).toEqual(before)
+  })
+})

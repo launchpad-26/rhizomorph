@@ -489,6 +489,41 @@ describe('the lab namespace law, live (prd12 ruling 1, #153)', () => {
    * the law was red. The `{ install: true }` below is the point: the default
    * path, which the rest of this file's fixtures never take.
    */
+  /**
+   * EXPLICIT TIMEOUT (#359). This is the only test in the file that takes the
+   * install path — a real `npm install --no-audit --no-fund --ignore-scripts`
+   * through `forkThreeArms({ install: true })` — and it is 5.6x slower than the
+   * next-slowest test here. Idle it is 2020 ms; under `gate.sh`'s 4x load probe
+   * it measured 5209/5301/5358/5378 ms, all over vitest's default 5 s bound,
+   * and held a landing that touched a one-file, unrelated change.
+   *
+   * AGENTS.md forbids fixing a flake by widening a timeout, and that rule is
+   * about masking a RACE. There is none here to mask: the assertion is
+   * `existsSync(escapeTarget) === false` after an AWAITED install completes —
+   * no wall-clock assertion, no concurrency in the test itself. If
+   * `--ignore-scripts` were ever dropped, the hook would run, the file would
+   * appear, and the assertion would fail on content at any timeout — the
+   * security property this law protects lives in that check, not in the
+   * duration. The default bound was measuring how much CPU an `npm install`
+   * happened to get under contention, so widening it removes a false negative
+   * rather than hiding a true one. `scene/world.test.ts`'s `}, 30_000)`
+   * (#357) and `app/streamState.test.ts`'s `}, 60_000)` carry the identical
+   * reasoning; this follows that precedent rather than inventing a third one.
+   *
+   * The issue named a second candidate — caching the install so
+   * `forkThreeArms({ install: true })` doesn't resolve a tree per run — as
+   * truer to the gate's own "remove the race" wording. It is not reachable
+   * from here: this issue's fence is this file alone, and that fix lives in
+   * `restore.ts`/`fork.ts`. So the tension the gate's failure message raises
+   * is real and not resolved by this commit — only the false-negative timeout
+   * is fixed; the 2020 ms idle cost is unaddressed and would need its own
+   * issue against the install path, in scope of those files.
+   *
+   * Deliberately NOT enrolled in `gate.sh`'s `@gate-timing` set: that set is
+   * for tests that ASSERT wall-clock, so they run serially and their
+   * assertions mean something. This one asserts no duration at all — enrolling
+   * it would buy nothing and lengthen the serial pass every landing waits on.
+   */
   it('an install does not run a postinstall hook that escapes into the watched repo (prd41 ruling 1)', async () => {
     const escapeTarget = path.join(repoDir, 'postinstall-escaped.txt')
 
@@ -504,7 +539,7 @@ describe('the lab namespace law, live (prd12 ruling 1, #153)', () => {
     await forkThreeArms({ install: true })
 
     expect(existsSync(escapeTarget)).toBe(false)
-  })
+  }, 30_000)
 
   it('creates refs ONLY under refs/rhizomorph/ — no branch, no tag, no remote ref', async () => {
     const branchesBefore = git(['for-each-ref', '--format=%(refname)', 'refs/heads/'])

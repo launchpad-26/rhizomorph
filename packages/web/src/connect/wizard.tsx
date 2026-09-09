@@ -351,6 +351,14 @@ export function SetupWizard({
   }
 
   async function confirmLaunch() {
+    // `live` is checked HERE, not only on the arming button, for the identical
+    // reason `confirmRetarget` below checks it: the two clicks are separated
+    // in time and the page's mode can change between them. Arm while live,
+    // move the page onto a fixture, and the confirm button was still sitting
+    // there armed — a click on it must not still reach `requestInstrument`,
+    // the app's most expensive mutating call. Closed by #352; the guard is
+    // narrower than `confirmRetarget`'s and #379 is where that is tracked.
+    if (!live) return
     setLaunch({ status: 'working' })
     try {
       const outcome = await requestInstrument({ harness, mode }, instrumentFetchImpl)
@@ -369,14 +377,22 @@ export function SetupWizard({
     // `disabled={!live}` cannot see that — it guards the first click, and this
     // is the one that spends.
     //
-    // `confirmLaunch` above has the SAME two-click shape and is NOT guarded
-    // this way: `wizard-launch-confirm` carries no `disabled` and
-    // `confirmLaunch` re-checks nothing, so a `live` drop between ITS two
-    // clicks still spawns a conductor while `wizard-launch-fixture` says
-    // nothing here will start a process. That is prd-14 ruling 4's act rather
-    // than this one's and is tracked as #352 — recorded here because an
-    // earlier draft of this comment claimed the launch path had no equivalent
-    // hole, which was measured false rather than merely unproven.
+    // `confirmLaunch` above HAD the SAME two-click shape and was not guarded
+    // this way until #352: `wizard-launch-confirm` carried no `disabled` and
+    // `confirmLaunch` re-checked nothing, so a `live` drop between its two
+    // clicks spawned a conductor while `wizard-launch-fixture` said nothing
+    // here would start a process — measured true on 45d06776 (an earlier
+    // draft of this comment had claimed otherwise; that was false, not merely
+    // unproven). #352's fix added the same shape of guard: an early return on
+    // `!live` in `confirmLaunch`, and `disabled={!live}` on
+    // `wizard-launch-confirm`. The two guards are not identical, though: this
+    // one re-checks BOTH of the arm gate's non-transient conjuncts
+    // (`target === null` and `!live`), while `confirmLaunch`'s re-checks only
+    // `live` — not `isWatched` or the harness's implemented status, the arm
+    // gate's other two conjuncts on `canAct`. That gap is real but nothing
+    // ever gets spawned by it — the server refuses an unimplemented harness
+    // first, at `concierge/launch.ts`'s `HarnessNotAvailableError` — and it is
+    // tracked as #379 rather than folded into #352.
     if (target === null || !live) return
     setRetarget({ status: 'working' })
     try {
@@ -972,7 +988,13 @@ function ConductorStep({
                 <button type="button" data-testid="wizard-launch-cancel" onClick={onCancelLaunch} className={BUTTON}>
                   cancel
                 </button>
-                <button type="button" data-testid="wizard-launch-confirm" onClick={onLaunch} className={BUTTON_PRIMARY}>
+                <button
+                  type="button"
+                  data-testid="wizard-launch-confirm"
+                  onClick={onLaunch}
+                  disabled={!live}
+                  className={BUTTON_PRIMARY}
+                >
                   start it
                 </button>
               </div>

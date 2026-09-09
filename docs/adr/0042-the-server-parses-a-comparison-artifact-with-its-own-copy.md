@@ -51,3 +51,22 @@ sentence `unsupported comparison artifact version: N` — is a string.
   asserts the refusal string exactly, on each side, is the only tripwire.
 - Neutral: `parseComparisonInput` is exported on the server side (the save
   route validates a bare input) and private on the web side.
+
+## Note, 2026-09-09
+
+The named tripwire — the version-refusal string, tested on each side
+separately — was insufficient. #213 (this ADR) and #339 (prd53 w3) each
+changed the run vocabulary in their own file, seventeen minutes apart, and
+the suite stayed green through both: each side's own test only ever
+round-tripped a freshly-parsed artifact through *itself*. Neither test could
+see the other copy at all, so drift in what a run's fields mean — not the
+version number — reached `main` unnoticed.
+
+The gap is now covered by one shared fixture set,
+`packages/contract/src/fixtures/comparison-artifact/`, read by a law on
+each side (`packages/server/src/comparisons/parser-agreement-law.test.ts`,
+`packages/web/src/lab/compare/parser-agreement-law.test.ts`) that asserts
+both parsers accept and refuse the same bytes, with the same messages. The
+same fix closed a second hole found alongside the drift: `1e400` is a legal
+JSON number literal that parses to `Infinity`, still satisfies
+`typeof === 'number'`, and used to be admitted by both copies' write check.
