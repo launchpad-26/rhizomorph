@@ -1,10 +1,13 @@
 # prd-54 — the lab, stage two: the R&D hand is the operator's own, and the workspace becomes one
 
-> **Status:** proposed — drafted 2026-09-08 from a live walkthrough of the Stage 1 console at
-> `37f5f63f` (prd-53 waves 1–5, seeded with a real 2 × 3 experiment) and from
+> **Status:** **BLESSED** — Lachlan Kelliher, 2026-09-10, in session (*"you make the calls and we can
+> actually start building the lab out, including beautifully rendered graphics consistent with or
+> surpassing the quality of the observatory"*), with the design calls delegated to the implementer and
+> recorded under *Design calls* below. Milestone `prd54`. Drafted 2026-09-08 from a live walkthrough of
+> the Stage 1 console at `37f5f63f` (prd-53 waves 1–5, seeded with a real 2 × 3 experiment) and from
 > `docs/vision-the-lab.md`'s Stage 2. **Kind: specifying** — a stranger will build the R&D surface
 > and the redesigned workspace without the author in the room, so each surface answers the six
-> questions. Not blessed. Awaits Lachlan Kelliher's word; the `prd54` milestone exists only after it.
+> questions.
 > Design authority: prd-53's companion artifact *The Lab, Specified* for Stage 1, succeeded for
 > Stage 2 by this PRD's companion artifact *The Lab, Stage Two*
 > (https://claude.ai/code/artifact/f7cf1730-e99e-4fb9-8d37-1bf571b6984d), drawn alongside this
@@ -187,8 +190,9 @@ selection instead of repeating the table) and experiments (one row each with arm
 counts). The **stage** keeps the session axis and the frame pinned at the top; below them, the
 selected experiment's Compare, Trace and Metrics are tabs, not a stack, and the Trace control is
 inside the frame's divergence position as well as the tab. The branching drawing shrinks to a
-header glyph that draws runs, not arms. The lane canvas gets the stage's full width, and when the
-fork sits past 60 % of the session the fan opens leftward so the root is never at the edge. A run's
+header glyph that draws runs, not arms. The lane canvas gets the stage's full width and is
+painted with the scene's brushes (ruling 11); when the fork sits past 60 % of the session the fan
+opens toward the free side and the root keeps its true x on an inset axis. A run's
 identical notes collapse to one line per arm (*"3 runs · all passed · nothing booked under cost"*).
 The playhead label flips to the left of the line when it would leave the viewport. Everything stays
 dark-first on the D26 ice palette; figures stay mono; borders quieten to hairlines with one raised
@@ -207,6 +211,40 @@ acceptance criterion below.
 `docs/user-guide/the-lab.md` gains the R&D section and the rewritten launch, measure and Trace
 paragraphs, each marked; `the-lab-guide-law.test.ts` asserts each against code as Stage 1's did. A
 sentence about Stage 2 that is not a test does not land.
+
+## Ruling 11 — the lane canvas paints with the scene's brushes, and reads only the lab's record
+
+*(Added at blessing, 2026-09-10; refines prd-53 ruling 5 and ruling 8, amends nothing.)* "Consistent
+with or surpassing the observatory" cannot be reached with a second, lesser renderer, and the charter's
+coexist-by-surface record never asked for one: it asked that the two surfaces draw **different
+pictures of different subjects**, not that the lab redraw hyphae from scratch. So the canvas becomes a
+Canvas 2D drawing built from the scene's **pure paint modules** — `scene/geometry.ts`,
+`scene/palette.ts`, `scene/ribbon.ts` (a thread is a filled polygon whose width varies along its
+length), `scene/contour.ts` (the root-mass tissue as contour layers), `scene/motes.ts` and
+`scene/heart.ts` — each a pure function of what it is handed, importing nothing from the fold. What
+the lab hands them is **the lab's record and nothing else**: one ribbon per dispatch record, its spine
+from the fork's position on the session axis to the run's node, its width profile from booked cost on
+the absolute scale, a pinch at the fork, its tip ink from the verdict (prd-53 ruling 5's mapping,
+unchanged), the root's tissue from the checkpoint. `no-live-fleet-law`'s scene exception widens from
+one file and one path to **exactly those six modules**, named; `scene/retire.ts`, `salience.ts`,
+`variation.ts`, `pulses.ts`, `SceneView.tsx` and anything under `fleet/` stay forbidden because they
+read the fold. The scene's own laws ride with its brushes: hue is meaning and each hue means one
+thing; the brightness band owns attention; nothing reaches for a hex the palette does not hold;
+variation channels, if any are used, carry nothing. The 16.67 ms discipline is inherited and, as in
+Stage 1, reported and never asserted. A failed-to-dispatch arm is a stub in necrotic ink, drawn,
+named and uncounted.
+
+## Design calls — delegated 2026-09-10, made from the second pass
+
+Recorded here because the operator delegated them in session and the record should say who chose.
+From the seat's mockups (companion artifact §08): **the fan opens toward the free side** and the
+root keeps its true x on an inset axis; **the refusal is drawn on the shared scale**, not beside it;
+**one facts panel per canvas** (hover, focus or select a run), not a label on every cord; **Inter and
+JetBrains Mono**, the theme's own faces, everywhere the lab sets type. From this PRD's own drawings:
+the rail-and-stage workspace and its tab strip; the state specimens drawn before the live state.
+Not adopted from the seat: its state-specimen selector (a mockup device) and its divergence position
+(a run picker, because the sample carried no transcripts). The observatory's standard is the bar:
+the canvas is judged against `docs/screenshots/fixture-20-lane.png`, not against Stage 1's SVG.
 
 ## The specification
 
@@ -292,30 +330,37 @@ prd-50's.
 **Wave 0 — operator acts.** Bless. Draft the ADR (ruling 1) for the trunk. Decide whether the
 tracker corpus (ruling 2) ships in this PRD or is parked.
 
-**Wave 1 — the launch tells the whole truth.** `settings/registry.ts` (+ `lab.models`, seeded),
-`web/src/lab/launch/` (select, runs, override), `web/src/lab/measure-control/` (new) mounted by the
-experiment panel, `api/lab.ts` only if the estimate needs a field. Law: the guide's claims for
-launch and measure flip from gap to fact.
+**Wave 1 — the launch tells the whole truth.** `settings/registry.ts` (+ `lab.models`, a repo-scoped
+record of flags seeded with the three aliases; the launch's *other…* adds a key), `web/src/lab/launch/`
+(select, runs, override), `web/src/lab/measure-control/` (new) mounted by the experiment panel,
+`api/lab.ts` only if the estimate needs a field, and the settings coverage and count tests those
+entries move (law 8). Law: the guide's launch and measure claims flip from gap to fact.
 
-**Wave 2 — the lab reads its own files. Parallel, fenced apart:** `server/src/api/lab-transcript.ts`
+**Wave 2 — the lab paints with the scene's brushes (ruling 11).** `web/src/lab/canvas/` (the Canvas 2D
+renderer: ribbons, contour tissue, verdict tips, the free-side fan, the stub, the facts panel, a
+reported frame budget at the 60 × 3 cell), `web/src/lab/no-live-fleet-law.test.ts` (the exception
+becomes the six named modules), `web/src/lab/frame/Frame.tsx` (the scene position mounts it), and the
+branching diagram shrinks to a header glyph drawing runs (`web/src/lab/branching/`). Laws: n ribbons
+=== n dispatch records; only the six modules imported from `scene/`; every ink from the palette;
+the fan's direction test; the frame budget reported.
+
+**Wave 3 — the lab reads its own files. Parallel, fenced apart:** `server/src/api/lab-transcript.ts`
 (new) + `web/src/lab/trace/` reading it · `server/src/api/lab-series.ts` (new: telemetry, footprint)
 + `web/src/lab/frame/` positions 1 and 5. Law: nothing under `web/src/lab/` imports the fleet
-transcript route.
+transcript route; the digest byte test.
 
-**Wave 3 — the R&D engine.** `server/src/lab/rd.ts` (new) + `cli/lab-rd.ts` (new), `core/src/lab/rd.ts`
+**Wave 4 — the workspace.** `web/src/lab/LabPage.tsx`, `web/src/lab/rail/` (new), `frame/`, `axis/`
+(label flip), `compare/` (per-arm note collapse, the shared-scale refusal). Laws: the S1′ criteria.
+
+**Wave 5 — the R&D engine.** `server/src/lab/rd.ts` (new) + `cli/lab-rd.ts` (new), `core/src/lab/rd.ts`
 (schema, held-back rule), `core/src/events/lab.ts` (+ `rd.*`), `state.ts`/`reduce.ts` folds,
 `api/lab.ts` (+ `/api/lab/rd`, route-class count +1), the ADR. Laws: schema refuses two-dimension and
 held-back proposals; `process.env` count unchanged; the CLI is spawned with `-p` and no tools.
 
-**Wave 4 — the R&D surface.** `web/src/lab/rd/` (new) + `LabPage.tsx` tab. Law: no dispatch except
+**Wave 6 — the R&D surface.** `web/src/lab/rd/` (new) + `LabPage.tsx` tab. Law: no dispatch except
 through `/api/lab/launch`; override recorded.
 
-**Wave 5 — the workspace.** `web/src/lab/LabPage.tsx`, `web/src/lab/rail/` (new), `frame/`, `axis/`
-(label flip), `canvas/` (fan direction), `branching/` (runs drawn, glyph size), `compare/`
-(per-arm note collapse). Laws: the S1′ criteria. Last because it re-lays the ground the other waves
-mount into.
-
-**Wave 6 — the sweep.** Guide, guide law, architecture section, roadmap, the design-spec artifact's
+**Wave 7 — the sweep.** Guide, guide law, architecture section, roadmap, the design-spec artifact's
 "as shipped" note.
 
 **Unfiled work implied, described not numbered:** atomic launch (prd-53 open); recursive forking; a
