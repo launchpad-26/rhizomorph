@@ -98,7 +98,9 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   (`unsupported comparison artifact version: 2`) and left untouched — never
   migrated silently. The server keeps its own copy of the web's parser
   ([ADR-0042](docs/adr/0042-the-server-parses-a-comparison-artifact-with-its-own-copy.md)).
-  Nothing in the browser reaches these routes yet; that is wave 2 (#214).
+  Nothing in the browser reaches these routes yet; that is #214 — written
+  here as wave 2, and renumbered to wave 3 when #376 was filed between the
+  two. The sequencing in the PRD is the authority.
 
 ### Changed
 
