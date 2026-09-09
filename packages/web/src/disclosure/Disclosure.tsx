@@ -26,8 +26,14 @@ import type { DisclosureContent } from './vocabulary.js'
  *
  * **It opens immediately.** The native `title=` this replaces is OS-delayed by
  * something like a second, and that delay is named in prd-30's problem
- * statement as part of the defect rather than as polish. `MarkHoverCard`'s own
- * open delay is its business until wave 3 re-seats it here.
+ * statement as part of the defect rather than as polish.
+ *
+ * `MarkHoverCard` keeps its own open delay, and keeps it for good — #221 ruled
+ * it is **not** re-seated here (ADR-0044: it is a menu of seek targets, not an
+ * explanation, and this card renders `disclosureLines` and composes nothing).
+ * A delay is right for a menu, where springing open on every passing pointer is
+ * the defect; the reasoning that makes immediacy right *here* is about a
+ * tooltip's lag, and it does not transfer.
  *
  * **One focus token, and it is not ours.** The trigger wears `focus-ring`
  * (prd-32 ruling 9, #548) and this directory defines no focus paint of its

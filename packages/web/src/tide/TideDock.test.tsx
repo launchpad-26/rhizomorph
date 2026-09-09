@@ -99,7 +99,7 @@ describe('TideDock — the band, its rows, and its chip are gone in every mode (
     )
     expect(screen.getAllByTestId('chapter-mark')).toHaveLength(3)
     expect(screen.getByLabelText('Replay scrubber')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Zoom in' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Zoom in on the playhead' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Shift window earlier' })).toBeInTheDocument()
   })
 })
@@ -158,7 +158,7 @@ describe('TideDock — zoom-out and window-shift affordances (ruling 10)', () =>
     render(
       <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in on the playhead' }))
 
     expect(screen.getByRole('button', { name: 'Zoom out' })).toBeEnabled()
     // Centred near the right edge, clamped — nothing further right to shift to.
@@ -170,7 +170,7 @@ describe('TideDock — zoom-out and window-shift affordances (ruling 10)', () =>
     render(
       <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in on the playhead' }))
     fireEvent.click(screen.getByRole('button', { name: 'Zoom out' }))
 
     expect(screen.getByRole('button', { name: 'Zoom out' })).toBeDisabled()
@@ -186,7 +186,7 @@ describe('TideDock — zoom-out and window-shift affordances (ruling 10)', () =>
     expect(input.min).toBe('0')
     expect(input.max).toBe('10000')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in on the playhead' }))
 
     expect(input.min).toBe('0')
     expect(input.max).toBe('10000')
@@ -225,7 +225,7 @@ describe('TideDock — the window bracket and indicator (issue #186 defect 1, re
     render(
       <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in on the playhead' }))
 
     const window_ = windowForLevel(1, 9_000, T0, T_END)
     const fullScale = timeScale(T0, T_END, TRACK_WIDTH)
@@ -245,7 +245,7 @@ describe('TideDock — the window bracket and indicator (issue #186 defect 1, re
     render(
       <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in on the playhead' }))
     const bracket = screen.getByTestId('tide-window-bracket')
     expect(bracket.className).toContain('pointer-events-none')
   })
@@ -305,7 +305,7 @@ describe('TideDock — drag-vs-click on the mark lane track (issue #186 defect 1
     render(
       <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={5_000} onSeek={onSeek} seekEnabled />,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in on the playhead' }))
     const track = screen.getByTestId('tide-dock-track')
 
     const before = windowForLevel(1, 5_000, T0, T_END)
@@ -354,7 +354,7 @@ describe('TideDock — zoom depth capped by the log\'s own grain (issue #186 def
     render(
       <TideDock mode="replay" events={denseEvents()} start={T0} end={T_END} value={0} onSeek={() => {}} seekEnabled />,
     )
-    const zoomIn = screen.getByRole('button', { name: 'Zoom in' })
+    const zoomIn = screen.getByRole('button', { name: 'Zoom in on the playhead' })
     for (let i = 0; i < 3; i += 1) fireEvent.click(zoomIn)
     expect(zoomIn).toBeEnabled()
   })
@@ -363,7 +363,7 @@ describe('TideDock — zoom depth capped by the log\'s own grain (issue #186 def
     render(
       <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={0} onSeek={() => {}} seekEnabled />,
     )
-    const zoomIn = screen.getByRole('button', { name: 'Zoom in' })
+    const zoomIn = screen.getByRole('button', { name: 'Zoom in on the playhead' })
     fireEvent.click(zoomIn)
     fireEvent.click(zoomIn)
     fireEvent.click(zoomIn)
@@ -448,7 +448,7 @@ describe('TideDock — one height, not mode-dependent (prd13 ruling 13, ex-#186 
       `${formatClock(T0)}${formatClock(T_END)}`,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in on the playhead' }))
     const window_ = windowForLevel(1, 9_000, T0, T_END)
     const axis = screen.getByTestId('tide-axis')
     expect(axis.textContent).toBe(`${formatClock(window_.start)}${formatClock(window_.end)}`)
@@ -460,7 +460,7 @@ describe('TideDock — one height, not mode-dependent (prd13 ruling 13, ex-#186 
     )
     expect(screen.getByTestId('tide-axis')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in on the playhead' }))
     expect(screen.getByTestId('tide-axis')).toBeInTheDocument()
   })
 
@@ -530,7 +530,7 @@ describe('TideDock — one height, not mode-dependent (prd13 ruling 13, ex-#186 
    */
   describe('the loupe opens by zooming past the mark lane\'s cap', () => {
     function zoomToCap() {
-      const button = screen.getByRole('button', { name: 'Zoom in' })
+      const button = screen.getByRole('button', { name: 'Zoom in on the playhead' })
       // Zoom until one click short of exhausting the control. The bound is
       // generous and the loop stops on `disabled`, so this does not encode a
       // particular cap value — `usefulMaxZoomLevel` is free to move.
@@ -565,7 +565,7 @@ describe('TideDock — one height, not mode-dependent (prd13 ruling 13, ex-#186 
       render(
         <TideDock mode="replay" events={events} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
       )
-      const button = screen.getByRole('button', { name: 'Zoom in' })
+      const button = screen.getByRole('button', { name: 'Zoom in on the playhead' })
 
       // Every level up to and including the cap: marks, no events.
       for (let level = 0; level < cap; level += 1) {
@@ -585,7 +585,7 @@ describe('TideDock — one height, not mode-dependent (prd13 ruling 13, ex-#186 
         <TideDock mode="replay" events={threeLaneEvents()} start={T0} end={T_END} value={9_000} onSeek={() => {}} seekEnabled />,
       )
       zoomToCap()
-      expect(screen.getByRole('button', { name: 'Zoom in' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Zoom in on the playhead' })).toBeDisabled()
     })
 
     it('closes again on the way back out', () => {
@@ -631,7 +631,7 @@ describe('TideDock — one height, not mode-dependent (prd13 ruling 13, ex-#186 
       render(
         <TideDock mode="replay" events={coalescingNearPlayhead()} start={T0} end={T_END} value={5_000} onSeek={() => {}} seekEnabled />,
       )
-      const button = screen.getByRole('button', { name: 'Zoom in' })
+      const button = screen.getByRole('button', { name: 'Zoom in on the playhead' })
       let atCap = ''
       let capCounts: (string | undefined)[] = []
       for (let i = 0; i < 40 && !(button as HTMLButtonElement).disabled; i += 1) {
