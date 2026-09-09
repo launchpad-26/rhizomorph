@@ -261,6 +261,29 @@ can recover later.
 
 **Branch:** `prd<NN>-w<N>-<slug>` for a bundle, `<issue>-<slug>` for a single.
 
+**Before you create it, prove you are in your own lane:**
+
+```
+scripts/dev/lane-guard.sh <target-branch> [--no-fetch]
+```
+
+`scripts/dev/lane-guard.sh` runs four hard checks — you are in a linked worktree
+and not the shared primary, the
+tree is clean, the target branch is not checked out in another worktree, and
+`HEAD` is `main` or already the target rather than some other lane's branch —
+plus a warning when local `main` is behind `origin/main`, because branching off
+a stale base is silent: the branch looks healthy and its diff carries reverts of
+work that already landed. It only asserts; it never creates or moves a worktree
+and never touches `.workmux.yaml`.
+
+Each check is there because that failure happened. On 2026-09-08 five concurrent
+lanes drifted far enough into each other that every session was stopped to
+untangle 109 local branches and a primary worktree holding another session's
+uncommitted edit; in the middle of that a dirty markdown file was wrongly
+classified as undiscardable divergent work off a line-level diff. All of it is
+visible at branch-creation time and free to refuse there. A failure means go and
+get a clean lane — it is not a thing to work around.
+
 **One commit per issue.** The commit is the unit of review, so it must stand
 alone: message, rationale, and the whole change for that one issue.
 
@@ -477,6 +500,24 @@ Two habits are enough to prevent it, and both are cheap:
   into `<branch>`" is the honest wording for what happened, and it is also the
   tell: if a closure comment cannot name `main`, the work is still in flight.
   `git merge-base --is-ancestor <branch> origin/main` answers it in one command.
+
+`scripts/dev/await-merge.sh` asks both questions of a PR at once. Given a PR
+number it reports the merge commit and whether that commit is an ancestor of
+`origin/main`, so "the PR says MERGED" and "the work is on `main`" stop being
+the same sentence. Exit 0 merged, 1 closed unmerged, 2 still open, 3 misuse.
+
+It also answers *"has it landed yet?"* without anyone having to say so. Stopping
+at built or at opened is correct — wave *N+1* waits for wave *N*, and merges are
+performed by a human on GitHub — but stopping is not the same as going mute, and
+a lane with no way to observe the event it is stopped for turns the operator into
+a message bus. `--wait --timeout N` watches on a deadline and is safe to
+background; it does not merge, and must never learn how.
+
+**Nothing here may be a `tail -f`.** Watch a long-running thing only with
+something that cannot outlive a deadline. `tail -f` does not exit when its
+target is deleted, and a gate's output is a temp file, so a backgrounded
+follower outlives it indefinitely and becomes a task nobody can account for —
+twice in one run, from two different lanes.
 
 The third argument is the one this section used not to name. `[load-batches]` is
 a batch count, and the script's own comment calls it **mandatory for anything
