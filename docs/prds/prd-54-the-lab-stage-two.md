@@ -257,8 +257,9 @@ playhead*. *Experiment selected:* tabs live. *Partial:* the rail row carries *2 
 error:* per region, never conflated (Stage 1's law).
 
 **Acceptance criteria.** The playhead label's right edge ≤ viewport width at 100 % (executed in a
-DOM test with a forced width) · the canvas root's x ≤ 40 % of width when the fork is ≥ 60 % of
-session · no run note appears more than once per arm · the checkpoint table renders once · Compare,
+DOM test with a forced width) · when the fork sits past 60 % of the session the fan opens toward the
+free side, the root keeps its true x, and no organism node lies outside the drawing (a mutation that
+clamps the root goes red) · no run note appears more than once per arm · the checkpoint table renders once · Compare,
 Trace and Metrics are `role="tablist"` with arrow-key movement · every Stage 1 law still passes.
 
 ### S2′ — launch and measure
@@ -274,6 +275,13 @@ naming the worktree count · a launch above the ceiling renders the server's ref
 whose session ends at the cut) · the parent reads from `sessionFile` at the cut byte with the digest
 checked (a mutation altering one byte before the cut reddens) · divergence populates without opening
 the Trace tab · the fleet transcript route is imported by nothing under `web/src/lab/` (grep law).
+
+> **Second pass (2026-09-10).** A design seat — GPT-6 Astra through Codex CLI, briefed with this
+> paper, its companion artifact, the token file and the palette, and held to nine laws — returned
+> three mockups that passed the law check unedited and three objections to the companion artifact,
+> all correct and now fixed there (the late-fork criterion above was one). Its canvas geometry — the
+> fan opening toward the free side, the root at its true x, the dispatch stub drawn and uncounted —
+> is what ruling 8's canvas paragraph now means. The mockups are linked from the artifact's §08.
 
 ## Sequencing (waves, each gated as ever)
 
