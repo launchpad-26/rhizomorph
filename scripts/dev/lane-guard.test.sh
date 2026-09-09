@@ -120,12 +120,43 @@ says no  "level with origin/main" "no local main: does NOT claim the base is lev
 says yes "UNCHECKED"               "no local main: says the check did not run" -- \
   bash -c "cd '$TMP/c2-lane9' && bash '$GUARD' lane9"
 
-# The sibling: origin/main absent rather than main. It must not vanish silently.
+# There are TWO ways check 5 can lose origin/main, they print different
+# sentences, and this file used to assert them with one three-way pattern
+# (unchecked\|UNCHECKED\|offline) that could not tell which had happened. Review
+# finding 4 on #380 is what that concealed: the case below was LABELLED "origin/main
+# absent" while actually landing on the offline branch, so the missing-ref warning
+# was unreachable from the suite for the whole life of the file — proven by
+# mutation, the message replaced with MUTANT-M1 and the suite still 18/0.
+#
+# So each is now asserted by its own words, and each denies the other's.
+
+# (a) no reachable origin at all: the remote is renamed, so `git fetch origin`
+# fails. That is a fact about the NETWORK, not about what origin holds.
 q clone "$TMP/origin.git" "$TMP/c3"
 q -C "$TMP/c3" remote rename origin upstream
 q -C "$TMP/c3" worktree add -b lane8 "$TMP/c3-lane8"
-says yes "unchecked\|UNCHECKED\|offline" "no origin/main: still prints a line" -- \
+says yes "could not fetch origin" "no origin remote: names the failed fetch" -- \
   bash -c "cd '$TMP/c3-lane8' && bash '$GUARD' lane8"
+
+# (b) the sibling, and the one nothing reached: a fetch that SUCCEEDS against an
+# origin that has no `main` — a repo whose default branch is named something
+# else, which is the review clone shape this check was written for. It must say
+# the ref is missing and must not blame the network for it.
+q init --bare -b trunk "$TMP/origin-trunk.git"
+q init -b trunk "$TMP/p-trunk"
+git -C "$TMP/p-trunk" config user.email t@example.invalid
+git -C "$TMP/p-trunk" config user.name  "Test"
+echo one > "$TMP/p-trunk/a"
+q -C "$TMP/p-trunk" add a
+q -C "$TMP/p-trunk" commit -m one
+q -C "$TMP/p-trunk" remote add origin "$TMP/origin-trunk.git"
+q -C "$TMP/p-trunk" push -u origin trunk
+q clone "$TMP/origin-trunk.git" "$TMP/c5"
+q -C "$TMP/c5" worktree add -b lane6 "$TMP/c5-lane6"
+says yes "no origin/main ref" "origin has no main: says the ref is missing" -- \
+  bash -c "cd '$TMP/c5-lane6' && bash '$GUARD' lane6"
+says no  "could not fetch" "...and does not report it as an offline fetch" -- \
+  bash -c "cd '$TMP/c5-lane6' && bash '$GUARD' lane6"
 
 # And the warning itself still fires when the base really is behind.
 q -C "$TMP/primary" checkout main
