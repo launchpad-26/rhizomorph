@@ -31,12 +31,38 @@ shift
 WAIT=0
 TIMEOUT=1800
 INTERVAL=60
+
+# Every argument failure exits 3, and it takes a named check to get there.
+#
+# The first draft used `${2:?msg}` and let `set -e` do the rest. That reads like
+# validation and is not: the shell aborts with status 1, and 1 is this script's
+# documented "the PR was closed without merging". A stopped lane polling on the
+# exit code — the only reason this script exists — would read a typo'd flag as
+# "your work was rejected" and abandon it. One sibling was handled (`*)` exits 3)
+# and five were not, which is this repo's most common defect shape exactly.
+#
+# Worse, `--timeout 5x` failed the arithmetic, printed to stderr, and CARRIED ON
+# with DEADLINE unset — so on a merged PR it exited 0 having never had a deadline
+# at all, silently voiding the "bounded even in --wait" guarantee that is the
+# whole point of the script. Values are checked before use, not on use.
+die()    { echo "await-merge.sh: $1" >&2; exit 3; }
+is_num() { case "${1:-}" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
+
+is_num "$PR" || die "PR must be a whole number, got '$PR'"
+
 while [ $# -gt 0 ]; do
   case "$1" in
-    --wait)     WAIT=1 ;;
-    --timeout)  TIMEOUT=${2:?--timeout needs a value}; shift ;;
-    --interval) INTERVAL=${2:?--interval needs a value}; shift ;;
-    *) echo "await-merge.sh: unknown argument '$1'" >&2; exit 3 ;;
+    --wait) WAIT=1 ;;
+    --timeout)
+      [ $# -ge 2 ] || die "--timeout needs a value"
+      is_num "$2"  || die "--timeout wants whole seconds, got '$2'"
+      TIMEOUT=$2; shift ;;
+    --interval)
+      [ $# -ge 2 ]   || die "--interval needs a value"
+      is_num "$2"    || die "--interval wants whole seconds, got '$2'"
+      [ "$2" -ge 1 ] || die "--interval must be at least 1 second, got '$2'"
+      INTERVAL=$2; shift ;;
+    *) die "unknown argument '$1'" ;;
   esac
   shift
 done
@@ -50,9 +76,16 @@ command -v git >/dev/null || { echo "await-merge.sh: needs git" >&2; exit 3; }
 # unbounded `until` loops were backgrounded twice in that same run, outlived the
 # files they were watching (`tail -f` does not exit when its target is deleted),
 # and surfaced to the operator as "why is there a background task hung?" — twice,
-# from two different lanes. A watcher that cannot outlive its deadline cannot
-# become that. Run this backgrounded and it will end on its own, whatever
-# happens to the PR.
+# from two different lanes. Run this backgrounded and the LOOP ends on its own
+# whatever the PR does, which is the property `tail -f` lacks.
+#
+# Stated precisely, because an overstated guarantee is exactly what this repo
+# keeps catching: the deadline bounds THIS SCRIPT's waiting — its sleeps and its
+# poll count. It does not bound `gh pr view`, which carries no timeout of its
+# own, so a wedged network call can still outlive it. That is a far narrower
+# hole than an orphaned `tail -f` — it needs a hung connection, not merely a
+# deleted file — but it is not zero, and the honest fix if it ever bites is a
+# timeout around `gh`, not a broader claim here.
 DEADLINE=$(( $(date +%s) + TIMEOUT ))
 
 report_merged() {
@@ -62,16 +95,22 @@ report_merged() {
   # "if a closure comment cannot name main, the work is still in flight". Say
   # which of those two this is, rather than leaving the caller to assume.
   git fetch origin --quiet 2>/dev/null || echo "await-merge: (could not fetch; ancestry unchecked)"
-  if git rev-parse --verify --quiet "$sha^{commit}" >/dev/null; then
-    if git merge-base --is-ancestor "$sha" origin/main 2>/dev/null; then
-      echo "await-merge: $sha is an ancestor of origin/main — safe to cite"
-    else
-      echo "await-merge: WARNING $sha is NOT an ancestor of origin/main."
-      echo "await-merge: the PR merged into something other than main. Check its base"
-      echo "await-merge: before closing anything against it."
-    fi
+
+  # Three distinct unknowns, three distinct sentences. Collapsing them is how a
+  # check starts lying: "NOT an ancestor of origin/main" is a loud, specific
+  # accusation, and printing it because the local ref is merely ABSENT would
+  # send a reader hunting a prd-44-shaped bug that isn't there. Say which of
+  # these it is, and never assert ancestry that was not actually computed.
+  if ! git rev-parse --verify --quiet "$sha^{commit}" >/dev/null 2>&1; then
+    echo "await-merge: $sha is not present locally — fetch before citing it"
+  elif ! git rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+    echo "await-merge: no local origin/main ref — ancestry UNCHECKED, not confirmed"
+  elif git merge-base --is-ancestor "$sha" origin/main 2>/dev/null; then
+    echo "await-merge: $sha is an ancestor of origin/main — safe to cite"
   else
-    echo "await-merge: $sha not present locally — fetch before citing it"
+    echo "await-merge: WARNING $sha is NOT an ancestor of origin/main."
+    echo "await-merge: the PR merged into something other than main. Check its base"
+    echo "await-merge: before closing anything against it."
   fi
 }
 
