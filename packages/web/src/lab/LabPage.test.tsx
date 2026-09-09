@@ -242,6 +242,7 @@ describe('LabPage', () => {
       checkpointId: 'ckpt-1',
       arms: [{ arm: 1, model: 'opus', briefProvided: false, forkId: 'fork-1', laneHandle: 'fork-1-arm-1', worktreePath: '/tmp/arm-1', launched: true }],
       failed: { arm: 2, error: 'workmux: tmux server not running' },
+      requestedArms: 3,
     }
     render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [CLEAN_EXPERIMENT])} seedLaunchOutcomes={[outcome]} />)
     await waitFor(() => expect(screen.getByTestId('axis-marker-ckpt-1')).toBeInTheDocument())

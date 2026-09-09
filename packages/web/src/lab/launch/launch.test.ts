@@ -29,7 +29,8 @@ function answering(payload: unknown, status = 200): LaunchFetchLike {
   return async () => ({ ok: status >= 200 && status < 300, status, json: async () => payload })
 }
 
-const OUTCOME: LaunchOutcome = {
+/** The route's answer — it carries no requested count; `requestLaunch` stamps that from the request (prd-55 ruling 7). */
+const OUTCOME: Omit<LaunchOutcome, 'requestedArms'> = {
   parentLane: 'feature',
   checkpointId: 'ckpt-1',
   arms: [
@@ -58,7 +59,18 @@ describe('requestLaunch', () => {
       headers: { 'Content-Type': 'application/json', 'x-rhizomorph-capability': TEST_TOKEN },
       body: JSON.stringify(request),
     })
-    expect(outcome).toEqual(OUTCOME)
+    expect(outcome).toEqual({ ...OUTCOME, requestedArms: 1 })
+  })
+
+  it('a request carrying runs and a ceiling override sends them as they are — and one carrying neither sends no such key', async () => {
+    const fetchImpl = vi.fn(answering(OUTCOME))
+    await requestLaunch({ lane: 'feature', checkpointId: 'ckpt-1', arms: [{}], runs: 3, ceilingOverride: 9 }, fetchImpl)
+    await requestLaunch({ lane: 'feature', checkpointId: 'ckpt-1', arms: [{}] }, fetchImpl)
+    const bodies = fetchImpl.mock.calls.map(([, init]) => JSON.parse(init.body) as Record<string, unknown>)
+    expect(bodies[0]).toEqual({ lane: 'feature', checkpointId: 'ckpt-1', arms: [{}], runs: 3, ceilingOverride: 9 })
+    expect(bodies[1]).toEqual({ lane: 'feature', checkpointId: 'ckpt-1', arms: [{}] })
+    expect(Object.keys(bodies[1] ?? {})).not.toContain('runs')
+    expect(Object.keys(bodies[1] ?? {})).not.toContain('ceilingOverride')
   })
 
   /**
@@ -148,13 +160,26 @@ describe('requestLaunch', () => {
   })
 
   it('reports a partial outcome (some arms dispatched, one failed) rather than throwing it away', async () => {
-    const partial: LaunchOutcome = {
+    const partial: Omit<LaunchOutcome, 'requestedArms'> = {
       ...OUTCOME,
       failed: { arm: 2, error: 'workmux add fork-abc-arm-2 -b failed: tmux server not running' },
     }
     const outcome = await requestLaunch({ lane: 'x', checkpointId: 'y', arms: [{}, {}] }, answering(partial))
     expect(outcome.arms).toHaveLength(1)
     expect(outcome.failed).toEqual({ arm: 2, error: 'workmux add fork-abc-arm-2 -b failed: tmux server not running' })
+    expect(outcome.requestedArms).toBe(2)
+  })
+
+  it("the outcome carries how many arms were ASKED for — the request's count, which nothing in the answer holds (prd-55 ruling 7)", async () => {
+    // Five arms asked for, the server stopped at arm 2: one dispatched, one
+    // failed, three never attempted. The old line read this as "1 of 2" —
+    // dispatched + failed — and understated the launch by three arms (the
+    // wave-3 review's finding). The mutation this pins is exactly that
+    // arithmetic: `requestedArms: arms.length + (failed ? 1 : 0)` reads 2 here.
+    const partial: Omit<LaunchOutcome, 'requestedArms'> = { ...OUTCOME, failed: { arm: 2, error: 'restore failed' } }
+    const outcome = await requestLaunch({ lane: 'x', checkpointId: 'y', arms: [{}, {}, {}, {}, {}] }, answering(partial))
+    expect(outcome.arms).toHaveLength(1)
+    expect(outcome.requestedArms).toBe(5)
   })
 })
 
