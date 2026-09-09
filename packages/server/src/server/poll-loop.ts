@@ -1,6 +1,7 @@
 import type { AnyCollector, EventOf, Exec, LaneManifest, PollResult } from '@rhizomorph/core'
 import { buildFleet, createCollectorContext, createEvent, createIdFactory, evidenceLine, parseLaneManifest } from '@rhizomorph/core'
 import { readLanesManifest, type LanesResult } from '../api/lanes.js'
+import { deriveGateVerdict } from '../log/gate-verdict-derivation.js'
 import type { SessionRecorder } from './recorder.js'
 import type { SnapshotStore } from './snapshot-store.js'
 import { withTimeout } from './exec.js'
@@ -30,6 +31,13 @@ export interface PollLoopOptions {
    * `initialSnapshot()` — which is what makes a restart re-read everything.
    */
   snapshotStore?: SnapshotStore
+  /**
+   * Overrides the instrument's data root for the `gate.verdict` derivation
+   * (prd17 ruling 6 / #280) — the same knob `BeaconCollectorConfig.dataRoot`
+   * exposes for the beacon collector itself. Tests point it at a temp dir;
+   * production omits it and gets `defaultDataRoot()`.
+   */
+  dataRoot?: string
 }
 
 export interface PollLoop {
@@ -65,6 +73,11 @@ export interface PollLoop {
    * writing wherever it already was — in-memory snapshots still reset either
    * way, so the caller decides whether that also means a new file.
    *
+   * `dataRoot` is deliberately absent here: it is the beacon sidecar's own
+   * root (prd17 ruling 6 / #280), read at RECORD time by `runTick` below, and
+   * nothing about a session rotation or repo retarget changes where the
+   * instrument's own data directory lives.
+   *
    * Awaits any tick already in flight before touching anything, so that
    * tick's own snapshot writes land in the Map it started with rather than
    * racing the fresh one this creates — the caller does not need to `stop()`
@@ -96,6 +109,7 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
   // too (a rotation's job, fixing the spike's gap (b) — see `reset`'s doc).
   let repoPath = options.repoPath
   let snapshotStore = options.snapshotStore
+  const dataRoot = options.dataRoot
   const intervalMs = options.intervalMs ?? 2000
   const now = options.now ?? Date.now
   const nextId = createIdFactory('evt')
@@ -321,6 +335,40 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
         // event is not.
         for (const event of result.events) {
           await recorder.record(event)
+          // prd17 ruling 6 / #280: derive-and-record at RECORD time, not at
+          // replay/fold time, so the log carries the typed `gate.verdict`
+          // itself rather than depending on the beacon sidecar still being
+          // there to re-derive it from later. `deriveGateVerdict` already
+          // refuses (rather than throws) every non-gate `beacon.received`,
+          // so this runs unconditionally over every one and is a no-op for
+          // the ordinary hook-attention case. A refusal here (a null lane,
+          // an unverifiable or altered sidecar line, a schema-invalid
+          // verdict) records nothing beyond the `beacon.received` occurrence
+          // already on the log — the derivation's own `reason` says why,
+          // but this seam does not additionally alarm on it; widening that
+          // is separate scope from "derive and record what verifies".
+          if (event.type === 'beacon.received') {
+            const derivation = await deriveGateVerdict(event, { repoPath, dataRoot, id: nextId() })
+            if (derivation.outcome === 'derived') await recorder.record(derivation.event)
+          }
+          // ADR-0029 naming addition (review of #280, round 4, finding 4):
+          // `gate.verdict` joins this batch's re-deriving call site, so it
+          // inherits the SAME at-least-once cost the comment above already
+          // names for every event here — a rejected append on event k+1
+          // leaves 1..k appended and re-derives the whole batch next tick,
+          // so a `gate.verdict` already recorded can be recorded again with
+          // a fresh id and the identical `ts`/payload. The real consumer of
+          // this family (`web/src/tide/chapters.ts`'s marks) coalesces
+          // duplicates into one mark rendered `×N` — cosmetic, not
+          // corrupting, and consistent with `reduce.ts`'s arm folding this
+          // event to nothing in SessionState. Named here rather than left
+          // implicit, per ADR-0029's own rule that a non-idempotent arm is
+          // named "so the cost is visible and citable," not fixed by naming
+          // it. A second, unrelated duplicate path: a fresh session
+          // re-derives every historical landing, because the beacon
+          // collector's snapshot is keyed per session and starts at offset
+          // 0 — honest data (`ts` is still the beacon's own recorded time,
+          // never the replay clock), just a second route to the same `×N`.
         }
         snapshots.set(collector.name, result.nextSnapshot)
         // Reference check: a collector that handed its snapshot straight back

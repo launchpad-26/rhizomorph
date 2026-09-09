@@ -256,12 +256,22 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
       // the schema, which validates each half alone.
       return state
     case 'gate.verdict':
-      // Additive only (prd17 ruling 1, #219) — the landing gate's verdicts
-      // are not emitted yet, so there is nothing to fold into state.
+      // Emitted as of wave 6 (#280, prd17 ruling 6): `poll-loop.ts`'s
+      // recording seam derives this event from a gate beacon's sidecar at
+      // RECORD time (`gate-verdict-derivation.ts`), provenance-checked
+      // against the beacon's own digest, and records it right alongside
+      // `beacon.received`. This arm still folds it to nothing — not because
+      // the event is unwritten, but on purpose: the UI dividend (digest,
+      // inspectable landings, the drill view) is prd18's, and this PRD's
+      // Non-goals section names "no UI dividend surfaces in this prd"
+      // outright. A later PRD reads this event back into SessionState; this
+      // one only had to make it real.
       return state
     case 'dispatch.brief':
-      // Additive only (prd17 ruling 1, #219) — same as above, for the brief
-      // a lane is dispatched with.
+      // Additive only (prd17 ruling 1, #219) — the brief a lane is
+      // dispatched with. No emitter exists in this repo at all: wave 6's
+      // sequencing notes name dispatch tooling that lives outside this
+      // checkout as the eventual writer, so there is nothing yet to fold.
       return state
     case 'fence.declared':
       // Additive only (prd17 ruling 1, #219) — the declared boundary is

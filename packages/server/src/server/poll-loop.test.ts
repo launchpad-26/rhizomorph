@@ -5,6 +5,8 @@ import type { AnyCollector, CollectorContext, EventOf, Exec, ExecResult, Rhizomo
 import { fixtureHistory, fleet20Spec, initialSessionState, manifestFor, pathologySpec, reduceAll } from '@rhizomorph/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type * as LanesModule from '../api/lanes.js'
+import { createBeaconCollector } from '../collectors/beacon/collector.js'
+import { beaconDirFor } from '../collectors/beacon/paths.js'
 import { COLLECTOR_EXEC_TIMEOUT_MS, createPollLoop } from './poll-loop.js'
 import { SessionRecorder } from './recorder.js'
 import type { LoadedSnapshot, SnapshotStore } from './snapshot-store.js'
@@ -2497,5 +2499,86 @@ describe('the summons raiser (prd17 ruling 5)', () => {
         '45-ledger-subrows:off-fence',
       )
     }, 5000)
+  })
+})
+
+describe('the poll loop derives gate.verdict at record time (prd17 ruling 6, #280)', () => {
+  let root: string
+  let dir: string
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  /** The exact shape `emit_gate_verdict` in `scripts/gate.sh` writes. */
+  function gateLine(fields: { at: number; lane: string; held: boolean; reason: string; outputDigest: string }): string {
+    return JSON.stringify({
+      v: 1,
+      at: fields.at,
+      writer: 'gate',
+      kind: 'gate.verdict',
+      lane: fields.lane,
+      held: fields.held,
+      reason: fields.reason,
+      outputDigest: fields.outputDigest,
+    })
+  }
+
+  it('records the typed gate.verdict right alongside the beacon.received it derives from', async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'poll-loop-gate-verdict-'))
+    dir = beaconDirFor('/repo', root)
+    await mkdir(dir, { recursive: true })
+    const outputDigest = 'b'.repeat(64)
+    await writeFile(
+      path.join(dir, 'gate.jsonl'),
+      `${gateLine({ at: 1_000, lane: 'feature', held: true, reason: 'suite-red', outputDigest })}\n`,
+    )
+
+    const { recorder, events } = createFakeRecorder()
+    const pollLoop = createPollLoop({
+      repoPath: '/repo',
+      dataRoot: root,
+      collectors: [createBeaconCollector({ dataRoot: root })],
+      recorder,
+      exec: nullExec,
+      now: () => 2_000,
+    })
+    await pollLoop.tick()
+
+    const beacon = events.find((event): event is EventOf<'beacon.received'> => event.type === 'beacon.received')
+    const verdict = events.find((event): event is EventOf<'gate.verdict'> => event.type === 'gate.verdict')
+    expect(beacon).toBeDefined()
+    expect(verdict).toBeDefined()
+    // The occurrence, then the typed fact derived from it — never the other
+    // way round, so a reader folding this log in order sees the sidecar
+    // pointer before the claim it backs.
+    expect(events.indexOf(beacon as RhizomorphEvent)).toBeLessThan(events.indexOf(verdict as RhizomorphEvent))
+    expect(verdict?.payload).toEqual({
+      handle: 'feature',
+      held: true,
+      reason: 'suite-red',
+      digest: outputDigest,
+    })
+  })
+
+  it('an ordinary attention beacon derives no gate.verdict — only a gate writer with kind gate.verdict does', async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'poll-loop-gate-verdict-'))
+    dir = beaconDirFor('/repo', root)
+    await mkdir(dir, { recursive: true })
+    await writeFile(path.join(dir, 'claude-hook.jsonl'), '{"v":1,"at":10,"writer":"claude-hook","kind":"waiting","lane":"feature"}\n')
+
+    const { recorder, events } = createFakeRecorder()
+    const pollLoop = createPollLoop({
+      repoPath: '/repo',
+      dataRoot: root,
+      collectors: [createBeaconCollector({ dataRoot: root })],
+      recorder,
+      exec: nullExec,
+      now: () => 2_000,
+    })
+    await pollLoop.tick()
+
+    expect(events.some((event) => event.type === 'beacon.received')).toBe(true)
+    expect(events.some((event) => event.type === 'gate.verdict')).toBe(false)
   })
 })
