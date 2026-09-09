@@ -55,7 +55,7 @@ trap cleanup EXIT
 q() { git "$@" >/dev/null 2>&1; }
 
 # ── a bare origin, a primary clone on main, one commit ──────────────────────
-q init --bare "$TMP/origin.git"
+q init --bare -b main "$TMP/origin.git"
 q init -b main "$TMP/primary"
 git -C "$TMP/primary" config user.email t@example.invalid
 git -C "$TMP/primary" config user.name  "Test"
