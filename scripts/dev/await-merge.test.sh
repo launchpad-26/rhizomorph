@@ -53,6 +53,14 @@ case "${FAKE:-}" in
   # 4 is gh's own exit status for an auth failure; the script keys on it to tell
   # "not logged in" (fatal) from "the network blinked" (retryable in --wait).
   unauth)    echo "gh: not authenticated" >&2; exit 4 ;;
+  # OPEN until the FLIP_AT'th call, MERGED after: the PR merging while we watch,
+  # which is the event the whole script exists to observe and the one shape a
+  # single-poll stub can never produce.
+  flip)      if [ "$n" -lt "${FLIP_AT:-2}" ]; then
+               echo '{"state":"OPEN","mergedAt":null,"mergeCommit":null,"baseRefName":"main"}'
+             else
+               echo '{"state":"MERGED","mergedAt":"2026-09-09T00:00:00Z","mergeCommit":{"oid":"'"${FAKE_SHA:-deadbeef}"'"},"baseRefName":"main"}'
+             fi ;;
   # a transport failure: gh's generic 1, the status a wedged resolver produces
   netdown)   echo "error connecting to api.github.com" >&2; exit 1 ;;
   # fails once, then answers. The blip a thirty-minute watch has to survive.
@@ -148,6 +156,27 @@ saw_not "NOT an ancestor"
 echo "── dependency and transport failures are 3, never 1 ───────────────────"
 run "gh unauthenticated"          3 unauth  378
 run "gh returns malformed json"   3 garbage 378
+
+echo "── the --wait loop: a lane observing an event that happens LATER ──────"
+# Review finding 3 on #380: nothing here polled twice. Instrumenting the loop to
+# `exit 99` on poll #2 left the suite 28/0 — so the loop, the deadline
+# arithmetic and the interval clamp could all have been DELETED with every test
+# green, and the reason the file exists (a stopped lane observing a merge that
+# has not happened yet) was the one path never taken.
+FLIP_AT=3 FAKE_SHA=$REAL_SHA run "the PR merges while we are watching" 0 flip 378 --wait --timeout 30 --interval 1
+saw "MERGED as $REAL_SHA"
+saw "is an ancestor of origin/main"
+polled 3
+took_under 20
+
+# The clamp at the bottom of the loop: the last sleep is shortened to what is
+# left of the deadline, so `--interval` cannot overshoot it. Asserted by the
+# clock, since that is the only channel it has — an unclamped sleep still exits
+# 2 with the same output, thirty seconds later.
+run "the interval never overshoots the deadline" 2 open 377 --wait --timeout 1 --interval 30
+saw "deadline reached"
+polled 2
+took_under 15
 
 echo "── a transport blip is what --wait exists to outlive ──────────────────"
 # One `error connecting to api.github.com` used to exit 3 after a single poll:
