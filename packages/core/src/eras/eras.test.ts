@@ -105,8 +105,17 @@ describe('the golden era corpus', () => {
     // adjacent to the two `collector.*` arms the window already covers. Left
     // out on purpose (see CAPTURE.md), not missed. `collector.recovered` needs
     // a collector to recover after degrading, which neither era's window ever
-    // saw happen. `gate.verdict`/`dispatch.brief`/`fence.declared` are still
-    // unemitted anywhere — no surface writes them yet. `session.closed` needs
+    // saw happen. `dispatch.brief`/`fence.declared` are still unemitted
+    // anywhere — no surface writes either family in this repo (wave 6's
+    // sequencing notes name dispatch tooling outside this checkout as the
+    // eventual writer). `gate.verdict` is different as of #280 (wave 6,
+    // 2026-09-09, prd17 ruling 6's record-time seam): a real emitter exists
+    // now — `server/src/server/poll-loop.ts` derives it from a gate beacon
+    // at record time — but both era captures below predate that landing, so
+    // neither recording could have carried one regardless of whether an
+    // emitter exists today. Same class of absence as `beacon.received`
+    // further down: it could fire and has a live emitter, it just didn't
+    // during either window. `session.closed` needs
     // a clean server shutdown, which no capture has caught mid-session.
     // `telemetry.refused` needs a misconfigured lane. `fork.*` need THE LAB to
     // have been driven — not the judge, which era-2 did run: it holds seven

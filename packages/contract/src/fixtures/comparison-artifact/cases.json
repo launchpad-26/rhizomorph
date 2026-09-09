@@ -1,0 +1,227 @@
+[
+  {
+    "name": "accepts an ordinary artifact — every run shape a real comparison can hold — and both parsers produce the identical shape",
+    "outcome": "accept",
+    "raw": "{\"version\":1,\"savedAt\":\"2026-09-09T00:00:00.000Z\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"brief-x\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"pass\",\"value\":4},{\"id\":\"r2\",\"status\":\"complete\",\"verdict\":\"fail\",\"value\":2,\"detail\":\"timed out\"},{\"id\":\"r3\",\"status\":\"complete\",\"verdict\":\"pass\",\"value\":null,\"note\":\"judged, but no cost is booked to its lane yet\"},{\"id\":\"r4\",\"status\":\"pending\",\"note\":\"not measured yet — no outcome is invented in its place\"},{\"id\":\"r5\",\"status\":\"pending\"}]}]}}",
+    "expected": {
+      "arms": [
+        {
+          "id": "a",
+          "model": "opus",
+          "brief": "brief-x",
+          "runs": [
+            {
+              "id": "r1",
+              "status": "complete",
+              "verdict": "pass",
+              "value": 4
+            },
+            {
+              "id": "r2",
+              "status": "complete",
+              "verdict": "fail",
+              "value": 2,
+              "detail": "timed out"
+            },
+            {
+              "id": "r3",
+              "status": "complete",
+              "verdict": "pass",
+              "value": null,
+              "note": "judged, but no cost is booked to its lane yet"
+            },
+            {
+              "id": "r4",
+              "status": "pending",
+              "note": "not measured yet — no outcome is invented in its place"
+            },
+            {
+              "id": "r5",
+              "status": "pending"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "refuses non-JSON text",
+    "outcome": "refuse",
+    "message": "comparison artifact is not valid JSON",
+    "raw": "not json"
+  },
+  {
+    "name": "refuses a JSON value that is not an object",
+    "outcome": "refuse",
+    "message": "comparison artifact is not a JSON object",
+    "raw": "42"
+  },
+  {
+    "name": "refuses an unsupported version, by name",
+    "outcome": "refuse",
+    "message": "unsupported comparison artifact version: 2",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"input\":{\"arms\":[]}}"
+  },
+  {
+    "name": "refuses an artifact missing savedAt",
+    "outcome": "refuse",
+    "message": "comparison artifact is missing savedAt",
+    "raw": "{\"version\":1,\"input\":{\"arms\":[]}}"
+  },
+  {
+    "name": "refuses an input missing its arms array",
+    "outcome": "refuse",
+    "message": "comparison artifact is missing its arms array",
+    "raw": "{\"version\":1,\"savedAt\":\"x\",\"input\":{}}"
+  },
+  {
+    "name": "refuses an arm missing one of id, model, brief, runs",
+    "outcome": "refuse",
+    "message": "arm is missing one of id, model, brief, runs",
+    "raw": "{\"version\":1,\"savedAt\":\"x\",\"input\":{\"arms\":[{\"id\":\"a\"}]}}"
+  },
+  {
+    "name": "refuses a complete run with no verdict",
+    "outcome": "refuse",
+    "message": "complete run r1 is missing its verdict (pass or fail)",
+    "raw": "{\"version\":1,\"savedAt\":\"2026-09-09T00:00:00.000Z\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"value\":1}]}]}}"
+  },
+  {
+    "name": "refuses a complete run whose value is neither a number nor null",
+    "outcome": "refuse",
+    "message": "complete run r1 has a value that is neither a number nor null",
+    "raw": "{\"version\":1,\"savedAt\":\"2026-09-09T00:00:00.000Z\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"pass\",\"value\":\"4\"}]}]}}"
+  },
+  {
+    "name": "refuses a complete run whose value is not finite — the 1e400 hole (#376): a legal JSON number literal that parses to Infinity and is still typeof \"number\"",
+    "outcome": "refuse",
+    "message": "complete run r1 has a value that is not finite",
+    "raw": "{\"version\":1,\"savedAt\":\"x\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"pass\",\"value\":1e400}]}]}}"
+  },
+  {
+    "name": "refuses a complete run whose value is -Infinity by the same 1e400 route, negated",
+    "outcome": "refuse",
+    "message": "complete run r1 has a value that is not finite",
+    "raw": "{\"version\":1,\"savedAt\":\"x\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"pass\",\"value\":-1e400}]}]}}"
+  },
+  {
+    "name": "refuses the retired \"failed\" run status by name — a failed gate is a completed run since prd53 ruling 2 was amended",
+    "outcome": "refuse",
+    "message": "run r1 carries the retired status \"failed\" — since prd53 ruling 2's amendment a failed gate is a completed run with verdict \"fail\"",
+    "raw": "{\"version\":1,\"savedAt\":\"2026-09-09T00:00:00.000Z\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"failed\",\"error\":\"timed out\"}]}]}}"
+  },
+  {
+    "name": "refuses an unknown run status",
+    "outcome": "refuse",
+    "message": "run r1 has an unknown status: running",
+    "raw": "{\"version\":1,\"savedAt\":\"2026-09-09T00:00:00.000Z\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"running\"}]}]}}"
+  },
+  {
+    "name": "refuses a complete run whose verdict is present but neither pass nor fail (round-1 verify finding 2 — Opus: this form was silently accepted by 8/9 one-sided mutations)",
+    "outcome": "refuse",
+    "message": "complete run r1 is missing its verdict (pass or fail)",
+    "raw": "{\"version\":1,\"savedAt\":\"2026-09-09T00:00:00.000Z\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"other\",\"value\":1}]}]}}"
+  },
+  {
+    "name": "refuses a complete run with no value key at all, verdict otherwise valid (distinct byte shape from a wrong-typed value, same refusal branch)",
+    "outcome": "refuse",
+    "message": "complete run r1 has a value that is neither a number nor null",
+    "raw": "{\"version\":1,\"savedAt\":\"2026-09-09T00:00:00.000Z\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"pass\"}]}]}}"
+  },
+  {
+    "name": "accepts a complete run whose note is not a string (silently dropped) alongside a detail that is a string (preserved) — proves the two guards act independently",
+    "outcome": "accept",
+    "raw": "{\"version\":1,\"savedAt\":\"2026-09-09T00:00:00.000Z\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"pass\",\"value\":1,\"note\":5,\"detail\":\"kept\"}]}]}}",
+    "expected": {
+      "arms": [
+        {
+          "id": "a",
+          "model": "opus",
+          "brief": "b",
+          "runs": [
+            {
+              "id": "r1",
+              "status": "complete",
+              "verdict": "pass",
+              "value": 1,
+              "detail": "kept"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "refuses a run with no status field at all (round-1 verify finding 2 — Codex: a server mutation reading absent status as pending stayed green at 30/30)",
+    "outcome": "refuse",
+    "message": "run r1 has an unknown status: undefined",
+    "raw": "{\"version\":1,\"savedAt\":\"2026-09-09T00:00:00.000Z\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\"}]}]}}"
+  },
+  {
+    "name": "refuses a run whose status is present but not a string (a number)",
+    "outcome": "refuse",
+    "message": "run r1 has an unknown status: 5",
+    "raw": "{\"version\":1,\"savedAt\":\"2026-09-09T00:00:00.000Z\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":5}]}]}}"
+  },
+  {
+    "name": "refuses a run whose status is a differently-cased known string — the match is case-sensitive",
+    "outcome": "refuse",
+    "message": "run r1 has an unknown status: Complete",
+    "raw": "{\"version\":1,\"savedAt\":\"2026-09-09T00:00:00.000Z\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"Complete\"}]}]}}"
+  },
+  {
+    "name": "accepts an arm whose runs array is empty",
+    "outcome": "accept",
+    "raw": "{\"version\":1,\"savedAt\":\"2026-09-09T00:00:00.000Z\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[]}]}}",
+    "expected": {
+      "arms": [
+        {
+          "id": "a",
+          "model": "opus",
+          "brief": "b",
+          "runs": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "accepts a complete run whose value is a large but finite double (Number.MAX_VALUE) — the finite/non-finite boundary from the accept side, not only the 1e400 refuse side",
+    "outcome": "accept",
+    "raw": "{\"version\":1,\"savedAt\":\"2026-09-09T00:00:00.000Z\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"pass\",\"value\":1.7976931348623157e+308}]}]}}",
+    "expected": {
+      "arms": [
+        {
+          "id": "a",
+          "model": "opus",
+          "brief": "b",
+          "runs": [
+            {
+              "id": "r1",
+              "status": "complete",
+              "verdict": "pass",
+              "value": 1.7976931348623157e+308
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "refuses an arm that is not a JSON object (round-2 verify — a throw site the shared fixture never reached, invisible to the class pin)",
+    "outcome": "refuse",
+    "message": "arm is not a JSON object",
+    "raw": "{\"version\":1,\"savedAt\":\"2026-09-09T00:00:00.000Z\",\"input\":{\"arms\":[null]}}"
+  },
+  {
+    "name": "refuses a run that is not a JSON object (round-2 verify — same class of gap as the arm-level sibling)",
+    "outcome": "refuse",
+    "message": "run is not a JSON object",
+    "raw": "{\"version\":1,\"savedAt\":\"2026-09-09T00:00:00.000Z\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[null]}]}}"
+  },
+  {
+    "name": "refuses a run missing its id (round-2 verify — this was the one probed and reddened 46/46 by a class swap the fixture could not see)",
+    "outcome": "refuse",
+    "message": "run is missing id",
+    "raw": "{\"version\":1,\"savedAt\":\"2026-09-09T00:00:00.000Z\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"status\":\"pending\"}]}]}}"
+  }
+]

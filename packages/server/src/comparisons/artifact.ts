@@ -3,22 +3,27 @@
  * copy of prd14 ruling 5's shape (ADR-0042). This is a deliberate port of
  * `packages/web/src/lab/compare/artifact.ts`, kept byte-identical in its
  * messages, rather than an import across packages — see that ADR for why.
+ * `parser-agreement-law.test.ts` (this directory, and its counterpart in
+ * `packages/web/src/lab/compare/`) is the tripwire ADR-0042 named as missing:
+ * both copies read the same fixture bytes under
+ * `packages/contract/src/fixtures/comparison-artifact/` and must accept and
+ * refuse them identically, message and all.
  *
  * An artifact whose `version` is not `1` refuses and is never migrated: a
  * migration, if one is ever written, goes through its own upcast the way
  * prd17's chokepoint prescribes (ADR-0011), and this module does not write
  * one.
  *
- * v1 carries only the compare surface's own `value` per run — the measured
- * outcome #324 added to `LabRunDTO` (`verified`, `durationMs`, `commits`,
- * `provenance`) is deliberately not in this version. Carrying it is a
- * `version: 2` decision with its own record, not an oversight in this one.
+ * v1 carries the compare surface's own run shape — a verdict, a value that
+ * may be null, and the `note`/`detail` the surface prints (prd53 ruling 2,
+ * amended 2026-09-08) — not the measured outcome #324 added to `LabRunDTO`
+ * (`durationMs`, `commits`, `provenance`). Carrying that is a `version: 2`
+ * decision with its own record, not an oversight in this one.
  */
 
 export type Run =
-  | { id: string; status: 'complete'; value: number }
-  | { id: string; status: 'pending' }
-  | { id: string; status: 'failed'; error?: string }
+  | { id: string; status: 'complete'; verdict: 'pass' | 'fail'; value: number | null; note?: string; detail?: string }
+  | { id: string; status: 'pending'; note?: string }
 
 export interface Arm {
   id: string
@@ -85,18 +90,30 @@ function parseArm(value: unknown): Arm {
   return { id, model, brief, runs: runs.map(parseRun) }
 }
 
-function parseRun(value: unknown): Run {
-  if (!isRecord(value)) throw new ComparisonArtifactError('run is not a JSON object')
-  const { id, status } = value
+function parseRun(record: unknown): Run {
+  if (!isRecord(record)) throw new ComparisonArtifactError('run is not a JSON object')
+  const { id, status } = record
   if (typeof id !== 'string') throw new ComparisonArtifactError('run is missing id')
 
   if (status === 'complete') {
-    if (typeof value.value !== 'number') throw new ComparisonArtifactError(`complete run ${id} is missing a numeric value`)
-    return { id, status: 'complete', value: value.value }
+    const { verdict, value } = record
+    if (verdict !== 'pass' && verdict !== 'fail') throw new ComparisonArtifactError(`complete run ${id} is missing its verdict (pass or fail)`)
+    if (typeof value !== 'number' && value !== null) throw new ComparisonArtifactError(`complete run ${id} has a value that is neither a number nor null`)
+    if (typeof value === 'number' && !Number.isFinite(value)) throw new ComparisonArtifactError(`complete run ${id} has a value that is not finite`)
+    return {
+      id,
+      status: 'complete',
+      verdict,
+      value,
+      ...(typeof record.note === 'string' ? { note: record.note } : {}),
+      ...(typeof record.detail === 'string' ? { detail: record.detail } : {}),
+    }
   }
-  if (status === 'pending') return { id, status: 'pending' }
+  if (status === 'pending') return typeof record.note === 'string' ? { id, status: 'pending', note: record.note } : { id, status: 'pending' }
   if (status === 'failed') {
-    return typeof value.error === 'string' ? { id, status: 'failed', error: value.error } : { id, status: 'failed' }
+    throw new ComparisonArtifactError(
+      `run ${id} carries the retired status "failed" — since prd53 ruling 2's amendment a failed gate is a completed run with verdict "fail"`,
+    )
   }
   throw new ComparisonArtifactError(`run ${id} has an unknown status: ${String(status)}`)
 }

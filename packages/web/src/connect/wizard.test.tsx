@@ -717,6 +717,65 @@ describe('step 2 — the conductor', () => {
   })
 
   /**
+   * THE HOLE #352 IS ABOUT — the identical shape #216's review found on the
+   * switch (PR #345), left on the launch. `live` gated the arm button
+   * (`disabled={!canAct}`, and `canAct` includes `live`) but the confirm
+   * button carried no such guard, and the two clicks are separated in time:
+   * arm while live, let the page move onto a fixture before the second click
+   * lands, and the launch fired anyway — while the panel beside it was
+   * already saying "nothing here will start a process". `confirmLaunch` now
+   * re-checks `live` itself and the confirm button carries `disabled={!live}`,
+   * so a `live` drop between the two clicks withholds the SECOND one too, not
+   * just the first.
+   *
+   * WHAT THIS TEST PROVES, AND WHAT IT DOES NOT. The `not.toHaveBeenCalled()`
+   * below is carried entirely by the button's `disabled={!live}`: React
+   * delivers no click from a disabled form control, so `fireEvent.click` never
+   * reaches `confirmLaunch` and the `if (!live) return` guard inside it is not
+   * exercised here — the same caveat #345's equivalent retarget test carries.
+   * A mutation that removes that guard and keeps only `disabled` leaves this
+   * test green. The guard is kept anyway, on the same refuse-before-the-wire
+   * posture `concierge/retarget.ts` takes rather than trusting its caller, but
+   * this test is not the evidence for it, and a later reader must not read it
+   * as such.
+   */
+  it('a live drop between arm and confirm withholds the launch, not just the arm button', async () => {
+    const instrumentFetchImpl = vi.fn(answering(LAUNCHED_IN_TMUX))
+    const { rerender } = await renderWizard({ instrumentFetchImpl })
+    step('conductor')
+
+    // Arm while live — the same first click every other case in this
+    // describe block starts from.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('wizard-launch'))
+    })
+    expect(screen.getByTestId('wizard-launch-confirm-dialog')).toBeTruthy()
+
+    // The page moves onto a fixture between the two clicks, with the confirm
+    // dialog still open and armed.
+    await act(async () => {
+      rerender(
+        <SetupWizard
+          links={someLinks()}
+          meta={META}
+          live={false}
+          port="4317"
+          fetchImpl={reposFetch()}
+          instrumentFetchImpl={instrumentFetchImpl}
+          onCopy={async () => undefined}
+        />,
+      )
+    })
+
+    expect(screen.getByTestId<HTMLButtonElement>('wizard-launch-confirm').disabled).toBe(true)
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('wizard-launch-confirm'))
+    })
+    expect(instrumentFetchImpl).not.toHaveBeenCalled()
+  })
+
+  /**
    * TWO CLICKS, for the switch too (#216) — the identical bar `launch()`
    * already holds the fourth mutating call to. Every test below that wants an
    * outcome goes through this, so a switch that ever became reachable in one
