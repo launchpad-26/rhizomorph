@@ -254,6 +254,7 @@ of an old decision will do the same thing.
 | [0042](0042-the-server-parses-a-comparison-artifact-with-its-own-copy.md) | The server validates a comparison artifact with its own copy of the parser, not a shared schema | 2026-09-08 | accepted |
 | [0043](0043-the-team-server-speaks-postgres-through-one-tagged-template-driver.md) | The team server speaks Postgres through one tagged-template driver, and no SQL leaves the storage module | 2026-09-08 | accepted (prd-51 ruling 5, recorded on the prd-51 wave-2 build) |
 | [0044](0044-card-chrome-is-prose-on-hover-not-a-menu.md) | Card chrome is prose on hover, not a menu — the one-card law's definition widens to any positioned panel opened on hover or focus whose content is prose, so a menu of controls is out by definition rather than by exception | 2026-09-09 | accepted (prd-30 S1 acceptance, recorded on the build #221) |
+| [0045](0045-parity-is-declared-per-file-because-the-render-is-transitive.md) | Parity is declared per file in a checked map, not inferred from imports or filenames and not taken per directory — the render is transitive, so a test can cover a surface it never names | 2026-09-09 | accepted (prd-30 S1 acceptance, recorded on the build #334) |
 
 Records 0001–0011 were reconstructed on 2026-08-06 and say so in their Context.
 One, **ADR-0003**, has an inverted evidence shape worth knowing about: the
