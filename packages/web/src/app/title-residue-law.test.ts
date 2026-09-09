@@ -186,7 +186,6 @@ export function adoptingSurfaces(files: readonly SourceFile[]): string[] {
     .map((file) => file.name)
 }
 
-/** Directories holding a test that actually opens a card, via the shared helper. */
 /**
  * Which test opens each adopting surface's card.
  *
