@@ -103,16 +103,54 @@ Three launches on 2026-09-08, each stopped one layer deeper:
 | 2 · 21:43 | 0.145.0 | `400 invalid_request_error: The 'gpt-6-astra' model requires a newer version of Codex` | the model gates on CLI version; `npm i -g @openai/codex@latest` (0.153.4, 15 s) cleared it. The interactive Codex app and the CLI are separate installs — a working app does not mean a working `exec`. |
 | 3 · 21:48 | 0.153.4 | `ERROR: Your workspace is out of credits. Ask your workspace owner to refill in order to continue.` | the seat authenticated, resolved the model, applied `approval_policy=never` and `workspace-write` with both directories, attached both images, and was refused on billing before the first token. |
 
-So the seat did not run, and no mockup exists yet. What did verify: the `exec` form is right
+So, on 2026-09-08, the seat did not run and no mockup existed.
+
+**Launch 4 · 2026-09-10 00:27 · CLI 0.153.4 · credits restored · `-c model_reasoning_effort=medium`
+(the operator's instruction: the model is expensive and its output is capped, so not `xhigh`).**
+It ran for about fourteen minutes and produced the deliverables — by an unexpected route:
+
+- Codex's Windows sandbox refused to spawn its shell commands (`CreateProcessAsUserW failed: 206`,
+  a command-length limit, then a denied Store-Python launch), so the seat could not write files
+  through the shell nor verify its own output in a browser. It adapted: it wrote a single
+  `build.py` (31 KB of template strings, three `write_text` calls into `out/`, nothing else) plus
+  `NOTES.md`, then spent its last minutes hunting for an interpreter the sandbox would run. I ran
+  the script myself after reading it, and stopped the seat before it burned more tokens on
+  verification it could not perform. Lesson for the next run: give the seat no shell at all
+  (`-s read-only` with `--add-dir out/` is not enough — the file tools work, the shell does not);
+  ask for the files directly, and say that a build step is not wanted.
+- Output: `workspace.html`, `canvas.html`, `compare-metrics.html` (27–29 KB each, 40 physical lines,
+  one shared `<style>` and one `<script>` per file, Inter + JetBrains Mono from Google Fonts —
+  the theme's own faces), and `NOTES.md` at 396 words with a colour → token table.
+- **Law check (executed by my script over the files):** off-palette literals none (15 hex values,
+  every one a `theme.css` token or a `scene/palette.ts` constant); ranking words none; the five
+  required state strings all present; the one dollar figure outside the sample, `$10.67`, is the sum
+  of the four booked costs and is labelled as that arithmetic; native `title=` attributes none.
+- **What it drew (reasoned from the source; the Chrome extension was not connected for a visual
+  pass):** the canvas as six cubic cords in arm-then-run order off a tissue-coloured root on an
+  inset axis, width from the same absolute log scale as `canvas/organism.ts`, reach by measurement
+  state, node glyphs by verdict (● passed · × failed · □ not-run · ○ unmeasured), a late fork
+  reversing the fan so the root keeps its true x, the failed-to-dispatch arm as a necrotic stub
+  named and excluded from the count, one facts panel with `aria-live`, no per-frame work; the
+  workspace as rail and pinned stage with real `tablist` / `radiogroup` keyboard paths and frame
+  keys 1–5; every position without data saying what was not supplied instead of drawing it.
+- **Its three objections to our own Stage 2 specification were all correct** — the late-fork
+  acceptance criterion tested the wrong thing, a rail row contradicted its canvas, and the artifact's
+  type bypassed the theme — and are fixed in the artifact and prd-54's draft the same day.
+
+Verdict on the use case: **a design seat under a fixed brief and a law list works**, at medium
+effort, in one shot, for a few dollars of credits — provided the brief carries every decision and
+the output contract asks for files, not a build. The mockups are published beside ours:
+canvas https://claude.ai/code/artifact/5c119e0d-89c7-4792-b06b-e792439ef94b · workspace
+https://claude.ai/code/artifact/67d5e336-5a29-4cfd-b336-5407504597b7 · compare-metrics
+https://claude.ai/code/artifact/e80d5794-1377-4fb0-9dd0-412c962fe4b2. What did verify: the `exec` form is right
 (the run header lists workdir, model, provider, approval, sandbox, reasoning effort and a session id);
 `--add-dir` widened the sandbox to `out/` as intended; `-i` accepted both images; the credits
 refusal arrives on stderr as a plain `ERROR:` line, which a monitor can catch. Cost of the three
 attempts: nothing — no tokens were served.
 
-**Next attempt, when credits exist:** the same command line, unchanged. Then the review step this
-note is for: colours diffed against the token file, copy checked for ranking words, every state
-present, and the mockups published beside ours for the operator's call. Until then the design pass
-is the one in prd-54's companion artifact, unseconded.
+**Next:** the operator's call on which of the seat's choices enter prd-54's wave 5 (the artifact's
+§08 names what this note's author would adopt), and a visual pass of the three mockups in a
+connected browser to confirm what the source reading says.
 
 ## Sources
 
