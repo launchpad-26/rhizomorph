@@ -1,13 +1,35 @@
 # prd-30 — the open hand: every mark explains itself
 
-> **Outcome:** partially shipped, **groomed 2026-09-02** into #220 and #221 — the shared
-> disclosure card, condition selector and teach layer ship. What the code's own full-scope law
-> owes is a **re-seat**, not a build: `MarkHoverCard` and the loupe read-out already exist as
-> shipped card chrome in `tide/`, and retiring those idioms is what lets `one-card-law.test.ts`
-> widen to its full sentence with an empty allowlist. The `title=` adoption sweep is the bulk of
-> it — 97 native tooltips across 14 directories at `26c48c7`. First-glance acceptance follows
-> that sweep and is an operator act, not a lane. Reconciled in depth 2026-08-22 at `03df141`;
-> see `retained-prds-review-2026-08-22.md`.
+> **Outcome:** all four waves shipped; **one operator act outstanding** — the first-glance acceptance.
+> Reconciled 2026-09-10 (see the amendment at the foot of this document, which also declares
+> the waves in the form `scripts/dev/prd-reconcile.sh` reads).
+>
+> What landed: the shared disclosure card and the `title=` adoption sweep (#220, `8ee1b498`);
+> the re-seat that let `one-card-law.test.ts` widen to its full sentence with an **empty**
+> allowlist, retiring `MarkHoverCard` and the loupe read-out as separate card chrome (#221,
+> `ac152919`); and focus parity proven **per file** rather than per directory, with ADR-0045
+> for why the render's transitivity forces a hand-maintained map (#334, `24b836b0`).
+>
+> What is left, and it is smaller than this document used to claim:
+>
+> - **#389 (wave 4)** — twelve native tooltips survive in three directories, held back by the
+>   four carve-outs in `packages/web/src/app/title-residue-law.test.ts`'s `NOT_YET_SWEPT`.
+>   Every one of those carve-outs names an owner that has since closed, so each is a promise
+>   nobody is keeping; the issue retires the twelve and deletes the mechanism rather than
+>   emptying it. Success criteria 1 and 3 are not met until it lands.
+> - **First-glance acceptance** — still an operator act, not a lane, and it now carries
+>   prd-33 ruling 14's Check 3 list (see the amendment further down).
+>
+> **The "97 native tooltips" this line used to quote was a bare-grep overcount.** The
+> residue law's own docstring records the correction: 26 of the 97 were props on local
+> components — `<Vital title=…>`, `<Figure title=…>` — and two were `<PanelFrame title="Fleet">`,
+> which renders a *visible heading* and never was a tooltip. #220 retired **50** real ones
+> (`packages/web/src/disclosure/testing.ts`). Count with the law's `nativeTitleSites`, which
+> resolves the element each attribute sits on; a grep miscounts in both directions. The
+> pre-sweep figures in *Evidence* below are left exactly as written — that section is a record
+> of the tree at `26c48c7`, not a live claim.
+>
+> Reconciled in depth 2026-08-22 at `03df141`; see `retained-prds-review-2026-08-22.md`.
 >
 > Builds the design charter's §6 rulings (`docs/design/charter.md`,
 > PR #451): one hover-disclosure vocabulary on prd-27 ruling 5's label/why/remedy triple, and
@@ -240,6 +262,19 @@ test asserts no string in the teach layer exists outside the condition table.
    and collides with everything otherwise. It follows prd-31's drawer and trace re-lay and
    precedes prd-32's era-closing sweeps.
 
+**The three items above are the ORIGINAL plan and are not what was built.** They are kept
+because a PRD is append-only and the plan of record's history is the point; the waves as
+actually executed are declared in the 2026-09-10 amendment at the foot of this document.
+Two divergences, both already ruled elsewhere: the sweep ran as the FIRST wave rather than
+the last (the 2026-09-02 grooming note above says why per-directory fences could not hold),
+and the condition selector in `core/src/selectors/` never became its own wave.
+
+Note also that this list's **#223** and **#380** are **prior-tracker** numbers — this document
+predates the 2026-08-21 rebuild. `#380` in particular now resolves to a live, unrelated pull
+request in this repository, so a reader following it lands somewhere plausible and wrong.
+AGENTS.md's citation note is the general form of this hazard; the numbers are left as written
+because they are real provenance, and this paragraph is the disambiguation.
+
 Unfiled work implied, described not numbered: the card and its focus pattern; the selector and
 its table; the STATE surface re-seat; the per-directory `title=` sweeps.
 
@@ -264,7 +299,7 @@ currently narrow: those idioms are *shipped card chrome in other directories rig
 law written to the full sentence would have failed on landing and wave 1 would have had to
 disable it. What is owed is the re-seat that lets the law widen. That is #221.
 
-**Wave 3's per-directory fences are not safely achievable, and the sweep is #220 as one
+**The sweep's per-directory fences are not safely achievable, and it is #220 as one
 issue.** The sequencing above asks for one boundary per directory. Three of this package's law
 tests are anchored across directory lines — the token law's `STATUS_RING_ALLOWLIST` into the
 status bar, the legibility law's allowlist into the conversation drawer, and the kind law's
@@ -277,6 +312,15 @@ change repeated.
 
 `packages/web/src/scene/` is excluded from #220 while #39 holds `scene/palette.ts` and
 `theme/theme.css`; its three tooltips move in a later pass.
+
+**That later pass is #389, and #39 landed at `848f1323` on 2026-09-08** — so this exclusion
+has expired. It is recorded here rather than struck out because the *shape* of the failure is
+the reusable part: the exclusion was encoded in
+`packages/web/src/app/title-residue-law.test.ts`'s `NOT_YET_SWEPT`, whose guard test asserts
+that every entry NAMES an owner and never that the owner is still OPEN. All four entries'
+owners closed between 2026-09-07 and 2026-09-08 and nothing went red, so a law that reads as
+enforcing coverage was quietly exempting four directories. #389 deletes the mechanism instead
+of adding a staleness check, on the grounds that a check on an empty list is decoration.
 
 ## Amendment — prd-33's glance rides this PRD's acceptance (operator, 2026-09-02)
 
@@ -299,3 +343,68 @@ prose. One unrun act, two PRDs' acceptance. That act is now one act, and it carr
 A viewer FAIL on a scene encoding lands as an explanation in this PRD's vocabulary or as a scene
 defect; the CUT remedy prd-33 ruling 5 held does not transfer, and ruling 14 says why.
 
+## Amendment — the waves as executed, and wave 4 (2026-09-10)
+
+Written because `scripts/dev/prd-reconcile.sh 30` reported three UNDECLARED WAVES against
+this document: the tracker held #220 at w1, #221 at w2 and #389 at w4, and this PRD declared
+none of them. The reason is mechanical and worth recording, since it will recur in any PRD
+written the same way — the detector reads a wave declaration as the literal string `**Wave N`,
+and this document's *Sequencing* list used `1.` / `2.` / `3.` instead, so it declared nothing.
+The single exception was an accident: a sentence in the 2026-09-02 grooming note opened with
+a bolded wave-three heading, which declared w3 from inside a note that was arguing the
+opposite. That sentence has been reworded to name the sweep instead of the wave number, and
+the four waves are declared here. This paragraph deliberately does NOT quote the offending
+string: reproducing a declaration verbatim while explaining it declares the wave a second
+time, which is the duplicate the detector reports — the same rule prd-42's convention already
+puts on SUPERSEDED markers.
+
+The document is the plan of record, so it is amended rather than the issue titles moved —
+the direction `prd-reconcile.sh`'s own header warns about getting backwards.
+
+**Wave 1** — the disclosure card, its keyboard/focus pattern, and the `title=` adoption
+sweep. #220, landed `8ee1b498`.
+
+**Wave 2** — the re-seat that lets `disclosure/one-card-law.test.ts` state its whole
+sentence with an empty allowlist, retiring `MarkHoverCard` and the loupe read-out as separate
+card chrome. #221, landed `ac152919`.
+
+**Wave 3** — focus parity proven per file rather than per directory, with ADR-0045 recording
+why the render's transitivity forces a hand-maintained map over a scanner. #334, landed
+`24b836b0`.
+
+**Wave 4** — the native-title law has no exemptions left: the last twelve tooltips retire
+from `scene/`, `replay/` and `concierge/`, and `NOT_YET_SWEPT` is deleted rather than
+emptied. #389.
+
+Nine of those twelve became disclosure cards. Three did not, and the exception is a ruling
+rather than an omission: `scene/`'s camera buttons carried their own accessible name plus a
+keyboard shortcut, and the replay banner labelled two fields. None states a condition, rests
+on evidence or has a remedy, so the vocabulary could only have been satisfied by inventing
+all three — S1's own *"a card whose why has no evidence in it"*. They became accessible
+names and `sr-only` labels instead, which the residue law is satisfied by: it forbids a
+native `title=`, it does not require a card. ADR-0047 carries the related ruling on the three
+controls that explain their own unavailability.
+
+Wave 4 is one issue and not three, for the reason the 2026-09-02 grooming note already gave
+about wave 3 and which has only got stronger: `packages/web/src/app/title-residue-law.test.ts`
+now holds both `NOT_YET_SWEPT` and #334's per-file `PARITY_TEST`, so every adopting surface
+must edit that one file or the parity law reddens. Three directory-sized lanes would collide
+there; giving one lane sole ownership of it makes the siblings depend on that lane, which is a
+stack wearing a bundle's clothes. One coherent sweep of the same change repeated is the honest
+shape, and it is the same conclusion #222 reached.
+
+**Ruled at wave 4's grooming, because #220 never had to face it.** Three of the twelve
+tooltips sit on `disabled` buttons and exist precisely to explain the disablement — two in
+`replay/index.tsx`, one in `scene/SceneView.tsx`. A `disabled` button cannot take focus, so
+charter §6 is unsatisfiable on those three as written, and `disclosure/Disclosure.tsx` has no
+`disabled` handling. They take `aria-disabled` with a guarded handler so they stay focusable,
+scoped to exactly those three controls and to no other `disabled` control in the package. The
+strings port verbatim: no new label/why/remedy authoring in wave 4, and no generated prose
+ever. The guard is the part with a sibling defect in it — an `aria-disabled` button is a real
+button, so it fires on Enter and Space too, and guarding only the pointer path leaves a
+keyboard user able to invoke what the surface says is unavailable, which is strictly worse
+than the `disabled` it replaced.
+
+**What remains after wave 4 is the first-glance acceptance, and it is still an operator act.**
+It carries prd-33 ruling 14's Check 3 encoding list and the two 1440 px observations, per the
+2026-09-02 amendment above. Nothing in this PRD dispatches it to a lane.
