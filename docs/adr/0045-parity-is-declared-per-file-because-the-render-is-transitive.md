@@ -66,6 +66,16 @@ mappings today are name-mismatched.
   exercising one. Narrowing that needs the test to name what it opened, which is
   a bigger change than this issue is; the map at least makes the claim visible
   and attributable where a directory could not.
+- Bad: an entry proves only as much as its named test asserts, and the map does
+  not grade that. `drawer/Vitals.tsx` names `drawer/index.test.tsx`, whose parity
+  assertion is `discloseText(mark).length > 0`; measured in review of the build,
+  replacing every `reason` and `fact` in `Vitals.tsx` with garbage left all 129
+  tests in `drawer/` and this law green. #334's issue body named that assertion
+  and asked for it to be re-read, and this record is where that reading lands:
+  the map says *which* test carries a surface's claim, which a directory could
+  not, and it says nothing about how strong the claim is. Grading the assertions
+  is a separate piece of work from declaring the pairing.
+
 - Bad: it is one more hand-maintained list in a repository that already treats
   those with suspicion. It earns its place only because the law fails without
   it — an entry nobody checks would be exactly the decoration this repo's own
