@@ -1,22 +1,41 @@
 import { type KeyboardEvent, useCallback, useEffect, useState } from 'react'
-import {
-  type TranscriptBlock,
-  type TranscriptEntry,
-  type TranscriptRole,
-  transcriptUrl,
-} from '../../drawer/useTranscript.js'
+import type { TranscriptBlock, TranscriptEntry, TranscriptRole } from '../../drawer/useTranscript.js'
 import { capabilityRead } from '../../recordings/capabilityRead.js'
 import type { FetchLike } from '../../replay/api.js'
 import { type TraceDiff as Diff, type DiffRow, diffSteps } from './diff.js'
 import { type Step, toSteps } from './steps.js'
 
 /**
- * TRACE (prd53 S3, #327): an arm's steps against its parent's from the fork
- * forward, each row `same` / `diverged` / `added` / `absent`. The parent is
- * READ, never copied — both transcripts arrive through `GET /api/transcript/:lane
- * ?offset=…` and nothing here persists a line of either (the law beside this
- * file checks that). Alignment is by content (`diff.ts`), because the arm's
- * session is a path-rewritten copy and byte offsets do not carry across it.
+ * TRACE (prd53 S3, #327; prd-55 ruling 6 / S3′, #384): an arm's steps against
+ * its parent's from the fork forward, each row `same` / `diverged` / `added` /
+ * `absent`. The parent is READ, never copied — nothing here persists a line
+ * of either transcript (the law beside this file checks that). Alignment is
+ * by content (`diff.ts`), because the arm's session is a path-rewritten copy
+ * and byte offsets do not carry across it.
+ *
+ * **Both sides come from the lab's own record** — `GET /api/lab/transcript`
+ * (`api/lab-transcript.ts`): the parent from its checkpoint's session file up
+ * to the cut, digest-checked, named by the arm it was forked into
+ * (`?lane=<parent>&arm=<handle>`); the arm from the session under its own
+ * worktree, resolved from the dispatch record (`?lane=<handle>`). Never the
+ * fleet's transcript tail (`api/transcript.ts`), which knows only lanes the
+ * sessionlog collector attributed — this surface read it until prd-55 wave 3
+ * and got NO SESSION LOG for a parent and 404 for an arm that never launched
+ * (prd-55's Evidence). The law beside this file greps the whole of `lab/`
+ * for that tail.
+ *
+ * **The whole span, in one ask.** The lab route serves a parent to its cut
+ * and an arm to its end complete, however long, so nothing here pages: the
+ * wave-3 review found this file reading the fleet tail's first 64 KiB page
+ * at `offset=0` and following nothing, so a parent forked past its first
+ * page diffed as entirely `same`. One request per side; no `offset`, no
+ * `nextOffset`, no `eof`.
+ *
+ * **Not launched is a fact, not a gap.** An arm whose restored session holds
+ * exactly the lines the restore copied has not begun; the route says so in
+ * its own words (`launched: false`, `note`) and this surface shows them —
+ * while still diffing, so the frame's divergence position reads a real
+ * summary (every parent step past the fork `absent`) rather than nothing.
  *
  * The instrument's span furniture (`web/src/trace/`) is span-typed — it
  * renders OTEL spans folded from `SessionState` — and a transcript step is not
@@ -39,9 +58,40 @@ export interface TraceDiffProps {
   onDiff?: (summary: { rows: number; diverged: number; added: number; absent: number }) => void
 }
 
+/**
+ * The lab's own transcript route (prd-55 ruling 6). An arm is read by its
+ * handle; its parent is read cut at that arm's checkpoint by naming the arm.
+ * The web bundle does not depend on the server package, so the path is
+ * restated here and proven against the real route by the contract test
+ * (`packages/contract/src/lab-transcript.contract.test.ts`).
+ */
+export function labTranscriptUrl(lane: string, options: { arm?: string } = {}): string {
+  const arm = options.arm === undefined ? '' : `&arm=${encodeURIComponent(options.arm)}`
+  return `/api/lab/transcript?lane=${encodeURIComponent(lane)}${arm}`
+}
+
+/**
+ * One side's reading, as the surface consumes it. `ready` carries the whole
+ * span; `unavailable` is the route's own honest absence (a refused digest, a
+ * session not on this machine, a lane the record never named — 200 or 404,
+ * each with its reason); `error` is a transport or gate failure with what
+ * the route answered.
+ */
+export type LabTranscriptReading =
+  | {
+      status: 'ready'
+      side: 'parent' | 'arm'
+      entries: TranscriptEntry[]
+      /** An arm: true once its session has grown past the cut, false when it has not (`note` says so), null when the record cannot tell (`note` says why). A parent: null, no note. */
+      launched: boolean | null
+      note: string | null
+    }
+  | { status: 'unavailable'; reason: string }
+  | { status: 'error'; message: string }
+
 type Side =
   | { status: 'loading' }
-  | { status: 'ready'; steps: Step[] }
+  | { status: 'ready'; steps: Step[]; launched: boolean | null; note: string | null }
   | { status: 'unavailable'; reason: string }
   | { status: 'error'; message: string }
 
@@ -79,20 +129,51 @@ function parseEntries(value: unknown): TranscriptEntry[] {
   return entries
 }
 
-/** Reads a whole transcript from byte 0 — the request carries `offset=`, and the response is never stored. */
-async function readTranscript(lane: string, fetchImpl: FetchLike): Promise<Side> {
+/**
+ * One read of the lab route, whole, never stored. The default transport is
+ * `capabilityRead` — the route is a gated read (prd-29 ruling 1) and the
+ * token travels the one way every read's does.
+ */
+export async function readLabTranscript(
+  lane: string,
+  options: { arm?: string } = {},
+  fetchImpl: FetchLike = capabilityRead,
+): Promise<LabTranscriptReading> {
   try {
-    const response = await fetchImpl(transcriptUrl(lane, 0))
-    if (!response.ok) return { status: 'error', message: `the transcript route answered ${response.status}` }
-    const body: unknown = await response.json()
-    if (!isRecord(body)) return { status: 'error', message: 'the transcript route answered something other than a transcript' }
+    const response = await fetchImpl(labTranscriptUrl(lane, options))
+    const body: unknown = await response.json().catch(() => null)
+    if (!isRecord(body)) {
+      return {
+        status: 'error',
+        message: response.ok
+          ? 'the lab transcript route answered something other than a transcript'
+          : `the lab transcript route answered ${response.status}`,
+      }
+    }
     if (body.available === false) {
+      // The route's own reason — 200 for a lane the record knows but cannot
+      // vouch for, 404 for one it never named. Both are shown verbatim.
       return { status: 'unavailable', reason: typeof body.reason === 'string' ? body.reason : 'no transcript is available' }
     }
-    return { status: 'ready', steps: toSteps(parseEntries(body.entries)) }
+    if (!response.ok) {
+      const detail = typeof body.error === 'string' ? ` — ${body.error}` : ''
+      return { status: 'error', message: `the lab transcript route answered ${response.status}${detail}` }
+    }
+    return {
+      status: 'ready',
+      side: body.side === 'arm' ? 'arm' : 'parent',
+      entries: parseEntries(body.entries),
+      launched: typeof body.launched === 'boolean' ? body.launched : null,
+      note: typeof body.note === 'string' ? body.note : null,
+    }
   } catch (err) {
     return { status: 'error', message: err instanceof Error ? err.message : String(err) }
   }
+}
+
+function toSide(reading: LabTranscriptReading): Side {
+  if (reading.status !== 'ready') return reading
+  return { status: 'ready', steps: toSteps(reading.entries), launched: reading.launched, note: reading.note }
 }
 
 const KIND_WORD: Readonly<Record<DiffRow['kind'], string>> = {
@@ -114,11 +195,11 @@ export function TraceDiff({ parentLane, laneHandle, armLabel, failed = null, fet
     let live = true
     setParent({ status: 'loading' })
     setArm({ status: 'loading' })
-    void readTranscript(parentLane, impl).then((side) => {
-      if (live) setParent(side)
+    void readLabTranscript(parentLane, { arm: laneHandle }, impl).then((reading) => {
+      if (live) setParent(toSide(reading))
     })
-    void readTranscript(laneHandle, impl).then((side) => {
-      if (live) setArm(side)
+    void readLabTranscript(laneHandle, {}, impl).then((reading) => {
+      if (live) setArm(toSide(reading))
     })
     return () => {
       live = false
@@ -134,6 +215,7 @@ export function TraceDiff({ parentLane, laneHandle, armLabel, failed = null, fet
     // Re-announce only when the classification changes, not on every render.
   }, [diffKey]) // eslint-disable-line react-hooks/exhaustive-deps
   const rowCount = diff !== null ? diff.rows.length : arm.status === 'ready' ? arm.steps.length : 0
+  const notLaunched = arm.status === 'ready' && arm.launched === false
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLElement>) => {
@@ -170,13 +252,15 @@ export function TraceDiff({ parentLane, laneHandle, armLabel, failed = null, fet
   return (
     <section
       data-testid="trace-diff"
-      data-state={diff === null ? (arm.status === 'ready' ? 'parent-unreadable' : arm.status) : diff.rows.length === 0 ? 'empty' : 'ready'}
+      data-state={
+        diff === null ? (arm.status === 'ready' ? 'parent-unreadable' : arm.status) : notLaunched ? 'not-launched' : diff.rows.length === 0 ? 'empty' : 'ready'
+      }
       className="flex flex-col gap-2 text-read-body text-(--ink-body)"
     >
       <header className="flex flex-wrap items-baseline gap-2">
         <span className="heading text-(--ink-primary)">Trace</span>
         <span className="text-(--ink-dim)">
-          {label} against {parentLane}, from the fork forward — the parent is read at its own transcript, never copied
+          {label} against {parentLane}, from the fork forward — both read from the lab&apos;s own record, the parent to its cut, never copied
         </span>
       </header>
 
@@ -188,6 +272,17 @@ export function TraceDiff({ parentLane, laneHandle, armLabel, failed = null, fet
       {arm.status === 'unavailable' || arm.status === 'error' ? (
         <p role="status" data-testid="trace-arm-unreadable" className="text-(--ink-dim)">
           the arm&apos;s transcript cannot be read — {arm.status === 'error' ? arm.message : arm.reason}
+        </p>
+      ) : null}
+
+      {arm.status === 'ready' && arm.launched === false ? (
+        <p role="status" data-testid="trace-not-launched" className="text-(--ink-dim)">
+          {label} {arm.note ?? 'not launched'}
+        </p>
+      ) : null}
+      {arm.status === 'ready' && arm.launched === null && arm.note !== null ? (
+        <p role="status" data-testid="trace-launch-unknown" className="text-(--ink-dim)">
+          {arm.note}
         </p>
       ) : null}
 

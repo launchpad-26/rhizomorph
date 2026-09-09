@@ -148,6 +148,12 @@ const EXPECTED_READS: ReadonlyArray<{
   },
   { route: '/api/meta', module: 'connect/meta.ts', contractTest: 'meta.contract.test.ts', refusalShape: 'swallows' },
   { route: '/api/doctor', module: 'connect/meta.ts', contractTest: 'doctor.contract.test.ts', refusalShape: 'swallows' },
+  {
+    route: '/api/lab/transcript',
+    module: 'lab/trace.ts',
+    contractTest: 'lab-transcript.contract.test.ts',
+    refusalShape: 'swallows',
+  },
 ]
 
 /**
@@ -303,13 +309,13 @@ describe('every gated-read route has a contract test (prd-29 w3, #61) — the re
     // is the point: the number is derived from the parse, never hardcoded as
     // a vacuity floor ruling 3 forbids.
     expect(allGatedReads.length).toBeGreaterThan(0)
-    expect(allGatedReads).toHaveLength(16)
+    expect(allGatedReads).toHaveLength(17)
 
     const excludedByThisLaw = allGatedReads.filter((route) => !declaredGatedReadRoutes().includes(route))
     expect(excludedByThisLaw).toEqual(['/api/lab/comparisons', '/api/lab/comparisons/:id', '/api/stream'])
   })
 
-  it('the server route table still declares exactly the 13 gated-read routes this law expects — the two enumerations cannot drift', () => {
+  it('the server route table still declares exactly the 14 gated-read routes this law expects — the two enumerations cannot drift', () => {
     const declared = declaredGatedReadRoutes()
 
     // Exact equality, both directions: a `gated-read` route added to
