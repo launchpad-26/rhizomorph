@@ -55,7 +55,7 @@ const WEB_SRC = path.resolve(HERE, '..')
 /**
  * This file's own path, relative to {@link WEB_SRC} — **derived, never spelled**,
  * so it cannot rot if the law moves (the docstring above already contemplates
- * moving it beside `one-card-law.test.ts`). {@link directoriesWithParityTests}
+ * moving it beside `one-card-law.test.ts`). {@link brokenParityEntries}
  * excludes it, for the reason `shippedFiles` excludes tests: a law test must be
  * able to WRITE the pattern it looks for, and this one does — twice, in the
  * remediation sentence it prints on failure and in the rigged fixtures below.
@@ -186,20 +186,96 @@ export function adoptingSurfaces(files: readonly SourceFile[]): string[] {
     .map((file) => file.name)
 }
 
-/** Directories holding a test that actually opens a card, via the shared helper. */
-export function directoriesWithParityTests(
+/**
+ * Which test opens each adopting surface's card.
+ *
+ * **Per file, and hand-maintained on purpose (#334).** #220 shipped this as a
+ * per-DIRECTORY rule, and the argument for that is still in this file's history:
+ * a per-file map is "a second place to forget". That reasoning conflates two
+ * different things — a map you can forget to update, which is bad, and a map the
+ * law FAILS without, which is not forgettable at all. This is the second: a new
+ * adopter is red until it names its test, so forgetting is the loud state rather
+ * than the quiet one.
+ *
+ * The directory rule had a measured hole. `lane-page/` holds four adopters and
+ * two were covered, so the law read the directory as proven; #221's verify pass
+ * deleted `RunOutcome.tsx`'s `<Disclosure>` outright and 60 tests stayed green.
+ *
+ * **The association cannot be inferred**, which is why this is a map and not a
+ * scanner. The render is transitive: `LanePage.tsx` renders `<RunSpine>`, so
+ * `RunView.test.tsx` covers `lane-page/RunSpine.tsx` while importing nothing
+ * from it and sharing no name with it. A rule based on imports or on filenames
+ * produces false negatives exactly where the coverage is real, and a law that
+ * cries wolf on correct code is a law the next person weakens. See ADR-0045.
+ */
+const PARITY_TEST: Readonly<Record<string, string>> = {
+  'app/Nav.tsx': 'app/Nav.test.tsx',
+  'drawer/Conversation.tsx': 'drawer/Conversation.test.tsx',
+  'drawer/Vitals.tsx': 'drawer/index.test.tsx',
+  'interaction/InteractionCard.tsx': 'interaction/InteractionCard.test.tsx',
+  'lane-page/PageHeader.tsx': 'lane-page/LanePage.test.tsx',
+  'lane-page/RunOutcome.tsx': 'lane-page/RunView.test.tsx',
+  'lane-page/RunSpine.tsx': 'lane-page/RunView.test.tsx',
+  'lane-page/SpendDetail.tsx': 'lane-page/LanePage.test.tsx',
+  'panels/attention/AttentionStripView.tsx': 'panels/attention/AttentionStripView.test.tsx',
+  'panels/burn/index.tsx': 'panels/burn/index.test.tsx',
+  'panels/collisions/index.tsx': 'panels/collisions/index.test.tsx',
+  'panels/fleet/index.tsx': 'panels/fleet/index.test.tsx',
+  'panels/ledger/index.tsx': 'panels/ledger/index.test.tsx',
+  'recordings/LaneAxis.tsx': 'recordings/historyAxis.test.tsx',
+  'recordings/RecordingsPage.tsx': 'recordings/RecordingsPage.test.tsx',
+  'trace/TraceTree.tsx': 'trace/TraceTree.test.tsx',
+  'why/NearestEntry.tsx': 'why/NearestEntry.test.tsx',
+  'why/WhySurface.tsx': 'why/WhySurface.test.tsx',
+}
+
+/** Adopting surfaces with no entry in {@link PARITY_TEST} — nothing proves a keyboard reaches their card. */
+export function surfacesWithoutParityTest(
   files: readonly SourceFile[],
+  map: Readonly<Record<string, string>> = PARITY_TEST,
+): string[] {
+  return adoptingSurfaces(files).filter((name) => map[name] === undefined)
+}
+
+/**
+ * Entries whose named test cannot be doing the job — it is gone, or it never
+ * opens a card. A map is only worth what its entries are checked against.
+ */
+export function brokenParityEntries(
+  files: readonly SourceFile[],
+  map: Readonly<Record<string, string>> = PARITY_TEST,
   self: string = THIS_FILE,
-): Set<string> {
-  const dirs = new Set<string>()
-  for (const file of files) {
-    if (!/\.test\.tsx?$/.test(file.name)) continue
-    // This law does not get to certify its own directory. See {@link THIS_FILE}.
-    if (file.name === self) continue
-    if (!/\bdisclose(Text|TextOf)\s*\(/.test(withoutComments(file.text))) continue
-    dirs.add(path.posix.dirname(file.name))
+): string[] {
+  const broken: string[] = []
+  for (const [surface, testName] of Object.entries(map)) {
+    const test = files.find((file) => file.name === testName)
+    if (test === undefined) {
+      broken.push(`${surface} -> ${testName} (no such file)`)
+      continue
+    }
+    // This law does not get to certify itself. See {@link THIS_FILE}.
+    if (test.name === self) {
+      broken.push(`${surface} -> ${testName} (this law cannot certify itself)`)
+      continue
+    }
+    if (!/\bdisclose(Text|TextOf)\s*\(/.test(withoutComments(test.text))) {
+      broken.push(`${surface} -> ${testName} (never opens a card)`)
+    }
   }
-  return dirs
+  return broken
+}
+
+/**
+ * Keys naming a surface that no longer renders the card. Without this the map
+ * grows a tail of entries certifying nothing, which is how an allowlist quietly
+ * becomes decoration.
+ */
+export function staleParityEntries(
+  files: readonly SourceFile[],
+  map: Readonly<Record<string, string>> = PARITY_TEST,
+): string[] {
+  const adopters = new Set(adoptingSurfaces(files))
+  return Object.keys(map).filter((surface) => !adopters.has(surface))
 }
 
 function shippedFiles(root: string): SourceFile[] {
@@ -310,21 +386,27 @@ describe('no surface explains itself with a native title attribute (prd-30, #220
  * happened: a whole directory adopting the card with nothing opening it.
  */
 describe('every surface that discloses has a test that opens it (charter §6)', () => {
-  it('leaves no adopting directory unproven', () => {
-    const files = allFiles(WEB_SRC)
-    const covered = directoriesWithParityTests(files)
-
-    const unproven = [
-      ...new Set(
-        adoptingSurfaces(files)
-          .map((name) => path.posix.dirname(name))
-          .filter((dir) => !covered.has(dir)),
-      ),
-    ].sort()
+  it('leaves no adopting surface unproven', () => {
+    const unproven = surfacesWithoutParityTest(allFiles(WEB_SRC))
 
     expect(
       unproven,
-      `these directories render <Disclosure> and no test in them opens a card, so nothing proves a keyboard user sees what a mouse user sees there.\nAdd one: import { discloseText } from '<...>/disclosure/testing.js' and assert on discloseText(mark) — it opens the card both ways and throws unless they match.\nUnproven:\n  ${unproven.join('\n  ')}`,
+      `these files render <Disclosure> and no test is declared for them, so nothing proves a keyboard user sees what a mouse user sees.\nAdd the surface to PARITY_TEST above, naming the test that opens its card, and make that test call discloseText().\nUnproven:\n  ${unproven.join('\n  ')}`,
+    ).toEqual([])
+  })
+
+  it('keeps every declared entry honest — a named test that is gone, or never opens a card', () => {
+    const broken = brokenParityEntries(allFiles(WEB_SRC))
+
+    expect(broken, `PARITY_TEST names a test that cannot be doing the job:\n  ${broken.join('\n  ')}`).toEqual([])
+  })
+
+  it('carries no stale entry — a key whose surface no longer discloses', () => {
+    const stale = staleParityEntries(allFiles(WEB_SRC))
+
+    expect(
+      stale,
+      `PARITY_TEST certifies surfaces that no longer render <Disclosure>. Remove them; a map with a tail of dead keys is decoration:\n  ${stale.join('\n  ')}`,
     ).toEqual([])
   })
 
@@ -348,26 +430,42 @@ describe('every surface that discloses has a test that opens it (charter §6)', 
     expect(adoptingSurfaces(rigged)).toEqual(['app/real.tsx'])
   })
 
-  it('does not count a test that merely imports the helper without calling it', () => {
-    const rigged: SourceFile[] = [
-      { name: 'panels/x/index.test.tsx', text: "import { discloseText } from '../../disclosure/testing.js'\n// unused" },
-      { name: 'panels/y/index.test.tsx', text: 'expect(discloseText(mark)).toContain("x")' },
-    ]
-
-    expect([...directoriesWithParityTests(rigged)]).toEqual(['panels/y'])
+  it('names an adopter that declares no test', () => {
+    const rigged: SourceFile[] = [{ name: 'panels/x/index.tsx', text: '<Disclosure disclosure={d}>{x}</Disclosure>' }]
+    expect(surfacesWithoutParityTest(rigged, {})).toEqual(['panels/x/index.tsx'])
   })
 
-  it('does not let this law certify its own directory on the strength of its own text', () => {
-    // `withoutComments` blanks comments, not string literals — and this file
-    // carries `discloseText(` in two of them: the remediation sentence it
-    // prints on failure, and the fixture one line above. Both are string
-    // literals, so without the {@link THIS_FILE} exclusion the law reads its
-    // own directory as proven and can never report `app` unproven.
-    const law = { name: 'app/the-law.test.ts', text: 'the message it prints says: call discloseText(mark)' }
-    const real = { name: 'app/Nav.test.tsx', text: 'expect(discloseText(mark)).toContain("x")' }
+  it('names an entry whose test is gone, and one that never opens a card', () => {
+    const files: SourceFile[] = [
+      { name: 'panels/x/index.tsx', text: '<Disclosure disclosure={d}>{x}</Disclosure>' },
+      { name: 'panels/y/index.tsx', text: '<Disclosure disclosure={d}>{y}</Disclosure>' },
+      { name: 'panels/y/index.test.tsx', text: 'render(<Thing />) // never opens one' },
+    ]
+    const map = { 'panels/x/index.tsx': 'panels/x/gone.test.tsx', 'panels/y/index.tsx': 'panels/y/index.test.tsx' }
 
-    expect([...directoriesWithParityTests([law, real], law.name)]).toEqual(['app'])
-    expect([...directoriesWithParityTests([law], law.name)]).toEqual([])
+    expect(brokenParityEntries(files, map, 'app/title-residue-law.test.ts')).toEqual([
+      'panels/x/index.tsx -> panels/x/gone.test.tsx (no such file)',
+      'panels/y/index.tsx -> panels/y/index.test.tsx (never opens a card)',
+    ])
+  })
+
+  it('names a stale entry whose surface stopped disclosing', () => {
+    const files: SourceFile[] = [{ name: 'panels/x/index.tsx', text: 'const x = 1' }]
+    expect(staleParityEntries(files, { 'panels/x/index.tsx': 'panels/x/index.test.tsx' })).toEqual(['panels/x/index.tsx'])
+  })
+
+  it('does not let this law certify a surface on the strength of its own text', () => {
+    // `withoutComments` blanks comments, not string literals — and this file
+    // carries `discloseText(` in its own failure message. Without the
+    // {@link THIS_FILE} exclusion an entry naming this law would certify itself.
+    const files: SourceFile[] = [
+      { name: 'app/Thing.tsx', text: '<Disclosure disclosure={d}>{x}</Disclosure>' },
+      { name: 'app/the-law.test.ts', text: 'the message it prints says: call discloseText(mark)' },
+    ]
+
+    expect(brokenParityEntries(files, { 'app/Thing.tsx': 'app/the-law.test.ts' }, 'app/the-law.test.ts')).toEqual([
+      'app/Thing.tsx -> app/the-law.test.ts (this law cannot certify itself)',
+    ])
   })
 
   it('resolves its own path, so that exclusion is not a silent no-op', () => {

@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createEventFactory, fixtureTraceSpans, type RhizomorphEvent } from '@rhizomorph/core'
 import { afterEach, describe, expect, it } from 'vitest'
+import { discloseText } from '../disclosure/testing.js'
 import { StreamProvider } from '../app/StreamContext.js'
 import { FleetProvider } from '../fleet/FleetContext.js'
 import type { FetchLike } from '../fleet/manifest.js'
@@ -250,6 +251,45 @@ describe('the run view renders for a lane whose worktree no longer exists', () =
     // Region 4 — spend and activity, carried per recording on the spine.
     expect(screen.getByTestId('run-spine-output')).toBeTruthy()
     expect(screen.getByTestId('run-spine-cost')).toBeTruthy()
+  })
+
+  it('discloses the outcome and the spine, by hover and by focus alike (#334)', async () => {
+    await renderRunView()
+
+    // These two surfaces adopted `Disclosure` before #220's sweep and were
+    // never covered by a parity test. #220's law read `lane-page/` as proven
+    // because two OTHER files in it were, and the re-verify pass proved the
+    // hole by deleting `RunOutcome.tsx`'s wrapper and watching 60 tests stay
+    // green. This is the test that goes red for that now.
+    //
+    // `discloseText` opens each card by mouse, closes it, opens it by
+    // keyboard, and throws unless the two markups match — so these are
+    // charter §6 assertions as much as content ones.
+    // Both halves pin what the surface DERIVES, not the word already on
+    // screen. The first version of this matched /worktree|commit|landed/,
+    // which the visible word LANDED satisfies on its own — so the reason and
+    // the evidence could both be garbage and it stayed green. Verified, and it
+    // is the same hole the spine assertion below had; a fix that repaired one
+    // and left its twin is the sibling case AGENTS.md names.
+    const outcome = discloseText(screen.getByTestId('run-outcome-word'))
+    expect(outcome).toContain('LANDED — 556-run-view')
+    expect(outcome).toContain('commits landed on this lane’s branch and its worktree has since been removed')
+    expect(outcome).toContain('1 commit(s) across 1 recording(s)')
+
+    // Pinned to what `phaseFor` actually DERIVES, not to the card being
+    // non-empty. A `length > 0` assertion here survives the evidence sentence
+    // being replaced with garbage — verified, and it is the exact shape this
+    // issue's own Definition of done asks not to write.
+    //
+    // Two of the three carry the discrimination: the label moves with `phase`
+    // and the middle line moves with the evidence branch. The third is the
+    // card's own static prose, invariant across every phase — it pins that the
+    // whole card rendered rather than that this reading is right, and is kept
+    // for that and not counted as evidence twice.
+    const spine = discloseText(screen.getByTestId('run-spine-phase'))
+    expect(spine).toContain('landing — inferred')
+    expect(spine).toContain('1 commit landed in this window')
+    expect(spine).toContain('derived from what ran, not declared by the agent')
   })
 
   it('says the worktree is gone rather than reporting emptiness', async () => {
