@@ -321,3 +321,17 @@ describe('the theme opens dark (#337 — operator ruling 2026-09-08; ui-2.0 D26)
     expect(theme?.options?.map((option) => option.value)).toContain('system')
   })
 })
+
+describe("the lab model list is the operator's (prd-55 ruling 5, wave 1)", () => {
+  it('seeds the three aliases on, and keeps the list with the repo rather than the machine', () => {
+    const models = entryOf('lab.models')
+    // The three names every dispatch in this repo has used, on by default so a
+    // fresh repo's select is a list and not a blank. A list, never a gate: a
+    // model absent here is still legal on the CLI, and the entry's own comment
+    // says so before anything reads it.
+    expect(models.fallback).toEqual({ opus: true, sonnet: true, haiku: true })
+    // Which models a project tries is a fact about that project's experiments —
+    // ruling 3's reason for panel collapse, and the same answer here.
+    expect(models.scope).toBe('repo')
+  })
+})

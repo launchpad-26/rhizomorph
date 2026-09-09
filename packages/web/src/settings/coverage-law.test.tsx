@@ -16,9 +16,11 @@ import { SettingsPage } from './SettingsPage.js'
  *
  * 1. Every key the registry declares is accounted for on the settings page,
  *    exactly once — as a control, or (for the two keys whose one control is
- *    direct manipulation elsewhere) as its state and its default. The sets are
- *    compared exactly, not "at least": a key with no row fails, and so does a
- *    row for a key nobody declared.
+ *    direct manipulation elsewhere) as its state and its default, or (for the
+ *    one settings-owned record the page cannot draw a control for yet,
+ *    `lab.models`) as its default and its declared gap. The sets are compared
+ *    exactly, not "at least": a key with no row fails, and so does a row for a
+ *    key nobody declared.
  * 2. Nothing outside the registry persists anything at all. The whole web
  *    package is swept for `localStorage`/`sessionStorage` and for
  *    `rhizomorph.*` storage keys; `settings/registry.ts` is the only non-test
@@ -72,7 +74,7 @@ describe('every persisted preference is rendered by exactly one control', () => 
     expect(new Set(rendered).size).toBe(rendered.length)
   })
 
-  it('gives a control to what settings owns, and no second copy of what it does not', () => {
+  it('gives a control to what settings owns (a record it cannot draw yet says so instead), and no second copy of what it does not', () => {
     render(<SettingsPage />)
 
     for (const entry of PREFERENCES) {
@@ -80,6 +82,20 @@ describe('every persisted preference is rendered by exactly one control', () => 
       expect(row, `${entry.id} has no row`).not.toBeNull()
       const inputs = row?.querySelectorAll('input, select, textarea, button') ?? []
 
+      if (entry.control === 'settings' && entry.kind === 'record') {
+        // The page has no control for a map of flags: `SettingsPage.tsx` draws
+        // a flag as a checkbox and everything else as a radio group over
+        // `options`, and a record has none — so `lab.models` (prd-55 ruling 5,
+        // wave 1) reaches the page with its default and its gap and NO input.
+        // This branch is the record of that gap, not its acceptance: the row
+        // has to say so in the honest-gap voice rather than stand as an empty
+        // fieldset in silence, and the day the page grows a record control the
+        // zero below goes red and this branch is rewritten in that diff — never
+        // deleted from this one.
+        expect(inputs.length, `${entry.id} grew a control this law has not read`).toBe(0)
+        expect(entry.gap, `${entry.id} offers nothing and does not say so`).not.toBeNull()
+        continue
+      }
       if (entry.control === 'settings') {
         expect(inputs.length, `${entry.id} is settings' own control and offers nothing`).toBeGreaterThan(0)
         continue

@@ -646,6 +646,43 @@ export const PREFERENCES: readonly PrefEntry[] = [
     gap: null,
     legacy: null,
   },
+
+  // ── repo (prd-55 ruling 5, wave 1 — the model list is the operator's) ───────
+  //
+  // NOT A GATE, AND SAID SO BEFORE THE ENTRY IS READ. A model this map does not
+  // hold is still legal on the command line: `rhizomorph lab fork` takes any
+  // model `MODEL_GRAMMAR` (`packages/server/src/lab/fork.ts`) admits and reads
+  // nothing stored in a browser, and the launch route inherits that grammar
+  // rather than this list. What the map decides is which names the launch
+  // panel's select puts in front of a person — a convenience for the one
+  // choosing from a list, so a name this repo never dispatches is not on offer
+  // at every launch. It is not one of the six in `non-negotiables.ts` and must
+  // never grow into one: a preference that could REFUSE a model would be a gate
+  // wearing a preference's face, and a refusal belongs in a reviewed diff to the
+  // grammar, beside every other one. A key that is true is offered, a key that
+  // is false is not, and a key the map does not hold is unknown to the panel and
+  // untouched on the CLI.
+  {
+    id: 'lab.models',
+    group: 'repo',
+    label: 'Lab models',
+    what: "which models the lab's launch panel offers for an arm, remembered for this repo.",
+    scope: 'repo',
+    kind: 'record',
+    options: [],
+    // The three aliases every dispatch in this repo has actually used — `fork.ts`
+    // names them first among the real model strings its grammar admits — seeded
+    // ON, so a fresh repo's select is a list and not a blank. Per repo, not per
+    // machine, for the reason ruling 3 gives panel collapse: which models a
+    // project tries is a fact about that project's experiments.
+    fallback: { opus: true, sonnet: true, haiku: true },
+    words: ['offered', 'not offered'],
+    control: 'settings',
+    unavailable: null,
+    requires: null,
+    gap: "nothing reads this map yet. The launch panel's per-arm model field is still free text (`lab/launch/LaunchPanel.tsx`, \"default if blank\"), so a model marked not offered here is still typed there, and one marked offered here is offered nowhere — a stored list that changes what nobody is shown is the setting that claims to have changed something, which this registry exists to prevent, so the page says so beside it. prd-55 wave 1's second half points that field's select at this map. The page's own half is separate: a map of flags is a shape it has no control for yet — a record has only ever been surveyed here, never edited here — so until that control lands, in its own diff, this row shows the list and its default and offers nothing to change it.",
+    legacy: null,
+  },
 ]
 
 // ── the stores ──────────────────────────────────────────────────────────────
