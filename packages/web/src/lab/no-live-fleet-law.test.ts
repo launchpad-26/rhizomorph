@@ -42,6 +42,16 @@ import { extractImportSpecifiers } from '../test/import-specifiers.js'
  * net coverage across all 17 files, up from a blanket pattern that covered
  * none of the tree it claimed to.
  *
+ * **prd-55 ruling 11 (#385) widens that exception from one module to six, and
+ * not by one module more.** The lane canvas paints with the scene's PURE
+ * brushes instead of being a second, lesser renderer, so `geometry`,
+ * `palette`, `ribbon`, `contour`, `motes` and `heart` are named below and
+ * everything else under `scene/` — the fold-bound `retire`, `salience`,
+ * `variation`, `pulses`, `SceneView` above all — still fails. Two pins, not
+ * one: the MODULE list (a seventh brush fails by its own name) and the
+ * per-file PAIR list (a file not entitled to a brush fails even when the brush
+ * is allowed).
+ *
  * **`compare/` was checked against these patterns before this amendment was
  * committed** (audit finding #1's own condition) — clean: no `useFleet`,
  * `FleetProvider`, `buildFleet`, `../fleet/`, `../panels/`, `../scene/` or
@@ -115,16 +125,67 @@ function sceneImportsIn(text: string): string[] {
 }
 
 /**
- * The named exceptions — every one of them the PALETTE, by path. `branching/geometry.ts`
- * (its own doc: reused as-is, never forked); and, from prd53 wave 4 (#329), `canvas/organism.ts`,
- * the lane canvas: n small organisms drawn in the lab's own SVG that read the scene's inks
- * through its public exports and never its fold (charter §8, coexist-by-surface). A third
- * importer, or any import of anything under `scene/` but the palette, fails here by name.
+ * THE SIX BRUSHES — prd-55 ruling 11's widening of this exception, and its
+ * exact bound. Until #385 the exception was one MODULE (the palette) reached
+ * by two files; ruling 11 makes the lane canvas a Canvas 2D drawing built from
+ * the scene's PURE paint modules rather than a second, lesser renderer, so the
+ * exception becomes **exactly six modules, named**:
+ *
+ * `geometry.ts` · `palette.ts` · `ribbon.ts` · `contour.ts` · `motes.ts` ·
+ * `heart.ts`
+ *
+ * Each is a pure function of what it is handed and imports nothing from the
+ * fold — which is the whole reason they may cross this line while
+ * `scene/retire.ts`, `salience.ts`, `variation.ts`, `pulses.ts` and
+ * `SceneView.tsx` may not: those read the fold, and anything under `fleet/` is
+ * forbidden outright above. A SEVENTH module — or any other path under
+ * `scene/`, at any depth — fails by name against this list, so the failure
+ * names the module rather than handing back a diff of pairs.
+ */
+const ALLOWED_SCENE_MODULES: readonly string[] = [
+  '../../scene/contour.js',
+  '../../scene/geometry.js',
+  '../../scene/heart.js',
+  '../../scene/motes.js',
+  '../../scene/palette.js',
+  '../../scene/ribbon.js',
+]
+
+/** How many modules the exception may ever name. Pinned as a number, so widening it is a deliberate edit and not a list that quietly grew. */
+const ALLOWED_SCENE_MODULE_COUNT = 6
+
+/**
+ * …and exactly the files that need them, by path. `branching/geometry.ts` (its
+ * own doc: reused as-is, never forked); and, from prd53 wave 4 (#329) and
+ * prd-55 wave 2 (#385), the lane canvas's three files — `canvas/organism.ts`
+ * builds the picture with all six brushes, `canvas/paint.ts` executes it (the
+ * palette's `cssColour`, geometry's `Point`), and `canvas/LaneCanvas.tsx`
+ * reads the document's theme through `paletteFor`. A file not on this list
+ * reaching for a brush fails here even though the module is allowed: the PAIR
+ * is the pin, so "which of the lab's files may see the scene at all" stays a
+ * question this law answers.
  */
 const ALLOWED_SCENE_IMPORTS = [
   { file: path.join('branching', 'geometry.ts'), importPath: '../../scene/palette.js' },
+  { file: path.join('canvas', 'LaneCanvas.tsx'), importPath: '../../scene/palette.js' },
+  { file: path.join('canvas', 'organism.ts'), importPath: '../../scene/contour.js' },
+  { file: path.join('canvas', 'organism.ts'), importPath: '../../scene/geometry.js' },
+  { file: path.join('canvas', 'organism.ts'), importPath: '../../scene/heart.js' },
+  { file: path.join('canvas', 'organism.ts'), importPath: '../../scene/motes.js' },
   { file: path.join('canvas', 'organism.ts'), importPath: '../../scene/palette.js' },
+  { file: path.join('canvas', 'organism.ts'), importPath: '../../scene/ribbon.js' },
+  { file: path.join('canvas', 'paint.ts'), importPath: '../../scene/geometry.js' },
+  { file: path.join('canvas', 'paint.ts'), importPath: '../../scene/palette.js' },
 ]
+
+/**
+ * The fold-bound scene modules, by name — the half of ruling 11 a positive
+ * list cannot state on its own. `ALLOWED_SCENE_MODULES` already fails a
+ * seventh module, but it fails it as "not on the list"; these five are the
+ * ones the ruling forbids for a REASON (they read the fold), and naming them
+ * makes the failure say so.
+ */
+const FOLD_BOUND_SCENE_MODULES: readonly string[] = ['retire', 'salience', 'variation', 'pulses', 'SceneView']
 
 interface LabSourceFile {
   readonly name: string
@@ -206,7 +267,15 @@ describe('the lab tab renders no live-fleet surface (prd14)', () => {
     // frame, metrics, trace; compare grows by two: fromExperiment and
     // ExperimentComparison), wave 4 pays canvas 3 (#341 merged into this branch) —
     // pinned exactly, not a loose lower bound, and grouped rather than
-    // totalled. Both halves are load-bearing. A lower bound at any floor lets
+    // totalled. prd-55 wave 2 (#385) pays canvas 3 -> 5: the SVG's single
+    // `LaneCanvas.tsx` became a model (`organism.ts`), a painter (`paint.ts`)
+    // and a host, and the states ruling 9 asks to be drawn first moved out of
+    // the assertions into `fixtures.ts` — a source file the walker counts,
+    // deliberately, because a fixture that drifts is a picture that drifts.
+    // `branching` stays 2: the diagram shrank INSIDE `geometry.ts` rather than
+    // growing a component file. prd-55 wave 1 owes its own rows for
+    // `launch`/`measure-control` and reconciles with this one at the merge.
+    // Both halves are load-bearing. A lower bound at any floor lets
     // a file silently ADDED pass unnoticed, not just a file dropped. And a
     // single total, however exact, stays green through a compensated shrink:
     // 17 is still 17 when compare/ loses two files and the root gains two, so
@@ -219,7 +288,7 @@ describe('the lab tab renders no live-fleet surface (prd14)', () => {
       '': 6,
       axis: 3,
       branching: 2,
-      canvas: 3,
+      canvas: 5,
       compare: 9,
       frame: 2,
       launch: 3,
@@ -247,12 +316,38 @@ describe('the lab tab renders no live-fleet surface (prd14)', () => {
     }
   })
 
-  it('scene/palette.js is the only scene/ import anywhere in lab/, and exactly two files make it, named and positive', () => {
+  it('exactly six scene modules are reachable from lab/ — a seventh, or any fold-bound one, fails by name (prd-55 ruling 11)', () => {
+    const modules = [...new Set(sourceFiles().flatMap((file) => sceneImportsIn(file.text)))].sort()
+    // Named, not counted: a seventh module reddens with its own path in the message.
+    expect(modules).toEqual([...ALLOWED_SCENE_MODULES].sort())
+    expect(modules).toHaveLength(ALLOWED_SCENE_MODULE_COUNT)
+    for (const forbidden of FOLD_BOUND_SCENE_MODULES) {
+      expect(
+        modules.filter((specifier) => specifier.endsWith(`/${forbidden}.js`) || specifier.endsWith(`/${forbidden}.jsx`)),
+        `${forbidden} reads the fold — ruling 11 forbids it to the lab by name, whatever else the exception allows`,
+      ).toEqual([])
+    }
+  })
+
+  it('and exactly the files that need them make those imports, named and positive — no other file in lab/ sees scene/ at all', () => {
     const sceneImports = sourceFiles().flatMap((file) =>
       sceneImportsIn(file.text).map((importPath) => ({ file: file.name, importPath })),
     )
-    const byFile = (a: { file: string }, b: { file: string }) => a.file.localeCompare(b.file)
-    expect([...sceneImports].sort(byFile)).toEqual([...ALLOWED_SCENE_IMPORTS].sort(byFile))
+    const byPair = (a: { file: string; importPath: string }, b: { file: string; importPath: string }) =>
+      a.file.localeCompare(b.file) || a.importPath.localeCompare(b.importPath)
+    expect([...sceneImports].sort(byPair)).toEqual([...ALLOWED_SCENE_IMPORTS].sort(byPair))
+  })
+
+  it('the six-module law bites — a seventh module, and each fold-bound one, is caught by the specifier alone', () => {
+    // The probes are the exact spellings a drift would produce: a lab file
+    // reaching one directory further up for a module that reads the fold.
+    for (const forbidden of [...FOLD_BOUND_SCENE_MODULES, 'camera', 'motion']) {
+      const probe = `import { x } from '../../scene/${forbidden}.js'`
+      expect(sceneImportsIn(probe), probe).toEqual([`../../scene/${forbidden}.js`])
+      expect(ALLOWED_SCENE_MODULES).not.toContain(`../../scene/${forbidden}.js`)
+    }
+    // …and a brush reached from a depth the pair list does not name is still seen.
+    expect(sceneImportsIn("import { ribbonOutline } from '../../../scene/ribbon.js'")).toEqual(['../../../scene/ribbon.js'])
   })
 
   it('no computed import specifier anywhere in lab/ — an interpolation ahead of the path would defeat every prefix check in this law', () => {

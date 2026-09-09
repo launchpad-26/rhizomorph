@@ -197,6 +197,8 @@ export function LaneCanvas({ experiment, checkpoint = null, failedArms = NO_FAIL
       data-ribbons={picture.ribbons.length}
       data-stubs={picture.stubs.length}
       data-direction={picture.direction}
+      /* the picture's height in its own units — what a host must give the ribbons room for, readable by whoever mounts it */
+      data-height={picture.height}
       role="group"
       aria-label={describeCanvas(picture, experiment.forkId)}
       className="flex flex-col border border-(--line-hair) bg-(--surface-panel)"
