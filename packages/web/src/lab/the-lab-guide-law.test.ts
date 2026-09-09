@@ -347,7 +347,7 @@ const CLAIMS: Readonly<Record<string, Claim>> = {
   'trace-no-persistence': {
     says: /same, diverged, added, absent[\s\S]*stored nowhere/,
     check: () => {
-      expect(web.trace(), 'grep: reads transcripts').toContain('transcriptUrl(')
+      expect(web.trace(), 'grep: reads transcripts').toContain('labTranscriptUrl(')
       expect(web.trace(), 'grep: writes nothing').not.toMatch(/localStorage|sessionStorage|method: 'POST'/)
       expect(existsSync(path.join(HERE, 'trace', 'no-persistence-law.test.ts')), 'the law that keeps it so exists').toBe(true)
     },
