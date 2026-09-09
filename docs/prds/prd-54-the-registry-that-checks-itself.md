@@ -208,9 +208,11 @@ expanded file-wide instead, was open, and had to be settled before wave 2 wrote 
 than during it.
 
 — **ANSWERED (operator, 2026-09-09): both, in a fixed order, and nothing else.** See **Ruling 5**
-below. Measured before deciding: the whole registry carries only nine backticked path citations,
-so the strict rule costs two path expansions in one entry rather than the file-wide sweep this
-note feared. This ruling's edge is now closed.
+below. Measured before deciding: the whole registry carries ten backticked path citations, so the
+strict rule costs three path expansions in one entry rather than the file-wide sweep this note
+feared. (The measurement said nine when this note was first answered; the tenth was found in the
+review of the PR that landed Ruling 5, and Ruling 5 records what the miscount cost.) This ruling's
+edge is now closed.
 
 ## Ruling 4 — the rot is corrected before the law exists, in its own wave
 
@@ -228,23 +230,36 @@ tried. A citation that resolves under neither must be written repo-relative, and
 a citation that resolves nowhere at all fails, unless it is declared generated
 under ruling 3.
 
-**Why, measured over all 21 entries on `main` (2026-09-09).** There are only
-**nine** backticked path citations in the whole registry, and every one of them
-gets a defined verdict under this rule:
+**Why, measured over all 21 entries on `main` (2026-09-09).** There are **ten**
+backticked path citations in the whole registry, and every one of them gets a
+defined verdict under this rule:
 
 | how it resolves | count | verdict |
 |---|---|---|
 | repo-relative | 2 | passes |
 | under the entry's own package source root | 4 | passes — this is the shorthand ruling 3's note found |
 | only under **another** package's root | 2 | **must be expanded** — both are `api/index.ts` and `cli/index.ts` in the `README.md` entry |
-| nowhere | 1 | `.swarm/timing-count`, handled by ruling 3's generated declaration |
+| under neither attempt, but the file exists | 1 | **must be expanded** — `manifest-law.test.ts` in the `README.md` entry, which is `packages/app/src/host/manifest-law.test.ts` |
+| nowhere at all | 1 | `.swarm/timing-count`, handled by ruling 3's generated declaration |
 
-So the total cost of this rule is **two path expansions**, both in one entry, and
-both already in wave 1's file. That is what makes it affordable to be strict:
-the alternative rules below are only cheaper in theory.
+So the total cost of this rule is **three path expansions**, all three in one
+entry, and all three already in wave 1's file. That is what makes it affordable
+to be strict: the alternative rules below are only cheaper in theory.
 
-**Why not "try every package root".** It would pass all nine with no edits, and
-it is the wrong trade. `theme/tokens.test.ts` would be satisfied by the first
+**This paragraph said nine.** The first draft of this
+ruling counted the population by eye and reached nine, missing
+`manifest-law.test.ts` — a bare filename with no `/` in it, which is exactly the
+shape the eye reads as prose rather than as a citation. It was found by an
+independent re-derivation of all fourteen path-shaped spans in the review of
+this PR, not by the audit that produced the nine. That is the second time in
+this PRD a hand-count of the registry has come back wrong (the first is the
+Evidence section's 21), and it is the argument for the Extent sentence below:
+the population a rule applies to is itself a thing the law must decide, or the
+next reader re-does the judgement and gets a different number.
+
+**Why not "try every package root".** It would pass nine of the ten with no
+edits — `manifest-law.test.ts` sits at `host/` inside its package and resolves
+under no root at all — and it is the wrong trade. `theme/tokens.test.ts` would be satisfied by the first
 package that happens to contain that relative path, so a citation could resolve
 against a **different file than the one the author meant** and still pass — a
 check that is true and useless, which is #649's lesson and the reason ruling 3
@@ -258,7 +273,19 @@ own package* — `app/StatusBar.tsx` in a `packages/web/src/theme/…` entry is
 unambiguous to a reader and to this rule. It is only ambiguous across packages,
 which is exactly where this ruling forbids it.
 
-**Extent.** The two candidate roots and their order are asserted by the law, and
+**Extent, and first what this is the extent *of*.** A backticked span is a path
+citation when it carries **no glob metacharacter** and **either contains a `/`
+or is a bare filename not beginning with a `.`**. The law decides that, not the
+reader — this is ruling 7's shape applied to paths, where the ruling names the
+selector rather than leaving wave 2 to reconstruct it. The rule admits the ten
+counted above and excludes the four backticked spans in the registry that cite
+nothing: `` `.test.ts` `` and `` `.test.tsx` `` (twice) are suffixes, and
+`` `*.bench.test.ts` `` is a glob. Success 3's second clause — *"and the
+generated-file case does not false-positive"* — is the criterion those four
+would fail against, so leaving the selector to the law's author is leaving wave
+2 a failing acceptance test with no rule to fix it by.
+
+The two candidate roots and their order are asserted by the law, and
 the failure message names both attempts, so a red bar says what it tried rather
 than only that it failed. The package-source-root list is **derived** from the
 workspace, never hardcoded — a hardcoded list is the same rot class this PRD was
@@ -435,18 +462,29 @@ downstream but the law that checks it. One file, `.swarm/coupling.txt`:
   generator. **Moved here from wave 2**, because the law arrives red without it: as drafted they
   were siblings in one wave, which is an intra-wave dependency and a stack wearing a bundle's
   clothes;
-- the two cross-package shorthand citations Ruling 5 forbids — `api/index.ts` and `cli/index.ts`
-  in the `README.md` entry — expanded to repo-relative. Both sit inside this wave's one file,
-  which is what makes Ruling 5 affordable.
+- the **three** citations Ruling 5 forbids, all of them in the `README.md` entry, expanded to
+  repo-relative: the two cross-package shorthands `api/index.ts` and `cli/index.ts`, and the bare
+  filename `manifest-law.test.ts`, which is `packages/app/src/host/manifest-law.test.ts` and
+  resolves under neither of Ruling 5's attempts. All three sit inside this wave's one file, which
+  is what makes Ruling 5 affordable. **The third was added after [#366][i366] was written**: the
+  ruling's first draft counted nine path citations and this was the tenth, found in the review of
+  the PR that landed the ruling. [#366][i366]'s Definition of done named two and said "Nothing
+  else is expanded"; it has been corrected, and the law arrives red on this entry if it is not.
 
-**Wave 2 — one issue, not a parallel set.** [#367][i367]. The law asserting Rulings 2, 3, 5 and 6
-over every entry, in a new file under `packages/server/src/`, **and** the pointer added to
+**Wave 2 — one issue, not a parallel set.** [#367][i367]. The law asserting Rulings 2, 3, 5, 6
+and 7 over every entry, in a new file under `packages/server/src/`, **and** the pointer added to
 `scripts/dev/coupling.test.sh` so the two cannot silently diverge. One issue rather than two lanes
 because the pointer names the law's own filename, so they cannot be built at once. The law also
 **ports the shell script's presence checks** — each entry's leading path exists, each reason is
 present and not a repeat of its own path — so they run in CI rather than only by hand; that reads
 Ruling 1's extent as covering registry checks while leaving its fence-lint behavioural cases in
 shell, and Success 1 is not met while those checks run only when someone remembers them.
+**Ruling 7 is the substantive half of that**, not a footnote to Ruling 2: it fixes the unit as the
+whole backticked span and widens the selector, and the measurement in its own section is that the
+span reading catches three of the registry's false claims where the token reading catches one. A
+law built to Ruling 2 alone would pass two of the three defects this PRD was written about. This
+sentence named four rulings until the review of the PR that added the fifth — Ruling 7 was
+appended one commit after the sentence was written, and the sentence was not revisited.
 **Blocked on wave 1 only, now that wave 0 is complete.**
 
 **Unfiled work implied, described not numbered:** whether an entry's reason should be generated
@@ -467,5 +505,4 @@ amendment note 2 records that no entry does this today.
 [i353]: https://github.com/launchpad-26/rhizomorph/issues/353
 [i358]: https://github.com/launchpad-26/rhizomorph/issues/358
 [i366]: https://github.com/launchpad-26/rhizomorph/issues/366
-[i367]: https://github.com/launchpad-26/rhizomorph/issues/367
 [i367]: https://github.com/launchpad-26/rhizomorph/issues/367
