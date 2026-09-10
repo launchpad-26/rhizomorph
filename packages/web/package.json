@@ -52,6 +52,7 @@
     "./drawer/useTranscript": "./src/drawer/useTranscript.ts",
     "./lab/api": "./src/lab/api.ts",
     "./lab/trace": "./src/lab/trace/index.ts",
+    "./lab/frame": "./src/lab/frame/index.ts",
     "./lab/launch/estimate": "./src/lab/launch/estimate.ts",
     "./recordings/laneIndex": "./src/recordings/laneIndex.ts",
     "./lane-page/laneIndex": "./src/lane-page/laneIndex.ts",
