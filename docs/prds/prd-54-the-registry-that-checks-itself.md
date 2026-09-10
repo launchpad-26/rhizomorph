@@ -229,7 +229,9 @@ order: as **repo-relative**, and — only if the entry's own leading path lies
 inside a package source root — as relative to **that one root**. Nothing else is
 tried. A citation that resolves under neither must be written repo-relative, and
 a citation that resolves nowhere at all fails, unless it is declared generated
-under ruling 3.
+under ruling 3. What *resolves* means is not settled here — Ruling 8's Extent
+part two carries the predicate these two attempts feed, and carries it only
+there, so that the two cannot drift apart.
 
 **Why, measured over all 21 entries on `main` (2026-09-09).** There are **ten**
 backticked path citations in the whole registry, and every one of them gets a
@@ -288,8 +290,9 @@ would fail against, so leaving the selector to the law's author is leaving wave
 2 a failing acceptance test with no rule to fix it by.
 
 — **SUPERSEDED (operator, 2026-09-10) by Ruling 8**, which replaces this
-paragraph's selector with four mechanical clauses and gives the count a stated
-scope. The reasoning above stands and is why a selector belongs in a ruling at
+paragraph's selector with four mechanical clauses, gives the count a stated
+scope, and states the resolution predicate this ruling's own Verdict left
+unsaid. The reasoning above stands and is why a selector belongs in a ruling at
 all; the selector itself was wrong. Its second clause has no test for looking
 like a filename, so it is satisfied by every backticked identifier in the
 registry. Its exclusion sentence is right about the four spans it names — all
@@ -438,7 +441,7 @@ Wave 1 (#366) is unaffected — correcting the route-class entry does not settle
 this edge, because line 180's decoy makes the token reading pass regardless of
 what wave 1 writes.
 
-## Ruling 8 — the path-citation selector is four mechanical clauses, and the count has a stated scope (replaces ruling 5's Extent selector)
+## Ruling 8 — the path-citation selector is four mechanical clauses, the count has a stated scope, and *resolves* has a stated predicate (replaces ruling 5's Extent selector)
 
 **Verdict.** Ruling 5's verdict — two resolution attempts, repo-relative then the
 entry's own package source root — **stands unchanged**. What is replaced is the
