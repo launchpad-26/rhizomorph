@@ -644,9 +644,10 @@ answered, and no issue minted for any of them:
   after review, the resolution predicate those clauses feed.
 
 **Three** of the four edges were found the same way — by auditing an entry against a ruling rather
-than by writing code to it — and all four by a reader other than the ruling's author. That is the
-argument for the audit step wave 2's law replaces, and the reason wave 2 should not start until
-someone has audited the remaining entries against Rulings 5, 6 and 7 as well.
+than by writing code to it — and **three of the four**, which are not the same three, by a reader
+other than the ruling's author. That is the argument for the audit step wave 2's law replaces, and
+the reason wave 2 should not start until someone has audited the remaining entries against Rulings
+5, 6 and 7 as well.
 
 The fourth was found the other way round, and it argues for the **law** rather than for the audit
 step: ruling 5's selector came through three audits untouched and failed on the very first attempt
@@ -656,6 +657,14 @@ reader sweeping the rejected set. Its **resolution predicate** then went the oth
 a second review pass reimplemented the clauses and could not reproduce the published table until
 it guessed the convention, which is how `-e` came to be written into the Extent. One edge each,
 from the two methods, on the same ruling — so neither method dominates and wave 2 wants both.
+
+**That count said "all four", and it was one too many.** Before Ruling 8 was booked as the fourth
+edge the paragraph read *"two of the three by a reader other than the ruling's author"*, so adding
+one edge found by another reader takes it to three of four, not four of four. The strengthening
+arrived unrecorded, in the same commit that corrected the clause beside it — which is this PRD's
+own subject, one paragraph deep in the ruling written to stop it. If all four *are* another
+reader's, then one of the original three has been reclassified, and the reclassification is the
+fact to name; the count follows from it rather than standing on its own.
 
 **Wave 1 — the Keystone: the registry's own claims are true.** [#366][i366]. Claimed by nobody
 downstream but the law that checks it. One file, `.swarm/coupling.txt`:
