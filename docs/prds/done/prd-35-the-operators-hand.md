@@ -215,6 +215,10 @@ rule.
 
 `packages/web/src/lab/` is prd-28's territory; no wave of this PRD enters it.
 
+> **Note (2026-09-08, prd-53 wave 5):** prd-28's paper died in the 2026-08-19 deletion and its
+> number is retired, never reused. The fence stands; the territory's owner is prd-53
+> (`docs/prds/prd-53-the-lab.md`). The sentence above is kept as written — a number is an identity.
+
 1. **Keystone:** the surface itself plus the preference registry and ruling 2's law — appearance,
    motion and density only, since those are the settings that exist to be set once prd-32 lands.
    Zero-claimant: a new route and a new directory.
