@@ -14,13 +14,13 @@ import { CAPABILITY_TOKEN_HEADER } from '../recordings/capability.js'
  * mutating call ever; the recordings library's rename-in-place gave it its
  * second; the lab's launch gives it its third; the concierge's
  * relaunch-with-continuity gives it its fourth; the concierge's clone-by-URL
- * gives it its fifth; the concierge's repo switch gives it its sixth. So this
- * law enumerates instead of forbidding: across every source file in
- * `packages/web/src`, the mutating calls are EXACTLY SIX, each in exactly one
- * file, each to exactly one route — and every verb any one names is the same
- * single verb, `POST`. A SEVENTH one added tomorrow — anywhere, in any panel,
- * in a branch nothing renders — fails here and has to say so in a diff a
- * reviewer reads.
+ * gives it its fifth; the concierge's repo switch gives it its sixth; the
+ * comparison surface's save gives it its seventh. So this law enumerates
+ * instead of forbidding: across every source file in `packages/web/src`, the
+ * mutating calls are EXACTLY SEVEN, each in exactly one file, each to exactly
+ * one route — and every verb any one names is the same single verb, `POST`.
+ * An EIGHTH one added tomorrow — anywhere, in any panel, in a branch nothing
+ * renders — fails here and has to say so in a diff a reviewer reads.
  *
  * **The fifth (#266).** `concierge/clone.ts` is prd-20 ruling 1 / ADR-0019's
  * OTHER power — the one the fourth row's own module doc names and does not
@@ -53,6 +53,21 @@ import { CAPABILITY_TOKEN_HEADER } from '../recordings/capability.js'
  * the machine may switch which EXISTING repo it watches, so the path IS the
  * request; `validateRetargetTarget` decides whether that path is one this
  * instrument may adopt before anything closes.
+ *
+ * **The seventh (#214).** `lab/compare/save.ts` is prd-14 ruling 5's other
+ * half: `#213` built the save and reopen routes with no way for a human to
+ * reach either, so this is the first web caller either has ever had. It
+ * clears the same three-reason bar as its six siblings, argued in its own
+ * module header rather than inherited: the write is only the recording-
+ * adjacent sidecar `saveComparison` already lands beside the session logs
+ * (ADR-0041), never the watched repo's working tree; it is gated exactly as
+ * `/api/lab/launch` and `/api/lab/measure` are, because a save is a real
+ * write to durable state; and it is reached only from the save control this
+ * issue adds to `lab/compare/ExperimentComparison.tsx` — an EXPLICIT
+ * OPERATOR ACT, never a background poll or a timer. Its payload is the whole
+ * `ComparisonInput` the surface is currently showing, which is exactly what
+ * `parseComparisonInput` (ADR-0042) already accepts server-side — nothing
+ * this call carries widens what the route was already willing to take.
  *
  * **Why a fourth mutating call is allowed to exist at all, not just why it is
  * caught.** Rotation (`replay/rotate.ts`), the rename (`recordings/label.ts`),
@@ -123,6 +138,12 @@ const WEB_SRC = path.resolve(REPLAY_DIR, '..')
  * operator already named and the server validates it is a git work tree with
  * no live writer before anything closes — and it carries the same two headers
  * for the same three-reason bar argued in the module's own header.
+ *
+ * AMENDED for #214: the comparison surface's save (`lab/compare/save.ts`) is
+ * the seventh row — the first web caller either of #213's comparison routes
+ * has ever had. Its payload is the whole `ComparisonInput` being shown, and
+ * it carries the same two headers for the same reasons the launch and the
+ * measure do: a JSON body and a write real enough to need the token.
  */
 const MUTATING_MODULES: ReadonlyArray<{ file: string; route: string; headers: readonly string[] }> = [
   { file: path.join(WEB_SRC, 'replay', 'rotate.ts'), route: '/api/rotate', headers: [CAPABILITY_TOKEN_HEADER] },
@@ -157,6 +178,11 @@ const MUTATING_MODULES: ReadonlyArray<{ file: string; route: string; headers: re
   {
     file: path.join(WEB_SRC, 'concierge', 'retarget.ts'),
     route: '/api/retarget',
+    headers: ['Content-Type', CAPABILITY_TOKEN_HEADER],
+  },
+  {
+    file: path.join(WEB_SRC, 'lab', 'compare', 'save.ts'),
+    route: '/api/lab/comparisons',
     headers: ['Content-Type', CAPABILITY_TOKEN_HEADER],
   },
 ]
@@ -384,7 +410,7 @@ function assertHeaderBlocksExact(text: string, allowed: readonly string[], fromD
   }
 }
 
-describe('the web app names exactly six mutating calls (prd16 rulings 2 and 4; prd12/prd14 for the launch; prd-20 ruling 6 / ADR-0020 for the instrument button; prd-20 ruling 1 / ADR-0019 for the clone; prd-20 ruling 5 for the retarget)', () => {
+describe('the web app names exactly seven mutating calls (prd16 rulings 2 and 4; prd12/prd14 for the launch; prd-20 ruling 6 / ADR-0020 for the instrument button; prd-20 ruling 1 / ADR-0019 for the clone; prd-20 ruling 5 for the retarget; prd-14 ruling 5 for the comparison save)', () => {
   it('has the whole app to check, not one directory — an empty grep proves nothing', () => {
     const files = sourceFiles()
     expect(files.length).toBeGreaterThan(80)
@@ -393,7 +419,7 @@ describe('the web app names exactly six mutating calls (prd16 rulings 2 and 4; p
     expect(files.map((file) => file.name)).toContain(path.join('drawer', 'useTranscript.ts'))
   })
 
-  it('are the ONLY six files in the app that name a mutating verb or build a request init', () => {
+  it('are the ONLY seven files in the app that name a mutating verb or build a request init', () => {
     expect(mutatingFiles()).toEqual(
       MUTATING_MODULES.map((module) => path.relative(WEB_SRC, module.file)).sort(),
     )
@@ -633,6 +659,28 @@ describe('the web app names exactly six mutating calls (prd16 rulings 2 and 4; p
     expect(text).toMatch(/body\s*:\s*JSON\.stringify\(\{\s*sessionId,\s*label\s*\}\)/)
   })
 
+  /**
+   * The comparison save's own row (#214). Its payload is the whole
+   * `ComparisonInput` the surface is showing — not a subset, since the server
+   * validates the same shape whole (`parseComparisonInput`, ADR-0042) — behind
+   * the same two headers the launch and the measure send, for the same
+   * reason: a JSON body and a write real enough to need the token.
+   */
+  it("save.ts's body carries only the comparison input, behind exactly the two headers the mutating call needs, no credential", () => {
+    const dir = path.join(WEB_SRC, 'lab', 'compare')
+    const text = readFileSync(path.join(dir, 'save.ts'), 'utf8')
+    expect(text).not.toMatch(/FormData|URLSearchParams|new Request\(/)
+    expect(text).not.toMatch(/apiKey|api_key|ANTHROPIC_API_KEY|Authorization|Bearer\s/i)
+    expect(text).not.toMatch(/credentials\s*:/)
+
+    expect(
+      () => assertHeaderBlocksExact(text, ['Content-Type', CAPABILITY_TOKEN_HEADER], dir),
+      'the header law must hold on the real save.ts',
+    ).not.toThrow()
+
+    expect(text).toMatch(/body\s*:\s*JSON\.stringify\(\{\s*input\s*\}\)/)
+  })
+
   it('the header checks themselves catch what they claim to — a computed credential under a different name, a shadowed import, and headers hidden in a variable', () => {
     // A computed key naming anything other than CAPABILITY_TOKEN_HEADER is
     // visible to the pattern (so the law can inspect and reject it) — the
@@ -773,6 +821,11 @@ describe('the web app names exactly six mutating calls (prd16 rulings 2 and 4; p
     expect(instrumentButton).toContain("from './instrument.js'")
     expect(instrumentButton).not.toMatch(/\bfetch\s*\(/)
     expect(instrumentButton).not.toContain('/api/')
+
+    const saveComparisonControl = readFileSync(path.join(WEB_SRC, 'lab', 'compare', 'SaveComparisonControl.tsx'), 'utf8')
+    expect(saveComparisonControl).toContain("from './save.js'")
+    expect(saveComparisonControl).not.toMatch(/\bfetch\s*\(/)
+    expect(saveComparisonControl).not.toContain('/api/')
 
     // The wizard (#266, #216) is the one surface that drives THREE of the six,
     // so it is held to the same rule three times over: all three acts come in

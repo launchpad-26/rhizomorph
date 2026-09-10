@@ -48,6 +48,22 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
   is rewritten accordingly: it no longer says "nothing, ever, off this
   machine", it says what leaves, when, to whom, under whose key and how to
   see that it is on. ADR-0034, prd-51 rulings 2, 3, 7 and 12.
+- **The recordings library lists a saved comparison as its own kind, and
+  reopens it into the comparison surface (prd-14 ruling 5, wave 3, #214).**
+  `GET /api/lab/comparisons` gets its first web caller: the History page's
+  session axis now shows a Comparisons table beside the recordings table —
+  its own columns, its own actions, never a session row wearing a different
+  label. Selecting an available one reads it by id and reopens it into
+  `ComparisonSurface`, recomputed from the stored `ComparisonInput` by this
+  repo's own `compareArms`; an artifact an older format version wrote answers
+  `{ available: false, reason }` at both the list and the single-read route,
+  and the reader puts that reason on screen by name — never an empty state,
+  never a console error. Saving is reachable from the comparison surface
+  itself now too: `ExperimentComparison` carries a save control wired to
+  `POST /api/lab/comparisons` (the app's seventh mutating call,
+  `lab/compare/save.ts`), so the whole save-then-reopen round trip is
+  completable by a human with no fixture. No migration is written for an
+  older version — it refuses, as ruling 5 always said it would.
 
 - **One hover vocabulary, and a law that says the whole sentence (prd-30 S1,
   #221).** The disclosure card's law used to check one thing — that nobody had

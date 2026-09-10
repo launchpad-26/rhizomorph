@@ -367,13 +367,14 @@ surface is `packages/server/src/lab/`, and the concierge's is
 Sweep the app and the desktop shell (`packages/web/src` and
 `packages/app/src`, every module format, comments stripped, excluding tests)
 for a **named vocabulary** of request-originating spellings, and there are
-**fifteen** call sites in **twelve** modules:
+**sixteen** call sites in **thirteen** modules:
 `packages/app/src/host/fleet-feed.ts` (two),
 `packages/web/src/app/StreamContext.tsx`,
 `packages/web/src/concierge/clone.ts`,
 `packages/web/src/concierge/instrument.ts`,
 `packages/web/src/concierge/retarget.ts`,
 `packages/web/src/hooks/useEventStream.ts`,
+`packages/web/src/lab/compare/save.ts`,
 `packages/web/src/lab/launch/launch.ts`,
 `packages/web/src/lab/measure.ts`,
 `packages/web/src/recordings/capabilityRead.ts` (two),
@@ -382,7 +383,7 @@ for a **named vocabulary** of request-originating spellings, and there are
 `packages/web/src/scene/parity/capture.mjs` (two) —
 `route-class-law.test.ts` runs that same sweep, over the same roots, and
 fails if this list stops matching what it finds. The two numbers above and the
-twelve paths below them are all read out of this file and compared to it —
+thirteen paths below them are all read out of this file and compared to it —
 nothing here is a number typed twice.
 
 **What "named vocabulary" means, and what it does not promise.** The law
@@ -414,7 +415,7 @@ Six further modules — `app/StatusBar.tsx`, `connect/meta.ts`,
 They are consumers of one egress point rather than six more of them, so
 counting them again would overstate the surface rather than describe it.
 
-Every one of the fifteen targets this instrument's own loopback origin, not
+Every one of the sixteen targets this instrument's own loopback origin, not
 the wider internet: the browser-side calls pass a path relative to the page
 itself, which only ever loads from `127.0.0.1`/`localhost` (the server binds
 nowhere else, and `mutation-guard.ts`'s `Host` check refuses anything else

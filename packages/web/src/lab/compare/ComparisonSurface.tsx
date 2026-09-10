@@ -23,11 +23,31 @@ import type { ArmSummary, Comparison, ComparisonClaim, FailedArm, Run } from './
  *
  * No native `title=` anywhere on this surface (#220, prd-30 w1): what a dot
  * means is written beside it, for every reader, not hidden in a hover.
+ *
+ * `measure` is `null` for exactly one caller (prd-14 ruling 5, #214's
+ * reopened-comparison view): a saved artifact's `Run.value` is a resolved
+ * number with no record of which measure produced it — `compare/types.ts`'s
+ * shape carries no such field — so a reopened comparison cannot know whether
+ * it is looking at cost, duration or commits, or even whether the number is a
+ * unit at all (`verified`'s own `Run.value` is `1`/`0` for pass/fail, never
+ * meant to be spread over).
+ *
+ * NO NUMBER THIS SURFACE CANNOT NAME THE UNIT OF IS EVER PRINTED when
+ * `measure` is `null` — not a spread, not a per-run value, review round 3's
+ * own correction of round 2's own fix: defaulting to `cost` printed a false
+ * LABEL on a real number (round 2); falling through to the numeric branches
+ * with no label printed a false STATISTIC instead — a `verified` comparison's
+ * 1s and 0s summarised as if they were a real spread, formally
+ * indistinguishable from one. Ruling 3 already has the vocabulary for "no
+ * summary the data does not support": below the floor an arm shows its runs
+ * and an explicit reason instead of a number. `measure === null` takes that
+ * same path unconditionally — every run is still shown (law 1), by its
+ * verdict alone, and the arm says in words why no summary follows.
  */
 export interface ComparisonSurfaceProps {
   comparison: Comparison
-  /** The measure the runs were read for. When `onMeasureChange` is given too, the switch renders. */
-  measure?: Measure
+  /** The measure the runs were read for, or `null` when the artifact does not record one (see above). When `onMeasureChange` is given too, the switch renders — never offered when `measure` is `null`. */
+  measure?: Measure | null
   onMeasureChange?: (measure: Measure) => void
   /** Arms the launch asked for that never dispatched (prd53 ruling 7). */
   failedArms?: readonly FailedArm[]
@@ -35,10 +55,16 @@ export interface ComparisonSurfaceProps {
 
 export function ComparisonSurface({ comparison, measure = 'cost', onMeasureChange, failedArms = [] }: ComparisonSurfaceProps) {
   return (
-    <section data-testid="comparison-surface" data-measure={measure} className="flex flex-col gap-3 text-read-body text-(--ink-body)">
-      {onMeasureChange === undefined ? null : <MeasureSwitch measure={measure} onChange={onMeasureChange} />}
+    <section
+      data-testid="comparison-surface"
+      data-measure={measure ?? undefined}
+      className="flex flex-col gap-3 text-read-body text-(--ink-body)"
+    >
+      {onMeasureChange === undefined || measure === null ? null : <MeasureSwitch measure={measure} onChange={onMeasureChange} />}
       <p data-testid="comparison-basis" className="text-(--ink-dim)">
-        {MEASURE_LABEL[measure]} — {MEASURE_BASIS[measure]}
+        {measure === null
+          ? 'measure not recorded — this artifact does not carry which measure produced these values, so no summary is shown for any arm; each run below still shows its own verdict'
+          : `${MEASURE_LABEL[measure]} — ${MEASURE_BASIS[measure]}`}
       </p>
       <ClaimBanner claim={comparison.claim} failedArms={failedArms} />
       <ol className="flex flex-col gap-3">
@@ -150,7 +176,7 @@ function claimDetail(claim: ComparisonClaim): string | null {
   }
 }
 
-function ArmPanel({ arm, measure }: { arm: ArmSummary; measure: Measure }) {
+function ArmPanel({ arm, measure }: { arm: ArmSummary; measure: Measure | null }) {
   const [expanded, setExpanded] = useState(false)
 
   function onKeyDown(event: KeyboardEvent<HTMLElement>) {
@@ -181,6 +207,17 @@ function ArmPanel({ arm, measure }: { arm: ArmSummary; measure: Measure }) {
       {arm.insufficientReason !== null ? (
         <p role="status" data-testid="arm-insufficient" className="mt-1.5 text-(--ink-dim)">
           {arm.insufficientReason}
+        </p>
+      ) : measure === null ? (
+        // Review round 3: a `verified` comparison's `Run.value` is `1`/`0`,
+        // not a quantity — reopened with no known measure, `arm.spread` over
+        // those numbers is a real min/median/max that is formally
+        // indistinguishable from a genuine cost or duration spread and just
+        // as wrong. Ruling 3's own "below the floor" vocabulary — every run
+        // shown, no summary, an explicit reason instead — applies here
+        // unconditionally, not only when the run count is low.
+        <p role="status" data-testid="arm-basis-unknown" className="mt-1.5 text-(--ink-dim)">
+          {arm.completedCount} completed — no summary: the measure this was saved under is not recorded, so a spread or a count here would claim a unit this artifact does not carry
         </p>
       ) : measure === 'verified' ? (
         <p data-testid="arm-verified-counts" className="figures mt-1.5 text-(--ink-body)">
@@ -220,7 +257,7 @@ function ArmPanel({ arm, measure }: { arm: ArmSummary; measure: Measure }) {
 }
 
 /** Every run, always, as a point — with its meaning written beside it for the reader who cannot hover. */
-function RunPoints({ runs, measure }: { runs: Run[]; measure: Measure }) {
+function RunPoints({ runs, measure }: { runs: Run[]; measure: Measure | null }) {
   return (
     <ol data-testid="run-dots" className="flex flex-wrap gap-2">
       {runs.map((run) => (
@@ -244,13 +281,24 @@ function runInk(run: Run): string {
   return run.verdict === 'pass' ? 'text-done' : 'text-broken'
 }
 
-/** A judged run says its verdict first, then its value under this measure (or why it has none); the gate's own words follow a fail. */
-function runWords(run: Run, measure: Measure): string {
+/**
+ * A judged run says its verdict first, then its value under this measure (or
+ * why it has none); the gate's own words follow a fail.
+ *
+ * `measure === null` takes the SAME early return as `'verified'` — verdict
+ * only, never `run.value`. A `verified`-saved run's `value` is `1`/`0`, and
+ * printing it beside any OTHER unknown-basis run would be exactly the false
+ * statistic {@link ArmPanel}'s own `arm-basis-unknown` branch refuses to
+ * print in aggregate, just at the per-run point instead (review round 3).
+ */
+function runWords(run: Run, measure: Measure | null): string {
   if (run.status === 'pending') return run.note ?? 'pending'
   const verdict = run.verdict === 'pass' ? 'passed' : 'failed'
   const detail = run.detail === undefined ? '' : ` — ${run.detail}`
-  if (measure === 'verified') return `${verdict}${detail}`
-  if (run.value === null) return `${verdict} · ${run.note ?? 'no value booked under this measure'}${detail}`
+  if (measure === 'verified' || measure === null) return `${verdict}${detail}`
+  if (run.value === null) {
+    return `${verdict} · ${run.note ?? 'no value booked under this measure'}${detail}`
+  }
   return `${verdict} · ${formatValue(run.value)}${detail}`
 }
 
