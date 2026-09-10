@@ -6,6 +6,12 @@ import path from 'node:path'
 import type { Exec, ExecResult } from '@rhizomorph/core'
 import { createEvent } from '@rhizomorph/core'
 import { describe, expect, it, vi } from 'vitest'
+// Through `connect-team.ts`, the hand's one declared importer, never
+// `../shipper/index.js`: a second route in is what ADR-0034's clause-3 seam
+// exists to refuse, and `shipper/hand-law.test.ts` convicts a test file for it
+// exactly as it would a source file. A declared importer BOUNDS the walk, so
+// this import adds no edge that law can see.
+import { enableShipper, shipperKeyPath } from '../cli/connect-team.js'
 import { checkClaudeProjects, runDoctor, type DoctorCheck } from '../cli/doctor.js'
 import { sessionDirFor } from '../log/paths.js'
 import { readResumedCount, sessionFilePath } from '../log/session-log.js'
@@ -147,6 +153,7 @@ describe('runServerDoctor (prd-19 ruling 5)', () => {
         'workmux',
         'telemetry',
         'lane-manifest',
+        'shipper',
         'cli-version-drift',
         'harness-roster',
         'ladder',
@@ -435,6 +442,180 @@ describe('runServerDoctor (prd-19 ruling 5)', () => {
         } finally {
           await rm(webDistDir, { recursive: true, force: true })
         }
+      } finally {
+        await teardown()
+      }
+    })
+  })
+
+  /**
+   * ADR-0034 clause 2 (`doctor` reports the ingest credential's presence,
+   * never its value) and prd-51 ruling 12 (a person can see the hand is on)
+   * over HTTP, not only at a terminal — #387. The sibling block is
+   * `cli/doctor.test.ts`'s "shipper check (ADR-0034 clause 2 — presence,
+   * never value)"; these cases are the same law read through the route's own
+   * composition.
+   *
+   * Every call in here supplies `dataRoot` explicitly, so the hand is only
+   * ever planted inside this suite's temp data root — never in the operator's
+   * real `~/.local/share/rhizomorph`.
+   */
+  describe('the shipper check (ADR-0034 clause 2, #387) — the route says what the CLI says', () => {
+    const SHIPPER_KEY = 'rzk_ROUTEDOCTORFIXTUREVALUE0123456789'
+
+    async function turnOn(repo: string): Promise<void> {
+      await enableShipper(sessionDirFor(repo, dataRoot), {
+        url: 'https://team.example',
+        project: 'acme-widgets',
+        key: SHIPPER_KEY,
+        now: () => 1,
+      })
+    }
+
+    function routeReport(): Promise<DoctorCheck[]> {
+      return runServerDoctor(repoPath, { exec: healthyExec, claudeProjectsRoot, dataRoot })
+    }
+
+    it('is ok and off by default, naming the command that would turn it on', async () => {
+      await setup()
+      try {
+        const shipper = checkFor(await routeReport(), 'shipper')
+        expect(shipper.status).toBe('ok')
+        expect(shipper.message).toContain('shipper: off')
+        expect(shipper.message).toContain('rhizomorph connect team')
+      } finally {
+        await teardown()
+      }
+    })
+
+    it('is ok when on, and names the destination and the project but never the value', async () => {
+      await setup()
+      try {
+        await turnOn(repoPath)
+        const shipper = checkFor(await routeReport(), 'shipper')
+        expect(shipper.status).toBe('ok')
+        expect(shipper.message).toContain('https://team.example')
+        expect(shipper.message).toContain('acme-widgets')
+        expect(shipper.message).toContain('credential present')
+        expect(shipper.message).not.toContain(SHIPPER_KEY)
+        expect(shipper.message).not.toContain(SHIPPER_KEY.slice(0, 12))
+      } finally {
+        await teardown()
+      }
+    })
+
+    it('FAILS when the enable record is there and the credential is not, and names the path and the remedy', async () => {
+      await setup()
+      try {
+        await turnOn(repoPath)
+        await rm(shipperKeyPath(repoPath, dataRoot))
+
+        const shipper = checkFor(await routeReport(), 'shipper')
+        expect(shipper.status).toBe('fail')
+        expect(shipper.message).toContain(shipperKeyPath(repoPath, dataRoot))
+        expect(shipper.message).toContain('rhizomorph connect team')
+      } finally {
+        await teardown()
+      }
+    })
+
+    /**
+     * The DoD's first clause, and the strongest form of it: not "both mention
+     * the URL" but *byte-identical verdicts*. Substring assertions on each
+     * side would drift apart the moment either surface reworded, and the
+     * whole point of #387 is that the two surfaces cannot disagree about the
+     * same data root.
+     */
+    it("the route's verdict is byte-identical to the CLI's, for each of the three states", async () => {
+      await setup()
+      const webDistDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-api-doctor-shipper-web-'))
+      try {
+        const cliShipper = async (): Promise<DoctorCheck> => {
+          const cliReport = await runDoctor({
+            path: repoPath,
+            port: 0,
+            exec: healthyExec,
+            webDistDir,
+            claudeProjectsRoot,
+            dataRoot,
+          })
+          return checkFor(cliReport.checks, 'shipper')
+        }
+
+        // off
+        expect(checkFor(await routeReport(), 'shipper')).toEqual(await cliShipper())
+
+        // on, credential present
+        await turnOn(repoPath)
+        const routeOn = checkFor(await routeReport(), 'shipper')
+        expect(routeOn.status).toBe('ok')
+        expect(routeOn).toEqual(await cliShipper())
+
+        // on, credential gone — the one `fail`
+        await rm(shipperKeyPath(repoPath, dataRoot))
+        const routeBroken = checkFor(await routeReport(), 'shipper')
+        expect(routeBroken.status).toBe('fail')
+        expect(routeBroken).toEqual(await cliShipper())
+      } finally {
+        await rm(webDistDir, { recursive: true, force: true })
+        await teardown()
+      }
+    })
+
+    /**
+     * The `shipper` id belongs on the *replay* exclusion list, not on the
+     * dropped list: `shipperDoctorFacts` opens with `sessionDirFor(repoPath,
+     * …)` and a replay's `repoPath` is the synthetic `record:<slug>` string,
+     * so an unguarded call would report a confident verdict about a directory
+     * belonging to no record anyone is replaying.
+     */
+    it('during a replay it is not applicable, and no session directory is probed', async () => {
+      await setup()
+      try {
+        const replayRepoPath = 'record:some-slug'
+        // The sibling half: plant a real, ON hand at exactly the path an
+        // unguarded `checkShipper(replayRepoPath, dataRoot)` would resolve to.
+        // Without this the case would pass for a build that probed and simply
+        // happened to find nothing.
+        await turnOn(replayRepoPath)
+
+        const checks = await runServerDoctor(replayRepoPath, {
+          exec: healthyExec,
+          claudeProjectsRoot,
+          dataRoot,
+          replay: true,
+        })
+
+        const shipper = checkFor(checks, 'shipper')
+        expect(shipper.status).toBe('ok')
+        expect(shipper.message).toContain('not applicable')
+        expect(shipper.message).toContain('replaying')
+        expect(shipper.message).not.toContain('shipper: on')
+        expect(shipper.message).not.toContain('https://team.example')
+        expect(shipper.message).not.toContain('acme-widgets')
+      } finally {
+        await teardown()
+      }
+    })
+
+    /**
+     * ADR-0034 clause 2's never-value half, asserted on the *serialised* whole
+     * answer rather than on one field — a leak into any other check's message
+     * is the sibling this would otherwise miss.
+     */
+    it('no part of a planted key reaches the serialised answer', async () => {
+      await setup()
+      try {
+        await turnOn(repoPath)
+        const serialised = JSON.stringify(await routeReport())
+
+        // Not decoration: without it the three negatives below pass on a
+        // build where the check never ran at all, which is the exact defect
+        // #387 exists to fix.
+        expect(serialised).toContain('"shipper"')
+        expect(serialised).not.toContain(SHIPPER_KEY)
+        expect(serialised).not.toContain(SHIPPER_KEY.slice(4))
+        expect(serialised).not.toContain(SHIPPER_KEY.slice(0, 12))
       } finally {
         await teardown()
       }
@@ -744,6 +925,40 @@ describe('GET /api/doctor', () => {
       expect(ids).not.toContain('port')
       expect(ids).toContain('session-logs')
       expect(ids).toContain('ladder')
+    } finally {
+      await teardown()
+    }
+  })
+
+  /**
+   * #387's end-to-end half, and the one thing it deliberately does NOT assert.
+   *
+   * `registerDoctorRoute` passes no `dataRoot` (`ServerContext` carries none),
+   * so through `buildApp` the shipper check reads the *process default* data
+   * root — the machine's real `~/.local/share/rhizomorph`, exactly as
+   * `checkSessionBoundary` one line above it already does. A contributor who
+   * has actually run `rhizomorph connect team` would therefore see a
+   * machine-dependent status here: green on CI, red on their laptop, for no
+   * defect at all. So this case asserts only what holds on every machine —
+   * that the check is present in the payload, and that ADR-0034 clause 2's
+   * never-value law holds on the raw bytes Fastify puts on the wire.
+   * Behaviour is asserted against `runServerDoctor` above, where `dataRoot`
+   * is injectable and nothing is ever planted outside a temp directory.
+   */
+  it('carries the shipper check, and never a credential, on the wire (ADR-0034 clause 2, #387)', async () => {
+    await setup()
+    try {
+      const app = makeApp()
+      const response = await app.inject({ method: 'GET', url: '/api/doctor', headers: capabilityHeaders(app) })
+
+      expect(response.statusCode).toBe(200)
+      const shipper = checkFor(response.json(), 'shipper')
+      expect(shipper.id).toBe('shipper')
+      expect(typeof shipper.message).toBe('string')
+      // The raw string on the wire, not `response.json()` re-serialised: the
+      // law is about what leaves the process.
+      expect(response.payload).toContain('"shipper"')
+      expect(response.payload).not.toContain('rzk_')
     } finally {
       await teardown()
     }
