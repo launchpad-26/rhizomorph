@@ -112,6 +112,30 @@ export interface EventFactory {
     init?: Init<'fork.measured'>,
   ): EventOf<'fork.measured'>
 
+  /** prd55 ruling 3: the R&D hand's corpus read, grouped into patterns, source `lab`. */
+  rdPatterns(
+    payload?: Partial<PayloadOf<'rd.patterns'>>,
+    init?: Init<'rd.patterns'>,
+  ): EventOf<'rd.patterns'>
+
+  /** prd55 ruling 3: one clean, single-dimension proposal the hand drew from a pattern, source `lab`. */
+  rdProposal(
+    payload?: Partial<PayloadOf<'rd.proposal'>>,
+    init?: Init<'rd.proposal'>,
+  ): EventOf<'rd.proposal'>
+
+  /** prd55 ruling 3/9: a proposal the pure laws refused, source `lab`. */
+  rdRefused(
+    payload?: Partial<PayloadOf<'rd.refused'>>,
+    init?: Init<'rd.refused'>,
+  ): EventOf<'rd.refused'>
+
+  /** prd55 ruling 4: the operator overriding the hand's checkpoint pick, source `lab`. */
+  rdOverride(
+    payload?: Partial<PayloadOf<'rd.override'>>,
+    init?: Init<'rd.override'>,
+  ): EventOf<'rd.override'>
+
   /** prd11 ruling 6b, phase 1: the judge organ's own keystone, source `judge`, silent-log only. */
   judgeFinding(
     payload?: Partial<PayloadOf<'judge.finding'>>,
@@ -329,6 +353,96 @@ const defaults = {
     commits: 1,
     source: 'measure-route',
   },
+  // prd55 wave 5 (ruling 1): a believable R&D provenance line — the CLI's own
+  // JSON result, digests of the prompt and the corpus it read, and the
+  // operator's own claude --version, all quotable verbatim.
+  'rd.patterns': {
+    lane: 'feature',
+    patterns: [
+      {
+        patternId: 'pattern-fixture-1',
+        shape: 'a flaky assertion on a timing-sensitive test',
+        sourceItems: ['retro-fixture-1', 'retro-fixture-2'],
+        count: 2,
+        heldBack: false,
+      },
+      {
+        patternId: 'pattern-fixture-2',
+        shape: 'a one-off dependency install failure',
+        sourceItems: ['retro-fixture-3'],
+        count: 1,
+        heldBack: true,
+      },
+    ],
+    provenance: {
+      model: 'claude-opus-5',
+      total_cost_usd: 0.42,
+      duration_ms: 9_400,
+      promptDigest: 'a'.repeat(64),
+      corpusDigest: 'b'.repeat(64),
+      claudeVersion: '2.1.0',
+      corpus: 'local',
+    },
+  },
+  // prd55 ruling 3: a clean, single-dimension proposal against the live
+  // pattern above — model is the varied arm, everything else inherited.
+  'rd.proposal': {
+    lane: 'feature',
+    proposalId: 'proposal-fixture-1',
+    patternId: 'pattern-fixture-1',
+    varies: 'model',
+    arms: [
+      { model: 'opus', briefDigest: null, checkpointId: null, gateCommand: null },
+      { model: 'sonnet', briefDigest: null, checkpointId: null, gateCommand: null },
+    ],
+    checkpointPick: {
+      chosenCheckpointId: 'checkpoint-fixture-1',
+      rejected: [{ checkpointId: 'checkpoint-fixture-0', reason: 'predates the fix the pattern is about' }],
+    },
+    provenance: {
+      model: 'claude-opus-5',
+      total_cost_usd: 0.42,
+      duration_ms: 9_400,
+      promptDigest: 'a'.repeat(64),
+      corpusDigest: 'b'.repeat(64),
+      claudeVersion: '2.1.0',
+      corpus: 'local',
+    },
+  },
+  // prd55 ruling 3/9: the held-back pattern above, proposed against anyway —
+  // refused, never a patched proposal.
+  'rd.refused': {
+    lane: 'feature',
+    patternId: 'pattern-fixture-2',
+    reason: 'this pattern is held back — a single occurrence is not yet a pattern, and testing a shape that may not recur spends real money',
+    rawResultDigest: 'c'.repeat(64),
+    provenance: {
+      model: 'claude-opus-5',
+      total_cost_usd: 0.42,
+      duration_ms: 9_400,
+      promptDigest: 'a'.repeat(64),
+      corpusDigest: 'b'.repeat(64),
+      claudeVersion: '2.1.0',
+      corpus: 'local',
+    },
+  },
+  // prd55 ruling 4: the operator picking checkpoint-fixture-0 instead of the
+  // hand's own choice above — never re-attributed.
+  'rd.override': {
+    lane: 'feature',
+    proposalId: 'proposal-fixture-1',
+    agentCheckpointId: 'checkpoint-fixture-1',
+    operatorCheckpointId: 'checkpoint-fixture-0',
+    provenance: {
+      model: 'claude-opus-5',
+      total_cost_usd: 0.42,
+      duration_ms: 9_400,
+      promptDigest: 'a'.repeat(64),
+      corpusDigest: 'b'.repeat(64),
+      claudeVersion: '2.1.0',
+      corpus: 'local',
+    },
+  },
   'judge.finding': {
     kind: 'symbol-overlap',
     lanes: ['2-core', '3-git'],
@@ -450,6 +564,10 @@ export function createEventFactory(options: EventFactoryOptions = {}): EventFact
     forkCheckpoint: sugar('fork.checkpoint'),
     forkDispatched: sugar('fork.dispatched'),
     forkMeasured: sugar('fork.measured'),
+    rdPatterns: sugar('rd.patterns'),
+    rdProposal: sugar('rd.proposal'),
+    rdRefused: sugar('rd.refused'),
+    rdOverride: sugar('rd.override'),
     judgeFinding: sugar('judge.finding'),
     summonsRaised: sugar('summons.raised'),
     summonsCleared: sugar('summons.cleared'),
