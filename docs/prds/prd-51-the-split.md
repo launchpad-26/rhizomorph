@@ -927,8 +927,13 @@ did not move.
 
 **The answer is upstream, not a second guard.** For an unfoldable line `toEventRow` sets `lane`
 and `worktree` to `null` at the point of derivation, and `projectionsFor`'s existing
-`if (row.lane !== null)` then skips the branch with nothing added. `collisions` is already covered,
-since `dirtyFiles` gates on `row.type`. This is `row.ts`'s own rule applied to the case it was
+`if (row.lane !== null)` then skips the branch with nothing added. `collisions` is covered by the
+**marker**, not by the type gate — the review of #417 wrote that reason down wrongly and it is the
+amendment's own conflation restated: `dirtyFiles`' `row.type` gate protects the unknown-*type* arm
+and nothing else, so an `unknown-shape` `worktree.dirty` walks straight through it. EXECUTED: with
+the marker check removed from `dirtyFiles` and the type gate left standing, one such line puts
+`[{"path":"src/a.ts","lanes":["lane-a"]}]` into `collisions`. It is covered because `dirtyFiles` is
+one of the three values `projectionsFor` derives itself, which is the clause above. This is `row.ts`'s own rule applied to the case it was
 written for — *"inventing one from `branch` or from the worktree path would put a fact in the
 column that no collector asserted"* — and a payload this build could not validate has asserted
 nothing this build can read. The cost is that `events.lane` and `events.worktree` are null on that
