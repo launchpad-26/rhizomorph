@@ -310,6 +310,31 @@
   postcondition asserts the fact it claims, the landing tool is covered by an executable
   check, and a red CI leg still produces the evidence of its remaining gates.
 
+- **prd46 — the class, not the enumeration**
+  (`docs/prds/done/prd-46-the-class-not-the-enumeration.md`, shipped 2026-09-02): a guard that
+  lists spellings misses the next one; a guard names the class it refuses.
+- **prd47 — the answering hand** (`docs/prds/done/prd-47-the-answering-hand.md`, shipped
+  2026-09-02): the picture answers the hand, not the model. Its fourth ruling answered NO-GO on
+  the display list's free-list, and that conditional verdict moved out to prd49.
+- **prd48 — the shared record** (`docs/prds/prd-48-the-shared-record.md`, blessed 2026-08-31):
+  the unknowns are measured before the noticeboard is built.
+- **prd49 — potential change** (`docs/prds/prd-49-potential-change.md`, blessed 2026-09-01): not a
+  programme of work — a conditional verdict given a place to live, so the condition is watched
+  rather than remembered.
+- **prd50 — the fixed ceiling** (`docs/prds/prd-50-the-fixed-ceiling.md`, blessed 2026-09-02): a
+  refusal an operator may not soften. The lab's CLI lock ceiling is fixed because it bounds a
+  wait; prd53 ruling 6 records why the launch ceiling, which bounds load, is not.
+- **prd51 — the split** (`docs/prds/prd-51-the-split.md`, blessed 2026-09-03): the ledger ships
+  up, and nothing leaves the team.
+- **prd52 — the world composes** (`docs/prds/prd-52-the-world-composes.md`, blessed 2026-09-07):
+  the scene holds several colonies, and the size it holds is a law.
+- **prd53 — the lab** (`docs/prds/prd-53-the-lab.md`, blessed 2026-09-07, *Kind: specifying*):
+  the experiment is one fork, and the console stops lying about it. The completion paper for a
+  lab whose own completion paper, prd-28, died in the 2026-08-19 deletion — its vision restored
+  as `docs/vision-the-lab.md`, its design specified in a companion artifact, its user guide
+  turned into a law (`packages/web/src/lab/the-lab-guide-law.test.ts`). Per-milestone counts are
+  deliberately not restated here; the board is the source.
+
 ## Unclaimed candidates (cohort-facing)
 
 Scoped, not built — the deliberate inheritance for the cohort's six-week
