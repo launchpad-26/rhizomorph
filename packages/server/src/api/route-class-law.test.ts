@@ -117,8 +117,11 @@ describe('the route-class law (prd-23 ruling 5)', () => {
     // `GET /api/lab/comparisons/:id`. 30 -> 31: prd-55 ruling 6's lab
     // transcript read (#384), `GET /api/lab/transcript` — a gated read of the
     // lab's own record, so the lab no longer asks the fleet's attribution.
-    expect(routes.length).toBe(31)
-    expect(ROUTE_CLASSES.length).toBe(31)
+    // 31 -> 33: prd-55 ruling 6's telemetry and footprint reads (#402),
+    // `GET /api/lab/telemetry` and `GET /api/lab/footprint` — the frame's own
+    // two stated gaps, closed the same way transcript's was.
+    expect(routes.length).toBe(33)
+    expect(ROUTE_CLASSES.length).toBe(33)
 
     await app.close()
   })
@@ -174,13 +177,15 @@ describe('the route-class law (prd-23 ruling 5)', () => {
     // gated read (prd-29 wave 2b, ruling 4, #60 — `/api/stream`) + two gated
     // reads (prd-14 ruling 5, #213 — the comparison listing and its by-id
     // read) + one gated read (prd-55 ruling 6, #384 — `/api/lab/transcript`,
-    // the lab reading its own record). If this number and the walk above
-    // disagree with the table, they cannot both pass.
+    // the lab reading its own record) + two gated reads (prd-55 ruling 6,
+    // #402 — `/api/lab/telemetry` and `/api/lab/footprint`, the frame's own
+    // two). If this number and the walk above disagree with the table, they
+    // cannot both pass.
     const gatedFound = routes.filter((route) => {
       const entry = classify(route, ROUTE_CLASSES)
       return entry !== undefined && isGated(entry) && route.hasCapabilityGate
     })
-    expect(gatedFound.length).toBe(26)
+    expect(gatedFound.length).toBe(28)
 
     await app.close()
   })
