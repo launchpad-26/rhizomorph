@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { experimentHasOutcome, NOT_MEASURED_VOICE, runOutcomeVoice, toBranchingArms } from './adapters.js'
+import { experimentHasOutcome, experimentRowCounts, NOT_MEASURED_VOICE, runOutcomeVoice, toBranchingArms } from './adapters.js'
 import { layoutBranching } from './branching/index.js'
 import type { LabArm, LabExperiment, LabRun, LabRunOutcome } from './types.js'
 
@@ -100,5 +100,34 @@ describe('runOutcomeVoice (prd53 ruling 3 — not-run is legal, and voiced as no
     expect(runOutcomeVoice(run('b', 1, outcome({ verified: 'fail', verifiedDetail: '1 test failed' })))).toBe(
       'failed npm test (measure-route): 1 test failed',
     )
+  })
+})
+
+describe('experimentRowCounts (prd-55 ruling 8 — what a rail row counts)', () => {
+  it('counts the arms and runs on the record, with every run in exactly one verdict bucket', () => {
+    const exp = experiment([
+      arm({ arm: 1, runs: [run('p1', 1, outcome({ verified: 'pass' })), run('p2', 2, outcome({ verified: 'pass' }))] }),
+      arm({ arm: 2, runs: [run('f1', 1, outcome({ verified: 'fail', verifiedDetail: '2 tests failed' })), run('u1', 2)] }),
+    ])
+    const counts = experimentRowCounts(exp)
+    expect(counts).toEqual({ arms: 2, runs: 4, passed: 2, failed: 1, unmeasured: 1 })
+    expect(counts.passed + counts.failed + counts.unmeasured, 'every run is counted once and only once').toBe(counts.runs)
+  })
+
+  it('a run whose gate never ran counts as unmeasured, never as a failure — nobody judged it', () => {
+    const exp = experiment([arm({ arm: 1, runs: [run('n', 1, outcome({ verified: 'not-run', verifiedDetail: 'npm: not found' }))] })])
+    expect(experimentRowCounts(exp)).toEqual({ arms: 1, runs: 1, passed: 0, failed: 0, unmeasured: 1 })
+  })
+
+  it('an arm that has dispatched nothing is still an arm, and contributes no run', () => {
+    expect(experimentRowCounts(experiment([arm({ arm: 1, runs: [] })]))).toEqual({ arms: 1, runs: 0, passed: 0, failed: 0, unmeasured: 0 })
+  })
+
+  it('the counts are the comparison’s own — an arm’s completed count is passed + failed, the floor’s denominator', () => {
+    const exp = experiment([
+      arm({ arm: 1, runs: [run('p', 1, outcome({ verified: 'pass' })), run('f', 2, outcome({ verified: 'fail' })), run('n', 3, outcome({ verified: 'not-run' }))] }),
+    ])
+    const counts = experimentRowCounts(exp)
+    expect(counts.passed + counts.failed, 'the same denominator Compare and Metrics count').toBe(2)
   })
 })
