@@ -106,8 +106,11 @@ describe("the lab launch path is reachable only from an explicit request (prd12 
     // 2026-09-07 (still estimate.ts, LaunchPanel.tsx, launch.ts — unchanged
     // since the 2026-08-08 audit) — pinned to today's count, not a loose
     // lower bound, so a file silently dropped OR silently added both fail
-    // loudly here (a >= assertion only catches the former).
-    expect(sourceFiles().length).toBe(3)
+    // loudly here (a >= assertion only catches the former). 3 -> 4 on
+    // 2026-09-10: prd-55 wave 1 (#383) added `models.ts`, the select's read of
+    // `lab.models` — a module that reads a preference and has no clock, which
+    // is what the next test holds it to like its three siblings.
+    expect(sourceFiles().length).toBe(4)
   })
 
   it('nothing under lab/launch/ has a clock of its own — a launch never fires without an incoming click', () => {

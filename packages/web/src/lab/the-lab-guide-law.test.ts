@@ -8,7 +8,9 @@ import { markerX, sessionFraction } from './axis/position.js'
 import { layoutCanvas } from './canvas/organism.js'
 import { NOT_MEASURED, SCORING_UNAVAILABLE } from './compare/fromExperiment.js'
 import { POSITIONS } from './frame/Frame.js'
+import { OTHER_MODEL } from './launch/models.js'
 import { MEASURE_URL } from './measure.js'
+import { DEFAULT_GATE_COMMAND } from './measure-control/MeasureControl.js'
 import { EMPTY_COPY } from './metrics/Metrics.js'
 import type { LabCheckpoint, LabExperiment, LabRun } from './types.js'
 
@@ -171,7 +173,9 @@ const CLAIMS: Readonly<Record<string, Claim>> = {
     says: /shares the \*same\* treatment[\s\S]*LaunchPanel\.tsx/,
     check: () => {
       expect(server.labFork(), 'grep: one --model for the whole call').toMatch(/--model <m>\s+Model each arm's agent runs/)
-      expect(web.launch(), 'grep: the panel takes a model per arm row').toMatch(/arm\.model|model:/)
+      // A select per arm row since prd-55 wave 1 (the free-text input it replaced matched `arm.model`).
+      expect(web.launch(), 'grep: the panel takes a model per arm row, as a select').toMatch(/<select\s+data-testid=\{`launch-arm-model-\$\{arm\.key\}`\}/)
+      expect(web.launch(), 'grep: and a brief per arm row').toContain('data-testid={`launch-arm-brief-${arm.key}`}')
     },
   },
   'launch-ceiling': {
@@ -231,6 +235,21 @@ const CLAIMS: Readonly<Record<string, Claim>> = {
       expect(server.api(), 'grep: runs compare with the gate').toContain("'--verify'")
       expect(server.coreEvents(), 'grep: fork.measured is an event').toContain("'fork.measured'")
       expect(server.api(), 'grep: a leading dash is refused as a flag').toContain('a fork id names an experiment, not a flag')
+    },
+  },
+  'measure-control': {
+    says: /\*\*measure\*\* control[\s\S]*defaulting to `npm test`[\s\S]*naming how many worktrees[\s\S]*re-reads its experiments[\s\S]*verbatim/,
+    check: () => {
+      // The field's default IS the CLI's default — executed on the web side,
+      // grepped on the server side a web test may not import.
+      expect(DEFAULT_GATE_COMMAND, 'executed: the field default').toBe('npm test')
+      expect(read('packages/server/src/cli/lab-compare.ts'), "grep: which is the CLI's own").toContain("const DEFAULT_VERIFY = 'npm test'")
+      const control = read('packages/web/src/lab/measure-control/MeasureControl.tsx')
+      expect(control, 'grep: one confirmation, naming the worktree count').toMatch(/measure-confirm-dialog-\$\{id\}[\s\S]*in \{worktrees\} worktree/)
+      expect(control, 'grep: the route is reached only through the module that names it').toContain("from '../measure.js'")
+      expect(control, 'grep: the refusal is the message, verbatim').toContain('{phase.message}')
+      expect(web.page(), 'grep: mounted by the experiment panel, and the page re-reads on success').toMatch(/<MeasureControl[\s\S]*onMeasured=\{[^}]*reloadExperiments/)
+      expect(existsSync(path.join(HERE, 'measure-control', 'MeasureControl.test.tsx')), "the control's own tests exist").toBe(true)
     },
   },
   'not-measured-voice': {
@@ -301,12 +320,27 @@ const CLAIMS: Readonly<Record<string, Claim>> = {
       expect(web.launch(), 'grep: no rate, no figure').toContain('the rate cannot be established')
     },
   },
+  /**
+   * The id keeps the name ruling 7 gave it — "the guide's `launch-panel-gap`
+   * claim is rewritten to say what is now true, and its test fails until it
+   * is". It did: the checks below are the old ones inverted. Until prd-55
+   * wave 1 this claim asserted the panel did NOT contain `ceilingOverride`
+   * and asked the estimate for arms alone.
+   */
   'launch-panel-gap': {
-    says: /launches one run per arm\s+and sends no ceiling override today/,
+    says: /\*runs per arm\*[\s\S]*\*ceiling override\*[\s\S]*only when set[\s\S]*arms ×\s+runs[\s\S]*`lab\.models`[\s\S]*\*other…\*[\s\S]*never a gate/,
     check: () => {
       const launch = web.launch()
-      expect(launch, 'grep: when the panel learns the override, rewrite the guide').not.toContain('ceilingOverride')
-      expect(launch, 'grep: the estimate is asked for arms alone').toContain('fetchLabEstimate(selectedCheckpoint.lane, arms.length, fetchImpl)')
+      expect(launch, 'grep: runs travels only when set').toContain('...(runs === undefined ? {} : { runs })')
+      expect(launch, 'grep: the override travels only when set').toContain('...(ceilingOverride === undefined ? {} : { ceilingOverride })')
+      expect(launch, 'grep: the estimate is asked for arms × runs once runs is set').toMatch(
+        /fetchLabEstimate\(\s*selectedCheckpoint\.lane,\s*runs === undefined \? arms\.length : \{ arms: arms\.length, runs \},/,
+      )
+      expect(launch, 'grep: the basis line prints the lanes the server counted').toContain('spending lane(s) — ${estimate.arms} arm(s) × ${estimate.runs} run(s)')
+      expect(launch, 'grep: the model is a select over the list plus other…').toContain('<option value={OTHER_MODEL}>')
+      expect(OTHER_MODEL, 'executed: the escape is spelled so no model name can collide with it').toBe('other…')
+      expect(read('packages/web/src/settings/registry.ts'), 'grep: the list is declared, and it is the repo\'s').toMatch(/id: 'lab\.models',\s+group: 'repo'/)
+      expect(read('packages/server/src/api/lab.ts'), 'grep: only the grammar refuses a model').toContain('export const MODEL_GRAMMAR')
     },
   },
   'refusals-verbatim': {
@@ -327,9 +361,12 @@ const CLAIMS: Readonly<Record<string, Claim>> = {
     },
   },
   'partial-launch': {
-    says: /n sequential CLI calls with no atomicity[\s\S]*names the arm that failed[\s\S]*present and excluded[\s\S]*stub — named, and never counted/,
+    says: /n sequential CLI calls with no atomicity[\s\S]*names the arm that failed[\s\S]*k of N requested arms dispatched[\s\S]*never attempted[\s\S]*present and excluded[\s\S]*stub — named, and never counted/,
     check: () => {
       expect(web.launch(), 'grep: the panel names the failed arm').toContain('failed and dispatch stopped there')
+      expect(web.launch(), 'grep: k of N, with N the requested count').toContain('of {phase.outcome.requestedArms} requested arm(s) dispatched')
+      expect(read('packages/web/src/lab/launch/launch.ts'), 'grep: N is the request\'s, stamped on the outcome').toContain('requestedArms: request.arms.length')
+      expect(web.page(), 'grep: every arm after the failed one is listed as never attempted').toContain('never attempted')
       const layout = layoutCanvas({ experiment: TWO_BY_TWO, failedArms: [{ arm: 3, error: 'restore failed' }] })
       // prd-55 ruling 11 (#385) made the picture ribbons rather than organisms;
       // the claim is unchanged — the stub is drawn and it is not counted.

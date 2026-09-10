@@ -40,6 +40,16 @@ export interface LaunchRequest {
   lane: string
   checkpointId: string
   arms: LaunchArmInput[]
+  /**
+   * Runs of every arm (prd53 ruling 1) and the operator's declared ceiling in
+   * spending lanes (prd53 ruling 6). Both travel ONLY when set — the panel
+   * leaves the key out when the field is blank, so the server's own defaults
+   * (one run; the ceiling of 8) rule and nothing here restates them (prd-55
+   * ruling 7). The server validates both and records the override on every
+   * fork.dispatched it produces.
+   */
+  runs?: number
+  ceilingOverride?: number
 }
 
 export interface LaunchedArm {
@@ -57,7 +67,19 @@ export interface LaunchOutcome {
   checkpointId: string
   arms: LaunchedArm[]
   failed: { arm: number; error: string } | null
+  /**
+   * How many arms the launch ASKED for (prd-55 ruling 7). The server stops at
+   * the first failed arm and never echoes this, so it is stamped here from the
+   * request — the one place that knows it. The partial-launch line reads
+   * "k of N requested arms dispatched" from it; it used to invent N as
+   * dispatched + 1, which understated every launch that stopped before its
+   * last arm (the wave-3 review's finding).
+   */
+  requestedArms: number
 }
+
+/** What the route answers — {@link LaunchOutcome} without the count only the request knows. */
+type LaunchAnswer = Omit<LaunchOutcome, 'requestedArms'>
 
 /**
  * The narrowest shape this module needs of `fetch`: one url, one init naming
@@ -94,7 +116,7 @@ function isLaunchedArm(value: unknown): value is LaunchedArm {
   )
 }
 
-function parseOutcome(answer: unknown): LaunchOutcome | null {
+function parseOutcome(answer: unknown): LaunchAnswer | null {
   if (!isRecord(answer)) return null
   const { parentLane, checkpointId, arms, failed } = answer
   if (typeof parentLane !== 'string' || typeof checkpointId !== 'string') return null
@@ -169,5 +191,6 @@ export async function requestLaunch(request: LaunchRequest, fetchImpl?: LaunchFe
 
   const outcome = parseOutcome(answer)
   if (outcome === null) throw new Error('the instrument answered something other than a launch result')
-  return outcome
+  // The request's own count, not a figure rebuilt from what came back.
+  return { ...outcome, requestedArms: request.arms.length }
 }

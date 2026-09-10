@@ -254,16 +254,21 @@ describe('what the host clears, and what nothing can clear (#574)', () => {
   })
 
   it('leaves a reason no host could clear exactly where it was', () => {
-    // Scene quality, the repo, You and Sharing ride PRDs rather than
-    // capabilities: `requires: null` means there is nothing to announce, so a
-    // shell declaring everything changes none of them.
+    // Scene quality, You and Sharing ride PRDs rather than capabilities:
+    // `requires: null` means there is nothing to announce, so a shell declaring
+    // everything changes none of them.
     withHost(['shell', 'tray', 'notify', 'launchAtLogin', 'updates'])
 
     // Scene quality is live now — the PRD-gated examples left are the groups.
     expect(unavailabilityOf(entryOf('appearance.sceneQuality'))).toBeNull()
-    for (const id of ['repo', 'you', 'sharing'] as const) {
+    for (const id of ['you', 'sharing'] as const) {
       expect(groupUnavailabilityOf(groupOf(id)), id).not.toBeNull()
     }
+    // The Repo group left this list in prd-55 wave 1: it holds `lab.models`,
+    // a record a live control writes, so "the whole group cannot act" stopped
+    // being true — and with `unavailabilityOf` reading the group first, a
+    // reason left here would have thrown from every write to that record.
+    expect(groupUnavailabilityOf(groupOf('repo'))).toBeNull()
   })
 
   it('restores only what can act, so a disabled control is not quietly rewritten', () => {
@@ -319,5 +324,36 @@ describe('the theme opens dark (#337 — operator ruling 2026-09-08; ui-2.0 D26)
 
   it('following the system is still on offer — a choice, no longer the default', () => {
     expect(theme?.options?.map((option) => option.value)).toContain('system')
+  })
+})
+
+describe("the lab model list is the operator's (prd-55 ruling 5, wave 1)", () => {
+  it('seeds the three aliases on, and keeps the list with the repo rather than the machine', () => {
+    const models = entryOf('lab.models')
+    // The three names every dispatch in this repo has used, on by default so a
+    // fresh repo's select is a list and not a blank. A list, never a gate: a
+    // model absent here is still legal on the CLI, and the entry's own comment
+    // says so before anything reads it.
+    expect(models.fallback).toEqual({ opus: true, sonnet: true, haiku: true })
+    // Which models a project tries is a fact about that project's experiments —
+    // ruling 3's reason for panel collapse, and the same answer here.
+    expect(models.scope).toBe('repo')
+    expect(scopesIn('repo')).toEqual(['repo'])
+  })
+
+  it('can be written and put back — the Repo group is live, so adding a model does not throw', () => {
+    // The mutation this pins: give the Repo group back its old `unavailable`
+    // sentence and the first line below throws "lab.models is unavailable —
+    // …", because `unavailabilityOf` reads the group before the entry. That
+    // is exactly the launch panel's other… path, and it has to work.
+    expect(unavailabilityOf(entryOf('lab.models'))).toBeNull()
+    expect(writePreference('lab.models', { 'claude-opus-5': true })).toBe(true)
+    // A record merges over its default: the three aliases stay offered.
+    expect(readPreference('lab.models')).toEqual({ opus: true, sonnet: true, haiku: true, 'claude-opus-5': true })
+    expect(isOverridden('lab.models')).toBe(true)
+
+    restoreDefaults('repo', 'repo')
+    expect(readPreference('lab.models')).toEqual({ opus: true, sonnet: true, haiku: true })
+    expect(isOverridden('lab.models')).toBe(false)
   })
 })
