@@ -140,7 +140,13 @@ describe('ComparisonSurface', () => {
   describe('measure={null} — the reopened-artifact case: no number this surface cannot name the unit of', () => {
     it('never claims a measure it does not have — no data-measure attribute, no measure switch, an explicit "not recorded" basis line', () => {
       const comparison = compareArms({ arms: [arm('a', 'opus', 'brief-x', [passed('r1', 300), passed('r2', 300), passed('r3', 300)])] })
-      render(<ComparisonSurface comparison={comparison} measure={null} />)
+      // `onMeasureChange` is passed DELIBERATELY, and it is the whole point of
+      // this line: without it the switch is absent because no handler was
+      // given, so the assertion below held for a reason that has nothing to do
+      // with `measure` being null and stayed green when that guard was deleted
+      // (found by mutation, review of #422). Offering the handler is what makes
+      // `measure === null` the only thing suppressing the switch.
+      render(<ComparisonSurface comparison={comparison} measure={null} onMeasureChange={() => {}} />)
 
       expect(screen.getByTestId('comparison-surface').hasAttribute('data-measure')).toBe(false)
       expect(screen.queryByTestId('measure-switch')).toBeNull()
