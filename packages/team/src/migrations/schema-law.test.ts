@@ -122,6 +122,40 @@ export function indexDeclarations(sql: string): IndexDeclaration[] {
   }))
 }
 
+/**
+ * An index declared on a PARTITION rather than on a named table.
+ *
+ * `0004_events_dedup.sql` builds its index inside `format('… %I … %I …')`,
+ * because which partitions exist depends on when `0001` ran and there is no
+ * list to write. {@link CREATE_INDEX_RE} cannot see one: it matches `ON (\w+)`
+ * and `%I` is not `\w+`. That is exactly why case 20's four-element `toEqual`
+ * would have stayed green while accounting for the new index at all — a test
+ * that cannot fail for the reason it claims. This extractor is the other half.
+ */
+interface PartitionIndexDeclaration {
+  readonly unique: boolean
+  readonly concurrently: boolean
+  readonly name: string
+  /** Always the `%I` placeholder — a declaration on a literal table is not one of these. */
+  readonly target: string
+  readonly columns: string[]
+}
+
+const PARTITION_INDEX_RE =
+  /CREATE\s+(UNIQUE\s+)?INDEX\s+(CONCURRENTLY\s+)?(?:IF NOT EXISTS\s+)?(%I|\w+)\s+ON\s+(%I|\w+)\s*\(([^)]*)\)/gi
+
+export function partitionIndexDeclarations(sql: string): PartitionIndexDeclaration[] {
+  return [...sql.matchAll(PARTITION_INDEX_RE)]
+    .filter((m) => m[4] === '%I')
+    .map((m) => ({
+      unique: m[1] !== undefined,
+      concurrently: m[2] !== undefined,
+      name: m[3] as string,
+      target: m[4] as string,
+      columns: (m[5] as string).split(',').map((s) => s.trim()),
+    }))
+}
+
 /** `CREATE TABLE IF NOT EXISTS <name>` — the tables a migration declares. */
 export function createdTables(sql: string): string[] {
   return [...sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?(\w+)/gi)].map((m) => m[1] as string)
@@ -145,8 +179,13 @@ export function grants(sql: string): { privileges: string[]; tables: string[]; r
 }
 
 describe('case 26 — the walk really reads the tracked migrations', () => {
-  it('finds exactly the three that ship with this package', () => {
-    expect(migrations().map((m) => m.id)).toEqual(['0001_events', '0002_projections', '0003_roles_rls'])
+  it('finds exactly the four that ship with this package', () => {
+    expect(migrations().map((m) => m.id)).toEqual([
+      '0001_events',
+      '0002_projections',
+      '0003_roles_rls',
+      '0004_events_dedup',
+    ])
   })
 
   it('and they contain real DDL, not empty files', () => {
@@ -202,8 +241,21 @@ describe('case 19 — a monthly window, with a top-up path', () => {
   })
 })
 
-describe('case 20 — exactly four indexes on events', () => {
-  it('one BRIN on ts and three btrees, and nothing else', () => {
+describe('case 20 — exactly four indexes on the PARENT, and the unique key on each partition', () => {
+  /**
+   * The claim this `it` makes changed with prd-51's 2026-09-08 amendment, and
+   * the name says so because otherwise the assertion and the claim drift apart.
+   *
+   * It used to read "exactly four indexes on events". It now reads: the parent
+   * still carries exactly four, **because the unique key cannot live there** —
+   * `UNIQUE constraint on table "events" lacks column "ts" which is part of the
+   * partition key`. Ruling 5's sentence as the amendment rewrote it: the natural
+   * unique key cannot exist on the partitioned table; it exists on each
+   * partition. So four here is not "we added no index", it is "the index we
+   * added could not have gone here", and the clause below is where the added
+   * one is accounted for.
+   */
+  it('the parent carries one BRIN and three btrees, and cannot carry the unique key at all', () => {
     const onEvents = indexDeclarations(allStripped()).filter((i) => i.table === 'events')
     expect(onEvents.length).toBe(4)
     expect(onEvents.map((i) => i.body).sort()).toEqual(
@@ -224,6 +276,85 @@ describe('case 20 — exactly four indexes on events', () => {
     const rigged = indexDeclarations('CREATE INDEX IF NOT EXISTS x ON events (source);')
     expect(rigged).toEqual([{ name: 'x', table: 'events', body: '(source)', concurrently: false }])
     expect(indexDeclarations('-- CREATE INDEX nope ON events (source)')).toEqual([])
+  })
+
+  /**
+   * The added index, accounted for by the only extractor that can see it.
+   *
+   * `CREATE_INDEX_RE` matches `ON (\w+)`; `0004`'s target is the `%I`
+   * placeholder of a `format()` template, so the four-element assertion above
+   * stays at four **without having looked at the new index**. Deleting or
+   * loosening that assertion is not the repair — it is still true and still
+   * worth holding. This is.
+   */
+  it('exactly one per-partition index exists across every tracked migration, and it is ruling 4s key', () => {
+    const declarations = partitionIndexDeclarations(allStripped())
+    expect(declarations.length).toBe(1)
+    const declaration = declarations[0]
+    expect(declaration?.unique).toBe(true)
+    expect(declaration?.concurrently).toBe(false)
+    expect(declaration?.columns).toEqual(['project_id', 'actor_instance', 'n'])
+    // Aimed at a partition, never at the parent — which is the whole amendment.
+    expect(declaration?.target).toBe('%I')
+    expect(declaration?.columns).not.toContain('event_id')
+    expect(declaration?.columns).not.toContain('ts')
+  })
+
+  it('the per-partition extractor bites — a planted declaration is found and a commented one is not', () => {
+    expect(
+      partitionIndexDeclarations("EXECUTE format('CREATE UNIQUE INDEX IF NOT EXISTS %I ON %I (a, b)', x, y);"),
+    ).toEqual([{ unique: true, concurrently: false, name: '%I', target: '%I', columns: ['a', 'b'] }])
+    expect(
+      partitionIndexDeclarations(stripSqlComments("-- EXECUTE format('CREATE UNIQUE INDEX %I ON %I (a)')")),
+    ).toEqual([])
+    // …and it does NOT claim a literal-target index as a partition one, which is
+    // what keeps the two extractors from double-counting the same declaration.
+    expect(partitionIndexDeclarations('CREATE UNIQUE INDEX x ON events (project_id);')).toEqual([])
+    // …nor would it miss a CONCURRENTLY smuggled into the format template.
+    expect(
+      partitionIndexDeclarations("format('CREATE UNIQUE INDEX CONCURRENTLY %I ON %I (a)')")[0]?.concurrently,
+    ).toBe(true)
+  })
+})
+
+describe('the ruling 4 / ruling 5 collision is recorded as RESOLVED, and cited', () => {
+  /**
+   * `0001_events.sql`'s header recorded the collision as an open question and
+   * said the ingest issue would settle it. It is settled — prd-51's amendment
+   * of 2026-09-08 — and the header was rewritten to say what was ruled.
+   *
+   * Asserted rather than assumed, because a header that still poses the
+   * question sends the next reader to re-litigate a decision that is made, and
+   * nothing else in this suite reads the prose.
+   */
+  it('the open question is gone and the amendment is cited by path and date', () => {
+    const raw = rawOf('0001_events')
+    expect(raw).not.toContain('NOT resolved here')
+    expect(raw).not.toContain('It is the ingest issue')
+    expect(raw).toContain('RESOLVED')
+    expect(raw).toContain('2026-09-08')
+    expect(raw).toContain('docs/prds/prd-51-the-split.md')
+    // The clause itself is still named as what was RULED, which is what case 26's
+    // comment-stripping assertion reads it for.
+    expect(raw).toContain('ON CONFLICT')
+    expect(raw).toContain('0004_events_dedup.sql')
+  })
+
+  /**
+   * The invariant the amendment added, and the reason it is written into the
+   * migration rather than left in the PRD: per-partition uniqueness cannot see
+   * across a partition boundary, so a shipper that recomputed `ts` would break
+   * dedup at every month boundary with no error anywhere.
+   */
+  it('and the header states the invariant dedup rests on', () => {
+    expect(rawOf('0001_events')).toContain('always carries the same ts')
+  })
+
+  it('0004 cites the amendment too, and quotes the errors it answers', () => {
+    const raw = rawOf('0004_events_dedup')
+    expect(raw).toContain('docs/prds/prd-51-the-split.md')
+    expect(raw).toContain('2026-09-08')
+    expect(raw).toContain('no unique or exclusion constraint matching the ON CONFLICT specification')
   })
 })
 

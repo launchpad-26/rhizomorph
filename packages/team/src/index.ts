@@ -3,12 +3,13 @@
  *
  * **This module runs nothing on import.** It exports types and functions and
  * declares no side effect: no connection is opened, no migration is applied, no
- * listener is bound. Ruling 14 keeps the team server a separate package whose
- * HTTP surface arrives with the ingest route in wave 3, and an entrypoint added
- * before that wave can bound it is an entrypoint nobody has scoped.
+ * listener is bound. `startTeamServer` is a function a caller invokes, not a
+ * side effect of importing this barrel.
  *
  * What is here is the substrate waves 3 and 4 build on:
  *
+ * - `startTeamServer` — ruling 14's entrypoint: bootstrap, top up the partition
+ *   window, open the journal, bind the one ingest route.
  * - {@link TeamStorage} — the port. No SQL crosses it.
  * - `createPostgresStorage` / `openSql` — the one adapter and the one driver
  *   seam behind it (ADR-0043).
@@ -16,8 +17,19 @@
  * - `resolveTeamConfig` — every value naming who set it and where (ruling 9).
  * - `bootstrapTeamStorage` — the `synchronous_commit` preflight, then the
  *   migrations, in that order and never the other (ruling 4).
+ *
+ * **`ingest/`, `journal/` and `fold/` are deliberately NOT re-exported.** Import
+ * them by path, the way `packages/core/src/wire/` is imported. This barrel is a
+ * surface wave 4 shares, and a re-export is the one edit that would turn two
+ * parallel lanes into a stack.
  */
 
+export {
+  type StartTeamServerOptions,
+  type StartTeamServerResult,
+  type TeamServer,
+  startTeamServer,
+} from './api/main.js'
 export {
   ACCEPTED_SYNCHRONOUS_COMMIT,
   type BootstrapResult,
