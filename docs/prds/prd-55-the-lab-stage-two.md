@@ -26,7 +26,8 @@ cannot do three of the things the vision said the lab is for.
 
 - **There is no R&D hand.** The vision's Stage 2 — an agent that reads what went wrong, groups it by
   shape, and proposes experiments varying exactly one thing — is constitutionally blocked inside the
-  instrument (ADR-0008: nowhere to put a credential) and was named for a future PRD. This is that
+  instrument (ADR-0019 grant 5, *"it holds no secret"* — whose own reasoning grounds "nowhere to put
+  one" in ADR-0008's localhost-only, no-accounts posture) and was named for a future PRD. This is that
   PRD. The operator already has an agent with credentials: their own `claude` command line.
 - **Trace cannot read the files the lab already knows.** The walkthrough's Trace read *"NO SESSION
   LOG for w5-sweep"* for the parent and *"404"* for the arm — yet the checkpoint event carries the
@@ -106,7 +107,13 @@ cannot do three of the things the vision said the lab is for.
   declared act (ruling 2), off unless the operator turns it on for this repo.
 
 **Rejected alternatives.** *An API key in settings* — the constitution prices a power at an ADR, and
-this one has been refused since ADR-0008; the operator's CLI already holds the key. *The R&D agent
+this one was refused for the concierge by ADR-0019, whose option E — *"the hand holds its own
+credentials"* — lost because "a hand that holds a credential has something worth stealing". That is
+not a blanket law and this PRD should not lean on it as one: **ADR-0034 amends ADR-0019 precisely
+here**, granting the shipper one key on a stated bound, and its "why E is acceptable here and was
+not for the concierge" is the test any new hand has to answer. This ruling declines to hold a
+credential at all rather than argue a bound, which is the stronger of the two positions available
+and is why ruling 1 still owes an ADR of its own; the operator's CLI already holds the key. *The R&D agent
 as a swarm lane writing events* (the vision's shape) — right in spirit, but a long-lived lane for a
 one-shot read is a scheduler for a query; a headless call with the same credentials and a fixed
 output schema gives the same events with none of the lane's lifecycle. *Rebuild the lab page as a
