@@ -129,10 +129,79 @@ export interface LabExperimentDTO {
 }
 
 /**
+ * THE LIVE SESSION'S FOLD IS THE UNION, NOT THE BUFFER (#409).
+ *
+ * The server's recorder is not the only hand writing the live session's file.
+ * `lab/fork.ts` constructs its OWN `SessionRecorder` on the same path
+ * (`findResumableSession` → the same `session-<ts>.jsonl`) and appends
+ * `fork.dispatched` through it; `rhizomorph lab checkpoint` and `lab rd` do the
+ * same for their own events. Those appends reach the FILE and never the
+ * server's in-memory buffer.
+ *
+ * So the old shape — buffer for the live session, file for every other — read
+ * the live session through the one channel that could not see those writes: a
+ * launch from the panel was invisible in `GET /api/lab/experiments` until the
+ * server restarted, which is exactly what the stack-base walkthrough found.
+ * The buffer half is still needed for the opposite reason (`log/listing.ts`'s:
+ * never race the live writer's append, so the server's own newest events are
+ * read from memory rather than from a file they may not have reached yet).
+ *
+ * The answer is BOTH: the file half brings the other recorders' appends, the
+ * buffer half brings the server's newest, and an event both hold is one event.
+ *
+ * **The key is not the bare id, and that is the whole subtlety.**
+ * `createIdFactory` (core) mints `<prefix>-000001` upward from ONE in every
+ * process it is called in, and `createIdFactory('lab')` is called by this
+ * file's own measure route AND, in a separate process, by `lab/fork.ts` and by
+ * `rhizomorph lab checkpoint`. Two different events therefore genuinely share
+ * the id `lab-000001` in one session file — the record already contains such
+ * pairs — so a bare-id dedupe would answer #409 by silently DROPPING one of the
+ * two writes it exists to surface, which is the same invisibility with a
+ * different cause. {@link liveEventKey} keys on the id together with the two
+ * envelope facts that cannot be equal for two different events at once, so an
+ * event genuinely present in both halves collapses and two colliding events
+ * both survive.
+ *
+ * MEASURED, so nobody reads more into the key than is proven. Swapping
+ * `liveEventKey` for the bare `event.id` leaves `lab.test.ts` GREEN — because
+ * the file half is copied whole and only the BUFFER half is filtered, so a
+ * colliding pair both of whose halves are on disk survives either way. What
+ * does go red is the natural wrong shape, deduping the whole concatenation by
+ * id (EXECUTED: the collision test fails, 1 of 67). The composite key is
+ * therefore defence against a future edit rather than a fix for a failure the
+ * suite can currently produce, and this paragraph is that claim stated at its
+ * real size.
+ */
+function liveEventKey(event: RhizomorphEvent): string {
+  return `${event.id}|${event.ts}|${event.type}`
+}
+
+function mergeLiveSession(
+  fromFile: readonly RhizomorphEvent[],
+  fromBuffer: readonly RhizomorphEvent[],
+): RhizomorphEvent[] {
+  const merged = [...fromFile]
+  const seen = new Set(merged.map(liveEventKey))
+  for (const event of fromBuffer) {
+    const key = liveEventKey(event)
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push(event)
+  }
+  // Each half is already in its own order, but a second recorder's appends
+  // interleave with the server's in TIME, not in file position — and every
+  // reader below (`reduceAll`, `laneDuration`) reads this array as a
+  // chronological stream. `Array.prototype.sort` is stable, so two events
+  // stamped in the same millisecond keep the order the file gave them.
+  return merged.sort((a, b) => a.ts - b.ts)
+}
+
+/**
  * Every event this repo has recorded, across every session file plus the
  * live recorder's own buffer — the same merge `log/listing.ts`'s
- * `listSessionListings` performs, so a request can never race the live
- * writer's append (reads the buffer, not the file it hasn't flushed to yet).
+ * `listSessionListings` performs, widened by {@link mergeLiveSession} so the
+ * live session is the union of its file and that buffer rather than the buffer
+ * alone (#409).
  */
 async function readAllEvents(ctx: ServerContext): Promise<RhizomorphEvent[]> {
   const summaries = await listSessions(ctx.sessionDir)
@@ -140,11 +209,12 @@ async function readAllEvents(ctx: ServerContext): Promise<RhizomorphEvent[]> {
   let sawLive = false
 
   for (const summary of summaries) {
+    const fromFile = await readSessionEvents(sessionFilePath(ctx.sessionDir, summary.id))
     if (summary.id === ctx.recorder.sessionId) {
       sawLive = true
-      events.push(...ctx.recorder.eventsSoFar())
+      events.push(...mergeLiveSession(fromFile, ctx.recorder.eventsSoFar()))
     } else {
-      events.push(...(await readSessionEvents(sessionFilePath(ctx.sessionDir, summary.id))))
+      events.push(...fromFile)
     }
   }
 

@@ -191,6 +191,103 @@ describe('GET /api/lab/checkpoints and /api/lab/experiments', () => {
     const { experiments } = response.json() as { experiments: Array<{ arms: Array<{ runs: Array<{ run: number }> }> }> }
     expect(experiments[0]?.arms[0]?.runs[0]?.run).toBe(1)
   })
+
+  /**
+   * #409 — THE LIVE SESSION'S FOLD IS THE UNION, NOT THE BUFFER.
+   *
+   * The listing used to read the live session from `ctx.recorder.eventsSoFar()`
+   * alone. But `lab/fork.ts` constructs its OWN `SessionRecorder` on the SAME
+   * session file (`findResumableSession` resumes it) and appends through that,
+   * so a launch reached the file and never the server's in-memory buffer: the
+   * walkthrough of the stack base found a launch invisible in this route until
+   * the server was rebooted. These two tests append through a second recorder,
+   * exactly as the fork does, and read the listing back.
+   */
+  it('folds what the live session\'s log holds, not only the server\'s buffer — a launch is visible without a restart (#409)', async () => {
+    await mkdir(sessionDir, { recursive: true })
+    const liveId = '2000'
+    const liveFile = sessionFilePath(sessionDir, liveId)
+    const recorder = new SessionRecorder(liveId, liveFile)
+    const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+    // The server's own hand, through the live recorder.
+    const server = createEventFactory({ startTs: 1000, idPrefix: 'server' })
+    await recorder.record(server.forkCheckpoint({ lane: 'feature', checkpointId: 'ckpt-1' }))
+
+    // Another hand entirely: a SECOND recorder on the same file, resumed from
+    // what is already there — which is precisely what `lab/fork.ts` does.
+    const fork = new SessionRecorder(liveId, liveFile, { resumeFrom: recorder.eventsSoFar() })
+    const cli = createEventFactory({ startTs: 2000, idPrefix: 'cli' })
+    await fork.record(
+      cli.forkDispatched({
+        forkId: 'fork-409',
+        parentLane: 'feature',
+        checkpointId: 'ckpt-1',
+        arm: 1,
+        laneHandle: 'fork-409-arm-1',
+        worktreePath: '/data/lab/worktrees/fork-409-arm-1',
+      }),
+    )
+
+    // No restart, no new app: the same running server answers.
+    const experiments = await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/experiments' })
+    expect(experiments.statusCode).toBe(200)
+    expect((experiments.json() as { experiments: Array<{ forkId: string }> }).experiments.map((e) => e.forkId)).toEqual([
+      'fork-409',
+    ])
+
+    // …and the server's own write, which lives only in the buffer's newest
+    // slice, is still there: the union is a union, not a swap.
+    const checkpoints = await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/checkpoints' })
+    expect((checkpoints.json() as { checkpoints: Array<{ checkpointId: string }> }).checkpoints.map((c) => c.checkpointId)).toEqual([
+      'ckpt-1',
+    ])
+  })
+
+  it('keeps two events that genuinely share an id — createIdFactory restarts at one per process, so the id alone is not identity (#409)', async () => {
+    // `createIdFactory('lab')` mints `lab-000001` upward from ONE in every
+    // process, and both this file's measure route and `lab/fork.ts` call it. So
+    // the server's own write and the CLI's really do collide on the id in one
+    // session file, and a dedupe on the bare id would answer #409 by dropping
+    // one of the two writes it exists to surface.
+    await mkdir(sessionDir, { recursive: true })
+    const liveId = '2000'
+    const liveFile = sessionFilePath(sessionDir, liveId)
+    const recorder = new SessionRecorder(liveId, liveFile)
+    const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+    const server = createEventFactory({ startTs: 1000, idPrefix: 'lab' })
+    await recorder.record(
+      server.forkDispatched({
+        forkId: 'fork-from-the-server',
+        parentLane: 'feature',
+        checkpointId: 'ckpt-1',
+        arm: 1,
+        laneHandle: 'fork-from-the-server-arm-1',
+        worktreePath: '/data/lab/worktrees/fork-from-the-server-arm-1',
+      }),
+    )
+
+    const fork = new SessionRecorder(liveId, liveFile, { resumeFrom: recorder.eventsSoFar() })
+    // A SECOND factory with the same prefix, starting its own count at one.
+    const cli = createEventFactory({ startTs: 2000, idPrefix: 'lab' })
+    const collided = cli.forkDispatched({
+      forkId: 'fork-from-the-cli',
+      parentLane: 'feature',
+      checkpointId: 'ckpt-1',
+      arm: 1,
+      laneHandle: 'fork-from-the-cli-arm-1',
+      worktreePath: '/data/lab/worktrees/fork-from-the-cli-arm-1',
+    })
+    expect(collided.id).toBe(server.all()[0]?.id) // the collision is real, not hypothetical
+    await fork.record(collided)
+
+    const response = await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/experiments' })
+    expect((response.json() as { experiments: Array<{ forkId: string }> }).experiments.map((e) => e.forkId).sort()).toEqual([
+      'fork-from-the-cli',
+      'fork-from-the-server',
+    ])
+  })
 })
 
 describe('GET /api/lab/estimate (prd14 ruling 4 — an estimate never appears without its basis)', () => {
