@@ -677,7 +677,7 @@ rediscovering it lane by lane.
 | 0 | operator acts | recorded in the 2026-09-08 amendment above |
 | 1 | the Keystone — the wire contract, the fifth hand's law, record-format Law 2 | **merged** (#257, #258, #259) |
 | 2 | `packages/team`: the storage port, ruling 5's schema, the migration runner | **merged** (#355) |
-| 3 | the shipper, outbound only (#372) · the ingest journals before it acks (#373) | groomed, lint-clean |
+| 3 | the shipper, outbound only (#372) · the ingest journals before it acks (#373) | **merged** (#386) |
 | 4 | seal → archive → verify → tombstone → prune · membership is the boundary and a key is a hash | not groomed — archive claims README, membership claims the migration and the wave's single dependency |
 | 5+ | the three questions and the read-only role · retention under a named ceiling (rulings 9, 10) · the team server's doctor and `/connect`'s row (ruling 12's second half) · one image from `init.sh` (ruling 13) · #169 · #171 · the doc sweep | not groomed |
 
