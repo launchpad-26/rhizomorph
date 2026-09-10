@@ -180,9 +180,49 @@ Launch 3 arms × 2 runs from 14:22?
 - **prd12 ruling 3 — forks render as visibly synthetic everywhere**, with
   lineage as a verifiable prefix commitment into the record's hash chain.
 - **prd12 ruling 2 — checkpoints are captured live, never synthesized.**
-- **The lab tab shows forked realities only.** A law test asserts the lab
-  surface renders no live fleet state — the same shape as #206's
-  `no-live-fleet-law.test.ts`.
+- **The lab tab shows forked realities only.** A law test asserts that nothing
+  in the lab tab **names** live-fleet machinery — the same shape as #206's
+  `no-live-fleet-law.test.ts`. It does **not** assert that the lab tab cannot
+  reach it. Those are different sentences, and only the first is enforced.
+
+  **Narrowed 2026-09-10 (#350, #411).** The sentence above used to read *"a law
+  test asserts the lab surface renders no live fleet state"* — the stronger of
+  the two readings, and never what the law checked. It is corrected in place
+  rather than caveated, because a caveat under an over-claim leaves the
+  over-claim to be quoted: the first draft of this amendment appended the
+  paragraph below and left the old sentence standing, and a review pass
+  correctly reported the contradiction it had just created.
+
+  That law is a text sweep over one directory. It reads every
+  source file under `packages/web/src/lab/` and refuses two things by name: a
+  forbidden identifier spelled literally, and an import whose path carries a
+  forbidden prefix. What it therefore guarantees is that **nothing in the lab
+  tab NAMES live-fleet machinery** — not that the lab tab cannot reach it.
+  Those are different sentences and only the first one is enforced.
+
+  Two ways past it are known, both latent, both verified with controls, both
+  written into the law's own axis table rather than left here: an import
+  spelled in a form the specifier extractor does not read (CommonJS
+  `require()` with a concatenated argument, or `createRequire`), and a symbol
+  **renamed outside the directory** and imported under the alias, so no
+  forbidden token appears under `lab/` at all.
+
+  This is recorded as an amendment rather than a fix because closing either
+  properly means resolving the lab tab's import closure — a resolver crossing
+  package boundaries — and that was judged out of proportion to a gap nothing
+  in the tree exploits and nothing ever has. The decision is the operator's,
+  taken 2026-09-10. Five review rounds went into the first of the two; the
+  early ones changed what shipped and the later ones did not — each closed one
+  spelling of the same grammar and revealed the next, which is what made the
+  cost visible.
+
+  **It is a real weakening of what prd12 ruling 1 is read as promising**, and
+  saying so here is the whole reason this paragraph exists: the ruling's
+  read-only guarantee over the watched repo is enforced elsewhere and is
+  untouched, but a reader who took *this* law as proof the lab tab is
+  incapable of reaching fleet state was reading more than it ever checked.
+  Anyone reinstating the stronger claim owes the closure, not another regex —
+  the five rounds are on #350 and are worth reading before trying.
 - Frame budget 16.67 ms, measured under matched load, attributed honestly
   (scene vs swarm) — the #157 lesson.
 
