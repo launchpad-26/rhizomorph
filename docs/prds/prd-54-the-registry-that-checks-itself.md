@@ -560,6 +560,41 @@ apply only to path citations; ruling 7 governs assertion spans and is untouched,
 and the two selectors are deliberately disjoint — clause 2 rejects every span
 ruling 7 selects, because an assertion span always carries parentheses.
 
+**Extent, part two — what "resolves" means, because these clauses feed a predicate
+ruling 5 left as a judgement call.** Existence is `-e`, not `-f`: a citation that
+names a **directory** resolves. Two of the eighteen admitted at `df494011` are
+directories rather than files — `` `packages/` `` in the `scripts/gate.sh` entry, and
+`` `shipper/` `` in the `packages/server/src/shipper/hand-law.test.ts` entry — and
+both resolve, the first repo-relative and the second under the entry's own package
+source root. This is not a new value: `scripts/dev/coupling.test.sh` already
+presence-checks each entry's leading path with `[ -e "$path" ]`, and wave 2 below is
+chartered to port that script's presence checks, so the law **inherits** this
+predicate rather than picking one.
+
+**Written down because it is load-bearing, and found the way clause 4's third branch
+was** — by a pass that reimplemented these clauses from this text rather than auditing
+them (review of PR #392, 2026-09-10). Resolve against the tracked *file* list instead
+and the table above keeps both outer columns and moves both inner ones: **15 / 9 / 6 /
+75** at `53e1325b`, and **18 / 14 / 4 / 78** at `df494011`. Three of this ruling's own
+claims go false with them — that the four unresolved at `53e1325b` are exactly the
+three citations wave 1 corrects plus the declared-generated one; that the only
+unresolved at `df494011` are the two occurrences of `.swarm/timing-count`; and that the
+rule fails **nothing** it should pass. A selector this mechanical resting on an
+unstated predicate is ruling 5's defect one level down — the population was a
+judgement call and so was the verdict — which is why the predicate is here rather
+than with the law's author. It is also why the figures above reproduce ruling 5's own
+resolution table at `b1a6dae5` line for line: that table already counted `` `packages/` ``
+among its two repo-relative and `` `shipper/` `` among its four package-root citations,
+so this predicate was the one in force when ruling 5 was written and is recorded, not
+chosen, here.
+
+**Its falsifier is the one ruling 5 already names.** A directory citation that resolves
+is a claim that is *true and useless* when the reader meant a file inside it — the trap
+"try every package root" was rejected for. So the rule is directory-permissive about
+**existence** and says nothing about sufficiency: an entry that means a file cites the
+file, and a reviewer may still say a directory citation is too loose to be worth
+checking.
+
 **Falsifier, and it is not hypothetical.** If a future entry needs to cite
 something these clauses reject — a path with a space in it, a bare filename whose
 extension this repo does not yet track, a deliberately quoted URL route — then the
@@ -602,7 +637,8 @@ answered, and no issue minted for any of them:
   the Extent sentence that named the selector was satisfied by every backticked identifier in the
   registry, so a law written to it would have reddened the file on its first run and needed an
   allowlist of that size on day one. Ruling 8 replaces it with four mechanical clauses and, because
-  three defensible counting scopes had given three different answers, states the scope too.
+  three defensible counting scopes had given three different answers, states the scope too — and,
+  after review, the resolution predicate those clauses feed.
 
 **Three** of the four edges were found the same way — by auditing an entry against a ruling rather
 than by writing code to it — and all four by a reader other than the ruling's author. That is the
@@ -613,7 +649,10 @@ The fourth was found the other way round, and it argues for the **law** rather t
 step: ruling 5's selector came through three audits untouched and failed on the very first attempt
 to *implement* it. Auditing an entry against a rule does not exercise the rule; running it does.
 Ruling 8's own third clause-4 branch, added on review, was then found the first way again — by a
-reader sweeping the rejected set — so neither method dominates and wave 2 wants both.
+reader sweeping the rejected set. Its **resolution predicate** then went the other way again:
+a second review pass reimplemented the clauses and could not reproduce the published table until
+it guessed the convention, which is how `-e` came to be written into the Extent. One edge each,
+from the two methods, on the same ruling — so neither method dominates and wave 2 wants both.
 
 **Wave 1 — the Keystone: the registry's own claims are true.** [#366][i366]. Claimed by nobody
 downstream but the law that checks it. One file, `.swarm/coupling.txt`:
