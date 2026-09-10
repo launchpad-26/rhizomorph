@@ -108,4 +108,9 @@ describe('ExperimentComparison — the measure switch (prd53 S2, #326)', () => {
     render(<ExperimentComparison experiment={THREE} />)
     expect(document.querySelectorAll('[title]')).toHaveLength(0)
   })
+
+  it('the save control is reachable from the surface itself, so a human can complete the round trip without a fixture (prd-14 ruling 5, #214)', () => {
+    render(<ExperimentComparison experiment={THREE} />)
+    expect(screen.getByTestId('comparison-save')).toBeInTheDocument()
+  })
 })

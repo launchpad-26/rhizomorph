@@ -55,6 +55,8 @@
     "./lab/launch/estimate": "./src/lab/launch/estimate.ts",
     "./recordings/laneIndex": "./src/recordings/laneIndex.ts",
     "./lane-page/laneIndex": "./src/lane-page/laneIndex.ts",
-    "./connect/meta": "./src/connect/meta.ts"
+    "./connect/meta": "./src/connect/meta.ts",
+    "./recordings/comparisons": "./src/recordings/comparisons.ts",
+    "./lab/compare/save": "./src/lab/compare/save.ts"
   }
 }

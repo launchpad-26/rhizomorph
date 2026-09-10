@@ -114,4 +114,85 @@ describe('ComparisonSurface', () => {
     expect(screen.getByTestId('arm-spread').textContent).toBe('min 1 · median 2 · max 3 (n=3 of 3 completed)')
     expect(screen.getByTestId('arm-incomplete-note').textContent).toBe('3 of 4 runs completed — 1 still pending')
   })
+
+  /**
+   * prd-14 ruling 5, #214 review rounds 2 and 3 — the reopened-artifact case:
+   * a stored `Run.value` is a resolved number with no record of which
+   * measure produced it, and `measure={null}` is how that gap reaches this
+   * component.
+   *
+   * ROUND 2 caught a wrong LABEL: falling back to `cost` printed a false
+   * unit on real numbers (a duration of 300 shown as `data-measure="cost"`).
+   * The first fix kept the numeric spread and only dropped the label.
+   *
+   * ROUND 3 caught the fix's own defect — a wrong STATISTIC, worse than the
+   * label it replaced because a reader cannot tell it is wrong. A `verified`
+   * comparison's `Run.value` is `1`/`0` (fromExperiment's own encoding, never
+   * a quantity), and the label-only fix still ran those numbers through the
+   * ordinary min/median/max renderer: a real, formally-valid-looking spread
+   * computed over pass/fail booleans, indistinguishable from a genuine cost
+   * or duration spread. Measured before this fix: three runs pass/fail/pass
+   * rendered `min 0 · median 1 · max 1` with no marker that anything was
+   * wrong. Fixed by taking ruling 3's own "below the floor" vocabulary
+   * unconditionally when the measure is unknown — no summary, an explicit
+   * reason, every run still shown by verdict alone.
+   */
+  describe('measure={null} — the reopened-artifact case: no number this surface cannot name the unit of', () => {
+    it('never claims a measure it does not have — no data-measure attribute, no measure switch, an explicit "not recorded" basis line', () => {
+      const comparison = compareArms({ arms: [arm('a', 'opus', 'brief-x', [passed('r1', 300), passed('r2', 300), passed('r3', 300)])] })
+      // `onMeasureChange` is passed DELIBERATELY, and it is the whole point of
+      // this line: without it the switch is absent because no handler was
+      // given, so the assertion below held for a reason that has nothing to do
+      // with `measure` being null and stayed green when that guard was deleted
+      // (found by mutation, review of #422). Offering the handler is what makes
+      // `measure === null` the only thing suppressing the switch.
+      render(<ComparisonSurface comparison={comparison} measure={null} onMeasureChange={() => {}} />)
+
+      expect(screen.getByTestId('comparison-surface').hasAttribute('data-measure')).toBe(false)
+      expect(screen.queryByTestId('measure-switch')).toBeNull()
+      expect(screen.getByTestId('comparison-basis').textContent).toBe(
+        'measure not recorded — this artifact does not carry which measure produced these values, so no summary is shown for any arm; each run below still shows its own verdict',
+      )
+    })
+
+    /**
+     * THE MUTATION THE REVIEWER ASKED FOR, NAMED EXACTLY: a saved `verified`
+     * comparison, reopened, must not render a numeric spread. `passed('r1',
+     * 1)`/`failed('r2', 0)`/`passed('r3', 1)` is precisely `fromExperiment`'s
+     * own `verified` encoding — the shape that is REACHABLE in one operator
+     * act (switch to verified, save, reopen), not a contrived input. Reverting
+     * the `measure === null` branch in `ArmPanel` — falling back to the
+     * `arm.spread !== null` branch the way round 2's fix did — reddens this:
+     * `arm-spread` would exist and read `min 0 · median 1 · max 1`.
+     */
+    it('a saved "verified" comparison, reopened, renders no numeric spread and no verified counts — an explicit "no summary" reason instead', () => {
+      const comparison = compareArms({ arms: [arm('a', 'opus', 'brief-x', [passed('r1', 1), failed('r2', 0), passed('r3', 1)])] })
+      render(<ComparisonSurface comparison={comparison} measure={null} />)
+
+      expect(screen.queryByTestId('arm-spread')).toBeNull()
+      expect(screen.queryByTestId('arm-verified-counts')).toBeNull()
+      expect(screen.queryByTestId('arm-unbooked')).toBeNull()
+      const reason = screen.getByTestId('arm-basis-unknown')
+      expect(reason.textContent).toBe(
+        '3 completed — no summary: the measure this was saved under is not recorded, so a spread or a count here would claim a unit this artifact does not carry',
+      )
+    })
+
+    it('every run still renders, by verdict alone — never the raw value a spread cannot be trusted to summarise', () => {
+      const comparison = compareArms({ arms: [arm('a', 'opus', 'brief-x', [passed('r1', 300), failed('r2', 150, 'gate exited 1')])] })
+      render(<ComparisonSurface comparison={comparison} measure={null} />)
+
+      const dots = screen.getByTestId('run-dots')
+      expect(dots.textContent).toContain('passed')
+      expect(dots.textContent).toContain('failed — gate exited 1')
+      expect(dots.textContent).not.toMatch(/300|150/)
+    })
+
+    it('a pending run still says why, unaffected by the unknown basis', () => {
+      const comparison = compareArms({ arms: [arm('a', 'opus', 'brief-x', [passed('r1', 1), failed('r2', 0), pending('r3')])] })
+      render(<ComparisonSurface comparison={comparison} measure={null} />)
+
+      expect(screen.getByTestId('run-dots').textContent).toContain('pending')
+    })
+  })
 })

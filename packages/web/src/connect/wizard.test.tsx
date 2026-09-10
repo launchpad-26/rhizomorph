@@ -776,6 +776,66 @@ describe('step 2 — the conductor', () => {
   })
 
   /**
+   * THE HOLE #379 IS ABOUT — one of the other two conjuncts `canAct` gates the
+   * arm button on (`live && isWatched && facts?.status === 'implemented'`),
+   * left unguarded by #352's fix. The harness picker renders outside the
+   * confirming block, so it stays interactive while this dialog is open: arm
+   * with an implemented harness, change the picker to a declared one, and the
+   * launch used to fire anyway — while `wizard-harness-declared` said this
+   * instrument could not start it.
+   *
+   * `isWatched` is the sibling conjunct and is deliberately NOT exercised
+   * here — EXECUTED, not reasoned: arm on the conductor step (isWatched
+   * true), navigate to the repo step (`launch` state lives in `SetupWizard`
+   * and survives the trip; `ConductorStep` and its dialog unmount), choose a
+   * different repo there (`chooseRepo('/home/x/other')`), and return to the
+   * conductor step. `wizard-launch-confirm-dialog` and `wizard-launch-confirm`
+   * are gone from the DOM entirely — not present-and-disabled, ABSENT — and
+   * `wizard-not-watched` renders in their place. `isWatched` is read directly
+   * in `ConductorStep`'s `!isWatched ? ... : ...`, so the render that sees it
+   * false swaps to the other branch outright; there is no render where the
+   * button exists merely carrying the guard. That holds for any path that
+   * flips `isWatched`, not only this one — `ConductorStep` re-renders off
+   * whatever `isWatched` its props carry and picks its branch fresh every
+   * time, so there is no way to reach a click on this button while `isWatched`
+   * is false. No test is written for that conjunct, because there is no
+   * button, disabled or not, for one to click — the code carries the
+   * re-check anyway, as insurance against this render structure changing.
+   *
+   * WHAT THIS TEST PROVES, AND WHAT IT DOES NOT — same shape as #352's
+   * sibling test above. `.disabled` is what a mutation removing
+   * `facts?.status !== 'implemented'` from the button's `disabled` expression
+   * reddens. `fireEvent.click` never reaches a disabled control, so
+   * `not.toHaveBeenCalled()` alone would still pass even with the harness
+   * check removed from `confirmLaunch` itself — the button-level guard covers
+   * for it. Both guards are kept regardless, on the same refuse-before-the-
+   * wire posture the rest of this file takes.
+   */
+  it('changing the harness to a declared one after arming withholds the launch, not just the arm button', async () => {
+    const instrumentFetchImpl = vi.fn(answering(LAUNCHED_IN_TMUX))
+    await renderWizard({ instrumentFetchImpl })
+    step('conductor')
+
+    // Arm with an implemented harness — the default picker value ('claude').
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('wizard-launch'))
+    })
+    expect(screen.getByTestId('wizard-launch-confirm-dialog')).toBeTruthy()
+
+    // The picker sits outside the confirming block and stays interactive
+    // while the dialog is open — changing it to a declared harness with the
+    // dialog still armed is exactly #379's repro.
+    fireEvent.change(screen.getByTestId('wizard-harness-select'), { target: { value: 'openclaw' } })
+
+    expect(screen.getByTestId<HTMLButtonElement>('wizard-launch-confirm').disabled).toBe(true)
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('wizard-launch-confirm'))
+    })
+    expect(instrumentFetchImpl).not.toHaveBeenCalled()
+  })
+
+  /**
    * TWO CLICKS, for the switch too (#216) — the identical bar `launch()`
    * already holds the fourth mutating call to. Every test below that wants an
    * outcome goes through this, so a switch that ever became reachable in one

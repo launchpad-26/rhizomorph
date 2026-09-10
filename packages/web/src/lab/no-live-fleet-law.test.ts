@@ -290,12 +290,15 @@ describe('the lab tab renders no live-fleet surface (prd14)', () => {
     // `measure-control` directory arrives with 1 (`MeasureControl.tsx`; its
     // own `.test.tsx` is excluded from every count here, same as every other
     // directory's tests).
+    // compare/ grows by two again, wave 3 (#214): save.ts (the app's seventh
+    // mutating call) and SaveComparisonControl.tsx (the control that reaches
+    // it from the comparison surface).
     expect(sourceFileCountsByDirectory()).toEqual({
       '': 6,
       axis: 3,
       branching: 2,
       canvas: 5,
-      compare: 9,
+      compare: 11,
       frame: 2,
       launch: 4,
       'measure-control': 1,
