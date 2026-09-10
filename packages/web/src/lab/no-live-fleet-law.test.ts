@@ -56,6 +56,33 @@ import { extractImportSpecifiers } from '../test/import-specifiers.js'
  * committed** (audit finding #1's own condition) — clean: no `useFleet`,
  * `FleetProvider`, `buildFleet`, `../fleet/`, `../panels/`, `../scene/` or
  * `reduceAll(` anywhere under it.
+ *
+ * **What this law actually guarantees, stated plainly (#411).** Direct-text
+ * coverage over this one directory: forbidden IDENTIFIERS matched by their
+ * literal name (`FORBIDDEN_IDENTIFIERS`, below) and forbidden IMPORT PATHS
+ * matched by prefix (`FORBIDDEN_IMPORT_PREFIXES`). It does NOT resolve what a
+ * name is bound to across the module graph — a symbol re-exported under
+ * another name from anywhere not itself path-prefixed `fleet/` or `panels/`,
+ * then imported here by that new name, carries neither a forbidden
+ * identifier nor a forbidden import path, and is invisible to both checks.
+ *
+ * Worked example, verified on this branch (#411, two independent review
+ * seats, re-executed here) with a scratch pair, neither committed: a
+ * module outside `lab/`, `fleet/` and `panels/` alike — a `relabel.ts`
+ * under `lib/` — `export { useFleet as readLive } from '../fleet/FleetContext.js'`;
+ * a lab file then does `import { readLive } from '../lib/relabel.js'`.
+ * That lab file's text contains no literal `useFleet` (it says `readLive`)
+ * and its import specifier (`../lib/relabel.js`) matches neither forbidden
+ * prefix. With the count pin bumped first, the law passes fully green.
+ *
+ * NOT extended to chase this, for the same reason #350 stopped extending
+ * `requireSpecifiersIn`: resolving what a renamed binding actually points to
+ * means following the import graph, which a text sweep over one directory
+ * cannot do and a regex added here cannot fix. The honest guarantee this law
+ * gives is narrower than "the lab tab cannot reach live-fleet machinery": it
+ * is that nothing in the lab tab NAMES fleet/panels machinery, directly, by
+ * the identifier or the import path. A rename anywhere upstream of the
+ * import is a channel this law does not see, and is not claimed to.
  */
 
 const LAB_DIR = path.dirname(fileURLToPath(import.meta.url))
@@ -286,7 +313,7 @@ interface LabSourceFile {
  * | backup / editor artifact           | trailing `~`, `.bak`, `.orig`, `.rej`, `.swp`, `.swo`, `.swn` | excluded — `DENY_EXTENSIONS`, provably not a module (round 4: `.rej` — a rejected patch, written beside `.orig` — and vim's second/third swap files `.swo`/`.swn` were missing; the row named "the class" but the regex covered four of six of its own members) |
  * | directory                          | `node_modules`, `dist`                         | skipped entirely, unchanged |
  * | extension casing                   | `.JS`, `.MTS`, …                               | COVERED — a side effect of inverting to a deny-list, not something this file targets directly: `DENY_EXTENSIONS` is lowercase-only, so an uppercase-cased extension matches none of its patterns and falls through to being swept either way. A module spelled `.MTS` is therefore caught by the sweep (verified: `zz.MTS` reddens it); an asset misspelled `.JSON` is swept too, which lands on the same safe side as any other undenied form — a loud pin break, not a silent miss |
- * | identifier laundering              | `export { useFleet as somethingElse }`         | UNRESOLVED — orthogonal to extension; see #411, the identifier-sweep reach |
+ * | identifier laundering              | `export { useFleet as somethingElse }`         | NARROWED, not extended (#411) — orthogonal to extension; the file's own top doc comment states the boundary and carries the worked example |
  *
  * #350 round 1 widened an ALLOW-list from `.ts`/`.tsx` to add `.js`/`.jsx`/
  * `.mjs`/`.cjs`. Round 2: two independent review passes found `.mts`/`.cts`
