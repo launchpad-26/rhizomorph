@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { bootExplanation } from '../app/StatusBar.js'
+import { discloseText } from '../disclosure/testing.js'
 import { CAPABILITY_META_NAME } from '../recordings/capability.js'
 import { RotateButton } from './RotateButton.js'
 import type { RotateFetchLike } from './rotate.js'
@@ -153,5 +154,34 @@ describe('RotateButton', () => {
       release?.()
     })
     expect(screen.getByTestId('rotate-result')).toBeInTheDocument()
+  })
+})
+
+/**
+ * THE CARD THIS BUTTON GREW (#389, prd-30 w4). Each `discloseText` call opens
+ * by mouse, closes, opens by focus and refuses to return unless the two
+ * markups match — charter §6, proven here rather than asserted in prose.
+ */
+describe('the rotate control discloses the act it is about to perform (#389, charter §6)', () => {
+  it('unarmed: says what pressing it would close, and what it leaves alone', () => {
+    render(<RotateButton fetchImpl={answering(ROTATION)} />)
+
+    const card = discloseText(theButton())
+
+    expect(card).toContain('Close the current session log and start a fresh one.')
+    expect(card).toContain('Nothing outside the instrument’s own data directory is touched.')
+    expect(card).toContain('one press arms it')
+  })
+
+  it('armed: says that the NEXT press performs it, and that the recording survives', async () => {
+    render(<RotateButton fetchImpl={answering(ROTATION)} />)
+    await act(async () => {
+      fireEvent.click(theButton())
+    })
+
+    const card = discloseText(theButton())
+
+    expect(card).toContain('Click again to close this session and start a new one')
+    expect(card).toContain('stays replayable')
   })
 })

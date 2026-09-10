@@ -1,5 +1,6 @@
 import { FIELD } from '../ui/controls.js'
 import { useMemo } from 'react'
+import { Disclosure, type DisclosureContent } from '../disclosure/index.js'
 import { initialSessionState, reduceAll, selectSessionSpend } from '@rhizomorph/core'
 import { useModeClock, useReplay } from '../app/ModeContext.js'
 import { useStream } from '../app/StreamContext.js'
@@ -8,6 +9,7 @@ import { pickRichestSession, type SessionSummary } from './api.js'
 import { formatSpend } from './format.js'
 import { RotateButton } from './RotateButton.js'
 import { timeRangeOf } from './replayFold.js'
+import { unknownEraDisclosure } from './unknownEra.js'
 import { PLAYBACK_SPEEDS } from './usePlayback.js'
 
 /**
@@ -116,6 +118,52 @@ export default function ReplayControls() {
     selectAndPlay(richest.id)
   }
 
+  const noSessions = sessions.length === 0
+
+  /*
+   * The two controls that explain their own unavailability, lifted out so each
+   * can be wrapped in a card only while it HAS something to explain (#389).
+   *
+   * Both wear `aria-disabled` rather than `disabled` (ADR-0047) and both guard
+   * inside the handler rather than on the event: an `aria-disabled` button is a
+   * real button to the browser, so it fires on Enter and Space as well as on
+   * click, and a pointer-only guard would leave a keyboard user able to invoke
+   * an action this surface says is unavailable — strictly worse than the
+   * `disabled` it replaces.
+   *
+   * `aria-disabled:opacity-50` and not `disabled:opacity-50`: the Tailwind
+   * variant follows the attribute, and leaving it would have made both controls
+   * stop LOOKING unavailable while still being it.
+   */
+  const birthButton = (
+    <button
+      type="button"
+      onClick={() => {
+        if (noSessions) return
+        replayBirth()
+      }}
+      aria-disabled={noSessions}
+      className="rounded-none border border-(--line-strong) px-2 py-1 normal-case tracking-normal text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary) aria-disabled:opacity-50"
+    >
+      {"Replay this session's birth"}
+    </button>
+  )
+
+  const playButton = (
+    <button
+      type="button"
+      onClick={() => {
+        if (!isReplaying) return
+        if (playback.playing) playback.pause()
+        else playback.play()
+      }}
+      aria-disabled={!isReplaying}
+      className="rounded-none border border-(--line-hair) px-2 py-1 hover:border-(--ink-dim) hover:text-(--ink-primary) aria-disabled:opacity-50"
+    >
+      {playback.playing ? 'Pause' : 'Play'}
+    </button>
+  )
+
   /*
    * ONE DOCK, ONE CAPTION (walkthrough, 2026-08-17).
    *
@@ -143,15 +191,27 @@ export default function ReplayControls() {
           {isReplaying ? 'Replay mode' : 'Live mode'}
         </span>
 
-        <button
-          type="button"
-          onClick={replayBirth}
-          disabled={sessions.length === 0}
-          title={sessions.length === 0 ? 'No recorded sessions yet' : "Replay this session's birth"}
-          className="rounded-none border border-(--line-strong) px-2 py-1 normal-case tracking-normal text-(--ink-body) hover:border-(--ink-dim) hover:text-(--ink-primary) disabled:opacity-50"
-        >
-          {"Replay this session's birth"}
-        </button>
+        {/*
+          ARIA-DISABLED, NOT DISABLED (#389, ADR-0047) — the reason this control
+          is unavailable is the one explanation a `disabled` button cannot give:
+          it leaves the tab order, so a keyboard never reaches the card that
+          carries it. The guard lives INSIDE the handler because an
+          `aria-disabled` button is a real button — it fires on click, Enter and
+          Space alike, and guarding only the pointer path would leave a keyboard
+          user able to invoke what this surface says is unavailable.
+
+          Disclosed only while unavailable: the enabled-state `title=` this
+          retires read "Replay this session's birth", which is this button's own
+          visible label repeated. A card that echoes the label discloses nothing
+          and is the noise prd-30 is against.
+        */}
+        {noSessions ? (
+          <Disclosure trigger="inline" disclosure={noSessionsDisclosure()}>
+            {birthButton}
+          </Disclosure>
+        ) : (
+          birthButton
+        )}
 
         <label className="flex items-center gap-2 normal-case tracking-normal">
           <span className="uppercase tracking-wide text-(--ink-dim)">session</span>
@@ -170,23 +230,21 @@ export default function ReplayControls() {
         </label>
 
         {isReplaying && (
-          <span
-            className="normal-case tracking-normal text-(--ink-dim)"
-            title="total spend for this whole recorded session, not just up to the scrub time"
-          >
-            total {formatSpend(sessionTotal)}
+          <span className="normal-case tracking-normal text-(--ink-dim)">
+            <Disclosure disclosure={sessionTotalDisclosure()}>
+              total {formatSpend(sessionTotal)}
+            </Disclosure>
           </span>
         )}
 
-        <button
-          type="button"
-          onClick={() => (playback.playing ? playback.pause() : playback.play())}
-          disabled={!isReplaying}
-          title={isReplaying ? undefined : 'Select a session first to enable playback'}
-          className="rounded-none border border-(--line-hair) px-2 py-1 hover:border-(--ink-dim) hover:text-(--ink-primary) disabled:opacity-50"
-        >
-          {playback.playing ? 'Pause' : 'Play'}
-        </button>
+        {/* aria-disabled + guarded handler — see the note on the birth button (#389, ADR-0047). */}
+        {isReplaying ? (
+          playButton
+        ) : (
+          <Disclosure trigger="inline" disclosure={noPlaybackDisclosure()}>
+            {playButton}
+          </Disclosure>
+        )}
 
         <div className="flex items-center gap-1" role="group" aria-label="playback speed">
           {PLAYBACK_SPEEDS.map((speed) => (
@@ -247,12 +305,10 @@ export default function ReplayControls() {
         the panels.
       */}
       {unknownVoice !== null && (
-        <p
-          data-testid="replay-listing-unknown-era"
-          className="normal-case tracking-normal text-(--ink-primary)"
-          title="this recording came from a newer instrument; these events were kept in the log but this build cannot fold them"
-        >
-          {unknownVoice}
+        <p data-testid="replay-listing-unknown-era" className="normal-case tracking-normal text-(--ink-primary)">
+          {/* The card goes INSIDE the paragraph: the default trigger renders a
+              <button>, and a <p> nested in a <button> is invalid markup. */}
+          <Disclosure disclosure={unknownEraDisclosure()}>{unknownVoice}</Disclosure>
         </p>
       )}
 
@@ -261,4 +317,54 @@ export default function ReplayControls() {
       )}
     </div>
   )
+}
+
+
+/**
+ * The three conditions this dock discloses (#389, prd-30 w4).
+ *
+ * Each `reason` is the exact string of the native `title=` it retires — ported,
+ * never reworded. What the vocabulary requires alongside it (an evidence clause
+ * and a remedy) is written from facts this surface already holds, in the
+ * register `app/Nav.tsx`'s `disabledNavDisclosure` established for the same
+ * job: `elapsedMs: 0`, because each is re-derived from the fold on every render
+ * and so is confirmed just now rather than a dated observation.
+ */
+function noSessionsDisclosure(): DisclosureContent {
+  return {
+    label: 'no recorded sessions',
+    why: {
+      reason: 'No recorded sessions yet',
+      evidence: { fact: 'the instrument has listed no session recording in its own data directory', elapsedMs: 0 },
+    },
+    remedy: {
+      kind: 'action',
+      action: 'record one first — this becomes available as soon as a single session exists',
+    },
+  }
+}
+
+function noPlaybackDisclosure(): DisclosureContent {
+  return {
+    label: 'playback unavailable',
+    why: {
+      reason: 'Select a session first to enable playback',
+      evidence: { fact: 'no recorded session is loaded, so there is nothing to play', elapsedMs: 0 },
+    },
+    remedy: { kind: 'action', action: 'choose a recording from the session picker beside this control' },
+  }
+}
+
+function sessionTotalDisclosure(): DisclosureContent {
+  return {
+    label: 'total spend',
+    why: {
+      reason: 'total spend for this whole recorded session, not just up to the scrub time',
+      evidence: { fact: 'summed across every usage event in the recording, not the fold at the playhead', elapsedMs: 0 },
+    },
+    remedy: {
+      kind: 'none',
+      because: 'it is a fact about the recording rather than a condition — scrubbing changes the picture, never this figure',
+    },
+  }
 }
