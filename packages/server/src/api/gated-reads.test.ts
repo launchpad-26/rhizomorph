@@ -16,7 +16,7 @@ import { capabilityHeaders } from './test-support.js'
  * SPA broke mid-milestone) plus wave 2b's stream (ruling 4, #60 —
  * `/api/stream`, held back so it could gate once its cookie-based alternate
  * credential existed) plus prd-14 ruling 5's comparison save and its two
- * reads (#213): sixteen SPA-only reads that answer only the
+ * reads (#213): seventeen SPA-only reads that answer only the
  * capability token's holder. This walks all sixteen against the real
  * `buildApp`, so "Done when: all sixteen answer 401 to a bare request and
  * pass with the header" is one law, not sixteen scattered assertions — and
@@ -76,7 +76,7 @@ async function injectGatedReadSuccess(
   return statusCode
 }
 
-describe('the sixteen gated reads answer only the token holder (prd-29 waves 1, 1b, 2a and 2b; prd-14 ruling 5, #213)', () => {
+describe('the seventeen gated reads answer only the token holder (prd-29 waves 1, 1b, 2a and 2b; prd-14 ruling 5, #213)', () => {
   let dir: string
 
   beforeEach(async () => {
