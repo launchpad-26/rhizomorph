@@ -144,6 +144,11 @@ describe('the golden era corpus', () => {
     // writes one had merged minutes earlier and no landing had run since. `worktree.dirtyStatusFailed`/`.dirtyStatusRecovered` (#429)
     // need a worktree's `git status --porcelain` to cross the failure bound and
     // recover mid-recording, which neither capture's window hit either.
+    //
+    // `rd.patterns`/`.proposal`/`.refused`/`.override` (prd55 wave 5, #407)
+    // join the `fork.*` clause above for the same reason: they come only from
+    // the server's R&D engine (wave 5's second issue), which no collector
+    // reaches and which post-dates both captures regardless.
     expect(EVENT_TYPES.filter((type) => !covered.has(type)).sort()).toEqual([
       'agent.removed',
       'beacon.received',
@@ -155,6 +160,10 @@ describe('the golden era corpus', () => {
       'fork.dispatched',
       'fork.measured',
       'gate.verdict',
+      'rd.override',
+      'rd.patterns',
+      'rd.proposal',
+      'rd.refused',
       'session.closed',
       'telemetry.refused',
       'worktree.dirtyStatusFailed',
