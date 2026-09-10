@@ -55,6 +55,27 @@ only one it adds.
 **A** additionally loses a smaller thing worth naming: `seq` has to live
 somewhere, and in A it lives inside the payload, where a torn write can eat it.
 
+### What the writer does with a torn tail
+
+Deciding the tear is half the contract; the other half is what happens next.
+**A torn tail is truncated away when the journal is opened for append**, and the
+truncation is `fsync`ed before the first record is written. It is not left in
+place to be appended past.
+
+Leaving it is the option this repository shipped first, and it is unsafe for a
+reason particular to a chained log: the torn record was assigned `lastSeq + 1`
+before it was cut off, so the next append is assigned the same `seq` and is
+written at the torn record's own offset boundary. The reader then sees a CRC
+mismatch with bytes following it, which is the reader's `corrupt` verdict — so a
+state ruling 4 calls legal becomes a permanent refusal, the complete records
+ahead of the tear stop being readable through the normal path, and the server
+cannot boot again. Repairing at open costs nothing that was ever acked, because
+a torn record is by construction one no 202 was written for.
+
+The repair is the *writer's*, not the reader's. `readJournal` still reports the
+tear and still returns the records before it; the fold reads a torn journal
+without changing a byte of it.
+
 ## Consequences
 
 - The reader is more code than a `split('\n')`, and it is code that must be
@@ -63,6 +84,10 @@ somewhere, and in A it lives inside the payload, where a torn write can eat it.
 - Rotation is out of scope for v1 (ruling 4), so a long-lived server's journal
   grows without bound. Recorded here as a known debt, said in
   `packages/team/src/journal/journal.ts` where a reader looks for it.
+- The journal file is mutated at open, not only appended to: a torn tail is
+  truncated away before the first append. That is the one write to this file
+  that is not an append, it is bounded to bytes no ack was ever written for,
+  and it is the price of the tear being decidable rather than fatal.
 - The format is versioned by its `RZJ1` magic, so a later change is a new magic
   and an explicit refusal rather than a misparse.
 - `zlib.crc32` fixes a Node floor. It exists from Node 20.15 / 22.2 and this
