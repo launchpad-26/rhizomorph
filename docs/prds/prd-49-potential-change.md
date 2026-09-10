@@ -83,6 +83,33 @@ closed PRD is the most expensive.
 >
 > Ruling 2 is untouched and still binds whenever a clause does trip.
 
+> **Amendment — clause 2's threshold, re-derived from the first composed reading; clause 2 is
+> live again** (operator ruling, delegated in session and drafted by the conductor, Lachlan
+> Kelliher, 2026-09-10). The composed measurement the 2026-09-07 amendment waited for landed the
+> same day as that amendment — [#320][i320], the last wave of prd-52, whose landing record (the
+> wave's PR, under "Measured, on the composed path") reads, through `layoutWorld` + `worldMarks`,
+> on one loaded box in one run: 30x1 = 34.9 %, **30x3 = 76.6 %**, 60x3 = 159.4 %, 180x1 = 126.5 %
+> of a 16.67 ms budget. Nobody wrote the further amendment, so clause 2 sat suspended while the
+> number it waited for sat in the record. This is that amendment.
+>
+> - **The rule, not just the number.** The original ~60 % stood 1.2x above the summed baseline of
+>   49.8 %. The threshold is that same margin above the composed baseline: **composed 30x3
+>   baseline x 1.2**. Against 76.6 % that is ~92 %, and clause 2 now reads: *the model floor's
+>   composed 30x3 cell crossing ~90 % of budget on the reference box*. Clause 2 is **live**, not
+>   suspended.
+> - **The baseline is provisional in one stated way.** 76.6 % was read under `--maxWorkers` on a
+>   loaded box, and `perf.test.ts`'s own discipline is that a wall clock measures the box and
+>   absolutes are not portable. The first quiet reading — the serial timing pass `scripts/gate.sh`
+>   runs with a non-zero `load-batches`, which that landing required — supersedes 76.6 % as the
+>   baseline if it differs, and the threshold is re-derived by the same rule and recorded here, in
+>   one more dated line, not by editing this one.
+> - **The 180-thread cells are context, not a trigger.** 60x3 at 159.4 % and 180x1 at 126.5 % say
+>   what prd-49's evidence already said of the summed 106.7 %: at 180 threads the *median* is over
+>   budget, and a free-list does not fix a median. They change nothing about ruling 2.
+>
+> Ruling 2 is still untouched. When clause 2 trips against this threshold, the first act is the
+> re-measurement it orders, against a production build, not the pooling.
+
 ## Ruling 2 — when it trips, the first act is a re-measurement, not a build
 
 The trigger re-asks the question; it does not answer it. The order on [#190][i190] binds: re-run
@@ -107,3 +134,4 @@ rather than pre-writing them now.
   answer that in advance. Open, not ruled.
 
 [i190]: https://github.com/launchpad-26/rhizomorph/issues/190
+[i320]: https://github.com/launchpad-26/rhizomorph/issues/320
