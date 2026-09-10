@@ -35,6 +35,50 @@ export const AXIS_EMPTY_COPY = 'there are no checkpoints yet — capture one wit
 
 const HEIGHT = 84
 
+/** The gap between the playhead line and its label, in viewBox units. */
+const LABEL_GAP = 8
+
+/**
+ * One character's advance for the label's face at `fontSize={10}`, in viewBox
+ * units. The label is mono (`--font-mono`, JetBrains Mono through the theme's
+ * own token), so every glyph advances the same 0.6 em — 6 units at this size —
+ * and a character count IS a width rather than an estimate of one. The extra
+ * 0.2 is headroom for the fallback faces in that token's stack, which are
+ * monospaced too but not all at 0.6.
+ */
+const LABEL_CHAR_WIDTH = 6.2
+
+export interface PlayheadLabelPlacement {
+  x: number
+  anchor: 'start' | 'end'
+  /** True when the label was drawn to the LEFT of the line, to stay inside the drawing. */
+  flipped: boolean
+  /** The label's right edge, in viewBox units — the number S1′'s acceptance criterion bounds. */
+  right: number
+}
+
+/**
+ * WHERE THE PLAYHEAD LABEL GOES (prd-55 ruling 8; S1′: "the playhead label's
+ * right edge ≤ viewport width at 100 %"). The label sits to the right of its
+ * line, which is fine everywhere except the end of the session — and the end
+ * of the session is exactly where the newest checkpoint sits, so the one label
+ * the operator reads most was the one hanging off the edge. It FLIPS to the
+ * left of the line when its right edge would otherwise leave the drawing.
+ *
+ * The measurement is the label's own, in viewBox units: the SVG scales its
+ * viewBox to the viewport, so "inside the viewport at 100 %" and "inside the
+ * viewBox" are one claim, and neither needs a layout pass to answer — which is
+ * what makes the criterion executable in a DOM test rather than only visible
+ * in a screenshot. Flipping cannot push the label off the other edge instead:
+ * a flipped label's right edge IS the line, and the line is never further left
+ * than the axis inset.
+ */
+export function playheadLabelPlacement(playheadX: number, text: string, width: number): PlayheadLabelPlacement {
+  const right = playheadX + LABEL_GAP + text.length * LABEL_CHAR_WIDTH
+  if (right <= width) return { x: playheadX + LABEL_GAP, anchor: 'start', flipped: false, right }
+  return { x: playheadX - LABEL_GAP, anchor: 'end', flipped: true, right: playheadX - LABEL_GAP }
+}
+
 export function SessionAxis({ checkpoints, seated, onSeat, failedArmsByCheckpoint = {}, onForkFromHere, width = 1000 }: SessionAxisProps) {
   const ordered = [...checkpoints].sort(compareByPosition)
   const seatedIndex = ordered.findIndex((checkpoint) => checkpoint.checkpointId === seated)
@@ -123,9 +167,29 @@ export function SessionAxis({ checkpoints, seated, onSeat, failedArmsByCheckpoin
             <g data-testid="axis-playhead" data-x={String(playheadX)}>
               <line x1={playheadX} y1={6} x2={playheadX} y2={HEIGHT - 4} stroke="var(--color-calm, var(--ink-primary))" strokeWidth={1.5} />
               <polygon points={`${playheadX - 6},6 ${playheadX + 6},6 ${playheadX},14`} fill="var(--color-calm, var(--ink-primary))" />
-              <text x={playheadX + 8} y={16} fill="var(--color-calm, var(--ink-primary))" fontSize={10} fontFamily="var(--font-mono)">
-                playhead · {playheadLabel}
-              </text>
+              {(() => {
+                // The label's placement is measured, not assumed: at the end of
+                // the session it flips to the left of its own line rather than
+                // hanging off the drawing (S1′). Both numbers ride on the
+                // element so the criterion can be read off the DOM.
+                const text = `playhead · ${playheadLabel}`
+                const placement = playheadLabelPlacement(playheadX, text, width)
+                return (
+                  <text
+                    data-testid="axis-playhead-label"
+                    data-flipped={placement.flipped ? 'true' : 'false'}
+                    data-label-right={String(placement.right)}
+                    x={placement.x}
+                    y={16}
+                    textAnchor={placement.anchor}
+                    fill="var(--color-calm, var(--ink-primary))"
+                    fontSize={10}
+                    fontFamily="var(--font-mono)"
+                  >
+                    {text}
+                  </text>
+                )
+              })()}
             </g>
           )}
         </svg>
