@@ -104,6 +104,12 @@ export const EVENT_SOURCE_BY_TYPE = {
   // is what marks an arm's lane synthetic — see events/lab.ts.
   'fork.dispatched': 'lab',
   'fork.measured': 'lab',
+  // prd55 wave 5 (ruling 1): the R&D hand's own four events — the same second
+  // hand as the fork.* family above, never a collector. See events/lab.ts.
+  'rd.patterns': 'lab',
+  'rd.proposal': 'lab',
+  'rd.refused': 'lab',
+  'rd.override': 'lab',
   // prd11 ruling 6b, phase 1: the semantic judge's structural organ — a real
   // polled collector, unlike `lab`, but `'judge'` is still absent from
   // `eventSourceSchema` because this issue's fence (#152) doesn't reach
