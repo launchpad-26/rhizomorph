@@ -1571,6 +1571,29 @@ describe('the return, and the network it leaves standing (prd10 rulings 13–16)
     const button = screen.getByTestId('scene-hide-finished')
     expect(button).toHaveAttribute('aria-hidden', 'true')
     expect(button).toHaveAttribute('tabindex', '-1')
+    // AND ITS WRAPPER SAYS NOTHING EITHER (review of #419). This case asserted
+    // only the two attributes above, so when #389 wrapped the button in a
+    // disclosure the test's subject moved out from under it: the inline
+    // trigger is a focusable `<span role="note" tabIndex={0}>`, so a keyboard
+    // reached a live tab stop and a card about a control that is not there,
+    // while this test stayed green with its own name false.
+    expect(
+      button.closest('[data-testid="disclosure-trigger"]'),
+      'the control is out of the tab order but its disclosure wrapper is not',
+    ).toBeNull()
+  })
+
+  it('does say it, on a fleet where something has finished — the gate is not a stuck door', () => {
+    // The sibling half. A wrapper suppressed in both states would satisfy the
+    // case above and silently retire the card #389 exists to have added, so
+    // both directions are pinned.
+    mountCut({ fleet: landedFleet() })
+    const button = screen.getByTestId('scene-hide-finished')
+
+    expect(button).toHaveAttribute('tabindex', '0')
+    const trigger = button.closest('[data-testid="disclosure-trigger"]')
+    expect(trigger).not.toBeNull()
+    expect(trigger).toHaveAttribute('tabindex', '0')
   })
 
   it('hides the finished lanes from the canvas, and says it is doing it', () => {

@@ -351,27 +351,46 @@ interface FinishedControlProps {
 function FinishedControl({ hidden, finished, onToggle }: FinishedControlProps) {
   const has = finished > 0
 
+  const button = (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={hidden}
+      aria-hidden={!has}
+      tabIndex={has ? 0 : -1}
+      data-testid="scene-hide-finished"
+      className={`pointer-events-auto rounded-none border px-2 py-1 text-inst-dense uppercase leading-none tracking-wide backdrop-blur-sm transition-[opacity,transform,color,border-color] duration-(--duration-touch) ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-(--focus-ring) active:scale-[0.97] ${
+        has ? 'opacity-100' : 'pointer-events-none opacity-0'
+      } ${
+        hidden
+          ? 'border-(--ink-dim) bg-(--surface-raised)/90 text-(--ink-primary)'
+          : 'border-(--line-hair) bg-(--surface-panel)/80 text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)'
+      }`}
+    >
+      {`${hidden ? 'Show' : 'Hide'} finished · ${finished}`}
+    </button>
+  )
+
   return (
     <div className="pointer-events-none absolute right-2 top-2">
-      <Disclosure trigger="inline" disclosure={finishedDisclosure(hidden)}>
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-pressed={hidden}
-        aria-hidden={!has}
-        tabIndex={has ? 0 : -1}
-        data-testid="scene-hide-finished"
-        className={`pointer-events-auto rounded-none border px-2 py-1 text-inst-dense uppercase leading-none tracking-wide backdrop-blur-sm transition-[opacity,transform,color,border-color] duration-(--duration-touch) ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-(--focus-ring) active:scale-[0.97] ${
-          has ? 'opacity-100' : 'pointer-events-none opacity-0'
-        } ${
-          hidden
-            ? 'border-(--ink-dim) bg-(--surface-raised)/90 text-(--ink-primary)'
-            : 'border-(--line-hair) bg-(--surface-panel)/80 text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)'
-        }`}
-      >
-        {`${hidden ? 'Show' : 'Hide'} finished · ${finished}`}
-      </button>
-      </Disclosure>
+      {/*
+        DISCLOSED ONLY WHILE THERE IS SOMETHING TO DISCLOSE (review of #419).
+        This control fades rather than mounting — while nothing has finished it
+        is `aria-hidden`, `tabIndex={-1}` and `opacity-0`, deliberately out of
+        both the tab order and the accessibility tree. The inline trigger is a
+        focusable `<span role="note" tabIndex={0}>` and carries no such
+        condition, so wrapping unconditionally put a live tab stop around a
+        control that is not there, opening a card whose every clause is false in
+        that state. `replay/index.tsx`'s birth button gates the same way and for
+        the same reason.
+      */}
+      {has ? (
+        <Disclosure trigger="inline" disclosure={finishedDisclosure(hidden)}>
+          {button}
+        </Disclosure>
+      ) : (
+        button
+      )}
     </div>
   )
 }
