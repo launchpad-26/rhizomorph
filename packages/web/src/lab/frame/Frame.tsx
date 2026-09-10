@@ -262,7 +262,7 @@ export function Frame({
         ) : position === 3 ? (
           here.length === 0 ? (
             <p data-testid="frame-scene-empty" className="text-(--ink-dim)">
-              no experiment was forked from this checkpoint — there is no organism to draw
+              no experiment was forked from this checkpoint — there are no ribbons to draw
             </p>
           ) : (
             <div data-testid="frame-scene" className="flex flex-col gap-2">
