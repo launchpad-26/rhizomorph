@@ -43,7 +43,7 @@
  * beside a working one for the same key.
  */
 
-import { hostProvides, type HostCapability } from './host.js'
+import { type HostCapability, hostProvides } from './host.js'
 
 /** Where a preference lives, and therefore what changing the repo does to it (ruling 3). */
 export type PrefScope = 'machine' | 'repo' | 'session'
@@ -688,6 +688,60 @@ export const PREFERENCES: readonly PrefEntry[] = [
     unavailable: null,
     requires: null,
     gap: "this page has no control for a map of flags — a record has only ever been surveyed here, never edited here — so this row shows the list's default and whether it has been changed, and offers nothing to change it. The list is edited where it is read: the launch panel's per-arm select offers exactly the keys switched on here (`lab/launch/models.ts`), and its other… entry writes a typed name in as an offered key. Switching a name off again, or offering one without launching, is a settings-side record control that has not landed — its own diff, when it does; until then restore defaults is the one way back from here.",
+    legacy: null,
+  },
+  // prd-55 ruling 1 (wave 5): the R&D hand is the operator's OWN agent CLI,
+  // and this is where they say what it is called. The server resolves the name
+  // on its own PATH — never from an environment variable — so the scope is the
+  // MACHINE and not the repo: one machine has one PATH, and two repos watched
+  // from the same box cannot honestly disagree about what `claude` is.
+  //
+  // The kind is the honest one available, and the gap says what that costs.
+  // `PrefKind` is `choice | flag | record`; a free string is none of them, and
+  // `accept()` refuses a `choice` value that is not one of `options`. So this
+  // is declared as the choice it actually is today — one name, the one the
+  // instrument ships with — rather than as a `choice` whose options pretend to
+  // enumerate every binary a person might have installed, or a `record` of
+  // flags that would mean something else entirely. Inventing a fourth kind to
+  // carry it is a change to every consumer of `PrefKind` and belongs in its own
+  // reviewed diff, not smuggled in beside a lab preference.
+  {
+    id: 'lab.agentCommand',
+    group: 'repo',
+    label: 'R&D agent command',
+    what: "the name the server looks for on its own PATH when the lab's R&D hand is invoked.",
+    scope: 'machine',
+    kind: 'choice',
+    options: [{ value: 'claude', label: 'claude' }],
+    fallback: 'claude',
+    words: null,
+    control: 'settings',
+    unavailable: null,
+    requires: null,
+    gap: 'this page can only offer the one name the instrument ships with, because a preference here is a choice, a flag or a map of flags and a typed-in binary name is none of the three. An operator whose CLI is installed under another name — a wrapper, a versioned binary, a shim — cannot declare it here, and the R&D control will tell them there is no claude on this machine\'s PATH, which is true and unhelpful. What fixes it is a free-text preference kind and a control for it on this page; that is a change to every reader of PrefKind and belongs in its own diff.',
+    legacy: null,
+  },
+  // prd-55 ruling 2 (wave 5): local first, and the tracker is a SECOND declared
+  // act. A flag rather than a two-option choice on purpose — the question is
+  // "may the hand also read closed issues through my own gh?", which is a
+  // yes/no about granting a second read, and `words` says what each answer
+  // means without the R&D panel being on screen (the rule `describeValue`
+  // keeps). Repo-scoped because ruling 2 scopes it that way: which repo's
+  // tracker may be read is a fact about that repo.
+  {
+    id: 'lab.rdCorpus',
+    group: 'repo',
+    label: 'Read the tracker with my gh',
+    what: "whether the lab's R&D hand may also read this repo's closed issues through your own gh, on top of the record it already holds.",
+    scope: 'repo',
+    kind: 'flag',
+    options: [],
+    fallback: false,
+    words: ['local+tracker — the record, plus closed issues through your gh', 'local — the record this repo already holds'],
+    control: 'settings',
+    unavailable: null,
+    requires: null,
+    gap: "nothing sends this to the server yet: the R&D control that carries the corpus choice to the lab is a later wave's surface, so switching it on is remembered and, until that control exists, changes nothing about what the hand reads. The engine already records which corpus produced a run, on every rd.* event, so when the control lands there is nothing here to change.",
     legacy: null,
   },
 ]
