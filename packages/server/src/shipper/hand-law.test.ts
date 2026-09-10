@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -21,10 +21,19 @@ import { isInside } from '../paths/containment.js'
  *   1. Outbound only — asserted here.
  *   2. One credential, one shape, one place — asserted here (three greps).
  *   3. The clock is bounded to one act — asserted here (raw import graph).
- *   4. It sends only what a record carries (ADR-0033) — DEFERRED to prd-51
- *      wave 2: the re-serializer this would test does not exist yet.
- *   5. Enabled is visible on `/connect` — DEFERRED to prd-51 wave 3: the row
- *      this would read does not exist yet.
+ *   4. It sends only what a record carries (ADR-0033) — ASSERTED, no longer
+ *      deferred. The deferral's own condition was "the re-serializer this
+ *      would test does not exist yet"; it exists
+ *      (`packages/core/src/wire/reserialize.ts`, merged with the keystone), so
+ *      the clause became testable and `veil.test.ts` beside this file plants
+ *      the real removed field — `pane.activity.payload.preview` — in a ledger
+ *      and watches a full pass fail to carry it across.
+ *   5. Enabled is visible on `/connect` — DEFERRED to prd-51 WAVE 5+, with the
+ *      team-server doctor (ruling 12's second half, whose row lives in
+ *      `packages/web/src/connect/links.ts`). Re-dated from "wave 3" by the
+ *      wave-3 lane itself: the row's VERIFIED state depends on a batch
+ *      acknowledged by a team server that does not exist yet, and #372's own
+ *      body rules that row out of its scope in terms.
  *
  * A clause silently absent is the failure this file exists to prevent; a
  * clause declared deferred, by name and by wave, is honest instead.
@@ -32,20 +41,24 @@ import { isInside } from '../paths/containment.js'
  * ## The vacuity problem
  *
  * Every source-text clause below sweeps `packages/server/src/shipper/` for
- * non-test files. That set is EMPTY today, so every one of those sweeps
- * passes over nothing — the exact defect `concierge/namespace-law.test.ts`
- * was written against. Three mechanisms hold it open:
+ * non-test files. That set was EMPTY when this file was written, so every one
+ * of those sweeps passed over nothing — the exact defect
+ * `concierge/namespace-law.test.ts` was written against. It is no longer
+ * empty: wave 3 landed seven sources under it, and the three mechanisms that
+ * held the seam open are what forced that lane through this file first.
  *
  *   1. {@link SHIPPER_SOURCES_TODAY} — a declared inventory, asserted equal
- *      to what the sweep actually finds AND asserted empty. Wave 2 must edit
- *      this constant, in the same commit that adds its files.
- *   2. An exact directory listing (`readdirSync(SHIPPER_DIR).sort()` equals
- *      `['hand-law.test.ts']`) — blunt on purpose, so the moment anything
- *      lands under `shipper/` this goes red and names what appeared.
+ *      to what the sweep actually finds AND asserted NON-EMPTY. It was
+ *      asserted empty until wave 3, which edited it in the same commit that
+ *      added its files, exactly as the seam demanded. Never widen it into a
+ *      `length >= 0` or a glob: the equality is the whole mechanism.
+ *   2. An exact directory listing (`readdirSync(SHIPPER_DIR).sort()`) — blunt
+ *      on purpose, so anything landing under `shipper/` goes red and names
+ *      what appeared.
  *   3. Synthetic fixtures for every detector — a paired positive (it fires on
  *      a violation) and a paired negative (it does not fire on the shape the
- *      hand legitimately needs). These carry clauses 1–3 today; the doc
- *      comment beside each says so.
+ *      hand legitimately needs). These carry clauses 1, 2, 2b, 3 and 3b; the
+ *      doc comment beside each says so.
  *
  * The other half of vacuity, easy to forget: the SOURCE side of clause 3's
  * sweep must be non-empty too. Asserted below — `walkSourceFiles(COLLECTORS_DIR)`
@@ -99,25 +112,43 @@ import { isInside } from '../paths/containment.js'
  * | 2         | scratch file carries `'sk_'`, `process.argv[3]` and `console.log('ingest key', ingestKey)`          | both clause-2 sweep tests |
  * | 3         | scratch file exports `enable`; append import { enable } from '../../shipper/scratch-mutation.js' to `packages/server/src/collectors/git/git-collector.ts` | the RAW-graph test AND the bounded sweep |
  *
+ * ## Four more, added by wave 3 with its own sources under the sweep, each
+ * observed red (recorded in the commit that adds them):
+ *
+ * | clause | mutation | what goes red |
+ * |--------|----------|---------------|
+ * | 3b     | add `import { runShipperLoop } from '../shipper/index.js'` to `packages/server/src/cli/run.ts` and call it from `runServerCommand` | ONLY the call-site sweep. Both graph clauses stay green, and that asymmetry is the finding this clause exists for |
+ * | 2b     | call `key.headerValue()` from `shipper/ship.ts` | the one-reader sweep |
+ * | key    | make `post.ts`'s non-2xx arm `throw new Error(\`ingest refused: ${key.headerValue()}\`)` | `no-key-in-output-law.test.ts`, on the thrown-error capture |
+ * | ts     | replace the shipped entry's `line` with one whose `ts` is the local clock | `ts-invariant.test.ts`'s first case |
+ *
  * ## Three declared skips, on purpose, not by omission
  *
  *   - `packages/server/src/cli/replay.ts` carries a second, identical bind to
  *     the one this file pins in `cli/run.ts`. Not pinned here: ADR-0034
  *     clause 1 names the instrument's bind, `cli/run.ts` is it, and a second
  *     anchor only doubles the rot surface for no extra guarantee.
- *   - ADR-0034 clause 2's `0600` storage mode. The writer does not exist,
- *     the storage path is wave 2's to choose, and a mode pinned against no
- *     writer pins nothing. Wave 2 adds it beside its own `writeFile`.
- *   - Clauses 4 and 5, named above as deferred and not asserted.
+ *   - Clause 5, named above as deferred and not asserted.
  *
- * ## Instructions to the wave-2 lane
+ * The `0600` storage mode used to be the second skip here, on the grounds that
+ * "a mode pinned against no writer pins nothing". The writer exists now
+ * (`shipper/key.ts`'s `writeIngestKey`) and the pin went where the skip said
+ * it should: beside it, in `key.test.ts`, asserted on the file immediately
+ * after the write and again after a third write, because `writeFile`'s `mode`
+ * applies only on creation and a re-used temp file would otherwise inherit a
+ * laxer one.
  *
- * Edit {@link SHIPPER_SOURCES_TODAY} to enumerate the files you add, in the
- * same commit that adds them — never replace the assertion with
- * `length >= 0` or a pattern. If your wave needs a declared importer, add
- * EXACTLY ONE file to {@link DECLARED_IMPORTERS} — prd-51 ruling 14 names it
- * as the `connect team` command under `cli/` — never a directory, never a
- * glob.
+ * ## What the wave-3 lane actually did with that seam
+ *
+ * It enumerated its seven sources in {@link SHIPPER_SOURCES_TODAY} and added
+ * exactly one file to {@link DECLARED_IMPORTERS} — `cli/connect-team.ts`, the
+ * `connect team` command prd-51 ruling 14 names — in the same commit that
+ * added them. The instruction stands unchanged for whoever comes next: enumerate,
+ * never widen into `length >= 0` or a pattern, and if a later wave needs a
+ * route in, argue for it rather than adding a second entry. `doctor` wanted one
+ * and did not get one: it reads the hand's facts THROUGH `connect-team.ts`
+ * instead, because the seam being ONE file wide is the property, not a detail
+ * of who happened to need it first.
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -130,20 +161,56 @@ const COLLECTORS_DIR = path.join(SERVER_SRC, 'collectors')
 
 /**
  * The shipper's own non-test source files, declared rather than merely
- * discovered — EMPTY today, asserted both by equality against the real
- * sweep and by length below. This is the seam that forces the wave-2 lane
- * that adds the shipper's first source file to read this law: enumerate the
- * files here, in the same commit, never widen the assertion into a `>= 0`
- * or a glob that would pass silently over whatever landed.
+ * discovered — asserted both by equality against the real sweep and by being
+ * NON-EMPTY below. This is the seam that forced the lane adding the shipper's
+ * first source file to read this law; it stays exactly as strict for the next
+ * one. Enumerate the files here, in the same commit that adds them, and never
+ * widen the assertion into a `>= 0` or a glob that would pass silently over
+ * whatever landed.
+ *
+ * `path.join`, never a slash-joined literal: {@link relative} is
+ * `path.relative()`, so the real sweep is backslash-separated on win32 and a
+ * hard-coded `'packages/server/…'` would redden only on the `Windows suite`
+ * leg — this repo's recorded doc-law-literal failure mode, one directory over.
  */
-const SHIPPER_SOURCES_TODAY: readonly string[] = []
+const SHIPPER_SOURCES_TODAY: readonly string[] = [
+  path.join('packages', 'server', 'src', 'shipper', 'config.ts'),
+  path.join('packages', 'server', 'src', 'shipper', 'cursor.ts'),
+  path.join('packages', 'server', 'src', 'shipper', 'index.ts'),
+  path.join('packages', 'server', 'src', 'shipper', 'key.ts'),
+  path.join('packages', 'server', 'src', 'shipper', 'loop.ts'),
+  path.join('packages', 'server', 'src', 'shipper', 'post.ts'),
+  path.join('packages', 'server', 'src', 'shipper', 'ship.ts'),
+]
+
+/** Every file under `shipper/`, tests included — the blunt listing of mechanism 2. */
+const SHIPPER_DIRECTORY_TODAY: readonly string[] = [
+  'config.test.ts',
+  'config.ts',
+  'cursor.test.ts',
+  'cursor.ts',
+  'hand-law.test.ts',
+  'index.ts',
+  'key.test.ts',
+  'key.ts',
+  'loop.test.ts',
+  'loop.ts',
+  'no-key-in-output-law.test.ts',
+  'post.test.ts',
+  'post.ts',
+  'ship.test.ts',
+  'ship.ts',
+  'ts-invariant.test.ts',
+  'veil.test.ts',
+]
 
 /**
- * The files allowed to reach the shipper — EMPTY today. The next lane that
- * wants in adds EXACTLY ONE file, never a directory and never a glob — prd-51
- * ruling 14 names it as the `connect team` command under `cli/` (that file
- * does not exist yet, so it is named here unbackticked rather than as a repo
- * path `doc-citation-law.test.ts` would then have to resolve).
+ * The files allowed to reach the shipper — EXACTLY ONE, the `connect team`
+ * command prd-51 ruling 14 names: `packages/server/src/cli/connect-team.ts`.
+ * Never a directory and never a glob, and never a second entry without an
+ * argument on the record: the seam being one file wide is the property
+ * ADR-0034 clause 3 buys, and `cli/doctor.ts` was refused a second entry for
+ * that reason — it reaches the hand's facts through this file instead.
  *
  * Repeating `concierge/namespace-law.test.ts`'s own finding: a declared
  * importer BOUNDS the walk — chains stop there and everything above it
@@ -151,7 +218,9 @@ const SHIPPER_SOURCES_TODAY: readonly string[] = []
  * node admits the route and then convicts `api/index.ts`, `build-app.ts` and
  * every `buildApp` test above it.
  */
-const DECLARED_IMPORTERS: ReadonlySet<string> = new Set<string>([])
+const DECLARED_IMPORTERS: ReadonlySet<string> = new Set<string>([
+  path.join(SERVER_SRC, 'cli', 'connect-team.ts'),
+])
 
 /**
  * Files that may never be in {@link DECLARED_IMPORTERS}, whatever a later
@@ -356,17 +425,52 @@ function isInShipper(file: string): boolean {
   return CANONICAL_SHIPPER_FILES.has(file)
 }
 
+/**
+ * Every non-test source in both packages — the population clauses 2b and 3b
+ * sweep. Recomputed per call rather than frozen at module load, so a file
+ * added under either root is seen by the very next run.
+ */
+function allNonTestSources(): string[] {
+  return [...walkSourceFiles(SERVER_SRC), ...walkSourceFiles(WEB_SRC)].filter((file) => !isTest(file))
+}
+
+/** The same population with the hand's own sources removed — clause 3b's, since the hand legitimately declares its own timer. */
+function nonTestSourcesOutsideTheHand(): string[] {
+  return allNonTestSources().filter((file) => !isInShipper(realCanonical(file)))
+}
+
+/**
+ * Whether `code` names `identifier` as a whole word. A NAME check, not a call
+ * check, for the same reason clause 1 bans `createServer` by name: a bare
+ * reference is enough to hand the thing to something that will call it.
+ */
+function namesIdentifier(code: string, identifier: string): boolean {
+  return new RegExp(`\\b${identifier}\\b`).test(code)
+}
+
 describe("the fifth hand's law (ADR-0034 / docs/adr/0034-the-fifth-hand.md) — written before shipper/ has a single source file", () => {
-  describe('the module the law is about is empty today — an empty directory proves nothing unless the emptiness is asserted', () => {
-    it('the declared inventory is empty and matches what the real sweep finds', () => {
+  describe('the module the law is about is enumerated, not merely discovered — a sweep over nothing reports the same green as a sweep over something', () => {
+    it('the declared inventory is NON-EMPTY and matches what the real sweep finds, as a set', () => {
       const found = shipperSourceFiles().map(relative)
-      expect(found).toEqual([])
-      expect(SHIPPER_SOURCES_TODAY).toEqual([])
-      expect(found).toEqual([...SHIPPER_SOURCES_TODAY])
+      // Non-empty first: the assertion below is an equality, and two empty
+      // lists are equal. This is the half that stops the sweep going vacuous
+      // again if `shipper/` is ever emptied.
+      expect(found.length).toBeGreaterThan(0)
+      expect(SHIPPER_SOURCES_TODAY.length).toBeGreaterThan(0)
+      // Sorted because `walkSourceFiles` returns `readdirSync` order, which is
+      // a filesystem property; the assertion is still an EXACT set equality,
+      // never a subset or a pattern.
+      expect([...found].sort()).toEqual([...SHIPPER_SOURCES_TODAY].sort())
     })
 
-    it('shipper/ contains exactly this law file — nothing else has landed under it', () => {
-      expect(readdirSync(SHIPPER_DIR).sort()).toEqual(['hand-law.test.ts'])
+    it('shipper/ contains exactly the files this law declares — nothing has landed under it unnoticed', () => {
+      expect(readdirSync(SHIPPER_DIR).sort()).toEqual([...SHIPPER_DIRECTORY_TODAY].sort())
+    })
+
+    it('every declared source really is a file on disk — a declared inventory naming a ghost bounds nothing', () => {
+      for (const declared of SHIPPER_SOURCES_TODAY) {
+        expect(existsSync(path.join(REPO_ROOT, declared)), `${declared} is declared but absent`).toBe(true)
+      }
     })
 
     it("the collectors sweep clause 3's raw graph depends on is real, not vacuous", () => {
@@ -663,8 +767,13 @@ describe("the fifth hand's law (ADR-0034 / docs/adr/0034-the-fifth-hand.md) — 
       expect(violations).toEqual([])
     })
 
-    it('the declared-importer set is EMPTY today', () => {
-      expect([...DECLARED_IMPORTERS]).toEqual([])
+    it('the declared-importer set is exactly the one file ruling 14 names, and that file exists', () => {
+      const theOne = path.join(SERVER_SRC, 'cli', 'connect-team.ts')
+      expect([...DECLARED_IMPORTERS]).toEqual([theOne])
+      // The existence half is the point: a declared importer naming a file
+      // that is not there bounds nothing, and the bounded sweep above would
+      // pass over an unguarded route reporting exactly this green.
+      expect(existsSync(theOne)).toBe(true)
     })
 
     it('no collector, no poll loop and no web file may ever be a declared importer', () => {
@@ -672,6 +781,120 @@ describe("the fifth hand's law (ADR-0034 / docs/adr/0034-the-fifth-hand.md) — 
         NEVER_AN_IMPORTER.some((banned) => isInside(banned, importer)),
       )
       expect(forbidden).toEqual([])
+    })
+  })
+
+
+  /**
+   * CLAUSE 3B — THE TIMER'S CONSTRUCTION SITE, AS A CALL-SITE LAW.
+   *
+   * **Read this before "fixing" it back into a graph clause.** ADR-0034 clause
+   * 3 says the timer runs "never from a collector, a poll or a boot". The
+   * import graph above enforces the first two and provably CANNOT enforce the
+   * third, because this chain already exists on `main`:
+   *
+   * ```
+   * packages/server/src/server/build-app.ts
+   *   -> packages/server/src/api/index.ts
+   *   -> packages/server/src/api/lab.ts
+   *   -> packages/server/src/cli/index.ts
+   * ```
+   *
+   * `api/lab.ts` invokes `runCli` for prd53 ruling 3's measure route. So the
+   * moment `connect` joins `cli/index.ts`'s dispatch table — which
+   * `cli-surface-law.test.ts` REQUIRES of any new top-level subcommand — the
+   * hand is statically reachable from the Fastify app, and no graph-shaped
+   * clause can separate "boot could reach it" from "boot does reach it".
+   * Adding `run.ts` or `build-app.ts` as raw-sweep origins reddens
+   * immediately and says nothing about whether a timer was started.
+   *
+   * The answer is to guard the CONSTRUCTION SITE rather than the reach: only
+   * `cli/connect-team.ts` may name the timer's entry points, and only in the
+   * foreground of a process a human started. That is a strengthening of the
+   * bound's enforcement, not a weakening of the bound — and it is why the
+   * shipper's own loop never runs in the server process.
+   */
+  describe("clause 3b — only the enable command may name the hand's timer", () => {
+    const TIMER_ENTRY_POINTS = ['runShipperLoop', 'shipOnce'] as const
+    const THE_ONLY_CALLER = realCanonical(path.join(SERVER_SRC, 'cli', 'connect-team.ts'))
+
+    it('those detectors bite, and do not fire on an ordinary identifier that merely looks like one', () => {
+      const violation = `import { runShipperLoop } from '../shipper/index.js'\nvoid runShipperLoop({ sessionDir })\n`
+      expect(TIMER_ENTRY_POINTS.some((name) => namesIdentifier(violation, name))).toBe(true)
+      expect(namesIdentifier(`await shipOnce({ sessionDir })`, 'shipOnce')).toBe(true)
+
+      for (const innocent of [
+        `const loops = lanes.length`,
+        `const status = await shipperStatus(sessionDir)`,
+        `const shipOnceMore = 1`,
+        `runShipperLoopback()`,
+      ]) {
+        expect(
+          TIMER_ENTRY_POINTS.some((name) => namesIdentifier(innocent, name)),
+          `false positive on: ${innocent}`,
+        ).toBe(false)
+      }
+    })
+
+    it('the sweep it runs is over a real, non-empty set of files outside the hand', () => {
+      expect(nonTestSourcesOutsideTheHand().length).toBeGreaterThan(100)
+      expect(nonTestSourcesOutsideTheHand().map(realCanonical)).toContain(
+        realCanonical(path.join(SERVER_SRC, 'server', 'build-app.ts')),
+      )
+      expect(nonTestSourcesOutsideTheHand().map(realCanonical)).toContain(
+        realCanonical(path.join(SERVER_SRC, 'cli', 'run.ts')),
+      )
+    })
+
+    it('no file outside the hand names the timer except the enable command', () => {
+      const offenders: string[] = []
+      for (const file of nonTestSourcesOutsideTheHand()) {
+        if (realCanonical(file) === THE_ONLY_CALLER) continue
+        const code = codeOf(readFileSync(file, 'utf8'))
+        for (const name of TIMER_ENTRY_POINTS) {
+          if (namesIdentifier(code, name)) offenders.push(`${relative(file)}: ${name}`)
+        }
+      }
+      expect(offenders).toEqual([])
+    })
+
+    it('and the enable command really does name it — an allowance nobody uses guards nothing', () => {
+      const code = codeOf(readFileSync(THE_ONLY_CALLER, 'utf8'))
+      expect(namesIdentifier(code, 'runShipperLoop')).toBe(true)
+    })
+  })
+
+  /**
+   * CLAUSE 2B — ONE READER OF THE KEY'S VALUE.
+   *
+   * The sibling of clause 3b, one layer down and for the same reason: the
+   * reviewed pattern is *a guard placed on the import graph while the real
+   * reach is a call site*. `IngestKey` renders as `rzk_[redacted]` through
+   * `toString`, `toJSON` and Node's inspect hook, so the value only escapes if
+   * something asks for it by name. Exactly two files may: `shipper/key.ts`,
+   * which declares the method, and `shipper/post.ts`, which puts it on the one
+   * header that carries it.
+   */
+  describe("clause 2b — exactly one reader of the credential's value", () => {
+    const READER = 'headerValue'
+    const ALLOWED = new Set(
+      [path.join(SHIPPER_DIR, 'key.ts'), path.join(SHIPPER_DIR, 'post.ts')].map(realCanonical),
+    )
+
+    it('the detector bites, and does not fire on the header NAME it sits beside', () => {
+      expect(namesIdentifier(`headers[INGEST_KEY_HEADER] = options.key.headerValue()`, READER)).toBe(true)
+      expect(namesIdentifier(`response.headers.get('x-rz-ingest-key')`, READER)).toBe(false)
+      expect(namesIdentifier(`const headerValues = [...headers]`, READER)).toBe(false)
+    })
+
+    it('no non-test source in either package names it but the two that must', () => {
+      const namers: string[] = []
+      for (const file of allNonTestSources()) {
+        if (namesIdentifier(codeOf(readFileSync(file, 'utf8')), READER)) namers.push(relative(file))
+      }
+      expect(namers.sort()).toEqual(
+        [...ALLOWED].map((file) => relative(file)).sort(),
+      )
     })
   })
 

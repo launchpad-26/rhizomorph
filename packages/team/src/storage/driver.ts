@@ -15,12 +15,34 @@ import postgres from 'postgres'
  * capability that arrived by autocomplete.
  */
 
+/**
+ * What a tagged-template call resolves to: the rows, plus postgres.js's own
+ * affected-row count.
+ *
+ * **THE WIDENING, STATED (prd-51 wave 3).** The slice used to resolve to `T`
+ * alone. `count` is admitted because ruling 4's dedup —
+ * `ON CONFLICT (project_id, actor_instance, n) DO NOTHING` — makes *"did this
+ * row land?"* a question the adapter must answer per row, and the obvious way
+ * to ask it is `RETURNING`. `RETURNING` is the wrong answer here, and it would
+ * have failed on the first real host rather than in any test: PostgreSQL
+ * requires `SELECT` on every column a `RETURNING` list names, and
+ * `packages/team/src/migrations/0003_roles_rls.sql` grants `rz_ingest`
+ * **INSERT only** on `events`, deliberately and in as many words. The
+ * affected-row count carries the same information and needs no grant.
+ *
+ * It is `T & { count }` rather than a second method because that is what
+ * postgres.js already hands back on every result array. Naming it here makes it
+ * visible in a diff to this file, which is what this module's contract above
+ * says a widening must be.
+ */
+export type SqlResult<T> = T & { readonly count: number }
+
 /** The narrow slice of postgres.js the adapter may use. Anything wider is a widening decision. */
 export interface SqlLike {
   <T extends readonly unknown[] = readonly unknown[]>(
     strings: TemplateStringsArray,
     ...values: readonly unknown[]
-  ): PromiseLike<T>
+  ): PromiseLike<SqlResult<T>>
   /**
    * The ONLY un-parameterised path, and the reason ADR-0043 chose a driver
    * whose unsafe path is *named* unsafe. Reserved for DDL, which cannot go

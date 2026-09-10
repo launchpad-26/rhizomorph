@@ -5,37 +5,51 @@
 -- schema is authoritative.
 --
 -- ============================================================================
--- THE RULING 4 / RULING 5 COLLISION — flagged here, NOT resolved here
+-- THE RULING 4 / RULING 5 COLLISION — RESOLVED
 -- ============================================================================
 --
--- Ruling 4 specifies `INSERT ... ON CONFLICT (project, actor_instance, n) DO
--- NOTHING`. That statement cannot be written against this table, and the reason
--- is captured verbatim in docs/research/2026-08-28-shared-record-s4-schema.md,
--- Finding 1:
+-- EDITING AN APPLIED MIGRATION IS LEGAL EXACTLY ONCE, AND THIS WAS IT.
+-- `checksumOf` hashes the whole file INCLUDING these comments, and the runner's
+-- plan phase refuses any run where a recorded checksum differs. No database has
+-- applied 0001 anywhere: the package stands up no Postgres, and the ingest lane
+-- meets a real host in wave 4. So there is no _migrations row to invalidate,
+-- and this is the last commit in which that is true. Do not read this edit as
+-- precedent — from here on the collision-record-and-supersede path is a new
+-- numbered migration, exactly as 0002's own header already says.
+--
+-- What was ruled (docs/prds/prd-51-the-split.md, the amendment of 2026-09-08 —
+-- cited, not restated; the two rejected options and their measured failures
+-- live there):
+--
+--   1. Ruling 4's clause is UNCHANGED. `INSERT ... ON CONFLICT
+--      (project_id, actor_instance, n) DO NOTHING` stands exactly as written.
+--      What changed is the relation it is aimed at: the fold inserts into the
+--      partition covering the batch's ts, never into this parent. Against a
+--      partition the targeted inference finds that partition's own unique index
+--      and behaves as ruling 4 intends.
+--
+--   2. The unique index lives on EACH PARTITION, added by 0004_events_dedup.sql
+--      for the partitions this file's DO block created and by
+--      `buildMonthlyPartitionDdl` for every partition made after it. Ruling 5's
+--      sentence is amended to "the natural unique key cannot exist on the
+--      partitioned table; it exists on each partition" — the original
+--      observation was true of the parent and was read as true of the design.
+--      The error below is still the reason it cannot live here.
+--
+--   3. THE INVARIANT THIS RESTS ON, which nothing stated before the amendment:
+--      the same (project_id, actor_instance, n) always carries the same ts.
+--      Per-partition uniqueness cannot see across a partition boundary, so a
+--      shipper that ever recomputed ts rather than reading it from the event
+--      line would silently break dedup at every month boundary, with no error
+--      anywhere. It holds by construction today — ts is read from the line, and
+--      n addresses that line — and it is written down here because dedup
+--      depends on it.
+--
+-- The error that makes the key impossible on this table, quoted verbatim from
+-- docs/research/2026-08-28-shared-record-s4-schema.md, Finding 1:
 --
 --     ERROR:  unique constraint on partitioned table must include all partitioning columns
 --     DETAIL:  UNIQUE constraint on table "events" lacks column "ts" which is part of the partition key.
---
--- Three honest options, from that note:
---
---   (i)   include `ts` in the key — a real DB-enforced constraint and a working
---         upsert, but the key becomes (project, actor, n, ts), which de-duplicates
---         a replay of the same bytes and not a re-send with a corrected `ts`.
---   (ii)  dedup at ingest — the natural key is honoured exactly, but correctness
---         moves out of the database into the shipper.
---   (iii) hash-partition on the natural key — enforceable, but forfeits range
---         partitioning on `ts`, which is the whole retention and pruning story.
---
--- The spike recommended (i). Ruling 5 instead states the natural key cannot exist
--- and assigns dedup to ingest, i.e. (ii). Both cannot be followed, and this
--- migration follows the issue that commissioned it: the Definition of done
--- enumerates this schema and its four indexes and names no unique constraint.
---
--- The deferral is cheap and reversible in exactly the way the alternative is not.
--- Migrations are append-only, so the ingest lane can add `0004_events_unique.sql`
--- without touching this file, whereas an unwanted constraint would need a second
--- migration to drop it and would have been enforcing the wrong invariant in
--- between. It is the ingest issue's ruling to make.
 --
 -- ============================================================================
 -- Four decisions inside this file, each with its reason
