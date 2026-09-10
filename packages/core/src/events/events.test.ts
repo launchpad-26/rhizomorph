@@ -623,6 +623,74 @@ function oneOfEach() {
       commits: 1,
       source: 'measure-route',
     }, { id: id(), ts: 21 }),
+    // prd55 wave 5 (ruling 1): the R&D hand's four events, source 'lab' — the
+    // same second hand as fork.* above, never a collector.
+    createEvent('rd.patterns', {
+      lane: 'feat',
+      patterns: [
+        { patternId: 'pattern-1', shape: 'flaky assertion on a timing-sensitive test', sourceItems: ['retro-1', 'retro-2'], count: 2, heldBack: false },
+        { patternId: 'pattern-2', shape: 'one-off dependency install failure', sourceItems: ['retro-3'], count: 1, heldBack: true },
+      ],
+      provenance: {
+        model: 'claude-opus-5',
+        total_cost_usd: 0.42,
+        duration_ms: 9_400,
+        promptDigest: 'a'.repeat(64),
+        corpusDigest: 'b'.repeat(64),
+        claudeVersion: '2.1.0',
+        corpus: 'local',
+      },
+    }, { id: id(), ts: 21 }),
+    createEvent('rd.proposal', {
+      lane: 'feat',
+      proposalId: 'proposal-1',
+      patternId: 'pattern-1',
+      varies: 'model',
+      arms: [
+        { model: 'opus', briefDigest: null, checkpointId: null, gateCommand: null },
+        { model: 'sonnet', briefDigest: null, checkpointId: null, gateCommand: null },
+      ],
+      checkpointPick: { chosenCheckpointId: 'ckpt-1', rejected: [{ checkpointId: 'ckpt-0', reason: 'predates the fix' }] },
+      provenance: {
+        model: 'claude-opus-5',
+        total_cost_usd: 0.42,
+        duration_ms: 9_400,
+        promptDigest: 'a'.repeat(64),
+        corpusDigest: 'b'.repeat(64),
+        claudeVersion: '2.1.0',
+        corpus: 'local',
+      },
+    }, { id: id(), ts: 21 }),
+    createEvent('rd.refused', {
+      lane: 'feat',
+      patternId: 'pattern-2',
+      reason: 'this pattern is held back — a single occurrence is not yet a pattern, and testing a shape that may not recur spends real money',
+      rawResultDigest: 'c'.repeat(64),
+      provenance: {
+        model: 'claude-opus-5',
+        total_cost_usd: 0.42,
+        duration_ms: 9_400,
+        promptDigest: 'a'.repeat(64),
+        corpusDigest: 'b'.repeat(64),
+        claudeVersion: '2.1.0',
+        corpus: 'local',
+      },
+    }, { id: id(), ts: 21 }),
+    createEvent('rd.override', {
+      lane: 'feat',
+      proposalId: 'proposal-1',
+      agentCheckpointId: 'ckpt-1',
+      operatorCheckpointId: 'ckpt-2',
+      provenance: {
+        model: 'claude-opus-5',
+        total_cost_usd: 0.42,
+        duration_ms: 9_400,
+        promptDigest: 'a'.repeat(64),
+        corpusDigest: 'b'.repeat(64),
+        claudeVersion: '2.1.0',
+        corpus: 'local',
+      },
+    }, { id: id(), ts: 21 }),
     // prd11 ruling 6b, phase 1: the judge organ's own keystone, source 'judge'.
     createEvent('judge.finding', {
       kind: 'symbol-overlap',

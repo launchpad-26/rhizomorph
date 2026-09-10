@@ -10,6 +10,11 @@ import type {
   ForkCheckpointCapturedBy,
   JudgeEvidence,
   JudgeFindingKind,
+  RdArm,
+  RdCheckpointPick,
+  RdPattern,
+  RdProvenance,
+  RdVariesDimension,
   SpanDecision,
   SpanKind,
   SpanStatus,
@@ -760,6 +765,115 @@ export function initialForkState(): ForkState {
 }
 
 /**
+ * One `rd.patterns` capture, kept whole and in observation order (prd55
+ * ruling 3): the R&D hand's corpus read, grouped into patterns, with its
+ * provenance. `patterns` is the schema's own array — nothing here re-derives
+ * `heldBack` from `count`; the event already carries both, checked equal at
+ * the schema.
+ */
+export interface RdPatternsRecord {
+  eventId: string
+  ts: number
+  lane: string
+  provenance: RdProvenance
+  patterns: RdPattern[]
+}
+
+/**
+ * One `rd.proposal` — a clean, single-dimension proposal the hand drew from a
+ * pattern (prd55 ruling 3). Kept whole; `proposalId` is what a later launch
+ * and a later `rd.override` name.
+ */
+export interface RdProposalRecord {
+  eventId: string
+  ts: number
+  lane: string
+  provenance: RdProvenance
+  proposalId: string
+  patternId: string
+  varies: RdVariesDimension
+  arms: RdArm[]
+  checkpointPick: RdCheckpointPick
+}
+
+/**
+ * One `rd.refused` — a proposal the pure laws in `lab/rd.ts` refused (prd55
+ * ruling 3, ruling 9). Kept BESIDE the pattern it refused (indexed under the
+ * same `patternId` as any live proposal), never folded onto or in place of a
+ * proposal record: there is no such thing as a "refused proposal" object,
+ * only a pattern with a refusal recorded against it.
+ */
+export interface RdRefusalRecord {
+  eventId: string
+  ts: number
+  lane: string
+  provenance: RdProvenance
+  patternId: string
+  reason: string
+  rawResultDigest: string
+}
+
+/**
+ * One `rd.override` — the operator naming a different checkpoint than the
+ * hand picked (prd55 ruling 4). Both checkpoints are kept, always, so the
+ * record can never be read as if the operator's choice were the agent's.
+ */
+export interface RdOverrideRecord {
+  eventId: string
+  ts: number
+  lane: string
+  provenance: RdProvenance
+  proposalId: string
+  agentCheckpointId: string
+  operatorCheckpointId: string
+}
+
+/**
+ * prd55 wave 5's R&D slice. Four append-only logs, same rule as every other
+ * record here (records kept whole, in observation order), each with its own
+ * `byLane` index; `proposalsByPattern` and `refusalsByPattern` are what let a
+ * surface ask "for this pattern: its proposals" and "the refusal it drew"
+ * without a scan (S5's own words), and are populated purely by folding —
+ * nothing here ever reaches back into a `RdPatternsRecord` to patch it.
+ */
+export interface RdState {
+  patternsRecords: RdPatternsRecord[]
+  /** lane → positions in `patternsRecords`, in observation order. */
+  patternsByLane: Record<string, number[]>
+  proposals: RdProposalRecord[]
+  /** lane → positions in `proposals`, in observation order. */
+  proposalsByLane: Record<string, number[]>
+  /** patternId → positions in `proposals`, in observation order — the pattern's own proposals. */
+  proposalsByPattern: Record<string, number[]>
+  refusals: RdRefusalRecord[]
+  /** lane → positions in `refusals`, in observation order. */
+  refusalsByLane: Record<string, number[]>
+  /** patternId → positions in `refusals`, in observation order — folded BESIDE the pattern it refused. */
+  refusalsByPattern: Record<string, number[]>
+  overrides: RdOverrideRecord[]
+  /** lane → positions in `overrides`, in observation order. */
+  overridesByLane: Record<string, number[]>
+  /** proposalId → positions in `overrides`, in observation order — never re-attributed to the agent. */
+  overridesByProposal: Record<string, number[]>
+}
+
+export function initialRdState(): RdState {
+  return {
+    patternsRecords: [],
+    patternsByLane: {},
+    proposals: [],
+    proposalsByLane: {},
+    proposalsByPattern: {},
+    refusals: [],
+    refusalsByLane: {},
+    refusalsByPattern: {},
+    overrides: [],
+    overridesByLane: {},
+    overridesByProposal: {},
+  }
+}
+
+/**
  * One `judge.finding` capture, kept whole and in observation order — same
  * rule as {@link CheckpointRecord}. prd11 ruling 6b, phase 1: the structural
  * organ's own slice, additive alongside everything else the observer folds.
@@ -1029,6 +1143,8 @@ export interface SessionState {
   checkpoints: CheckpointState
   /** prd12 ruling 3: the laboratory's dispatched arms. Additive again. */
   forks: ForkState
+  /** prd55 ruling 3/4: the R&D hand's patterns, proposals, refusals and overrides. Additive again. */
+  rd: RdState
   /** prd11 ruling 6b, phase 1: the judge's structural-organ findings. Additive again. */
   judge: JudgeState
   /**
@@ -1062,6 +1178,7 @@ export function initialSessionState(): SessionState {
     traces: initialTraceState(),
     checkpoints: initialCheckpointState(),
     forks: initialForkState(),
+    rd: initialRdState(),
     judge: initialJudgeState(),
     refusals: initialRefusalState(),
     declared: {},

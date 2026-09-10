@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isHeldBack, RD_MULTI_DIMENSION_REFUSAL, RD_PATTERN_FLOOR, rdDimensionsOf, rdDimensionsVariedCount } from '../lab/rd.js'
 import { nonEmptyString, timestampSchema } from './common.js'
 
 /**
@@ -199,4 +200,219 @@ export const forkMeasuredEventSchema = z.object({
   payload: forkMeasuredPayloadSchema,
 })
 
-export const labEventSchemas = [forkCheckpointEventSchema, forkDispatchedEventSchema, forkMeasuredEventSchema] as const
+// --- prd55 wave 5 — the R&D hand's four events -------------------------------
+//
+// Ruling 1: the R&D hand is the operator's own `claude -p` CLI call, spawned
+// explicitly by `server/src/lab/rd.ts` (wave 5's second issue, out of this
+// fence). Ruling 3: it reads the corpus, groups it into `rd.patterns`, and
+// proposes exactly one clean `rd.proposal` per pattern it does not hold back
+// — a proposal the pure laws in `lab/rd.ts` would refuse is recorded as
+// `rd.refused` instead, never a patched proposal. Ruling 4: `rd.override`
+// records the operator changing the checkpoint pick before launch, so the
+// choice can never be re-attributed to the agent.
+
+/**
+ * Every rd.* event's audit trail (ruling 1): what the CLI's own JSON result
+ * reported, never re-derived. `total_cost_usd`/`duration_ms` keep the CLI's
+ * own snake_case field names on purpose — this is a direct copy of what
+ * `claude -p --output-format json` returned, not a rhizomorph-shaped figure,
+ * and the spelling says so at a glance.
+ */
+export const rdProvenanceSchema = z.object({
+  model: nonEmptyString,
+  total_cost_usd: z.number().nonnegative(),
+  duration_ms: z.number().int().nonnegative(),
+  /** sha256 of the prompt handed to the CLI — never the prompt text itself (same rationale as `forkTreatmentSchema.promptDigest`). */
+  promptDigest: sha256Hex,
+  /** sha256 of the corpus the hand read — so two calls over an unchanged corpus are provably the same read. */
+  corpusDigest: sha256Hex,
+  /** The operator's own `claude --version`, at call time. */
+  claudeVersion: nonEmptyString,
+  /** Ruling 2: local is the default; `local+tracker` is a second, separately declared act. */
+  corpus: z.enum(['local', 'local+tracker']),
+})
+export type RdProvenance = z.infer<typeof rdProvenanceSchema>
+
+/**
+ * One pattern the hand grouped from the corpus (ruling 3). `heldBack` is
+ * carried on the wire rather than only derived, so a reader never has to
+ * re-run `isHeldBack` to know why a pattern is dim — but the schema refuses a
+ * value that disagrees with the law that defines it.
+ */
+export const rdPatternSchema = z
+  .object({
+    patternId: nonEmptyString,
+    /** The shape sentence — what the items in `sourceItems` have in common. */
+    shape: nonEmptyString,
+    sourceItems: z.array(nonEmptyString).min(1),
+    count: z.number().int().nonnegative(),
+    heldBack: z.boolean(),
+  })
+  .refine((pattern) => pattern.heldBack === isHeldBack(pattern.count), {
+    message: `heldBack must equal count < ${RD_PATTERN_FLOOR} (prd55 ruling 3)`,
+    path: ['heldBack'],
+  })
+export type RdPattern = z.infer<typeof rdPatternSchema>
+
+/** The closed vocabulary a proposal's arms may vary in (prd55 ruling 3). */
+export const rdVariesDimensionSchema = z.enum(['model', 'brief', 'checkpoint', 'gate'])
+export type RdVariesDimension = z.infer<typeof rdVariesDimensionSchema>
+
+/**
+ * One arm of a proposal, across the four dimensions {@link rdVariesDimensionSchema}
+ * names. `briefDigest` is a digest for the same reason `forkTreatmentSchema.
+ * promptDigest` is: the brief is the operator's text, carried as a fingerprint
+ * rather than copied into the record.
+ */
+export const rdArmSchema = z.object({
+  model: nonEmptyString.nullable(),
+  briefDigest: sha256Hex.nullable(),
+  checkpointId: nonEmptyString.nullable(),
+  gateCommand: nonEmptyString.nullable(),
+})
+export type RdArm = z.infer<typeof rdArmSchema>
+
+function armTreatmentOf(arm: RdArm) {
+  return { model: arm.model, brief: arm.briefDigest, checkpoint: arm.checkpointId, gate: arm.gateCommand }
+}
+
+/** One checkpoint the hand considered and did not choose, with why. */
+export const rdCheckpointConsiderationSchema = z.object({
+  checkpointId: nonEmptyString,
+  reason: nonEmptyString,
+})
+export type RdCheckpointConsideration = z.infer<typeof rdCheckpointConsiderationSchema>
+
+/** The hand's checkpoint pick (ruling 3): the chosen checkpoint, and every considered-and-rejected one with its reason. */
+export const rdCheckpointPickSchema = z.object({
+  chosenCheckpointId: nonEmptyString,
+  rejected: z.array(rdCheckpointConsiderationSchema),
+})
+export type RdCheckpointPick = z.infer<typeof rdCheckpointPickSchema>
+
+/** True when a proposal's arms vary at most the one dimension they are allowed to (prd55 ruling 3) — shared by the raw result shape and the recorded event's payload, so neither can drift from the other. */
+function hasAtMostOneVaryingDimension(proposal: { arms: readonly RdArm[] }): boolean {
+  return rdDimensionsVariedCount(rdDimensionsOf(proposal.arms.map(armTreatmentOf))) <= 1
+}
+
+const rdProposalShape = z.object({
+  /** A later launch (ruling 4) and a later override name this — minted once, at proposal time. */
+  proposalId: nonEmptyString,
+  patternId: nonEmptyString,
+  varies: rdVariesDimensionSchema,
+  arms: z.array(rdArmSchema).min(2).max(3),
+  checkpointPick: rdCheckpointPickSchema,
+})
+
+/**
+ * The raw shape of one proposal, as the fixed R&D result schema carries it
+ * (ruling 3) — before anything is recorded as an event. The dimension check
+ * is enforced HERE, on the raw shape, so `rdResultSchema` below refuses a
+ * two-dimension proposal at the same boundary a hand-rolled result would hit;
+ * `rdProposalPayloadSchema` repeats the same check on the recorded event as a
+ * second, independent gate (mutation: dropping either `.refine` call lets a
+ * two-dimension proposal in through that half alone).
+ */
+export const rdProposalContentSchema = rdProposalShape.refine(hasAtMostOneVaryingDimension, {
+  message: RD_MULTI_DIMENSION_REFUSAL,
+  path: ['arms'],
+})
+export type RdProposalContent = z.infer<typeof rdProposalContentSchema>
+
+/**
+ * The fixed shape of one R&D call's raw result (ruling 3): every pattern the
+ * hand grouped, and every proposal it drew from them — before the engine
+ * (wave 5's second issue) decides, per proposal, whether it is recorded as
+ * `rd.proposal` or refused as `rd.refused` via `lab/rd.ts`'s `rdRefusalReason`.
+ */
+export const rdResultSchema = z.object({
+  patterns: z.array(rdPatternSchema),
+  proposals: z.array(rdProposalContentSchema),
+})
+export type RdResult = z.infer<typeof rdResultSchema>
+
+export const rdPatternsPayloadSchema = z.object({
+  lane: nonEmptyString,
+  patterns: z.array(rdPatternSchema),
+  provenance: rdProvenanceSchema,
+})
+export type RdPatternsPayload = z.infer<typeof rdPatternsPayloadSchema>
+
+/** Hand-built for the same reason `forkCheckpointEventSchema` is — see its doc comment. */
+export const rdPatternsEventSchema = z.object({
+  id: nonEmptyString,
+  ts: timestampSchema,
+  source: z.literal('lab'),
+  type: z.literal('rd.patterns'),
+  payload: rdPatternsPayloadSchema,
+})
+
+export const rdProposalPayloadSchema = rdProposalShape
+  .extend({ lane: nonEmptyString, provenance: rdProvenanceSchema })
+  .refine(hasAtMostOneVaryingDimension, { message: RD_MULTI_DIMENSION_REFUSAL, path: ['arms'] })
+export type RdProposalPayload = z.infer<typeof rdProposalPayloadSchema>
+
+/** Hand-built for the same reason `forkCheckpointEventSchema` is — see its doc comment. */
+export const rdProposalEventSchema = z.object({
+  id: nonEmptyString,
+  ts: timestampSchema,
+  source: z.literal('lab'),
+  type: z.literal('rd.proposal'),
+  payload: rdProposalPayloadSchema,
+})
+
+/**
+ * A proposal the pure laws refused (ruling 3, ruling 9): the reason, verbatim,
+ * and the raw result's digest — never a patched proposal. `patternId` is what
+ * lets the reducer fold this beside the pattern it refused.
+ */
+export const rdRefusedPayloadSchema = z.object({
+  lane: nonEmptyString,
+  patternId: nonEmptyString,
+  reason: nonEmptyString,
+  rawResultDigest: sha256Hex,
+  provenance: rdProvenanceSchema,
+})
+export type RdRefusedPayload = z.infer<typeof rdRefusedPayloadSchema>
+
+/** Hand-built for the same reason `forkCheckpointEventSchema` is — see its doc comment. */
+export const rdRefusedEventSchema = z.object({
+  id: nonEmptyString,
+  ts: timestampSchema,
+  source: z.literal('lab'),
+  type: z.literal('rd.refused'),
+  payload: rdRefusedPayloadSchema,
+})
+
+/**
+ * The operator changing the checkpoint pick before launch (ruling 4): names
+ * the proposal, the checkpoint the agent picked, and the one the operator
+ * chose instead — so the record can never re-attribute the choice.
+ */
+export const rdOverridePayloadSchema = z.object({
+  lane: nonEmptyString,
+  proposalId: nonEmptyString,
+  agentCheckpointId: nonEmptyString,
+  operatorCheckpointId: nonEmptyString,
+  provenance: rdProvenanceSchema,
+})
+export type RdOverridePayload = z.infer<typeof rdOverridePayloadSchema>
+
+/** Hand-built for the same reason `forkCheckpointEventSchema` is — see its doc comment. */
+export const rdOverrideEventSchema = z.object({
+  id: nonEmptyString,
+  ts: timestampSchema,
+  source: z.literal('lab'),
+  type: z.literal('rd.override'),
+  payload: rdOverridePayloadSchema,
+})
+
+export const labEventSchemas = [
+  forkCheckpointEventSchema,
+  forkDispatchedEventSchema,
+  forkMeasuredEventSchema,
+  rdPatternsEventSchema,
+  rdProposalEventSchema,
+  rdRefusedEventSchema,
+  rdOverrideEventSchema,
+] as const

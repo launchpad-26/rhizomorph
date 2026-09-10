@@ -11,6 +11,7 @@ import {
   initialCommitsState,
   initialForkState,
   initialJudgeState,
+  initialRdState,
   initialRefusalState,
   initialSessionState,
   initialTelemetryState,
@@ -45,6 +46,7 @@ describe('reduce — envelope bookkeeping', () => {
       traces: initialTraceState(),
       checkpoints: initialCheckpointState(),
       forks: initialForkState(),
+      rd: initialRdState(),
       judge: initialJudgeState(),
       refusals: initialRefusalState(),
       declared: {},
@@ -283,6 +285,10 @@ describe('reduce — a new session.started is a new recording (#592)', () => {
     g.traceSpan({ lane: 'lane-a', traceId: 'trace-1', spanId: 'span-1', sessionId })
     g.forkCheckpoint({ lane: 'lane-a', checkpointId: 'cp-1' })
     g.forkDispatched({ forkId: 'fork-1', parentLane: 'lane-a', checkpointId: 'cp-1', laneHandle: 'arm-1' })
+    g.rdPatterns({ lane: 'lane-a' })
+    g.rdProposal({ lane: 'lane-a' })
+    g.rdRefused({ lane: 'lane-a' })
+    g.rdOverride({ lane: 'lane-a' })
     g.judgeFinding({ lanes: ['arm-1', 'lane-a'] })
     g.make('telemetry.refused', { instance: 'somebody-else', expectedInstance: sessionId, count: 1 })
     return g.all()
@@ -312,6 +318,10 @@ describe('reduce — a new session.started is a new recording (#592)', () => {
     expect(folded.traces.spans.length).toBeGreaterThan(0)
     expect(folded.checkpoints.records.length).toBeGreaterThan(0)
     expect(folded.forks.dispatches.length).toBeGreaterThan(0)
+    expect(folded.rd.patternsRecords.length).toBeGreaterThan(0)
+    expect(folded.rd.proposals.length).toBeGreaterThan(0)
+    expect(folded.rd.refusals.length).toBeGreaterThan(0)
+    expect(folded.rd.overrides.length).toBeGreaterThan(0)
     expect(folded.judge.findings.length).toBeGreaterThan(0)
     expect(folded.refusals.records.length).toBeGreaterThan(0)
   })
@@ -340,6 +350,7 @@ describe('reduce — a new session.started is a new recording (#592)', () => {
     expect(after.traces.spans).toEqual([])
     expect(after.checkpoints).toEqual(initialCheckpointState())
     expect(after.forks).toEqual(initialForkState())
+    expect(after.rd).toEqual(initialRdState())
     expect(after.judge).toEqual(initialJudgeState())
     expect(after.refusals).toEqual(initialRefusalState())
     // Not one trace of the ended recording is left anywhere, under any key.
@@ -1242,6 +1253,64 @@ describe('reduce — fork.dispatched (prd12 ruling 3)', () => {
     const after = reduce(before, f.forkDispatched())
     expect(before).toEqual(snapshot)
     expect(after.forks).not.toBe(before.forks)
+  })
+})
+
+describe('reduce — rd.* (prd55 wave 5)', () => {
+  it('an old log with no rd.* events folds rd to its initial value — additive, unchanged replay', () => {
+    const state = reduceAll(fixtureSession())
+    expect(state.rd).toEqual(initialRdState())
+  })
+
+  it('rd.patterns appends a record whole and indexes it by lane', () => {
+    const state = reduceAll([f.rdPatterns({ lane: 'lane-a' }, { ts: 100 })])
+    expect(state.rd.patternsRecords).toHaveLength(1)
+    expect(state.rd.patternsRecords[0]).toMatchObject({ lane: 'lane-a', ts: 100 })
+    expect(state.rd.patternsRecords[0]?.patterns.map((p) => p.heldBack)).toEqual([false, true])
+    expect(state.rd.patternsByLane['lane-a']).toEqual([0])
+  })
+
+  it('rd.proposal appends a record whole, indexed by lane AND by the pattern it names', () => {
+    const state = reduceAll([
+      f.rdProposal({ lane: 'lane-a', proposalId: 'p-1', patternId: 'pattern-x' }, { ts: 100 }),
+      f.rdProposal({ lane: 'lane-b', proposalId: 'p-2', patternId: 'pattern-x' }, { ts: 200 }),
+    ])
+    expect(state.rd.proposals.map((p) => p.proposalId)).toEqual(['p-1', 'p-2'])
+    expect(state.rd.proposalsByLane['lane-a']).toEqual([0])
+    expect(state.rd.proposalsByLane['lane-b']).toEqual([1])
+    // Both proposals name the same pattern — the whole point of the second index.
+    expect(state.rd.proposalsByPattern['pattern-x']).toEqual([0, 1])
+  })
+
+  it('rd.refused folds BESIDE the pattern it refused — never patching a proposal record', () => {
+    const state = reduceAll([
+      f.rdProposal({ lane: 'lane-a', proposalId: 'p-1', patternId: 'pattern-live' }, { ts: 100 }),
+      f.rdRefused({ lane: 'lane-a', patternId: 'pattern-held-back' }, { ts: 200 }),
+    ])
+    expect(state.rd.proposals).toHaveLength(1)
+    expect(state.rd.refusals).toHaveLength(1)
+    expect(state.rd.refusalsByPattern['pattern-held-back']).toEqual([0])
+    // The refusal never touches the unrelated proposal already folded.
+    expect(state.rd.proposals[0]?.patternId).toBe('pattern-live')
+    expect(Object.hasOwn(state.rd.proposalsByPattern, 'pattern-held-back')).toBe(false)
+  })
+
+  it('rd.override keeps both checkpoints distinct, indexed by lane AND by the proposal it names', () => {
+    const state = reduceAll([
+      f.rdOverride({ lane: 'lane-a', proposalId: 'p-1', agentCheckpointId: 'ckpt-agent', operatorCheckpointId: 'ckpt-operator' }, { ts: 100 }),
+    ])
+    expect(state.rd.overrides).toHaveLength(1)
+    expect(state.rd.overrides[0]).toMatchObject({ agentCheckpointId: 'ckpt-agent', operatorCheckpointId: 'ckpt-operator' })
+    expect(state.rd.overridesByLane['lane-a']).toEqual([0])
+    expect(state.rd.overridesByProposal['p-1']).toEqual([0])
+  })
+
+  it('is pure — folding any of the four does not mutate the prior state', () => {
+    const before = initialSessionState()
+    const snapshot = JSON.parse(JSON.stringify(before)) as unknown
+    const after = reduce(before, f.rdPatterns())
+    expect(before).toEqual(snapshot)
+    expect(after.rd).not.toBe(before.rd)
   })
 })
 
