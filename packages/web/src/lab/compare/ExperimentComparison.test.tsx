@@ -80,16 +80,23 @@ describe('ExperimentComparison — the measure switch (prd53 S2, #326)', () => {
     expect(order()).toEqual(['arm-1', 'arm-2', 'arm-3'])
   })
 
-  it('an unmeasured run says "not measured yet — no outcome is invented in its place", and the arm below the floor refuses a summary', () => {
+  it('an unmeasured run says "not measured yet — no outcome is invented in its place" ONCE for the two that say it (prd-55 ruling 8), and the arm below the floor refuses a summary', () => {
     const partial = experiment([arm(1, 'opus', [run('a1', 1, outcome({ verified: 'pass' })), run('a2', 2), run('a3', 3)])])
     render(<ExperimentComparison experiment={partial} />)
-    expect(screen.getAllByText('not measured yet — no outcome is invented in its place')).toHaveLength(2)
+    // The sentence is unchanged; it is printed once, carrying the count that
+    // says how many runs it speaks for, rather than twice for two runs.
+    expect(screen.getByText('2 runs · not measured yet — no outcome is invented in its place')).toBeInTheDocument()
+    expect(screen.queryAllByText('not measured yet — no outcome is invented in its place')).toHaveLength(0)
     expect(screen.getByTestId('arm-insufficient').textContent).toMatch(/too few completed to summarise yet/)
   })
 
-  it('Enter on an arm expands it to its runs, Esc collapses — and every run was already visible as a point', () => {
+  it('Enter on an arm expands it to its runs, Esc collapses — and every run is still there individually, whatever the summary line collapsed (prd53 ruling 1)', () => {
     render(<ExperimentComparison experiment={THREE} />)
-    expect(screen.getAllByTestId('run-dots')[0]?.querySelectorAll('li')).toHaveLength(3)
+    // Three runs that say the same thing now say it once, with their count.
+    expect(screen.getAllByTestId('run-dots')[0]?.querySelectorAll('li')).toHaveLength(1)
+    expect(screen.getAllByTestId('run-dots')[0]?.textContent).toContain('3 runs · all passed · 5')
+    // And "n runs of one arm, shown individually, never collapsed" is unmoved:
+    // each run is its own row, by its own id, in the list the toggle expands.
     const toggle = screen.getByTestId('arm-toggle-arm-1')
     fireEvent.click(toggle)
     expect(screen.getByTestId('arm-runs-arm-1').querySelectorAll('li')).toHaveLength(3)

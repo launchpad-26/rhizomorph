@@ -34,6 +34,13 @@ export interface ComparisonSurfaceProps {
 }
 
 export function ComparisonSurface({ comparison, measure = 'cost', onMeasureChange, failedArms = [] }: ComparisonSurfaceProps) {
+  // ONE SCALE FOR EVERY ARM (prd-55 ruling 8, the Design calls): the widest
+  // value any arm booked under this measure. Arms are drawn against it rather
+  // than each against its own, so two lanes side by side are two lanes a
+  // reader may actually compare — and an arm that refuses still occupies its
+  // own lane ON it (`ArmLane`), rather than being lifted off the scale into a
+  // sentence beside it.
+  const scaleMax = Math.max(0, ...comparison.arms.flatMap((arm) => arm.values))
   return (
     <section data-testid="comparison-surface" data-measure={measure} className="flex flex-col gap-3 text-read-body text-(--ink-body)">
       {onMeasureChange === undefined ? null : <MeasureSwitch measure={measure} onChange={onMeasureChange} />}
@@ -44,7 +51,7 @@ export function ComparisonSurface({ comparison, measure = 'cost', onMeasureChang
       <ol className="flex flex-col gap-3">
         {comparison.arms.map((arm) => (
           <li key={arm.armId}>
-            <ArmPanel arm={arm} measure={measure} />
+            <ArmPanel arm={arm} measure={measure} scaleMax={scaleMax} />
           </li>
         ))}
         {failedArms.map((failed) => (
@@ -56,6 +63,15 @@ export function ComparisonSurface({ comparison, measure = 'cost', onMeasureChang
           </li>
         ))}
       </ol>
+      {scaleMax > 0 && measure !== 'verified' ? (
+        <p data-testid="comparison-scale-ticks" className="figures flex flex-wrap justify-between gap-2 text-(--ink-dim)">
+          <span>0</span>
+          <span>
+            {formatValue(scaleMax)} · one shared {MEASURE_LABEL[measure]} scale — a refusal is drawn <span className="text-(--ink-primary)">on</span>{' '}
+            it, not beside it
+          </span>
+        </p>
+      ) : null}
     </section>
   )
 }
@@ -150,7 +166,7 @@ function claimDetail(claim: ComparisonClaim): string | null {
   }
 }
 
-function ArmPanel({ arm, measure }: { arm: ArmSummary; measure: Measure }) {
+function ArmPanel({ arm, measure, scaleMax }: { arm: ArmSummary; measure: Measure; scaleMax: number }) {
   const [expanded, setExpanded] = useState(false)
 
   function onKeyDown(event: KeyboardEvent<HTMLElement>) {
@@ -177,27 +193,7 @@ function ArmPanel({ arm, measure }: { arm: ArmSummary; measure: Measure }) {
 
       <RunPoints runs={arm.runs} measure={measure} />
 
-      {/* One floor, whatever the measure: below it every measure refuses the same way (ruling 2, amended). */}
-      {arm.insufficientReason !== null ? (
-        <p role="status" data-testid="arm-insufficient" className="mt-1.5 text-(--ink-dim)">
-          {arm.insufficientReason}
-        </p>
-      ) : measure === 'verified' ? (
-        <p data-testid="arm-verified-counts" className="figures mt-1.5 text-(--ink-body)">
-          {arm.passCount} passed · {arm.failCount} failed <span className="text-(--ink-dim)">(n={arm.completedCount} completed)</span>
-        </p>
-      ) : arm.spread !== null ? (
-        <p data-testid="arm-spread" className="figures mt-1.5 text-(--ink-body)">
-          min {formatValue(arm.spread.min)} · median {formatValue(median(arm.values) ?? arm.spread.min)} · max {formatValue(arm.spread.max)}{' '}
-          <span className="text-(--ink-dim)">
-            (n={arm.values.length} of {arm.completedCount} completed)
-          </span>
-        </p>
-      ) : (
-        <p role="status" data-testid="arm-unbooked" className="mt-1.5 text-(--ink-dim)">
-          {arm.unbookedNote}
-        </p>
-      )}
+      <ArmLane arm={arm} measure={measure} scaleMax={scaleMax} />
 
       {arm.incompleteNote === null ? null : (
         <p data-testid="arm-incomplete-note" className="mt-1 text-(--ink-dim)">
@@ -219,22 +215,172 @@ function ArmPanel({ arm, measure }: { arm: ArmSummary; measure: Measure }) {
   )
 }
 
-/** Every run, always, as a point — with its meaning written beside it for the reader who cannot hover. */
+/**
+ * ONE LANE ON THE SHARED SCALE, PER ARM (prd-55 ruling 8; the Design calls:
+ * *the refusal is drawn on the shared scale, not beside it*). Every arm gets
+ * this lane, whatever it has to say in it: an arm with a spread draws its
+ * range and its median against `scaleMax`; an arm BELOW THE FLOOR, or one
+ * judged with nothing booked under this measure, draws its refusal sentence in
+ * the same place the range would have been.
+ *
+ * That placement is the whole point. A refusal lifted out of the scale and set
+ * beside it reads as an arm that is not in the comparison; a refusal drawn on
+ * the scale reads as what it is — an arm that is in the comparison and has
+ * nothing summarisable to put there yet. Metrics has drawn its refusals on its
+ * own track since prd53 S4; this brings Compare into agreement with it.
+ */
+function ArmLane({ arm, measure, scaleMax }: { arm: ArmSummary; measure: Measure; scaleMax: number }) {
+  // One floor, whatever the measure: below it every measure refuses the same
+  // way (ruling 2, amended).
+  const refusal =
+    arm.insufficientReason !== null
+      ? { testId: 'arm-insufficient', text: arm.insufficientReason }
+      : measure !== 'verified' && arm.spread === null
+        ? { testId: 'arm-unbooked', text: arm.unbookedNote ?? '' }
+        : null
+  const spread = refusal === null && measure !== 'verified' ? arm.spread : null
+  const state = refusal !== null ? 'refused' : spread !== null ? 'spread' : 'counts'
+  const bar =
+    spread === null || scaleMax <= 0
+      ? null
+      : {
+          left: (spread.min / scaleMax) * 100,
+          width: Math.max(1.5, ((spread.max - spread.min) / scaleMax) * 100),
+          median: ((median(arm.values) ?? spread.min) / scaleMax) * 100,
+        }
+
+  return (
+    <div data-testid={`arm-scale-${arm.armId}`} data-scale-lane={arm.armId} data-scale-state={state} className="mt-1.5 flex flex-col gap-1">
+      {spread === null ? null : (
+        <p data-testid="arm-spread" className="figures text-(--ink-body)">
+          min {formatValue(spread.min)} · median {formatValue(median(arm.values) ?? spread.min)} · max {formatValue(spread.max)}{' '}
+          <span className="text-(--ink-dim)">
+            (n={arm.values.length} of {arm.completedCount} completed)
+          </span>
+        </p>
+      )}
+      {refusal === null && measure === 'verified' ? (
+        <p data-testid="arm-verified-counts" className="figures text-(--ink-body)">
+          {arm.passCount} passed · {arm.failCount} failed <span className="text-(--ink-dim)">(n={arm.completedCount} completed)</span>
+        </p>
+      ) : null}
+      <div data-testid={`arm-track-${arm.armId}`} className="relative flex min-h-6 w-full items-center border-(--line-hair) border-t pt-1">
+        {refusal === null ? (
+          bar === null ? null : (
+            <>
+              <span aria-hidden="true" className="absolute top-1/2 h-px bg-(--ink-primary)" style={{ left: `${bar.left}%`, width: `${bar.width}%` }} />
+              <span
+                aria-hidden="true"
+                className="-translate-x-1/2 -translate-y-1/2 absolute top-1/2 h-2 w-2 border border-(--ink-primary) bg-(--surface-panel)"
+                style={{ left: `${bar.median}%` }}
+              />
+            </>
+          )
+        ) : (
+          <p role="status" data-testid={refusal.testId} className="border border-(--line-hair) border-dashed bg-(--surface-panel) px-2 py-0.5 text-(--ink-dim)">
+            {refusal.text}
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * A run's words, in their parts, so a COLLAPSED line can say "all passed"
+ * where a single line says "passed" — the same facts, pluralised, never a
+ * second sentence for the same thing.
+ */
+interface RunWordParts {
+  verdict: 'passed' | 'failed' | null
+  /** The value under this measure, or the honest reason there is none. Null under `verified`, where the verdict IS the value. */
+  value: string | null
+  /** The gate's own words after a fail, with its leading separator, or ''. */
+  detail: string
+}
+
+function runWordParts(run: Run, measure: Measure): RunWordParts {
+  if (run.status === 'pending') return { verdict: null, value: run.note ?? 'pending', detail: '' }
+  const verdict = run.verdict === 'pass' ? 'passed' : 'failed'
+  const detail = run.detail === undefined ? '' : ` — ${run.detail}`
+  if (measure === 'verified') return { verdict, value: null, detail }
+  if (run.value === null) return { verdict, value: run.note ?? 'no value booked under this measure', detail }
+  return { verdict, value: formatValue(run.value), detail }
+}
+
+/**
+ * IDENTICAL NOTES COLLAPSE TO ONE LINE PER ARM (prd-55 ruling 8): *"3 runs ·
+ * all passed · nothing booked under cost"*. Six runs of one arm that all say
+ * the same thing said it six times, and six copies of one sentence read as six
+ * facts — the reader counts sentences, not runs, and the arm looked busier
+ * than its record.
+ *
+ * This collapses the SUMMARY line only. prd53 ruling 1's "n runs of one arm,
+ * shown individually, never collapsed" is untouched: every run is still its
+ * own row, by its own id, in the list the arm's toggle expands. What is gone
+ * is the repetition of one note, not the runs.
+ *
+ * Runs group by the words they would have printed — verdict, value, the gate's
+ * own detail, and the ink that carries them — so a pass and a fail never share
+ * a line however alike their values, and the groups keep the order the runs
+ * arrived in (a `Map` preserves insertion order).
+ */
+interface RunGroup {
+  key: string
+  runs: Run[]
+  words: string
+  ink: string
+}
+
+export function collapseRuns(runs: readonly Run[], measure: Measure): RunGroup[] {
+  const groups = new Map<string, { runs: Run[]; parts: RunWordParts }>()
+  for (const run of runs) {
+    const parts = runWordParts(run, measure)
+    const key = `${runInk(run)}|${run.status}|${parts.verdict ?? ''}|${parts.value ?? ''}|${parts.detail}`
+    const existing = groups.get(key)
+    if (existing === undefined) groups.set(key, { runs: [run], parts })
+    else existing.runs.push(run)
+  }
+  return [...groups].map(([key, group]) => {
+    const first = group.runs[0] as Run
+    return {
+      key,
+      runs: group.runs,
+      words: group.runs.length === 1 ? runWords(first, measure) : collapsedWords(group.runs.length, group.parts),
+      ink: runInk(first),
+    }
+  })
+}
+
+function collapsedWords(count: number, parts: RunWordParts): string {
+  const said = [parts.verdict === null ? '' : `all ${parts.verdict}`, parts.value ?? ''].filter((piece) => piece.length > 0).join(' · ')
+  return `${count} runs · ${said}${parts.detail}`
+}
+
+/**
+ * Every run, always — with its meaning written beside it for the reader who
+ * cannot hover, and one line per distinct note rather than one per run
+ * (ruling 8).
+ */
 function RunPoints({ runs, measure }: { runs: Run[]; measure: Measure }) {
   return (
     <ol data-testid="run-dots" className="flex flex-wrap gap-2">
-      {runs.map((run) => (
-        <li
-          key={run.id}
-          data-run-status={run.status}
-          data-run-verdict={run.status === 'complete' ? run.verdict : undefined}
-          className={`figures flex items-baseline gap-1 ${runInk(run)}`}
-        >
-          <span aria-hidden="true">●</span>
-          <span className="sr-only">{run.id}: </span>
-          <span>{runWords(run, measure)}</span>
-        </li>
-      ))}
+      {collapseRuns(runs, measure).map((group) => {
+        const first = group.runs[0] as Run
+        return (
+          <li
+            key={group.key}
+            data-run-status={first.status}
+            data-run-verdict={first.status === 'complete' ? first.verdict : undefined}
+            data-run-count={group.runs.length}
+            className={`figures flex items-baseline gap-1 ${group.ink}`}
+          >
+            <span aria-hidden="true">●</span>
+            <span className="sr-only">{group.runs.map((run) => run.id).join(', ')}: </span>
+            <span>{group.words}</span>
+          </li>
+        )
+      })}
     </ol>
   )
 }
@@ -246,12 +392,9 @@ function runInk(run: Run): string {
 
 /** A judged run says its verdict first, then its value under this measure (or why it has none); the gate's own words follow a fail. */
 function runWords(run: Run, measure: Measure): string {
-  if (run.status === 'pending') return run.note ?? 'pending'
-  const verdict = run.verdict === 'pass' ? 'passed' : 'failed'
-  const detail = run.detail === undefined ? '' : ` — ${run.detail}`
-  if (measure === 'verified') return `${verdict}${detail}`
-  if (run.value === null) return `${verdict} · ${run.note ?? 'no value booked under this measure'}${detail}`
-  return `${verdict} · ${formatValue(run.value)}${detail}`
+  const parts = runWordParts(run, measure)
+  const said = [parts.verdict ?? '', parts.value ?? ''].filter((piece) => piece.length > 0).join(' · ')
+  return `${said}${parts.detail}`
 }
 
 function formatValue(value: number): string {

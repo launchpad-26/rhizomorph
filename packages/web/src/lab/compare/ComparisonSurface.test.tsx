@@ -115,3 +115,107 @@ describe('ComparisonSurface', () => {
     expect(screen.getByTestId('arm-incomplete-note').textContent).toBe('3 of 4 runs completed — 1 still pending')
   })
 })
+
+/**
+ * prd-55 ruling 8's two claims about this surface, executed. Both are laws
+ * about PLACEMENT and REPETITION rather than about numbers: the numbers were
+ * already right, and were already hard to read.
+ */
+describe('a run’s identical notes collapse to one line per arm (prd-55 ruling 8)', () => {
+  it('three runs that say the same thing say it once, with the count that says how many', () => {
+    const comparison = compareArms({ arms: [arm('a', 'opus', 'brief-x', [passed('r1', null), passed('r2', null), passed('r3', null)])] })
+    render(<ComparisonSurface comparison={comparison} />)
+
+    const dots = within(screen.getByTestId('arm-panel')).getByTestId('run-dots')
+    expect(dots.children).toHaveLength(1)
+    expect(dots.textContent).toContain('3 runs · all passed · no value booked under this measure')
+    expect(dots.children[0]?.getAttribute('data-run-count')).toBe('3')
+  })
+
+  it('NO RUN NOTE APPEARS MORE THAN ONCE PER ARM — the criterion itself, over an arm of six runs of four kinds', () => {
+    const comparison = compareArms({
+      arms: [
+        arm('a', 'opus', 'brief-x', [
+          passed('r1', 2),
+          passed('r2', 2),
+          pending('r3'),
+          pending('r4'),
+          failed('r5', 1, 'gate exited 1'),
+          failed('r6', 1, 'gate exited 1'),
+        ]),
+      ],
+    })
+    render(<ComparisonSurface comparison={comparison} />)
+
+    const notes = [...within(screen.getByTestId('arm-panel')).getByTestId('run-dots').children].map((line) => line.textContent)
+    expect(new Set(notes).size, `a note was printed twice: ${notes.join(' | ')}`).toBe(notes.length)
+    expect(notes).toHaveLength(3)
+  })
+
+  it('a pass and a fail never share a line however alike their values, and the groups keep the order the runs arrived in', () => {
+    const comparison = compareArms({ arms: [arm('a', 'opus', 'brief-x', [failed('r1', 2), passed('r2', 2), passed('r3', 2)])] })
+    render(<ComparisonSurface comparison={comparison} />)
+
+    const notes = [...within(screen.getByTestId('arm-panel')).getByTestId('run-dots').children].map((line) => line.textContent)
+    expect(notes[0]).toContain('failed · 2')
+    expect(notes[1]).toContain('2 runs · all passed · 2')
+  })
+
+  it('one run is still one run — a single note is never dressed up as a count', () => {
+    const comparison = compareArms({ arms: [arm('a', 'opus', 'brief-x', [passed('r1', 2)])] })
+    render(<ComparisonSurface comparison={comparison} />)
+
+    const dots = within(screen.getByTestId('arm-panel')).getByTestId('run-dots')
+    expect(dots.textContent).toBe('●r1: passed · 2')
+  })
+})
+
+describe('the refusal is drawn ON the shared scale, not beside it (prd-55 ruling 8, the Design calls)', () => {
+  const belowAndAbove = compareArms({
+    arms: [
+      arm('a', 'opus', 'brief-x', [passed('r1', 4), passed('r2', 9), passed('r3', 6)]),
+      arm('b', 'sonnet', 'brief-x', [passed('r4', 5), passed('r5', 5)]),
+    ],
+  })
+
+  it('every arm occupies a lane on the scale — the one that refuses as much as the one that summarises', () => {
+    render(<ComparisonSurface comparison={belowAndAbove} />)
+
+    expect(screen.getAllByTestId(/^arm-scale-/)).toHaveLength(2)
+    expect(screen.getByTestId('arm-scale-a').dataset.scaleState).toBe('spread')
+    expect(screen.getByTestId('arm-scale-b').dataset.scaleState).toBe('refused')
+  })
+
+  it('and the refusal sentence is INSIDE that lane, where the range would have been — not lifted out beside it', () => {
+    render(<ComparisonSurface comparison={belowAndAbove} />)
+
+    // The TRACK, not merely the arm's block: a refusal set above or beside the
+    // track is exactly the drawing this criterion rejects, and a law that only
+    // checked the block would pass on it.
+    const track = screen.getByTestId('arm-track-b')
+    const refusal = screen.getByTestId('arm-insufficient')
+    expect(track.contains(refusal), 'the refusal was drawn beside its arm’s track, not on it').toBe(true)
+    expect(refusal.textContent).toBe('n=2 — too few runs to summarise')
+    // And where a range IS summarisable, the track carries the range instead.
+    expect(screen.getByTestId('arm-track-a').querySelectorAll('span')).toHaveLength(2)
+  })
+
+  it('the scale is SHARED: one pair of ticks for every arm, reading to the widest value any of them booked', () => {
+    render(<ComparisonSurface comparison={belowAndAbove} />)
+
+    const ticks = screen.getByTestId('comparison-scale-ticks')
+    expect(ticks.textContent).toContain('9')
+    expect(ticks.textContent).toContain('one shared cost scale')
+    expect(screen.getAllByTestId('comparison-scale-ticks')).toHaveLength(1)
+  })
+
+  it('an arm judged with nothing booked under the measure refuses on the scale too — no $0 is invented in the lane', () => {
+    const nothingBooked = compareArms({ arms: [arm('a', 'opus', 'brief-x', [passed('r1', null), passed('r2', null), passed('r3', null)])] })
+    render(<ComparisonSurface comparison={nothingBooked} />)
+
+    const lane = screen.getByTestId('arm-scale-a')
+    expect(lane.dataset.scaleState).toBe('refused')
+    expect(screen.getByTestId('arm-track-a').contains(screen.getByTestId('arm-unbooked'))).toBe(true)
+    expect(screen.queryByTestId('comparison-scale-ticks'), 'no scale is drawn when nothing was booked to draw one from').toBeNull()
+  })
+})
