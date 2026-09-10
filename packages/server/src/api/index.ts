@@ -3,6 +3,7 @@ import type { ServerContext } from '../server/context.js'
 import { registerConciergeCloneRoute, registerConciergeLaunchRoute, registerConciergeReposRoute } from './concierge.js'
 import { registerDoctorRoute } from './doctor.js'
 import { registerLabRoutes } from './lab.js'
+import { registerLabTranscriptRoute } from './lab-transcript.js'
 import { registerLabelRoute } from './label.js'
 import { registerLaneIndexRoutes } from './lane-index.js'
 import { registerLanesRoute } from './lanes.js'
@@ -57,6 +58,13 @@ export function registerApiRoutes(app: FastifyInstance, ctx: ServerContext): voi
   // `server/src/lab/` directly — plus prd-14 ruling 5's comparison save and
   // reads (#213), which never reach `lab/` at all.
   registerLabRoutes(app, ctx)
+  // The lab reads its own transcripts (prd-55 ruling 6, #384): a parent from
+  // its checkpoint's session file to the cut, digest-checked; an arm from the
+  // session under its own worktree, resolved from the dispatch record — never
+  // from the fleet's attribution, which an arm that never launched has none
+  // of. See `lab-transcript.ts`'s own doc for why it is not the fleet's
+  // `/api/transcript/:lane` with a different lookup.
+  registerLabTranscriptRoute(app, ctx)
   // Read-only preflight reusing the CLI doctor's own check functions
   // (prd-19 ruling 5) — see `doctor.ts`'s own doc for which checks it drops
   // and why.
@@ -134,14 +142,15 @@ export const ROUTE_CLASSES: readonly RouteClassification[] = [
   { method: 'POST', url: '/v1/traces', routeClass: 'ungated-mutation' },
   { method: 'POST', url: '/', routeClass: 'ungated-mutation' },
 
-  // Gated reads (16) — prd-29 wave 1's keystone (ruling 1 / ADR-0024) plus
+  // Gated reads (17) — prd-29 wave 1's keystone (ruling 1 / ADR-0024) plus
   // wave 1b's four late arrivals (ruling 7, #58) plus wave 2a's two more
   // (ruling 7, #59): the reads that postdated the PRD's route math, and then
   // `/api/meta`/`/api/doctor` themselves — plus wave 2b's stream (ruling 4,
-  // #60) at the end of this block. Each carries `requireCapabilityToken` as
-  // a route-local `preHandler`, exactly as the gated mutations do; the
-  // gate-presence law (ADR-0024) fails the build if any of these rows loses
-  // its gate.
+  // #60) at the end of this block, and prd-55 ruling 6's lab transcript read
+  // (#384) beside the laboratory's other reads. Each carries
+  // `requireCapabilityToken` as a route-local `preHandler`, exactly as the
+  // gated mutations do; the gate-presence law (ADR-0024) fails the build if
+  // any of these rows loses its gate.
   { method: 'GET', url: '/api/sessions', routeClass: 'gated-read' },
   { method: 'GET', url: '/api/sessions/:id/events', routeClass: 'gated-read' },
   { method: 'GET', url: '/api/lanes', routeClass: 'gated-read' },
@@ -152,6 +161,9 @@ export const ROUTE_CLASSES: readonly RouteClassification[] = [
   // prd-14 ruling 5 (#213): the saved comparisons, listed and read back by id.
   { method: 'GET', url: '/api/lab/comparisons', routeClass: 'gated-read' },
   { method: 'GET', url: '/api/lab/comparisons/:id', routeClass: 'gated-read' },
+  // prd-55 ruling 6 (#384): the lab's transcripts, read from its own record —
+  // the parent to its checkpoint's cut, an arm from its restored session.
+  { method: 'GET', url: '/api/lab/transcript', routeClass: 'gated-read' },
   // prd-31 ruling 5's durability read — the log's own history, never a worktree's.
   { method: 'GET', url: '/api/lane-index', routeClass: 'gated-read' },
   { method: 'GET', url: '/api/lane-index/:handle', routeClass: 'gated-read' },

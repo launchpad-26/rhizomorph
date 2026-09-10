@@ -1,6 +1,6 @@
 import type { KeyboardEvent } from 'react'
 import { AXIS_INSET, markerX, percentLabel, sessionFraction } from '../axis/index.js'
-import { LaneCanvas } from '../canvas/index.js'
+import { canvasHeightFor, LaneCanvas } from '../canvas/index.js'
 import type { FailedArm } from '../compare/types.js'
 import { experimentSpend } from '../metrics/spend.js'
 import type { LabCheckpoint, LabExperiment } from '../types.js'
@@ -107,14 +107,23 @@ export function Frame({ position, onPosition, seated, experiments, divergence = 
             </p>
           ) : (
             <div data-testid="frame-scene" className="flex flex-col gap-2">
-              {here.map((experiment) => (
-                <div key={experiment.forkId} className="flex flex-col gap-1">
-                  <LaneCanvas experiment={experiment} checkpoint={seated} failedArms={failedArmsByFork[experiment.forkId] ?? []} width={width} height={Math.max(120, 24 + 18 * experiment.arms.flatMap((arm) => arm.runs).length)} />
-                  <span data-basis="scene" className="text-(--ink-dim)">
-                    {experiment.forkId} — one organism per run of the record (ruling 5); a different surface from the scene, and lawful beside it (charter §8)
-                  </span>
-                </div>
-              ))}
+              {here.map((experiment) => {
+                // THE HEIGHT IS THE PICTURE'S OWN (prd-55 ruling 11): a row per
+                // dispatch record plus a row per stub, within the canvas's own
+                // bounds. Stage 1's `24 + 18 × runs` was the SVG's guess at a
+                // stroke's headroom; a ribbon fanned into a mass needs the
+                // band the drawing itself sizes, so the drawing is asked.
+                const failed = failedArmsByFork[experiment.forkId] ?? []
+                const runs = experiment.arms.reduce((count, arm) => count + arm.runs.length, 0)
+                return (
+                  <div key={experiment.forkId} className="flex flex-col gap-1">
+                    <LaneCanvas experiment={experiment} checkpoint={seated} failedArms={failed} width={width} height={canvasHeightFor(runs, failed.length)} />
+                    <span data-basis="scene" className="text-(--ink-dim)">
+                      {experiment.forkId} — one ribbon per dispatch record (ruling 5), painted with the scene's own brushes (ruling 11); a different surface from the scene, and lawful beside it (charter §8)
+                    </span>
+                  </div>
+                )
+              })}
             </div>
           )
         ) : position === 4 ? (

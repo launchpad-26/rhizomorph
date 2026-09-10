@@ -4,6 +4,11 @@ import path from 'node:path'
 import { captureCheckpoint } from '../lab/checkpoint.js'
 import { compareFork, renderComparison } from '../lab/compare.js'
 import { dispatchFork } from '../lab/fork.js'
+// The one importer the fifth hand's law (ADR-0034 clause 3, prd-51 ruling 14)
+// allows: `connect-team.ts` is the sole declared importer of `shipper/` and
+// the sole site permitted to construct its timer. This is the dispatch entry
+// and nothing more.
+import { runConnectCommand } from './connect-team.js'
 import { runDoctorCommand } from './doctor.js'
 import { runEnvCommand } from './env.js'
 import { runExportOtlpCommand } from './export-otlp.js'
@@ -35,6 +40,10 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
 
   if (argv[0] === 'env') {
     return runEnvCommand(argv.slice(1), log, exit)
+  }
+
+  if (argv[0] === 'connect') {
+    return runConnectCommand(argv.slice(1), log, exit, options)
   }
 
   if (argv[0] === 'doctor') {

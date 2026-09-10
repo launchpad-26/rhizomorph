@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { experimentHasOutcome, NOT_MEASURED_VOICE, runOutcomeVoice, toBranchingArms } from './adapters.js'
+import { layoutBranching } from './branching/index.js'
 import type { LabArm, LabExperiment, LabRun, LabRunOutcome } from './types.js'
 
 const provenance = { source: 'measure-route' as const, verifyCommand: 'npm test', measuredAt: 2000 }
@@ -33,12 +34,12 @@ function experiment(arms: LabArm[]): LabExperiment {
 
 describe('toBranchingArms', () => {
   it('an arm none of whose runs has an outcome reads as running — nothing has told the console otherwise', () => {
-    expect(toBranchingArms(experiment([arm({ arm: 1 })]))).toEqual([{ id: 'arm-1', state: 'running' }])
+    expect(toBranchingArms(experiment([arm({ arm: 1 })]))).toEqual([{ id: 'arm-1', state: 'running', runs: 1 }])
   })
 
   it('an arm whose every judged run is "not-run" reads as dead — the gate never ran, read as abandoned', () => {
     const exp = experiment([arm({ arm: 1, runs: [run('a', 1, outcome({ verified: 'not-run', verifiedDetail: 'checkpoint restore failed', costUsd: null, durationMs: null, commits: null }))] })])
-    expect(toBranchingArms(exp)).toEqual([{ id: 'arm-1', state: 'dead' }])
+    expect(toBranchingArms(exp)).toEqual([{ id: 'arm-1', state: 'dead', runs: 1 }])
   })
 
   it('a pass or fail on any run reads as finished — completion, not death — even beside an unmeasured sibling run (prd53 ruling 3)', () => {
@@ -47,14 +48,32 @@ describe('toBranchingArms', () => {
       arm({ arm: 2, runs: [run('c', 1, outcome({ verified: 'fail', verifiedDetail: 'tests failed' }))] }),
     ])
     expect(toBranchingArms(exp)).toEqual([
-      { id: 'arm-1', state: 'finished' },
-      { id: 'arm-2', state: 'finished' },
+      { id: 'arm-1', state: 'finished', runs: 2 },
+      { id: 'arm-2', state: 'finished', runs: 1 },
     ])
   })
 
   it('keeps arm order — the layout must never re-sort what it is handed', () => {
     const exp = experiment([arm({ arm: 3 }), arm({ arm: 1 }), arm({ arm: 2 })])
     expect(toBranchingArms(exp).map((a) => a.id)).toEqual(['arm-3', 'arm-1', 'arm-2'])
+  })
+
+  it('carries each arm its RUN COUNT, from the record and nowhere else — so the header glyph draws runs, not arms (prd-55 ruling 11)', () => {
+    const exp = experiment([
+      arm({ arm: 1, runs: [run('a', 1), run('b', 2), run('c', 3)] }),
+      arm({ arm: 2, runs: [] }),
+    ])
+    expect(toBranchingArms(exp).map((a) => a.runs)).toEqual([3, 0])
+    // The count is the record's own, never the arm count and never a floor
+    // applied here: an arm that has dispatched nothing says zero, and
+    // `branching/geometry.ts` is the one that decides an arm it was told
+    // about is an arm it draws.
+    expect(layoutBranching({ width: 480, height: 120, arms: toBranchingArms(exp) }).arms.map((strand) => strand.id)).toEqual([
+      'arm-1-run-1',
+      'arm-1-run-2',
+      'arm-1-run-3',
+      'arm-2',
+    ])
   })
 })
 

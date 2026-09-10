@@ -1,6 +1,4 @@
 export {
-  layoutBranching,
-  SYNTHETIC_DASH,
   type ArmGeometry,
   type ArmInput,
   type ArmState,
@@ -8,6 +6,11 @@ export {
   type BranchingLayout,
   type BranchingLayoutOptions,
   type ForkMarker,
+  GLYPH_HEIGHT_MAX,
+  GLYPH_HEIGHT_MIN,
+  layoutBranching,
   type Point,
+  SYNTHETIC_DASH,
+  strandsOf,
   type TrunkGeometry,
 } from './geometry.js'

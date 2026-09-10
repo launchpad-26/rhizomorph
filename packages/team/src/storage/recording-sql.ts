@@ -39,6 +39,17 @@ export interface RecordingSql {
   readonly ended: () => boolean
   /** Rows the next tagged-template call returns. Queued; an empty queue yields `[]`. */
   script(rows: readonly unknown[]): void
+  /**
+   * The affected-row `count` the next statement reports. Queued; an unscripted
+   * statement reports **1**.
+   *
+   * One is the right default rather than zero: every assertion written before
+   * the adapter learned to read `count` was written against a statement that
+   * did affect its row, so a default of zero would silently turn all of them
+   * into "nothing was inserted". Scripting a `0` is how a test says
+   * `ON CONFLICT … DO NOTHING` fired.
+   */
+  scriptCount(count: number): void
   /** Makes the next tagged-template call reject with this error. */
   scriptFailure(error: Error): void
 }
@@ -48,10 +59,21 @@ function templateText(strings: TemplateStringsArray): string {
   return strings.raw.join('?')
 }
 
+/**
+ * postgres.js carries the affected-row count as a property ON the result array
+ * (`driver.ts`'s `SqlResult`). It is defined non-enumerably here so a `toEqual`
+ * against the rows compares the rows and not the driver's bookkeeping.
+ */
+function withCount(rows: unknown[], count: number): unknown[] {
+  Object.defineProperty(rows, 'count', { value: count, enumerable: false, configurable: true })
+  return rows
+}
+
 export function createRecordingSql(): RecordingSql {
   const queries: RecordedQuery[] = []
   const log: string[] = []
   const scripted: (readonly unknown[])[] = []
+  const counts: number[] = []
   const failures: (Error | null)[] = []
   let ended = false
 
@@ -61,7 +83,8 @@ export function createRecordingSql(): RecordingSql {
     const failure = failures.shift()
     if (failure) throw failure
     const rows = scripted.shift()
-    return rows ? [...rows] : []
+    const count = counts.shift()
+    return withCount(rows ? [...rows] : [], count ?? 1)
   }
 
   function build(): SqlLike {
@@ -114,6 +137,9 @@ export function createRecordingSql(): RecordingSql {
     ended: () => ended,
     script(rows: readonly unknown[]): void {
       scripted.push(rows)
+    },
+    scriptCount(count: number): void {
+      counts.push(count)
     },
     scriptFailure(error: Error): void {
       failures.push(error)

@@ -244,7 +244,7 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
     title: 'Sharing',
     what: 'facts always; your words only if you share them.',
     unavailable:
-      'no team server is configured, so there is no other end for an opt-in to reach and no words that could leave this machine. prd-37 brings both, and the default stays facts-only when it does.',
+      'this is the opt-in for your WORDS, and nothing yet carries them: prompts, completions and pane content are in no record and on no wire, so there is nothing here to turn on. Facts are a separate act — `rhizomorph connect team` turns on the shipper for one repo, and the README\'s Trust section says exactly what that sends. prd-37 brings the words plane, and the default stays facts-only when it does.',
     requires: null,
   },
 ]
