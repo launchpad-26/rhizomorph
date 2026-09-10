@@ -785,8 +785,27 @@ so the fallback to (2) or (3) is not reached.
 **The skip must advance past the whole line, not past the window.** Consuming 1 MiB of a longer
 line would leave the remainder to be read as a fresh line, which would ship a fragment under a
 position. The advance is to the next newline in the file, found by reading forward from the
-window's end; if EOF arrives first, the line is still being appended and the skip does not happen
-this tick.
+window's end **in bounded chunks** — the forward scan looks for a byte, so it never needs the line
+resident, and reading the remainder into memory to find it would reintroduce the exact allocation
+this ruling rejects option 3 for two paragraphs down.
+
+**An oversized line with no terminator anywhere names a failure. That arm, and only that arm.**
+The clause above originally ended *"if EOF arrives first, the line is still being appended and the
+skip does not happen this tick"*, and the review of this amendment showed that sentence recreates
+the defect #399 exists to close. A ledger whose last line is oversized and never terminates — the
+writer died mid-line, the tail was truncated, the session was abandoned — hits EOF on every
+forward scan, on every tick, forever. Under that clause it never skips, and having rejected option
+2 the lane was forbidden the other escape, so the pass returns `ok: true` with an empty failure
+list: byte-identical to #399's own three-pass reproduction. So: when the remainder exceeds
+`MAX_READ_BYTES` and no newline exists anywhere between the cursor and EOF, `shipActor` emits a
+named `ShipActorFailure` for that actor.
+
+This is not option 2 revived. Option 2 named a failure for **every** oversized line and never
+advanced; this names one only in the arm where there is no line boundary to advance to, because a
+terminator that does not exist cannot be waited for and cannot be skipped past. #399's Definition
+of done asks that the pass be legible — *"either it advances, or it names a failure"* — and the
+two arms together are what supply that: a terminated oversized line advances, an unterminated one
+is named. Every other actor in the pass still ships, exactly as ruling B already arranges.
 
 **Rejected: grow the window** (#399's option 3). It preserves every line, and it puts an unbounded
 allocation on the operator's own machine keyed to a value nothing upstream bounds —
@@ -812,9 +831,8 @@ returns the envelope's `type` and `ts` and the line **verbatim** for exactly thi
 3, item 1: never silently dropped)"*). `toEventRow` throws that away and refuses. It stops doing
 so: the row lands with its `type` recorded, its `line` untouched, and its payload whatever the
 line carries — `laneOf` and `worktreeOf` already read a payload defensively and return `null`
-rather than assuming a shape, so an unfoldable payload needs no special case. The projections
-simply see a type they do not fold, which is what they already do for every type that carries no
-cost and no lane.
+rather than assuming a shape. What the row must **not** do is reach the projections, which is the
+clause below and the one this ruling originally got wrong.
 
 **`unknown` only — `malformed` still refuses, loudly.** This is the falsifier #410 named, and the
 lenient reader already answers it: `parseEventLenient` returns `unknown` when the envelope (`id`,
@@ -826,6 +844,54 @@ journal the ingest fsynced is a fault in the journal, not skew between two build
 distinction the falsifier demands is not one this ruling has to invent — it is the boundary
 `packages/core/src/events/index.ts` is already drawn on, and `UnknownEventReason`'s two arms are
 what carry it into the row.
+
+**An unfoldable row never feeds a projection, and this clause is owed to a failed falsifier.**
+Ruling 16 first deferred one check to the implementing commit — that no projection counts a row
+whose type it does not recognise. The review of this amendment ran it instead of waiting, against
+the same `ce12c093` this document reasons from, and **it fails**:
+
+```
+spend(unknown-type)  = [{"projectId":"p1","day":"2026-09-10","costUsd":0,"events":1}]
+spend(unknown-shape) = [{"projectId":"p1","day":"2026-09-10","costUsd":42.5,"events":1}]
+lanes(unknown-shape) = [{"projectId":"p1","lane":"lane-a","state":null,…}]
+```
+
+`projectionsFor` increments `spend.events` unconditionally, and `costUsdOf`
+(`packages/team/src/fold/projections.ts`) reads `payload.costUsd` with **no `row.type` guard at
+all** — so under the ruling as first written, forty-two dollars fifty from a line this build
+refused to parse lands in a money projection. `agentStateOf` and `dirtyFiles` do gate on
+`row.type`, which protects them from an unknown *type* and not at all from an unknown *shape*.
+
+**The sibling this ruling missed.** It split `unknown` from `malformed` — #410's stated falsifier
+— and never split `unknown-type` from `unknown-shape` one level down. `unknown-shape` means the
+type **is** known and the payload failed the union, so it walks straight through every guard
+written against the type. That is the defect shape this repo names in its own runbook: a fix that
+correctly handles the case its author considered and misses the structurally identical sibling.
+
+**Two verdicts, and they differ.** `spend_by_project_day.events` counting an unfoldable row is
+**correct** — it is an event, it reached storage, and a count of events that silently omitted some
+would be the dishonest answer. Every projection that reads a **payload field** — `costUsd`,
+`agentStateOf`, `dirtyFiles`, and anything later joining them — must not read one the build
+refused to validate. So the falsifier is narrowed to what it should always have said: *no
+projection may derive a value from an unvalidated payload*, and it is answered here rather than
+deferred.
+
+**Mechanically, the row carries its own verdict.** `EventRow` gains an `unfoldable` marker that
+the Postgres adapter does not persist — it is a fold-time fact, not a column, so this stays a
+no-migration ruling and the wave's single migration-adding lane is still unspent. `projectionsFor`
+reads it. This does put `storage/contract.ts`, `fake.ts` and `postgres.ts` back inside #410's
+boundary; the fence records it, and a `fold_status` **column** is rejected for the reason the
+in-memory marker exists — it would spend the migration and persist a fact about this build's
+vocabulary as though it were a fact about the event.
+
+**The envelope's `id` and `source` are widened into core, not re-parsed.** `EventRow` requires
+`eventId`, `source` and `payload`, all non-nullable, and `UnknownEventLine` carries none of them —
+`eventEnvelopeProbeSchema` validates `id` and `source` and then discards both. So ruling 16 as
+first written was not implementable inside #410's fence at all, which the amendment should have
+said. It is resolved by adding `id` and `source` to `UnknownEventLine`: additive, in the one place
+that already proved them, and it keeps `row.ts`'s own rule intact — *"a second parser is a second
+allowlist, and two allowlists is how a dropped field finds its way back."* Re-`JSON.parse`ing the
+verbatim line inside `row.ts` was the alternative and is rejected on that sentence.
 
 **There is no gap, so ruling 3's invariant is untouched.** This is the whole reason it beats a
 quarantine table: ruling 3 promises no gaps in `n` among what reached storage, and a row that
@@ -843,8 +909,12 @@ not spend it.
 
 **The blast radius is bounded regardless: the fold runs per actor.** #410's option 3 is adopted
 alongside this, because it is cheap and because it is right whichever answer the line question
-got. `runOnce` groups the records past the cursor by `(project, actorInstance)` and one group's
-failure stops that group only. A cursor that is one number per journal cannot express that, so the
+got. `runOnce` **will group** the records past the cursor by `(project, actorInstance)` so that
+one group's failure stops that group only — it does not today, and the paragraph two screens up
+describing its flat loop is the tree as it stands. Every other sentence in this amendment is a
+statement about `ce12c093`; this one is a prescription, and it is marked because a document whose
+framing is *"REASONED from the tree at `ce12c093`"* cannot afford two present-tense sentences about
+one function where only one of them is true. A cursor that is one number per journal cannot express that, so the
 cursor grows a per-actor low-water mark and the journal cursor advances to the lowest of them —
 the same shape the shipper's own cursor already has, and the reason it is named here rather than
 left to the lane.
@@ -861,17 +931,40 @@ ordering 1 in terms — journal, then ack, nothing parsed on the hot path — an
 preference: it is what bought *75 kills, 0 lost, 1,129,197 lines in 15.32 s*. Rejected as the
 amendment to ruling 4 it would be, not passed over as an implementation detail.
 
-**The falsifier this ruling owes.** A row landing with a type this build cannot fold must not
-corrupt a projection. Ruling 16 is only safe if every projection derives from a *recognised* type
-rather than from the absence of one; if any projection has a default arm that counts an unknown
-row, storing it is worse than refusing it and the ruling falls back to option 1. That verdict is
-owed EXECUTED in the commit that implements this, against `projectionsFor`.
+**The falsifier that remains owed, and it is a mutation.** The clause above is a rule about the
+tree as it will be, so the implementing commit owes the mutation that proves it: remove the
+`unfoldable` check from `projectionsFor` and the case asserting no unvalidated payload reaches a
+projection must go red. If it stays green the check is not being exercised and the ruling is
+unenforced, whatever the code says.
 
 ### Consequence for the wave-4 fences
 
 `scripts/fence-lint.sh 387 398 399 410` failed on one overlap: #399 and #410 both claimed
 `docs/prds/prd-51-the-split.md`, each expecting to write its own ruling. Both rulings are written
 here instead, so **both issues drop this file from their fences** and the two lanes are parallel
-again. Neither issue's fence otherwise changes; #410's conditional entries for a migration and the
-storage port are now unreachable under ruling 16 and can go with it, save the cursor shape the
-per-actor fold needs.
+again.
+
+**#410's boundary then moved twice, in opposite directions, and the second move is the review's.**
+Ruling 16 as first written made the migrations directory and the storage port unreachable, so both
+conditional entries came off and the fold's own cursor module went on for the per-actor low-water
+mark. The review then found the ruling unbuildable inside what was left. So the storage port
+returns — `storage/contract.ts`, `fake.ts`, `postgres.ts` and their tests, for the `unfoldable`
+marker — and `packages/core/src/events/index.ts` with its lenient tests joins them, for `id` and
+`source` on `UnknownEventLine`. The migrations directory stays out, and that is the line that
+matters: the wave's single migration-adding lane is still unspent, which is the whole reason
+ruling 16 beat a quarantine table.
+
+**And the widening collides with a live lane, which is why #410 is not dispatchable yet.**
+`packages/core/src/events/index.ts` is held by #407 (prd-55 wave 5, In progress), which is adding
+four lab event types to it. Two additive edits to one file by two lanes landing days apart is a
+rebase conflict already scheduled, and this repo has paid for that reading once — #405 and #400
+conflicted in a guide while both PR bodies predicted only a count pin. So #410 is blocked by #407
+and moves back to Backlog; #387, #398 and #399 are unaffected and stay Ready. Taking the
+re-`JSON.parse` route instead would clear the collision, and it is refused: a permanent design
+compromise is the wrong price for a temporary scheduling one.
+
+Widening a fence is legitimate and is recorded before the change, which this is. But the shape is
+worth naming for whoever grooms wave 5: **the first fence was derived from a ruling nobody had
+built against.** Both moves came from reading the types the ruling would have to satisfy, and
+both were available at grooming time. Re-lint before dispatch rather than trusting the pass this
+document already reports.
