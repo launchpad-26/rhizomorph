@@ -48,10 +48,10 @@ const LABEL_GAP = 8
  */
 const LABEL_CHAR_WIDTH = 6.2
 
-export interface PlayheadLabelPlacement {
+export interface AxisLabelPlacement {
   x: number
-  anchor: 'start' | 'end'
-  /** True when the label was drawn to the LEFT of the line, to stay inside the drawing. */
+  anchor: 'start' | 'middle' | 'end'
+  /** True when the label was moved LEFT of where it would ordinarily sit, to stay inside the drawing. */
   flipped: boolean
   /** The label's right edge, in viewBox units — the number S1′'s acceptance criterion bounds. */
   right: number
@@ -73,10 +73,36 @@ export interface PlayheadLabelPlacement {
  * a flipped label's right edge IS the line, and the line is never further left
  * than the axis inset.
  */
-export function playheadLabelPlacement(playheadX: number, text: string, width: number): PlayheadLabelPlacement {
+export function playheadLabelPlacement(playheadX: number, text: string, width: number): AxisLabelPlacement {
   const right = playheadX + LABEL_GAP + text.length * LABEL_CHAR_WIDTH
   if (right <= width) return { x: playheadX + LABEL_GAP, anchor: 'start', flipped: false, right }
   return { x: playheadX - LABEL_GAP, anchor: 'end', flipped: true, right: playheadX - LABEL_GAP }
+}
+
+/**
+ * THE SAME RULE FOR THE SCALE'S OWN TICK LABELS. A tick label is CENTRED on
+ * its tick, so half of it hangs to the right — and the last tick sits at
+ * `width - AXIS_INSET` while its label is the longest of the five
+ * ("100 % of session"). At any width, half of sixteen mono characters is 49.6
+ * units against an inset of 40, so the end label overhung the drawing by ~10
+ * units at every size; it was invisible at 1000 and clipped at the viewport
+ * edge at 2560, which is where the operator found it.
+ *
+ * `AXIS_INSET` exists precisely so the end labels have room, and a centred
+ * label spends more of that room than there is. So a tick label whose right
+ * edge would leave the drawing anchors at its tick instead of straddling it,
+ * putting the whole label inside the track — the same measured decision the
+ * playhead's label makes, from the same character-count width.
+ *
+ * The left end needs no mirror of this today and does not get one on
+ * speculation: the first tick's label is "0 %", three characters whose half is
+ * 9.3 against the same 40 of inset. If a tick label ever grows long enough to
+ * reach past the left edge, this is where that rule belongs.
+ */
+export function tickLabelPlacement(tickX: number, text: string, width: number): AxisLabelPlacement {
+  const right = tickX + (text.length * LABEL_CHAR_WIDTH) / 2
+  if (right <= width) return { x: tickX, anchor: 'middle', flipped: false, right }
+  return { x: tickX, anchor: 'end', flipped: true, right: tickX }
 }
 
 export function SessionAxis({ checkpoints, seated, onSeat, failedArmsByCheckpoint = {}, onForkFromHere, width = 1000 }: SessionAxisProps) {
@@ -124,14 +150,29 @@ export function SessionAxis({ checkpoints, seated, onSeat, failedArmsByCheckpoin
       <div role="listbox" aria-label="the session, as one scale" tabIndex={0} onKeyDown={onKeyDown} className="focus-ring outline-none">
         <svg viewBox={`0 0 ${width} ${HEIGHT}`} className="block h-auto w-full" data-testid="axis-svg">
           <line x1={AXIS_INSET} y1={50} x2={width - AXIS_INSET} y2={50} stroke="var(--line-strong)" strokeWidth={1} />
-          {[0, 0.25, 0.5, 0.75, 1].map((tick) => (
-            <g key={tick}>
-              <line x1={axisXFor(tick, width)} y1={46} x2={axisXFor(tick, width)} y2={54} stroke="var(--line-strong)" strokeWidth={1} />
-              <text x={axisXFor(tick, width)} y={72} textAnchor="middle" fill="var(--ink-dim)" fontSize={10} fontFamily="var(--font-mono)">
-                {tick === 0 ? '0 %' : tick === 1 ? '100 % of session' : `${tick * 100}`}
-              </text>
-            </g>
-          ))}
+          {[0, 0.25, 0.5, 0.75, 1].map((tick) => {
+            const tickX = axisXFor(tick, width)
+            const label = tick === 0 ? '0 %' : tick === 1 ? '100 % of session' : `${tick * 100}`
+            const placement = tickLabelPlacement(tickX, label, width)
+            return (
+              <g key={tick}>
+                <line x1={tickX} y1={46} x2={tickX} y2={54} stroke="var(--line-strong)" strokeWidth={1} />
+                <text
+                  data-testid={`axis-tick-${tick}`}
+                  data-flipped={placement.flipped ? 'true' : 'false'}
+                  data-label-right={String(placement.right)}
+                  x={placement.x}
+                  y={72}
+                  textAnchor={placement.anchor}
+                  fill="var(--ink-dim)"
+                  fontSize={10}
+                  fontFamily="var(--font-mono)"
+                >
+                  {label}
+                </text>
+              </g>
+            )
+          })}
           {ordered.map((checkpoint) => {
             const x = markerX(checkpoint, width)
             const isSeated = checkpoint.checkpointId === seated
