@@ -1,5 +1,6 @@
 import { BUTTON, BUTTON_PRIMARY } from '../ui/controls.js'
 import { useState } from 'react'
+import { Disclosure, type DisclosureContent } from '../disclosure/index.js'
 import { copyToClipboard, type CopyText } from '../drawer/AttachButton.js'
 import { requestInstrument, type InstrumentFetchLike, type InstrumentOutcome, type MigrationKind } from './instrument.js'
 
@@ -103,15 +104,16 @@ export function InstrumentButton({
   return (
     <div data-testid={testId} className="flex flex-col gap-2">
       {phase.status === 'idle' && (
-        <button
-          type="button"
-          data-testid={`${testId}-start`}
-          onClick={() => setPhase({ status: 'confirming' })}
-          title="Relaunch this repo’s conductor, instrumented, on this same conversation."
-          className={BUTTON}
-        >
-          instrument this session
-        </button>
+        <Disclosure trigger="inline" disclosure={instrumentDisclosure()}>
+          <button
+            type="button"
+            data-testid={`${testId}-start`}
+            onClick={() => setPhase({ status: 'confirming' })}
+            className={BUTTON}
+          >
+            instrument this session
+          </button>
+        </Disclosure>
       )}
 
       {phase.status === 'confirming' && (
@@ -256,4 +258,26 @@ export function InstrumentButton({
       )}
     </div>
   )
+}
+
+/**
+ * What the first press arms (#389) — the native `title=` this retires, ported
+ * verbatim as the reason, with the evidence and remedy the vocabulary requires.
+ *
+ * The remedy names the confirmation rather than the act, because the first
+ * press performs nothing: ruling 4's one gate is the panel it opens, and a card
+ * promising the relaunch here would misstate what the button does.
+ */
+function instrumentDisclosure(): DisclosureContent {
+  return {
+    label: 'instrument this session',
+    why: {
+      reason: 'Relaunch this repo’s conductor, instrumented, on this same conversation.',
+      evidence: { fact: 'nothing has been started yet — this control is idle and the first press only arms it', elapsedMs: 0 },
+    },
+    remedy: {
+      kind: 'action',
+      action: 'press it to see what will happen and what it costs; the relaunch runs only after you confirm on that panel',
+    },
+  }
 }

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { createEvent, createIdFactory } from '@rhizomorph/core'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
+import { discloseText } from '../disclosure/testing.js'
 import { ModeProvider, useReplay } from '../app/ModeContext.js'
 import { ReplayBanner } from './Banner.js'
 import type { FetchLike } from './api.js'
@@ -84,12 +85,15 @@ describe('ReplayBanner', () => {
   it('shows the timestamp being viewed, as an absolute wall clock', async () => {
     await renderBanner()
     // Playback starts at the session's first event, ts 1000ms.
-    expect(screen.getByTitle('timestamp being viewed')).toHaveTextContent('1970-01-01 00:00:01')
+    // Found by its LABEL now, not by a tooltip (#389). The label is `sr-only`
+    // text in the accessibility tree, so this also proves a screen reader
+    // reaches it — which the native `title=` this replaces never guaranteed.
+    expect(screen.getByText('timestamp being viewed').parentElement).toHaveTextContent('1970-01-01 00:00:01')
   })
 
   it('shows session identity — repo and recording file', async () => {
     await renderBanner()
-    const identity = screen.getByTitle('session identity')
+    const identity = screen.getByText('session identity').parentElement as HTMLElement
     expect(identity).toHaveTextContent('rhizomorph')
     expect(identity).toHaveTextContent('session-1000.jsonl')
   })
@@ -102,7 +106,7 @@ describe('ReplayBanner', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Exit to live' }))
     })
 
-    expect(screen.queryByTitle('session identity')).not.toBeInTheDocument()
+    expect(screen.queryByText('session identity')).not.toBeInTheDocument()
   })
 
   it('never reaches for a ladder hue — the mode shift is chrome, not a status', async () => {
@@ -137,7 +141,7 @@ describe('ReplayBanner — the unknown-era voice', () => {
 
   it('still replays everything it does understand — the gap is a caveat, not a refusal', async () => {
     await renderBanner(FUTURE_ENTRIES)
-    expect(screen.getByTitle('session identity')).toHaveTextContent('rhizomorph')
+    expect(screen.getByText('session identity').parentElement).toHaveTextContent('rhizomorph')
     expect(screen.getByText(/viewing a recorded past/i)).toBeInTheDocument()
   })
 
@@ -217,5 +221,28 @@ describe('the replay banner is drawn in exactly one place', () => {
     // marker string that matches nothing at all.
     expect(sourceFiles().length).toBeGreaterThan(50)
     expect('data-panel="replay-banner"'.includes('replay-banner')).toBe(true)
+  })
+})
+
+/**
+ * THE BANNER'S CARD, AND ITS TWO PLAIN LABELS (#389, prd-30 w4).
+ *
+ * Three native `title=` attributes left this file. Only ONE of them was an
+ * explanation — the newer-era caveat, which became a card. The other two
+ * ("timestamp being viewed", "session identity") were field LABELS: they state
+ * no condition, rest on no evidence and offer no remedy, so putting them
+ * through the disclosure vocabulary would have meant manufacturing all three.
+ * They are `sr-only` labels now, which is `app/Nav.tsx`'s idiom and reaches a
+ * screen reader without depending on hover at all.
+ */
+describe('the replay banner explains its caveat and labels its fields (#389, charter §6)', () => {
+  it('discloses the newer-era caveat identically to mouse and keyboard', async () => {
+    await renderBanner(FUTURE_ENTRIES)
+
+    const card = discloseText(screen.getByTestId('replay-unknown-era'))
+
+    expect(card).toContain('this recording came from a newer instrument')
+    expect(card).toContain('this build cannot fold them')
+    expect(card).toContain('update this instrument to a build that knows the newer era')
   })
 })
