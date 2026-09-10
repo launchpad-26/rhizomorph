@@ -1,7 +1,35 @@
 # prd17 — the complete record: the instrument's judgements and the operator's decisions join the log
 
-> **Outcome:** partially shipped, and the two sides of it are worth telling apart —
-> a family that is DEFINED is not a family that is EMITTED.
+> **Outcome: every wave this PRD sequenced has landed** — the eight BUILD waves, wave 6 on
+> 2026-09-10 (`6c4358f1`, PR #395) and wave 8 with the commit that carries this line; wave 0
+> was an operator act and is marked DISCHARGED, so the Sequencing declares nine waves, 0
+> through 8.
+>
+> **That is deliberately narrower than "prd-17 is shipped", and the narrowing is wave 8's
+> main finding.** A wave landing is a bounded, checkable fact: the shas are above and the
+> issues are closed. "Shipped" is a repo-wide claim over every live document that describes
+> this programme, and three review rounds each found one more such document contradicting it
+> — the third found `docs/architecture.md`, which is live by this repo's own test and states
+> the opposite in four clauses. Wave 8 tried to make that claim as a side-effect of declaring
+> a wave, which is why no sweep of it could be shown complete. **The status reconciliation is
+> now `#416`**, with the document set enumerated up front by the `**Tree:**` pin that
+> distinguishes a living document from a dated artefact — a method that can be finished
+> rather than asserted. Until it lands, read the wave list here and not a status word.
+>
+> **It stays in `docs/prds/` rather than moving to `docs/prds/done/`, deliberately and
+> pending the same decision:** `docs/follow-up-292.md` reads this file's location as the difference between a LIVE
+> ruling and an archival one, and holds an open, uncorrected item against ruling 3's law 1 —
+> whose wording it calls the origin of a claim that is still false in `docs/architecture.md`.
+> Archiving this PRD would demote that ruling while the item is open, and that document
+> reserves the amendment decision for whoever owns the ruling. The move is a follow-up. **What "shipped" does and does not claim
+> is worth reading before the table below**, because two of ruling 1's nine families still
+> have no emitter and that is the planned end state rather than a gap:
+> `dispatch.brief` and `fence.declared` would be written by dispatch tooling that does not
+> exist in this checkout, so no wave here could ever have closed them — the Sequencing's
+> unfiled tail books them as unfiled instead of booking a wave that cannot close. Two others
+> (`gate.verdict`, `session.closed`) have emitters but appear in no committed recording,
+> which is an era-capture matter and not a wave of this PRD. So: every wave this PRD
+> sequenced is done, and a family that is DEFINED is still not a family that is EMITTED.
 > **Ruling 3 landed, all five laws:** lenient parse, the golden era corpus, the identity
 > `upcast()` chokepoint, durability (fsync on close and rotation, close-then-open), and
 > the fold-order law — ruled on #205, append order is the truth. The chokepoint was built
@@ -14,16 +42,18 @@
 > |---|---|---|
 > | `operator.ack`/`verdict`/`note` | `POST /api/operator/:act` — wave 2 | yes, era-2 |
 > | `summons.raised`/`cleared` | the poll loop's tick — wave 3 (#278) | yes, era-2 |
-> | `gate.verdict` | `scripts/gate.sh` writes the beacon line — wave 5 (#274) | not yet |
+> | `gate.verdict` | the poll loop derives it from the beacon sidecar — wave 6 (#280) | not yet |
 > | `session.closed` | the recorder, since prd-40 | not yet |
 > | `dispatch.brief`, `fence.declared` | **none** | no |
 >
 > **The reason differs by row and that is the part an earlier version of this block got
 > wrong**, by attaching one clause to all of them. `dispatch.brief` and `fence.declared`
 > are DEFINED AND UNEMITTED in the original sense: their `reduce.ts` arms return state
-> unchanged and nothing raises one. `gate.verdict` is EMITTED but not yet a first-class
-> timeline event — a landing reaches the log as `beacon.received`, and deriving the typed
-> event from that sidecar is wave 6. `session.closed` has an emitter and a fold; era-2's
+> unchanged and nothing raises one. `gate.verdict` **is a first-class timeline event as of
+> wave 6** (#280, merged in `6c4358f1`): a landing still reaches the log as
+> `beacon.received`, and `packages/server/src/log/gate-verdict-derivation.ts` derives the
+> typed event from that sidecar, recorded at RECORD time from the poll loop's own seam so a
+> pruned `beacons/` directory cannot cost a fold its verdicts. `session.closed` has an emitter and a fold; era-2's
 > window simply does not contain a clean shutdown. **SEVEN of the nine have an EMITTER;
 > FIVE appear in a real committed recording** — the three operator acts and the summons
 > pair. The two counts differ by TWO rows, not one: `gate.verdict`, which emits but has
@@ -40,11 +70,15 @@
 > readers waiting on emitters.
 > **Ruling 2's doorway landed** as a collector on prd-27 wave 1 (#217) and nothing writes
 > to it yet — wave 5 is that writer.
-> **Rulings 5 and 6 were blessed 2026-09-05** and are unbuilt: ruling 5 (the instrument
-> raises its own summons on the poll loop's tick) is wave 3 and owes an ADR; ruling 6 (the
-> gate's verdict rides as extra keys on a beacon line) is what wave 5 builds to.
-> **Ship-out is at wave 4 (operator, 2026-09-05):** this PRD closes when waves 2–4 land,
-> with wave 5 declared and blocked and wave 6 (#280) declared after ship-out.
+> **Rulings 5 and 6 were blessed 2026-09-05 and are both BUILT.** Ruling 5 (the instrument
+> raises its own summons on the poll loop's tick) landed as wave 3 (#278) with ADR-0038;
+> ruling 6 (the gate's verdict rides as extra keys on a beacon line) is written to by wave 5
+> (#274) and read back by wave 6 (#280, `6c4358f1`), which is what makes `gate.verdict` a
+> typed event rather than a sidecar pointer.
+> **Ship-out was set at wave 4 (operator, 2026-09-05)** — this PRD's own closure test — and
+> waves 5 through 8 landed after it rather than being left declared and blocked, so the
+> "one declared, unbuilt wave" that decision deliberately allowed for did not come to pass.
+> The decision and its rejected alternative are recorded further down and left as ruled.
 > Reconciled 2026-09-06 at `29cde14`; previously 2026-09-05 at `612df45` and 2026-08-22 at
 > `03df141`. The residual is sequenced below and groomed onto the `prd17` milestone —
 > an earlier version of this line said the milestone held no open issue, which stopped
@@ -212,6 +246,10 @@ whom, about which lane, with a pointer to the bytes; `file` + `offset` + `digest
 full verdict from the sidecar, provably unaltered. **Deriving `gate.verdict` from that
 sidecar is wave 6.**
 
+> *Ruling 6's own text is left as it was ruled — a ruling records what was decided, and this
+> one was correct. For a reader arriving later: wave 6 has since LANDED (#280, `6c4358f1`),
+> so "is wave 6" names the wave that did it rather than one still to come.*
+
 Rejected: packing the verdict into `detail` as an encoded string, which would put a
 hand-rolled parser between a landing and its typed event — the shape ADR-0002 exists to
 prevent. Also rejected: retiring `gate.verdict`, which would withdraw part of a blessed
@@ -370,7 +408,7 @@ This is also the one wave that edits the operator's landing tool, so its verific
 exactly the split AGENTS.md already draws: the lane runs `npm run typecheck`, `npm run lint`
 and the suite; the operator runs the gate, because running it *is* the landing.
 
-**Wave 6 — `gate.verdict` is derived from the sidecar.** **#280** `prd17 w6: a landing's
+**Wave 6 — `gate.verdict` is derived from the sidecar. LANDED 2026-09-10 (`6c4358f1`, PR #395).** **#280** `prd17 w6: a landing's
 verdict is a gate.verdict event, not only a beacon`. Declared by ruling 6, groomed
 2026-09-05. Once wave 5
 writes the line, `beacon.received` carries `file`, `offset` and the line's `digest`, which is
@@ -454,6 +492,53 @@ Its exit condition stays mechanical but is only checkable AFTER it lands:
 `scripts/dev/prd-reconcile.sh 17` judges against `origin/main` by design — its own header
 records a stale checkout once reporting wave 7 vacant — and cannot be pointed at a working
 copy.
+
+**Wave 8 — the review residual of wave 6, sequenced 2026-09-10.** Two issues, and the wave
+exists for the same reason wave 7 did: they came out of REVIEWING wave 6 rather than out of
+this PRD's own plan, and an issue carrying a wave the document never declared is one
+`fence-lint.sh` cannot check a bundle against.
+
+| issue | fence | what becomes true |
+|---|---|---|
+| **#391** | `packages/server/src/log/gate-verdict-derivation.ts` + its test, `packages/server/src/server/poll-loop.ts` + its test | a swallowed close fault leaves a trace |
+| **#403** | this file, plus `docs/follow-up-292.md` (widened during review, recorded on the issue) | the PRD declares wave 8, says `gate.verdict` is a first-class event, and marks wave 6 landed |
+
+The two fences are disjoint — four source files against three documents — which is what
+makes this one wave and one PR rather than two of each; the wave lint passed on the fences as
+first declared, and #403's grew twice during review (the two citing documents above), each
+widening recorded before its change.
+
+**Why this wave stopped claiming a status, since that is the interesting part.** An earlier
+version of it marked this PRD shipped and then tried to sweep the documents that said
+otherwise. Three review rounds each found one more, and the count in this paragraph was
+itself wrong twice — the last version claimed "ten documents mentioning prd-17, two of them
+live", when the two spellings together reach thirty-one and at least one more
+(`docs/architecture.md`) is live by the `**Tree:**` test this repo already uses to tell a
+living document from a dated artefact.
+
+The lesson is not that the sweep needed one more pass. It is that a status word is a claim
+over a set this wave never bounded, so no pass could be shown complete — and an unbounded
+claim asserted as swept is worse than no claim, because it reads as verified. Wave 8
+therefore states the landings, which are bounded and checkable, and hands the status
+reconciliation to `#416`, where the document set is enumerated before anything is edited. The one document this wave still touches beyond itself is
+`docs/follow-up-292.md`, and only because its citation pointed into text this amendment
+moved.
+
+**#391 is the honest residual of the fix that closed round 5's finding.** The close-fault
+catch that stopped `close()` escaping the derivation was empty, so the fault survived and
+became invisible: a persistently failing mount left no trace while it fired for every
+`beacon.received` on every tick. The swallow is correct and stays — by close
+time the bytes are already in the buffer, and the digest comparison runs on them further
+down, so a close fault never gates verification and refusing over it would discard a verdict
+the digest is about to prove — and what #391 adds is the trace, following the convention its two
+siblings in that package already set (`dropTrailingPartialLine` returns a signal,
+`advanceFold` sets `foldDesynced`); neither is silent and neither logs.
+
+**Deliberately NOT in this wave, and still open:** the seam swallowing a refusal's reason, the
+stat/open TOCTOU, and a hardlink defeating containment. All three were deferred across rounds
+4, 5 and 6 with reasons on #280, and none is a prd-17 deliverable — the first is scope the
+seam never claimed, and the other two are hardening on a path whose worst case the digest
+check already bounds.
 
 ## Open questions
 
@@ -593,6 +678,13 @@ done while `main` had never heard of them, and the reason a PRD's own status mus
 answerable from its own waves. So a shipped prd-17 will carry one declared, unbuilt wave, and
 that is deliberate rather than an oversight: the wave is where the gate's own verdict will be
 recorded when the door it writes through exists.
+
+> *Left as it was ruled, and the ruling was right — a PRD's status must be answerable from
+> its own waves. Recording what actually happened rather than editing the decision to match
+> it: the door was built (prd-27 wave 1, #217), so wave 5 unblocked and landed (#274), and
+> wave 6 (#280, `6c4358f1`) then derived the typed event from what it writes. A shipped
+> prd-17 therefore carries NO declared-but-unbuilt wave. The contingency this paragraph
+> provides for never had to be used.*
 
 Wave 5 is also one issue rather than three — `dispatch.brief` and `fence.declared` have no
 emitter in this repo to build, and the Sequencing's unfiled tail says so rather than booking
