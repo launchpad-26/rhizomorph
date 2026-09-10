@@ -92,12 +92,67 @@ export function assertShippableUrl(raw: string): URL {
   } catch {
     return failUrl(raw, 'it is not a URL')
   }
-  if (url.protocol === 'https:') return url
-  if (url.protocol === 'http:' && LOOPBACK_URL_HOSTS.has(url.hostname)) return url
+  if (url.protocol === 'https:') return assertBaseIsOnlyADestination(raw, url)
+  if (url.protocol === 'http:' && LOOPBACK_URL_HOSTS.has(url.hostname)) return assertBaseIsOnlyADestination(raw, url)
   if (url.protocol === 'http:') {
     return failUrl(raw, 'plain http is only accepted for a loopback host (127.0.0.1, localhost, ::1)')
   }
   return failUrl(raw, `"${url.protocol}" is not a scheme this hand speaks`)
+}
+
+/**
+ * A BASE IS AN ORIGIN AND AN OPTIONAL PATH PREFIX. NOTHING ELSE.
+ *
+ * A prefix is accepted and kept — a team server behind a proxy mounted on a
+ * path is an ordinary deployment, and `post.ts`'s `ingestUrlFor` preserves it.
+ * The three parts refused here are refused because accepting them is worse
+ * than saying no, and each has its own reason.
+ *
+ * **Userinfo is the one that matters, and it is a leak.** The enable record is
+ * `0644` on purpose: this docblock's own promise a few lines up is that a `cat`
+ * of it can never be the leak, because the hand's one credential lives in a
+ * separate `0600` file. A base spelled `https://user:pw@team.example` puts a
+ * SECOND credential straight into that world-readable file, and `cli/doctor.ts`
+ * then prints it verbatim — in the same sentence that says the credential's
+ * value is never shown or logged. `no-key-in-output-law` does not catch it
+ * either: it redacts the `rzk_` value, and this secret never passes through
+ * `IngestKey` at all. Refusing at write time is the only place the operator is
+ * still standing there to be told.
+ *
+ * **A query string and a fragment are refused for a smaller reason:** neither
+ * survives `new URL(INGEST_PATH, base)`, so a base carrying either would be
+ * silently stripped and every batch would go somewhere the operator did not
+ * ask for. That is the shape of the defect `8c751e10` fixed for the path, and
+ * the same answer is owed here — except that for these two, preserving them is
+ * not obviously right (a token in a query is a credential in a `0644` file
+ * again), so the destination is refused rather than guessed at.
+ */
+function assertBaseIsOnlyADestination(raw: string, url: URL): URL {
+  if (url.username.length > 0 || url.password.length > 0) {
+    // NOT `failUrl(raw, …)`: `raw` carries the value, and this message is
+    // printed to the operator's terminal and can reach a log. The destination
+    // is named in a spelling the value has been taken out of.
+    throw new Error(
+      `refusing to ship to "${withoutUserinfo(url)}": it carries a username or password in the URL, ` +
+        'and the enable record it would be written to is world-readable (0644) — ' +
+        'give the proxy its credential some other way, and pass a plain https:// team server URL',
+    )
+  }
+  if (url.search.length > 0) {
+    return failUrl(raw, 'a query string on the base is dropped when the ingest path is appended, so it would never be sent')
+  }
+  if (url.hash.length > 0) {
+    return failUrl(raw, 'a fragment is never sent to a server, so a base carrying one does not mean what it says')
+  }
+  return url
+}
+
+/** The destination with any userinfo taken out — the only spelling of a userinfo-bearing base that is safe to print. */
+function withoutUserinfo(url: URL): string {
+  const clean = new URL(url.toString())
+  clean.username = ''
+  clean.password = ''
+  return clean.toString()
 }
 
 function failUrl(raw: string, why: string): never {

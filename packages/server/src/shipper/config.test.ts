@@ -99,6 +99,57 @@ describe('the destination is https, or loopback http, and nothing else', () => {
     expect(() => assertShippableUrl('team.example')).toThrow(/not a URL/)
   })
 
+  /**
+   * The sibling of the path case above, and the one the path case makes
+   * tempting to get wrong: `assertShippableUrl` checked scheme and hostname
+   * only, so a base spelled `https://user:pw@team.example` was accepted, and
+   * `writeTeamConfig` then wrote it verbatim into a file this suite pins at
+   * `0644` four cases up. `cli/doctor.ts` prints that url in the same sentence
+   * that says a credential's value is never shown, and `no-key-in-output-law`
+   * cannot see it because the value never passes through `IngestKey`.
+   */
+  it('refuses a base carrying userinfo — the enable record is 0644, and a URL password would land in it', () => {
+    expect(() => assertShippableUrl('https://svc:s3cr3t@team.example/rhizo')).toThrow(/username or password/)
+    expect(() => assertShippableUrl('https://svc:s3cr3t@team.example/rhizo')).toThrow(/0644/)
+    // A username with no password is the same leak one field smaller.
+    expect(() => assertShippableUrl('https://svc@team.example')).toThrow(/username or password/)
+    // Loopback http takes the same refusal: the file it would be written to is the same file.
+    expect(() => assertShippableUrl('http://svc:s3cr3t@127.0.0.1:8080')).toThrow(/username or password/)
+  })
+
+  it('does not put the value it refuses into the message it throws', () => {
+    // The refusal is printed to a terminal and can reach a log, so the message
+    // may name the destination but never the secret. `raw` carries it, which is
+    // why this refusal does not go through `failUrl`.
+    let message = ''
+    try {
+      assertShippableUrl('https://svc:s3cr3t@team.example/rhizo')
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err)
+    }
+    expect(message).toMatch(/username or password/)
+    expect(message).not.toContain('s3cr3t')
+    expect(message).not.toContain('svc:')
+    expect(message).toContain('https://team.example/rhizo')
+  })
+
+  it('refuses a query string or a fragment on the base, which appending the ingest path would silently drop', () => {
+    expect(() => assertShippableUrl('https://team.example/rhizo?tok=abc')).toThrow(/query string/)
+    expect(() => assertShippableUrl('https://team.example/rhizo#frag')).toThrow(/fragment/)
+  })
+
+  it('refuses userinfo at WRITE, so the value never reaches the 0644 file', async () => {
+    await expect(
+      writeTeamConfig(sessionDir, {
+        version: TEAM_CONFIG_VERSION,
+        url: 'https://svc:s3cr3t@team.example/rhizo',
+        project: 'acme-widgets',
+        enabledAt: 1,
+      }),
+    ).rejects.toThrow(/username or password/)
+    expect(await readTeamConfig(sessionDir)).toBeNull()
+  })
+
   it('refuses at WRITE, so an unusable destination is never stored', async () => {
     await expect(
       writeTeamConfig(sessionDir, {
