@@ -724,3 +724,154 @@ The other two citations were checked and still hold:
 `docs/adr/0033-the-record-travels-by-protocol.md` puts record-format Law 2 in wave 1, which the
 renumbering did not move, and `docs/prds/prd-52-the-world-composes.md` gives the doc sweep to
 wave 5, which stays the floor of the 5+ set.
+
+## Amendment — two wedges, two rulings: 15 (the hand) and 16 (the fold) (operator, 2026-09-10)
+
+Wave 3 shipped both halves of the wire and the review of #386 found the same defect on each side
+of it: **a single line the layer cannot process stops that layer forever, and reports nothing.**
+The two are structurally identical and their answers are not, because the hand can record a gap
+and the fold cannot. Both were filed as needing a ruling before dispatch (#399, #410) and both are
+ruled here, before any code.
+
+Neither is a new discovery of *policy*. Ruling A — declared in wave 3 by
+`packages/server/src/shipper/ship.ts`'s module docblock, not in this document, and named there as
+one of *"the two policies wave 1 deferred to this issue"* — already refused a permanent wedge in
+terms: *"refusing to advance wedges the hand permanently on one pre-#292-era line and denies the
+whole ledger from that byte onward"*. What the review found is two paths that reach none of ruling
+A's machinery, so the wedge it forbade exists anyway, twice.
+
+### The two wedges
+
+**On the hand.** `shipActor` reads at most `MAX_READ_BYTES` (1,048,576) per actor per tick. A line
+longer than that window contains no newline inside it, `splitLines` yields nothing
+(`splitLines` in `packages/core/src/wire/split.ts` appends only on a `NEWLINE` byte), and the pass returns
+`unchanged(null, null)`. That is `ok: true` with an empty failure list: the next tick reads the
+same window and does the same thing forever, the cursor is never written for that actor, and the
+ordinary line sitting behind the fat one never leaves either. Ruling A's own case at least tells
+the operator something is wrong; this one does not.
+
+**On the fold.** `runOnce` (`packages/team/src/fold/worker.ts`) assembles every row from
+every record past the cursor **before** it opens the transaction, and returns on the first
+refusal. So one line whose type this build does not declare discards the records *before* it as
+well as after — nothing is inserted, the cursor file is never created, and every actor in the
+journal stops, not only the skewed one. The ingest cannot catch it and deliberately: ruling 4's
+ordering 1 journals and answers 202 before anything parses, so the sender has already been told
+the batch is durable and has already advanced under ruling A.
+
+Both reproductions are EXECUTED and recorded on their issues (#399 three identical passes, #410
+three identical passes with four good lines landing nowhere); neither is restated here. What
+follows is REASONED from the tree read at `ce12c093` — the code citations above, and the DDL
+citation under ruling 16 — with the one execution each ruling turns on named where it is owed.
+
+### Ruling 15 — a line the hand cannot read in one window is a skip, like any other line it cannot send
+
+**Ruling A is extended, not amended.** Its clause stands exactly as written; what changes is that
+one more condition reaches it. An oversized line is a line this hand cannot send, which is the
+category ruling A already answers: the position is consumed, nothing is sent for it, and the skip
+is recorded with its `n`, its kind and its reason. `ActorSkip.kind` gains `'oversized'` beside
+`'unknown'` and `'malformed'`, and ruling 3's local restatement is unchanged — *no duplicates in
+`n`, and every gap in `n` is a skip this machine recorded and can name.*
+
+**The discriminator is `size - before.offset`, not the window's contents.** A window with no
+newline has two possible causes and they must not be conflated: the writer has not finished the
+line yet, or the line is genuinely longer than the window. When `size - before.offset` is at most
+`MAX_READ_BYTES` the whole remainder was read and its tail is simply unterminated — that is a
+partial write, and the correct answer is the current one, wait. When `size - before.offset`
+**exceeds** `MAX_READ_BYTES` and the full window still holds no newline, the line is already at
+least a megabyte with no terminator inside it, and no amount of waiting shortens it. Only the
+second case skips. This is the falsifier #399 named, and it resolves: a safe discriminator exists,
+so the fallback to (2) or (3) is not reached.
+
+**The skip must advance past the whole line, not past the window.** Consuming 1 MiB of a longer
+line would leave the remainder to be read as a fresh line, which would ship a fragment under a
+position. The advance is to the next newline in the file, found by reading forward from the
+window's end; if EOF arrives first, the line is still being appended and the skip does not happen
+this tick.
+
+**Rejected: grow the window** (#399's option 3). It preserves every line, and it puts an unbounded
+allocation on the operator's own machine keyed to a value nothing upstream bounds —
+`packages/core/src/events/beacon.ts` caps its own strings and nothing else caps anything. The
+measured centre is 280–415 bytes per event across four machines (Evidence, above); a line three
+thousand times that is a defect wherever it came from, and the hand's job is to stay legible in
+its presence, not to carry it.
+
+**Rejected: a named failure that stays put** (#399's option 2). Honest, and it does not lose the
+line — but it denies every line behind the fat one for as long as no human acts, which for an
+append-only ledger may be never. That is the outcome ruling A exists to refuse, made visible
+rather than made survivable.
+
+**What this costs, stated plainly:** one ledger line per occurrence never reaches the team server,
+and the gap in `n` is nameable in the cursor, in `--status` and in `doctor`. That is the same
+price ruling A already charges for a pre-#292-era line.
+
+### Ruling 16 — a line the fold cannot read lands unparsed; the fold is per actor
+
+**An unfoldable line is stored, not refused and not quarantined.** `readEventLineLenient` already
+returns the envelope's `type` and `ts` and the line **verbatim** for exactly this case
+(`packages/core/src/events/index.ts`, `UnknownEventLine`: *"preserved byte for byte (prd17 ruling
+3, item 1: never silently dropped)"*). `toEventRow` throws that away and refuses. It stops doing
+so: the row lands with its `type` recorded, its `line` untouched, and its payload whatever the
+line carries — `laneOf` and `worktreeOf` already read a payload defensively and return `null`
+rather than assuming a shape, so an unfoldable payload needs no special case. The projections
+simply see a type they do not fold, which is what they already do for every type that carries no
+cost and no lane.
+
+**`unknown` only — `malformed` still refuses, loudly.** This is the falsifier #410 named, and the
+lenient reader already answers it: `parseEventLenient` returns `unknown` when the envelope (`id`,
+`ts`, `source`, `type`) validates and the union does not — the newer-era case — and `malformed`
+when there is no envelope or no usable timestamp at all. Its own words are *"calling that 'a newer
+era' would be a lie, and the loud failure is the right answer."* Ruling 16 lands the first and
+changes nothing about the second: a corrupt line still stops the fold, because a corrupt line in a
+journal the ingest fsynced is a fault in the journal, not skew between two builds. So the
+distinction the falsifier demands is not one this ruling has to invent — it is the boundary
+`packages/core/src/events/index.ts` is already drawn on, and `UnknownEventReason`'s two arms are
+what carry it into the row.
+
+**There is no gap, so ruling 3's invariant is untouched.** This is the whole reason it beats a
+quarantine table: ruling 3 promises no gaps in `n` among what reached storage, and a row that
+landed is not a gap. Ruling 5's claim rests on the same fact from the other end — *"a record
+rebuilt from server rows closing to the identical `chainDigest` as the local export"* — and a
+rebuild that had to union `events` with a quarantine relation to close would be a weaker claim
+wearing the same words.
+
+**It costs no migration.** `events.type` is declared `text NOT NULL` in
+`packages/team/src/migrations/0001_events.sql` with no CHECK, no enum type and no foreign key —
+grep the migrations directory for `CHECK`, `CREATE TYPE` and `REFERENCES` and it returns nothing.
+That is load-bearing for this ruling and for the wave: the 2026-09-09 amendment records *one
+migration-adding lane per wave* as the constraint that split waves 3 and 4, and this answer does
+not spend it.
+
+**The blast radius is bounded regardless: the fold runs per actor.** #410's option 3 is adopted
+alongside this, because it is cheap and because it is right whichever answer the line question
+got. `runOnce` groups the records past the cursor by `(project, actorInstance)` and one group's
+failure stops that group only. A cursor that is one number per journal cannot express that, so the
+cursor grows a per-actor low-water mark and the journal cursor advances to the lowest of them —
+the same shape the shipper's own cursor already has, and the reason it is named here rather than
+left to the lane.
+
+**Rejected: quarantine the position** (#410's option 1). It preserves progress and names the gap,
+which is the form ruling A accepts on the hand's side — but it costs a table, a migration, and the
+weakened digest claim above, to record a fact the row itself can carry. The asymmetry is real and
+is the reason the two rulings differ: the hand *cannot* store what it cannot re-serialize, because
+`reserializeLine` hands back no bytes for a non-`line` verdict and protocol v1 has no arm for a
+placeholder. The fold can, because the bytes are already in its hand.
+
+**Rejected: refuse at ingest** (#410's option 4). Parsing before the 202 contradicts ruling 4's
+ordering 1 in terms — journal, then ack, nothing parsed on the hot path — and ordering 1 is not a
+preference: it is what bought *75 kills, 0 lost, 1,129,197 lines in 15.32 s*. Rejected as the
+amendment to ruling 4 it would be, not passed over as an implementation detail.
+
+**The falsifier this ruling owes.** A row landing with a type this build cannot fold must not
+corrupt a projection. Ruling 16 is only safe if every projection derives from a *recognised* type
+rather than from the absence of one; if any projection has a default arm that counts an unknown
+row, storing it is worse than refusing it and the ruling falls back to option 1. That verdict is
+owed EXECUTED in the commit that implements this, against `projectionsFor`.
+
+### Consequence for the wave-4 fences
+
+`scripts/fence-lint.sh 387 398 399 410` failed on one overlap: #399 and #410 both claimed
+`docs/prds/prd-51-the-split.md`, each expecting to write its own ruling. Both rulings are written
+here instead, so **both issues drop this file from their fences** and the two lanes are parallel
+again. Neither issue's fence otherwise changes; #410's conditional entries for a migration and the
+storage port are now unreachable under ruling 16 and can go with it, save the cursor shape the
+per-actor fold needs.
