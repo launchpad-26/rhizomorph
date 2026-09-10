@@ -300,6 +300,10 @@ Electron config to match.
 
 `packages/web/src/lab/` is prd-28's territory; no wave of this PRD enters it.
 
+> **Note (2026-09-08, prd-53 wave 5):** prd-28's paper died in the 2026-08-19 deletion and its
+> number is retired, never reused. The fence stands; the territory's owner is prd-53
+> (`docs/prds/prd-53-the-lab.md`). The sentence above is kept as written — a number is an identity.
+
 1. **Keystone, and the era's first dispatch:** wave 1 is entirely additive and entirely
    zero-claimant — fonts, tokens, the alias delete, the mirror tests, the contrast law, the
    focus token. It waits on no other PRD, and nothing else in the era dispatches before it —

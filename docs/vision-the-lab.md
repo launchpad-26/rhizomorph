@@ -8,7 +8,11 @@
 > and three weeks of rulings have moved under it: prd-41 confined the lab and fixed its ceilings;
 > prd-14 ruling 5 made a comparison a recording; charter §8 ruled the scene question
 > *coexist-by-surface*; #205 fold-order is ruled (append order is the truth), so its "remains
-> unruled" is stale; prd-50 fixed the lock ceiling. Its line-numbered citations are of the tree on
+> unruled" is stale; prd-50 fixed the lock ceiling; and prd-53's build waves (2026-09-07 to 09-08) made Stage 1 real —
+> one fork per experiment with r runs per arm, a per-run outcome on the wire behind a gated
+> measure route, the lab's own session axis and five-position frame, a comparison that renders
+> against the live server, Trace, Metrics, and the lane canvas — so "What has to be added
+> besides the UI" below is history, not a list. Its line-numbered citations are of the tree on
 > 2026-08-13 and are kept as they stand: they are provenance, not directions. Where it and prd-53
 > disagree, prd-53 is the record. The visual companion it names is the shared artifact
 > *The Lab Workspace*.

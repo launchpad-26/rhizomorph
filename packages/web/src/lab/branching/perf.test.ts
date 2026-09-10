@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { layoutBranching, type ArmInput } from './geometry.js'
+import { type ArmInput, layoutBranching } from './geometry.js'
 
 /**
  * THE FRAME BUDGET, MEASURED — following the scene's own pattern
@@ -9,10 +9,13 @@ import { layoutBranching, type ArmInput } from './geometry.js'
  * deterministic count instead, which is the number that actually regresses
  * when this layout grows too expensive.
  *
- * There is no `paint()` stage to measure yet — this module is deliberately
- * not mounted (ruling 1: "geometry, not a page") — so what is measured is the
- * whole of what a later wiring step will call every frame: `layoutBranching`
- * itself, at a stated arm count.
+ * This module IS mounted — `LabPage.tsx` draws it per experiment (prd14 wave
+ * 5), and prd53's lane canvas (`../canvas/organism.ts`) reuses its `Point`
+ * and `SYNTHETIC_DASH` rather than retiring it — so what is measured here is
+ * what the page calls on every relayout: `layoutBranching` itself, at a
+ * stated arm count. (An earlier sentence here said "deliberately not
+ * mounted"; true on 2026-08-19, stale for a month, corrected under prd53
+ * ruling 9.)
  */
 
 /** 60 fps. Every ms figure below is read against this. */

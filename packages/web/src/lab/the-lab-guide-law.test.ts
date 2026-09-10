@@ -368,7 +368,9 @@ const CLAIMS: Readonly<Record<string, Claim>> = {
       expect(read('packages/web/src/lab/launch/launch.ts'), 'grep: N is the request\'s, stamped on the outcome').toContain('requestedArms: request.arms.length')
       expect(web.page(), 'grep: every arm after the failed one is listed as never attempted').toContain('never attempted')
       const layout = layoutCanvas({ experiment: TWO_BY_TWO, failedArms: [{ arm: 3, error: 'restore failed' }] })
-      expect(layout.organisms, 'executed: the stub is not an organism').toHaveLength(4)
+      // prd-55 ruling 11 (#385) made the picture ribbons rather than organisms;
+      // the claim is unchanged — the stub is drawn and it is not counted.
+      expect(layout.ribbons, 'executed: the stub is not one of the ribbons').toHaveLength(4)
       expect(layout.stubs.map((s) => s.arm), 'executed: and it is drawn').toEqual([3])
       expect(read('packages/web/src/lab/compare/ComparisonSurface.tsx'), 'grep: failed arms on the surface').toMatch(/failedArms/)
     },
@@ -384,7 +386,7 @@ const CLAIMS: Readonly<Record<string, Claim>> = {
   'trace-no-persistence': {
     says: /same, diverged, added, absent[\s\S]*stored nowhere/,
     check: () => {
-      expect(web.trace(), 'grep: reads transcripts').toContain('transcriptUrl(')
+      expect(web.trace(), 'grep: reads transcripts').toContain('labTranscriptUrl(')
       expect(web.trace(), 'grep: writes nothing').not.toMatch(/localStorage|sessionStorage|method: 'POST'/)
       expect(existsSync(path.join(HERE, 'trace', 'no-persistence-law.test.ts')), 'the law that keeps it so exists').toBe(true)
     },
@@ -396,13 +398,22 @@ const CLAIMS: Readonly<Record<string, Claim>> = {
     },
   },
   'canvas-one-per-run': {
-    says: /n organisms, one per run[\s\S]*no count is ever synthesised[\s\S]*palette only through public exports/,
+    // prd-55 ruling 11 (#385): the picture is ribbons painted with the scene's
+    // six pure brushes, not n small organisms of the lab's own. The claim's
+    // meaning is untouched — one per dispatch record, keyed by the run handle,
+    // nothing synthesised, the scene reached only through public exports — so
+    // the sentence and this check follow the picture rather than the reverse.
+    says: /n ribbons, one per run[\s\S]*no count is ever synthesised[\s\S]*six pure brushes[\s\S]*never its fold/,
     check: () => {
       const layout = layoutCanvas({ experiment: TWO_BY_TWO, checkpoint: CHECKPOINT, width: 1000 })
-      expect(layout.organisms, 'executed').toHaveLength(4)
-      expect(new Set(layout.organisms.map((o) => o.id)), 'executed: keyed by the run handles').toEqual(new Set(['lane-a1', 'lane-a2', 'lane-b1', 'lane-b2']))
+      expect(layout.ribbons, 'executed').toHaveLength(4)
+      expect(new Set(layout.ribbons.map((ribbon) => ribbon.id)), 'executed: keyed by the run handles').toEqual(new Set(['lane-a1', 'lane-a2', 'lane-b1', 'lane-b2']))
       expect(layout.root.at.x, 'executed: root at the axis position').toBe(markerX(CHECKPOINT, 1000))
-      expect(read('packages/web/src/lab/canvas/organism.ts'), 'grep: the only scene import is the palette').toMatch(/from '\.\.\/\.\.\/scene\/palette\.js'/)
+      const organism = read('packages/web/src/lab/canvas/organism.ts')
+      for (const brush of ['geometry', 'palette', 'ribbon', 'contour', 'motes', 'heart']) {
+        expect(organism, `grep: the ${brush} brush, through its public export`).toContain(`from '../../scene/${brush}.js'`)
+      }
+      expect(organism, 'grep: and never a scene module that reads the fold').not.toMatch(/scene\/(?:retire|salience|variation|pulses|SceneView)/)
     },
   },
   'windows-five': {
