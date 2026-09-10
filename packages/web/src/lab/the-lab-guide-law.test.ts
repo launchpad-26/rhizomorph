@@ -2,12 +2,15 @@ import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { CONFOUND_VOICE, COUNTERFACTUAL_CLAUSE, isCompletedVerdict, MIN_ARMS_TO_RANK, MIN_COMPLETED_RUNS_TO_SUMMARISE } from '@rhizomorph/core'
+import { cleanup, render, screen } from '@testing-library/react'
+import { createElement } from 'react'
 import { describe, expect, it } from 'vitest'
+import type { FetchLike } from '../replay/api.js'
 import { NOT_MEASURED_VOICE, runOutcomeVoice } from './adapters.js'
 import { markerX, sessionFraction } from './axis/position.js'
 import { layoutCanvas } from './canvas/organism.js'
 import { NOT_MEASURED, SCORING_UNAVAILABLE } from './compare/fromExperiment.js'
-import { POSITIONS } from './frame/Frame.js'
+import { Frame, POSITIONS } from './frame/Frame.js'
 import { OTHER_MODEL } from './launch/models.js'
 import { MEASURE_URL } from './measure.js'
 import { DEFAULT_GATE_COMMAND } from './measure-control/MeasureControl.js'
@@ -100,8 +103,15 @@ const CHECKPOINT: LabCheckpoint = {
 interface Claim {
   /** A pattern the marked block must match — the prose and the assertion stay tied. */
   says: RegExp
-  /** The assertion, handed the block's own text. `grep` in the name means source text was read, not code executed. */
-  check: (text: string) => void
+  /**
+   * The assertion, handed the block's own text. `grep` in the name means
+   * source text was read, not code executed. Most claims are synchronous;
+   * `frame-five` (#402) is the first to render a component and await its
+   * effects, so this may return a promise — the one loop below that calls
+   * `check` returns it too, rather than discarding it, so vitest actually
+   * awaits an async claim instead of reporting it green before it ran.
+   */
+  check: (text: string) => void | Promise<void>
 }
 
 /** A quoted message, as the reader sees it: `> ` stripped, the marker gone, code ticks and straight quotes off the ends, whitespace collapsed. */
@@ -293,13 +303,59 @@ const CLAIMS: Readonly<Record<string, Claim>> = {
     },
   },
   'frame-five': {
-    says: /telemetry, cost, scene, divergence, footprint \(keys 1–5\)[\s\S]*state that gap/,
-    check: () => {
+    says: /telemetry, cost, scene, divergence, footprint \(keys 1–5\)[\s\S]*read the lab's own routes[\s\S]*refused by name[\s\S]*sentences of their own, never blanks/,
+    check: async () => {
       expect(POSITIONS.map((p) => p.label), 'executed').toEqual(['telemetry', 'cost', 'scene', 'divergence', 'footprint'])
       const frame = web.frame()
-      expect(frame, 'grep: telemetry states its gap').toContain('no lab route carries them yet')
-      expect(frame, 'grep: footprint states its gap').toContain('neither on a lab route yet')
       expect(frame, 'grep: the scene position mounts the canvas').toContain('<LaneCanvas')
+      // grep: the two positions this claim is about reach the lab's own
+      // routes by name — the executed round trip below is what proves a
+      // reading from them draws a real sentence, not just that the path
+      // string appears somewhere in the source.
+      expect(frame, 'grep: telemetry reads the lab route').toContain('/api/lab/telemetry')
+      expect(frame, 'grep: footprint reads the lab route').toContain('/api/lab/footprint')
+
+      // EXECUTED (#402): render the frame at positions 1 and 5 with a
+      // fixture `fetchImpl` — the same escape hatch TraceDiff's own contract
+      // test uses — so the REAL readLabTelemetry/readLabFootprint round-trip
+      // runs, never a mock of the component itself. A refusal and an empty
+      // reading each draw a non-empty sentence of their own; a live reading
+      // draws the figure.
+      const fixture =
+        (telemetry: unknown, footprint: unknown): FetchLike =>
+        (async (input: string | URL | Request) => {
+          const href = String(input)
+          const body = href.includes('/api/lab/telemetry') ? telemetry : href.includes('/api/lab/footprint') ? footprint : { available: false, reason: 'unhandled in claim fixture' }
+          return { ok: true, status: 200, json: async () => body } as Response
+        }) as unknown as FetchLike
+
+      async function rendersASentenceAt(position: 1 | 5, fetchImpl: FetchLike, testId: string): Promise<void> {
+        render(createElement(Frame, { position, onPosition: () => {}, seated: CHECKPOINT, experiments: [], fetchImpl }))
+        const node = await screen.findByTestId(testId)
+        expect(node.textContent, `executed: ${testId} is a sentence, not a blank`).not.toBe('')
+        cleanup()
+      }
+
+      const refused = fixture(
+        { available: false, reason: 'NO SUCH LANE "feature" in the lab\'s record' },
+        { available: false, reason: 'NO SUCH LANE "feature" in the fold\'s branch record' },
+      )
+      await rendersASentenceAt(1, refused, 'frame-gap-telemetry')
+      await rendersASentenceAt(5, refused, 'frame-gap-footprint')
+
+      const empty = fixture(
+        { available: true, lane: 'feature', atByte: CHECKPOINT.sessionCutByte, asOf: null, usage: [], costs: [], tools: [], activeTime: [] },
+        { available: true, lane: 'feature', files: [], collisions: {} },
+      )
+      await rendersASentenceAt(1, empty, 'frame-telemetry-empty')
+      await rendersASentenceAt(5, empty, 'frame-footprint-empty')
+
+      const live = fixture(
+        { available: true, lane: 'feature', atByte: CHECKPOINT.sessionCutByte, asOf: 1_700_000_000_000, usage: [{}], costs: [], tools: [], activeTime: [] },
+        { available: true, lane: 'feature', files: ['src/a.ts'], collisions: {} },
+      )
+      await rendersASentenceAt(1, live, 'frame-telemetry')
+      await rendersASentenceAt(5, live, 'frame-footprint')
     },
   },
   'launch-one-confirmation': {
@@ -635,8 +691,10 @@ describe('the-lab.md — every behavioural claim is a test (prd53 ruling 9)', ()
   })
 
   for (const [id, claim] of Object.entries(CLAIMS)) {
-    it(`claim "${id}" holds against the code`, () => {
-      claim.check(textOf.get(id) ?? '')
-    })
+    // Returns `check`'s result rather than discarding it: a synchronous claim
+    // returns undefined either way, and an async one (frame-five, #402) hands
+    // vitest a real promise to await instead of reporting green before its
+    // assertions ran.
+    it(`claim "${id}" holds against the code`, () => claim.check(textOf.get(id) ?? ''))
   }
 })
