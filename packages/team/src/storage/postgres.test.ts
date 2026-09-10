@@ -182,6 +182,223 @@ describe('case 5 — payload and every other value are parameters, never text', 
   })
 })
 
+describe('the insert targets the month partition, and the count decides what landed', () => {
+  it('names the partition in the statement TEXT and binds every value', async () => {
+    const recorder = createRecordingSql()
+    const storage = createPostgresStorage(recorder.sql)
+
+    // 1785739192632 is 2026-08-03T06:39:52.632Z — August, in UTC.
+    await storage.appendEvents([rowWith({ tsMs: 1785739192632 })])
+
+    const insert = recorder.queries.find((q) => q.sql.includes('INTO events'))
+    expect(insert?.sql).toContain('INSERT INTO events_2026_08 (')
+    expect(insert?.sql).toContain('ON CONFLICT (project_id, actor_instance, n) DO NOTHING')
+    // Never the parent — the whole 2026-09-08 amendment.
+    expect(insert?.sql).not.toContain('INSERT INTO events (')
+    // And still eleven bound parameters, none of them interpolated.
+    expect(insert?.values.length).toBe(11)
+    expect(insert?.sql).not.toContain('acme-widgets')
+  })
+
+  it('derives the month in UTC, so an hour either side of a UTC midnight cannot pick the wrong partition', async () => {
+    const recorder = createRecordingSql()
+    const storage = createPostgresStorage(recorder.sql)
+
+    // 2026-08-31T23:30:00Z and 2026-09-01T00:30:00Z.
+    await storage.appendEvents([
+      rowWith({ n: 1, tsMs: Date.UTC(2026, 7, 31, 23, 30) }),
+      rowWith({ n: 2, tsMs: Date.UTC(2026, 8, 1, 0, 30) }),
+    ])
+
+    const targets = recorder.queries
+      .filter((q) => q.sql.includes('INTO events'))
+      .map((q) => /INTO (events_\d{4}_\d{2})/.exec(q.sql)?.[1])
+    expect(targets).toEqual(['events_2026_08', 'events_2026_09'])
+  })
+
+  it('rows spanning two months produce two partition targets inside ONE transaction', async () => {
+    const recorder = createRecordingSql()
+    const storage = createPostgresStorage(recorder.sql)
+
+    await storage.appendEvents([
+      rowWith({ n: 1, tsMs: Date.UTC(2026, 7, 3) }),
+      rowWith({ n: 2, tsMs: Date.UTC(2026, 8, 3) }),
+      rowWith({ n: 3, tsMs: Date.UTC(2026, 7, 4) }),
+    ])
+
+    expect(recorder.log.filter((e) => e === 'BEGIN').length).toBe(1)
+    expect(recorder.log[recorder.log.length - 1]).toBe('COMMIT')
+    const partitions = new Set(
+      recorder.queries
+        .filter((q) => q.sql.includes('INTO events'))
+        .map((q) => /INTO (events_\d{4}_\d{2})/.exec(q.sql)?.[1]),
+    )
+    expect([...partitions].sort()).toEqual(['events_2026_08', 'events_2026_09'])
+  })
+
+  it('a row whose tsMs is not a finite epoch is refused by name rather than interpolated', async () => {
+    const recorder = createRecordingSql()
+    const storage = createPostgresStorage(recorder.sql)
+    await expect(storage.appendEvents([rowWith({ tsMs: Number.NaN })])).rejects.toThrow(
+      /finite epoch-millisecond value/,
+    )
+    expect(recorder.queries.some((q) => q.sql.includes('INTO events'))).toBe(false)
+  })
+
+  it('a DO NOTHING on every row means appendEvents returns 0 and the delta is computed over NOTHING', async () => {
+    const recorder = createRecordingSql()
+    const storage = createPostgresStorage(recorder.sql)
+    recorder.scriptCount(0)
+    recorder.scriptCount(0)
+    const seen: (readonly EventRow[])[] = []
+
+    const written = await storage.appendEvents([rowWith({ n: 1 }), rowWith({ n: 2 })], (inserted) => {
+      seen.push(inserted)
+      return { spend: [], lanes: [], collisions: [] }
+    })
+
+    expect(written).toBe(0)
+    expect(seen).toEqual([[]])
+    // The replay still ran inside a transaction; it simply wrote nothing.
+    expect(recorder.log[0]).toBe('BEGIN')
+    expect(recorder.log[recorder.log.length - 1]).toBe('COMMIT')
+  })
+
+  it('the delta is computed over the rows that LANDED, not over the batch', async () => {
+    const recorder = createRecordingSql()
+    const storage = createPostgresStorage(recorder.sql)
+    recorder.scriptCount(1)
+    recorder.scriptCount(0)
+    recorder.scriptCount(1)
+    let seen: readonly EventRow[] = []
+
+    const written = await storage.appendEvents(
+      [rowWith({ n: 1 }), rowWith({ n: 2 }), rowWith({ n: 3 })],
+      (inserted) => {
+        seen = inserted
+        return { spend: [], lanes: [], collisions: [] }
+      },
+    )
+
+    expect(written).toBe(2)
+    expect(seen.map((r) => r.n)).toEqual([1, 3])
+  })
+
+  it('a caller that hands over no callback maintains no projection at all', async () => {
+    const recorder = createRecordingSql()
+    const storage = createPostgresStorage(recorder.sql)
+    await storage.appendEvents([rowWith()])
+    expect(recorder.queries.some((q) => q.sql.includes('spend_by_project_day'))).toBe(false)
+    expect(recorder.queries.some((q) => q.sql.includes('lane_state'))).toBe(false)
+    expect(recorder.queries.some((q) => q.sql.includes('collisions'))).toBe(false)
+  })
+})
+
+describe('the three projections are upserted inside the same transaction', () => {
+  it('sends all three, between BEGIN and COMMIT, with every value bound', async () => {
+    const recorder = createRecordingSql()
+    const storage = createPostgresStorage(recorder.sql)
+
+    await storage.appendEvents([rowWith()], () => ({
+      spend: [{ projectId: 'acme-widgets', day: '2026-08-03', costUsd: 0.0123, events: 1 }],
+      lanes: [
+        {
+          projectId: 'acme-widgets',
+          lane: 'prd51-w2',
+          state: 'working',
+          worktree: 'wt-prd51-w2',
+          lastEventTsMs: 1785739192632,
+        },
+      ],
+      collisions: [
+        {
+          projectId: 'acme-widgets',
+          path: 'src/a.ts',
+          lanes: ['prd51-w2'],
+          firstSeenMs: 1785739192632,
+          lastSeenMs: 1785739192632,
+        },
+      ],
+    }))
+
+    const texts = recorder.queries.map((q) => q.sql)
+    expect(texts.some((t) => t.includes('INSERT INTO spend_by_project_day'))).toBe(true)
+    expect(texts.some((t) => t.includes('INSERT INTO lane_state'))).toBe(true)
+    expect(texts.some((t) => t.includes('INSERT INTO collisions'))).toBe(true)
+    expect(recorder.log[0]).toBe('BEGIN')
+    expect(recorder.log[recorder.log.length - 1]).toBe('COMMIT')
+    for (const marker of ['spend_by_project_day', 'lane_state', 'collisions']) {
+      const at = recorder.log.findIndex((e) => e.includes(`INSERT INTO ${marker}`))
+      expect(at).toBeGreaterThan(0)
+      expect(at).toBeLessThan(recorder.log.length - 1)
+    }
+    // The projection text carries no value from the delta.
+    const spend = recorder.queries.find((q) => q.sql.includes('INSERT INTO spend_by_project_day'))
+    expect(spend?.sql).not.toContain('acme-widgets')
+    expect(spend?.sql).not.toContain('0.0123')
+    expect(spend?.values).toEqual(['acme-widgets', '2026-08-03', 0.0123, 1])
+  })
+
+  it('spend SUMS rather than replaces — the clause a replay would double-count through', async () => {
+    const recorder = createRecordingSql()
+    const storage = createPostgresStorage(recorder.sql)
+    await storage.appendEvents([rowWith()], () => ({
+      spend: [{ projectId: 'p', day: '2026-08-03', costUsd: 1, events: 1 }],
+      lanes: [],
+      collisions: [],
+    }))
+    const text = recorder.queries.find((q) => q.sql.includes('INTO spend_by_project_day'))?.sql ?? ''
+    expect(text).toContain('cost_usd = spend_by_project_day.cost_usd + EXCLUDED.cost_usd')
+    expect(text).toContain('events = spend_by_project_day.events + EXCLUDED.events')
+  })
+
+  it('lane_state refuses to rewind, and leaves an unstated state alone', async () => {
+    const recorder = createRecordingSql()
+    const storage = createPostgresStorage(recorder.sql)
+    await storage.appendEvents([rowWith()], () => ({
+      spend: [],
+      lanes: [{ projectId: 'p', lane: 'l', state: null, worktree: null, lastEventTsMs: 0 }],
+      collisions: [],
+    }))
+    const query = recorder.queries.find((q) => q.sql.includes('INTO lane_state'))
+    expect(query?.sql).toContain('WHERE EXCLUDED.last_event_ts >= lane_state.last_event_ts')
+    expect(query?.sql).toContain('state = COALESCE(')
+    // The null state is BOUND twice — once for the insert arm's fallback and
+    // once for the update arm's COALESCE — and never becomes the string 'null'.
+    expect(query?.values.filter((v) => v === null).length).toBe(3)
+    expect(query?.values).not.toContain('null')
+  })
+
+  it('collisions unions its lanes and takes LEAST/GREATEST on its timestamps', async () => {
+    const recorder = createRecordingSql()
+    const storage = createPostgresStorage(recorder.sql)
+    await storage.appendEvents([rowWith()], () => ({
+      spend: [],
+      lanes: [],
+      collisions: [{ projectId: 'p', path: 'a.ts', lanes: ['x', 'y'], firstSeenMs: 1, lastSeenMs: 2 }],
+    }))
+    const query = recorder.queries.find((q) => q.sql.includes('INTO collisions'))
+    expect(query?.sql).toContain('SELECT DISTINCT unnest(collisions.lanes || EXCLUDED.lanes)')
+    expect(query?.sql).toContain('LEAST(collisions.first_seen, EXCLUDED.first_seen)')
+    expect(query?.sql).toContain('GREATEST(collisions.last_seen, EXCLUDED.last_seen)')
+    expect(query?.values).toContainEqual(['x', 'y'])
+  })
+
+  it('NOTHING in the whole append path uses RETURNING — rz_ingest holds no SELECT on events', async () => {
+    const recorder = createRecordingSql()
+    const storage = createPostgresStorage(recorder.sql)
+    await storage.appendEvents([rowWith()], () => ({
+      spend: [{ projectId: 'p', day: '2026-08-03', costUsd: 1, events: 1 }],
+      lanes: [{ projectId: 'p', lane: 'l', state: 'working', worktree: null, lastEventTsMs: 1 }],
+      collisions: [{ projectId: 'p', path: 'a.ts', lanes: ['x'], firstSeenMs: 1, lastSeenMs: 2 }],
+    }))
+    expect(recorder.queries.length).toBeGreaterThan(3)
+    for (const query of recorder.queries) expect(query.sql).not.toMatch(/\bRETURNING\b/i)
+    // …and no SELECT reads the events table either, for the same grant reason.
+    for (const query of recorder.queries) expect(query.sql).not.toMatch(/\bFROM\s+events/i)
+  })
+})
+
 describe('case 6 — applyMigration is one transaction around DDL and bookkeeping', () => {
   it('sends the DDL unsafely and the bookkeeping row inside the same begin', async () => {
     const recorder = createRecordingSql()
@@ -315,10 +532,32 @@ describe('readEvents and the rest of the port', () => {
 })
 
 describe('ensureMonthlyPartition — the top-up path 0001 leaves open', () => {
-  it('builds the partition 0001 would have built for that month', () => {
+  it('builds the partition 0001 would have built for that month, and its unique index with it', () => {
     expect(buildMonthlyPartitionDdl('2026-09')).toBe(
-      "CREATE TABLE IF NOT EXISTS events_2026_09 PARTITION OF events FOR VALUES FROM ('2026-09-01') TO ('2026-10-01')",
+      [
+        "CREATE TABLE IF NOT EXISTS events_2026_09 PARTITION OF events FOR VALUES FROM ('2026-09-01') TO ('2026-10-01')",
+        'CREATE UNIQUE INDEX IF NOT EXISTS events_2026_09_pos_uq ON events_2026_09 (project_id, actor_instance, n)',
+      ].join(';\n'),
     )
+  })
+
+  /**
+   * The clause that ties the migration to the builder.
+   *
+   * `0004_events_dedup.sql` gives the index to the partitions `0001` created;
+   * this gives it to every partition made after. A top-up that built only the
+   * table would produce a month whose targeted `ON CONFLICT` has no index to
+   * infer from, so every batch landing in it would error — the two have to be
+   * one statement pair or the month is silently broken until someone notices.
+   */
+  it('a topped-up partition can carry the targeted ON CONFLICT the fold aims at it', () => {
+    const ddl = buildMonthlyPartitionDdl('2026-09')
+    expect(ddl).toContain('CREATE UNIQUE INDEX')
+    expect(ddl).toContain('(project_id, actor_instance, n)')
+    expect(ddl).not.toContain('event_id')
+    expect(ddl).not.toMatch(/\bCONCURRENTLY\b/)
+    // Two statements, which is why `runDdl` uses `.simple()`.
+    expect(ddl.split(';\n').length).toBe(2)
   })
 
   it('rolls the year over at December rather than producing month 13', () => {
