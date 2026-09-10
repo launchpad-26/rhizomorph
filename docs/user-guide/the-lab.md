@@ -260,7 +260,7 @@ is n sequential CLI calls with no atomicity, so *arm 2 failed to restore, arms
 1 and 3 already spent money* can happen. The panel names the arm that failed
 and where dispatch stopped; the comparison surface lists failed arms as
 present and excluded; Metrics books the spend that was real; the lane canvas
-draws each one as a stub — named, and never counted as an organism. <!-- claim: partial-launch -->
+draws each one as a stub — named, and never counted among its ribbons. <!-- claim: partial-launch -->
 
 ### The comparison surface
 
@@ -294,13 +294,16 @@ panel. <!-- claim: metrics-basis -->
 
 ### The lane canvas
 
-The frame's scene position draws **n organisms, one per run** (prd53 ruling
-5): each dispatch record the fold holds is exactly one organism, keyed by its
-lane handle, and no count is ever synthesised. The root sits at the fork's
-position on the session axis; thread width is booked cost on an absolute
-scale; the node's ink is the verdict. This is a different surface from the
-scene's own renderer, lawful beside it (charter §8), and it reads the scene's
-palette only through public exports. <!-- claim: canvas-one-per-run -->
+The frame's scene position draws **n ribbons, one per run** (prd53 ruling 5,
+prd-55 ruling 11): each dispatch record the fold holds is exactly one ribbon,
+keyed by its lane handle, and no count is ever synthesised. The root sits at
+the fork's position on the session axis; ribbon width is booked cost on an
+absolute scale; the tip's ink is the verdict. It is a Canvas 2D drawing
+painted with the scene's own **six pure brushes** — geometry, palette,
+ribbon, contour, motes and heart — rather than a second, lesser renderer of
+the lab's own: a different picture of a different subject, lawful beside the
+scene (charter §8), reading it through those public exports and
+never its fold. <!-- claim: canvas-one-per-run -->
 
 ## Residuals — with owners, or honestly without (prd53 ruling 10)
 

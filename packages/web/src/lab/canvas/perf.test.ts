@@ -1,41 +1,68 @@
 import { describe, expect, it } from 'vitest'
-import type { LabExperiment, LabRun } from '../types.js'
-import { layoutCanvas } from './organism.js'
+import { CHECKPOINT_AT_38, cellOf } from './fixtures.js'
+import { canvasHeightFor, layoutCanvas } from './organism.js'
+import { type Paintable, paintPicture } from './paint.js'
 
 /**
- * THE FRAME-BUDGET MEASUREMENT, in the form the PRD left to the implementer
- * (prd53 #329's open item): the canvas inherits the scene's 16.67 ms budget
- * and its ratios-not-absolutes discipline. Timings are REPORTED here and never
- * asserted — a wall clock is not a law (AGENTS.md); the assertion is the count,
- * which is the shape ruling 5 pins. The cell is the harness's own 60 × 3 = 180
- * threads (prd-49), so the number lands beside the ones already in the record.
+ * THE FRAME-BUDGET MEASUREMENT, in the form Stage 1 set and prd-55 keeps
+ * (ruling 11: "the 16.67 ms discipline is inherited and, as in Stage 1,
+ * reported and never asserted"): the 60 × 3 cell — the harness's own 180
+ * threads (prd-49) — laid out AND painted, timed, and printed beside the
+ * budget. A wall clock under concurrent workers measures the box, not the
+ * code, so the assertion is the count, which is the shape ruling 5 pins.
+ *
+ * Two figures, because the two stages cost differently: the layout builds 180
+ * ribbons through `perfect-freehand` and bakes one contour; the paint is a
+ * pass over the finished vertices. A static drawing pays the first once per
+ * record and the second once per size — neither per frame.
  */
-function run(id: string, n: number): LabRun {
-  return { eventId: id, dispatchedAt: 1000, run: n, laneHandle: `lane-${id}`, worktreePath: '/tmp/x' }
+
+/** A context that does nothing, so the paint's own walk is what is timed. */
+class Sink implements Paintable {
+  fillStyle: string | CanvasGradient | CanvasPattern = ''
+  strokeStyle: string | CanvasGradient | CanvasPattern = ''
+  lineWidth = 1
+  lineCap: CanvasLineCap = 'butt'
+  lineJoin: CanvasLineJoin = 'miter'
+  setTransform() {}
+  setLineDash() {}
+  clearRect() {}
+  beginPath() {}
+  moveTo() {}
+  lineTo() {}
+  closePath() {}
+  arc() {}
+  rect() {}
+  fill() {}
+  stroke() {}
 }
 
-function cell(arms: number, runs: number): LabExperiment {
-  return {
-    forkId: 'fork-perf',
-    parentLane: 'feature',
-    checkpointId: 'ckpt-1',
-    arms: Array.from({ length: arms }, (_unused, a) => ({
-      arm: a + 1,
-      treatment: { model: null, promptDigest: null },
-      runs: Array.from({ length: runs }, (_u, r) => run(`${a + 1}-${r + 1}`, r + 1)),
-    })),
-  }
-}
+const FRAME_MS = 1000 / 60
+const ROUNDS = 10
 
-describe('lane canvas — the 180-thread cell (reported, never asserted)', () => {
-  it('lays out 60 arms × 3 runs into exactly 180 organisms, and reports what that cost', () => {
-    const experiment = cell(60, 3)
-    const before = performance.now()
-    let layout = layoutCanvas({ experiment, width: 1000, height: 400 })
-    for (let i = 0; i < 29; i += 1) layout = layoutCanvas({ experiment, width: 1000, height: 400 })
-    const perLayoutMs = (performance.now() - before) / 30
-    expect(layout.organisms).toHaveLength(180)
+describe('lane canvas — the 180-ribbon cell (reported, never asserted)', () => {
+  it('lays out and paints 60 arms × 3 runs into exactly 180 ribbons, and reports what each stage cost', () => {
+    const experiment = cellOf(60, 3)
+    const options = { experiment, checkpoint: CHECKPOINT_AT_38, width: 1000, height: canvasHeightFor(180) }
+
+    // Warm: the first layout bakes the contour and JITs the ribbon brush; a running page never pays that per record.
+    let picture = layoutCanvas(options)
+    const layoutStarted = performance.now()
+    for (let i = 0; i < ROUNDS; i += 1) picture = layoutCanvas(options)
+    const layoutMs = (performance.now() - layoutStarted) / ROUNDS
+
+    const sink = new Sink()
+    paintPicture(sink, picture, { scale: 1.8, dpr: 2 })
+    const paintStarted = performance.now()
+    for (let i = 0; i < ROUNDS; i += 1) paintPicture(sink, picture, { scale: 1.8, dpr: 2 })
+    const paintMs = (performance.now() - paintStarted) / ROUNDS
+
+    expect(picture.ribbons).toHaveLength(180)
+    expect(picture.height).toBe(640)
     // Reported beside the harness's own cells; the 16.67 ms budget is the yardstick, not the assertion.
-    console.info(`lane canvas · 60×3 = 180 organisms · ${perLayoutMs.toFixed(3)} ms per layout over 30 (budget 16.67 ms; ratio ${(perLayoutMs / 16.67).toFixed(3)})`)
+    console.info(
+      `lane canvas · 60×3 = 180 ribbons · layout ${layoutMs.toFixed(3)} ms · paint ${paintMs.toFixed(3)} ms per pass over ${ROUNDS} ` +
+        `(budget ${FRAME_MS.toFixed(2)} ms; ratios ${(layoutMs / FRAME_MS).toFixed(3)} / ${(paintMs / FRAME_MS).toFixed(3)})`,
+    )
   })
 })
