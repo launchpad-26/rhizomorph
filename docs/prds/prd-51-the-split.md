@@ -772,6 +772,33 @@ is recorded with its `n`, its kind and its reason. `ActorSkip.kind` gains `'over
 `'unknown'` and `'malformed'`, and ruling 3's local restatement is unchanged — *no duplicates in
 `n`, and every gap in `n` is a skip this machine recorded and can name.*
 
+**That widens a versioned on-disk schema, and the read side is made lenient in the same commit.**
+Ruling 16 spends two paragraphs establishing that its store needs no migration; ruling 15's
+counterpart store has an enum and this ruling was silent about it until the review of #417 said
+so. `actorSkipSchema.kind` is `z.union([z.literal('unknown'), z.literal('malformed')])` inside
+`shipperCursorSchema`, whose `version` is `z.literal(CURSOR_VERSION)` — so a cursor carrying
+`'oversized'` fails validation on any build that predates this ruling, and that actor resets to
+`offset 0, n 0` and loses its recorded skips. EXECUTED in the review, quoted on #417.
+
+So the ruling asks for the property, not the enum: **a cursor written by a newer build stays
+readable by an older one.** `kind` tolerates a value it does not recognise rather than
+invalidating the entry that carries it. The precise shape is the lane's.
+
+**A `CURSOR_VERSION` bump is rejected, and this is the interesting half.** It is the obvious
+answer and it is worse: `version` is `z.literal(CURSOR_VERSION)`, so bumping to 2 makes every
+existing v1 cursor unreadable and resets **every** actor at upgrade — a certain cost paid to avoid
+a conditional one. Leniency is also only free right now, because nothing is deployed: the shipper
+merged in wave 3 and the first real host is wave 5+. That is the same "last commit in which this
+is true" argument `0001_events.sql` records for its one legal edit, and it should be spent
+deliberately rather than discovered later.
+
+**What the reset would cost if it happened anyway**, since the ruling should not overstate its own
+necessity: `0004_events_dedup.sql` puts a unique index on `(project_id, actor_instance, n)` per
+partition and the fold's projections are fed only inserted rows, so a re-ship of an append-only
+ledger dedups. It is wasteful, not corrupting. What the leniency buys is that the path stops being
+routine — hit the oversized-line bug, roll back the release that fixed it, and the cursor written
+in between is what resets you.
+
 **The discriminator is `size - before.offset`, not the window's contents.** A window with no
 newline has two possible causes and they must not be conflated: the writer has not finished the
 line yet, or the line is genuinely longer than the window. When `size - before.offset` is at most
@@ -862,6 +889,12 @@ all** — so under the ruling as first written, forty-two dollars fifty from a l
 refused to parse lands in a money projection. `agentStateOf` and `dirtyFiles` do gate on
 `row.type`, which protects them from an unknown *type* and not at all from an unknown *shape*.
 
+**The `costUsd: 0` on the `unknown-type` row above is the fixture, not a guard.** Nothing
+protected that arm; the probe's unknown-type line simply carried no `costUsd`. Give it one and it
+leaks identically, because `costUsdOf` never looks at `row.type` — which is what makes the money
+clause below wider than the type/shape split, and why reading the table as evidence that the split
+is what matters for `costUsd` would be exactly backwards.
+
 **The sibling this ruling missed.** It split `unknown` from `malformed` — #410's stated falsifier
 — and never split `unknown-type` from `unknown-shape` one level down. `unknown-shape` means the
 type **is** known and the payload failed the union, so it walks straight through every guard
@@ -876,13 +909,37 @@ refused to validate. So the falsifier is narrowed to what it should always have 
 projection may derive a value from an unvalidated payload*, and it is answered here rather than
 deferred.
 
-**Mechanically, the row carries its own verdict.** `EventRow` gains an `unfoldable` marker that
-the Postgres adapter does not persist — it is a fold-time fact, not a column, so this stays a
-no-migration ruling and the wave's single migration-adding lane is still unspent. `projectionsFor`
-reads it. This does put `storage/contract.ts`, `fake.ts` and `postgres.ts` back inside #410's
-boundary; the fence records it, and a `fold_status` **column** is rejected for the reason the
-in-memory marker exists — it would spend the migration and persist a fact about this build's
-vocabulary as though it were a fact about the event.
+**Mechanically, the row carries its own verdict, and the derived columns are nulled at source.**
+`EventRow` gains an `unfoldable` marker that the Postgres adapter does not persist — it is a
+fold-time fact, not a column, so this stays a no-migration ruling and the wave's single
+migration-adding lane is still unspent. `projectionsFor` reads it for the values it derives
+itself: `costUsdOf`, `agentStateOf`, `dirtyFiles`.
+
+**But two of the four values do not arrive that way, and the first draft of this clause missed
+them.** `row.lane` and `row.worktree` are derived **upstream**, in `toEventRow`, by `laneOf` and
+`worktreeOf` — neither gated on anything — and reach `projectionsFor` as ordinary columns. A
+marker read inside the projection cannot see a derivation that already happened: the projection
+reads a column, it does not derive a value. So the remedy as first written closed the money leak
+and left `lane_state` receiving a lane **and** a worktree from a payload the build refused to
+validate, keyed on that lane, for `unknown-type` and `unknown-shape` alike. EXECUTED in the review
+of #417, which applied this clause exactly as written and showed `spend` closing while `lanes`
+did not move.
+
+**The answer is upstream, not a second guard.** For an unfoldable line `toEventRow` sets `lane`
+and `worktree` to `null` at the point of derivation, and `projectionsFor`'s existing
+`if (row.lane !== null)` then skips the branch with nothing added. `collisions` is already covered,
+since `dirtyFiles` gates on `row.type`. This is `row.ts`'s own rule applied to the case it was
+written for — *"inventing one from `branch` or from the worktree path would put a fact in the
+column that no collector asserted"* — and a payload this build could not validate has asserted
+nothing this build can read. The cost is that `events.lane` and `events.worktree` are null on that
+row; it is recoverable and therefore acceptable, because `line` is preserved verbatim and a later
+build that can fold the type re-derives both from it. Ruling 16's preservation promise rests on
+`line`, never on a derived column.
+
+This does put `storage/contract.ts`, `fake.ts` and `postgres.ts` back inside #410's boundary; the
+fence records it, and a `fold_status` **column** is rejected for the reason the in-memory marker
+exists — it would spend the migration and persist a fact about this build's vocabulary as though
+it were a fact about the event.
 
 **The envelope's `id` and `source` are widened into core, not re-parsed.** `EventRow` requires
 `eventId`, `source` and `payload`, all non-nullable, and `UnknownEventLine` carries none of them —
