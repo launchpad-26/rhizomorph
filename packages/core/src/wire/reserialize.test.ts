@@ -143,6 +143,12 @@ function oneOfEachEventType(): RhizomorphEvent[] {
     fx.forkCheckpoint(),
     fx.forkDispatched(),
     fx.forkMeasured(),
+    // prd55 wave 5 (#407): the R&D hand's four events, the same second hand
+    // as fork.* above.
+    fx.rdPatterns(),
+    fx.rdProposal(),
+    fx.rdRefused(),
+    fx.rdOverride(),
     fx.judgeFinding(),
     fx.summonsRaised(),
     fx.summonsCleared(),

@@ -821,6 +821,8 @@ describe('the beat (#158)', () => {
   const SLICES_THE_FLEET_IGNORES = [
     'checkpoints',
     'forks',
+    // The R&D hand's own record (prd-55 rulings 1-4) — never fleet input, same as the lab's other slices above.
+    'rd',
     'judge',
     'refusals',
     'eventCount',

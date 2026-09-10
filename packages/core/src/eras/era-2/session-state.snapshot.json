@@ -2047,6 +2047,19 @@
   "lastEventTs": 1788758720748,
   "mainBranch": "main",
   "panes": {},
+  "rd": {
+    "overrides": [],
+    "overridesByLane": {},
+    "overridesByProposal": {},
+    "patternsByLane": {},
+    "patternsRecords": [],
+    "proposals": [],
+    "proposalsByLane": {},
+    "proposalsByPattern": {},
+    "refusals": [],
+    "refusalsByLane": {},
+    "refusalsByPattern": {}
+  },
   "refusals": {
     "byInstance": {},
     "records": []
