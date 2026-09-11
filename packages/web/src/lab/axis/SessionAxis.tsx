@@ -35,6 +35,76 @@ export const AXIS_EMPTY_COPY = 'there are no checkpoints yet — capture one wit
 
 const HEIGHT = 84
 
+/** The gap between the playhead line and its label, in viewBox units. */
+const LABEL_GAP = 8
+
+/**
+ * One character's advance for the label's face at `fontSize={10}`, in viewBox
+ * units. The label is mono (`--font-mono`, JetBrains Mono through the theme's
+ * own token), so every glyph advances the same 0.6 em — 6 units at this size —
+ * and a character count IS a width rather than an estimate of one. The extra
+ * 0.2 is headroom for the fallback faces in that token's stack, which are
+ * monospaced too but not all at 0.6.
+ */
+const LABEL_CHAR_WIDTH = 6.2
+
+export interface AxisLabelPlacement {
+  x: number
+  anchor: 'start' | 'middle' | 'end'
+  /** True when the label was moved LEFT of where it would ordinarily sit, to stay inside the drawing. */
+  flipped: boolean
+  /** The label's right edge, in viewBox units — the number S1′'s acceptance criterion bounds. */
+  right: number
+}
+
+/**
+ * WHERE THE PLAYHEAD LABEL GOES (prd-55 ruling 8; S1′: "the playhead label's
+ * right edge ≤ viewport width at 100 %"). The label sits to the right of its
+ * line, which is fine everywhere except the end of the session — and the end
+ * of the session is exactly where the newest checkpoint sits, so the one label
+ * the operator reads most was the one hanging off the edge. It FLIPS to the
+ * left of the line when its right edge would otherwise leave the drawing.
+ *
+ * The measurement is the label's own, in viewBox units: the SVG scales its
+ * viewBox to the viewport, so "inside the viewport at 100 %" and "inside the
+ * viewBox" are one claim, and neither needs a layout pass to answer — which is
+ * what makes the criterion executable in a DOM test rather than only visible
+ * in a screenshot. Flipping cannot push the label off the other edge instead:
+ * a flipped label's right edge IS the line, and the line is never further left
+ * than the axis inset.
+ */
+export function playheadLabelPlacement(playheadX: number, text: string, width: number): AxisLabelPlacement {
+  const right = playheadX + LABEL_GAP + text.length * LABEL_CHAR_WIDTH
+  if (right <= width) return { x: playheadX + LABEL_GAP, anchor: 'start', flipped: false, right }
+  return { x: playheadX - LABEL_GAP, anchor: 'end', flipped: true, right: playheadX - LABEL_GAP }
+}
+
+/**
+ * THE SAME RULE FOR THE SCALE'S OWN TICK LABELS. A tick label is CENTRED on
+ * its tick, so half of it hangs to the right — and the last tick sits at
+ * `width - AXIS_INSET` while its label is the longest of the five
+ * ("100 % of session"). At any width, half of sixteen mono characters is 49.6
+ * units against an inset of 40, so the end label overhung the drawing by ~10
+ * units at every size; it was invisible at 1000 and clipped at the viewport
+ * edge at 2560, which is where the operator found it.
+ *
+ * `AXIS_INSET` exists precisely so the end labels have room, and a centred
+ * label spends more of that room than there is. So a tick label whose right
+ * edge would leave the drawing anchors at its tick instead of straddling it,
+ * putting the whole label inside the track — the same measured decision the
+ * playhead's label makes, from the same character-count width.
+ *
+ * The left end needs no mirror of this today and does not get one on
+ * speculation: the first tick's label is "0 %", three characters whose half is
+ * 9.3 against the same 40 of inset. If a tick label ever grows long enough to
+ * reach past the left edge, this is where that rule belongs.
+ */
+export function tickLabelPlacement(tickX: number, text: string, width: number): AxisLabelPlacement {
+  const right = tickX + (text.length * LABEL_CHAR_WIDTH) / 2
+  if (right <= width) return { x: tickX, anchor: 'middle', flipped: false, right }
+  return { x: tickX, anchor: 'end', flipped: true, right: tickX }
+}
+
 export function SessionAxis({ checkpoints, seated, onSeat, failedArmsByCheckpoint = {}, onForkFromHere, width = 1000 }: SessionAxisProps) {
   const ordered = [...checkpoints].sort(compareByPosition)
   const seatedIndex = ordered.findIndex((checkpoint) => checkpoint.checkpointId === seated)
@@ -80,14 +150,29 @@ export function SessionAxis({ checkpoints, seated, onSeat, failedArmsByCheckpoin
       <div role="listbox" aria-label="the session, as one scale" tabIndex={0} onKeyDown={onKeyDown} className="focus-ring outline-none">
         <svg viewBox={`0 0 ${width} ${HEIGHT}`} className="block h-auto w-full" data-testid="axis-svg">
           <line x1={AXIS_INSET} y1={50} x2={width - AXIS_INSET} y2={50} stroke="var(--line-strong)" strokeWidth={1} />
-          {[0, 0.25, 0.5, 0.75, 1].map((tick) => (
-            <g key={tick}>
-              <line x1={axisXFor(tick, width)} y1={46} x2={axisXFor(tick, width)} y2={54} stroke="var(--line-strong)" strokeWidth={1} />
-              <text x={axisXFor(tick, width)} y={72} textAnchor="middle" fill="var(--ink-dim)" fontSize={10} fontFamily="var(--font-mono)">
-                {tick === 0 ? '0 %' : tick === 1 ? '100 % of session' : `${tick * 100}`}
-              </text>
-            </g>
-          ))}
+          {[0, 0.25, 0.5, 0.75, 1].map((tick) => {
+            const tickX = axisXFor(tick, width)
+            const label = tick === 0 ? '0 %' : tick === 1 ? '100 % of session' : `${tick * 100}`
+            const placement = tickLabelPlacement(tickX, label, width)
+            return (
+              <g key={tick}>
+                <line x1={tickX} y1={46} x2={tickX} y2={54} stroke="var(--line-strong)" strokeWidth={1} />
+                <text
+                  data-testid={`axis-tick-${tick}`}
+                  data-flipped={placement.flipped ? 'true' : 'false'}
+                  data-label-right={String(placement.right)}
+                  x={placement.x}
+                  y={72}
+                  textAnchor={placement.anchor}
+                  fill="var(--ink-dim)"
+                  fontSize={10}
+                  fontFamily="var(--font-mono)"
+                >
+                  {label}
+                </text>
+              </g>
+            )
+          })}
           {ordered.map((checkpoint) => {
             const x = markerX(checkpoint, width)
             const isSeated = checkpoint.checkpointId === seated
@@ -123,9 +208,29 @@ export function SessionAxis({ checkpoints, seated, onSeat, failedArmsByCheckpoin
             <g data-testid="axis-playhead" data-x={String(playheadX)}>
               <line x1={playheadX} y1={6} x2={playheadX} y2={HEIGHT - 4} stroke="var(--color-calm, var(--ink-primary))" strokeWidth={1.5} />
               <polygon points={`${playheadX - 6},6 ${playheadX + 6},6 ${playheadX},14`} fill="var(--color-calm, var(--ink-primary))" />
-              <text x={playheadX + 8} y={16} fill="var(--color-calm, var(--ink-primary))" fontSize={10} fontFamily="var(--font-mono)">
-                playhead · {playheadLabel}
-              </text>
+              {(() => {
+                // The label's placement is measured, not assumed: at the end of
+                // the session it flips to the left of its own line rather than
+                // hanging off the drawing (S1′). Both numbers ride on the
+                // element so the criterion can be read off the DOM.
+                const text = `playhead · ${playheadLabel}`
+                const placement = playheadLabelPlacement(playheadX, text, width)
+                return (
+                  <text
+                    data-testid="axis-playhead-label"
+                    data-flipped={placement.flipped ? 'true' : 'false'}
+                    data-label-right={String(placement.right)}
+                    x={placement.x}
+                    y={16}
+                    textAnchor={placement.anchor}
+                    fill="var(--color-calm, var(--ink-primary))"
+                    fontSize={10}
+                    fontFamily="var(--font-mono)"
+                  >
+                    {text}
+                  </text>
+                )
+              })()}
             </g>
           )}
         </svg>

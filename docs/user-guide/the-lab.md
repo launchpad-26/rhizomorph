@@ -214,10 +214,12 @@ Six sections, in this order (prd53 rulings 4, 5, 7 and 8; the specification is
    moment shares. A checkpoint whose length is unknown is drawn at the inset
    and named degraded. Seat a checkpoint and the frame below reads from it. <!-- claim: axis-one-function -->
 2. **The frame** — one switch over five ways of looking at the seated moment:
-   telemetry, cost, scene, divergence, footprint (keys 1–5). Telemetry and
-   footprint have no lab route to read yet and **state that gap** in place
-   rather than drawing a series from nothing. The scene position is the lane
-   canvas (below). <!-- claim: frame-five -->
+   telemetry, cost, scene, divergence, footprint (keys 1–5). Telemetry (1)
+   and footprint (5) read the lab's own routes the moment a checkpoint is
+   seated: a lane the fold has never seen, or a byte past the session's
+   length, is refused by name, and an empty reading draws its own sentence
+   too — refused and empty are sentences of their own, never blanks. The
+   scene position is the lane canvas (below). <!-- claim: frame-five -->
 3. **Checkpoints** — every checkpoint this repo has captured, one row each.
 4. **Launch** — the act itself: pick a checkpoint from the rows the engine
    actually holds, give each arm its own model — from this repo's list, or

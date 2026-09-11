@@ -167,6 +167,23 @@ const EXPECTED_READS: ReadonlyArray<{
     contractTest: 'lab-comparison.contract.test.ts',
     refusalShape: 'throws',
   },
+  // prd-55 ruling 6 (#402): the frame's two closed gaps, both read through
+  // `lab/frame.ts` and both proven, live/empty/refused, in the one file below
+  // — one contract test file may cover more than one route's row, and the
+  // "every expected contract test exists" check further down dedupes its
+  // filename list for exactly this reason.
+  {
+    route: '/api/lab/telemetry',
+    module: 'lab/frame.ts',
+    contractTest: 'lab-series.contract.test.ts',
+    refusalShape: 'swallows',
+  },
+  {
+    route: '/api/lab/footprint',
+    module: 'lab/frame.ts',
+    contractTest: 'lab-series.contract.test.ts',
+    refusalShape: 'swallows',
+  },
 ]
 
 /**
@@ -242,7 +259,13 @@ describe('every mutating module has a contract test (prd-24 ruling 2)', () => {
     const present = readdirSync(HERE)
       .filter((f) => f.endsWith('.contract.test.ts'))
       .sort()
-    const expectedAcrossBothAxes = [...EXPECTED.map((e) => e.contractTest), ...EXPECTED_READS.map((e) => e.contractTest)].sort()
+    // Deduped: prd-55 ruling 6 (#402) gives `/api/lab/telemetry` and
+    // `/api/lab/footprint` one row each in EXPECTED_READS, and both name the
+    // SAME file (`lab-series.contract.test.ts`) — one physical file proving
+    // two routes. `present` can only ever list that file once, so the union
+    // must be de-duplicated before the two are compared, or a real, fully
+    // covered file would fail this check by looking like a missing one.
+    const expectedAcrossBothAxes = [...new Set([...EXPECTED.map((e) => e.contractTest), ...EXPECTED_READS.map((e) => e.contractTest)])].sort()
 
     expect(present).toEqual(expectedAcrossBothAxes)
     expect(present.length).toBe(expectedAcrossBothAxes.length)
@@ -314,11 +337,12 @@ describe('every gated-read route has a contract test (prd-29 w3, #61) — the re
 
     // Every gated-read row ROUTE_CLASSES declares today — the un-filtered
     // parse, before this law's own deliberate exclusion is applied. A
-    // seventeenth row added tomorrow (covered or not) moves this floor, which
+    // twentieth row added tomorrow (covered or not) moves this floor, which
     // is the point: the number is derived from the parse, never hardcoded as
-    // a vacuity floor ruling 3 forbids.
+    // a vacuity floor ruling 3 forbids. 17 -> 19: prd-55 ruling 6's telemetry
+    // and footprint reads (#402), the frame's own two closed gaps.
     expect(allGatedReads.length).toBeGreaterThan(0)
-    expect(allGatedReads).toHaveLength(17)
+    expect(allGatedReads).toHaveLength(19)
 
     const excludedByThisLaw = allGatedReads.filter((route) => !declaredGatedReadRoutes().includes(route))
     expect(excludedByThisLaw).toEqual(['/api/stream'])

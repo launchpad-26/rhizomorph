@@ -2,7 +2,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { CAPABILITY_META_NAME } from '../recordings/capability.js'
 import type { FetchLike } from '../replay/api.js'
-import { LabPage } from './LabPage.js'
+import { AXIS_EMPTY_COPY } from './axis/index.js'
+import { LabPage, NO_CHECKPOINTS_COPY } from './LabPage.js'
 import type { LaunchFetchLike } from './launch/launch.js'
 import type { MeasureFetchLike } from './measure.js'
 
@@ -159,13 +160,14 @@ describe('LabPage', () => {
     expect(screen.getByTestId('lab-experiments-empty')).toBeInTheDocument()
   })
 
-  it('lists a captured checkpoint', async () => {
+  it('lists a captured checkpoint — one row in the rail, which is the whole listing since prd-55 ruling 8', async () => {
     render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [])} />)
 
-    await waitFor(() => expect(screen.getByTestId('lab-checkpoints-table')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTestId('lab-checkpoint-row-ckpt-1')).toBeInTheDocument())
     const row = screen.getByTestId('lab-checkpoint-row-ckpt-1')
     expect(row).toHaveTextContent('feature')
     expect(row).toHaveTextContent('operator')
+    expect(row).toHaveTextContent('30 % of session')
   })
 
   it('lists an experiment, its arms, and names when arms are cleanly controlled (ruling 2)', async () => {
@@ -357,9 +359,14 @@ describe('LabPage — the lab re-reads its own record when it has changed it (pr
     })) as unknown as LaunchFetchLike
     render(<LabPage fetchImpl={fetchImpl} launchFetchImpl={launchFetchImpl} />)
 
-    // Before: an honest empty page, in both places.
+    // Before: an honest empty page, in both regions — the rail says there is
+    // nothing to list, the stage says nothing is open. Metrics is the SELECTED
+    // experiment's reading now (ruling 8), so with nothing selected there is
+    // no Metrics tab to be empty: the emptiness is stated once, where the
+    // listing lives.
     await waitFor(() => expect(screen.getByTestId('lab-experiments-empty')).toBeInTheDocument())
-    expect(screen.getByTestId('metrics-empty')).toBeInTheDocument()
+    expect(screen.getByTestId('lab-stage-no-experiment')).toBeInTheDocument()
+    expect(screen.queryByTestId('metrics-empty')).toBeNull()
     expect(reads()).toBe(1)
 
     await waitFor(() => expect(screen.getByTestId('launch-checkpoint-ckpt-1')).toBeInTheDocument())
@@ -401,5 +408,288 @@ describe('LabPage — the lab re-reads its own record when it has changed it (pr
     await waitFor(() => expect(screen.getByTestId('measure-result-fork-1')).toBeInTheDocument())
     expect(measureFetchImpl).toHaveBeenCalledTimes(1)
     expect(reads()).toBe(2)
+  })
+})
+
+/** Two arms of three runs each, all judged the same way — the arm whose notes collapse. */
+const REPLICATE_EXPERIMENT = {
+  forkId: 'fork-4',
+  parentLane: 'feature',
+  checkpointId: 'ckpt-1',
+  arms: [1, 2].map((armNumber) => ({
+    arm: armNumber,
+    treatment: { model: armNumber === 1 ? 'opus' : 'sonnet', promptDigest: null },
+    runs: [1, 2, 3].map((runNumber) => ({
+      eventId: `evt-${armNumber}-${runNumber}`,
+      dispatchedAt: 1000 + runNumber,
+      run: runNumber,
+      laneHandle: `fork-4-arm-${armNumber}-run-${runNumber}`,
+      worktreePath: `/work/${armNumber}-${runNumber}`,
+      outcome: {
+        verified: 'pass',
+        verifiedDetail: null,
+        costUsd: null,
+        durationMs: null,
+        commits: null,
+        provenance: { source: 'measure-route', verifyCommand: 'npm test', measuredAt: 2000 },
+      },
+    })),
+  })),
+}
+
+/**
+ * prd-55 ruling 8's rearrangement, and ruling 9's insistence that every state
+ * of every region is drawn before the live one. Each of these renders one
+ * state and reads what the two regions say in it.
+ */
+describe('the workspace is one working screen (prd-55 ruling 8, S1-prime)', () => {
+  it('two regions: a rail that lists, and a stage whose top is pinned', async () => {
+    render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [CLEAN_EXPERIMENT])} />)
+    await waitFor(() => expect(screen.getByTestId('lab-rail')).toBeInTheDocument())
+
+    const pinned = screen.getByTestId('lab-stage-pinned')
+    expect(pinned.className, 'the axis and the frame do not scroll away').toContain('sticky')
+    expect(pinned.contains(screen.getByTestId('session-axis'))).toBe(true)
+    expect(pinned.contains(screen.getByTestId('frame'))).toBe(true)
+    expect(pinned.contains(screen.getByTestId('lab-tab-Compare')), 'the reading is not pinned; the top of the stage is').toBe(false)
+  })
+
+  it('THE CHECKPOINT TABLE RENDERS ONCE — the rail lists it, and the workspace does not repeat it (ruling 8)', async () => {
+    render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [CLEAN_EXPERIMENT])} />)
+    await waitFor(() => expect(screen.getByTestId('lab-checkpoint-row-ckpt-1')).toBeInTheDocument())
+
+    expect(document.querySelectorAll('[data-checkpoint-row]'), 'one row per checkpoint, in one listing').toHaveLength(1)
+    expect(screen.queryByTestId('lab-checkpoints-table'), 'the Stage 1 table is gone, not drawn beside the rail').toBeNull()
+    expect(screen.getAllByTestId('lab-checkpoint-row-ckpt-1')).toHaveLength(1)
+  })
+
+  it("and the launch's step 1 reuses the rail's selection rather than repeating the table", async () => {
+    render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [])} />)
+    await waitFor(() => expect(screen.getByTestId('lab-checkpoint-row-ckpt-1')).toBeInTheDocument())
+
+    await click(screen.getByTestId('lab-checkpoint-row-ckpt-1'))
+
+    expect(screen.getByTestId('lab-checkpoint-row-ckpt-1').getAttribute('aria-pressed')).toBe('true')
+    await waitFor(() => expect((screen.getByTestId('launch-checkpoint-ckpt-1').querySelector('input') as HTMLInputElement).checked).toBe(true))
+  })
+
+  it('the empty sentence is ONE sentence in two regions — the rail says how to capture a checkpoint in the axis own words', () => {
+    expect(NO_CHECKPOINTS_COPY, 'executed: the page and the axis say the same thing').toBe(AXIS_EMPTY_COPY)
+  })
+
+  it('state — no checkpoints: the rail says how to capture one, and the axis is empty with the sentence', async () => {
+    render(<LabPage fetchImpl={fetchImplFor([], [])} />)
+    await waitFor(() => expect(screen.getByTestId('lab-checkpoints-empty')).toBeInTheDocument())
+
+    expect(screen.getByTestId('lab-checkpoints-empty').textContent).toBe(NO_CHECKPOINTS_COPY)
+    expect(screen.getByTestId('axis-empty').textContent).toBe(AXIS_EMPTY_COPY)
+    expect(screen.queryByTestId('lab-checkpoints-error')).toBeNull()
+  })
+
+  it('state — checkpoints but no experiments: the rail lists them, and the frame reads seat the playhead', async () => {
+    render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [])} />)
+    await waitFor(() => expect(screen.getByTestId('lab-checkpoint-row-ckpt-1')).toBeInTheDocument())
+
+    expect(screen.getByTestId('lab-experiments-empty')).toBeInTheDocument()
+    expect(screen.getByTestId('frame').textContent).toContain('seat the playhead')
+    expect(screen.getByTestId('lab-stage-no-experiment')).toBeInTheDocument()
+    expect(screen.queryByRole('tablist'), 'there is no reading to tab between').toBeNull()
+  })
+
+  it('state — an experiment selected: the tabs are live, and the rail row is the raised one', async () => {
+    render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [CLEAN_EXPERIMENT])} />)
+    await waitFor(() => expect(screen.getByTestId('lab-experiment-fork-1')).toBeInTheDocument())
+
+    expect(screen.getByTestId('lab-experiment-row-fork-1').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('tablist')).toBeInTheDocument()
+    expect(screen.getByTestId('lab-tabpanel-Compare').hidden).toBe(false)
+    expect(screen.getByTestId('lab-tabpanel-Metrics').hidden).toBe(true)
+  })
+
+  it('state — partial: the rail row carries 2 of 3 arms', async () => {
+    const outcome = {
+      forkId: 'fork-1',
+      parentLane: 'feature',
+      checkpointId: 'ckpt-1',
+      arms: [{ arm: 1, model: 'opus', briefProvided: false, forkId: 'fork-1', laneHandle: 'fork-1-arm-1', worktreePath: '/tmp/arm-1', launched: true }],
+      failed: { arm: 3, error: 'workmux: tmux server not running' },
+      requestedArms: 3,
+    }
+    render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [CLEAN_EXPERIMENT])} seedLaunchOutcomes={[outcome]} />)
+    await waitFor(() => expect(screen.getByTestId('lab-rail-partial-fork-1')).toBeInTheDocument())
+
+    expect(screen.getByTestId('lab-rail-partial-fork-1').textContent).toBe('2 of 3 arms')
+  })
+
+  it('state — loading and error, per region, never conflated', async () => {
+    const { unmount } = render(<LabPage fetchImpl={fetchImplFor([], [], false, 500)} />)
+    await waitFor(() => expect(screen.getByTestId('lab-rail-experiments-error')).toBeInTheDocument())
+    // The rail names the failure; the stage carries its reason. Neither says empty.
+    expect(screen.getByTestId('lab-checkpoints-error').textContent).toContain('the lab cannot see its checkpoints')
+    expect(screen.getByTestId('lab-experiments-error').textContent).toContain('the lab cannot see its experiments — /api/lab/experiments responded 500')
+    expect(screen.queryByTestId('lab-experiments-empty')).toBeNull()
+    expect(screen.queryByTestId('lab-stage-no-experiment')).toBeNull()
+    unmount()
+
+    // A read still in flight says so, in both regions, and claims nothing.
+    render(<LabPage fetchImpl={(() => new Promise(() => {})) as unknown as FetchLike} />)
+    expect(screen.getByTestId('lab-rail-checkpoints-loading')).toBeInTheDocument()
+    expect(screen.getByTestId('lab-experiments-loading')).toBeInTheDocument()
+    expect(screen.queryByTestId('lab-checkpoints-empty')).toBeNull()
+  })
+})
+
+describe('Compare, Trace and Metrics are tabs, not a stack (prd-55 ruling 8, S1-prime)', () => {
+  async function openWorkspace() {
+    render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [MEASURED_EXPERIMENT])} />)
+    await waitFor(() => expect(screen.getByTestId('lab-experiment-fork-3')).toBeInTheDocument())
+  }
+
+  it('the strip is a role=tablist whose panels follow the tabpanel pattern', async () => {
+    await openWorkspace()
+
+    expect(screen.getByRole('tablist')).toBeInTheDocument()
+    const tabs = screen.getAllByRole('tab')
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['Compare', 'Trace', 'Metrics'])
+    for (const tab of tabs) {
+      const panel = document.getElementById(tab.getAttribute('aria-controls') as string)
+      expect(panel, `${tab.textContent} controls a panel`).not.toBeNull()
+      expect(panel?.getAttribute('role')).toBe('tabpanel')
+      expect(panel?.getAttribute('aria-labelledby')).toBe(tab.id)
+    }
+  })
+
+  it('ARROW KEYS move between them, Home/End reach the ends, and only the selected tab is a tab stop', async () => {
+    await openWorkspace()
+
+    const [compare, trace] = screen.getAllByRole('tab')
+    expect(compare?.getAttribute('aria-selected')).toBe('true')
+    expect(compare?.getAttribute('tabindex')).toBe('0')
+    expect(trace?.getAttribute('tabindex')).toBe('-1')
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole('tablist'), { key: 'ArrowRight' })
+    })
+    expect(screen.getByTestId('lab-tab-Trace').getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('lab-tabpanel-Trace').hidden).toBe(false)
+    expect(screen.getByTestId('lab-tabpanel-Compare').hidden).toBe(true)
+    expect(document.activeElement, 'focus follows the selection, as a tablist does').toBe(screen.getByTestId('lab-tab-Trace'))
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole('tablist'), { key: 'ArrowLeft' })
+    })
+    expect(screen.getByTestId('lab-tab-Compare').getAttribute('aria-selected')).toBe('true')
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole('tablist'), { key: 'End' })
+    })
+    expect(screen.getByTestId('lab-tab-Metrics').getAttribute('aria-selected')).toBe('true')
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole('tablist'), { key: 'Home' })
+    })
+    expect(screen.getByTestId('lab-tab-Compare').getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('the arrow wraps at both ends, so the strip is a ring rather than a dead stop', async () => {
+    await openWorkspace()
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole('tablist'), { key: 'ArrowLeft' })
+    })
+    expect(screen.getByTestId('lab-tab-Metrics').getAttribute('aria-selected')).toBe('true')
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole('tablist'), { key: 'ArrowRight' })
+    })
+    expect(screen.getByTestId('lab-tab-Compare').getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('every reading is of the SELECTED experiment — Metrics reads the one on the stage, not every experiment there is', async () => {
+    render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [MEASURED_EXPERIMENT, CLEAN_EXPERIMENT])} />)
+    await waitFor(() => expect(screen.getByTestId('lab-experiment-fork-3')).toBeInTheDocument())
+
+    expect(screen.getByTestId('metrics-row-fork-3')).toBeInTheDocument()
+    expect(screen.queryByTestId('metrics-row-fork-1')).toBeNull()
+
+    await click(screen.getByTestId('lab-experiment-row-fork-1'))
+
+    expect(screen.getByTestId('metrics-row-fork-1')).toBeInTheDocument()
+    expect(screen.queryByTestId('metrics-row-fork-3')).toBeNull()
+  })
+})
+
+describe('the Trace control is reachable from the frame divergence position as well as the tab (prd-55 ruling 8)', () => {
+  it('the frame carries its own control at position 4, and it drives the same open run the tab does', async () => {
+    render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [MEASURED_EXPERIMENT])} />)
+    await waitFor(() => expect(screen.getByTestId('lab-experiment-fork-3')).toBeInTheDocument())
+
+    // Not at the cost position: the control belongs to divergence.
+    expect(screen.queryByTestId('lab-frame-trace-control')).toBeNull()
+
+    await click(screen.getByTestId('frame-position-4'))
+    expect(screen.getByTestId('lab-frame-trace-control')).toBeInTheDocument()
+
+    await click(screen.getByTestId('lab-frame-trace-open-fork-3-arm-1'))
+
+    // ONE open run, two controls: the tab's control agrees with the frame's,
+    // because both press the same state.
+    expect(screen.getByTestId('lab-frame-trace-open-fork-3-arm-1').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('lab-trace-open-fork-3-arm-1').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.queryByTestId('lab-trace-none-open')).toBeNull()
+  })
+
+  it('and the trace reads while another tab is the reading on screen — divergence populates without opening the Trace tab (S3-prime)', async () => {
+    render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [MEASURED_EXPERIMENT])} />)
+    await waitFor(() => expect(screen.getByTestId('lab-experiment-fork-3')).toBeInTheDocument())
+
+    await click(screen.getByTestId('frame-position-4'))
+    await click(screen.getByTestId('lab-frame-trace-open-fork-3-arm-1'))
+
+    // Compare is still the visible reading; Trace is mounted and reading.
+    expect(screen.getByTestId('lab-tab-Compare').getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('lab-tabpanel-Trace').hidden).toBe(true)
+    await waitFor(() => expect(screen.getByTestId('lab-tabpanel-Trace').textContent).not.toBe(''))
+  })
+
+  it('opening another experiment closes the trace — a divergence figure never outlives the run it was read from', async () => {
+    render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [MEASURED_EXPERIMENT, CLEAN_EXPERIMENT])} />)
+    await waitFor(() => expect(screen.getByTestId('lab-experiment-fork-3')).toBeInTheDocument())
+
+    await click(screen.getByTestId('lab-tab-Trace'))
+    await click(screen.getByTestId('lab-trace-open-fork-3-arm-1'))
+    expect(screen.queryByTestId('lab-trace-none-open')).toBeNull()
+
+    await click(screen.getByTestId('lab-experiment-row-fork-1'))
+
+    expect(screen.getByTestId('lab-trace-none-open')).toBeInTheDocument()
+  })
+})
+
+describe('the workspace holds its Stage 1 laws through the rearrangement', () => {
+  it('no native title attribute anywhere on the workspace (#220, prd-30 w1)', async () => {
+    render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [MEASURED_EXPERIMENT])} />)
+    await waitFor(() => expect(screen.getByTestId('lab-experiment-fork-3')).toBeInTheDocument())
+
+    expect(document.querySelectorAll('[title]')).toHaveLength(0)
+  })
+
+  it('a run identical notes collapse to one line per arm, on the page as well as in the surface (ruling 8)', async () => {
+    render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [REPLICATE_EXPERIMENT])} />)
+    await waitFor(() => expect(screen.getByTestId('lab-experiment-fork-4')).toBeInTheDocument())
+
+    for (const dots of screen.getAllByTestId('run-dots')) {
+      const notes = [...dots.children].map((line) => line.textContent)
+      expect(new Set(notes).size, `a note was printed twice in one arm: ${notes.join(' | ')}`).toBe(notes.length)
+      expect(notes[0]).toContain('3 runs · all passed')
+    }
+  })
+
+  it('the rail counts and the comparison below them agree about how many runs were judged', async () => {
+    render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [MEASURED_EXPERIMENT])} />)
+    await waitFor(() => expect(screen.getByTestId('lab-experiment-fork-3')).toBeInTheDocument())
+
+    // fork-3: one run passed, one `not-run` — judged by nobody, so unmeasured.
+    expect(screen.getByTestId('lab-experiment-row-fork-3')).toHaveTextContent('1 passed · 0 failed · 1 unmeasured')
+    expect(screen.getByTestId('lab-experiment-row-fork-3')).toHaveTextContent('2 arms · 2 runs')
   })
 })

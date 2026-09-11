@@ -76,3 +76,48 @@ export function toBranchingArms(experiment: LabExperiment): ArmInput[] {
 export function experimentHasOutcome(experiment: LabExperiment): boolean {
   return experiment.arms.some((arm) => arm.runs.some((run) => run.outcome !== undefined))
 }
+
+/**
+ * What one experiment's RAIL ROW says (prd-55 ruling 8): arms · runs · verdict
+ * counts. Counted here rather than in the rail so the row cannot disagree with
+ * the comparison the stage draws beside it — whether a run has been judged is
+ * core's call (`isCompletedVerdict`), the same predicate
+ * `compare/fromExperiment.ts` and `metrics/spend.ts` ask, and
+ * `floor-agreement-law.test.ts` keeps all of them to that one spelling. A run
+ * nobody has measured and a run whose gate never ran are ONE bucket here for
+ * the same reason they are one bucket there: no gate judged either, so neither
+ * has a verdict to count.
+ *
+ * `arms` is the arms ON THE RECORD — the ones that dispatched. An arm the
+ * launch asked for that never dispatched is not here at all: it is a
+ * launch-time fact the page threads separately (ruling 7), and the rail row's
+ * *k of N arms* line is built from the two together in `rail/rows.ts`.
+ */
+export interface ExperimentRowCounts {
+  /** Arms on the record — dispatched arms, never the count a launch requested. */
+  arms: number
+  /** Recorded runs across every arm (prd53 ruling 1: r runs of one arm). */
+  runs: number
+  passed: number
+  failed: number
+  /** Runs no gate has judged — unmeasured, or judged not to have run at all. */
+  unmeasured: number
+}
+
+export function experimentRowCounts(experiment: LabExperiment): ExperimentRowCounts {
+  const counts: ExperimentRowCounts = { arms: experiment.arms.length, runs: 0, passed: 0, failed: 0, unmeasured: 0 }
+  for (const arm of experiment.arms) {
+    for (const run of arm.runs) {
+      counts.runs += 1
+      const outcome = run.outcome
+      if (outcome === undefined || !isCompletedVerdict(outcome.verified)) {
+        counts.unmeasured += 1
+      } else if (outcome.verified === 'pass') {
+        counts.passed += 1
+      } else {
+        counts.failed += 1
+      }
+    }
+  }
+  return counts
+}
