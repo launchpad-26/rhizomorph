@@ -413,6 +413,57 @@ describe('selectConnection — otel.firstEventTs, the issue\'s stated law', () =
     const withRefusal = selectConnection(reduceAll([...flowed, refusal('theirs', 1, 4_000)])).otel
     expect(withRefusal).toEqual(without)
   })
+
+  /**
+   * THE SECOND EXCLUSION, and it is the refusal's sibling rather than a new
+   * kind of rule (prd55 ruling 1, #430). `llm.cost` may now be signed `lab`:
+   * the R&D hand books what its own `claude -p` call cost, which is real spend
+   * and reaches the ledger like any other dollar. It is not FLOW. Nothing
+   * external is wired by the operator invoking the instrument's own second
+   * hand, and counting it here would report the instrument's own pulse as data
+   * arriving — the same lie `system` is excluded for, and the same lie ruling 4
+   * removed when it retired `sourceStatus(undefined) → 'live'`.
+   *
+   * This file's `CONNECTION_SOURCES` doc already promised exactly this, before
+   * the lab could book anything: *"The `lab` and `judge` hands are absent for
+   * the same reason: both are explicitly invoked by us."* The law is here so
+   * the promise cannot quietly stop being true.
+   */
+  it('never counts a cost the lab booked as flow from any source — an invoked hand is not a wired link', () => {
+    const state = reduceAll([f.llmCost({ lane: 'rd-lane', costUsd: 0.0421 }, { ts: 5_000, source: 'lab' })])
+
+    // The dollars really are folded — this is not a test of the fold dropping them.
+    expect(state.telemetry.costs).toHaveLength(1)
+    expect(state.telemetry.costs[0]?.origin).toBe('lab')
+
+    const connection = selectConnection(state)
+    for (const source of CONNECTION_SOURCES) {
+      expect(connection[source], source).toEqual({
+        source,
+        firstEventTs: null,
+        lastEventTs: null,
+        count: 0,
+      })
+    }
+  })
+
+  it('leaves the collectors\' own windows byte-identical when a lab cost lands beside them', () => {
+    const collected = [
+      f.llmCost({ lane: 'a', sessionId: 'sess-a' }, { ts: 2_000 }),
+      f.llmUsage({ lane: 'a', requestId: 'req-1', sessionId: 'sess-a' }, { ts: 3_000 }),
+    ]
+    const without = selectConnection(reduceAll(collected))
+    const withLabCost = selectConnection(
+      reduceAll([...collected, f.llmCost({ lane: 'rd-lane', costUsd: 1 }, { ts: 4_000, source: 'lab' })]),
+    )
+
+    expect(withLabCost.otel).toEqual(without.otel)
+    expect(withLabCost.sessionlog).toEqual(without.sessionlog)
+    // Not merely equal — unmoved: the lab's later timestamp did not extend
+    // either window, which is the way a silently folded record would show.
+    expect(withLabCost.otel.lastEventTs).toBe(2_000)
+    expect(withLabCost.sessionlog.lastEventTs).toBe(3_000)
+  })
 })
 
 describe('selectConnection — the uninstrumented conductor (the PRD\'s evidence case)', () => {
