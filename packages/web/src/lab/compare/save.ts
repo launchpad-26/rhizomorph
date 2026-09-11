@@ -12,9 +12,15 @@
  * same capability token, because a save is a real write to durable state; and
  * it is reached only from an EXPLICIT OPERATOR ACT — the save control this
  * issue adds to `ExperimentComparison`, never a background poll or a timer.
- * Its payload is the whole `ComparisonInput` the surface is currently
- * showing — nothing the server does not already accept from
- * `parseComparisonInput` (ADR-0042).
+ *
+ * PRD-14 RULING 6: the whole `ComparisonInput` the surface is currently
+ * showing now carries its own `measure`, `provenance`, and every run's
+ * `cost`/`duration`/`commits` too (`fromExperiment.ts`) — the SAME `input`
+ * this call has always sent whole, unwidened at THIS boundary (the body is
+ * still exactly `{ input }`; nothing new was added beside it). The server
+ * reads `input.measure` to tell a v2-capable save from an older, plain
+ * `ComparisonInput` with no `measure` at all (a hand-built one, or a test),
+ * which still lands a v1 artifact, unchanged behaviour.
  */
 
 import { missingTokenMessage, staleTokenMessage } from '../../recordings/capability-guidance.js'

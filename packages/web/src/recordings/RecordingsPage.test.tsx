@@ -287,7 +287,7 @@ describe('RecordingsPage', () => {
 
   describe('comparisons (prd-14 ruling 5, #214)', () => {
     const AVAILABLE = { id: 'c1', sizeBytes: 512, available: true, savedAt: '2026-09-01T00:00:00.000Z', arms: 2 }
-    const REFUSED = { id: 'c2', sizeBytes: 64, available: false, reason: 'unsupported comparison artifact version: 2' }
+    const REFUSED = { id: 'c2', sizeBytes: 64, available: false, reason: 'unsupported comparison artifact version: 3' }
     const ARTIFACT = {
       version: 1,
       savedAt: '2026-09-01T00:00:00.000Z',
@@ -327,7 +327,7 @@ describe('RecordingsPage', () => {
       renderPage({ comparisons: [REFUSED] })
       await waitFor(() => expect(screen.getByTestId('comparisons-table')).toBeInTheDocument())
 
-      expect(screen.getByTestId('comparison-refused-c2')).toHaveTextContent('unsupported comparison artifact version: 2')
+      expect(screen.getByTestId('comparison-refused-c2')).toHaveTextContent('unsupported comparison artifact version: 3')
       expect(screen.queryByTestId('comparison-open-c2')).toBeNull()
     })
 
@@ -455,15 +455,105 @@ describe('RecordingsPage', () => {
     it("an artifact from an older format version puts the parser's refusal on screen BY NAME when reopened — never an empty state, never a console error", async () => {
       renderPage({
         comparisons: [AVAILABLE],
-        comparisonReads: { c1: { id: 'c1', available: false, reason: 'unsupported comparison artifact version: 2' } },
+        comparisonReads: { c1: { id: 'c1', available: false, reason: 'unsupported comparison artifact version: 3' } },
       })
       await waitFor(() => expect(screen.getByTestId('comparisons-table')).toBeInTheDocument())
 
       await click(screen.getByTestId('comparison-open-c1'))
 
       await waitFor(() => expect(screen.getByTestId('comparison-open-refused')).toBeInTheDocument())
-      expect(screen.getByTestId('comparison-open-refused')).toHaveTextContent('unsupported comparison artifact version: 2')
+      expect(screen.getByTestId('comparison-open-refused')).toHaveTextContent('unsupported comparison artifact version: 3')
       expect(screen.queryByTestId('comparison-surface')).toBeNull()
+    })
+
+    /**
+     * PRD14 RULING 6: a v2 artifact restores the measure switch on a
+     * REOPENED comparison — the whole point of storing facts instead of one
+     * resolved value. Switching to `duration` here must re-derive through
+     * `runForMeasure` and show the durations this artifact actually carries,
+     * not the `cost` it opened on.
+     */
+    it('a v2 comparison reopens with a real measure switch, and switching measure re-derives the summary from the stored facts', async () => {
+      const V2_ARTIFACT = {
+        version: 2,
+        savedAt: '2026-09-11T00:00:00.000Z',
+        measure: 'cost',
+        provenance: { verifyCommand: 'npm test', source: 'compare-cli', measuredAt: 1000 },
+        input: {
+          arms: [
+            {
+              id: 'a1',
+              model: 'opus',
+              brief: 'x',
+              runs: [
+                { id: 'r1', status: 'complete', verdict: 'pass', cost: 4, duration: 900, commits: 2 },
+                { id: 'r2', status: 'complete', verdict: 'pass', cost: 6, duration: 700, commits: 1 },
+                { id: 'r3', status: 'complete', verdict: 'pass', cost: 8, duration: 500, commits: 3 },
+              ],
+            },
+          ],
+        },
+      }
+      renderPage({
+        comparisons: [AVAILABLE],
+        comparisonReads: { c1: { id: 'c1', available: true, artifact: V2_ARTIFACT } },
+      })
+      await waitFor(() => expect(screen.getByTestId('comparisons-table')).toBeInTheDocument())
+
+      await click(screen.getByTestId('comparison-open-c1'))
+
+      await waitFor(() => expect(screen.getByTestId('comparison-surface')).toBeInTheDocument())
+      expect(screen.getByTestId('comparison-surface').getAttribute('data-measure')).toBe('cost')
+      expect(screen.getByTestId('measure-switch')).toBeInTheDocument()
+      expect(screen.getByTestId('arm-spread')).toHaveTextContent('min 4 · median 6 · max 8')
+
+      await click(screen.getByTestId('measure-duration'))
+
+      expect(screen.getByTestId('comparison-surface').getAttribute('data-measure')).toBe('duration')
+      expect(screen.getByTestId('arm-spread')).toHaveTextContent('min 500 · median 700 · max 900')
+    })
+
+    /**
+     * PRD14 RULING 6's second certified mutation: a v2 artifact whose
+     * `measure` was dropped (never written, or stripped after the fact)
+     * still READS — the surface falls back to the same verdict-only,
+     * no-summary treatment a v1 artifact has always had, and never guesses a
+     * basis.
+     */
+    it('a v2 comparison with its measure dropped falls back to the v1 no-summary path, and offers no switch', async () => {
+      const V2_NO_MEASURE = {
+        version: 2,
+        savedAt: '2026-09-11T00:00:00.000Z',
+        input: {
+          arms: [
+            {
+              id: 'a1',
+              model: 'opus',
+              brief: 'x',
+              runs: [
+                { id: 'r1', status: 'complete', verdict: 'pass', cost: 4, duration: 900, commits: 2 },
+                { id: 'r2', status: 'complete', verdict: 'pass', cost: 6, duration: 700, commits: 1 },
+                { id: 'r3', status: 'complete', verdict: 'pass', cost: 8, duration: 500, commits: 3 },
+              ],
+            },
+          ],
+        },
+      }
+      renderPage({
+        comparisons: [AVAILABLE],
+        comparisonReads: { c1: { id: 'c1', available: true, artifact: V2_NO_MEASURE } },
+      })
+      await waitFor(() => expect(screen.getByTestId('comparisons-table')).toBeInTheDocument())
+
+      await click(screen.getByTestId('comparison-open-c1'))
+
+      await waitFor(() => expect(screen.getByTestId('comparison-surface')).toBeInTheDocument())
+      expect(screen.getByTestId('comparison-surface').hasAttribute('data-measure')).toBe(false)
+      expect(screen.queryByTestId('measure-switch')).toBeNull()
+      expect(screen.getByTestId('comparison-basis').textContent).toMatch(/measure not recorded/)
+      expect(screen.getByTestId('arm-basis-unknown')).toBeInTheDocument()
+      expect(screen.getByTestId('run-dots').textContent).toContain('passed')
+      expect(screen.getByTestId('run-dots').textContent).not.toContain('4')
     })
   })
 })

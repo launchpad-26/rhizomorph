@@ -38,6 +38,24 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Added
 
+- **A saved comparison carries the measure and the facts that judged it, and
+  the measure switch works again on reopen (prd-14 ruling 6, wave 4, #347).**
+  A `version: 2` comparison artifact stores, per run, `{ verdict, detail?,
+  cost, duration, commits }` — the compare surface's own vocabulary, never the
+  server's `LabRunOutcomeDTO` — and, per artifact, the `measure` that was
+  showing at save time and the gate's own `provenance` (`verifyCommand`,
+  `source`, `measuredAt`). Reopening one re-derives through `runForMeasure`,
+  the SAME function the live surface uses, so cost/duration/commits/verified
+  are all switchable on a reopened comparison, which `version: 1` could never
+  offer. A `version: 1` artifact is still READ, not migrated — the measure is
+  unrecoverable from it, so there is no upcast — and it keeps the existing
+  "measure not recorded" voice; a `version: 2` artifact whose measure was
+  dropped falls back to that same voice rather than guessing a basis. Version
+  3 and above still refuse by name. Both parser copies
+  (`packages/web/src/lab/compare/artifact.ts`,
+  `packages/server/src/comparisons/artifact.ts`) moved together, proven by the
+  shared fixture and the two agreement laws (ADR-0049).
+
 - **The shipper, the fifth hand (`rhizomorph connect team`)** — off by
   default and per repo. Once enabled by that explicit command, a batch timer
   run in the foreground by `rhizomorph connect team --ship` tails this repo's

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { fetchComparison, fetchComparisons, type FetchLike } from './comparisons.js'
 
 const AVAILABLE_ROW = { id: '1000', sizeBytes: 512, available: true, savedAt: '2026-09-01T00:00:00.000Z', arms: 2 }
-const REFUSED_ROW = { id: '2000', sizeBytes: 64, available: false, reason: 'unsupported comparison artifact version: 2' }
+const REFUSED_ROW = { id: '2000', sizeBytes: 64, available: false, reason: 'unsupported comparison artifact version: 3' }
 
 const ARTIFACT = {
   version: 1,
@@ -62,9 +62,9 @@ describe('fetchComparison', () => {
   it("resolves to available:false with the server's own reason — never a throw", async () => {
     const result = await fetchComparison(
       '2000',
-      answering({ id: '2000', available: false, reason: 'unsupported comparison artifact version: 2' }),
+      answering({ id: '2000', available: false, reason: 'unsupported comparison artifact version: 3' }),
     )
-    expect(result).toEqual({ id: '2000', available: false, reason: 'unsupported comparison artifact version: 2' })
+    expect(result).toEqual({ id: '2000', available: false, reason: 'unsupported comparison artifact version: 3' })
   })
 
   /**
@@ -74,11 +74,24 @@ describe('fetchComparison', () => {
    * exact same `available: false` shape a server-side refusal does — the
    * sibling case this issue's Definition of done names, proven rather than
    * assumed. A parser that instead threw here would still pass every OTHER
-   * test in this file; only this one would catch it.
+   * test in this file; only this one would catch it. `version: 3` (not the
+   * `2` this test used before ruling 6) — 2 is now a real, accepted version.
    */
   it("a version this client's own parser refuses — even one the server called available — resolves the same way a server-side refusal does", async () => {
-    const result = await fetchComparison('3000', answering({ id: '3000', available: true, artifact: { version: 2 } }))
-    expect(result).toEqual({ id: '3000', available: false, reason: 'unsupported comparison artifact version: 2' })
+    const result = await fetchComparison('3000', answering({ id: '3000', available: true, artifact: { version: 3 } }))
+    expect(result).toEqual({ id: '3000', available: false, reason: 'unsupported comparison artifact version: 3' })
+  })
+
+  it('parses an available v2 artifact by id, measure/provenance/per-run facts and all (prd14 ruling 6)', async () => {
+    const v2Artifact = {
+      version: 2,
+      savedAt: '2026-09-11T00:00:00.000Z',
+      measure: 'cost',
+      provenance: { verifyCommand: 'npm test', source: 'compare-cli', measuredAt: 1000 },
+      input: { arms: [{ id: 'a1', model: 'opus', brief: 'x', runs: [{ id: 'r1', status: 'complete', verdict: 'pass', cost: 4, duration: 900, commits: 2 }] }] },
+    }
+    const result = await fetchComparison('4000', answering({ id: '4000', available: true, artifact: v2Artifact }))
+    expect(result).toEqual({ id: '4000', available: true, artifact: v2Artifact })
   })
 
   it('throws with the status on a non-ok response (a gate refusal), never swallowed', async () => {

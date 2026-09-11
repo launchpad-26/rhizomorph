@@ -1927,7 +1927,7 @@ describe('POST/GET /api/lab/comparisons (prd-14 ruling 5, #213)', () => {
     expect((malformed.json() as { error: string }).error).toBe('comparison id must be a UUID')
   })
 
-  it("the issue's mutation, through the route: a version-2 rewrite refuses by name, on both the by-id read and the listing", async () => {
+  it("the issue's mutation, through the route: a version-3 rewrite refuses by name, on both the by-id read and the listing (moved from 2 to 3 since prd14 ruling 6 made 2 a real, accepted version)", async () => {
     const app = makeApp()
     const post = await app.inject({
       method: 'POST',
@@ -1939,16 +1939,62 @@ describe('POST/GET /api/lab/comparisons (prd-14 ruling 5, #213)', () => {
 
     const filePath = path.join(sessionDir, 'comparisons', `comparison-${id}.json`)
     const before = readFileSync(filePath, 'utf8')
-    await writeFile(filePath, before.replace('"version": 1', '"version": 2'), 'utf8')
+    await writeFile(filePath, before.replace('"version": 1', '"version": 3'), 'utf8')
 
     const read = await app.inject({ method: 'GET', url: `/api/lab/comparisons/${id}`, headers: authorised(app) })
     expect(read.statusCode).toBe(200)
-    expect(read.json()).toEqual({ id, available: false, reason: 'unsupported comparison artifact version: 2' })
+    expect(read.json()).toEqual({ id, available: false, reason: 'unsupported comparison artifact version: 3' })
 
     const list = await app.inject({ method: 'GET', url: '/api/lab/comparisons', headers: authorised(app) })
     expect(list.json()).toEqual({
-      comparisons: [{ id, available: false, reason: 'unsupported comparison artifact version: 2', sizeBytes: expect.any(Number) }],
+      comparisons: [{ id, available: false, reason: 'unsupported comparison artifact version: 3', sizeBytes: expect.any(Number) }],
     })
+  })
+
+  it("the app also saves a v2 artifact when the body's input carries a measure, and reads it back with every run fact intact (prd14 ruling 6)", async () => {
+    const app = makeApp()
+    const provenance = { verifyCommand: 'npm test', source: 'compare-cli', measuredAt: 1000 }
+    // `measure`/`provenance` ride inside `input` on the wire, same as `save.ts`
+    // sends them (the body is still exactly `{ input }`) — the route extracts
+    // them from there, and what gets STORED strips them back out of `.input`
+    // to the artifact's own top level.
+    const wireInput = {
+      arms: [{ id: 'a1', model: 'opus', brief: 'x', runs: [{ id: 'r1', status: 'complete', verdict: 'pass', cost: 4, duration: 900, commits: 2 }] }],
+      measure: 'cost',
+      provenance,
+    }
+    const post = await app.inject({
+      method: 'POST',
+      url: '/api/lab/comparisons',
+      headers: authorised(app),
+      payload: { input: wireInput },
+    })
+    expect(post.statusCode).toBe(200)
+    const { id, savedAt } = post.json() as { id: string; savedAt: string }
+
+    const read = await app.inject({ method: 'GET', url: `/api/lab/comparisons/${id}`, headers: authorised(app) })
+    expect(read.json()).toEqual({
+      id,
+      available: true,
+      artifact: { version: 2, savedAt, measure: 'cost', provenance, input: { arms: wireInput.arms } },
+    })
+  })
+
+  it('a v2 save with a malformed run field refuses by name, exactly as the v1 route does', async () => {
+    const app = makeApp()
+    const post = await app.inject({
+      method: 'POST',
+      url: '/api/lab/comparisons',
+      headers: authorised(app),
+      payload: {
+        input: {
+          arms: [{ id: 'a1', model: 'opus', brief: 'x', runs: [{ id: 'r1', status: 'complete', verdict: 'pass', cost: '4', duration: 1, commits: 1 }] }],
+          measure: 'cost',
+        },
+      },
+    })
+    expect(post.statusCode).toBe(400)
+    expect((post.json() as { error: string }).error).toBe('complete run r1 has a cost field that is neither a number nor null')
   })
 })
 

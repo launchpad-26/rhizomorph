@@ -60,7 +60,7 @@ describe('contract: the saved-comparisons listing is gated (prd-14 ruling 5)', (
     )
     await writeFile(
       path.join(dir, 'comparison-00000000-0000-4000-8000-000000000002.json'),
-      JSON.stringify({ version: 2 }),
+      JSON.stringify({ version: 3 }),
       'utf8',
     )
 
@@ -72,8 +72,27 @@ describe('contract: the saved-comparisons listing is gated (prd-14 ruling 5)', (
         id: '00000000-0000-4000-8000-000000000002',
         sizeBytes: expect.any(Number),
         available: false,
-        reason: 'unsupported comparison artifact version: 2',
+        reason: 'unsupported comparison artifact version: 3',
       },
+    ])
+  })
+
+  it('a v2 comparison is listed exactly like a v1 one — the listing does not care which format version an available row is (prd14 ruling 6)', async () => {
+    const dir = path.join(h.sessionDir, 'comparisons')
+    await mkdir(dir, { recursive: true })
+    const artifact = {
+      version: 2,
+      savedAt: '2026-09-11T00:00:00.000Z',
+      measure: 'cost',
+      provenance: { verifyCommand: 'npm test', source: 'compare-cli', measuredAt: 1000 },
+      input: { arms: [{ id: 'a1', model: 'opus', brief: 'x', runs: [{ id: 'r1', status: 'complete', verdict: 'pass', cost: 4, duration: 900, commits: 2 }] }] },
+    }
+    await writeFile(path.join(dir, 'comparison-00000000-0000-4000-8000-000000000003.json'), `${JSON.stringify(artifact, null, 2)}\n`, 'utf8')
+
+    const comparisons = await fetchComparisons()
+
+    expect(comparisons).toEqual([
+      { id: '00000000-0000-4000-8000-000000000003', sizeBytes: expect.any(Number), available: true, savedAt: '2026-09-11T00:00:00.000Z', arms: 1 },
     ])
   })
 
