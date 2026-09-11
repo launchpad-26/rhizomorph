@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import type * as FsPromisesModule from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -7,7 +7,7 @@ import { type CollectorContext, createCollectorContext, createEvent, type EventO
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createBeaconCollector } from '../collectors/beacon/collector.js'
 import { beaconDirFor } from '../collectors/beacon/paths.js'
-import { deriveGateVerdict, MAX_GATE_VERDICT_LINE_BYTES } from './gate-verdict-derivation.js'
+import { deriveGateVerdict, MAX_GATE_VERDICT_LINE_BYTES, type SidecarDescriptor } from './gate-verdict-derivation.js'
 
 /**
  * Lets a single test force the *next* `read()` on the *next*-opened handle to
@@ -38,10 +38,30 @@ const closeFault = vi.hoisted(() => ({ armed: false }))
  */
 const truncateBeforeRead = vi.hoisted(() => ({ armed: false, target: '', toBytes: 0 }))
 
+/**
+ * The same trick for `stat()` — the ONE pre-open refusal the descriptor sweep
+ * below could not otherwise reach. `stat` rejecting with anything but ENOENT
+ * lands on a generic "could not be read" arm that is byte-identical to
+ * `open()`'s, and mutating its `UNOPENED` to `closed` left all 100 tests
+ * green: no row could construct a non-ENOENT `stat` failure without one of
+ * these. EIO rather than a crafted input, for the same reason the read and
+ * close faults use it — a failing mount is the case that matters.
+ */
+const statFault = vi.hoisted(() => ({ armed: false }))
+
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof FsPromisesModule>()
   return {
     ...actual,
+    stat: (async (...args: Parameters<typeof actual.stat>) => {
+      if (statFault.armed) {
+        statFault.armed = false
+        const error = new Error('EIO: i/o error, stat') as NodeJS.ErrnoException
+        error.code = 'EIO'
+        throw error
+      }
+      return actual.stat(...args)
+    }) as typeof actual.stat,
     open: (async (...args: Parameters<typeof actual.open>) => {
       const handle = await actual.open(...args)
       const originalRead = handle.read.bind(handle)
@@ -172,6 +192,7 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
         type: 'gate.verdict',
         payload: { handle: 'feature', held: false, reason: 'clean', digest: OUTPUT_DIGEST, loadBatches: 3 },
       },
+      descriptor: { state: 'closed' },
     })
   })
 
@@ -242,6 +263,7 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
     expect(after).toEqual({
       outcome: 'refused',
       reason: expect.stringContaining('does not match its recorded digest'),
+      descriptor: { state: 'closed' },
     })
   })
 
@@ -295,6 +317,7 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
         expect(result).toEqual({
           outcome: 'refused',
           reason: expect.stringContaining('names a sidecar path, not a file'),
+          descriptor: { state: 'unopened' },
         })
       }
     })
@@ -321,6 +344,7 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
       expect(result).toEqual({
         outcome: 'refused',
         reason: expect.stringContaining('resolves outside the beacon directory'),
+        descriptor: { state: 'unopened' },
       })
 
       await rm(outsideDir, { recursive: true, force: true })
@@ -352,6 +376,7 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
         type: 'gate.verdict',
         payload: { handle: 'feature', held: true, reason: 'suite-red', digest: OUTPUT_DIGEST },
       },
+      descriptor: { state: 'closed' },
     })
   })
 
@@ -372,6 +397,7 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
     expect(result).toEqual({
       outcome: 'refused',
       reason: expect.stringContaining(`no newline within ${MAX_GATE_VERDICT_LINE_BYTES} bytes`),
+      descriptor: { state: 'closed' },
     })
   })
 
@@ -392,6 +418,7 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
     expect(result).toEqual({
       outcome: 'refused',
       reason: expect.stringContaining('could not be resolved'),
+      descriptor: { state: 'unopened' },
     })
   })
 
@@ -411,6 +438,7 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
     expect(result).toEqual({
       outcome: 'refused',
       reason: expect.stringContaining('is not a regular file'),
+      descriptor: { state: 'unopened' },
     })
   })
 
@@ -427,6 +455,7 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
     expect(result).toEqual({
       outcome: 'refused',
       reason: expect.stringContaining('could not be read'),
+      descriptor: { state: 'closed' },
     })
   })
 
@@ -439,10 +468,12 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
     //
     // Everything here is a genuinely valid derivation; the injected close
     // fault is the only difference. Two assertions, and the second is the one
-    // that says which fix was chosen: the verdict is still DERIVED, because
-    // by close() time the bytes are already read and already checked against
-    // `beacon.received.digest`, and a fault that costs us nothing but a
-    // descriptor must not throw away a provably-good verdict.
+    // that says which fix was chosen: the verdict is still DERIVED. By close()
+    // time the bytes are already in the buffer — the close is in the read's
+    // `finally`, BEFORE the digest comparison further down, not after it — so
+    // the fault cannot cost us the data, and the digest then runs on those
+    // bytes regardless. A close fault therefore never gates verification, and
+    // refusing over it would discard a verdict the digest is about to prove.
     const beacon = await oneBeaconFor(
       gateLine({ at: 1_350, lane: 'feature', held: true, reason: 'suite-red', outputDigest: OUTPUT_DIGEST }),
     )
@@ -456,6 +487,151 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
       reason: 'suite-red',
       digest: OUTPUT_DIGEST,
     })
+    // #391: it no longer escapes AND is no longer silent. The catch used to
+    // be empty, so a persistently failing mount left no trace anywhere while
+    // this fired for every beacon on every tick.
+    expect(result.descriptor).toEqual({ state: 'close-failed', message: expect.stringContaining('EIO') })
+  })
+
+  it('a clean derivation carries NO closeFault — the control without which the trace proves nothing', async () => {
+    // #391's own named mutation is a reporter that fires unconditionally: it
+    // satisfies "the fault is reported" at every input, including this one.
+    // This is the assertion that fails for such a reporter, and it is why the
+    // test above cannot stand alone. Identical to it but for the arming.
+    const beacon = await oneBeaconFor(
+      gateLine({ at: 1_360, lane: 'feature', held: true, reason: 'suite-red', outputDigest: OUTPUT_DIGEST }),
+    )
+    const result = await deriveGateVerdict(beacon, { repoPath: '/repo', dataRoot: root, id: 'evt-close-clean' })
+    expect(result.outcome).toBe('derived')
+    if (result.outcome !== 'derived') throw new Error('unreachable')
+    // `closed` — positively, not merely "no fault". That distinction is the
+    // whole of #391's second review round: the old shape could not tell this
+    // apart from a refusal that never opened the file.
+    expect(result.descriptor).toEqual({ state: 'closed' })
+  })
+
+  it('a REFUSAL carries the close fault too — two things wrong at once must not lose one of them', async () => {
+    // The sibling case #391 names: a sidecar can be unverifiable AND fail to
+    // close. Carrying the signal only on the derived outcome would drop it in
+    // exactly the case where the operator most needs both facts.
+    const line = gateLine({ at: 1_370, lane: 'feature', held: false, reason: 'clean', outputDigest: OUTPUT_DIGEST })
+    const beacon = await oneBeaconFor(line)
+    // Same byte length, different content — so the offset still lands and the
+    // digest is what refuses, rather than a truncation.
+    await writeFile(path.join(dir, 'gate.jsonl'), `${line.replace('"reason":"clean"', '"reason":"cIean"')}\n`)
+    closeFault.armed = true
+    const result = await deriveGateVerdict(beacon, { repoPath: '/repo', dataRoot: root, id: 'evt-close-and-tamper' })
+    expect(result.outcome).toBe('refused')
+    if (result.outcome !== 'refused') throw new Error('unreachable')
+    expect(result.reason).toMatch(/does not match its recorded digest/)
+    expect(result.descriptor).toEqual({ state: 'close-failed', message: expect.stringContaining('EIO') })
+  })
+
+  it('a read fault AND a close fault together keep BOTH — the finding two independent seats found', async () => {
+    // #391's second review round, and the reason the whole shape changed.
+    // The old code returned from inside the read's `catch`, which is
+    // evaluated BEFORE `finally` runs, so the close fault was captured into a
+    // local and thrown away. At the seam that absence read as a clean close
+    // and UN-LATCHED a fault that was still happening — the exact zero-trace
+    // scenario this issue exists to end, reintroduced by the fix for it.
+    const beacon = await oneBeaconFor(
+      gateLine({ at: 1_380, lane: 'feature', held: false, reason: 'clean', outputDigest: OUTPUT_DIGEST }),
+    )
+    readFault.armed = true
+    closeFault.armed = true
+    const result = await deriveGateVerdict(beacon, { repoPath: '/repo', dataRoot: root, id: 'evt-read-and-close' })
+    // Both harness faults self-disarm on fire, so this is the control: it
+    // proves each fault ACTUALLY fired rather than the test passing because
+    // neither did.
+    expect(readFault.armed).toBe(false)
+    expect(closeFault.armed).toBe(false)
+    expect(result.outcome).toBe('refused')
+    if (result.outcome !== 'refused') throw new Error('unreachable')
+    expect(result.reason).toMatch(/could not be read/)
+    expect(result.descriptor).toEqual({ state: 'close-failed', message: expect.stringContaining('EIO') })
+  })
+
+  it("open() failing is UNOPENED too — the arm a review found reachable but unpinned", async (ctx) => {
+    // Found by the fix re-review: mutating this one arm's UNOPENED to
+    // `closed` left all 99 tests green, and the consequence is not cosmetic.
+    // A failing mount produces close faults AND open faults on the SAME
+    // sidecar, so a `closed` here would let one EACCES derivation clear a
+    // latched fault at the seam — reopening the un-latching defect through a
+    // different door.
+    //
+    // **An earlier version of this comment claimed "the other eight pre-open
+    // refusals carry descriptor assertions; this one did not". That was not
+    // true, and a review found it by mutating all nine rather than reading
+    // them.** Six of the other eight were pinned; three were not — `is
+    // missing`, the generic `stat` fault, and `does not reach the recorded
+    // offset` all stayed green with their `UNOPENED` mutated to `closed`.
+    // The refusal table below now declares a `descriptor` per row, which is
+    // what closes the remaining three and any row added later; this test
+    // stays because `open()`'s arm needs a real EACCES the table cannot set
+    // up. Counting a claim is not checking it.
+    //
+    // EACCES rather than an injected fault: the file genuinely exists and
+    // reaches the offset, so `stat` succeeds and only `open` fails — which is
+    // the one shape that exercises this arm rather than an earlier one.
+    //
+    // **The precondition is PROVEN, not inferred** — and the two wrong
+    // versions of this guard are worth keeping written down, because they are
+    // the same error one level apart.
+    //
+    // The first hatch asserted `closed` and returned when the derivation
+    // succeeded anyway, so under any filesystem that ignores the mode the
+    // test passed WITHOUT reaching the `open()` catch it exists to pin — a
+    // green tick proving nothing. The second guard skipped on
+    // `process.getuid?.() === 0`, which reads as careful and is wrong twice:
+    // `process.getuid` is UNDEFINED on Windows, so the optional call yields
+    // `undefined`, never 0, and the guard never fires — while Windows also
+    // ignores the mode for the owner. That is exactly how this reached CI red
+    // (`windows-suite`, `expected 'derived' to be 'refused'`).
+    //
+    // Whether a chmod can deny a read is a property of the FILESYSTEM, not of
+    // a platform name or a uid, so this asks the filesystem: attempt the read
+    // and skip only when the denial could not be constructed. Root, Windows,
+    // an ACL, an exotic mount — all answered by one question, and none of
+    // them can produce a passing assertion.
+    const beacon = await oneBeaconFor(
+      gateLine({ at: 1_400, lane: 'feature', held: false, reason: 'clean', outputDigest: OUTPUT_DIGEST }),
+    )
+    const file = path.join(dir, 'gate.jsonl')
+    await chmod(file, 0o000)
+    try {
+      let denied = false
+      try {
+        await readFile(file)
+      } catch {
+        denied = true
+      }
+      if (!denied) {
+        ctx.skip(`chmod cannot deny a read here (${process.platform}), so open() cannot be made to fail`)
+        return
+      }
+      const result = await deriveGateVerdict(beacon, { repoPath: '/repo', dataRoot: root, id: 'evt-eacces' })
+      // No hatch below this line: the denial is proven, so open() MUST fail
+      // and this MUST refuse. A derived outcome here is a real defect, not an
+      // environment to accommodate.
+      expect(result.outcome).toBe('refused')
+      if (result.outcome !== 'refused') throw new Error('unreachable')
+      expect(result.reason).toMatch(/could not be read/)
+      expect(result.descriptor).toEqual({ state: 'unopened' })
+    } finally {
+      await chmod(file, 0o644)
+    }
+  })
+
+  it('a refusal that never opened the file says UNOPENED, not closed', async () => {
+    // The other face of the same root: nine refusals precede `open()`, and
+    // under the old optional-string shape all nine were indistinguishable
+    // from a clean close. `unopened` is a state, not an absence.
+    const beacon = await oneBeaconFor(gateLine({ at: 1_390, held: false, reason: 'clean', outputDigest: OUTPUT_DIGEST }))
+    const result = await deriveGateVerdict(beacon, { repoPath: '/repo', dataRoot: root, id: 'evt-unopened' })
+    expect(result.outcome).toBe('refused')
+    if (result.outcome !== 'refused') throw new Error('unreachable')
+    expect(result.reason).toMatch(/no lane/)
+    expect(result.descriptor).toEqual({ state: 'unopened' })
   })
 
   it('a sidecar truncated between the stat and the read says TRUNCATED, not "over the bound"', async () => {
@@ -529,6 +705,25 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
      * "some guard fired" into "THIS guard fired".
      */
     reason: RegExp | null
+    /**
+     * The descriptor this row's refusal must carry — `null` only for the one
+     * row that is not a refusal at all.
+     *
+     * **The reason-matching fix above closed one axis and left its sibling
+     * open, which a review found by mutation (2026-09-10).** Every pre-open
+     * arm returns the same `UNOPENED` constant, and three of the nine were
+     * pinned by no test at all: `is missing`, the generic `stat` fault, and
+     * `does not reach the recorded offset` each stayed green with `UNOPENED`
+     * rewritten to `{ state: 'closed' }`. That is not cosmetic — a refusal
+     * claiming a clean close is precisely what makes `poll-loop.ts`'s latch
+     * clear a fault that is still happening, which is #391's own second
+     * review finding arriving through a third door.
+     *
+     * Declared per row rather than derived, for the same reason `reason` is:
+     * a row that says `unopened` because the runner computed `unopened` pins
+     * nothing.
+     */
+    descriptor: SidecarDescriptor | null
     setup: () => Promise<EventOf<'beacon.received'>>
   }
 
@@ -537,24 +732,28 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
       name: 'writer/kind is not gate/gate.verdict (an ordinary attention beacon)',
       expected: 'not-a-gate-verdict-beacon',
       reason: null,
+      descriptor: null,
       setup: () => oneBeaconFor('{"v":1,"at":10,"writer":"claude-hook","kind":"waiting","lane":"feature"}'),
     },
     {
       name: 'lane is null',
       expected: 'refused',
       reason: /^beacon has no lane — no handle to attribute the verdict to$/,
+      descriptor: { state: 'unopened' },
       setup: () => oneBeaconFor(gateLine({ at: 20, held: false, reason: 'clean', outputDigest: OUTPUT_DIGEST })),
     },
     {
       name: 'outputDigest omitted (schema-invalid payload)',
       expected: 'refused',
       reason: /does not carry a well-formed verdict — .*\bdigest\b/,
+      descriptor: { state: 'closed' },
       setup: () => oneBeaconFor(gateLine({ at: 30, lane: 'feature', held: false, reason: 'clean' })),
     },
     {
       name: 'held is not a boolean (schema-invalid payload, a different field than the row above)',
       expected: 'refused',
       reason: /does not carry a well-formed verdict — .*\bheld\b/,
+      descriptor: { state: 'closed' },
       setup: () =>
         oneBeaconFor(
           JSON.stringify({
@@ -573,6 +772,7 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
       name: 'the file names an unresolvable path (a symlink loop)',
       expected: 'refused',
       reason: /could not be resolved:/,
+      descriptor: { state: 'unopened' },
       setup: async () => {
         const link = path.join(dir, 'table-loop.jsonl')
         await symlink(path.join('.', 'missing', '..', 'table-loop.jsonl'), link)
@@ -587,6 +787,7 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
       name: 'the resolved file lies outside the beacon directory (a symlink escape)',
       expected: 'refused',
       reason: /resolves outside the beacon directory$/,
+      descriptor: { state: 'unopened' },
       setup: async () => {
         const outsideDir = await mkdtemp(path.join(tmpdir(), 'gate-verdict-outside-'))
         extraDirs.push(outsideDir)
@@ -606,6 +807,7 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
       name: 'the sidecar is not a regular file (a directory sits where it should be)',
       expected: 'refused',
       reason: /is not a regular file$/,
+      descriptor: { state: 'unopened' },
       setup: async () => {
         await mkdir(path.join(dir, 'table-dir.jsonl'))
         return createEvent(
@@ -619,6 +821,7 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
       name: 'the sidecar is missing',
       expected: 'refused',
       reason: /is missing$/,
+      descriptor: { state: 'unopened' },
       setup: async () =>
         createEvent(
           'beacon.received',
@@ -630,6 +833,7 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
       name: 'the sidecar size does not reach the recorded offset',
       expected: 'refused',
       reason: /does not reach the recorded offset \d+$/,
+      descriptor: { state: 'unopened' },
       setup: async () => {
         await writeFile(path.join(dir, 'table-short.jsonl'), 'x')
         return createEvent(
@@ -652,6 +856,7 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
       name: 'the sidecar size is EXACTLY the recorded offset (the boundary <= exists for, and < does not)',
       expected: 'refused',
       reason: /does not reach the recorded offset \d+$/,
+      descriptor: { state: 'unopened' },
       setup: async () => {
         await writeFile(path.join(dir, 'table-at-offset.jsonl'), 'xxxxx')
         return createEvent(
@@ -672,6 +877,7 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
       name: 'no newline within the read window',
       expected: 'refused',
       reason: /has no newline within \d+ bytes of offset \d+ — the line exceeds the bound this derivation reads$/,
+      descriptor: { state: 'closed' },
       setup: async () => {
         await writeFile(path.join(dir, 'table-no-newline.jsonl'), 'x'.repeat(MAX_GATE_VERDICT_LINE_BYTES + 100))
         return createEvent(
@@ -685,6 +891,7 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
       name: 'the line no longer matches its recorded digest (tampered)',
       expected: 'refused',
       reason: /does not match its recorded digest — altered since it was recorded$/,
+      descriptor: { state: 'closed' },
       setup: async () => {
         const line = gateLine({ at: 70, lane: 'feature', held: false, reason: 'clean', outputDigest: OUTPUT_DIGEST })
         await writeFile(path.join(dir, 'table-digest.jsonl'), `${line}\n`)
@@ -699,6 +906,7 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
       name: 'the digest matches but the bytes are not JSON at all',
       expected: 'refused',
       reason: /is not valid JSON despite matching its digest$/,
+      descriptor: { state: 'closed' },
       setup: async () => {
         const text = 'not-json-at-all-despite-matching-its-digest'
         await writeFile(path.join(dir, 'table-notjson.jsonl'), `${text}\n`)
@@ -711,9 +919,33 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
       },
     },
     {
+      /**
+       * The ninth pre-open arm, and the one this table had no row for at all
+       * — found by mutating all nine rather than reading them. A non-ENOENT
+       * `stat` failure lands on a generic "could not be read" message that is
+       * BYTE-IDENTICAL to `open()`'s, one screen apart, so the two are
+       * distinguishable only by the descriptor: this one refuses before any
+       * `open()` and must say `unopened`.
+       */
+      name: 'an I/O error stat-ing the sidecar — the pre-open twin of the read fault below, told apart only by its descriptor',
+      expected: 'refused',
+      reason: /could not be read:/,
+      descriptor: { state: 'unopened' },
+      setup: async () => {
+        // Armed AFTER the collector round-trip, for the reason the read-fault
+        // row states: `beaconsFor` stats and reads through this same mock.
+        const beacon = await oneBeaconFor(
+          gateLine({ at: 85, lane: 'feature', held: false, reason: 'clean', outputDigest: OUTPUT_DIGEST }),
+        )
+        statFault.armed = true
+        return beacon
+      },
+    },
+    {
       name: 'an I/O error reading the sidecar (a real fault, not a crafted input)',
       expected: 'refused',
       reason: /could not be read:/,
+      descriptor: { state: 'closed' },
       setup: async () => {
         // Arm AFTER the real collector round-trip, never before: `beaconsFor`
         // reads through the identical `open`/`read` mock (`read-beacon-
@@ -728,7 +960,7 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
     },
   ]
 
-  it.each(REFUSAL_CASES)('refuses: $name', async ({ expected, reason, setup }) => {
+  it.each(REFUSAL_CASES)('refuses: $name', async ({ expected, reason, descriptor, setup }) => {
     const beacon = await setup()
     const result = await deriveGateVerdict(beacon, { repoPath: '/repo', dataRoot: root, id: 'evt-table' })
     expect(result.outcome).toBe(expected)
@@ -740,8 +972,15 @@ describe('deriveGateVerdict (prd17 w6, #280)', () => {
       // it.
       expect(reason, 'a refusing row must declare which reason it expects').not.toBeNull()
       expect(result.reason).toMatch(reason as RegExp)
+      // The sibling axis. `reason` says WHICH guard fired; `descriptor` says
+      // what the row left the file descriptor in, and the seam's latch reads
+      // only the second. A row that pins one and not the other is half a
+      // contract.
+      expect(descriptor, 'a refusing row must declare its descriptor').not.toBeNull()
+      expect(result.descriptor).toEqual(descriptor)
     } else {
       expect(reason, 'a non-refusing row has no reason to declare').toBeNull()
+      expect(descriptor, 'a non-refusing row never opened anything').toBeNull()
     }
   })
 })

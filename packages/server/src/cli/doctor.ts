@@ -36,6 +36,10 @@ import { defaultDataRoot, sessionDirFor } from '../log/paths.js'
 import { decideSessionBoot, formatBootDuration, listSessions, readSessionEvents } from '../log/session-log.js'
 import { exec as realExec } from '../server/exec.js'
 import { DEFAULT_PORT, parseFlags, type FlagSpec } from './args.js'
+// Presence, never value (ADR-0034 clause 2) — and reached THROUGH the connect
+// command's own read rather than by importing `shipper/`, which would widen
+// that law's one-file `DECLARED_IMPORTERS` seam.
+import { shipperDoctorFacts, shipperKeyPath } from './connect-team.js'
 import { capabilityAwareFetch } from './rotate.js'
 import type { RunCliOptions } from './types.js'
 
@@ -164,6 +168,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
     await checkOptionalTool('workmux', 'workmux', ['status'], exec),
     checkTelemetryEnv(options.env ?? process.env, options.platform ?? process.platform),
     await checkLaneManifest(repoPath),
+    await checkShipper(repoPath, options.dataRoot),
     await checkCliVersionDrift(exec),
     checkHarnessRoster(),
   ]
@@ -921,6 +926,84 @@ export async function checkLaneManifest(repoPath: string): Promise<DoctorCheck> 
     id: 'lane-manifest',
     status: 'warn',
     message: `lane manifest at ${manifestPath} is broken: ${result.reason}`,
+  }
+}
+
+/**
+ * ADR-0034 clause 2's half of the doctor: **presence, never value.**
+ *
+ * The facts come from `cli/connect-team.ts`, never from `shipper/` directly —
+ * a second entry in `shipper/hand-law.test.ts`'s `DECLARED_IMPORTERS` would
+ * widen the clause-3 seam that law exists to keep one file wide, and the
+ * doctor has no business being the thing that widens it.
+ *
+ * Off is `ok` and says how to turn it on. On with a credential at `0600` is
+ * `ok` and says where it ships, under which project, and how far. A missing
+ * credential beside a present enable record is the one `fail`: the hand is
+ * configured and cannot run, which is exactly the state a person cannot see
+ * without being told. A laxer mode is a `warn` with the `chmod`, because the
+ * hand still works and the fix is one line.
+ */
+export async function checkShipper(repoPath: string, dataRoot: string | undefined): Promise<DoctorCheck> {
+  const facts = await shipperDoctorFacts(repoPath, dataRoot)
+
+  if (facts.configError !== null) {
+    return { id: 'shipper', status: 'fail', message: `shipper: ${facts.configError}` }
+  }
+
+  if (!facts.enabled) {
+    return {
+      id: 'shipper',
+      status: 'ok',
+      message:
+        'shipper: off — nothing leaves this machine. Turn it on per repo with: ' +
+        'echo "$RZK_INGEST_KEY" | rhizomorph connect team <url> --project <id>',
+    }
+  }
+
+  const keyPath = shipperKeyPath(repoPath, dataRoot)
+  if (!facts.keyPresent) {
+    return {
+      id: 'shipper',
+      status: 'fail',
+      message:
+        `shipper: on for ${facts.url} (project ${facts.project}) but its credential is missing at ${keyPath} — ` +
+        're-run: echo "$RZK_INGEST_KEY" | rhizomorph connect team <url> --project <id>',
+    }
+  }
+
+  const reach =
+    facts.sessionCount === 0
+      ? 'nothing shipped yet'
+      : `shipped through n=${facts.maxN} across ${facts.sessionCount} session${facts.sessionCount === 1 ? '' : 's'}` +
+        (facts.skippedCount > 0 ? `, ${facts.skippedCount} line(s) this build could not fold` : '')
+
+  if (facts.keyMode !== null && facts.keyMode !== 0o600) {
+    return {
+      id: 'shipper',
+      status: 'warn',
+      message:
+        `shipper: on — ${facts.url}, project ${facts.project}, credential present but readable beyond you ` +
+        `(mode ${facts.keyMode.toString(8).padStart(4, '0')}): chmod 600 ${keyPath}`,
+    }
+  }
+
+  if (facts.cursorReset !== null) {
+    return {
+      id: 'shipper',
+      status: 'warn',
+      message:
+        `shipper: on — ${facts.url}, project ${facts.project}, credential present (its value is never shown or logged). ` +
+        `${facts.cursorReset} — the next pass cold-starts, which the ingest key dedups.`,
+    }
+  }
+
+  return {
+    id: 'shipper',
+    status: 'ok',
+    message:
+      `shipper: on — ${facts.url}, project ${facts.project}, credential present ` +
+      `(its value is never shown or logged). ${reach}.`,
   }
 }
 

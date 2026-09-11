@@ -83,7 +83,8 @@ was the figure from the lane that adds the twenty-first entry. Re-derive it; do 
   one. Two claim classes are mechanical — a backticked repo path and a quoted assertion literal —
   and those are the whole surface.
 - **Not `fence-lint.sh`'s unreachable WARN branch**, which `coupling.test.sh:93-110` already
-  asserts and records as deliberate, nor the two coupling entries still owed ([#358][i358]).
+  asserts and records as deliberate, nor the two coupling entries [#358][i358] owed — which
+  landed on `main` as `b5d6630c`, and were never this PRD's to write.
 
 **Rejected alternatives.** *Fold the checks into `doc-citation-law.test.ts`* — already the repo's
 largest law, and its scope is itself a ruling (`:81`); widening it to a `.txt` outside `docs/`
@@ -228,7 +229,9 @@ order: as **repo-relative**, and — only if the entry's own leading path lies
 inside a package source root — as relative to **that one root**. Nothing else is
 tried. A citation that resolves under neither must be written repo-relative, and
 a citation that resolves nowhere at all fails, unless it is declared generated
-under ruling 3.
+under ruling 3. What *resolves* means is not settled here — Ruling 8's Extent
+part two carries the predicate these two attempts feed, and carries it only
+there, so that the two cannot drift apart.
 
 **Why, measured over all 21 entries on `main` (2026-09-09).** There are **ten**
 backticked path citations in the whole registry, and every one of them gets a
@@ -285,6 +288,23 @@ nothing: `` `.test.ts` `` and `` `.test.tsx` `` (twice) are suffixes, and
 generated-file case does not false-positive"* — is the criterion those four
 would fail against, so leaving the selector to the law's author is leaving wave
 2 a failing acceptance test with no rule to fix it by.
+
+— **SUPERSEDED (operator, 2026-09-10) by Ruling 8**, which replaces this
+paragraph's selector with four mechanical clauses, gives the count a stated
+scope, and states the resolution predicate this ruling's own Verdict left
+unsaid. The reasoning above stands and is why a selector belongs in a ruling at
+all; the selector itself was wrong. Its second clause has no test for looking
+like a filename, so it is satisfied by every backticked identifier in the
+registry. Its exclusion sentence is right about the four spans it names — all
+four are excluded, three of them on the leading dot and `` `*.bench.test.ts` ``
+on the glob — and wrong in implying those are the only spans in the registry
+that cite nothing. Under the scope Ruling 8 states (entry reason text, every
+occurrence), the literal reading admits **46 of the 62** spans on `b1a6dae5`,
+the tree this ruling was written against, and **76 of the 96** on `main` at
+`df494011`; the large majority of both are not paths. Ruling 8 carries
+the replacement and the measurement; this paragraph is left in place because the
+argument for naming a selector is unchanged and because the failure is the
+instructive part.
 
 The two candidate roots and their order are asserted by the law, and the
 failure message names both attempts, so a red bar says what it tried rather than
@@ -421,6 +441,177 @@ Wave 1 (#366) is unaffected — correcting the route-class entry does not settle
 this edge, because line 180's decoy makes the token reading pass regardless of
 what wave 1 writes.
 
+## Ruling 8 — the path-citation selector is four mechanical clauses, the count has a stated scope, and *resolves* has a stated predicate (replaces ruling 5's Extent selector)
+
+**Verdict.** Ruling 5's verdict — two resolution attempts, repo-relative then the
+entry's own package source root — **stands unchanged**. What is replaced is the
+sentence in its Extent that says *which spans the rule applies to*. A backticked
+span in a reason is a path citation when **all four** hold:
+
+1. it carries **no glob metacharacter** (`*`, `?`, `[`, `]`, `{`, `}`);
+2. every character is in `[A-Za-z0-9._/-]` — so a span with a space, a
+   parenthesis, a quote, a colon, `=`, `$`, `@` or `|` is not a citation;
+3. it does **not** begin with `/` — a repo path is relative, and a leading slash
+   means a URL route;
+4. and **any** of these holds: it contains a `/`; **or** it does not begin with
+   `.` and its final dot-separated segment is an extension **this repo actually
+   tracks**; **or** the repo tracks a file whose **basename is exactly this
+   span**.
+
+The extension set in clause 4 is **derived from the tracked file list, never
+written down** — the same rule ruling 5 already applies to its
+package-source-root list, and for the same reason: a hardcoded list is the rot
+class this PRD exists to prevent. Clause 4's **third** branch is derived from
+that same list and exists for the dotfile: `` `.gitignore` `` is cited in the
+`scripts/gate.sh` entry's reason, is tracked, and resolves repo-relative, but
+has no `/` and begins with a `.`, so the first two branches reject it.
+Measured on `main` at `df494011`: of the **twelve** dot-leading slash-free
+occurrences in the registry, the third branch admits `` `.gitignore` `` and
+**nothing else** — `` `.test.ts` ``, `` `.test.tsx` `` (twice), ``
+`.startsWith('..')` `` (three times) and the rest stay rejected, because no
+tracked file bears those names. The suffix exclusion that ruling 5's
+leading-dot rule existed for therefore survives intact. **This branch was
+added on review** (2026-09-10): the first three clauses were written against
+`53e1325b`, where the `` `.gitignore` `` citation did not yet exist, and the
+review that caught it swept the whole rejected set at both trees below to
+establish it was the only one.
+
+
+**And the count has a scope, which ruling 5 left unstated.** The population is
+every backticked span in an **entry's reason text** — the part after the first `#`
+on a line that is not itself a comment. The freestanding `# ── section ──`
+comments between entries are **not** scanned. **Every occurrence counts, not every
+distinct span:** a citation quoted twice is two citations, because each one has to
+resolve.
+
+**Why ruling 5's sentence had to be replaced rather than clarified.** It read: no
+glob, and *either* a `/` *or* a bare filename not beginning with a `.`. The second
+clause has no test for looking like a filename at all, so it is satisfied by every
+backticked identifier in the file. It admits `Set`, `read`, `split`, `fail()`,
+`import(`, a bare `)`, `vi.mock`, `ROUTE_CLASSES`, `route:`, `path.relative`,
+`VAR=$(...)`, `|| fail`, and every `.toBe` / `.toHaveLength` assertion span in the
+registry. The ruling claimed it excluded "the four backticked spans in the registry
+that cite nothing". It does exclude those four — but they are nowhere near all of
+them: on the tree that sentence was written against it admits **46 of 62** spans,
+and on `main` at `df494011` **76 of 96**.
+
+A law written to it would try to resolve `Set` and `)` as repo paths, fail on all
+of them, and redden the registry on its first run — needing an allowlist of that
+size on day one, which is exactly what **ruling 4** exists to prevent, and which
+fails **Success 3**'s *"and the generated-file case does not false-positive"*
+clause outright.
+
+**MEASURED, twice, because the answer moves with wave 1 and saying only the
+flattering number would be the defect this PRD is about.**
+
+| measured against | admitted | resolve | do not resolve | rejected |
+|---|---|---|---|---|
+| `main` at `53e1325b`, wave 1 **not** landed | 15 | 11 | **4** | 75 |
+| `main` at `df494011`, wave 1 landed (#366, PR #390) | 18 | 16 | **2** | 78 |
+
+Every admitted span is a real path citation in both, and **not one of the
+75/78 rejected is a path** — established not by inspection but by sweeping the
+whole rejected set at both trees and resolving each span anyway: none of the
+75 and none of the 78 resolve. That sweep is what found the `` `.gitignore` ``
+case clause 4's third branch now admits; before it, one of the 79
+then-rejected spans did resolve, and the claim in this paragraph was false on
+the tree that lands.
+
+
+The four that do not resolve at `53e1325b` are `manifest-law.test.ts`,
+`api/index.ts`, `cli/index.ts` and `.swarm/timing-count` — which is to say the
+rule reddens **exactly** the three citations wave 1 corrects, plus the
+declared-generated one ruling 3 covers. That is the rule working rather than
+failing, and it is independent corroboration that wave 1's scope was right: the
+selector, written afterwards and without reference to that issue, picks out the
+same three.
+
+#390 has landed, as `df494011`, so the second row is the live state: the only
+unresolved citations are the two occurrences of `.swarm/timing-count`, both
+covered by ruling 3's declaration. So the rule fails **nothing** it should
+pass and passes **nothing** it should fail. That is the bar ruling 5's
+sentence could not meet.
+
+
+**One more corroboration, and the strongest of them.** Run the same clauses
+against `b1a6dae5` — the exact tree ruling 5's own Extent was written against,
+21 entries — and they admit **exactly 10**, which is ruling 5's resolution table
+line for line: 2 repo-relative, 4 under the entry's own package source root, 2
+under another package's root, 1 that exists under neither
+(`manifest-law.test.ts`), 1 nowhere (`.swarm/timing-count`). So ruling 8's
+selector recovers ruling 5's *intended* population on ruling 5's own tree, which
+is a better argument for it than the rejection counts are.
+
+**Why not the obvious repair.** Requiring merely that a bare name "look like it has
+an extension" — a dot followed by letters, read end-anchored, with clause 2 not
+yet applied — still admits `vi.mock` and `path.relative`, because `mock` and
+`relative` are dot-segments too. Measured on `main` at `53e1325b`: **19 admitted,
+4 of them non-paths** — one `vi.mock` and three occurrences of `path.relative` —
+against ruling 8's 15, all of which are paths. Read the extension shape as *any*
+dot-followed-by-letters rather than end-anchored and it admits 34 instead, taking
+in `path.isAbsolute(` and `path.posix.relative(` as well; those two are rejected
+under the end-anchored reading, because neither ends in a dot-segment. Clause 4's
+derived extension set is what separates `manifest-law.test.ts` from `vi.mock`, and
+clause 2 is what removes the trailing-paren forms under either reading; neither
+clause alone is sufficient.
+
+**Extent.** The four clauses and the scope are asserted by the law, and its failure
+message names which clause admitted a span it then could not resolve — a red bar
+that says "clause 4b admitted this because `ts` is a tracked extension, and neither
+attempt resolved it" is actionable, where "unresolved citation" is not. The clauses
+apply only to path citations; ruling 7 governs assertion spans and is untouched,
+and the two selectors are deliberately disjoint — clause 2 rejects every span
+ruling 7 selects, because an assertion span always carries parentheses.
+
+**Extent, part two — what "resolves" means, because these clauses feed a predicate
+ruling 5 left as a judgement call.** Existence is `-e`, not `-f`: a citation that
+names a **directory** resolves. Two of the eighteen admitted at `df494011` are
+directories rather than files — `` `packages/` `` in the `scripts/gate.sh` entry, and
+`` `shipper/` `` in the `packages/server/src/shipper/hand-law.test.ts` entry — and
+both resolve, the first repo-relative and the second under the entry's own package
+source root. This is not a new value: `scripts/dev/coupling.test.sh` already
+presence-checks each entry's leading path with `[ -e "$path" ]`, and wave 2 below is
+chartered to port that script's presence checks, so the law **inherits** this
+predicate rather than picking one.
+
+**Written down because it is load-bearing, and found the way clause 4's third branch
+was** — by a pass that reimplemented these clauses from this text rather than auditing
+them (review of PR #392, 2026-09-10). Resolve against the tracked *file* list instead
+and the table above keeps both outer columns and moves both inner ones: **15 / 9 / 6 /
+75** at `53e1325b`, and **18 / 14 / 4 / 78** at `df494011`. Three of this ruling's own
+claims go false with them — that the four unresolved at `53e1325b` are exactly the
+three citations wave 1 corrects plus the declared-generated one; that the only
+unresolved at `df494011` are the two occurrences of `.swarm/timing-count`; and that the
+rule fails **nothing** it should pass. A selector this mechanical resting on an
+unstated predicate is ruling 5's defect one level down — the population was a
+judgement call and so was the verdict — which is why the predicate is here rather
+than with the law's author. It is also why the figures above reproduce ruling 5's own
+resolution table at `b1a6dae5` line for line: that table already counted `` `packages/` ``
+among its two repo-relative and `` `shipper/` `` among its four package-root citations,
+so this predicate was the one in force when ruling 5 was written and is recorded, not
+chosen, here.
+
+**Its falsifier is the one ruling 5 already names.** A directory citation that resolves
+is a claim that is *true and useless* when the reader meant a file inside it — the trap
+"try every package root" was rejected for. So the rule is directory-permissive about
+**existence** and says nothing about sufficiency: an entry that means a file cites the
+file, and a reviewer may still say a directory citation is too loose to be worth
+checking.
+
+**Falsifier, and it is not hypothetical.** If a future entry needs to cite
+something these clauses reject — a path with a space in it, a bare filename whose
+extension this repo does not yet track, a deliberately quoted URL route — then the
+rule fails a correct claim and **this ruling is what gets amended, not the law that
+implements it**. Record the span on the wave-2 issue. The failure mode to refuse is
+a law that grows a private exception list under a ruling that does not mention one:
+that is ruling 4's day-one allowlist arriving late and by the back door.
+
+The counting scope has its own falsifier: if the freestanding section comments ever
+carry a citation that a reader would follow, the scope is wrong and should widen —
+but widen it in this ruling, and re-measure, because three defensible scopes gave
+three different answers when this was last counted and that is precisely why the
+scope is now written down.
+
 ## Sequencing (waves, each gated as ever)
 
 *Groomed 2026-09-09, operator sign-off in session; written to what was groomed rather than to the
@@ -428,13 +619,13 @@ draft it replaced. Three deviations from that draft, each deliberate: the `.swar
 declaration moved from wave 2 into wave 1; wave 2 became one issue rather than three parallel
 items; and the law also ports the shell script's presence checks. Reasons below.*
 
-`.swarm/coupling.txt` is also [#353][i353]'s and [#358][i358]'s fence. [#353][i353] landed on
-`main` as `4299adec`; [#358][i358] is still open, and wave 1 waits on it — all three edit that one
-file, so they are sequential by construction rather than parallel. No wave enters
+`.swarm/coupling.txt` is also [#353][i353]'s and [#358][i358]'s fence. Both have landed on `main` —
+[#353][i353] as `4299adec`, [#358][i358] as `b5d6630c` — and wave 1 followed them, as `22a42739`.
+All three edit that one file, so they were sequential by construction rather than parallel. No wave enters
 scripts/fence-lint.sh (Non-goals), and none enters `doc-citation-law.test.ts`, which is prd-17
 territory.
 
-**Wave 0 — operator acts, booked and not dispatchable. COMPLETE 2026-09-09.** Three items, all
+**Wave 0 — operator acts, booked and not dispatchable. COMPLETE 2026-09-10.** Four items, all
 answered, and no issue minted for any of them:
 
 - Ruling 3's resolution edge — **answered**, as Ruling 5.
@@ -445,10 +636,35 @@ answered, and no issue minted for any of them:
   so the token reading would have passed two of the three claims this PRD exists to catch —
   Success 4's own route-class example among them.
 
-All three edges were found the same way — by auditing an entry against a ruling rather than by
-writing code to it — and two of the three by a reader other than the ruling's author. That is the
-argument for the audit step wave 2's law replaces, and the reason wave 2 should not start until
-someone has audited the remaining entries against Rulings 5, 6 and 7 as well.
+- Ruling 5's own *selector* — **answered**, as Ruling 8, on 2026-09-10. Found while building wave 1:
+  the Extent sentence that named the selector was satisfied by every backticked identifier in the
+  registry, so a law written to it would have reddened the file on its first run and needed an
+  allowlist of that size on day one. Ruling 8 replaces it with four mechanical clauses and, because
+  three defensible counting scopes had given three different answers, states the scope too — and,
+  after review, the resolution predicate those clauses feed.
+
+**Three** of the four edges were found the same way — by auditing an entry against a ruling rather
+than by writing code to it — and **three of the four**, which are not the same three, by a reader
+other than the ruling's author. That is the argument for the audit step wave 2's law replaces, and
+the reason wave 2 should not start until someone has audited the remaining entries against Rulings
+5, 6 and 7 as well.
+
+The fourth was found the other way round, and it argues for the **law** rather than for the audit
+step: ruling 5's selector came through three audits untouched and failed on the very first attempt
+to *implement* it. Auditing an entry against a rule does not exercise the rule; running it does.
+Ruling 8's own third clause-4 branch, added on review, was then found the first way again — by a
+reader sweeping the rejected set. Its **resolution predicate** then went the other way again:
+a second review pass reimplemented the clauses and could not reproduce the published table until
+it guessed the convention, which is how `-e` came to be written into the Extent. One edge each,
+from the two methods, on the same ruling — so neither method dominates and wave 2 wants both.
+
+**That count said "all four", and it was one too many.** Before Ruling 8 was booked as the fourth
+edge the paragraph read *"two of the three by a reader other than the ruling's author"*, so adding
+one edge found by another reader takes it to three of four, not four of four. The strengthening
+arrived unrecorded, in the same commit that corrected the clause beside it — which is this PRD's
+own subject, one paragraph deep in the ruling written to stop it. If all four *are* another
+reader's, then one of the original three has been reclassified, and the reclassification is the
+fact to name; the count follows from it rather than standing on its own.
 
 **Wave 1 — the Keystone: the registry's own claims are true.** [#366][i366]. Claimed by nobody
 downstream but the law that checks it. One file, `.swarm/coupling.txt`:

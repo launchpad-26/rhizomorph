@@ -290,22 +290,25 @@ describe('the lab tab renders no live-fleet surface (prd14)', () => {
     // `measure-control` directory arrives with 1 (`MeasureControl.tsx`; its
     // own `.test.tsx` is excluded from every count here, same as every other
     // directory's tests).
+    // compare/ grows by two again, wave 3 (#214): save.ts (the app's seventh
+    // mutating call) and SaveComparisonControl.tsx (the control that reaches
+    // it from the comparison surface).
     //
     // prd-55 wave 4 (#401) pays one row: a new `rail` directory arrives with
     // 4 — `Rail.tsx`, `rows.ts` (what a row SAYS, executable without a
     // rendered tree), `fixtures.ts` and `index.ts`. `fixtures.ts` is counted
     // for the reason canvas's is: ruling 9 asks every state to be drawn
     // before the live one, and a specimen that lives inside a test file is a
-    // specimen nobody has to keep. The root stays 6 and `compare` stays 9 —
-    // the same wave's note collapse and shared-scale refusal grew INSIDE
-    // `ComparisonSurface.tsx` rather than adding a module, the way
-    // branching's glyph shrank inside `geometry.ts`.
+    // specimen nobody has to keep. The root stays 6 and `compare` stays at
+    // prd-14 wave 3's 11 — this wave's note collapse and shared-scale
+    // refusal grew INSIDE `ComparisonSurface.tsx` rather than adding a
+    // module, the way branching's glyph shrank inside `geometry.ts`.
     expect(sourceFileCountsByDirectory()).toEqual({
       '': 6,
       axis: 3,
       branching: 2,
       canvas: 5,
-      compare: 9,
+      compare: 11,
       frame: 2,
       launch: 4,
       'measure-control': 1,

@@ -117,6 +117,25 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
   /** Collectors whose snapshot failed to persist, so the error fires once, not every 2s. */
   const saveErrors = new Set<string>()
   /**
+   * Beacon sidecars whose descriptor failed to CLOSE, keyed by the sidecar's
+   * own file name, so the line fires once per file and not every 2s (#391).
+   *
+   * This is `saveErrors`' shape on purpose, including the clear on `reset()`
+   * below: the bound that matters is not "log less" but "log on the EDGE".
+   * A failing mount produces this fault for every gate beacon on every tick,
+   * so an unlatched line would be the flood #391's own Definition of done
+   * names — and the flood is worse than the silence it replaced, because it
+   * buries the collector alarms an operator actually acts on.
+   *
+   * Deleted on the first close that actually SUCCEEDS for that file, so a
+   * mount that recovers re-arms the report rather than staying quiet about
+   * the next fault. **Not** on any fault-free derivation: nine of the
+   * derivation's refusals never open the file at all, and clearing on those
+   * was the second of #391's two review findings — absence of a close fault
+   * is not evidence of a close.
+   */
+  const sidecarCloseFaults = new Set<string>()
+  /**
    * prd17 ruling 5 — every (lane, kind) pair with a summons currently open, as
    * of the last tick that successfully recorded its diff. Not a collector
    * snapshot (there is no collector named `SUMMONS_SNAPSHOT_KEY`), but
@@ -349,6 +368,45 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
           // is separate scope from "derive and record what verifies".
           if (event.type === 'beacon.received') {
             const derivation = await deriveGateVerdict(event, { repoPath, dataRoot, id: nextId() })
+            // #391: the derivation hands a close fault UP rather than
+            // logging or swallowing it (see its own docblock for why a
+            // `collector.error` was rejected). This is the seam that decides
+            // what to say, and the latch is what keeps it from becoming a
+            // flood. `console.error` and not `recordOrDegrade`: this is not
+            // a collector's error, so there is no honest `collector` name to
+            // put on the event, and the one channel `recordOrDegrade`'s own
+            // comment calls "a line the operator can find afterwards" is
+            // exactly what is wanted here.
+            //
+            // Read on BOTH derived and refused outcomes: a sidecar can fail
+            // to close AND be unverifiable, and reading the signal only off
+            // the happy path would drop it whenever two things are wrong at
+            // once.
+            if (derivation.outcome !== 'not-a-gate-verdict-beacon') {
+              const sidecar = event.payload.file
+              // Three states, not two, and the middle one is why (#391's
+              // second review round). `unopened` — every refusal that
+              // precedes `open()`, nine of them — must neither report nor
+              // CLEAR: it says nothing about the mount, and treating it as a
+              // clean close let one lane-less gate line un-latch a fault that
+              // was still happening. Only a descriptor that actually closed
+              // is evidence the fault is over.
+              switch (derivation.descriptor.state) {
+                case 'closed':
+                  sidecarCloseFaults.delete(sidecar)
+                  break
+                case 'close-failed':
+                  if (!sidecarCloseFaults.has(sidecar)) {
+                    sidecarCloseFaults.add(sidecar)
+                    console.error(
+                      `[rhizomorph] gate verdict sidecar ${sidecar}: the descriptor failed to close — ${derivation.descriptor.message}. The verdict itself is unaffected; this stays silent until a close for this file succeeds.`,
+                    )
+                  }
+                  break
+                case 'unopened':
+                  break
+              }
+            }
             if (derivation.outcome === 'derived') await recorder.record(derivation.event)
           }
           // ADR-0029 naming addition (review of #280, round 4, finding 4):
@@ -829,6 +887,7 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
     // run it — against whichever store this reset had just installed.
     hydration = Promise.resolve()
     saveErrors.clear()
+    sidecarCloseFaults.clear()
     repoPath = resetOptions.repoPath ?? repoPath
     snapshotStore = resetOptions.snapshotStore ?? snapshotStore
   }

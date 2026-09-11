@@ -356,9 +356,38 @@ export function SetupWizard({
     // in time and the page's mode can change between them. Arm while live,
     // move the page onto a fixture, and the confirm button was still sitting
     // there armed — a click on it must not still reach `requestInstrument`,
-    // the app's most expensive mutating call. Closed by #352; the guard is
-    // narrower than `confirmRetarget`'s and #379 is where that is tracked.
-    if (!live) return
+    // the app's most expensive mutating call. Closed by #352.
+    //
+    // #379 widened this to the other two conjuncts `canAct` gates the arm
+    // button on: `isWatched` and the harness's implemented status. Arm with
+    // an implemented harness, then change the picker to a declared one while
+    // this dialog sits open — the picker lives outside the confirming block
+    // and stays interactive — and this used to fire anyway: the page said
+    // "this instrument knows OpenClaw by name and cannot start it" while an
+    // enabled button beside it POSTed `harness: "openclaw"`. It never spent —
+    // `concierge/launch.ts`'s `planLaunch` raises `HarnessNotAvailableError`
+    // before anything gets spawned by it — so the cost was a wasted round
+    // trip and a contradictory screen, not money.
+    //
+    // `isWatched` is re-checked here for the same reason, but this line has
+    // no reachable path to it TODAY — EXECUTED, not reasoned (arm on the
+    // conductor step, navigate away and choose a different repo, navigate
+    // back: `wizard.test.tsx`'s docstring above the harness-status test
+    // records exactly what was run). `launch.status` can stay `'confirming'`
+    // across that trip (it lives in `SetupWizard`, not in this branch), but
+    // `ConductorStep` reads `isWatched` straight into `!isWatched ? ... :
+    // ...`, so a render that sees it false swaps to the OTHER branch outright
+    // — the confirm button is not present-and-disabled in that state, it is
+    // simply not in the DOM. That holds for any path that flips `isWatched`,
+    // since the component re-renders off whatever props it is given and picks
+    // its branch fresh every time; there is no path that leaves the button
+    // reachable with `isWatched` false. This is safety by unmount, not by
+    // guard, and the line above is insurance against that render structure
+    // changing, not evidence of a live path — no test asserts on this
+    // conjunct, because there is no button, disabled or not, for one to
+    // click.
+    const facts = HARNESSES.find((entry) => entry.id === harness) ?? HARNESSES[0]
+    if (!live || !isWatched || facts?.status !== 'implemented') return
     setLaunch({ status: 'working' })
     try {
       const outcome = await requestInstrument({ harness, mode }, instrumentFetchImpl)
@@ -383,16 +412,18 @@ export function SetupWizard({
     // clicks spawned a conductor while `wizard-launch-fixture` said nothing
     // here would start a process — measured true on 45d06776 (an earlier
     // draft of this comment had claimed otherwise; that was false, not merely
-    // unproven). #352's fix added the same shape of guard: an early return on
-    // `!live` in `confirmLaunch`, and `disabled={!live}` on
-    // `wizard-launch-confirm`. The two guards are not identical, though: this
-    // one re-checks BOTH of the arm gate's non-transient conjuncts
-    // (`target === null` and `!live`), while `confirmLaunch`'s re-checks only
-    // `live` — not `isWatched` or the harness's implemented status, the arm
-    // gate's other two conjuncts on `canAct`. That gap is real but nothing
-    // ever gets spawned by it — the server refuses an unimplemented harness
-    // first, at `concierge/launch.ts`'s `HarnessNotAvailableError` — and it is
-    // tracked as #379 rather than folded into #352.
+    // unproven). #352's fix added the same shape of guard, but only for
+    // `live`: this guard re-checks BOTH of the arm gate's non-transient
+    // conjuncts (`target === null` and `!live`), while #352 left
+    // `confirmLaunch` re-checking only one of `canAct`'s three (`isWatched`
+    // and the harness's implemented status were untouched — that gap could
+    // not spend, since the server refuses an unimplemented harness first, at
+    // `concierge/launch.ts`'s `HarnessNotAvailableError`, but it was real).
+    // #379 closed it: `confirmLaunch` now re-checks all three, and the two
+    // guards are symmetric — each re-checks every non-transient conjunct its
+    // own arm gate carries, and skips only the transient one
+    // (`launch.status`/`retarget.status === 'working'`), which the confirm
+    // dialog's own render condition already makes unreachable here.
     if (target === null || !live) return
     setRetarget({ status: 'working' })
     try {
@@ -992,7 +1023,16 @@ function ConductorStep({
                   type="button"
                   data-testid="wizard-launch-confirm"
                   onClick={onLaunch}
-                  disabled={!live}
+                  // Re-checks all three of `canAct`'s conjuncts (#379), not
+                  // just `live` (#352) — `isWatched` is included for the same
+                  // reason `confirmRetarget`'s confirm button re-checks its
+                  // own arm gate's conjuncts, even though a false `isWatched`
+                  // is not reachable here today: this button only renders
+                  // inside the `isWatched`-true branch above, so a render that
+                  // sees `isWatched` false shows the OTHER branch entirely —
+                  // no disabled button, no button at all (EXECUTED, see the
+                  // docstring above `wizard.test.tsx`'s harness-status test).
+                  disabled={!live || !isWatched || facts?.status !== 'implemented'}
                   className={BUTTON_PRIMARY}
                 >
                   start it

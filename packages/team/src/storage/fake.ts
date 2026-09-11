@@ -1,4 +1,13 @@
-import type { AppliedMigration, EventQuery, EventRow, TeamStorage } from './contract.js'
+import type {
+  AppliedMigration,
+  CollisionDelta,
+  EventQuery,
+  EventRow,
+  LaneStateDelta,
+  ProjectionDelta,
+  SpendDelta,
+  TeamStorage,
+} from './contract.js'
 
 /**
  * A PORT DOUBLE — an in-memory `TeamStorage` with a call log.
@@ -31,6 +40,14 @@ export class FakeTeamStorage implements TeamStorage {
   readonly calls: string[] = []
   readonly events: EventRow[] = []
   readonly partitions: string[] = []
+  /** `spend_by_project_day`, keyed `projectId day`. */
+  readonly spend = new Map<string, SpendDelta>()
+  /** `lane_state`, keyed `projectId lane`. */
+  readonly lanes = new Map<string, LaneStateDelta>()
+  /** `collisions`, keyed `projectId path`. */
+  readonly collisions = new Map<string, CollisionDelta>()
+  /** The unique index each partition carries: `projectId actorInstance n`. */
+  private readonly positions = new Set<string>()
   migrationsTableExists = false
   closed = false
 
@@ -87,10 +104,68 @@ export class FakeTeamStorage implements TeamStorage {
     this.applied.push({ id: m.id, checksum: m.checksum, appliedAt: new Date(0).toISOString() })
   }
 
-  async appendEvents(rows: readonly EventRow[]): Promise<number> {
+  /**
+   * Dedups on `(projectId, actorInstance, n)` and maintains the projections,
+   * because the adapter does and this double must not be kinder than it.
+   *
+   * A fake that appended unconditionally would make every replay test above it
+   * a lie: the fold's whole rewind story is "a replay costs time, not rows",
+   * and against a double that duplicates, a test asserting N rows after two
+   * folds would have to assert 2N to pass — i.e. it would certify the defect.
+   */
+  async appendEvents(
+    rows: readonly EventRow[],
+    projectionsFor?: (inserted: readonly EventRow[]) => ProjectionDelta,
+  ): Promise<number> {
     this.calls.push('appendEvents')
-    this.events.push(...rows)
-    return rows.length
+    const inserted: EventRow[] = []
+    for (const row of rows) {
+      const key = `${row.projectId} ${row.actorInstance} ${row.n}`
+      if (this.positions.has(key)) continue
+      this.positions.add(key)
+      this.events.push(row)
+      inserted.push(row)
+    }
+    if (projectionsFor) this.applyProjections(projectionsFor(inserted))
+    return inserted.length
+  }
+
+  /** The three projections, folded the way the adapter's upserts would. */
+  private applyProjections(delta: ProjectionDelta): void {
+    for (const spend of delta.spend) {
+      const key = `${spend.projectId} ${spend.day}`
+      const current = this.spend.get(key)
+      this.spend.set(key, {
+        projectId: spend.projectId,
+        day: spend.day,
+        costUsd: (current?.costUsd ?? 0) + spend.costUsd,
+        events: (current?.events ?? 0) + spend.events,
+      })
+    }
+    for (const lane of delta.lanes) {
+      const key = `${lane.projectId} ${lane.lane}`
+      const current = this.lanes.get(key)
+      // The adapter's `WHERE EXCLUDED.last_event_ts >= lane_state.last_event_ts`.
+      if (current && lane.lastEventTsMs < current.lastEventTsMs) continue
+      this.lanes.set(key, {
+        projectId: lane.projectId,
+        lane: lane.lane,
+        state: lane.state ?? current?.state ?? 'unknown',
+        worktree: lane.worktree ?? current?.worktree ?? null,
+        lastEventTsMs: lane.lastEventTsMs,
+      })
+    }
+    for (const collision of delta.collisions) {
+      const key = `${collision.projectId} ${collision.path}`
+      const current = this.collisions.get(key)
+      this.collisions.set(key, {
+        projectId: collision.projectId,
+        path: collision.path,
+        lanes: [...new Set([...(current?.lanes ?? []), ...collision.lanes])].sort(),
+        firstSeenMs: Math.min(current?.firstSeenMs ?? collision.firstSeenMs, collision.firstSeenMs),
+        lastSeenMs: Math.max(current?.lastSeenMs ?? collision.lastSeenMs, collision.lastSeenMs),
+      })
+    }
   }
 
   async readEvents(q: EventQuery): Promise<EventRow[]> {

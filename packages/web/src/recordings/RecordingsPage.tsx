@@ -5,8 +5,10 @@ import { useReplay } from '../app/ModeContext.js'
 import { Nav } from '../app/Nav.js'
 import { navigate } from '../app/router.js'
 import { TwoRepresentations } from '../fleet/TwoRepresentations.js'
+import { type Comparison, type ComparisonArtifact, ComparisonSurface, compareArms } from '../lab/compare/index.js'
 import type { FetchLike } from '../replay/api.js'
 import { fetchRecordings, type RecordingListing } from './api.js'
+import { fetchComparison, fetchComparisons, type ComparisonRowListing } from './comparisons.js'
 import { exportRecording, type DownloadEnv } from './export.js'
 import {
   captureHoverDisclosure,
@@ -92,6 +94,28 @@ type LaneState =
   | { status: 'ready'; page: LaneIndexPage }
   | { status: 'error'; message: string }
 
+/** The comparisons list — its own kind, loaded alongside the session listing rather than folded into it. */
+type ComparisonsState =
+  | { status: 'loading' }
+  | { status: 'ready'; rows: ComparisonRowListing[] }
+  | { status: 'error'; message: string }
+
+/**
+ * The reopened comparison, shown in place of the two axes rather than at a
+ * URL of its own — the router (out of this issue's fence) has no route for
+ * it, and this state is what "selecting one reopens it into ComparisonSurface"
+ * means without one. `refused` is reached exactly when the stored artifact's
+ * own parser refused it (an older format version, prd-14 ruling 5's third
+ * Definition-of-done bullet) — its `reason` is the parser's own sentence,
+ * put on screen by name, never an empty state and never a console error.
+ */
+type OpenComparisonState =
+  | { status: 'closed' }
+  | { status: 'loading'; id: string }
+  | { status: 'ready'; id: string; artifact: ComparisonArtifact; comparison: Comparison }
+  | { status: 'refused'; id: string; reason: string }
+  | { status: 'error'; id: string; message: string }
+
 function goBalcony(): void {
   navigate('/')
 }
@@ -104,6 +128,8 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
   const { selectAndPlay, refreshSessions } = useReplay()
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [lanes, setLanes] = useState<LaneState>({ status: 'loading' })
+  const [comparisons, setComparisons] = useState<ComparisonsState>({ status: 'loading' })
+  const [openComparison, setOpenComparison] = useState<OpenComparisonState>({ status: 'closed' })
   const [exportingId, setExportingId] = useState<string | null>(null)
   const [exportError, setExportError] = useState<{ id: string; message: string } | null>(null)
 
@@ -128,14 +154,48 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
       .catch((err) => setLanes({ status: 'error', message: err instanceof Error ? err.message : String(err) }))
   }, [fetchImpl])
 
+  const loadComparisons = useCallback(() => {
+    setComparisons({ status: 'loading' })
+    fetchComparisons(fetchImpl)
+      .then((rows) => setComparisons({ status: 'ready', rows }))
+      .catch((err) => setComparisons({ status: 'error', message: err instanceof Error ? err.message : String(err) }))
+  }, [fetchImpl])
+
   useEffect(() => {
     load()
     loadLanes()
-  }, [load, loadLanes])
+    loadComparisons()
+  }, [load, loadLanes, loadComparisons])
 
   function openInReplay(id: string): void {
     selectAndPlay(id)
     goBalcony()
+  }
+
+  /**
+   * Selecting a saved comparison reopens it into `ComparisonSurface`, never
+   * the replay surface — ruling 5's own distinction. `compareArms` is run
+   * fresh over the stored `ComparisonInput`, so the arms and spread shown are
+   * exactly the ones this repo's own pure combinator derives from what was
+   * saved, not a cached summary.
+   */
+  function openComparisonRow(id: string): void {
+    setOpenComparison({ status: 'loading', id })
+    fetchComparison(id, fetchImpl)
+      .then((result) => {
+        if (result.available) {
+          setOpenComparison({ status: 'ready', id, artifact: result.artifact, comparison: compareArms(result.artifact.input) })
+        } else {
+          setOpenComparison({ status: 'refused', id, reason: result.reason })
+        }
+      })
+      .catch((err) =>
+        setOpenComparison({ status: 'error', id, message: err instanceof Error ? err.message : String(err) }),
+      )
+  }
+
+  function closeComparison(): void {
+    setOpenComparison({ status: 'closed' })
   }
 
   function renamed(id: string, label: string): void {
@@ -285,6 +345,11 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
           </tbody>
         </table>
       )}
+
+      <ComparisonsSection
+        comparisons={comparisons}
+        onOpen={openComparisonRow}
+      />
     </>
   )
 
@@ -321,15 +386,19 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
         </span>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col p-4">
-        <TwoRepresentations
-          surface="history"
-          heading={<h2 className="heading text-(--ink-dim)">Browse</h2>}
-          views={[
-            { id: 'session', label: 'By session', render: sessionAxis },
-            { id: 'lane', label: 'By lane', render: laneAxis },
-          ]}
-        />
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
+        {openComparison.status === 'closed' ? (
+          <TwoRepresentations
+            surface="history"
+            heading={<h2 className="heading text-(--ink-dim)">Browse</h2>}
+            views={[
+              { id: 'session', label: 'By session', render: sessionAxis },
+              { id: 'lane', label: 'By lane', render: laneAxis },
+            ]}
+          />
+        ) : (
+          <OpenComparison state={openComparison} onClose={closeComparison} />
+        )}
       </div>
 
       <UnreadableRecords lanes={lanes} />
@@ -366,6 +435,144 @@ function UnreadableRecords({ lanes }: { lanes: LaneState }) {
       axes below are incomplete by that much. There is no command that makes a deleted or corrupt
       recording readable; this says so rather than showing you a shorter history.
     </p>
+  )
+}
+
+/**
+ * COMPARISONS — THE LIBRARY'S OTHER KIND (prd-14 ruling 5, #214). Its own
+ * table, its own columns, its own `data-testid` namespace: a saved comparison
+ * is never a session row wearing a different label. Renders nothing when
+ * there are none, for the same reason {@link UnreadableRecords} does — a
+ * permanent empty section is a section a reader learns to stop seeing.
+ *
+ * An unavailable row's `reason` is the artifact's own parser refusal, shown
+ * inline exactly where a session row would show its open/export actions —
+ * the sibling case this issue names is a refusal shown in the list and
+ * swallowed on open (or the reverse); {@link OpenComparison} renders the same
+ * reason the same way for that half of the pair.
+ */
+function ComparisonsSection({ comparisons, onOpen }: { comparisons: ComparisonsState; onOpen: (id: string) => void }) {
+  if (comparisons.status === 'loading') {
+    return <p className="mt-4 text-(--ink-dim)">loading comparisons…</p>
+  }
+
+  if (comparisons.status === 'error') {
+    return (
+      <p role="status" data-testid="comparisons-error" className="mt-4 text-broken">
+        {comparisons.message}
+      </p>
+    )
+  }
+
+  if (comparisons.rows.length === 0) return null
+
+  return (
+    <div className="mt-4 flex flex-col gap-2">
+      <h2 data-testid="comparisons-heading" className="heading text-(--ink-dim)">
+        Comparisons — saved from the lab, distinct from a session recording
+      </h2>
+      <table data-testid="comparisons-table" className="w-full border-collapse text-left text-read-floor">
+        <thead>
+          <tr className="border-b border-(--line-hair) text-(--ink-dim)">
+            <th className="p-(--space-cell) font-normal">saved</th>
+            <th className="p-(--space-cell) font-normal">arms</th>
+            <th className="p-(--space-cell) font-normal">actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {comparisons.rows.map((row) => (
+            <tr key={row.id} data-testid={`comparison-row-${row.id}`} className="border-b border-(--line-hair) align-top">
+              <td className="p-(--space-cell)">
+                {row.available ? (
+                  <span className="figures text-(--ink-body)">{row.savedAt}</span>
+                ) : (
+                  <span className="font-mono text-(--ink-dim)">{row.id}</span>
+                )}
+              </td>
+              <td className="figures p-(--space-cell)">{row.available ? row.arms : '—'}</td>
+              <td className="p-(--space-cell)">
+                {row.available ? (
+                  <button type="button" data-testid={`comparison-open-${row.id}`} onClick={() => onOpen(row.id)} className={BUTTON}>
+                    open
+                  </button>
+                ) : (
+                  <p role="status" data-testid={`comparison-refused-${row.id}`} className="normal-case tracking-normal text-broken">
+                    {row.reason}
+                  </p>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/**
+ * A SAVED COMPARISON, REOPENED — into `ComparisonSurface`, never the replay
+ * surface (ruling 5). Shown in place of the two axes rather than at a route
+ * of its own (`app/router.ts` is out of this issue's fence); "← comparisons"
+ * is the way back, the same convention `RecordingsPage`'s own "← balcony"
+ * button already uses.
+ *
+ * No measure switch here: a stored artifact's `Run.value` is already
+ * resolved to whichever measure was active at save time, and the shape
+ * carries no record of which one that was. `ComparisonSurface` is handed
+ * `measure={null}` rather than falling back to a default — a default would
+ * RELABEL the same numbers as something they are not (a duration saved and
+ * reopened under a silent `cost` default is a real defect this surface must
+ * not repeat), and a wrong label is worse than an admitted gap. Recording the
+ * measure in the artifact itself would fix this at the source, but the
+ * shape is shared with the server's own copy (ADR-0042) and versioned, and
+ * `packages/server/src/comparisons/` is out of this issue's fence — flagged
+ * as a finding, not a widening this issue takes.
+ */
+function OpenComparison({
+  state,
+  onClose,
+}: {
+  state: Exclude<OpenComparisonState, { status: 'closed' }>
+  onClose: () => void
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <button
+        type="button"
+        data-testid="comparison-open-close"
+        onClick={onClose}
+        className="focus-ring w-fit shrink-0 rounded-none border border-(--line-strong) px-2 py-1 text-inst uppercase tracking-wider text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)"
+      >
+        ← comparisons
+      </button>
+
+      {state.status === 'loading' && <p className="text-(--ink-dim)">loading comparison…</p>}
+
+      {state.status === 'error' && (
+        <p role="status" data-testid="comparison-open-error" className="text-broken">
+          {state.message}
+        </p>
+      )}
+
+      {/*
+        prd-14 ruling 5's third Definition-of-done bullet: an artifact from an
+        older format version puts the parser's own refusal ON SCREEN, BY
+        NAME — never an empty state, never a console error. `state.reason` is
+        that parser's exact sentence.
+      */}
+      {state.status === 'refused' && (
+        <p role="status" data-testid="comparison-open-refused" className="text-broken">
+          this comparison could not be reopened — {state.reason}
+        </p>
+      )}
+
+      {state.status === 'ready' && (
+        <>
+          <p className="text-(--ink-dim)">saved {state.artifact.savedAt}</p>
+          <ComparisonSurface comparison={state.comparison} measure={null} />
+        </>
+      )}
+    </div>
   )
 }
 

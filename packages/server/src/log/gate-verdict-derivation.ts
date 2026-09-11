@@ -60,11 +60,78 @@ import { canonicalize, isInside } from '../paths/containment.js'
  * {@link MAX_GATE_VERDICT_LINE_BYTES} bounds the read to a window around the
  * offset instead, so the cost of deriving one verdict never depends on how
  * large the sidecar has grown since.
+ *
+ * `descriptor` below reports what happened to the sidecar's file descriptor
+ * (#391). A `close-failed` state is a **signal, not an outcome** — it cannot
+ * change whether the verdict is true, and the reason is the ORDERING, stated
+ * correctly here after a review found this paragraph had it backwards: the
+ * close happens in the `finally` immediately after the read, which is
+ * **before** the digest comparison further down, not after it. What that buys
+ * is the same either way, but for a different reason than this used to give —
+ * by close time the bytes are already in the buffer, so the fault cannot cost
+ * us the data, and the digest check then runs on those bytes regardless. A
+ * close fault therefore never gates verification and never reaches the
+ * verdict; refusing over it would discard a verdict the digest is about to
+ * prove.
+ *
+ * **It is carried on `refused` as well as on `derived`, deliberately.** The
+ * two faults are independent: a sidecar can be tampered with AND fail to
+ * close, and attaching the signal only to the happy path would drop it in
+ * exactly the case where two things are wrong at once. `not-a-gate-verdict-
+ * beacon` is the one outcome without it, because that arm returns before any
+ * file is opened.
+ *
+ * **Why a returned signal, rather than logging here or emitting a
+ * `collector.error`** — the three options #391 named, and the two rejected:
+ *
+ * - This module has no business logging, and its two siblings in this package
+ *   both hand a signal UP instead of deciding what a fault means:
+ *   `recorder/session-log-writer.ts`'s `dropTrailingPartialLine` returns
+ *   `false`, and `recorder/session-recorder.ts`'s `advanceFold` sets
+ *   `foldDesynced` for `foldSoFar` to read. This follows them.
+ * - A `collector.error` event was **rejected**: its `collector` field is
+ *   consumed as collector health, and there is no honest name to put in it.
+ *   The fault belongs to a derivation, not to prd-27's beacon collector, and
+ *   attributing it there would render that collector degraded on a surface
+ *   the operator trusts — a worse lie than the silence #391 exists to end.
+ *   It would also give a `packages/core/` family a new meaning, which this
+ *   issue's fence puts out of scope.
+ *
+ * **Always present on `derived` and `refused`** — a clean derivation carries
+ * `{ state: 'closed' }` positively rather than omitting the field. That is the
+ * change of shape the three-state rewrite made and the point of it: an
+ * omitted field cannot be told from a file that was never opened, which is
+ * exactly the confusion the optional-string version shipped. Bounding the
+ * reporting is the reader's job, not this module's — see the latch in
+ * `poll-loop.ts`.
  */
+/**
+ * What happened to the sidecar's file descriptor, as three states rather than
+ * an optional string (#391, round 2 of its review).
+ *
+ * **The optional-string version was wrong in a way worth keeping written
+ * down**, because an independent review found both of its faces and they had
+ * one root: `closeFault?: string` could not distinguish **"closed cleanly"**
+ * from **"never opened"**. Nine of this function's refusals return before any
+ * file is opened, and all nine looked identical to a clean close — so the
+ * seam's latch cleared on them, and a single lane-less gate line un-latched a
+ * fault that was still happening. Absence of a fault is not evidence of a
+ * close.
+ *
+ * `unopened` is therefore a first-class state and not a default.
+ */
+export type SidecarDescriptor =
+  /** No descriptor was ever obtained — every refusal that precedes `open()`, and `open()`'s own failure. */
+  | { state: 'unopened' }
+  /** A descriptor was obtained and `close()` succeeded. The ONLY state that may clear a latch. */
+  | { state: 'closed' }
+  /** A descriptor was obtained and `close()` rejected. The verdict, if any, is unaffected — see the module docblock. */
+  | { state: 'close-failed'; message: string }
+
 export type GateVerdictDerivation =
-  | { outcome: 'derived'; event: EventOf<'gate.verdict'> }
+  | { outcome: 'derived'; event: EventOf<'gate.verdict'>; descriptor: SidecarDescriptor }
   | { outcome: 'not-a-gate-verdict-beacon' }
-  | { outcome: 'refused'; reason: string }
+  | { outcome: 'refused'; reason: string; descriptor: SidecarDescriptor }
 
 /**
  * The most this derivation will ever read to find one line. The cap exists so
@@ -121,6 +188,9 @@ export type GateVerdictDerivation =
  */
 export const MAX_GATE_VERDICT_LINE_BYTES = 8192
 
+/** The nine refusals that precede `open()` all share this — see {@link SidecarDescriptor} for why it is a state and not an absence. */
+const UNOPENED: SidecarDescriptor = { state: 'unopened' }
+
 export interface DeriveGateVerdictOptions {
   /** The repo whose beacon directory the sidecar lives under — the same input `beaconDirFor` takes at the collector. */
   repoPath: string
@@ -139,7 +209,7 @@ export async function deriveGateVerdict(
     return { outcome: 'not-a-gate-verdict-beacon' }
   }
   if (payload.lane === null) {
-    return { outcome: 'refused', reason: 'beacon has no lane — no handle to attribute the verdict to' }
+    return { outcome: 'refused', reason: 'beacon has no lane — no handle to attribute the verdict to', descriptor: UNOPENED }
   }
 
   // Lexical rejection first, cheap and before any filesystem call: `file` is
@@ -149,7 +219,7 @@ export async function deriveGateVerdict(
   // values `path.basename()` returns UNCHANGED (verified: `path.basename('..')
   // === '..'`), so a basename-equality check alone does not catch them.
   if (payload.file === '.' || payload.file === '..' || payload.file.includes('/') || payload.file.includes('\\')) {
-    return { outcome: 'refused', reason: `beacon names a sidecar path, not a file: ${payload.file}` }
+    return { outcome: 'refused', reason: `beacon names a sidecar path, not a file: ${payload.file}`, descriptor: UNOPENED }
   }
 
   const dir = beaconDirFor(options.repoPath, options.dataRoot)
@@ -172,24 +242,24 @@ export async function deriveGateVerdict(
   try {
     realFile = canonicalize(filePath)
   } catch (error) {
-    return { outcome: 'refused', reason: `sidecar ${payload.file} could not be resolved: ${String(error)}` }
+    return { outcome: 'refused', reason: `sidecar ${payload.file} could not be resolved: ${String(error)}`, descriptor: UNOPENED }
   }
   if (!isInside(dir, realFile)) {
-    return { outcome: 'refused', reason: `sidecar ${payload.file} resolves outside the beacon directory` }
+    return { outcome: 'refused', reason: `sidecar ${payload.file} resolves outside the beacon directory`, descriptor: UNOPENED }
   }
 
   let size: number
   try {
     const info = await stat(realFile)
     if (!info.isFile()) {
-      return { outcome: 'refused', reason: `sidecar ${payload.file} is not a regular file` }
+      return { outcome: 'refused', reason: `sidecar ${payload.file} is not a regular file`, descriptor: UNOPENED }
     }
     size = info.size
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return { outcome: 'refused', reason: `sidecar ${payload.file} is missing` }
+      return { outcome: 'refused', reason: `sidecar ${payload.file} is missing`, descriptor: UNOPENED }
     }
-    return { outcome: 'refused', reason: `sidecar ${payload.file} could not be read: ${String(error)}` }
+    return { outcome: 'refused', reason: `sidecar ${payload.file} could not be read: ${String(error)}`, descriptor: UNOPENED }
   }
 
   // Absent, empty, or shorter than the offset all land here — one answer for
@@ -200,6 +270,7 @@ export async function deriveGateVerdict(
     return {
       outcome: 'refused',
       reason: `sidecar ${payload.file} (${size} bytes) does not reach the recorded offset ${payload.offset}`,
+      descriptor: UNOPENED,
     }
   }
 
@@ -213,9 +284,27 @@ export async function deriveGateVerdict(
   try {
     handle = await open(realFile, 'r')
   } catch (error) {
-    return { outcome: 'refused', reason: `sidecar ${payload.file} could not be read: ${String(error)}` }
+    // `open()` failing leaves no descriptor, so this is UNOPENED like the
+    // eight refusals above it — not a clean close.
+    return { outcome: 'refused', reason: `sidecar ${payload.file} could not be read: ${String(error)}`, descriptor: UNOPENED }
   }
-  let bytesRead: number
+
+  // **No return may appear between here and the `descriptor` below.** That is
+  // the whole structural lesson of #391's second review round: the previous
+  // version returned from inside the read's `catch`, which is evaluated
+  // BEFORE the `finally` runs, so a read fault and a close fault together
+  // discarded the close fault — and at the seam that absence read as a clean
+  // close and un-latched a fault still happening.
+  //
+  // The read outcome is now held in a local and acted on AFTER the close, so
+  // there is exactly one place where the descriptor's fate is decided and
+  // every result below it carries that fate. `descriptor` being a REQUIRED
+  // field is what makes this checkable rather than remembered: a return that
+  // omits it does not compile, where the previous helper-based version relied
+  // on every site remembering to call the helper — and one did not.
+  let bytesRead = 0
+  let readError: unknown
+  let closeFault: string | undefined
   try {
     // Round 5's review: `bytesRead` is the only honest measure of what this
     // window actually holds. `size` came from a `stat` that has already
@@ -227,40 +316,37 @@ export async function deriveGateVerdict(
   } catch (error) {
     // Round 4's review found this uncaught: a real read fault (EIO, a
     // failing network mount) threw straight out of a function this module's
-    // own docblock promises never throws. `poll-loop.ts`'s recording loop
-    // has no per-event try around this call, so an uncaught throw here
-    // would have aborted the rest of that tick's batch and, per ADR-0029's
-    // own comment on that loop, re-derived the WHOLE batch every tick
-    // thereafter for as long as the fault persists — a bad sector turning a
-    // landing gate into a poll loop that never advances again.
-    return { outcome: 'refused', reason: `sidecar ${payload.file} could not be read: ${String(error)}` }
+    // own docblock promises never throws. `poll-loop.ts`'s recording loop has
+    // no per-event try around this call, so an uncaught throw would have
+    // aborted the rest of that tick's batch and, per ADR-0029, re-derived the
+    // WHOLE batch every tick thereafter for as long as the fault persisted.
+    readError = error
   } finally {
-    // Round 5's review found the SIBLING of round 4's finding, one line
-    // below the fix for it: `close()` rejects too (EIO on a failing mount,
-    // and any fault the kernel defers to close), and a rejection raised in a
-    // `finally` REPLACES the value the `try`/`catch` was returning — so a
-    // close fault escaped this function as a rejected promise, past both
-    // catches, breaking the same no-throw contract round 4 restored and
-    // reaching the same unguarded poll-loop seam by the same route.
-    //
-    // Swallowed rather than turned into a refusal, and the asymmetry with
-    // the read above is deliberate: by here the bytes are already in
-    // `buffer`, and they are about to be checked against
-    // `beacon.received.digest`, which is what actually establishes that they
-    // are the recorded line. A verdict proven by that digest is not made
-    // less true by the descriptor failing to close afterwards, so refusing
-    // here would discard a provably-good verdict over a fault that costs us
-    // nothing but the descriptor. A read fault is the opposite case: it
-    // means we never got the bytes at all.
     try {
       await handle.close()
-    } catch {
-      // Deliberately empty — see above. What happens to the descriptor after
-      // a failed close is unspecified by POSIX (Linux releases it; the
-      // portable answer is that retrying is not safe either), so there is
-      // nothing further this function can usefully do about it. The only
-      // alternative on offer is a derivation that throws, which is the thing
-      // the contract forbids.
+    } catch (error) {
+      // Swallowed as an OUTCOME — the contract forbids throwing, and what
+      // happens to a descriptor after a failed close is unspecified by POSIX
+      // (Linux releases it; retrying is not portably safe), so there is
+      // nothing this function can usefully DO about it. A verdict the digest
+      // below has proven is not made less true by a descriptor failing to
+      // close, which is why this does not become a refusal the way a read
+      // fault does: a read fault means the bytes never arrived at all.
+      //
+      // It is NOT swallowed as information. That was #391's whole point.
+      closeFault = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  /** Decided once, after the close, and carried by every result below. */
+  const descriptor: SidecarDescriptor =
+    closeFault === undefined ? { state: 'closed' } : { state: 'close-failed', message: closeFault }
+
+  if (readError !== undefined) {
+    return {
+      outcome: 'refused',
+      reason: `sidecar ${payload.file} could not be read: ${String(readError)}`,
+      descriptor,
     }
   }
 
@@ -296,6 +382,7 @@ export async function deriveGateVerdict(
       return {
         outcome: 'refused',
         reason: `sidecar ${payload.file} has no newline within ${MAX_GATE_VERDICT_LINE_BYTES} bytes of offset ${payload.offset} — the line exceeds the bound this derivation reads`,
+        descriptor,
       }
     }
     // A short read, or a full-but-under-the-cap window with no terminator:
@@ -303,6 +390,7 @@ export async function deriveGateVerdict(
     return {
       outcome: 'refused',
       reason: `sidecar ${payload.file} is truncated — no line terminates at offset ${payload.offset}`,
+      descriptor,
     }
   }
 
@@ -312,6 +400,7 @@ export async function deriveGateVerdict(
     return {
       outcome: 'refused',
       reason: `sidecar ${payload.file} line at offset ${payload.offset} does not match its recorded digest — altered since it was recorded`,
+      descriptor,
     }
   }
 
@@ -322,10 +411,11 @@ export async function deriveGateVerdict(
     return {
       outcome: 'refused',
       reason: `sidecar ${payload.file} line at offset ${payload.offset} is not valid JSON despite matching its digest`,
+      descriptor,
     }
   }
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-    return { outcome: 'refused', reason: `sidecar ${payload.file} line at offset ${payload.offset} is not a JSON object` }
+    return { outcome: 'refused', reason: `sidecar ${payload.file} line at offset ${payload.offset} is not a JSON object`, descriptor }
   }
   const line = raw as Record<string, unknown>
 
@@ -340,8 +430,8 @@ export async function deriveGateVerdict(
   const parsed = gateVerdictPayloadSchema.safeParse(candidate)
   if (!parsed.success) {
     const detail = parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')
-    return { outcome: 'refused', reason: `sidecar ${payload.file} line does not carry a well-formed verdict — ${detail}` }
+    return { outcome: 'refused', reason: `sidecar ${payload.file} line does not carry a well-formed verdict — ${detail}`, descriptor }
   }
 
-  return { outcome: 'derived', event: createEvent('gate.verdict', parsed.data, { id: options.id, ts: beacon.ts }) }
+  return { outcome: 'derived', event: createEvent('gate.verdict', parsed.data, { id: options.id, ts: beacon.ts }), descriptor }
 }

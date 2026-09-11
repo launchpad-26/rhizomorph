@@ -26,7 +26,8 @@ cannot do three of the things the vision said the lab is for.
 
 - **There is no R&D hand.** The vision's Stage 2 — an agent that reads what went wrong, groups it by
   shape, and proposes experiments varying exactly one thing — is constitutionally blocked inside the
-  instrument (ADR-0008: nowhere to put a credential) and was named for a future PRD. This is that
+  instrument (ADR-0019 grant 5, *"it holds no secret"* — whose own reasoning grounds "nowhere to put
+  one" in ADR-0008's localhost-only, no-accounts posture) and was named for a future PRD. This is that
   PRD. The operator already has an agent with credentials: their own `claude` command line.
 - **Trace cannot read the files the lab already knows.** The walkthrough's Trace read *"NO SESSION
   LOG for w5-sweep"* for the parent and *"404"* for the arm — yet the checkpoint event carries the
@@ -51,8 +52,16 @@ cannot do three of the things the vision said the lab is for.
 - **The instrument already spawns the operator's tools as an explicit act.** `server/src/lab/fork.ts`
   shells out to `workmux add` and `workmux path` (`exec('workmux', …)`), and ADR-0001 counts a UI
   button as explicit human invocation. A headless agent call is the same shape.
-- **The console has no credential and must not grow one.** `process.env` across
-  `packages/server/src` yields `PORT` and `OUT_DIR` (prd-53 Non-goals, re-verified).
+- **The console has no credential and must not grow one.** Non-test sources under
+  `packages/server/src` read `process.env` by name in exactly two places, both through a
+  constant: `RHIZOMORPH_DATA_DIR` (`log/paths.ts`) and `RHIZOMORPH_JUDGE_CADENCE_MS`
+  (`server/collector-loader.ts`). Five further sites only forward or spread an env they were
+  handed. Neither name is a credential, and there is no third name to become one. *(Corrected
+  at review, 2026-09-10: this bullet, and prd-53's Non-goals which it carried, both said `PORT`
+  and `OUT_DIR`. Those two are read only by
+  `packages/server/src/collectors/codex/fixtures/otlp-capture-sink.mjs`, a standalone capture
+  sink, and were not read by the server at the `37f5f63f` this paper was drawn against either.
+  The count is two and the argument is unchanged; the names were wrong.)*
 - **Trace's data path is the fleet's.** `web/src/lab/trace/TraceDiff.tsx` reads
   `transcriptUrl(lane, 0)`; `server/src/api/transcript.ts` resolves a lane through
   `log/transcript-attribution.ts` and answers *NO SESSION LOG* / 404 otherwise. Meanwhile
@@ -62,8 +71,9 @@ cannot do three of the things the vision said the lab is for.
   (non-test) finds the definition in `web/src/lab/measure.ts` and nothing else.
 - **The launch panel sends one run per arm and no override.** `docs/user-guide/the-lab.md`'s
   `launch-panel-gap` claim, asserted by `the-lab-guide-law.test.ts`.
-- **The model is free text.** `web/src/lab/launch/LaunchPanel.tsx:228-231`: an `<input>` with
-  placeholder *"model (default if blank)"*. `settings/registry.ts` has no entry naming a model.
+- **The model is free text.** `web/src/lab/launch/LaunchPanel.tsx`, the arm row's first field
+  (`data-testid="launch-arm-model-<key>"`): an `<input>` with placeholder *"model (default if
+  blank)"*. `settings/registry.ts` has no entry naming a model.
 - **The playhead label clips.** Live measurement 2026-09-08: the playhead group's right edge at
   2004 px in a 1910 px viewport, checkpoint at 100 % of session.
 - **The branching drawing is out of proportion.** `viewBox 0 0 480 120` scaled to 1842 × 461 px for
@@ -97,7 +107,13 @@ cannot do three of the things the vision said the lab is for.
   declared act (ruling 2), off unless the operator turns it on for this repo.
 
 **Rejected alternatives.** *An API key in settings* — the constitution prices a power at an ADR, and
-this one has been refused since ADR-0008; the operator's CLI already holds the key. *The R&D agent
+this one was refused for the concierge by ADR-0019, whose option E — *"the hand holds its own
+credentials"* — lost because "a hand that holds a credential has something worth stealing". That is
+not a blanket law and this PRD should not lean on it as one: **ADR-0034 amends ADR-0019 precisely
+here**, granting the shipper one key on a stated bound, and its "why E is acceptable here and was
+not for the concierge" is the test any new hand has to answer. This ruling declines to hold a
+credential at all rather than argue a bound, which is the stronger of the two positions available
+and is why ruling 1 still owes an ADR of its own; the operator's CLI already holds the key. *The R&D agent
 as a swarm lane writing events* (the vision's shape) — right in spirit, but a long-lived lane for a
 one-shot read is a scheduler for a query; a headless call with the same credentials and a fixed
 output schema gives the same events with none of the lane's lifecycle. *Rebuild the lab page as a
@@ -231,7 +247,8 @@ the lab hands them is **the lab's record and nothing else**: one ribbon per disp
 from the fork's position on the session axis to the run's node, its width profile from booked cost on
 the absolute scale, a pinch at the fork, its tip ink from the verdict (prd-53 ruling 5's mapping,
 unchanged), the root's tissue from the checkpoint. `no-live-fleet-law`'s scene exception widens from
-one file and one path to **exactly those six modules**, named; `scene/retire.ts`, `salience.ts`,
+two files and one path — `branching/geometry.ts` and `canvas/organism.ts`, both importing
+`scene/palette.js` — to **exactly those six modules**, named; `scene/retire.ts`, `salience.ts`,
 `variation.ts`, `pulses.ts`, `SceneView.tsx` and anything under `fleet/` stay forbidden because they
 read the fold. The scene's own laws ride with its brushes: hue is meaning and each hue means one
 thing; the brightness band owns attention; nothing reaches for a hex the palette does not hold;
@@ -288,7 +305,9 @@ a schema-invalid result records `rd.refused` and renders the reason · a single-
 renders held back and carries no proposal · a proposal's arms differ in exactly one dimension (a
 mutation adding a second goes red) · launching a proposal produces an experiment carrying
 `proposalId` · changing the pick records `rd.override` · the provenance line's cost equals the
-event's · `process.env` in `packages/server/src` still yields exactly two names.
+event's · non-test sources under `packages/server/src` still read `process.env` by name in
+exactly two places, and neither name is a credential (the query is the Evidence bullet's: named
+reads, not the sites that forward an injected env).
 
 ### S1′ — the workspace (rearranged)
 
