@@ -13,6 +13,7 @@ import {
   listComparisons,
   readComparison,
   saveComparison,
+  saveComparisonV2,
 } from './store.js'
 
 const INPUT: ComparisonInput = {
@@ -80,26 +81,47 @@ describe('comparisons/store', () => {
     expect(await listComparisons(dir)).toEqual([])
   })
 
-  it("the issue's mutation, on disk: a version-2 rewrite is refused, never migrated or removed", async () => {
+  it("the issue's mutation, on disk: a version-3 rewrite is refused, never migrated or removed (moved from 2 to 3 since ruling 6 made 2 a real, accepted version)", async () => {
     const { id } = await saveComparison(dir, INPUT, '2026-09-04T10:00:00.000Z')
     const filePath = path.join(comparisonsDir(dir), comparisonFileName(id))
 
     const before = await readFile(filePath, 'utf8')
-    const mutated = before.replace('"version": 1', '"version": 2')
+    const mutated = before.replace('"version": 1', '"version": 3')
     await writeFile(filePath, mutated, 'utf8')
 
     expect(await readComparison(dir, id)).toEqual({
       kind: 'refused',
       id,
-      reason: 'unsupported comparison artifact version: 2',
+      reason: 'unsupported comparison artifact version: 3',
     })
 
     const listing = await listComparisons(dir)
-    expect(listing).toEqual([{ id, sizeBytes: expect.any(Number), available: false, reason: 'unsupported comparison artifact version: 2' }])
+    expect(listing).toEqual([{ id, sizeBytes: expect.any(Number), available: false, reason: 'unsupported comparison artifact version: 3' }])
 
     const after = await readFile(filePath, 'utf8')
     expect(after).toBe(mutated)
     expect((await stat(filePath)).size).toBe(Buffer.byteLength(mutated, 'utf8'))
+  })
+
+  it('saveComparisonV2 writes a v2 artifact that reads back with its measure, provenance and per-run facts intact (prd14 ruling 6)', async () => {
+    const inputV2 = {
+      arms: [{ id: 'a', model: 'opus', brief: 'b', runs: [{ id: 'r1', status: 'complete' as const, verdict: 'pass' as const, cost: 4, duration: 900, commits: 2 }] }],
+    }
+    const provenance = { verifyCommand: 'npm test', source: 'compare-cli' as const, measuredAt: 1000 }
+    const { id, savedAt } = await saveComparisonV2(dir, inputV2, 'cost', provenance, '2026-09-11T10:00:00.000Z')
+
+    const raw = await readFile(path.join(comparisonsDir(dir), comparisonFileName(id)), 'utf8')
+    expect(parseComparisonArtifact(raw)).toEqual({ version: 2, savedAt, measure: 'cost', provenance, input: inputV2 })
+
+    const listing = await listComparisons(dir)
+    expect(listing).toEqual([{ id, sizeBytes: expect.any(Number), available: true, savedAt, arms: 1 }])
+  })
+
+  it('saveComparisonV2 with no measure and no provenance still reads back — the store never invents either', async () => {
+    const inputV2 = { arms: [{ id: 'a', model: 'opus', brief: 'b', runs: [] }] }
+    const { id, savedAt } = await saveComparisonV2(dir, inputV2, undefined, undefined, '2026-09-11T10:00:01.000Z')
+
+    expect(await readComparison(dir, id)).toEqual({ kind: 'found', id, artifact: { version: 2, savedAt, input: inputV2 } })
   })
 
   it('a file that is not valid JSON is refused, by name', async () => {

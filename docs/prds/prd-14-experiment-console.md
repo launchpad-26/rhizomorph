@@ -1,9 +1,22 @@
 # prd14 — the experiment console
 
-> **Outcome:** ruled 2026-08-24 — ruling 5 settles the persistence seam; the browser console,
-> branching view, free-form arms, spread reporting and estimate/confirm flow ship, and the
-> remaining build is one bounded save/reopen slice at moderate priority. Reconciled
-> 2026-08-22 at `03df141`; see `docs/roadmap.md`.
+> **Outcome: SHIPPED, 2026-09-11.** The browser console, branching view, free-form
+> arms, spread reporting and estimate/confirm flow all ship. Ruling 5's persistence
+> seam shipped across three waves — the server stores a comparison, the two parser
+> copies agree on the same bytes, and the recordings library lists one and reopens
+> it. Ruling 6 shipped the format itself: a `version: 2` artifact carrying the
+> measure and the facts that judged each run, with a v1 artifact still readable and
+> no migration. Every issue in the milestone is closed.
+>
+> Two questions closed without code. The **scrub's scope** was answered by
+> construction and had been since wave 1 — see Open, not ruled. The **hard spend
+> cap** is parked, not built, and wants its own PRD if it ever returns.
+>
+> Earlier Outcome line, kept because it was true when written: *ruled 2026-08-24 —
+> ruling 5 settles the persistence seam … the remaining build is one bounded
+> save/reopen slice at moderate priority.* That slice turned out to be three waves
+> and a format version, which is worth knowing about "one bounded slice" as an
+> estimate. Reconciled 2026-08-22 at `03df141`; see `docs/roadmap.md`.
 
 **Status:** BLESSED 2026-08-06 (four rulings below).
 **Predecessor:** prd12 (the laboratory — engine, constitution, checkpoints).
@@ -314,11 +327,39 @@ the issues originally named:
   pass vacuously — and so any new route reddens it. Cited by the assertion and not by line,
   because #23's whole job is to move it. #23 makes counts derive from what they count,
   which turns this from a fight into a one-line reconciliation.
-- **w2 waits on w1, and on a live fence it did not know about.** #220 (prd30 w1, open)
+- ~~**w2 waits on w1, and on a live fence it did not know about.** #220 (prd30 w1, open)
   claims both `packages/web/src/recordings/` and `packages/web/src/lab/` for prd-30's
   `title=` adoption sweep. `scripts/fence-lint.sh 213 214 220` reports two overlaps against
   w2's fence — verified, executed 2026-09-02 — so w2 belongs after #220 lands, not beside
-  it.
+  it.~~
+
+  **Cleared, and then some. Corrected 2026-09-11 (#447).** The paragraph above was
+  true when written and was still being read as current blocking state nine days
+  later, because nothing sweeps a PRD's claims — see the note at the end of this
+  list. It is struck rather than edited so the provenance survives: the overlap was
+  real, the run that found it was real, and the reason it stopped mattering is below.
+
+  #220 closed on 2026-09-08 and all four prd-30 waves are on `main`. But the
+  stronger fact is that **the question is no longer "is w2 unblocked" — w2
+  shipped**, along with every other wave here: w1 (#213), w2 (#376), w3 (#214) and
+  w4 (#347) are all closed, and the milestone carries no open build.
+
+  Established rather than assumed, 2026-09-11: re-running `scripts/fence-lint.sh`
+  over this wave would prove nothing, because its issues are closed and the lint
+  only compares the issues it is given. What was checked instead is the question
+  that still has an answer — whether any LIVE fence took #220's place on the paths
+  it held. Across all seven then-in-progress issues (#408, #410, #413, #414, #427,
+  #429, #430), none claims `packages/web/src/recordings/`,
+  `packages/web/src/lab/` or `packages/web/src/lab/compare/`. Nothing replaced it.
+
+  Why it survived nine days, because the mechanism is the interesting part and it
+  is not fixed by this correction: `packages/server/src/doc-citation-law.test.ts`
+  excludes `docs/prds/` as a citing source, so no law sweeps this file's paths at
+  all — proven by mutation during the review of PR #431, where a fabricated path
+  in a PRD left the law green while the same fabrication in `docs/roadmap.md`
+  turned it red. And where the law does sweep, it checks that paths RESOLVE, not
+  that a cited issue is still open. A guard for that class is a separate concern;
+  this is the instance.
 - **w2's own stated orderer was wrong.** The issue orders itself after "the prd43
   recordings-law issue" holding `recordings/no-live-fleet-law.test.ts`. That file was prd-45's
   (#44, #76), both closed, and no open issue fences it. That dependency has cleared; #220 is
@@ -332,12 +373,49 @@ spend cap and the scrub's scope — are not answered by either wave.
 
 ## Open, not ruled
 
-- Whether the checkpoint timeline scrubs the *whole instrument* back to a moment
-  or only the lab's own view. Deferred to wave 1's eyeball.
+- ~~Whether the checkpoint timeline scrubs the *whole instrument* back to a
+  moment or only the lab's own view. Deferred to wave 1's eyeball.~~
+  **Answered by construction, recorded 2026-09-11.** It is the lab's own view,
+  and it has been since wave 1 shipped in 2026-08 — nobody wrote it down, so
+  the question sat open for a month against code that had already closed it.
+
+  Measured on `1570f55f`, and stated as an enumeration rather than a count so
+  it cannot rot: `useFleet` appears in `lab/LabPage.tsx` zero times, and the
+  only files referencing a checkpoint selection are
+  `lab/launch/LaunchPanel.tsx` and `lab/the-lab-guide-law.test.ts` — both
+  inside `lab/`. A selection reaches the launch panel and nothing else; no
+  consumer outside the directory reads it.
+
+  **The wider option was never actually available.** "Scrub the whole
+  instrument" requires the lab surface to hold and re-render live fleet state,
+  which is precisely what this PRD's own inherited constraint forbids and what
+  `lab/no-live-fleet-law.test.ts` enforces. So the deferral was not a choice
+  waiting to be made; it was a question the constraint two sections above had
+  already decided. Recording it here rather than deleting the line, because a
+  question that was open for a month while the code was unambiguous is worth a
+  reader knowing about.
+
+  What is NOT settled by the above: whether the narrow behaviour is the one the
+  console should keep. That is a product question and nothing here rules on it.
 - ~~Free-form per-arm variation (ruling 2's deliberate deferral).~~ **Since
   shipped** — ruling 2's amendment landed it, and `lab/launch/LaunchPanel.tsx`
   configures model and brief per arm; this PRD's own Outcome header records it.
-- Hard spend cap (ruling 4's deliberate deferral).
+- ~~Hard spend cap (ruling 4's deliberate deferral).~~ **Parked 2026-09-11,
+  and deliberately not part of this PRD.** Ruling 4 deferred it with a
+  condition — *"revisit once the console is real"* — and the console is now
+  real, so the condition is met and the question is live rather than dormant.
+  It is parked anyway, by the operator, on the ground that nothing is blocked:
+  the estimate-and-confirm flow ships, a fork's spend appears in the ledger as
+  real spend, and no operator has been surprised by a bill. Ruling 4's own
+  reasoning against a cap still stands unrefuted — a ceiling that stops arms
+  mid-flight produces partial data, and partial data would need its own
+  honesty voice in the comparison surface, which is a design question nobody
+  has needed answered yet.
+
+  If console spend ever does become a real problem, this wants a PRD of its
+  own rather than an amendment here: the cap is the easy half, and the
+  partial-data voice is the half that would need ruling. Recorded so a later
+  reader finds a decision rather than an unexplained silence.
 - **#205 fold-order — since ruled: append order is the truth** (prd17's 2026-08-24
   amendment); the lab assumes exactly that resolution and no other.
 
@@ -358,3 +436,83 @@ parser already knows how to say why — and never migrates silently; a migration
 ever worth writing, goes through its own upcast the way prd17's chokepoint prescribes. One
 bounded slice, moderate priority: storage + library row + reopen + the refusal, and nothing
 that reopens the shipped layout, arm, spread or estimate work.
+
+## Amendment — the saved artifact carries facts, not a DTO (operator, 2026-09-11)
+
+Ruled on #347, which asked what a `version: 2` comparison artifact should carry.
+The issue's own headline claim had gone stale before it was answered — it said
+the pass/fail verdict was discarded, and #376 landed `verdict`, `note` and
+`detail` into both parsers after it was written. What is actually missing from a
+saved artifact is `durationMs`, `commits`, `provenance`, and — new since #214
+and the only one a reader can see — **the measure**, which is why a reopened
+comparison currently says *"measure not recorded"* and shows no summary at all.
+
+### Ruling 6 — v2 stores facts in the surface's own vocabulary, and a v1 file is still read
+
+**Per run, v2 stores `{ verdict, detail?, cost, duration, commits }`** — the
+compare surface's own words, not `LabRunOutcomeDTO`. **Per artifact, it stores
+the measure and the gate's provenance** (`verifyCommand`, `source`,
+`measuredAt`), at the artifact level rather than repeated on every run.
+
+The reopened surface then re-derives its view through `runForMeasure`
+(`lab/compare/fromExperiment.ts`) — **the same function the live surface uses**.
+That is the substance of the ruling and not an implementation note: it restores
+the measure switch on a saved comparison, which v1 cannot offer at all, and it
+keeps a server DTO out of a browser artifact format. A projection in the
+surface's vocabulary is a contract this repo already owns; the DTO is one it
+would have to keep in step across a boundary.
+
+**A v1 file is read, not migrated and not refused.** The parser accepts 1 and 2
+as a discriminated union, rewrites nothing on disk, and refuses 3 and above by
+name — the fixture row pinned to `unsupported comparison artifact version: 2`
+moves to `3`. An upcast is ruled out rather than deferred, and the reason is that
+**v1 → v2 is not total**: the measure is unrecoverable from a v1 artifact, so any
+upcast would have to invent one or leave the field absent, and prd-17's
+chokepoint exists for translations that are complete. The existing
+`measure === null` rendering path is **kept and retargeted at v1 artifacts**,
+where its wording — no summary, every run shown by its verdict — is exactly
+right rather than a stopgap.
+
+**`packages/core` does not become the shape's home**, and ADR-0042 is superseded
+anyway. Its deferral named a trigger — *"the day a third consumer appears or a
+`version: 2` is written"* — and this ruling meets the trigger while re-deciding
+the criterion behind it: the drift risk that trigger stood proxy for is already
+closed by the shared fixture set and the two agreement laws, no third consumer
+has appeared, and ADR-0041 keeps a comparison out of the fold and off the
+record. The superseding record is
+[ADR-0049](../adr/0049-the-comparison-shape-stays-in-two-copies-at-version-2.md),
+and it says so in its own Consequences, with the
+falsifier written down: **the two-copy decision holds only while the agreement
+laws keep both kinds of coverage ADR-0049 names — throw sites derived from
+source, and every accepted value of every union v2 admits.** If either lapses,
+the argument for two copies has gone and the shape should move. (The ADR's
+first draft named only the first kind; two review seats defeated it, and the
+record was corrected before it shipped — see its Consequences.)
+
+### Sequencing
+
+**Ruling 6 is one wave — `prd14 w4`, and #347 is its only issue.** The count
+continues the milestone's own sequence (w1 #213, w2 #376, w3 #214) rather than
+restarting per ruling: `prd14` numbers waves, not amendments, and a second
+sequence under one milestone is a collision waiting to happen.
+
+It is deliberately NOT split into a storage half and a surface half. They are a
+stack rather than a bundle — the reopened surface cannot re-derive through
+`runForMeasure` until v2 exists to re-derive from — so splitting them would pay
+the queue toll twice to buy an ordering the single lane already has. The cost of
+that choice is a large PR, and it is accepted: the fence audit at landing is what
+catches a miss in a change this wide, and it audits the whole wave either way.
+
+**Held until #401 landed**, which it now has (PR #420, 2026-09-11, closing #401
+and #402). That issue fenced `packages/web/src/lab/compare/` in its entirety and
+every seam this ruling touches was inside it. Recorded rather than deleted
+because the ordering is the reason this ruling was written before the build
+instead of during it.
+
+When #347 is groomed, its fence is drawn from the real footprint and not from
+the two `artifact.ts` files the issue names — both parsers, both agreement laws,
+the shared fixture, `fromExperiment.ts`, `ComparisonSurface.tsx`, `save.ts`,
+`SaveComparisonControl.tsx`, `api/lab.ts`, `store.ts`,
+`recordings/comparisons.ts`, `RecordingsPage.tsx`, and the three contract tests.
+A version bump lands in both copies by construction; a fence naming one is a
+fence that schedules the drift this PRD has already paid for once.

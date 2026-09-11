@@ -46,6 +46,38 @@ describe('contract: saving a comparison (prd-14 ruling 5)', () => {
     expect(read).toEqual({ id: outcome.id, available: true, artifact: { version: 1, savedAt: outcome.savedAt, input: INPUT } })
   })
 
+  /**
+   * THE V2 ROUND TRIP (prd14 ruling 6). `INPUT`'s enriched shape is exactly
+   * what `fromExperiment.ts` now always produces — `measure` and `provenance`
+   * at the top level, `cost`/`duration`/`commits` on every complete run — so
+   * `save.ts` sends a v2 body, the server stores a v2 artifact, and the real
+   * read route hands back every fact this save carried, not only the one
+   * `value` a v1 save would have kept.
+   */
+  it('a v2-shaped input — measure and provenance carried — saves and reads back as a v2 artifact with every run fact intact', async () => {
+    const provenance = { verifyCommand: 'npm test', source: 'compare-cli' as const, measuredAt: 1000 }
+    const inputV2 = {
+      arms: [{ id: 'a1', model: 'opus', brief: 'x', runs: [{ id: 'r1', status: 'complete' as const, verdict: 'pass' as const, value: 4, cost: 4, duration: 900, commits: 2 }] }],
+      measure: 'cost' as const,
+      provenance,
+    }
+
+    const outcome = await saveComparison(inputV2, h.fetch)
+    const read = await fetchComparison(outcome.id)
+
+    expect(read).toEqual({
+      id: outcome.id,
+      available: true,
+      artifact: {
+        version: 2,
+        savedAt: outcome.savedAt,
+        measure: 'cost',
+        provenance,
+        input: { arms: [{ id: 'a1', model: 'opus', brief: 'x', runs: [{ id: 'r1', status: 'complete', verdict: 'pass', cost: 4, duration: 900, commits: 2 }] }] },
+      },
+    })
+  })
+
   it("a tampered token is refused by the real gate, and the server's own sentence crosses back, with the #406 remedy appended", async () => {
     tamperCapabilityToken()
 

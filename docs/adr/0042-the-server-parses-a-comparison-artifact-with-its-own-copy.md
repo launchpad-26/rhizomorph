@@ -1,6 +1,6 @@
 # 0042. The server validates a comparison artifact with its own copy of the parser, not a shared schema
 
-- **Status:** accepted
+- **Status:** superseded by [ADR-0049](0049-the-comparison-shape-stays-in-two-copies-at-version-2.md)
 - **Date:** 2026-09-08
 
 ## Context and Problem Statement
