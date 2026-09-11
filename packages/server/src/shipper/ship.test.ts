@@ -1,13 +1,13 @@
-import { appendFile, mkdtemp, rm, truncate, unlink, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, rm, truncate, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createEvent, eventToLine } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { TEAM_CONFIG_VERSION, writeTeamConfig } from './config.js'
+import { cursorPath, shipperDirFor, TEAM_CONFIG_VERSION, writeTeamConfig } from './config.js'
 import { readCursor } from './cursor.js'
 import { writeIngestKey } from './key.js'
 import type { FetchLike } from './post.js'
-import { MAX_BATCH_ENTRIES, shipOnce, type ShipPassResult } from './ship.js'
+import { MAX_BATCH_ENTRIES, MAX_READ_BYTES, shipOnce, type ShipPassResult } from './ship.js'
 
 const FIXTURE_KEY = 'rzk_SHIPFIXTUREVALUE0123456789'
 const URL_BASE = 'https://team.example'
@@ -52,6 +52,11 @@ function line(ts = 1785900000000): string {
       { id: `e${nextEventId}`, ts },
     ),
   )
+}
+
+/** A line whose own bytes exceed one read window — never parsed, only skipped past. */
+function oversizedLine(): string {
+  return 'x'.repeat(MAX_READ_BYTES + 1)
 }
 
 function sessionFile(id: string): string {
@@ -253,6 +258,201 @@ describe('ruling B — a ledger that shrank below its cursor is refused, never r
     expect(sent[1]?.actorInstance).toBe('1785900000001')
     expect(sent[1]?.ns).toEqual([1])
     expect(result.enabled && result.ok).toBe(false)
+  })
+})
+
+describe('ruling 15 — a line larger than the read window is a skip, and an unterminated one is a failure', () => {
+  it('skips an oversized line by n and kind, advances past the whole line, and reaches the ordinary line behind it', async () => {
+    await enable()
+    const behind = line()
+    await seedSession('1785900000000', [oversizedLine(), behind])
+    const { fetch, sent } = acceptingFetch()
+
+    const first = await shipOnce({ sessionDir, fetch, now: () => 99 })
+
+    const actor = actorOf(first, '1785900000000')
+    expect(actor.skipped).toBe(1)
+    expect(actor.shipped).toBe(0)
+    expect(actor.advanced).toBe(true)
+    expect(actor.reason).toBeNull()
+    expect(first.enabled && first.ok).toBe(true)
+    // The skip is the whole of that actor's tick: nothing is posted.
+    expect(sent).toEqual([])
+
+    const stored = (await readCursor(sessionDir)).cursor.actors['1785900000000']
+    expect(stored?.n).toBe(1)
+    // Past the WHOLE line — its MAX_READ_BYTES + 1 bytes plus its newline —
+    // not merely past the window that could not hold it.
+    expect(stored?.offset).toBe(MAX_READ_BYTES + 2)
+    expect(stored?.skippedCount).toBe(1)
+    expect(stored?.skipped).toHaveLength(1)
+    expect(stored?.skipped[0]?.n).toBe(1)
+    expect(stored?.skipped[0]?.kind).toBe('oversized')
+    // `cursor.ts`'s `reason` contract: never input bytes, in any quantity.
+    expect(stored?.skipped[0]?.reason).not.toContain('x'.repeat(64))
+    expect(stored?.skipped[0]?.reason).toContain(String(MAX_READ_BYTES + 1))
+
+    const second = await shipOnce({ sessionDir, fetch })
+    expect(sent).toHaveLength(1)
+    expect(sent[0]?.ns).toEqual([2])
+    expect(sent[0]?.lines).toEqual([behind])
+    expect(actorOf(second, '1785900000000').shipped).toBe(1)
+    expect((await readCursor(sessionDir)).cursor.actors['1785900000000']?.n).toBe(2)
+  })
+
+  it('repetition — a third pass after the skip sends nothing, and does not re-record the skip', async () => {
+    await enable()
+    await seedSession('1785900000000', [oversizedLine(), line()])
+    const { fetch, sent } = acceptingFetch()
+
+    await shipOnce({ sessionDir, fetch })
+    await shipOnce({ sessionDir, fetch })
+    const third = await shipOnce({ sessionDir, fetch })
+
+    expect(actorOf(third, '1785900000000').shipped).toBe(0)
+    expect(actorOf(third, '1785900000000').skipped).toBe(0)
+    expect(sent).toHaveLength(1)
+    const stored = (await readCursor(sessionDir)).cursor.actors['1785900000000']
+    expect(stored?.skippedCount).toBe(1)
+    expect(stored?.skipped).toHaveLength(1)
+  })
+
+  it('names a failure — and does not skip — when an oversized line has no terminator anywhere', async () => {
+    await enable()
+    await writeFile(sessionFile('1785900000000'), oversizedLine())
+    const { fetch, sent } = acceptingFetch()
+
+    for (const _pass of [1, 2, 3]) {
+      const result = await shipOnce({ sessionDir, fetch })
+      expect(result.enabled && result.ok).toBe(false)
+      const actor = actorOf(result, '1785900000000')
+      expect(actor.reason).toBe('oversized-unterminated')
+      expect(actor.advanced).toBe(false)
+      expect(actor.skipped).toBe(0)
+      expect(actor.detail).toContain(String(MAX_READ_BYTES))
+      expect(actor.detail).toContain('after byte 0')
+      expect(result.enabled && result.failures).toHaveLength(1)
+      expect(result.enabled && result.failures[0]).toContain('1785900000000')
+      expect(sent).toEqual([])
+      // The cursor is untouched, so nothing was written for this actor at all.
+      expect((await readCursor(sessionDir)).cursor.actors['1785900000000']).toBeUndefined()
+    }
+  })
+
+  it('the terminator arriving turns the failure into a skip', async () => {
+    await enable()
+    await writeFile(sessionFile('1785900000000'), oversizedLine())
+    const { fetch, sent } = acceptingFetch()
+
+    const failed = actorOf(await shipOnce({ sessionDir, fetch }), '1785900000000')
+    expect(failed.reason).toBe('oversized-unterminated')
+    // The detail is the only thing an operator reads here, so it has to agree
+    // with the rest of this case: once the terminator arrives the line is
+    // SKIPPED, never sent. It said "will terminate and ship" until this
+    // assertion existed to say otherwise.
+    expect(failed.detail).toContain('SKIPPED past')
+    expect(failed.detail).not.toContain('terminate and ship')
+
+    const behind = line()
+    await appendFile(sessionFile('1785900000000'), `\n${behind}\n`)
+
+    const skipped = await shipOnce({ sessionDir, fetch })
+    expect(actorOf(skipped, '1785900000000').reason).toBeNull()
+    expect(actorOf(skipped, '1785900000000').skipped).toBe(1)
+    expect((await readCursor(sessionDir)).cursor.actors['1785900000000']?.n).toBe(1)
+    expect(sent).toEqual([])
+
+    await shipOnce({ sessionDir, fetch })
+    expect(sent).toHaveLength(1)
+    expect(sent[0]?.ns).toEqual([2])
+    expect(sent[0]?.lines).toEqual([behind])
+  })
+
+  it('the discriminator is size − offset, not the window\'s contents — a remainder that FITS the window is a partial write, and waiting is correct', async () => {
+    await enable()
+    await writeFile(sessionFile('1785900000000'), 'x'.repeat(MAX_READ_BYTES))
+    const { fetch, sent } = acceptingFetch()
+
+    const result = await shipOnce({ sessionDir, fetch })
+
+    expect(result.enabled && result.ok).toBe(true)
+    expect(result.enabled && result.failures).toEqual([])
+    const actor = actorOf(result, '1785900000000')
+    expect(actor.reason).toBeNull()
+    expect(actor.advanced).toBe(false)
+    expect(actor.skipped).toBe(0)
+    expect(sent).toEqual([])
+    expect((await readCursor(sessionDir)).cursor.actors['1785900000000']).toBeUndefined()
+  })
+
+  it('one byte more than the window, with the same unterminated contents, is the oversized failure instead', async () => {
+    await enable()
+    await writeFile(sessionFile('1785900000000'), 'x'.repeat(MAX_READ_BYTES + 1))
+    const { fetch } = acceptingFetch()
+
+    const result = await shipOnce({ sessionDir, fetch })
+
+    expect(result.enabled && result.ok).toBe(false)
+    expect(actorOf(result, '1785900000000').reason).toBe('oversized-unterminated')
+  })
+
+  it('an oversized line does not stop the other actors in the pass', async () => {
+    await enable()
+    await seedSession('1785900000000', [oversizedLine(), line()])
+    await seedSession('1785900000001', [line(), line()])
+    const { fetch, sent } = acceptingFetch()
+
+    const result = await shipOnce({ sessionDir, fetch })
+
+    expect(actorOf(result, '1785900000000').skipped).toBe(1)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]?.actorInstance).toBe('1785900000001')
+    expect(sent[0]?.ns).toEqual([1, 2])
+  })
+
+  it('MAX_READ_BYTES is the value the ruling was written against', () => {
+    expect(MAX_READ_BYTES).toBe(1_048_576)
+  })
+
+  it('a cursor carrying a skip kind this build does not know keeps that entry', async () => {
+    await enable()
+    await mkdir(shipperDirFor(sessionDir), { recursive: true })
+    const fromLaterBuild = {
+      version: 1,
+      actors: {
+        '1785900000000': {
+          offset: 90_000,
+          n: 4200,
+          lastAckAt: 7,
+          skippedCount: 1,
+          skipped: [{ n: 12, kind: 'from-a-later-build', reason: 'a kind this build has never heard of' }],
+        },
+      },
+    }
+    await writeFile(cursorPath(sessionDir), JSON.stringify(fromLaterBuild))
+
+    const kept = await readCursor(sessionDir)
+    expect(kept.reset).toBeNull()
+    expect(kept.cursor.actors['1785900000000']?.offset).toBe(90_000)
+    expect(kept.cursor.actors['1785900000000']?.n).toBe(4200)
+    expect(kept.cursor.actors['1785900000000']?.skipped[0]?.kind).toBe('from-a-later-build')
+
+    // The negative half: leniency is about WHICH strings `kind` may be, never
+    // about whether it is a non-empty string at all.
+    for (const bad of ['', 7]) {
+      await writeFile(
+        cursorPath(sessionDir),
+        JSON.stringify({
+          version: 1,
+          actors: {
+            '1785900000000': { ...fromLaterBuild.actors['1785900000000'], skipped: [{ n: 12, kind: bad, reason: 'r' }] },
+          },
+        }),
+      )
+      const reset = await readCursor(sessionDir)
+      expect(reset.reset).toContain('1785900000000')
+      expect(reset.cursor.actors['1785900000000']).toBeUndefined()
+    }
   })
 })
 

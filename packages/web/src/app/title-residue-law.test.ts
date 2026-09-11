@@ -75,18 +75,6 @@ interface SourceFile {
 }
 
 /**
- * Directories this law does not reach, each with the reason and the issue that
- * owns it. **The list may only shrink.** An entry here is a promise that
- * someone else is retiring those tooltips, not permission to add more.
- */
-const NOT_YET_SWEPT: ReadonlyArray<{ dir: string; reason: string }> = [
-  { dir: 'scene/', reason: "#39 holds scene/palette.ts and theme/theme.css; the scene's three tooltips move once it lands" },
-  { dir: 'replay/', reason: '#216 owns replay/mutating-calls-law.test.ts, which reads the surfaces a sweep here would edit' },
-  { dir: 'concierge/', reason: '#216 owns concierge/explicit-invocation-law.test.ts, same coupling' },
-  { dir: 'lab/', reason: "#235 owns lab/'s two law tests; lab/ is prd-28's territory besides" },
-]
-
-/**
  * Comments blanked rather than stripped, so a failure message's line number
  * still matches the file the reader opens — the idiom
  * `disclosure/one-card-law.test.ts` established, and this file needs it for the
@@ -210,6 +198,7 @@ export function adoptingSurfaces(files: readonly SourceFile[]): string[] {
  */
 const PARITY_TEST: Readonly<Record<string, string>> = {
   'app/Nav.tsx': 'app/Nav.test.tsx',
+  'concierge/InstrumentButton.tsx': 'concierge/InstrumentButton.test.tsx',
   'drawer/Conversation.tsx': 'drawer/Conversation.test.tsx',
   'drawer/Vitals.tsx': 'drawer/index.test.tsx',
   'interaction/InteractionCard.tsx': 'interaction/InteractionCard.test.tsx',
@@ -224,6 +213,10 @@ const PARITY_TEST: Readonly<Record<string, string>> = {
   'panels/ledger/index.tsx': 'panels/ledger/index.test.tsx',
   'recordings/LaneAxis.tsx': 'recordings/historyAxis.test.tsx',
   'recordings/RecordingsPage.tsx': 'recordings/RecordingsPage.test.tsx',
+  'replay/Banner.tsx': 'replay/Banner.test.tsx',
+  'replay/index.tsx': 'replay/index.test.tsx',
+  'replay/RotateButton.tsx': 'replay/RotateButton.test.tsx',
+  'scene/SceneView.tsx': 'scene/SceneView.test.tsx',
   'trace/TraceTree.tsx': 'trace/TraceTree.test.tsx',
   'why/NearestEntry.tsx': 'why/NearestEntry.test.tsx',
   'why/WhySurface.tsx': 'why/WhySurface.test.tsx',
@@ -294,9 +287,13 @@ function shippedFiles(root: string): SourceFile[] {
       // `one-card-law.test.ts` draws the same line for the same reason.
       if (/\.test\.tsx?$/.test(entry.name)) continue
 
-      const name = path.relative(root, full).split(path.sep).join('/')
-      if (NOT_YET_SWEPT.some((entry) => name.startsWith(entry.dir))) continue
-      files.push({ name, text: readFileSync(full, 'utf8') })
+      // NO EXEMPTIONS (#389). This walk skipped four directories until wave 4
+      // retired the last twelve tooltips out of `scene/`, `replay/` and
+      // `concierge/` (`lab/` held none). The allowlist is DELETED rather than
+      // emptied: an empty list makes the test that audited it pass vacuously,
+      // and a check on an empty list is decoration. What proves the widened
+      // walk is real is the liveness assertion below, which names all four.
+      files.push({ name: path.relative(root, full).split(path.sep).join('/'), text: readFileSync(full, 'utf8') })
     }
   }
 
@@ -320,7 +317,15 @@ describe('no surface explains itself with a native title attribute (prd-30, #220
     // A count would rot on every added file; what matters is that the walk got
     // into the directories the sweep touched, since a walk that silently
     // reached none would pass the law above having proved nothing.
-    for (const dir of ['panels/', 'drawer/', 'recordings/', 'lane-page/', 'app/', 'why/', 'trace/', 'interaction/', 'tide/']) {
+    // `scene/`, `replay/`, `concierge/` and `lab/` joined this list in #389,
+    // when their exemption was deleted. They are the whole point of naming
+    // directories here: the walk that reaches them is new, and a walk that
+    // silently stopped short of them would leave the law above green having
+    // proved nothing about the twelve tooltips wave 4 retired.
+    for (const dir of [
+      'panels/', 'drawer/', 'recordings/', 'lane-page/', 'app/', 'why/', 'trace/', 'interaction/', 'tide/',
+      'scene/', 'replay/', 'concierge/', 'lab/',
+    ]) {
       expect(
         files.some((file) => file.name.startsWith(dir)),
         `the walk never reached ${dir} — this law is vacuous`,
@@ -356,14 +361,6 @@ describe('no surface explains itself with a native title attribute (prd-30, #220
     expect(nativeTitleSites(rigged)).toEqual([])
   })
 
-  it('names a reason for every directory it skips, and skips none it cannot name', () => {
-    for (const entry of NOT_YET_SWEPT) {
-      expect(entry.reason, `${entry.dir} is skipped with no reason`).not.toBe('')
-      // Each reason names the issue or PRD that owns the residue, so this list
-      // can be audited rather than trusted.
-      expect(entry.reason, `${entry.dir}'s reason names no owner`).toMatch(/#\d+|prd-\d+/)
-    }
-  })
 })
 
 /**

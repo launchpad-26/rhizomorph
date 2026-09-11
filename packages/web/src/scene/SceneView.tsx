@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Disclosure, type DisclosureContent } from '../disclosure/index.js'
 import type { Fleet } from '../fleet/index.js'
 import { ZOOM_STEP } from './camera.js'
 import type { SceneQuality } from './marks/frame.js'
@@ -253,22 +254,39 @@ interface MotionControlProps {
  * control that covered law 12's caveats would be buying accessibility with
  * honesty. Ice, never amber — amber means needs-you in this instrument.
  */
-function MotionControl({ paused, stilled, onToggle }: MotionControlProps) {
+/**
+ * Exported for `SceneView.test.tsx` alone (#389).
+ *
+ * The `aria-disabled` guard ADR-0047 mandates lives in this handler, and at the
+ * SceneView level it is **unobservable**: the call site passes
+ * `paused={paused || stilled}`, so while `stilled` holds, toggling the
+ * underlying `paused` changes nothing anyone can see. A test driven through
+ * `SceneView` would therefore pass whether or not the guard exists — the
+ * "test that cannot fail for the reason it claims" this repo keeps finding.
+ * Rendering this component directly with a spy is what makes the guard's
+ * absence go red.
+ */
+export function MotionControl({ paused, stilled, onToggle }: MotionControlProps) {
   return (
     <div className="pointer-events-none absolute left-2 top-2 flex items-center gap-2">
+      {/*
+        ARIA-DISABLED, NOT DISABLED (#389, ADR-0047) — the stilled string exists
+        precisely to explain why this control is unavailable, and a `disabled`
+        button leaves the tab order, so that explanation is the one a keyboard
+        could never reach. The guard is INSIDE the handler: an `aria-disabled`
+        button still fires on Enter and Space, and guarding the pointer alone
+        would let a keyboard invoke what the surface says is unavailable.
+      */}
+      <Disclosure trigger="inline" disclosure={motionDisclosure(stilled, paused)}>
       <button
         type="button"
-        onClick={onToggle}
+        onClick={() => {
+          if (stilled) return
+          onToggle()
+        }}
         aria-pressed={paused}
-        disabled={stilled}
+        aria-disabled={stilled}
         data-testid="scene-motion-pause"
-        title={
-          stilled
-            ? 'Motion is stilled in settings — the control lives there'
-            : paused
-              ? 'Let the scene move again'
-              : 'Freeze the scene’s own motion'
-        }
         className={`pointer-events-auto rounded-none border px-2 py-1 text-inst-dense uppercase leading-none tracking-wide backdrop-blur-sm transition-[transform,color,border-color] duration-(--duration-touch) ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-(--focus-ring) active:scale-[0.97] ${
           paused
             ? 'border-(--ink-dim) bg-(--surface-raised)/90 text-(--ink-primary)'
@@ -277,6 +295,7 @@ function MotionControl({ paused, stilled, onToggle }: MotionControlProps) {
       >
         {stilled ? 'Motion stilled' : paused ? 'Resume motion' : 'Pause motion'}
       </button>
+      </Disclosure>
       {paused && (
         <span
           role="status"
@@ -332,30 +351,46 @@ interface FinishedControlProps {
 function FinishedControl({ hidden, finished, onToggle }: FinishedControlProps) {
   const has = finished > 0
 
+  const button = (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={hidden}
+      aria-hidden={!has}
+      tabIndex={has ? 0 : -1}
+      data-testid="scene-hide-finished"
+      className={`pointer-events-auto rounded-none border px-2 py-1 text-inst-dense uppercase leading-none tracking-wide backdrop-blur-sm transition-[opacity,transform,color,border-color] duration-(--duration-touch) ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-(--focus-ring) active:scale-[0.97] ${
+        has ? 'opacity-100' : 'pointer-events-none opacity-0'
+      } ${
+        hidden
+          ? 'border-(--ink-dim) bg-(--surface-raised)/90 text-(--ink-primary)'
+          : 'border-(--line-hair) bg-(--surface-panel)/80 text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)'
+      }`}
+    >
+      {`${hidden ? 'Show' : 'Hide'} finished · ${finished}`}
+    </button>
+  )
+
   return (
     <div className="pointer-events-none absolute right-2 top-2">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-pressed={hidden}
-        aria-hidden={!has}
-        tabIndex={has ? 0 : -1}
-        data-testid="scene-hide-finished"
-        title={
-          hidden
-            ? 'Show the lanes that have finished — they are still in the fleet table either way'
-            : 'Hide the strands finished lanes leave behind'
-        }
-        className={`pointer-events-auto rounded-none border px-2 py-1 text-inst-dense uppercase leading-none tracking-wide backdrop-blur-sm transition-[opacity,transform,color,border-color] duration-(--duration-touch) ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-(--focus-ring) active:scale-[0.97] ${
-          has ? 'opacity-100' : 'pointer-events-none opacity-0'
-        } ${
-          hidden
-            ? 'border-(--ink-dim) bg-(--surface-raised)/90 text-(--ink-primary)'
-            : 'border-(--line-hair) bg-(--surface-panel)/80 text-(--ink-dim) hover:border-(--ink-dim) hover:text-(--ink-primary)'
-        }`}
-      >
-        {`${hidden ? 'Show' : 'Hide'} finished · ${finished}`}
-      </button>
+      {/*
+        DISCLOSED ONLY WHILE THERE IS SOMETHING TO DISCLOSE (review of #419).
+        This control fades rather than mounting — while nothing has finished it
+        is `aria-hidden`, `tabIndex={-1}` and `opacity-0`, deliberately out of
+        both the tab order and the accessibility tree. The inline trigger is a
+        focusable `<span role="note" tabIndex={0}>` and carries no such
+        condition, so wrapping unconditionally put a live tab stop around a
+        control that is not there, opening a card whose every clause is false in
+        that state. `replay/index.tsx`'s birth button gates the same way and for
+        the same reason.
+      */}
+      {has ? (
+        <Disclosure trigger="inline" disclosure={finishedDisclosure(hidden)}>
+          {button}
+        </Disclosure>
+      ) : (
+        button
+      )}
     </div>
   )
 }
@@ -431,14 +466,21 @@ interface CameraButtonProps {
  * picture is the point. The press scale is the only motion — 160ms of ease-out
  * on `transform` alone, so the button answers the finger before the camera has
  * finished moving.
+ *
+ * **A shortcut hint is not a condition (#389).** This carried a native
+ * `title=` reading `${label} (${hint})` — the accessible name it already had,
+ * plus the keyboard key that performs it. It states nothing observed and
+ * offers no remedy, so putting it through the disclosure vocabulary would have
+ * meant manufacturing both, which is prd-30 S1's own "a card whose why has no
+ * evidence in it". The hint is folded into the accessible name instead, where
+ * a screen reader announces it and reaching it needs no hover at all.
  */
 function CameraButton({ onClick, label, hint, children }: CameraButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
-      aria-label={label}
-      title={`${label} (${hint})`}
+      aria-label={`${label} (${hint})`}
       className="min-w-7 rounded-none border border-(--line-hair) bg-(--surface-panel)/80 px-1.5 py-1 text-inst-dense uppercase leading-none tracking-wide text-(--ink-dim) backdrop-blur-sm transition-[transform,color,border-color] duration-(--duration-touch) ease-out hover:border-(--ink-dim) hover:text-(--ink-primary) focus:outline-none focus-visible:ring-2 focus-visible:ring-(--focus-ring) active:scale-[0.97]"
     >
       {children}
@@ -476,4 +518,65 @@ function SceneSummary({ fleet }: { fleet: Fleet }) {
             .join('; ')}
     </p>
   )
+}
+
+/**
+ * The scene's two chrome conditions (#389, prd-30 w4).
+ *
+ * Every `reason` below is the exact string of the native `title=` it retires —
+ * ported, never reworded. The evidence and remedy the vocabulary requires are
+ * written from what this surface already knows, in the register
+ * `app/Nav.tsx`'s `disabledNavDisclosure` set: `elapsedMs: 0`, because each is
+ * re-read from the settings registry or the render's own props every time the
+ * control draws, and so is confirmed just now rather than dated.
+ */
+function motionDisclosure(stilled: boolean, paused: boolean): DisclosureContent {
+  if (stilled) {
+    return {
+      label: 'motion stilled',
+      why: {
+        reason: 'Motion is stilled in settings — the control lives there',
+        evidence: { fact: 'the stored motion level reads `still`, which holds the picture regardless of this control', elapsedMs: 0 },
+      },
+      remedy: { kind: 'action', action: 'change the motion level in Settings; this control follows it rather than overriding it' },
+    }
+  }
+
+  return paused
+    ? {
+        label: 'resume motion',
+        why: {
+          reason: 'Let the scene move again',
+          evidence: { fact: 'the scene is paused by this control, not by the settings choice', elapsedMs: 0 },
+        },
+        remedy: { kind: 'action', action: 'press it to let the picture move again' },
+      }
+    : {
+        label: 'pause motion',
+        why: {
+          reason: 'Freeze the scene’s own motion',
+          evidence: { fact: 'the scene is moving, and nothing in settings is holding it', elapsedMs: 0 },
+        },
+        remedy: { kind: 'action', action: 'press it to hold the picture still without changing your settings' },
+      }
+}
+
+function finishedDisclosure(hidden: boolean): DisclosureContent {
+  return hidden
+    ? {
+        label: 'show finished',
+        why: {
+          reason: 'Show the lanes that have finished — they are still in the fleet table either way',
+          evidence: { fact: 'finished strands are hidden in the picture and present in the fold behind it', elapsedMs: 0 },
+        },
+        remedy: { kind: 'action', action: 'press it to draw the finished lanes back into the scene' },
+      }
+    : {
+        label: 'hide finished',
+        why: {
+          reason: 'Hide the strands finished lanes leave behind',
+          evidence: { fact: 'finished strands are drawn in the picture and can be cleared from it', elapsedMs: 0 },
+        },
+        remedy: { kind: 'action', action: 'press it to clear them from the picture; the fleet table still lists them' },
+      }
 }

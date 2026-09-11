@@ -5,6 +5,7 @@ import { ModeProvider } from '../app/ModeContext.js'
 import { StreamProvider } from '../app/StreamContext.js'
 import type { EventSourceLike } from '../hooks/useEventStream.js'
 import { CAPABILITY_META_NAME, CAPABILITY_TOKEN_HEADER } from '../recordings/capability.js'
+import { discloseText } from '../disclosure/testing.js'
 import ReplayControls from './index.js'
 import type { FetchLike } from './api.js'
 
@@ -111,6 +112,15 @@ function makeFetch(events: readonly unknown[]): FetchLike {
   }) as unknown as FetchLike
 }
 
+/** A server with nothing recorded yet — what makes the birth control unavailable. */
+function makeEmptyFetch(): FetchLike {
+  return (async (url: string | URL | Request) => {
+    const href = String(url)
+    if (href === '/api/sessions') return jsonResponse({ sessions: [] })
+    throw new Error(`unexpected fetch: ${href}`)
+  }) as unknown as FetchLike
+}
+
 /**
  * Two sessions: a tiny 1-event restart stub (`stub`, small `sizeBytes`) and a
  * richer session (`rich`) with more events and a bigger `sizeBytes` — the one
@@ -147,7 +157,7 @@ describe('ReplayControls', () => {
     await renderReplay(makeFetch(fixtureEvents()))
 
     expect(screen.getByText('Live mode')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Play' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Play' })).toHaveAttribute('aria-disabled', 'true')
     expect(screen.getByRole('option', { name: /^1970-01-01T00:00:01/ })).toBeInTheDocument()
   })
 
@@ -184,7 +194,7 @@ describe('ReplayControls', () => {
     fireEvent.click(screen.getByRole('button', { name: /return to live/i }))
 
     await waitFor(() => expect(screen.getByText('Live mode')).toBeInTheDocument())
-    expect(screen.getByRole('button', { name: 'Play' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Play' })).toHaveAttribute('aria-disabled', 'true')
   })
 
   it('play/pause toggles the transport button label', async () => {
@@ -224,12 +234,20 @@ describe('ReplayControls', () => {
     expect(screen.getByTestId('rotate-button')).toBeInTheDocument()
   })
 
-  it("Play explains why it's disabled before a session is chosen", async () => {
+  it("Play explains why it's unavailable before a session is chosen", async () => {
     await renderReplay(makeFetch(fixtureEvents()))
 
     const play = screen.getByRole('button', { name: 'Play' })
-    expect(play).toBeDisabled()
-    expect(play).toHaveAttribute('title', expect.stringMatching(/session/i))
+    // `aria-disabled`, not `disabled` (#389, ADR-0047): the control stays in the
+    // tab order precisely so a keyboard can reach the card that says why.
+    expect(play).toHaveAttribute('aria-disabled', 'true')
+
+    // Was `toHaveAttribute('title', /session/i)` — a native tooltip, which is
+    // what this issue retires. `discloseText` opens the card by mouse, closes
+    // it, opens it by focus, and throws unless the two markups are identical.
+    const card = discloseText(play)
+    expect(card).toContain('Select a session first to enable playback')
+    expect(card).toContain('choose a recording from the session picker')
   })
 
   it("replaying this session's birth picks the richest session and starts playing", async () => {
@@ -683,5 +701,71 @@ describe('ReplayControls — the unknown-era voice in the session listing', () =
 
     await fireAndFlush(() => fireEvent.click(screen.getByRole('button', { name: 'Return to live' })))
     expect(screen.queryByTestId('replay-listing-unknown-era')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * THE DOCK'S CARDS, AND THE GUARD BEHIND ITS TWO UNAVAILABLE CONTROLS
+ * (#389, prd-30 w4).
+ *
+ * `discloseText` opens by mouse, closes, opens by focus and throws unless the
+ * two markups are identical — so each call is charter §6 proven on this
+ * surface with this surface's own data.
+ *
+ * **On the guard tests below, stated plainly rather than implied.** The
+ * `if (…) return` in each handler is defence in depth HERE: `replayBirth`
+ * already returns early because `pickRichestSession([])` is null, and
+ * `playback.play()` already returns early because the live range is degenerate
+ * (`start >= end`). So these two assertions hold with the guard deleted, and
+ * they are regression cover for the user-facing promise rather than proof of
+ * the guard itself. The guard's own proof is in `scene/SceneView.test.tsx`,
+ * where `MotionControl` is rendered with a spy and deleting the guard goes red.
+ * Saying so here is the point: a reader who mistakes these for the proof would
+ * delete the real one.
+ */
+describe('the replay dock discloses its unavailable controls (#389, charter §6)', () => {
+  it('the birth control says why it is unavailable, to mouse and keyboard alike', async () => {
+    await renderReplay(makeEmptyFetch())
+
+    const birth = screen.getByRole('button', { name: "Replay this session's birth" })
+    expect(birth).toHaveAttribute('aria-disabled', 'true')
+
+    const card = discloseText(birth)
+    expect(card).toContain('No recorded sessions yet')
+    expect(card).toContain('record one first')
+  })
+
+  it('the birth control does not act while it says it is unavailable', async () => {
+    await renderReplay(makeEmptyFetch())
+
+    const birth = screen.getByRole('button', { name: "Replay this session's birth" })
+    fireEvent.click(birth)
+    fireEvent.keyDown(birth, { key: 'Enter' })
+
+    // Still live: nothing was replayed.
+    expect(screen.getByText('Live mode')).toBeInTheDocument()
+  })
+
+  it('Play does not act while it says it is unavailable', async () => {
+    await renderReplay(makeFetch(fixtureEvents()))
+
+    const play = screen.getByRole('button', { name: 'Play' })
+    fireEvent.click(play)
+    fireEvent.keyDown(play, { key: 'Enter' })
+
+    // The label is the tell: had `play()` run, the transport would read Pause.
+    expect(screen.getByRole('button', { name: 'Play' })).toBeInTheDocument()
+    expect(screen.getByText('Live mode')).toBeInTheDocument()
+  })
+
+  it('the session total explains what it counts', async () => {
+    await renderReplay(makeFetch(fixtureEvents()))
+
+    const select = screen.getByLabelText('session')
+    await fireAndFlush(() => fireEvent.change(select, { target: { value: 's1' } }))
+
+    const card = discloseText(screen.getByText(/^total /))
+    expect(card).toContain('total spend for this whole recorded session, not just up to the scrub time')
+    expect(card).toContain('scrubbing changes the picture, never this figure')
   })
 })

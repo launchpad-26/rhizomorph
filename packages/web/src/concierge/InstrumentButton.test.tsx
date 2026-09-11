@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { discloseText } from '../disclosure/testing.js'
 import { CAPABILITY_META_NAME } from '../recordings/capability.js'
 import { InstrumentButton } from './InstrumentButton.js'
 import type { InstrumentFetchLike } from './instrument.js'
@@ -235,5 +236,40 @@ describe('InstrumentButton', () => {
     await click(screen.getByTestId('conductor-relaunch-confirm'))
 
     expect(screen.getByTestId('conductor-relaunch-result').textContent).toContain('pid 4242')
+  })
+})
+
+/**
+ * THE CARD THIS BUTTON GREW (#389, prd-30 w4) — it explained itself with a
+ * native `title=` until wave 4, which a keyboard never reached.
+ *
+ * `discloseText` is the assertion, not the read: it opens the card by mouse,
+ * closes it, opens it again by focus, and throws unless the two markups are
+ * identical. So each call below is charter §6 proven on this surface with this
+ * surface's own data.
+ */
+describe('the start control discloses what the first press arms (#389, charter §6)', () => {
+  it('says what the act is, and that the first press only arms it', () => {
+    render(<InstrumentButton sessionId={SESSION_ID} fetchImpl={answering(LAUNCHED)} />)
+
+    const card = discloseText(screen.getByTestId('instrument-button-start'))
+
+    expect(card).toContain('Relaunch this repo’s conductor, instrumented, on this same conversation.')
+    expect(card).toContain('the first press only arms it')
+    expect(card).toContain('the relaunch runs only after you confirm')
+  })
+
+  it('opens the same card the third time as the first — the senses do not stick', () => {
+    // `Disclosure` tracks hovered/focused/tapped/dismissed as four booleans.
+    // A single open-and-read cannot see a stuck `tapped` or `dismissed`, and a
+    // reader who consults a mark three times is the ordinary case, not an edge.
+    render(<InstrumentButton sessionId={SESSION_ID} fetchImpl={answering(LAUNCHED)} />)
+    const mark = () => screen.getByTestId('instrument-button-start')
+
+    const first = discloseText(mark())
+    discloseText(mark())
+    const third = discloseText(mark())
+
+    expect(third).toBe(first)
   })
 })

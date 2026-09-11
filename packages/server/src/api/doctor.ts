@@ -9,6 +9,7 @@ import {
   checkNodeVersion,
   checkOptionalTool,
   checkSessionBoundary,
+  checkShipper,
   checkTelemetryEnv,
   declaredAttentionChecks,
   type DoctorCheck,
@@ -39,12 +40,18 @@ export interface ServerDoctorOptions {
    * — prd11 ruling 4). `repoPath` is then a synthetic `record:<slug>` string,
    * never a real filesystem path, and the real session data lives at
    * `ctx.sessionDir` (a temp dir), unrelated to the `sessionDirFor(repoPath,
-   * dataRoot)` convention `session-boundary` and `lane-manifest` assume.
-   * Probing them against the fictitious path would silently report facts
-   * about a directory that has nothing to do with the replayed record, and
-   * the ladder's git contributor would be assuming a live repo that was
-   * never watched at all. Adversarial review item 5: those three checks are
+   * dataRoot)` convention `session-boundary`, `lane-manifest` and `shipper`
+   * assume. Probing them against the fictitious path would silently report
+   * facts about a directory that has nothing to do with the replayed record,
+   * and the ladder's git contributor would be assuming a live repo that was
+   * never watched at all. Adversarial review item 5: those checks are
    * replaced with an honest "not applicable" entry instead.
+   *
+   * `shipper` joined that list with #387 for the same reason and no other:
+   * `shipperDoctorFacts` opens with `sessionDirFor(repoPath, dataRoot ??
+   * defaultDataRoot())`, so without this guard the route would report a
+   * confident "shipper: off" about a session directory belonging to no
+   * record anyone is replaying.
    */
   replay?: boolean
   /**
@@ -80,6 +87,16 @@ function notApplicableDuringReplay(id: string): DoctorCheck {
  *   is obviously present or this handler couldn't have been reached through
  *   it, and the port is obviously not "in use by something else" — it's in
  *   use by this.
+ * - `shipper` is kept and is the check this route existed without for one
+ *   wave: ADR-0034 clause 2 requires `doctor` to report the ingest
+ *   credential's presence, never its value, and prd-51 ruling 12 says a person
+ *   must be able to see that the hand is on. #372 delivered that on the CLI and
+ *   not here, so anything reading the instrument over HTTP — a future
+ *   `/connect` row included — could not see whether the fifth hand was enabled
+ *   while the terminal could. It is the CLI's own `checkShipper`, called
+ *   directly: this file still never re-implements a check, and the hand's facts
+ *   still arrive through `cli/connect-team.ts`, so `hand-law.test.ts`'s
+ *   `DECLARED_IMPORTERS` stays one file wide.
  * - `telemetry` is kept, but marked `'server'`: this process's env is not
  *   the agent's, so the check is honest about what it cannot see rather than
  *   silently answering the wrong question (and, per `checkTelemetryEnv`'s own
@@ -121,6 +138,7 @@ export async function runServerDoctor(repoPath: string, options: ServerDoctorOpt
     await checkOptionalTool('workmux', 'workmux', ['status'], exec),
     checkTelemetryEnv(options.env ?? process.env, options.platform ?? process.platform, 'server'),
     replay ? notApplicableDuringReplay('lane-manifest') : await checkLaneManifest(repoPath),
+    replay ? notApplicableDuringReplay('shipper') : await checkShipper(repoPath, options.dataRoot),
     await checkCliVersionDrift(exec),
     checkHarnessRoster(),
   ]

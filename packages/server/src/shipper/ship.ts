@@ -1,4 +1,4 @@
-import { open, stat } from 'node:fs/promises'
+import { open, stat, type FileHandle } from 'node:fs/promises'
 import {
   reserializeLine,
   splitLines,
@@ -12,6 +12,7 @@ import {
   isShipperBusy,
   MAX_RECORDED_SKIPS,
   readCursor,
+  recordedSkip,
   writeCursor,
   type ActorCursor,
   type ActorSkip,
@@ -37,6 +38,23 @@ import { postBatch, type FetchLike, type PostFailureReason } from './post.js'
  * duplicates in `n`, and every gap in `n` is a skip this machine recorded and
  * can name.** A gap nothing recorded is still a defect.
  *
+ * **Ruling 15: a line longer than one read window is a skip too, and the
+ * discriminator is `size - offset`, never the window's contents.** A window
+ * with no newline in it has two causes and conflating them is the defect this
+ * closes. When `size - before.offset` is at most {@link MAX_READ_BYTES} the
+ * whole remainder was read and its tail is simply unterminated — a partial
+ * write, and the answer is to wait. When it EXCEEDS the window and the full
+ * window still holds no newline, the line is already a megabyte with no
+ * terminator inside it and no amount of waiting shortens it: the position is
+ * consumed, an `'oversized'` skip is recorded, and the cursor advances past
+ * the WHOLE line — to the next newline, found by a bounded forward scan.
+ * Advancing only past the window would ship the remainder as a fresh line and
+ * put a fragment under a position. If no newline exists anywhere between the
+ * cursor and EOF there is no boundary to advance to, and that arm — and only
+ * that arm — names an `'oversized-unterminated'` failure. Before this, such a
+ * ledger returned `ok: true` with an empty `failures` array on every tick,
+ * forever.
+ *
  * **Ruling B: a ledger file that shrank below its cursor is refused, never
  * re-read from 0.** `size < offset` means the file was replaced or truncated.
  * Restarting at 0 would re-send position `n` carrying *different bytes*, and
@@ -54,7 +72,9 @@ import { postBatch, type FetchLike, type PostFailureReason } from './post.js'
  * clock.
  *
  * **No descriptor is held across a tick.** Each actor's file is opened, read
- * once, and closed before anything is posted. That is what keeps
+ * from, and closed **before anything is posted**. Ruling 15's forward scan
+ * reads more than once from that one handle, so "read once" is no longer the
+ * invariant — the invariant that matters never was. That is what keeps
  * `rhizomorph rotate`, prune and archive able to move a session file on
  * Windows at all.
  */
@@ -65,9 +85,27 @@ export const MAX_READ_BYTES = 1_048_576
 /** Entries per POST. The surplus is the next tick's work; the cursor only ever advances to what was acknowledged. */
 export const MAX_BATCH_ENTRIES = 500
 
+/**
+ * The forward scan's chunk. Ruling 15: the skip advances past the whole line,
+ * and finding its end is a search for ONE BYTE — so the scan reads fixed
+ * chunks and never holds the line resident. Reading the remainder into memory
+ * to find the newline would reintroduce the unbounded allocation the ruling
+ * rejects option 3 for.
+ */
+const SCAN_CHUNK_BYTES = 65_536
+
+const NEWLINE_BYTE = 0x0a
+
 export type ShipActorFailure =
   /** Ruling B — the file is smaller than this actor's cursor. */
   | 'shrank'
+  /**
+   * Ruling 15, the second arm — the next line is longer than the read window
+   * AND has no terminator anywhere before EOF, so there is no line boundary to
+   * advance to. A terminator that does not exist cannot be waited for and
+   * cannot be skipped past, so this arm names a failure instead of advancing.
+   */
+  | 'oversized-unterminated'
   /** The file could not be read at all. */
   | 'unreadable'
   | PostFailureReason
@@ -194,6 +232,29 @@ export async function shipOnce(options: ShipOnceOptions): Promise<ShipPassResult
   }
 }
 
+/**
+ * The absolute offset one past the next newline at or after `from`, or `null`
+ * if none exists before `size`.
+ *
+ * `size` is the size stat'd at the top of this tick, deliberately, not the
+ * live end of file: a newline written after the stat belongs to a line this
+ * pass was never told about, and the next tick re-stats and sees it. One
+ * {@link SCAN_CHUNK_BYTES} buffer is allocated regardless of how long the line
+ * turns out to be — the scan looks for a byte, so the line is never resident.
+ */
+async function findLineEnd(handle: FileHandle, from: number, size: number): Promise<number | null> {
+  const chunk = Buffer.alloc(SCAN_CHUNK_BYTES)
+  let at = from
+  while (at < size) {
+    const { bytesRead } = await handle.read(chunk, 0, Math.min(SCAN_CHUNK_BYTES, size - at), at)
+    if (bytesRead === 0) return null
+    const index = chunk.subarray(0, bytesRead).indexOf(NEWLINE_BYTE)
+    if (index !== -1) return at + index + 1
+    at += bytesRead
+  }
+  return null
+}
+
 interface ShipActorInput {
   session: { id: string; filePath: string }
   before: ActorCursor
@@ -245,7 +306,8 @@ async function shipActor(
 
   if (size === before.offset) return unchanged(null, null)
 
-  const wanted = Math.min(size - before.offset, MAX_READ_BYTES)
+  const remaining = size - before.offset
+  const wanted = Math.min(remaining, MAX_READ_BYTES)
   const buffer = Buffer.alloc(wanted)
   let bytesRead: number
   const handle = await open(session.filePath, 'r')
@@ -256,12 +318,81 @@ async function shipActor(
     await handle.close()
     return unchanged('unreadable', err instanceof Error ? err.message : String(err))
   }
+
+  const scan = splitLines(new Uint8Array(buffer.subarray(0, bytesRead)), before.offset, before.n)
+
+  if (scan.lines.length === 0) {
+    // Ruling 15's discriminator is `size - offset`, NOT the window's contents:
+    // an empty scan means "no newline in what I read", which is a partial
+    // write and an oversized line saying the same thing.
+    //
+    // `bytesRead !== wanted` is the third case and it is neither: the file
+    // changed between the `stat` and the `read`, so `remaining` is no longer a
+    // fact and the oversized verdict must not be reached on a stale one. The
+    // next tick re-stats.
+    if (remaining <= MAX_READ_BYTES || bytesRead !== wanted) {
+      await handle.close()
+      return unchanged(null, null)
+    }
+
+    let end: number | null
+    try {
+      end = await findLineEnd(handle, before.offset + bytesRead, size)
+    } catch (err) {
+      await handle.close()
+      return unchanged('unreadable', err instanceof Error ? err.message : String(err))
+    }
+    await handle.close()
+
+    if (end === null) {
+      return unchanged(
+        'oversized-unterminated',
+        `${session.filePath} has ${remaining} bytes after byte ${before.offset} and no newline in any of ` +
+          `them, so position ${before.n + 1} is a line larger than the ${MAX_READ_BYTES}-byte read window ` +
+          'with no terminator to advance past. Nothing was sent for this session and its cursor is ' +
+          'untouched; if the line is still being written it will terminate and then be SKIPPED past — a ' +
+          'line this long is never sent — and if its writer died mid-line the ledger needs truncating at ' +
+          'that byte.',
+      )
+    }
+
+    // The skip is the whole of that actor's tick: nothing is posted, and the
+    // lines behind the oversized one ship on the NEXT tick. That is not a
+    // wedge — the cursor advanced, so each tick clears one oversized line —
+    // and it keeps the one-read-per-actor-per-tick shape this module states.
+    const skippedN = before.n + 1
+    return {
+      result: {
+        actorInstance: session.id,
+        shipped: 0,
+        skipped: 1,
+        from,
+        to: { offset: end, n: skippedN },
+        advanced: true,
+        reason: null,
+        detail: null,
+      },
+      after: {
+        offset: end,
+        n: skippedN,
+        lastAckAt: input.now(),
+        skippedCount: before.skippedCount + 1,
+        skipped: [
+          ...before.skipped,
+          recordedSkip(
+            skippedN,
+            'oversized',
+            `the line at byte ${before.offset} is ${end - before.offset - 1} bytes, larger than the ` +
+              `${MAX_READ_BYTES}-byte read window, so this build could not read it in one window and did not send it`,
+          ),
+        ].slice(-MAX_RECORDED_SKIPS),
+      },
+    }
+  }
+
   // Closed BEFORE the post, never after: a descriptor held across a network
   // round trip is a descriptor held across a rotation on win32.
   await handle.close()
-
-  const scan = splitLines(new Uint8Array(buffer.subarray(0, bytesRead)), before.offset, before.n)
-  if (scan.lines.length === 0) return unchanged(null, null)
 
   const batch: IngestBatchEntry[] = []
   const skips: ActorSkip[] = []
@@ -274,9 +405,9 @@ async function shipActor(
     if (verdict.kind === 'line') {
       batch.push({ n: line.n, line: verdict.line })
     } else if (verdict.kind === 'unknown') {
-      skips.push({ n: line.n, kind: 'unknown', reason: `${verdict.type}: ${verdict.reason} — ${verdict.detail}` })
+      skips.push(recordedSkip(line.n, 'unknown', `${verdict.type}: ${verdict.reason} — ${verdict.detail}`))
     } else {
-      skips.push({ n: line.n, kind: 'malformed', reason: verdict.error })
+      skips.push(recordedSkip(line.n, 'malformed', verdict.error))
     }
     toOffset = line.endOffset
     toN = line.n
