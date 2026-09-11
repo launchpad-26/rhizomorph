@@ -1857,7 +1857,7 @@ alone rather than a hatch), the deep-linkable window, the transport's
 zoom/shift affordances, and ruling 1's framing — the dock is still the
 replay bar's body, never a panel.
 
-## prd14 — the experiment console, and prd53 — the lab it stopped lying about
+## prd14 — the experiment console, prd53 — the lab it stopped lying about, and prd55 — the R&D hand and the workspace
 
 prd14 (`docs/prds/prd-14-experiment-console.md`) gave the laboratory a browser: the `/lab` tab
 (`packages/web/src/lab/LabPage.tsx`, a lazy route), read-and-launch routes in
@@ -1866,44 +1866,78 @@ This section did not exist until 2026-09-08 — the walkthrough ran prd13 → pr
 is instructive: the console shipped mounted, but its comparison never rendered against the real
 server, because the engine dispatched one `fork.dispatched` per arm with no run dimension and no
 outcome ever reached the wire. The user guide said so; the status lines did not. prd53
-(`docs/prds/prd-53-the-lab.md`, *Kind: specifying*) is the paper that closed that gap, and what
-follows describes the lab as it stands under both.
+(`docs/prds/prd-53-the-lab.md`, *Kind: specifying*) is the paper that closed that gap. prd55
+(`docs/prds/prd-55-the-lab-stage-two.md`, *Kind: specifying*) is Stage 2: an R&D hand that reads
+the record and proposes experiments, and a workspace rearranged around the surfaces Stage 1
+already proved out. What follows describes the lab as it stands under all three.
 
 **The record.** One experiment is one fork id; an arm is one treatment; a run is one restored
-reality of it — `fork.dispatched` carries a run number, read as 1 when absent. The fold indexes
-experiments by fork, by lane and by arm. Measuring is a write: `fork.measured` records one run's
-verdict with its provenance — the command that judged it and the source — and the fold keeps the
-measurements and the latest outcome per lane (`packages/core/src/state.ts`,
-`packages/core/src/reduce.ts`). The floors and the confound clause are pure laws in
-`packages/core/src/lab/laws.ts`, read by the CLI and every web surface alike.
+reality of it — `fork.dispatched` carries a run number, read as 1 when absent, and an optional
+`proposalId` naming the `rd.proposal` it came from (prd55 ruling 4), never re-attributed when the
+operator changes the checkpoint pick — that disagreement is its own event, `rd.override`, naming
+both checkpoints. The fold indexes experiments by fork, by lane and by arm. Measuring is a write:
+`fork.measured` records one run's verdict with its provenance — the command that judged it and the
+source — and the fold keeps the measurements and the latest outcome per lane
+(`packages/core/src/state.ts`, `packages/core/src/reduce.ts`). The R&D hand's own events —
+`rd.patterns`, `rd.proposal`, `rd.refused`, `rd.override` — are additive lab events beside
+`fork.*` in the same module (`packages/core/src/events/lab.ts`), each carrying the CLI's own
+provenance (model, cost, duration, prompt and corpus digests, `claude --version`) rather than a
+figure this instrument derives itself. The floors, the confound clause, and the R&D hand's two pure
+laws (`isHeldBack`, `rdRefusalReason`) are pure functions in `packages/core/src/lab/laws.ts` and
+`packages/core/src/lab/rd.ts`, read by the CLI and every web surface alike.
 
 **The engine** (`packages/server/src/lab/`) is unchanged in kind since prd12 and prd41 —
-checkpoint, restore, fork, compare, paths — and confined by
-`packages/server/src/lab/namespace-law.test.ts`, which forks for real and walks the filesystem.
-The HTTP surface reaches it only through the CLI's `runCli`, so there is one implementation of
-every act; the launch ceiling and the model grammar are duplicated in the route with
-literal-pinned tests rather than imported, because the namespace law forbids the import. Five
-routes: checkpoints, experiments and estimate are reads; launch and measure are gated
-mutations (`packages/server/src/api/route-class-law.test.ts` pins the count).
+checkpoint, restore, fork, compare, paths, and now `rd.ts` — and confined by
+`packages/server/src/lab/namespace-law.test.ts`, which forks for real and walks the filesystem; the
+namespace law's one door into that directory is `cli/index.ts`'s `runLabCommand`, so the HTTP
+surface reaches every act, `rd` included, only through the CLI's `runCli`, and there is one
+implementation of every act. The launch ceiling and the model grammar are duplicated in the route
+with literal-pinned tests rather than imported, because the namespace law forbids the import.
+`/api/lab/*` carries eight gated reads (checkpoints, experiments, estimate, two comparisons reads,
+transcript, telemetry, footprint) and four gated mutations (launch, measure, rd, the comparisons
+save) — `packages/server/src/api/route-class-law.test.ts` pins the counts across the whole server.
+The lab reads its own files rather than the fleet's: `GET /api/lab/transcript` serves a parent's
+transcript from the checkpoint's own `sessionFile` up to its cut byte, digest-checked, and an arm's
+from its own restored worktree, resolved from the dispatch record — never from the fleet's
+`transcript-attribution.ts`; `GET /api/lab/telemetry` and `GET /api/lab/footprint` slice the fold's
+own OTel readings and `selectFilesTouchedByBranch ∩ selectCollisionMap` for a lane, the same way.
+The R&D hand is the operator's own agent CLI, spawned as an explicit act — never a fifth
+constitutional hand — and the instrument holds no credential of its own:
+[ADR-0048](adr/0048-the-instrument-spawns-the-operators-own-tools-as-an-explicit-act.md) records
+the boundary that `POST /api/lab/rd` and `rhizomorph lab rd` both answer to.
 
-**The console** (`packages/web/src/lab/`) is one page assembled from fenced modules, each with
-its own law: `packages/web/src/lab/axis/` (one position function, held by
-`packages/web/src/lab/axis/position-law.test.ts`), `packages/web/src/lab/frame/` (five positions,
-two of them stating their gap), `packages/web/src/lab/launch/`, `packages/web/src/lab/compare/`
-(the per-run distribution; failed arms present and excluded), `packages/web/src/lab/trace/`
-(a content-aligned diff that persists nothing — `packages/web/src/lab/trace/no-persistence-law.test.ts`),
-`packages/web/src/lab/metrics/` (every figure with its basis in the DOM), and
-`packages/web/src/lab/canvas/` (n organisms, one per run, never synthesised), with
-`packages/web/src/lab/branching/` reused by the canvas rather than retired. Two laws hold the
-whole tree: `packages/web/src/lab/no-live-fleet-law.test.ts` — no fleet or panel import, and the
-scene's palette the only `packages/web/src/scene/` import, by exactly two named files — and
-`packages/web/src/lab/the-lab-guide-law.test.ts`, which reads `docs/user-guide/the-lab.md` and
-asserts each marked claim against the code (prd53 ruling 9: prd43's thesis reaching the lab).
+**The console** (`packages/web/src/lab/`) is a **rail and a stage** (prd55 ruling 8), not the
+six-section column Stage 1 shipped: the rail (`packages/web/src/lab/rail/`) lists every checkpoint
+and every experiment, one row each, and is the only place either is listed; the stage keeps the
+session axis (`packages/web/src/lab/axis/`, one position function held by
+`packages/web/src/lab/axis/position-law.test.ts`) and the frame (`packages/web/src/lab/frame/`,
+five positions, two reading the lab's own transcript/telemetry/footprint routes) pinned at its own
+top, with Compare (`packages/web/src/lab/compare/`, the per-run distribution; failed arms present
+and excluded), Trace (`packages/web/src/lab/trace/`, a content-aligned diff that persists nothing —
+`packages/web/src/lab/trace/no-persistence-law.test.ts`), Metrics (`packages/web/src/lab/metrics/`,
+every figure with its basis in the DOM) and R&D (`packages/web/src/lab/rd/`, the control, the
+patterns list, the proposal panel, the counterfactual) as a `role="tablist"` below it. `packages/web/src/lab/canvas/` paints **n ribbons,
+one per run**, painted with the scene's own **six pure brushes** — `packages/web/src/scene/geometry.ts`,
+`packages/web/src/scene/palette.ts`, `packages/web/src/scene/ribbon.ts`,
+`packages/web/src/scene/contour.ts`, `packages/web/src/scene/motes.ts` and
+`packages/web/src/scene/heart.ts` — never a second, lesser renderer of the lab's own (prd55
+ruling 11), with
+`packages/web/src/lab/branching/` reused by the canvas as a header glyph drawing runs rather than
+retired. Two laws hold the whole tree: `packages/web/src/lab/no-live-fleet-law.test.ts` — no fleet
+or panel import, and exactly those six named scene modules the only `packages/web/src/scene/`
+import, everything fold-bound (`retire`, `salience`, `variation`, `pulses`, `SceneView`) still
+forbidden — and `packages/web/src/lab/the-lab-guide-law.test.ts`, which reads
+`docs/user-guide/the-lab.md` and asserts each marked claim against the code (prd53 ruling 9:
+prd43's thesis reaching the lab, extended to the R&D section by prd55 ruling 10). The R&D hand's
+cost is carried on every `rd.*` event's own provenance and printed beside the control; it is not
+yet booked as `llm.cost` — `packages/core/src/events/telemetry.ts`'s `TELEMETRY_SOURCES` still
+names only `sessionlog` and `otel`, neither true of a CLI this instrument spawned itself (#430).
 
 **Design authority.** The lab's vision (`docs/vision-the-lab.md`, recovered history) and its
 completion paper prd-28 died in the 2026-08-19 deletion; six PRDs still fence
 `packages/web/src/lab/` to that ghost, and each now carries a dated note pointing at prd-53. The
 ceiling argument against prd-50's fixed sibling is `docs/design-notes/lab-launch-ceiling-arms-runs.md`.
+Stage 2's own design authority is prd55's companion artifact, *The Lab, Stage Two*.
 
 ## prd15 — the anywhere instrument: system agnosticism
 
