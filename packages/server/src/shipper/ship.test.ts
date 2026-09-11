@@ -1,13 +1,77 @@
 import { appendFile, mkdir, mkdtemp, rm, truncate, unlink, writeFile } from 'node:fs/promises'
+import type * as FsPromisesModule from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createEvent, eventToLine } from '@rhizomorph/core'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cursorPath, shipperDirFor, TEAM_CONFIG_VERSION, writeTeamConfig } from './config.js'
 import { readCursor } from './cursor.js'
 import { writeIngestKey } from './key.js'
 import type { FetchLike } from './post.js'
 import { MAX_BATCH_ENTRIES, MAX_READ_BYTES, shipOnce, type ShipPassResult } from './ship.js'
+
+/**
+ * Truncates a file to `toBytes` the moment a `read()` on its handle is asked
+ * to read from `position` `MAX_READ_BYTES` or later — i.e. the first read
+ * `findLineEnd`'s forward scan makes, never the bounded read `shipActor`
+ * already guards with `bytesRead !== wanted`. Mutating the REAL handle's own
+ * method in place, so the truncate always runs before the read it precedes
+ * — ordering fixed by construction, not by which of two independent I/O
+ * calls a scheduler happens to run first (#434).
+ */
+const truncateOnScanRead = vi.hoisted(() => ({ armed: false, target: '', toBytes: 0 }))
+
+/**
+ * Appends `bytes` to the file the moment a `read()` lands at `position`
+ * `atLeast` or later — the SECOND scan read after a `truncateOnScanRead`
+ * shrink, never the first. `appendFile` lands the new bytes starting at
+ * whatever the file's current end happens to be, which after a prior
+ * truncate to `atLeast` is exactly `atLeast` — so the regrown bytes sit
+ * right where the next read is about to look, as if a writer had resumed
+ * with fresh content immediately after the recorder's crash-resume
+ * truncation. Pairs with `truncateOnScanRead` to build the shrink-then-regrow
+ * interleaving the plan's own rejected-alternative section names: a `stat`
+ * taken after the scan finishes would see the file back near its original
+ * size and call it clean, while the scan itself may have read a splice of
+ * pre-truncation and post-regrowth bytes on the way there (#434 follow-up —
+ * a false 'no mutation survives' answer in the build report, corrected by
+ * the verifier's probe).
+ */
+const regrowOnScanRead = vi.hoisted(() => ({ armed: false, target: '', atLeast: 0, bytes: Buffer.alloc(0) }))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof FsPromisesModule>()
+  return {
+    ...actual,
+    open: (async (...args: Parameters<typeof actual.open>) => {
+      const handle = await actual.open(...args)
+      const originalRead = handle.read.bind(handle)
+      // Typed against the positional 4-argument overload only — the one
+      // `ship.ts` actually calls everywhere (`handle.read(buffer, offset,
+      // length, position)`). `Parameters<typeof handle.read>` resolves to
+      // `read`'s LAST overload (the options-object form), whose tuple has no
+      // index 3, so indexing into it does not typecheck; naming the
+      // parameters against the overload in use sidesteps that entirely.
+      handle.read = (async (
+        buffer: NodeJS.ArrayBufferView,
+        offset?: number | null,
+        length?: number | null,
+        position?: number | bigint | null,
+      ) => {
+        if (truncateOnScanRead.armed && typeof position === 'number' && position >= MAX_READ_BYTES) {
+          truncateOnScanRead.armed = false
+          await actual.truncate(truncateOnScanRead.target, truncateOnScanRead.toBytes)
+        }
+        if (regrowOnScanRead.armed && typeof position === 'number' && position >= regrowOnScanRead.atLeast) {
+          regrowOnScanRead.armed = false
+          await actual.appendFile(regrowOnScanRead.target, regrowOnScanRead.bytes)
+        }
+        return originalRead(buffer, offset, length, position)
+      }) as typeof handle.read
+      return handle
+    }) as typeof actual.open,
+  }
+})
 
 const FIXTURE_KEY = 'rzk_SHIPFIXTUREVALUE0123456789'
 const URL_BASE = 'https://team.example'
@@ -453,6 +517,110 @@ describe('ruling 15 — a line larger than the read window is a skip, and an unt
       expect(reset.reset).toContain('1785900000000')
       expect(reset.cursor.actors['1785900000000']).toBeUndefined()
     }
+  })
+})
+
+describe('the forward scan racing a file that shrinks mid-tick (#434)', () => {
+  afterEach(() => {
+    truncateOnScanRead.armed = false
+    regrowOnScanRead.armed = false
+  })
+
+  it('a truncation landing exactly where the bounded read stopped is read as changed, not as a confirmed unterminated line', async () => {
+    await enable()
+    const file = sessionFile('1785900000000')
+    await writeFile(file, 'x'.repeat(MAX_READ_BYTES + 200_000))
+    truncateOnScanRead.armed = true
+    truncateOnScanRead.target = file
+    truncateOnScanRead.toBytes = MAX_READ_BYTES
+    const { fetch, sent } = acceptingFetch()
+
+    const result = await shipOnce({ sessionDir, fetch })
+
+    const actor = actorOf(result, '1785900000000')
+    // The wrong answer this issue names: a wedge that was never one.
+    expect(actor.reason).not.toBe('oversized-unterminated')
+    expect(actor.reason).toBeNull()
+    expect(actor.advanced).toBe(false)
+    expect(actor.skipped).toBe(0)
+    expect(sent).toEqual([])
+    expect((await readCursor(sessionDir)).cursor.actors['1785900000000']).toBeUndefined()
+    expect(result.enabled && result.ok).toBe(true)
+  })
+
+  it('a short, non-zero read mid-scan is the same fact and gets the same answer', async () => {
+    await enable()
+    const file = sessionFile('1785900000000')
+    await writeFile(file, 'x'.repeat(MAX_READ_BYTES + 200_000))
+    truncateOnScanRead.armed = true
+    truncateOnScanRead.target = file
+    // A few thousand bytes past the window, not exactly at it: the first
+    // internal chunk read gets SOME real bytes back, fewer than it asked for.
+    truncateOnScanRead.toBytes = MAX_READ_BYTES + 10_000
+    const { fetch, sent } = acceptingFetch()
+
+    const result = await shipOnce({ sessionDir, fetch })
+
+    const actor = actorOf(result, '1785900000000')
+    expect(actor.reason).toBeNull()
+    expect(actor.advanced).toBe(false)
+    expect(sent).toEqual([])
+  })
+
+  it('a shrink immediately followed by regrowth is still staleness, never a skip stitched from two different files', async () => {
+    // The original build's mutation answer ("no mutation survives") was
+    // wrong: narrowing the discriminator to `bytesRead === 0` leaves the two
+    // tests above green, because neither one lets the scan take a SECOND
+    // read after the short one — the short read they arm is immediately
+    // followed by true EOF, which trips `=== 0` too. This test is the one
+    // the narrower check cannot pass: the file shrinks, and by the time the
+    // scan's very next read lands, real bytes — never present at this byte
+    // range when the tick's `size` was stat'd — have arrived in their place,
+    // with a newline early in them. A discriminator keyed on the WIDTH of
+    // the short read (`< wanted`) stops at the first short read and never
+    // sees the regrowth at all; one keyed only on `=== 0` reads straight
+    // through it and reports a skip built out of bytes from two different
+    // versions of the file.
+    await enable()
+    const file = sessionFile('1785900000000')
+    await writeFile(file, 'x'.repeat(MAX_READ_BYTES + 200_000))
+    truncateOnScanRead.armed = true
+    truncateOnScanRead.target = file
+    // Short, not zero: the first forward-scan read gets 20_000 real bytes of
+    // the original 65_536 it asked for.
+    truncateOnScanRead.toBytes = MAX_READ_BYTES + 20_000
+    regrowOnScanRead.armed = true
+    regrowOnScanRead.target = file
+    // Exactly where the truncated file now ends — and so exactly where the
+    // scan's next read is about to look.
+    regrowOnScanRead.atLeast = MAX_READ_BYTES + 20_000
+    // Content the tick never validated: a newline sits inside it, which is
+    // what would let a too-permissive scan mistake it for the line's end.
+    regrowOnScanRead.bytes = Buffer.from(`${'z'.repeat(500)}\n${'z'.repeat(499)}`)
+    const { fetch, sent } = acceptingFetch()
+
+    const result = await shipOnce({ sessionDir, fetch })
+
+    const actor = actorOf(result, '1785900000000')
+    // The corruption this test exists to catch: a skip recorded past a
+    // boundary the scan never coherently read, with the cursor moved to
+    // match. Staleness must win before the regrown newline is ever reached.
+    expect(actor.advanced).toBe(false)
+    expect(actor.reason).toBeNull()
+    expect(actor.skipped).toBe(0)
+    expect(sent).toEqual([])
+    expect((await readCursor(sessionDir)).cursor.actors['1785900000000']).toBeUndefined()
+  })
+
+  it('the control: no truncation, same size, is still the genuine failure', async () => {
+    // Proves the harness is not a free pass — without arming the race, the
+    // same byte layout still produces the real 'oversized-unterminated'.
+    await enable()
+    await writeFile(sessionFile('1785900000000'), 'x'.repeat(MAX_READ_BYTES + 200_000))
+    const { fetch } = acceptingFetch()
+
+    const result = await shipOnce({ sessionDir, fetch })
+    expect(actorOf(result, '1785900000000').reason).toBe('oversized-unterminated')
   })
 })
 

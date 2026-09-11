@@ -76,7 +76,10 @@ import { postBatch, type FetchLike, type PostFailureReason } from './post.js'
  * reads more than once from that one handle, so "read once" is no longer the
  * invariant — the invariant that matters never was. That is what keeps
  * `rhizomorph rotate`, prune and archive able to move a session file on
- * Windows at all.
+ * Windows at all. The forward scan also does not trust the `size` it was
+ * handed to stay true for its own duration: it classifies purely from what
+ * each read actually returns, so a truncation landing mid-scan reads as the
+ * file having changed, not as a confirmed absent terminator (#434).
  */
 
 /** One read per actor per tick. A ledger that grew more than this in one interval simply takes more ticks. */
@@ -233,26 +236,51 @@ export async function shipOnce(options: ShipOnceOptions): Promise<ShipPassResult
 }
 
 /**
- * The absolute offset one past the next newline at or after `from`, or `null`
- * if none exists before `size`.
- *
- * `size` is the size stat'd at the top of this tick, deliberately, not the
- * live end of file: a newline written after the stat belongs to a line this
- * pass was never told about, and the next tick re-stats and sees it. One
- * {@link SCAN_CHUNK_BYTES} buffer is allocated regardless of how long the line
- * turns out to be — the scan looks for a byte, so the line is never resident.
+ * The forward scan's outcome: `'found'` with the absolute offset one past
+ * the next newline at or after `from`; `'not-found'` when none exists
+ * anywhere before `size`; or `'stale'` when a read partway through came back
+ * shorter than it asked for — meaning `size` is no longer true and nothing
+ * here proves the line lacks a terminator (#434).
  */
-async function findLineEnd(handle: FileHandle, from: number, size: number): Promise<number | null> {
+type FindLineEndOutcome = { kind: 'found'; end: number } | { kind: 'not-found' } | { kind: 'stale' }
+
+/**
+ * `size` is the size stat'd at the top of this tick, deliberately, not the
+ * live end of file: a newline written AFTER the stat belongs to a line this
+ * pass was never told about, and the next tick re-stats and sees it. That is
+ * one-directional, though — this scan never trusts `size` for the OTHER
+ * direction. A read at `at < size` against a file that genuinely still has
+ * `size` bytes always returns exactly what it asked for
+ * (`Math.min(SCAN_CHUNK_BYTES, size - at)` is already capped not to overrun
+ * `size`); anything short of that means the file shrank underneath this scan
+ * — a prune's unlink doesn't do this (an open POSIX descriptor keeps reading
+ * the old bytes), but the recorder's own crash-resume truncation
+ * (`session-log-writer.ts`'s `dropTrailingPartialLine`) does, and a future
+ * compact or archive might too — and `'stale'` says so instead of reaching
+ * `'not-found'` on a number that stopped being a fact one read ago. One
+ * {@link SCAN_CHUNK_BYTES} buffer is allocated regardless of how long the
+ * line turns out to be — the scan looks for a byte, so the line is never
+ * resident.
+ */
+async function findLineEnd(handle: FileHandle, from: number, size: number): Promise<FindLineEndOutcome> {
   const chunk = Buffer.alloc(SCAN_CHUNK_BYTES)
   let at = from
   while (at < size) {
-    const { bytesRead } = await handle.read(chunk, 0, Math.min(SCAN_CHUNK_BYTES, size - at), at)
-    if (bytesRead === 0) return null
+    const wanted = Math.min(SCAN_CHUNK_BYTES, size - at)
+    const { bytesRead } = await handle.read(chunk, 0, wanted, at)
     const index = chunk.subarray(0, bytesRead).indexOf(NEWLINE_BYTE)
-    if (index !== -1) return at + index + 1
+    if (index !== -1) return { kind: 'found', end: at + index + 1 }
+    if (bytesRead < wanted) {
+      // `size` was stat'd before this scan began. A read that comes back
+      // with fewer bytes than it asked for, at a position still short of
+      // `size`, means the file no longer HAS `size` bytes at `at` — the same
+      // fact `shipActor`'s own first read guards with `bytesRead !== wanted`,
+      // one level down. This can never happen while `size` is still true.
+      return { kind: 'stale' }
+    }
     at += bytesRead
   }
-  return null
+  return { kind: 'not-found' }
 }
 
 interface ShipActorInput {
@@ -335,16 +363,27 @@ async function shipActor(
       return unchanged(null, null)
     }
 
-    let end: number | null
+    let endScan: FindLineEndOutcome
     try {
-      end = await findLineEnd(handle, before.offset + bytesRead, size)
+      endScan = await findLineEnd(handle, before.offset + bytesRead, size)
     } catch (err) {
       await handle.close()
       return unchanged('unreadable', err instanceof Error ? err.message : String(err))
     }
     await handle.close()
 
-    if (end === null) {
+    if (endScan.kind === 'stale') {
+      // The bounded read above already guards its own version of this with
+      // `bytesRead !== wanted`; this is the same guard one level down, for
+      // the forward scan's later reads. Nothing here proves the line lacks a
+      // terminator — `size` just stopped being true partway through the
+      // scan — so this actor ships nothing and its cursor stays put, exactly
+      // like the bounded read's own guard: the next tick re-stats and
+      // re-decides from a fresh number (#434).
+      return unchanged(null, null)
+    }
+
+    if (endScan.kind === 'not-found') {
       return unchanged(
         'oversized-unterminated',
         `${session.filePath} has ${remaining} bytes after byte ${before.offset} and no newline in any of ` +
@@ -355,6 +394,8 @@ async function shipActor(
           'that byte.',
       )
     }
+
+    const end = endScan.end
 
     // The skip is the whole of that actor's tick: nothing is posted, and the
     // lines behind the oversized one ship on the NEXT tick. That is not a
