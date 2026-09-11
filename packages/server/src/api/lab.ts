@@ -1038,7 +1038,24 @@ async function recordOverrideIfNeeded(request: LaunchRequestBody, options: Launc
   const agentCheckpointId = proposal.checkpointPick.chosenCheckpointId
   if (agentCheckpointId === request.checkpointId) return // launched on the hand's own pick — nothing to override
 
-  const nextId = createIdFactory('lab')
+  /**
+   * SEEDED FROM THE SESSION, not restarted at one. This function runs once per
+   * launch and draws exactly one id, so a factory constructed here with a bare
+   * counter mints `lab-000001` for EVERY override a session records —
+   * `createIdFactory`'s "unique within a session" promise, broken by scope.
+   *
+   * #429's writer tag alone does not fix it: tagging gives
+   * `lab-override-000001` twice, because the counter still restarts. Seeding
+   * the counter with the overrides already on the record is what makes the id
+   * advance, and it survives a server restart, which a module-scoped factory
+   * would not.
+   *
+   * The prefix is spelled to match what `createIdFactory('lab', n, 'override')`
+   * produces once #429 lands, so the id on the record does not change shape
+   * when this call site adopts the tag.
+   */
+  const priorOverrides = events.filter((candidate) => candidate.type === 'rd.override').length
+  const nextId = createIdFactory('lab-override', priorOverrides)
   const now = options.now ?? Date.now
   const event = createEvent(
     'rd.override',

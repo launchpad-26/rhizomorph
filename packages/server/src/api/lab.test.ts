@@ -747,6 +747,44 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
       expect(recordedEvents('rd.override')).toHaveLength(0)
     })
 
+    /**
+     * THE ID MUST ADVANCE, and every assertion above this one survives it not
+     * advancing — they all count overrides (`toHaveLength(0|1)`) and none reads
+     * an id. The defect this pins is scope, not spelling: `recordOverrideIfNeeded`
+     * runs once per launch, so a factory built inside it restarts at one and
+     * stamps `lab-000001` on every override a session records.
+     *
+     * Two launches, ONE recorder — the same session file, which is the scope
+     * `createIdFactory` promises uniqueness within.
+     */
+    it('two overrides in one session mint distinct, advancing ids — the id is seeded from the record, not restarted (#429)', async () => {
+      const recorder = freshRecorder('9350000')
+      for (const n of [1, 2]) {
+        const lane = `lane-two-overrides-${n}`
+        const checkpointId = await seedCheckpoint(lane, () => 1_000_000 + n)
+        await seedProposal(`proposal-two-overrides-${n}`, 'ckpt-the-hand-picked', 1_500_000 + n)
+        await launchExperiment(
+          { lane, checkpointId, arms: [{ model: 'opus' }], proposalId: `proposal-two-overrides-${n}` },
+          {
+            repoPath: repoDir,
+            exec: execWithStubs((command) => (command === 'workmux' ? OK : null)),
+            dataRoot,
+            claudeProjectsRoot,
+            now: () => 2_000_000 + n,
+            sessionDir: sessionDirFor(repoDir, dataRoot),
+            recorder,
+          },
+        )
+      }
+
+      const ids = recordedEvents('rd.override').map((event) => event.id)
+      expect(ids).toHaveLength(2)
+      // Stated as the exact pair, not as `new Set(ids).size`: a set assertion
+      // passes for ANY two distinct ids, including a random one, and this is a
+      // claim about a readable counter that advances by one.
+      expect(ids).toEqual(['lab-override-000001', 'lab-override-000002'])
+    })
+
     it('an unknown proposalId is refused by name, before anything is dispatched', async () => {
       const neverRuns: Exec = async (command, argv) => {
         throw new Error(`nothing should have been executed, but got: ${command} ${argv.join(' ')}`)
