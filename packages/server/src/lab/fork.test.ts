@@ -540,6 +540,10 @@ describe('dispatchFork', () => {
       expect(event.payload).toMatchObject({ forkId, parentLane: 'parent-lane', checkpointId })
       expect(event.payload.laneHandle).not.toBe('parent-lane')
     }
+    // #429: this hand names itself, so its ids read as `lab-fork-<n>` — ordered,
+    // and never confusable with `lab/checkpoint.ts`, `lab/rd.ts` or the measure
+    // route's own writes into the same session file.
+    expect(dispatched.map((event) => event.id)).toEqual(['lab-fork-000001', 'lab-fork-000002'])
     expect(result.recordedTo).toBe(path.join(sessionDir, file.fileName))
   })
 

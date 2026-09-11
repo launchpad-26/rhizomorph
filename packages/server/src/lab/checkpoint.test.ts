@@ -204,6 +204,10 @@ describe('captureCheckpoint', () => {
     expect(rhizomorphEventSchema.safeParse(event).success).toBe(true)
     expect(event.source).toBe('lab')
     expect(event.payload.capturedBy).toBe('gate')
+    // #429: this hand names itself, so its id reads as `lab-checkpoint-<n>` —
+    // never confusable with `lab/fork.ts`, `lab/rd.ts` or the measure route's
+    // own writes into the same session file.
+    expect(event.id).toBe('lab-checkpoint-000001')
 
     const recorded = await readSessionEvents(recordedTo)
     expect(recorded).toHaveLength(1)

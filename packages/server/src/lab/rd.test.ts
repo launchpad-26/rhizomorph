@@ -304,6 +304,10 @@ describe('the schema decides what is recorded (prd55 ruling 3)', () => {
     const events = await recordedEvents()
     expect(events.map((event) => event.type)).toEqual(['rd.patterns', 'rd.proposal', 'llm.cost'])
     expect(events.every((event) => (event.payload as { lane: string }).lane === lane)).toBe(true)
+    // #429: this hand names itself, so its ids read as `lab-rd-<n>` — ordered,
+    // and never confusable with `lab/fork.ts`, `lab/checkpoint.ts` or the
+    // measure route's own writes into the same session file.
+    expect(events.map((event) => event.id)).toEqual(['lab-rd-000001', 'lab-rd-000002', 'lab-rd-000003'])
 
     // The hand really was spawned with no tools — read off the recorded argv,
     // not off the argv builder a second time.
@@ -610,6 +614,8 @@ describe('the override (prd55 ruling 4)', () => {
     expect(event.payload.agentCheckpointId).toBe('ckpt-agent')
     expect(event.payload.operatorCheckpointId).toBe('ckpt-operator')
     expect((await recordedEvents()).map((e) => e.type)).toEqual(['rd.override'])
+    // #429: `openRecorder` (shared by this and `runRdHand`) tags itself `rd`.
+    expect(event.id).toBe('lab-rd-000001')
   })
 
   it('refuses an override that changed nothing — a record of a decision nobody made is worse than none', async () => {

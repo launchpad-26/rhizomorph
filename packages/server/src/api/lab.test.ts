@@ -254,17 +254,22 @@ describe('GET /api/lab/checkpoints and /api/lab/experiments', () => {
 
   it('keeps two events that genuinely share an id — createIdFactory restarts at one per process, so the id alone is not identity (#409)', async () => {
     // `createIdFactory('lab')` mints `lab-000001` upward from ONE in every
-    // process, and both this file's measure route and `lab/fork.ts` call it. So
-    // the server's own write and the CLI's really do collide on the id in one
-    // session file, and a dedupe on the bare id would answer #409 by dropping
-    // one of the two writes it exists to surface.
+    // process, and both this file's measure route and `lab/fork.ts` used to
+    // call it exactly like that. So the server's own write and the CLI's
+    // really did collide on the id in one session file, and a dedupe on the
+    // bare id would answer #409 by dropping one of the two writes it exists
+    // to surface.
     //
-    // #429 gave `createIdFactory` an optional `writer` tag that would stop
-    // this exact collision (see the next test) — but `createEventFactory`
-    // here, and the real callers (`lab/fork.ts`, `lab/checkpoint.ts`,
-    // `lab/rd.ts` and this file's own measure route) all still omit it, so
-    // the collision below is what the record still produces, not a stale
-    // fixture of a fixed bug.
+    // #429 gave `createIdFactory` an optional `writer` tag that stops this
+    // exact collision, and this file's own measure route and `lab/fork.ts`,
+    // `lab/checkpoint.ts` and `lab/rd.ts` are now wired to pass one each (see
+    // the next test, which proves it with their real tags). The fixture below
+    // still builds the collision on purpose, through `createEventFactory`,
+    // which mints with no tag of its own — this is the shape none of the four
+    // real callers can produce any more, and exactly the shape a future
+    // caller that forgets its own tag would reintroduce. It is what
+    // `liveEventKey`'s belt-and-braces comment above is insurance against,
+    // not a live defect in today's four writers.
     await mkdir(sessionDir, { recursive: true })
     const liveId = '2000'
     const liveFile = sessionFilePath(sessionDir, liveId)
@@ -304,15 +309,14 @@ describe('GET /api/lab/checkpoints and /api/lab/experiments', () => {
     ])
   })
 
-  it('a writer tag on createIdFactory keeps the same two events from colliding, once a caller passes one (#429)', () => {
+  it('a writer tag on createIdFactory keeps the same two events from colliding, wired with the real tags (#429)', () => {
     // Same shapes as the collision test above — only each side now names
-    // itself, exactly as `lab/fork.ts` and this file's own measure route
-    // would once they adopt the `writer` parameter #429 added to
-    // `createIdFactory` (see events/index.ts). This is the fix PROVEN at the
-    // factory; wiring it into those four call sites is the follow-up outside
-    // this issue's fence — see this file's `liveEventKey` doc comment above.
+    // itself with the ACTUAL tags #429's wiring gives them: `measure` for
+    // this file's own measure route, `fork` for `lab/fork.ts`. This is the
+    // exact pair the record used to collide on, proven closed with the real
+    // vocabulary a reader of the log now sees, not a placeholder.
     const server = createEventFactory({ startTs: 1000, idPrefix: 'lab' })
-    const serverId = createIdFactory('lab', 0, 'server')
+    const serverId = createIdFactory('lab', 0, 'measure')
     const serverEvent = server.forkDispatched(
       {
         forkId: 'fork-from-the-server',
@@ -326,7 +330,7 @@ describe('GET /api/lab/checkpoints and /api/lab/experiments', () => {
     )
 
     const cli = createEventFactory({ startTs: 2000, idPrefix: 'lab' })
-    const cliId = createIdFactory('lab', 0, 'cli')
+    const cliId = createIdFactory('lab', 0, 'fork')
     const cliEvent = cli.forkDispatched(
       {
         forkId: 'fork-from-the-cli',
@@ -339,8 +343,8 @@ describe('GET /api/lab/checkpoints and /api/lab/experiments', () => {
       { id: cliId() },
     )
 
-    expect(serverEvent.id).toBe('lab-server-000001')
-    expect(cliEvent.id).toBe('lab-cli-000001')
+    expect(serverEvent.id).toBe('lab-measure-000001')
+    expect(cliEvent.id).toBe('lab-fork-000001')
     expect(serverEvent.id).not.toBe(cliEvent.id) // the collision above does not reach here
   })
 })
@@ -822,6 +826,10 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
     const recorded = recorder.eventsSoFar().filter((event) => event.type === 'fork.measured')
     expect(recorded).toHaveLength(2)
     expect(recorded.map((event) => (event.payload as { source: string }).source)).toEqual(['measure-route', 'measure-route'])
+    // #429: this route names itself, so its ids read as `lab-measure-<n>` —
+    // ordered, and never confusable with `lab/fork.ts`, `lab/checkpoint.ts` or
+    // `lab/rd.ts`'s own writes into the same session file.
+    expect(recorded.map((event) => event.id)).toEqual(['lab-measure-000001', 'lab-measure-000002'])
 
     // After measuring: each run carries ITS OWN verdict, with the provenance.
     const after = await listing()
