@@ -147,6 +147,14 @@ ADR records the boundary: *the instrument may spawn the operator's own tools as 
 never holds or forwards a credential; a spawned tool's egress is the operator's, declared on the
 control that invokes it.* The R&D hand's cost is booked as spend with its basis, like a fork's.
 
+> **Dated note (wave 7 sweep, 2026-09-11).** The ADR landed as
+> [ADR-0048](../adr/0048-the-instrument-spawns-the-operators-own-tools-as-an-explicit-act.md), not
+> 0046 — 0046 had already been taken by prd-51's ingest-journal ADR by the time this wave's engine
+> landed. "Booked as spend with its basis" is true only on the `rd.*` event's own provenance
+> (`total_cost_usd`, alongside the model, the digests, and `claude --version`): it is not yet
+> `llm.cost`, because `packages/core/src/events/telemetry.ts`'s `TELEMETRY_SOURCES` still names
+> only `sessionlog` and `otel`, neither true of a CLI this instrument spawns itself (#430).
+
 ## Ruling 2 — the corpus is local first, and the tracker is a second declared act
 
 The corpus the hand reads is what the record already holds: the recordings' `fork.measured`
@@ -166,6 +174,14 @@ one with its reason. A proposal against a held-back pattern, or one varying two 
 validation and is recorded as `rd.refused` with the reason — the surface shows the refusal, never a
 patched proposal. Copy carried from The Lab Workspace: *"1 issue · not yet a pattern — testing a shape
 that may not recur spends real money."*
+
+> **Dated note (the review of wave 5, 2026-09-11).** "A proposal varies exactly one thing" reads as
+> a floor of one, but the built law (`packages/core/src/lab/rd.ts`'s `rdVariesOnlyDeclaredDimension`)
+> passes a proposal whose arms vary in **zero** dimensions too: zero is a replication — the same
+> treatment run again, which is exactly what a rigor tool is for — and only *more than* one
+> dimension, or a dimension other than the one the proposal declares, is refused. This heading's
+> "exactly one" refuses the confound, not the replication; the schema and the surface both read it
+> that way, and the ruling's own words are the ones that undersold it.
 
 ## Ruling 4 — a proposal dispatches through the launch the lab already has, and an override is never re-attributed
 
@@ -394,12 +410,24 @@ scoring measure (still no source; the R&D hand's proposals are judged by the gat
 
 - **Is spawning `claude -p` an ADR-0001 act or a new power?** This PRD argues the former (ruling 1)
   by analogy to `workmux add`. If the cohort reads it as a new power, the ADR is where the argument
-  is had, and the PRD waits. Open, not ruled.
+  is had, and the PRD waits. — **ANSWERED (ADR-0048, accepted, 2026-09-10):** the former. The ADR
+  records the argument in full and was accepted rather than reopened as a new power; the trust
+  document's unqualified "no credential" claim survives, and is now a checked property of
+  `packages/server/src` (the two-`process.env`-name grep and the no-credential-literal grep in
+  `packages/server/src/lab/rd.test.ts`) rather than a sentence about intent.
 - **Where does the R&D hand run when the console is on a shared host?** The server's PATH is the
   host's, not the viewer's. On the team server (prd-51) the R&D control must be disabled for viewers
-  who are not the host operator. Open, not ruled.
+  who are not the host operator. Open, not ruled — no viewer/host distinction reaches
+  `packages/web/src/lab/rd/RdTab.tsx` or `packages/server/src/api/lab.ts`'s `rd` route as this wave
+  leaves the tree; the control is the same for every reader of a shared server today.
 - **Should the tracker corpus ship at all?** Ruling 2 makes it a declared act; the cohort may prefer
-  it parked until the local corpus proves itself. Open, not ruled.
+  it parked until the local corpus proves itself. — **ANSWERED (built, waves 5–6, 2026-09-10–11):**
+  it shipped. `lab.rdCorpus` (`packages/web/src/settings/registry.ts`) is a repo-scoped flag,
+  default off; the R&D control's own corpus checkbox is `rd-corpus-tracker` in
+  `packages/web/src/lab/rd/RdTab.tsx`; a `gh` read that fails is refused by name rather than
+  silently dropped (`packages/server/src/lab/rd.ts`'s `readTrackerItems`).
 - **Does the R&D hand get its own budget ceiling?** `--max-turns` bounds turns, not dollars. A
   per-call dollar ceiling in the same family as the launch ceiling (configurable, declared, recorded)
-  is the obvious shape. Open, not ruled.
+  is the obvious shape. Open, not ruled — `rd.ts` and `cli/lab-rd.ts` carry `--max-turns` only; no
+  dollar ceiling exists anywhere in `packages/server/src/lab/rd.ts` or `packages/core/src/lab/rd.ts`
+  as this wave leaves the tree.
