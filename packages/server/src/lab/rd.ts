@@ -589,6 +589,7 @@ export async function runRdHand(options: RunRdOptions): Promise<RunRdResult> {
     }
     const reason = rdRefusalReason({
       patternHeldBack: heldBackById.get(parsed.data.patternId) ?? true,
+      varies: parsed.data.varies,
       arms: parsed.data.arms.map((arm) => ({
         model: arm.model,
         brief: arm.briefDigest,

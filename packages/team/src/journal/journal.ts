@@ -1,4 +1,4 @@
-import { closeSync, fsyncSync, openSync, writeSync } from 'node:fs'
+import { closeSync, fsyncSync, ftruncateSync, openSync, writeSync } from 'node:fs'
 import path from 'node:path'
 import type { JournalFaults } from '../ingest/faults.js'
 import { type JournalBatchEntry, encodeFrame } from './format.js'
@@ -90,15 +90,72 @@ function fsyncDirectory(filePath: string): void {
 }
 
 /**
+ * Truncates a torn tail away and makes the truncation itself durable.
+ *
+ * Its own `r+` descriptor rather than the append one below, deliberately:
+ * `ftruncateSync` on an `O_APPEND` fd is a shape this repo has no reason to
+ * rely on across three platforms, and ruling 7 makes Windows first class. The
+ * `fsyncSync` is what stops a crash between the repair and the first append
+ * from leaving the tear behind for the next boot to hit again.
+ */
+function truncateTorn(filePath: string, completeBytes: number): { ok: true } | { ok: false; error: string } {
+  try {
+    const fd = openSync(filePath, 'r+')
+    try {
+      ftruncateSync(fd, completeBytes)
+      fsyncSync(fd)
+    } finally {
+      closeSync(fd)
+    }
+    return { ok: true }
+  } catch (cause) {
+    return {
+      ok: false,
+      error: `journal ${filePath} has a torn tail at byte ${completeBytes} that could not be truncated: ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+    }
+  }
+}
+
+/**
  * Opens (or creates) a journal for appending.
  *
  * Refuses a file it cannot read back, by name — a wrong magic, a corrupt
  * interior record, a broken chain. Appending to a journal whose prefix cannot
  * be replayed would write records nobody can ever fold.
+ *
+ * **A torn tail is repaired here, not merely tolerated (#398).** `read.ts`
+ * calls a torn tail legal — ruling 4 says a crash legitimately leaves one —
+ * but "legal to read" and "safe to append to" are different claims, and the
+ * gap between them is a `seq` collision that is guaranteed rather than
+ * unlikely. A torn record was assigned `lastSeq + 1` before it was cut off, so
+ * the next append is assigned that SAME number and writes it at the torn
+ * record's own offset boundary. The result is a crc the reader cannot
+ * reconcile with bytes following it — the definition of `corrupt` — and from
+ * then on `readJournal` aborts at that offset, the complete records ahead of
+ * it become unreadable through the normal path, and `api/main.ts`'s boot
+ * returns `{ok:false}` on every subsequent start. One crash mid-write plus one
+ * accepted batch is the whole recipe. So the torn bytes are truncated away
+ * before the descriptor is opened for append, `fsync`ed, and the chain
+ * continues gaplessly from the last complete record.
+ *
+ * This is NOT rotation, which ruling 4 leaves out of v1 and the module
+ * docblock above records as known debt. Truncating a tail nothing ever acked
+ * discards no acknowledged record; rotation ages out records that were.
  */
 export function openJournal(options: OpenJournalOptions): OpenJournalResult {
   const existing = readJournal(options.path)
   if (!existing.ok) return { ok: false, error: `refusing to open journal: ${existing.error}` }
+
+  if (existing.verdict === 'torn') {
+    // #398: a torn tail is repaired here, not tolerated. Leaving the bytes in
+    // place and opening 'a' is what escalates a LEGAL state into a permanent
+    // one — see the seq argument in the docblock above.
+    const repaired = truncateTorn(options.path, existing.completeBytes)
+    if (!repaired.ok) return { ok: false, error: repaired.error }
+    options.trace?.('journal.repair')
+  }
 
   let seq = existing.lastSeq
   const fd = openSync(options.path, 'a')

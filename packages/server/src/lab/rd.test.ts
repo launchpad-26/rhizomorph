@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Exec, ExecOptions, ExecResult, RhizomorphEvent } from '@rhizomorph/core'
-import { RD_HELD_BACK_REFUSAL, RD_MULTI_DIMENSION_REFUSAL } from '@rhizomorph/core'
+import { RD_HELD_BACK_REFUSAL, RD_MULTI_DIMENSION_REFUSAL, RD_WRONG_DIMENSION_REFUSAL } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { sessionDirFor } from '../log/paths.js'
 import { readSessionEvents } from '../log/session-log.js'
@@ -333,6 +333,39 @@ describe('the schema decides what is recorded (prd55 ruling 3)', () => {
     expect(refused.reason).toBe(RD_MULTI_DIMENSION_REFUSAL)
     expect(refused.rawResultDigest).toMatch(/^[0-9a-f]{64}$/)
     // Nothing was patched into legality on the way through.
+    expect(events.some((event) => event.type === 'rd.proposal')).toBe(false)
+  })
+
+  /**
+   * THE SIBLING OF THE TWO-DIMENSION CASE, and the one a count cannot reach.
+   * `rd-result-wrong-dimension.json` declares `varies: "model"` while its two
+   * arms hold the SAME model and differ in `gateCommand` — exactly one
+   * dimension varies, so every count-based gate passes it and the run would
+   * record a clean `rd.proposal` whose gate difference is booked against the
+   * model. Refused now by `variesOnlyTheDeclaredDimension` in the schema and
+   * by `rdRefusalReason`'s declared-dimension arm, in core's own sentence.
+   *
+   * TWO INDEPENDENT GATES, EXECUTED — the same shape the two-dimension test
+   * above records, and written down for the same reason. Removing the schema
+   * refine alone left this test GREEN (33/33); removing `rdRefusalReason`'s
+   * declared-dimension arm alone also left it GREEN (33/33); removing BOTH
+   * turned exactly this test red. So a reader who mutates one gate and sees
+   * green has not shown this law is vacuous — they have shown the other gate
+   * held.
+   */
+  it('a proposal that varies one dimension but declares another is refused, and never recorded as a proposal', async () => {
+    const { exec } = handExec(fixture('rd-result-wrong-dimension.json'))
+
+    const result = await runRdHand({ lane: uniqueId('lane'), repoPath: repoDir, model: 'opus', exec, dataRoot })
+
+    expect(result.proposals).toEqual([])
+    expect(result.refusals).toEqual([{ patternId: 'pattern-slow-gate', reason: RD_WRONG_DIMENSION_REFUSAL }])
+
+    const events = await recordedEvents()
+    expect(events.map((event) => event.type)).toEqual(['rd.patterns', 'rd.refused'])
+    const refused = events[1]?.payload as { reason: string; rawResultDigest: string }
+    expect(refused.reason).toBe(RD_WRONG_DIMENSION_REFUSAL)
+    expect(refused.rawResultDigest).toMatch(/^[0-9a-f]{64}$/)
     expect(events.some((event) => event.type === 'rd.proposal')).toBe(false)
   })
 

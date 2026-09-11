@@ -218,15 +218,134 @@ describe('open refuses a file it cannot replay, by name', () => {
     expect(opened.ok ? '' : opened.error).toContain('refusing to open journal')
   })
 
-  it('a torn tail is NOT a refusal — it is the state a crash legitimately leaves', () => {
+  it('a torn tail is NOT a refusal — it is repaired at open, and the next append continues the chain', () => {
     appendRecords(2)
-    truncateSync(journalPath(), statSync(journalPath()).size - 3)
+    const clean = statSync(journalPath()).size
+    const [firstOffset, secondOffset] = offsets()
+    truncateSync(journalPath(), clean - 3)
+
     const opened = openJournal({ path: journalPath() })
     expect(opened.ok).toBe(true)
-    // …and the next append continues from the last COMPLETE record, so the
-    // torn bytes are overwritten by nothing and the chain stays gapless.
-    expect(opened.ok && opened.journal.lastSeq()).toBe(1)
-    opened.ok && opened.journal.close()
+    if (!opened.ok) return
+    // Repaired AT OPEN — before any append, which is the clause. The file is
+    // already back to the last complete record's end.
+    expect(statSync(journalPath()).size).toBe(secondOffset)
+    expect(opened.journal.lastSeq()).toBe(1)
+
+    // …and the append the old comment promised and never performed.
+    expect(opened.journal.append(entry(2)).seq).toBe(2)
+    opened.journal.close()
+
+    const read = readJournal(journalPath())
+    expect(read.ok).toBe(true)
+    if (!read.ok) return
+    expect(read.verdict).toBe('clean')
+    expect(read.records.map((r) => r.seq)).toEqual([1, 2])
+    expect(read.lastSeq).toBe(2)
+    expect(read.completeBytes).toBe(statSync(journalPath()).size)
+    expect(firstOffset).toBe(0)
+  })
+})
+
+describe('the repair truncates to the last complete record and no earlier', () => {
+  it('a torn tail with ZERO complete records truncates to 0 and still opens', () => {
+    appendRecords(1)
+    truncateSync(journalPath(), 10)
+
+    const torn = readJournal(journalPath())
+    expect(torn.ok).toBe(true)
+    if (!torn.ok) return
+    expect(torn.verdict).toBe('torn')
+    expect(torn.completeBytes).toBe(0)
+    expect(torn.lastSeq).toBe(0)
+
+    const opened = openJournal({ path: journalPath() })
+    expect(opened.ok).toBe(true)
+    if (!opened.ok) return
+    expect(statSync(journalPath()).size).toBe(0)
+    expect(opened.journal.lastSeq()).toBe(0)
+    expect(opened.journal.append(entry(1)).seq).toBe(1)
+    opened.journal.close()
+
+    const read = readJournal(journalPath())
+    expect(read.ok && read.verdict).toBe('clean')
+    expect(read.ok && read.records.map((r) => r.seq)).toEqual([1])
+  })
+
+  it('a torn tail on a journal of many truncates to the last complete record and no earlier', () => {
+    appendRecords(5)
+    const before = offsets()
+    truncateSync(journalPath(), statSync(journalPath()).size - 3)
+
+    const opened = openJournal({ path: journalPath() })
+    expect(opened.ok).toBe(true)
+    if (!opened.ok) return
+    expect(statSync(journalPath()).size).toBe(before[4])
+    expect(opened.journal.lastSeq()).toBe(4)
+    opened.journal.close()
+
+    const read = readJournal(journalPath())
+    expect(read.ok).toBe(true)
+    if (!read.ok) return
+    expect(read.verdict).toBe('clean')
+    expect(read.records.map((r) => r.seq)).toEqual([1, 2, 3, 4])
+    // Byte level, not record count: a repair that ate one record too many
+    // would still satisfy a lastSeq check on its own.
+    expect(read.records.map((r) => r.offset)).toEqual(before.slice(0, 4))
+  })
+
+  it('repetition — opening a repaired journal again changes nothing', () => {
+    appendRecords(5)
+    truncateSync(journalPath(), statSync(journalPath()).size - 3)
+    const first = openJournal({ path: journalPath() })
+    if (!first.ok) throw new Error(first.error)
+    first.journal.close()
+    const repaired = readFileSync(journalPath())
+
+    const tape: string[] = []
+    const second = openJournal({ path: journalPath(), trace: (step) => tape.push(step) })
+    expect(second.ok).toBe(true)
+    if (!second.ok) return
+    second.journal.close()
+
+    expect(readFileSync(journalPath()).equals(repaired)).toBe(true)
+    expect(tape).toEqual([])
+  })
+
+  it('a CORRUPT interior is still refused at open — the repair does not swallow it', () => {
+    appendRecords(3)
+    const bytes = readFileSync(journalPath())
+    // Inside record 1's payload, so a crc mismatch has bytes after it.
+    const payloadAt = bytes.indexOf(0x0a) + 3
+    bytes[payloadAt] = (bytes[payloadAt] ?? 0) ^ 0x01
+    writeFileSync(journalPath(), bytes)
+    const before = readFileSync(journalPath())
+
+    const opened = openJournal({ path: journalPath() })
+    expect(opened.ok).toBe(false)
+    expect(opened.ok ? '' : opened.error).toContain('refusing to open journal')
+    expect(opened.ok ? '' : opened.error).toContain('corrupt')
+    expect(readFileSync(journalPath()).equals(before)).toBe(true)
+  })
+
+  it('the trace names the repair, before any write', () => {
+    appendRecords(2)
+    truncateSync(journalPath(), statSync(journalPath()).size - 3)
+
+    const tape: string[] = []
+    const opened = openJournal({ path: journalPath(), trace: (step) => tape.push(step) })
+    if (!opened.ok) throw new Error(opened.error)
+    opened.journal.append(entry(2))
+    opened.journal.close()
+
+    expect(tape).toEqual(['journal.repair', 'journal.write', 'journal.fsync'])
+  })
+
+  it('a clean journal reports its own length as completeBytes', () => {
+    appendRecords(3)
+    const read = readJournal(journalPath())
+    expect(read.ok && read.verdict).toBe('clean')
+    expect(read.ok && read.completeBytes).toBe(statSync(journalPath()).size)
   })
 })
 

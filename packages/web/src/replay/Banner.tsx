@@ -1,5 +1,7 @@
+import { Disclosure } from '../disclosure/index.js'
 import { useReplay } from '../app/ModeContext.js'
 import { formatElapsed, formatWallClock } from './format.js'
+import { unknownEraDisclosure } from './unknownEra.js'
 
 /**
  * The REPLAY banner (ruling 16) — the keystone's mode-switched slot replaces
@@ -29,7 +31,14 @@ export function ReplayBanner() {
         viewing a recorded past — not the live fleet
       </span>
 
-      <span className="figures text-inst normal-case tracking-normal text-(--ink-primary)" title="timestamp being viewed">
+      <span className="figures text-inst normal-case tracking-normal text-(--ink-primary)">
+        {/* A LABEL, NOT AN EXPLANATION (#389). "timestamp being viewed" names
+            this field; it states no condition, has no evidence behind it and
+            no remedy, so a disclosure card would have to manufacture all
+            three — the "card whose why has no evidence in it" prd-30 S1 names
+            as a failure. `sr-only` is `app/Nav.tsx`'s idiom for exactly this:
+            the reader gets the label without it depending on hover at all. */}
+        <span className="sr-only">timestamp being viewed </span>
         {formatWallClock(playback.currentTs)}
       </span>
       <span className="figures text-inst normal-case tracking-normal text-(--ink-dim)">
@@ -37,7 +46,9 @@ export function ReplayBanner() {
       </span>
 
       {session !== null && (
-        <span className="normal-case tracking-normal text-(--ink-dim)" title="session identity">
+        <span className="normal-case tracking-normal text-(--ink-dim)">
+          {/* A label, not an explanation — see the note on the timestamp above (#389). */}
+          <span className="sr-only">session identity </span>
           {session.repoName}
           {fileName !== null && <span className="figures text-(--ink-dim)"> · {fileName}</span>}
         </span>
@@ -58,9 +69,8 @@ export function ReplayBanner() {
         <span
           data-testid="replay-unknown-era"
           className="rounded-none border border-(--line-strong) px-2 py-0.5 normal-case tracking-normal text-(--ink-primary)"
-          title="this recording came from a newer instrument; these events were kept in the log but this build cannot fold them"
         >
-          {unknownVoice}
+          <Disclosure disclosure={unknownEraDisclosure()}>{unknownVoice}</Disclosure>
         </span>
       )}
 

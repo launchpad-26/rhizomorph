@@ -26,6 +26,10 @@ import { SettleRegistry } from './settle.js'
 import { recordingGl } from './gl/recorder.js'
 import { CANVAS_UNAVAILABLE_MESSAGE, lastPaintedFrame } from './view/useFrameLoop.js'
 import Scene, { SceneView } from './index.js'
+// Straight from the module, not the barrel: `scene/index.ts` is outside this
+// issue's fence, and `MotionControl` is exported for this test alone (#389).
+import { MotionControl } from './SceneView.js'
+import { discloseText } from '../disclosure/testing.js'
 
 /**
  * THE RENDER-COUNTING SEAM (#159) — `SceneView` calls `cursorOf` exactly once
@@ -1320,7 +1324,11 @@ describe('the pause control (WCAG 2.2.2)', () => {
     try {
       mountMotion()
       const button = screen.getByTestId('scene-motion-pause')
-      expect(button).toBeDisabled()
+      // `aria-disabled`, not `disabled` (#389, ADR-0047): the string this
+      // control carries exists to explain its own unavailability, and a
+      // `disabled` button leaves the tab order — so that explanation would be
+      // the one thing a keyboard could never reach.
+      expect(button).toHaveAttribute('aria-disabled', 'true')
       expect(button.textContent).toMatch(/motion stilled/i)
       expect(screen.getByTestId('scene-motion-state').textContent).toMatch(/motion paused/i)
     } finally {
@@ -1563,6 +1571,29 @@ describe('the return, and the network it leaves standing (prd10 rulings 13–16)
     const button = screen.getByTestId('scene-hide-finished')
     expect(button).toHaveAttribute('aria-hidden', 'true')
     expect(button).toHaveAttribute('tabindex', '-1')
+    // AND ITS WRAPPER SAYS NOTHING EITHER (review of #419). This case asserted
+    // only the two attributes above, so when #389 wrapped the button in a
+    // disclosure the test's subject moved out from under it: the inline
+    // trigger is a focusable `<span role="note" tabIndex={0}>`, so a keyboard
+    // reached a live tab stop and a card about a control that is not there,
+    // while this test stayed green with its own name false.
+    expect(
+      button.closest('[data-testid="disclosure-trigger"]'),
+      'the control is out of the tab order but its disclosure wrapper is not',
+    ).toBeNull()
+  })
+
+  it('does say it, on a fleet where something has finished — the gate is not a stuck door', () => {
+    // The sibling half. A wrapper suppressed in both states would satisfy the
+    // case above and silently retire the card #389 exists to have added, so
+    // both directions are pinned.
+    mountCut({ fleet: landedFleet() })
+    const button = screen.getByTestId('scene-hide-finished')
+
+    expect(button).toHaveAttribute('tabindex', '0')
+    const trigger = button.closest('[data-testid="disclosure-trigger"]')
+    expect(trigger).not.toBeNull()
+    expect(trigger).toHaveAttribute('tabindex', '0')
   })
 
   it('hides the finished lanes from the canvas, and says it is doing it', () => {
@@ -1762,5 +1793,71 @@ describe("the scene's two clocks, wired (#157)", () => {
 
     const live = mountMotion()
     expect(live.frame()).toBe(withProp)
+  })
+})
+
+/**
+ * THE GUARD ADR-0047 MANDATES (#389, prd-30 w4).
+ *
+ * Driven against `MotionControl` directly rather than through `SceneView`, and
+ * that is the whole point of the exception. `SceneView` passes
+ * `paused={paused || stilled}`, so while `stilled` holds, the toggle this guard
+ * blocks changes NOTHING observable — a test mounted on the scene would stay
+ * green with the guard deleted, which is the "test that cannot fail for the
+ * reason it claims" this repo keeps paying for. With a spy in hand, removing
+ * `if (stilled) return` turns the first case below red.
+ *
+ * **Why `fireEvent.click` is the keyboard assertion.** An `aria-disabled`
+ * button is a real button: the browser synthesises a click from Enter and from
+ * Space, and jsdom does not. So the click IS the keyboard path — guarding
+ * `onMouseDown` or leaning on `pointer-events` would leave both keys live,
+ * which is precisely the defect the ruling names. The `keyDown` cases below
+ * assert the other half: that no separate key handler smuggles the act through.
+ */
+describe('the motion control refuses to act while it says it is unavailable (#389, ADR-0047)', () => {
+  // These render the control directly rather than through `mountMotion`, so
+  // they carry their own teardown — the suites above tear down a mounted scene.
+  afterEach(cleanup)
+
+  it('does not run the toggle when stilled — by pointer or by key', () => {
+    const onToggle = vi.fn()
+    render(<MotionControl paused stilled onToggle={onToggle} />)
+    const button = screen.getByTestId('scene-motion-pause')
+
+    expect(button).toHaveAttribute('aria-disabled', 'true')
+
+    fireEvent.click(button)
+    fireEvent.keyDown(button, { key: 'Enter' })
+    fireEvent.keyDown(button, { key: ' ' })
+
+    expect(onToggle).not.toHaveBeenCalled()
+  })
+
+  it('still runs the toggle when it is available — the guard is not a stuck door', () => {
+    // The sibling half. A guard that never lets anything through would satisfy
+    // the case above and break the control; both directions have to be pinned.
+    const onToggle = vi.fn()
+    render(<MotionControl paused={false} stilled={false} onToggle={onToggle} />)
+
+    fireEvent.click(screen.getByTestId('scene-motion-pause'))
+
+    expect(onToggle).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays focusable while unavailable, and discloses why on focus as well as hover', () => {
+    render(<MotionControl paused stilled onToggle={() => {}} />)
+
+    const card = discloseText(screen.getByTestId('scene-motion-pause'))
+
+    expect(card).toContain('Motion is stilled in settings — the control lives there')
+    expect(card).toContain('change the motion level in Settings')
+  })
+
+  it('discloses what it would do when it IS available', () => {
+    render(<MotionControl paused={false} stilled={false} onToggle={() => {}} />)
+
+    const card = discloseText(screen.getByTestId('scene-motion-pause'))
+
+    expect(card).toContain('Freeze the scene’s own motion')
   })
 })

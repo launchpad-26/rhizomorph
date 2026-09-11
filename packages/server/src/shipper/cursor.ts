@@ -33,13 +33,32 @@ import { cursorPath, shipperDirFor } from './config.js'
  * believed cursor is exactly how `n` desyncs.
  */
 
-/** One line this build could not fold, recorded so a gap in `n` can always be named (prd-51 ruling 3, and this issue's ruling A). */
+/**
+ * The skip kinds THIS build records. A cursor written by a NEWER build may
+ * carry one this build has never heard of; ruling 15 requires that entry be
+ * kept rather than invalidated, so {@link ActorSkip.kind} is the wider type
+ * and this one is what the hand is allowed to write.
+ */
+export type ActorSkipKind = 'unknown' | 'malformed' | 'oversized'
+
+/** One line this build could not fold or could not read, recorded so a gap in `n` can always be named (prd-51 rulings 3, A and 15). */
 export interface ActorSkip {
   /** The ledger position that was consumed and not sent. */
   n: number
-  kind: 'unknown' | 'malformed'
-  /** What the re-serializer said, verbatim enough to investigate. Never input bytes — `reserializeLine` does not hand any back. */
+  /**
+   * Why. This build writes only {@link ActorSkipKind} — see {@link recordedSkip},
+   * which is the one narrowing write site — and *reads* any non-empty string, so
+   * a cursor from a newer build stays usable rather than resetting the actor to
+   * `offset 0, n 0` and losing every skip it had recorded (ruling 15).
+   */
+  kind: ActorSkipKind | (string & {})
+  /** What the re-serializer or the reader said, verbatim enough to investigate. Never input bytes — `reserializeLine` does not hand any back. */
   reason: string
+}
+
+/** The one narrowing write site: `kind` is checked against {@link ActorSkipKind} here so a typo cannot reach the cursor file. */
+export function recordedSkip(n: number, kind: ActorSkipKind, reason: string): ActorSkip {
+  return { n, kind, reason }
 }
 
 export interface ActorCursor {
@@ -70,7 +89,18 @@ const nonNegativeInteger = z.number().int().nonnegative()
 
 export const actorSkipSchema = z.object({
   n: z.number().int().positive(),
-  kind: z.union([z.literal('unknown'), z.literal('malformed')]),
+  // Ruling 15: a cursor written by a newer build stays readable by an older
+  // one. A `kind` this build does not recognise is preserved verbatim rather
+  // than invalidating the entry that carries it — and a CURSOR_VERSION bump is
+  // rejected there, because `version` is a `z.literal` and bumping it makes
+  // every existing cursor unreadable, resetting EVERY actor at upgrade to
+  // avoid a conditional cost on one.
+  //
+  // `.min(1)` is kept on purpose: the schema is weaker only about WHICH
+  // strings it accepts, never about whether `kind` is a non-empty string. A
+  // missing, numeric or empty `kind` still rejects the entry and still resets
+  // that actor alone through {@link readCursor}'s per-actor `rejected` path.
+  kind: z.string().min(1),
   reason: z.string(),
 })
 
