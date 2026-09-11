@@ -294,6 +294,50 @@
     "raw": "{\"version\":2,\"savedAt\":\"x\",\"provenance\":{\"verifyCommand\":\"npm test\",\"source\":\"compare-cli\",\"measuredAt\":\"soon\"},\"input\":{\"arms\":[]}}"
   },
   {
+    "name": "refuses a v2 artifact whose provenance measuredAt is a non-finite NUMBER — `1e400` is a legal JSON literal that parses to Infinity (still typeof number), the hole #376 closed for a run's value and ruling 6 closed for cost/duration/commits; the string case beside this one reaches the type half of the same guard, this reaches the finite half",
+    "outcome": "refuse",
+    "message": "comparison artifact provenance has a measuredAt that is not a finite number",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"provenance\":{\"verifyCommand\":\"npm test\",\"source\":\"compare-cli\",\"measuredAt\":1e400},\"input\":{\"arms\":[]}}"
+  },
+  {
+    "name": "accepts a v2 artifact whose provenance measuredAt is a large but finite double (Number.MAX_VALUE) — the finite/non-finite boundary from the accept side, so a copy that tightened the guard past finite would be caught too",
+    "outcome": "accept",
+    "raw": "{\"version\":2,\"savedAt\":\"2026-09-11T00:00:00.000Z\",\"measure\":\"cost\",\"provenance\":{\"verifyCommand\":\"npm test\",\"source\":\"compare-cli\",\"measuredAt\":1.7976931348623157e308},\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"brief-x\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"pass\",\"cost\":4,\"duration\":900,\"commits\":2},{\"id\":\"r2\",\"status\":\"complete\",\"verdict\":\"fail\",\"detail\":\"timed out\",\"cost\":2,\"duration\":800,\"commits\":1},{\"id\":\"r3\",\"status\":\"pending\",\"note\":\"not measured yet — no outcome is invented in its place\"}]}]}}",
+    "expected": {
+      "arms": [
+        {
+          "id": "a",
+          "model": "opus",
+          "brief": "brief-x",
+          "runs": [
+            {
+              "id": "r1",
+              "status": "complete",
+              "verdict": "pass",
+              "cost": 4,
+              "duration": 900,
+              "commits": 2
+            },
+            {
+              "id": "r2",
+              "status": "complete",
+              "verdict": "fail",
+              "detail": "timed out",
+              "cost": 2,
+              "duration": 800,
+              "commits": 1
+            },
+            {
+              "id": "r3",
+              "status": "pending",
+              "note": "not measured yet — no outcome is invented in its place"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
     "name": "refuses a v2 complete run whose cost is neither a number nor null",
     "outcome": "refuse",
     "message": "complete run r1 has a cost field that is neither a number nor null",
