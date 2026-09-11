@@ -81,6 +81,14 @@ indexed. Era-1 predates the laboratory, so both fold empty and no other key move
 arm; the new fold is the correct meaning of the old log because that log contains
 no measurement, and now says so where a measurement would go.
 
+**Re-blessed 2026-09-10 (prd-55 wave 5, #407).** `SessionState` gained the `rd`
+slice — the R&D hand's patterns, proposals, refusals and overrides (prd55
+rulings 1–4). Era-1 predates the R&D hand, so it folds to `rd`'s empty initial
+value and no other key moved (checked by diff: 13 lines, one new key, nothing
+else touched). The reducer change is the four new `rd.*` arms in `reduce.ts`;
+the new fold is the correct meaning of the old log because that log contains
+no R&D activity, and now says so under one more name.
+
 ### era-2 — `era-2/recording.jsonl`
 
 | | |
@@ -140,6 +148,13 @@ from the committed recording, never by editing the snapshot. Recorded in review 
 wave 2 landed on `main` after this branch last merged from it, so the
 committed fold was one reducer behind and `folds byte-identically to its
 committed snapshot` reddened on the merge.
+
+**Re-blessed 2026-09-10 (prd-55 wave 5, #407), on the same reducer change as
+era-1 above.** `SessionState` gained the `rd` slice; era-2's window predates
+the R&D hand exactly as era-1's does, so it folds to `rd`'s empty initial
+value and **no other key moved — checked by diff, 13 lines**. Regenerated
+from the committed recording via the documented `tsx` one-liner, never by
+editing the snapshot.
 
 **Four of the nine closed families fold real state for the first time in this
 corpus:** `session.started`, `collector.degraded`, `collector.disabled`,

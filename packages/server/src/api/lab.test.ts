@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Exec, ExecResult, RhizomorphEvent } from '@rhizomorph/core'
-import { armKey, createEventFactory, eventsToJsonl, reduceAll } from '@rhizomorph/core'
+import { armKey, createEventFactory, eventsToJsonl, RD_MULTI_DIMENSION_REFUSAL, reduceAll } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runCli } from '../cli/index.js'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
@@ -27,6 +27,7 @@ import {
   MODEL_GRAMMAR,
   measureExperiment,
   parseForkStdout,
+  runRdExperiment,
 } from './lab.js'
 import { CAPABILITY_TOKEN_HEADER } from './security.js'
 import { capabilityHeaders } from './test-support.js'
@@ -190,6 +191,103 @@ describe('GET /api/lab/checkpoints and /api/lab/experiments', () => {
     const response = await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/experiments' })
     const { experiments } = response.json() as { experiments: Array<{ arms: Array<{ runs: Array<{ run: number }> }> }> }
     expect(experiments[0]?.arms[0]?.runs[0]?.run).toBe(1)
+  })
+
+  /**
+   * #409 — THE LIVE SESSION'S FOLD IS THE UNION, NOT THE BUFFER.
+   *
+   * The listing used to read the live session from `ctx.recorder.eventsSoFar()`
+   * alone. But `lab/fork.ts` constructs its OWN `SessionRecorder` on the SAME
+   * session file (`findResumableSession` resumes it) and appends through that,
+   * so a launch reached the file and never the server's in-memory buffer: the
+   * walkthrough of the stack base found a launch invisible in this route until
+   * the server was rebooted. These two tests append through a second recorder,
+   * exactly as the fork does, and read the listing back.
+   */
+  it('folds what the live session\'s log holds, not only the server\'s buffer — a launch is visible without a restart (#409)', async () => {
+    await mkdir(sessionDir, { recursive: true })
+    const liveId = '2000'
+    const liveFile = sessionFilePath(sessionDir, liveId)
+    const recorder = new SessionRecorder(liveId, liveFile)
+    const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+    // The server's own hand, through the live recorder.
+    const server = createEventFactory({ startTs: 1000, idPrefix: 'server' })
+    await recorder.record(server.forkCheckpoint({ lane: 'feature', checkpointId: 'ckpt-1' }))
+
+    // Another hand entirely: a SECOND recorder on the same file, resumed from
+    // what is already there — which is precisely what `lab/fork.ts` does.
+    const fork = new SessionRecorder(liveId, liveFile, { resumeFrom: recorder.eventsSoFar() })
+    const cli = createEventFactory({ startTs: 2000, idPrefix: 'cli' })
+    await fork.record(
+      cli.forkDispatched({
+        forkId: 'fork-409',
+        parentLane: 'feature',
+        checkpointId: 'ckpt-1',
+        arm: 1,
+        laneHandle: 'fork-409-arm-1',
+        worktreePath: '/data/lab/worktrees/fork-409-arm-1',
+      }),
+    )
+
+    // No restart, no new app: the same running server answers.
+    const experiments = await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/experiments' })
+    expect(experiments.statusCode).toBe(200)
+    expect((experiments.json() as { experiments: Array<{ forkId: string }> }).experiments.map((e) => e.forkId)).toEqual([
+      'fork-409',
+    ])
+
+    // …and the server's own write, which lives only in the buffer's newest
+    // slice, is still there: the union is a union, not a swap.
+    const checkpoints = await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/checkpoints' })
+    expect((checkpoints.json() as { checkpoints: Array<{ checkpointId: string }> }).checkpoints.map((c) => c.checkpointId)).toEqual([
+      'ckpt-1',
+    ])
+  })
+
+  it('keeps two events that genuinely share an id — createIdFactory restarts at one per process, so the id alone is not identity (#409)', async () => {
+    // `createIdFactory('lab')` mints `lab-000001` upward from ONE in every
+    // process, and both this file's measure route and `lab/fork.ts` call it. So
+    // the server's own write and the CLI's really do collide on the id in one
+    // session file, and a dedupe on the bare id would answer #409 by dropping
+    // one of the two writes it exists to surface.
+    await mkdir(sessionDir, { recursive: true })
+    const liveId = '2000'
+    const liveFile = sessionFilePath(sessionDir, liveId)
+    const recorder = new SessionRecorder(liveId, liveFile)
+    const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+    const server = createEventFactory({ startTs: 1000, idPrefix: 'lab' })
+    await recorder.record(
+      server.forkDispatched({
+        forkId: 'fork-from-the-server',
+        parentLane: 'feature',
+        checkpointId: 'ckpt-1',
+        arm: 1,
+        laneHandle: 'fork-from-the-server-arm-1',
+        worktreePath: '/data/lab/worktrees/fork-from-the-server-arm-1',
+      }),
+    )
+
+    const fork = new SessionRecorder(liveId, liveFile, { resumeFrom: recorder.eventsSoFar() })
+    // A SECOND factory with the same prefix, starting its own count at one.
+    const cli = createEventFactory({ startTs: 2000, idPrefix: 'lab' })
+    const collided = cli.forkDispatched({
+      forkId: 'fork-from-the-cli',
+      parentLane: 'feature',
+      checkpointId: 'ckpt-1',
+      arm: 1,
+      laneHandle: 'fork-from-the-cli-arm-1',
+      worktreePath: '/data/lab/worktrees/fork-from-the-cli-arm-1',
+    })
+    expect(collided.id).toBe(server.all()[0]?.id) // the collision is real, not hypothetical
+    await fork.record(collided)
+
+    const response = await app.inject({ method: 'GET', headers: capabilityHeaders(app), url: '/api/lab/experiments' })
+    expect((response.json() as { experiments: Array<{ forkId: string }> }).experiments.map((e) => e.forkId).sort()).toEqual([
+      'fork-from-the-cli',
+      'fork-from-the-server',
+    ])
   })
 })
 
@@ -493,6 +591,49 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
     await expect(
       launchExperiment({ lane: 'x', checkpointId: 'y', arms: [{}], runs: 0 }, { repoPath: repoDir, exec: neverRuns }),
     ).rejects.toThrow(/"runs" must be a positive integer/)
+  })
+
+  /**
+   * prd55 ruling 4, end to end through the REAL dispatch: the route accepts the
+   * proposal, it travels as `--proposal` into `lab/fork.ts`, and every
+   * `fork.dispatched` the launch produces carries it. A launch nobody proposed
+   * carries NO such key — absence has to mean "an operator chose this", never
+   * "a proposal went missing".
+   */
+  it('carries the proposal a launch came from onto every recorded arm, and nothing at all when a hand chose it (prd55 ruling 4)', async () => {
+    const checkpointId = await seedCheckpoint('lane-proposal', () => 1_000_000)
+    const exec = execWithStubs((command) => (command === 'workmux' ? OK : null))
+
+    await launchExperiment(
+      { lane: 'lane-proposal', checkpointId, arms: [{ model: 'opus' }], proposalId: 'proposal-1' },
+      { repoPath: repoDir, exec, dataRoot, claudeProjectsRoot, now: () => 2_000_000 },
+    )
+    await launchExperiment(
+      { lane: 'lane-proposal', checkpointId, arms: [{ model: 'opus' }] },
+      { repoPath: repoDir, exec, dataRoot, claudeProjectsRoot, now: () => 2_000_001 },
+    )
+
+    // Read from the LOG the launches wrote, not from the results they
+    // returned: what the fold sees is what every surface will see.
+    const dispatched = recordedEvents('fork.dispatched')
+    const proposals = dispatched.map((event) => (event.payload as { proposalId?: string }).proposalId)
+    expect(proposals).toContain('proposal-1')
+    expect(proposals).toContain(undefined)
+    // Absent means the key is not there at all, not an empty string.
+    const byHand = dispatched.find((event) => (event.payload as { proposalId?: string }).proposalId === undefined)
+    expect(byHand?.payload).not.toHaveProperty('proposalId')
+  })
+
+  it('refuses a proposal id that names nothing, or one shaped like a flag, before anything is dispatched (prd55 ruling 4)', async () => {
+    const neverRuns: Exec = async (command, argv) => {
+      throw new Error(`nothing should have been executed, but got: ${command} ${argv.join(' ')}`)
+    }
+    await expect(
+      launchExperiment({ lane: 'x', checkpointId: 'y', arms: [{}], proposalId: '' }, { repoPath: repoDir, exec: neverRuns }),
+    ).rejects.toThrow(/"proposalId" must be a non-empty string/)
+    await expect(
+      launchExperiment({ lane: 'x', checkpointId: 'y', arms: [{}], proposalId: '--help' }, { repoPath: repoDir, exec: neverRuns }),
+    ).rejects.toThrow(/may not begin with "-"/)
   })
 
   it('one launch is ONE experiment: every arm and every run folds under the forkId the launch minted, and no two share a worktree (prd53 ruling 1)', async () => {
@@ -1368,6 +1509,236 @@ describe('POST /api/lab/launch (route wiring — validation and the read-only re
       payload: { lane: 'x', checkpointId: 'y', arms: [{ model: 'opus' }] },
     })
     expect(response.statusCode).toBe(409)
+  })
+})
+
+describe('POST /api/lab/rd (prd-55 ruling 1 — the R&D hand, gated, reached through runCli)', () => {
+  let repoPath: string
+  let sessionDir: string
+
+  beforeEach(async () => {
+    repoPath = await mkdtemp(path.join(tmpdir(), 'rhizomorph-lab-rd-route-repo-'))
+    sessionDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-lab-rd-route-dir-'))
+  })
+
+  afterEach(async () => {
+    await Promise.all([
+      rm(repoPath, { recursive: true, force: true }),
+      rm(sessionDir, { recursive: true, force: true }),
+    ])
+  })
+
+  function authorised(app: ReturnType<typeof buildApp>): Record<string, string> {
+    return { [CAPABILITY_TOKEN_HEADER]: app.capabilityToken }
+  }
+
+  const BODY = { lane: 'w5b-412', model: 'opus' }
+
+  /**
+   * The gate, on the route that spends the MOST per call in this file: an R&D
+   * run is a real model call billed to the operator. Asserting the status is
+   * not enough — `runRdExperiment` must never be entered, because a 401
+   * arriving after the hand was already spawned would be a gate in name only,
+   * exactly as #234 found for the launch.
+   */
+  it('refuses a tokenless run before the laboratory is touched — a bare curl never spends the operator money', async () => {
+    const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+    const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+    const response = await app.inject({ method: 'POST', url: '/api/lab/rd', payload: BODY })
+
+    expect(response.statusCode).toBe(401)
+    expect((response.json() as { error: string }).error).toContain(CAPABILITY_TOKEN_HEADER)
+    expect(recorder.eventsSoFar()).toEqual([])
+  })
+
+  it('refuses a wrong token just as flatly — a guess is not a capability', async () => {
+    const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+    const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/lab/rd',
+      headers: { [CAPABILITY_TOKEN_HEADER]: 'not-the-token' },
+      payload: BODY,
+    })
+
+    expect(response.statusCode).toBe(401)
+    expect(recorder.eventsSoFar()).toEqual([])
+  })
+
+  it('refuses on a replayed record — there is no repo whose record the hand could read', async () => {
+    const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+    const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder, readOnly: true })
+
+    const response = await app.inject({ method: 'POST', url: '/api/lab/rd', headers: authorised(app), payload: BODY })
+
+    expect(response.statusCode).toBe(409)
+    expect((response.json() as { error: string }).error).toContain('replaying a session record')
+  })
+
+  describe('the body is refused at the boundary, before anything is spawned', () => {
+    async function refusal(payload: Record<string, unknown>): Promise<{ status: number; error: string }> {
+      const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+      const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+      const response = await app.inject({ method: 'POST', url: '/api/lab/rd', headers: authorised(app), payload })
+      return { status: response.statusCode, error: (response.json() as { error: string }).error }
+    }
+
+    it('a run with no lane, or no model, is 400 in the operator’s own vocabulary', async () => {
+      expect(await refusal({ model: 'opus' })).toMatchObject({ status: 400, error: expect.stringContaining('"lane"') })
+      expect(await refusal({ lane: 'x' })).toMatchObject({
+        status: 400,
+        error: expect.stringContaining('does not choose its own model'),
+      })
+    })
+
+    it('a third corpus is refused, and the refusal says why there is no third', async () => {
+      const { status, error } = await refusal({ ...BODY, corpus: 'everything' })
+      expect(status).toBe(400)
+      expect(error).toContain('second declared act')
+    })
+
+    it('a model the grammar refuses never reaches argv — the same sentence the launch says (#234)', async () => {
+      const { status, error } = await refusal({ ...BODY, model: 'opus; rm -rf /' })
+      expect(status).toBe(400)
+      expect(error).toContain('this instrument refuses')
+    })
+
+    it('a flag-shaped lane is refused, because parseLabRdArgs scans raw argv for --help before -- can cover it', async () => {
+      const { status, error } = await refusal({ ...BODY, lane: '--help' })
+      expect(status).toBe(400)
+      expect(error).toContain('may not begin with "-"')
+    })
+
+    it('an agent command that is really a command line is refused — a binary name is one word', async () => {
+      const { status, error } = await refusal({ ...BODY, agentCommand: 'claude --dangerously-skip-permissions' })
+      expect(status).toBe(400)
+      expect(error).toContain('one word, not a command line')
+    })
+
+    it('a maxTurns that is not a count is refused', async () => {
+      expect(await refusal({ ...BODY, maxTurns: 0 })).toMatchObject({ status: 400 })
+      expect(await refusal({ ...BODY, maxTurns: 2.5 })).toMatchObject({ status: 400 })
+    })
+  })
+
+  /**
+   * The end-to-end pass, through the REAL `runCli` and the REAL engine, with
+   * only the subprocess faked. This is what proves the route reaches the
+   * laboratory the way the namespace law requires — `runCli(['lab','rd',…])`,
+   * in-process — rather than by an import this file is forbidden to make.
+   */
+  describe('through the real CLI, with only the subprocess faked', () => {
+    /** The whole `claude -p --output-format json` envelope, around one R&D document. */
+    function handExec(document: string, onPath = true): Exec {
+      return async (command, args) => {
+        if (args[0] === '--version') {
+          return onPath
+            ? { stdout: '2.1.266 (Claude Code)\n', stderr: '', code: 0, failed: false }
+            : { stdout: '', stderr: '', code: null, failed: true, errorMessage: `spawn ${command} ENOENT` }
+        }
+        return {
+          stdout: JSON.stringify({
+            result: document,
+            total_cost_usd: 0.0421,
+            duration_ms: 8123,
+            num_turns: 1,
+            session_id: 's',
+          }),
+          stderr: '',
+          code: 0,
+          failed: false,
+        }
+      }
+    }
+
+    const CLEAN = JSON.stringify({
+      patterns: [
+        {
+          patternId: 'pattern-slow-gate',
+          shape: 'the gate is the slowest step',
+          sourceItems: ['a', 'b'],
+          count: 2,
+          heldBack: false,
+        },
+      ],
+      proposals: [
+        {
+          proposalId: 'proposal-1',
+          patternId: 'pattern-slow-gate',
+          varies: 'gate',
+          arms: [
+            { model: null, briefDigest: null, checkpointId: null, gateCommand: 'npm test' },
+            { model: null, briefDigest: null, checkpointId: null, gateCommand: 'npm run typecheck' },
+          ],
+          checkpointPick: { chosenCheckpointId: 'ckpt-1', rejected: [] },
+        },
+      ],
+    })
+
+    const CONFOUNDED = JSON.stringify({
+      patterns: [
+        {
+          patternId: 'pattern-slow-gate',
+          shape: 'the gate is the slowest step',
+          sourceItems: ['a', 'b'],
+          count: 2,
+          heldBack: false,
+        },
+      ],
+      proposals: [
+        {
+          proposalId: 'proposal-2',
+          patternId: 'pattern-slow-gate',
+          varies: 'gate',
+          arms: [
+            { model: 'opus', briefDigest: null, checkpointId: null, gateCommand: 'npm test' },
+            { model: 'sonnet', briefDigest: null, checkpointId: null, gateCommand: 'npm run typecheck' },
+          ],
+          checkpointPick: { chosenCheckpointId: 'ckpt-1', rejected: [] },
+        },
+      ],
+    })
+
+    it('runs the hand and answers with the patterns, the proposal and the CLI’s own provenance', async () => {
+      const result = await runRdExperiment(BODY, { repoPath, exec: handExec(CLEAN), dataRoot: sessionDir })
+
+      expect(result.available).toBe(true)
+      expect(result.lane).toBe('w5b-412')
+      expect(result.patterns.map((pattern) => pattern.patternId)).toEqual(['pattern-slow-gate'])
+      expect(result.proposals).toHaveLength(1)
+      expect(result.refusals).toEqual([])
+      expect(result.provenance).toMatchObject({ model: 'opus', total_cost_usd: 0.0421, corpus: 'local' })
+      expect(result.turns).toBe(1)
+      expect(result.eventIds).toHaveLength(2)
+    })
+
+    it('a two-dimension proposal comes back REFUSED, in core’s own words, and never as a proposal', async () => {
+      const result = await runRdExperiment(BODY, { repoPath, exec: handExec(CONFOUNDED), dataRoot: sessionDir })
+
+      expect(result.proposals).toEqual([])
+      expect(result.refusals).toEqual([{ patternId: 'pattern-slow-gate', reason: RD_MULTI_DIMENSION_REFUSAL }])
+    })
+
+    it('no claude on PATH is a 200 carrying the sentence, not an error — ruling 9 draws it as a state', async () => {
+      const result = await runRdExperiment(BODY, { repoPath, exec: handExec(CLEAN, false), dataRoot: sessionDir })
+
+      expect(result.available).toBe(false)
+      expect(result.reason).toBe("no claude on this machine's PATH — the R&D hand is your CLI, installed by you")
+      expect(result.recordedTo).toBeNull()
+      expect(result.eventIds).toEqual([])
+    })
+
+    it('the tracker corpus is carried through the CLI and recorded on the provenance', async () => {
+      const result = await runRdExperiment(
+        { ...BODY, corpus: 'local+tracker' },
+        { repoPath, exec: handExec(CLEAN), dataRoot: sessionDir },
+      )
+
+      expect(result.corpus.choice).toBe('local+tracker')
+      expect(result.provenance).toMatchObject({ corpus: 'local+tracker' })
+    })
   })
 })
 

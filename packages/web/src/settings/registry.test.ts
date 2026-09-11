@@ -338,7 +338,10 @@ describe("the lab model list is the operator's (prd-55 ruling 5, wave 1)", () =>
     // Which models a project tries is a fact about that project's experiments —
     // ruling 3's reason for panel collapse, and the same answer here.
     expect(models.scope).toBe('repo')
-    expect(scopesIn('repo')).toEqual(['repo'])
+    // The Repo group held one scope until prd-55 wave 5 put `lab.agentCommand`
+    // beside this row — see the R&D describe below for why that one is the
+    // machine's. Declaration order, which is what `scopesIn` reports.
+    expect(scopesIn('repo')).toEqual(['repo', 'machine'])
   })
 
   it('can be written and put back — the Repo group is live, so adding a model does not throw', () => {
@@ -355,5 +358,69 @@ describe("the lab model list is the operator's (prd-55 ruling 5, wave 1)", () =>
     restoreDefaults('repo', 'repo')
     expect(readPreference('lab.models')).toEqual({ opus: true, sonnet: true, haiku: true })
     expect(isOverridden('lab.models')).toBe(false)
+  })
+})
+
+describe("the R&D hand is the operator's own CLI, declared here (prd-55 rulings 1 and 2, wave 5)", () => {
+  it("keeps the agent command with the MACHINE, because a PATH is the machine's and not the repo's", () => {
+    const command = entryOf('lab.agentCommand')
+    expect(command.scope).toBe('machine')
+    // The server resolves this name on its own PATH. Two repos watched from one
+    // box cannot honestly disagree about what `claude` is, which is the whole
+    // reason this one is not repo-scoped beside `lab.models`.
+    expect(command.fallback).toBe('claude')
+    expect(command.kind).toBe('choice')
+  })
+
+  it('says out loud that it cannot take a typed-in binary name, rather than offering a control that does nothing', () => {
+    const command = entryOf('lab.agentCommand')
+    // The honest kind available: `PrefKind` is choice | flag | record, and
+    // `accept()` refuses a choice value outside `options` — so a free string is
+    // structurally not storable here today. The row therefore offers the one
+    // name the instrument ships with AND declares the gap; a row that quietly
+    // offered nothing would read as a setting that does not exist.
+    expect(command.options.map((option) => option.value)).toEqual(['claude'])
+    expect(command.gap).not.toBeNull()
+    expect(command.gap).toContain('free-text preference kind')
+    expect(() => writePreference('lab.agentCommand', 'claude-code-wrapper')).toThrow(/is not a value/)
+  })
+
+  it('defaults the corpus to local, and the tracker is a second act the operator declares (ruling 2)', () => {
+    const corpus = entryOf('lab.rdCorpus')
+    expect(corpus.kind).toBe('flag')
+    expect(corpus.fallback).toBe(false)
+    expect(corpus.scope).toBe('repo')
+    // `words` has to read correctly with the R&D panel nowhere on screen, so it
+    // names the two corpora rather than saying "on" and "off".
+    expect(corpus.words?.[0]).toContain('local+tracker')
+    expect(corpus.words?.[1]).toContain('local')
+  })
+
+  it('both are storable and both come back — the Repo group is live, so neither throws', () => {
+    expect(unavailabilityOf(entryOf('lab.agentCommand'))).toBeNull()
+    expect(unavailabilityOf(entryOf('lab.rdCorpus'))).toBeNull()
+
+    expect(writePreference('lab.rdCorpus', true)).toBe(true)
+    expect(readFlag('lab.rdCorpus')).toBe(true)
+    expect(isOverridden('lab.rdCorpus')).toBe(true)
+
+    // Two scopes in one group, restored one at a time (ruling 4): restoring the
+    // repo's own does not reach the machine-scoped row beside it.
+    expect(writePreference('lab.agentCommand', 'claude')).toBe(true)
+    restoreDefaults('repo', 'repo')
+    expect(readFlag('lab.rdCorpus')).toBe(false)
+    expect(readPreference('lab.agentCommand')).toBe('claude')
+  })
+
+  it('keeps the machine-scoped agent command out of the repo bucket entirely — watching another repo does not change what the binary is called', () => {
+    adoptRepoScope('/repos/one')
+    expect(writePreference('lab.rdCorpus', true)).toBe(true)
+
+    adoptRepoScope('/repos/two')
+    // The repo-scoped switch is the other repo's and does not follow…
+    expect(readFlag('lab.rdCorpus')).toBe(false)
+    // …while the machine-scoped command is the same machine's, whichever repo
+    // this instrument happens to be watching.
+    expect(readPreference('lab.agentCommand')).toBe('claude')
   })
 })

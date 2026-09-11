@@ -1,0 +1,23 @@
+{
+  "patterns": [
+    {
+      "patternId": "pattern-slow-gate",
+      "shape": "the gate is the slowest step of every measured arm",
+      "sourceItems": ["docs/review/one.md", "docs/research/a-retro.md"],
+      "count": 2,
+      "heldBack": false
+    }
+  ],
+  "proposals": [
+    {
+      "proposalId": "proposal-confounded-1",
+      "patternId": "pattern-slow-gate",
+      "varies": "gate",
+      "arms": [
+        { "model": "opus", "briefDigest": null, "checkpointId": null, "gateCommand": "npm test" },
+        { "model": "sonnet", "briefDigest": null, "checkpointId": null, "gateCommand": "npm run typecheck" }
+      ],
+      "checkpointPick": { "chosenCheckpointId": "ckpt-1", "rejected": [] }
+    }
+  ]
+}

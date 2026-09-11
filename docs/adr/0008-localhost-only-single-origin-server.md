@@ -82,9 +82,10 @@ second machine by design. That has not yet been asked for.
 > unchanged; two of its recorded consequences are no longer true, and a security
 > record that understates its own protections misleads in the costliest direction.
 > **#234 closed:** every mutating route carries the token. `api/index.ts`'s
-> `ROUTE_CLASSES` declares nine gated mutations — `/api/label`, `/api/rotate`,
+> `ROUTE_CLASSES` declares ten gated mutations — `/api/label`, `/api/rotate`,
 > `/api/retarget`, `/api/lab/launch`, `/api/lab/measure` (prd-53 ruling 3),
 > `/api/lab/comparisons` (prd-14 ruling 5, #213),
+> `/api/lab/rd` (prd-55 ruling 1, the R&D hand),
 > `/api/operator/:act` (#276) and the
 > concierge's two — and
 > [ADR-0024](0024-a-gated-read-is-the-fourth-route-class.md)'s gate-presence law

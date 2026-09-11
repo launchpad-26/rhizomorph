@@ -855,6 +855,23 @@ describe('SessionRecorder — the fold handed out is frozen (#69, ADR-0031)', ()
       f.operatorAck(),
       f.operatorVerdict(),
       f.operatorNote(),
+      // prd-55 ruling 1 — the R&D hand's four (#407, #412). Unlike the prd17
+      // family above, these arms DO fold: `state.rd` carries patterns,
+      // proposals, refusals and overrides, and the override arm writes an
+      // index into `overridesByProposal`. So they are exactly the shape this
+      // law is for — arms that read a frozen input and build new state beside
+      // it, where one `push` written in place of a spread would desync the
+      // fold permanently and silently.
+      //
+      // They arrived with wave 5's core half and this list did not follow
+      // them, which is precisely why the law is anchored on `EVENT_TYPES` and
+      // not on a count: it went red on an otherwise untouched tree until
+      // someone folded them in here. That is the correct direction, and this
+      // commit is the follow.
+      f.rdPatterns(),
+      f.rdProposal(),
+      f.rdRefused(),
+      f.rdOverride(),
     ]
     // Exhaustive by construction, and it stays that way.
     expect([...new Set(events.map((event) => event.type))].sort()).toEqual([...EVENT_TYPES].sort())

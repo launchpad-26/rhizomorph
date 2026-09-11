@@ -12,6 +12,7 @@ describe('parseLabForkArgs', () => {
     forkId: undefined,
     armNumber: undefined,
     ceilingOverride: undefined,
+    proposal: undefined,
     path: undefined,
     launch: false,
     help: false,
@@ -42,6 +43,14 @@ describe('parseLabForkArgs', () => {
       forkId: 'fork-x',
       armNumber: 2,
     })
+  })
+
+  it('parses --proposal, and refuses an empty one — an experiment that names a proposal must name a real one (prd55 ruling 4)', () => {
+    expect(parseLabForkArgs(['my-lane', '--proposal', 'proposal-1'])).toEqual({ ...forkDefaults, proposal: 'proposal-1' })
+    expect(() => parseLabForkArgs(['my-lane', '--proposal', ''])).toThrow(/invalid --proposal/)
+    // Absent is the common case and stays absent, never an empty string: the
+    // record must be able to say "nobody proposed this".
+    expect(parseLabForkArgs(['my-lane']).proposal).toBeUndefined()
   })
 
   it('parses --ceiling-override as a declared number of spending lanes, and refuses a zero or fractional one (prd53 ruling 6)', () => {

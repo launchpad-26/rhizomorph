@@ -129,6 +129,12 @@ function allFamilies(f: EventFactory) {
     f.forkCheckpoint(),
     f.forkDispatched(),
     f.forkMeasured(),
+    // prd55 wave 5 (#407): the R&D hand's four events, the same second hand
+    // as fork.* above.
+    f.rdPatterns(),
+    f.rdProposal(),
+    f.rdRefused(),
+    f.rdOverride(),
     f.judgeFinding(),
     // prd-27 wave 1's family (#217). The same law caught it: this branch added
     // `beacon.received` to the union while #219 was adding its eight, and the

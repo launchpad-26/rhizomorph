@@ -22,6 +22,10 @@ import type {
   JudgeFindingRecord,
   LaneAttribution,
   PaneState,
+  RdOverrideRecord,
+  RdPatternsRecord,
+  RdProposalRecord,
+  RdRefusalRecord,
   RefusalRecord,
   RefusalState,
   SessionPlace,
@@ -240,6 +244,14 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
       return forkDispatched(state, event)
     case 'fork.measured':
       return forkMeasured(state, event)
+    case 'rd.patterns':
+      return rdPatterns(state, event)
+    case 'rd.proposal':
+      return rdProposal(state, event)
+    case 'rd.refused':
+      return rdRefused(state, event)
+    case 'rd.override':
+      return rdOverride(state, event)
     case 'judge.finding':
       return judgeFinding(state, event)
     case 'summons.raised':
@@ -1666,6 +1678,127 @@ function forkMeasured(state: SessionState, event: EventOf<'fork.measured'>): Ses
       // A computed key never reaches the prototype (only a literal
       // `__proto__:` does), so a hostile handle lands as an own property.
       latestOutcomeByLane: { ...forks.latestOutcomeByLane, [p.laneHandle]: at },
+    },
+  }
+}
+
+/**
+ * prd55 ruling 3: the R&D hand's corpus read, kept whole and indexed by lane —
+ * same rule as {@link forkCheckpoint}. Nothing here inspects `heldBack` or
+ * re-derives it: the schema already checked it agrees with `count`.
+ */
+function rdPatterns(state: SessionState, event: EventOf<'rd.patterns'>): SessionState {
+  const p = event.payload
+  const record: RdPatternsRecord = {
+    eventId: event.id,
+    ts: event.ts,
+    lane: p.lane,
+    provenance: p.provenance,
+    patterns: p.patterns,
+  }
+
+  const rd = state.rd
+  const at = rd.patternsRecords.length
+  return {
+    ...state,
+    rd: {
+      ...rd,
+      patternsRecords: [...rd.patternsRecords, record],
+      patternsByLane: appendIndexed(rd.patternsByLane, p.lane, at),
+    },
+  }
+}
+
+/**
+ * prd55 ruling 3: one clean proposal, kept whole and indexed by lane AND by
+ * the pattern it names — the second index is what lets a surface ask "this
+ * pattern's proposals" without a scan (S5).
+ */
+function rdProposal(state: SessionState, event: EventOf<'rd.proposal'>): SessionState {
+  const p = event.payload
+  const record: RdProposalRecord = {
+    eventId: event.id,
+    ts: event.ts,
+    lane: p.lane,
+    provenance: p.provenance,
+    proposalId: p.proposalId,
+    patternId: p.patternId,
+    varies: p.varies,
+    arms: p.arms,
+    checkpointPick: p.checkpointPick,
+  }
+
+  const rd = state.rd
+  const at = rd.proposals.length
+  return {
+    ...state,
+    rd: {
+      ...rd,
+      proposals: [...rd.proposals, record],
+      proposalsByLane: appendIndexed(rd.proposalsByLane, p.lane, at),
+      proposalsByPattern: appendIndexed(rd.proposalsByPattern, p.patternId, at),
+    },
+  }
+}
+
+/**
+ * prd55 ruling 3/9: a refusal, kept whole and indexed by lane AND beside the
+ * pattern it refused — never patching a proposal, because no proposal record
+ * is ever created for a refused attempt in the first place (the engine
+ * decides before recording either event).
+ */
+function rdRefused(state: SessionState, event: EventOf<'rd.refused'>): SessionState {
+  const p = event.payload
+  const record: RdRefusalRecord = {
+    eventId: event.id,
+    ts: event.ts,
+    lane: p.lane,
+    provenance: p.provenance,
+    patternId: p.patternId,
+    reason: p.reason,
+    rawResultDigest: p.rawResultDigest,
+  }
+
+  const rd = state.rd
+  const at = rd.refusals.length
+  return {
+    ...state,
+    rd: {
+      ...rd,
+      refusals: [...rd.refusals, record],
+      refusalsByLane: appendIndexed(rd.refusalsByLane, p.lane, at),
+      refusalsByPattern: appendIndexed(rd.refusalsByPattern, p.patternId, at),
+    },
+  }
+}
+
+/**
+ * prd55 ruling 4: the operator's override, kept whole and indexed by lane AND
+ * by the proposal it names. Both checkpoints travel through unchanged — this
+ * fold never collapses them to "the" checkpoint, which is exactly the
+ * re-attribution ruling 4 refuses.
+ */
+function rdOverride(state: SessionState, event: EventOf<'rd.override'>): SessionState {
+  const p = event.payload
+  const record: RdOverrideRecord = {
+    eventId: event.id,
+    ts: event.ts,
+    lane: p.lane,
+    provenance: p.provenance,
+    proposalId: p.proposalId,
+    agentCheckpointId: p.agentCheckpointId,
+    operatorCheckpointId: p.operatorCheckpointId,
+  }
+
+  const rd = state.rd
+  const at = rd.overrides.length
+  return {
+    ...state,
+    rd: {
+      ...rd,
+      overrides: [...rd.overrides, record],
+      overridesByLane: appendIndexed(rd.overridesByLane, p.lane, at),
+      overridesByProposal: appendIndexed(rd.overridesByProposal, p.proposalId, at),
     },
   }
 }

@@ -731,6 +731,19 @@
       "worktreePath": "/repo/rhizomorph__worktrees/194"
     }
   },
+  "rd": {
+    "overrides": [],
+    "overridesByLane": {},
+    "overridesByProposal": {},
+    "patternsByLane": {},
+    "patternsRecords": [],
+    "proposals": [],
+    "proposalsByLane": {},
+    "proposalsByPattern": {},
+    "refusals": [],
+    "refusalsByLane": {},
+    "refusalsByPattern": {}
+  },
   "refusals": {
     "byInstance": {},
     "records": []

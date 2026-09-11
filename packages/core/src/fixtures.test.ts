@@ -86,6 +86,49 @@ describe('the fixture factory', () => {
     expect(() => createEventFactory().forkDispatched({ laneHandle: 'feature' })).toThrow()
   })
 
+  it('builds an rd.patterns with source "lab", a live and a held-back pattern', () => {
+    const event = createEventFactory().rdPatterns({ lane: '407-rd' })
+    expect(event.source).toBe('lab')
+    expect(event.payload.lane).toBe('407-rd')
+    expect(event.payload.patterns.map((p) => p.heldBack)).toEqual([false, true])
+    expect(rhizomorphEventSchema.safeParse(event).success).toBe(true)
+  })
+
+  it('builds an rd.proposal with source "lab", varying exactly one dimension', () => {
+    const event = createEventFactory().rdProposal({ proposalId: 'proposal-9' })
+    expect(event.source).toBe('lab')
+    expect(event.payload.proposalId).toBe('proposal-9')
+    expect(event.payload.varies).toBe('model')
+    expect(rhizomorphEventSchema.safeParse(event).success).toBe(true)
+  })
+
+  it('refuses an rd.proposal whose arms vary two dimensions — the fixture validates like the real thing', () => {
+    expect(() =>
+      createEventFactory().rdProposal({
+        arms: [
+          { model: 'opus', briefDigest: 'a'.repeat(64), checkpointId: null, gateCommand: null },
+          { model: 'sonnet', briefDigest: 'b'.repeat(64), checkpointId: null, gateCommand: null },
+        ],
+      }),
+    ).toThrow()
+  })
+
+  it('builds an rd.refused carrying the reason and a raw-result digest, source "lab"', () => {
+    const event = createEventFactory().rdRefused({ patternId: 'pattern-9' })
+    expect(event.source).toBe('lab')
+    expect(event.payload.patternId).toBe('pattern-9')
+    expect(event.payload.reason).toContain('held back')
+    expect(rhizomorphEventSchema.safeParse(event).success).toBe(true)
+  })
+
+  it('builds an rd.override naming both checkpoints, source "lab"', () => {
+    const event = createEventFactory().rdOverride({ operatorCheckpointId: 'ckpt-operator' })
+    expect(event.source).toBe('lab')
+    expect(event.payload.operatorCheckpointId).toBe('ckpt-operator')
+    expect(event.payload.agentCheckpointId).not.toBe(event.payload.operatorCheckpointId)
+    expect(rhizomorphEventSchema.safeParse(event).success).toBe(true)
+  })
+
   it('builds a judge.finding with source "judge", silent-log severity', () => {
     const event = createEventFactory().judgeFinding({ lanes: ['2-core', '7-web'] })
     expect(event.source).toBe('judge')
