@@ -172,15 +172,27 @@ export interface LabExperimentDTO {
  * event genuinely present in both halves collapses and two colliding events
  * both survive.
  *
+ * #429 gave `createIdFactory` an optional `writer` tag precisely for this
+ * case: two factories with the same prefix and the same start never collide
+ * when each names itself (`events/index.ts`'s own doc comment on
+ * {@link createIdFactory} has the full reasoning). That fix is CONTAINED to
+ * the factory, not yet WIRED to it — this file's own measure route call and
+ * `lab/fork.ts`, `lab/checkpoint.ts` and `lab/rd.ts` all still call
+ * `createIdFactory('lab')` with no tag, so the collision this paragraph
+ * describes is still one the record can produce today, not merely one a
+ * future edit could reintroduce. The composite key stays load-bearing, not
+ * belt-and-braces, until those four call sites are updated to pass a `writer`
+ * — tracked as the follow-up #429 could not reach from this file's fence.
+ *
  * MEASURED, so nobody reads more into the key than is proven. Swapping
  * `liveEventKey` for the bare `event.id` leaves `lab.test.ts` GREEN — because
  * the file half is copied whole and only the BUFFER half is filtered, so a
  * colliding pair both of whose halves are on disk survives either way. What
  * does go red is the natural wrong shape, deduping the whole concatenation by
  * id (EXECUTED: the collision test fails, 1 of 67). The composite key is
- * therefore defence against a future edit rather than a fix for a failure the
- * suite can currently produce, and this paragraph is that claim stated at its
- * real size.
+ * therefore defence against a REAL collision today AND against a future edit
+ * that widens what gets deduped by id alone — both at once, not one or the
+ * other, until the `writer` tag above is actually wired in.
  */
 function liveEventKey(event: RhizomorphEvent): string {
   return `${event.id}|${event.ts}|${event.type}`
