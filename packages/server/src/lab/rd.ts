@@ -23,8 +23,11 @@ import { SessionRecorder } from '../server/recorder.js'
  * explicit act.** This module reads the corpus the record already holds, hands
  * it to that CLI in print mode, validates what comes back against core's fixed
  * schema, and records `rd.patterns` / `rd.proposal` / `rd.refused` through the
- * recorder with provenance. It is a sibling of `fork.ts` (dispatch) and
- * `compare.ts` (measure) and follows their shape exactly: a bounded `Exec`, a
+ * recorder with provenance — and then books what the run cost as one
+ * `llm.cost` event sourced to the lab ({@link bookHandCost}), which is ruling
+ * 1's "booked as spend with its basis, like a fork's". It is a sibling of
+ * `fork.ts` (dispatch) and `compare.ts` (measure) and follows their shape
+ * exactly: a bounded `Exec`, a
  * `SessionRecorder` constructed on the live session, and events created with
  * `createEvent` under a `createIdFactory('lab')`.
  *
@@ -631,6 +634,15 @@ export async function runRdHand(options: RunRdOptions): Promise<RunRdResult> {
     events.push(event)
   }
 
+  // The bill, last: prd55 ruling 1's "the R&D hand's cost is booked as spend
+  // with its basis, like a fork's". See {@link bookHandCost} for why it is the
+  // last line of a run and not the first.
+  const costEvent = bookHandCost(options, provenance, nextId, now)
+  if (costEvent !== null) {
+    await recorder.record(costEvent)
+    events.push(costEvent)
+  }
+
   return {
     lane: options.lane,
     available: true,
@@ -644,6 +656,85 @@ export async function runRdHand(options: RunRdOptions): Promise<RunRdResult> {
     events,
     recordedTo: logFilePath,
   }
+}
+
+/**
+ * The role a hand's spend is booked under (prd55 ruling 1, #430).
+ *
+ * `auxiliary` — the CLI's own traffic riding alongside a lane, which is
+ * precisely what an R&D run is: the operator asked the instrument to read the
+ * corpus FOR a lane, and the answer is not that lane's agent doing that lane's
+ * work. `worker` was the alternative and is rejected on the ledger's own
+ * terms: a lane's worker spend is what a reader compares an arm against, and
+ * mixing the instrument's research money into it would make every such
+ * comparison quietly wrong — the same undercount `agentRoleSchema`'s own
+ * comment says `role` exists to prevent, running the other way.
+ * `unattributed` is refused because somebody DID say: the operator named the
+ * lane on the command line.
+ */
+const RD_COST_ROLE = 'auxiliary'
+
+/**
+ * The hand's cost, booked as spend — prd55 ruling 1: *"The R&D hand's cost is
+ * booked as spend with its basis, like a fork's."*
+ *
+ * **The figure is the one the provenance already carries** — `total_cost_usd`,
+ * copied from `claude -p --output-format json`'s own result and never
+ * re-derived here or anywhere downstream — so the R&D tab's provenance line
+ * and the ledger's total are the same number by construction rather than by
+ * two agreeing arithmetics. `authoritative: true` is the basis: the CLI
+ * computed the dollars, no pricing table of ours was consulted, and the spend
+ * surfaces render exactly that without being taught anything about the lab.
+ *
+ * **`source: 'lab'`, and that is the whole point of it.** Signing this
+ * `sessionlog` or `otel` would be a false provenance — no transcript was
+ * tailed for this call and no OTLP receiver saw it — and it is the same lie,
+ * pointed the other way, that ruling 1's "the instrument holds no credential
+ * and forwards nothing" is careful about. `'lab'` is the literal
+ * `events/lab.ts` already uses for this same second hand, deliberately outside
+ * the collector enum; `events/telemetry.ts` carries the full reasoning.
+ *
+ * **A run that reports no cost books nothing and says nothing.** Returning
+ * `null` rather than an event with `costUsd: 0` is deliberate: a zero-dollar
+ * row is a claim that the run was free, which is a different fact from the CLI
+ * not having reported a figure, and the ledger would carry it as spend either
+ * way. (`parseAgentJson` already refuses an answer with no `total_cost_usd`
+ * at all, so the reachable case here is a reported zero.)
+ *
+ * **Called last, from the one place that has a recorder open.** So the two
+ * paths that record nothing book nothing without needing to be told: the
+ * no-CLI answer returns before the corpus is even read, and every refusal of
+ * the hand's own answer — not the fixed document, a pattern whose `heldBack`
+ * disagrees with its count, no cost figure — throws before `openRecorder`
+ * runs. A run that got far enough to record `rd.patterns` is a run that spent
+ * the operator's money, and it is the only kind that books any.
+ *
+ * **No `sessionId`.** The CLI reports its own `session_id`, and carrying it
+ * would be the one dishonest-looking field on an otherwise honest record: the
+ * fold reads `sessionId` as the join key to a session the OBSERVER can see,
+ * and nothing observes a `-p` call the operator's own binary made. A session
+ * id no collector will ever corroborate reads downstream as a session running
+ * without instrumentation — a setup gap that does not exist. The lane is what
+ * places this spend, and the lane is on the payload.
+ */
+function bookHandCost(
+  options: RunRdOptions,
+  provenance: RdProvenance,
+  nextId: () => string,
+  now: () => number,
+): EventOf<'llm.cost'> | null {
+  if (!(provenance.total_cost_usd > 0)) return null
+  return createEvent(
+    'llm.cost',
+    {
+      lane: options.lane,
+      role: RD_COST_ROLE,
+      model: provenance.model,
+      costUsd: provenance.total_cost_usd,
+      authoritative: true,
+    },
+    { id: nextId(), ts: now(), source: 'lab' },
+  )
 }
 
 /**

@@ -1765,7 +1765,27 @@ describe('POST /api/lab/rd (prd-55 ruling 1 — the R&D hand, gated, reached thr
       expect(result.refusals).toEqual([])
       expect(result.provenance).toMatchObject({ model: 'opus', total_cost_usd: 0.0421, corpus: 'local' })
       expect(result.turns).toBe(1)
-      expect(result.eventIds).toHaveLength(2)
+      // Three since prd55 ruling 1 (#430): the patterns, the proposal, and the
+      // bill. The run's cost is booked as spend, "like a fork's".
+      expect(result.eventIds).toHaveLength(3)
+
+      // And the third really IS the booking, read back off the LOG rather than
+      // off the result object — a count alone would tolerate any third event.
+      const written = readFileSync(result.recordedTo as string, 'utf8')
+        .split('\n')
+        .filter((line) => line.length > 0)
+        .map((line) => JSON.parse(line) as RhizomorphEvent)
+      expect(written.map((event) => event.id)).toEqual(result.eventIds)
+      expect(written.map((event) => event.type)).toEqual(['rd.patterns', 'rd.proposal', 'llm.cost'])
+
+      const booked = written[2] as RhizomorphEvent & { payload: Record<string, unknown> }
+      // Sourced to the lab, never to a collector: no transcript was tailed for
+      // this call and no OTLP receiver saw it.
+      expect(booked.source).toBe('lab')
+      // The figure is the CLI's own, the same one the provenance carries — so
+      // the R&D tab's provenance line and the ledger cannot disagree.
+      expect(booked.payload.costUsd).toBe(result.provenance?.total_cost_usd)
+      expect(booked.payload).toMatchObject({ lane: 'w5b-412', authoritative: true, model: 'opus' })
     })
 
     it('a two-dimension proposal comes back REFUSED, in core’s own words, and never as a proposal', async () => {

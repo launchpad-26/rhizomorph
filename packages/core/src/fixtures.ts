@@ -80,6 +80,13 @@ export interface EventFactory {
    * `{ source: 'otel' }` to fake the authority side of a cross-validation.
    */
   llmUsage(payload?: Partial<PayloadOf<'llm.usage'>>, init?: Init<'llm.usage'>): EventOf<'llm.usage'>
+  /**
+   * Dollars. `{ source: 'sessionlog' }` is the other collector, and
+   * `{ source: 'lab' }` is a cost the LABORATORY booked (prd55 ruling 1,
+   * #430) — `llm.cost` is the one telemetry type whose envelope admits the
+   * lab's explicitly-invoked second hand beside the two collectors. Nothing
+   * else here takes it: the lab books spend, it never signs a reading.
+   */
   llmCost(payload?: Partial<PayloadOf<'llm.cost'>>, init?: Init<'llm.cost'>): EventOf<'llm.cost'>
   toolActivity(payload?: Partial<PayloadOf<'tool.activity'>>, init?: Init<'tool.activity'>): EventOf<'tool.activity'>
   /** #141: OTel's `claude_code.active_time.total` counter, finally wired. */

@@ -239,10 +239,25 @@ export function selectConnection(state: SessionState): Connection {
 
   const telemetry = state.telemetry
   for (const records of [telemetry.usage, telemetry.costs, telemetry.tools, telemetry.activeTime]) {
-    // `TelemetryOrigin` is `'sessionlog' | 'otel'` — two of these five names,
+    // `TelemetryOrigin` is `'sessionlog' | 'otel' | 'lab'` since prd55 ruling 1
+    // (#430). The first two are collectors and ARE two of these five names,
     // which is what lets the envelope's own stamp pick the flow with no mapping
-    // table to keep in step.
-    for (const record of records) fold(flows[record.origin], record.ts)
+    // table to keep in step. The third is not a collector and is not a name
+    // here, deliberately — this file's header already promises it: *"The `lab`
+    // and `judge` hands are absent for the same reason: both are explicitly
+    // invoked by us."*
+    //
+    // So a `lab`-origin record is SKIPPED rather than folded, and a sixth flow
+    // would be the wrong repair. A cost the laboratory booked is real spend and
+    // reaches the ledger like any other (`reduce.ts`'s `llmCost`), but it is
+    // proof that the operator ran the R&D hand — not proof that an external
+    // link is wired, which is the only question this selector asks. Counting it
+    // would report the instrument's own pulse as data flowing in, exactly what
+    // the header rules out for `system` and for the refusals below.
+    for (const record of records) {
+      if (record.origin === 'lab') continue
+      fold(flows[record.origin], record.ts)
+    }
   }
   for (const span of state.traces.spans) fold(flows.otel, span.ts)
 

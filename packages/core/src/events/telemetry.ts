@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { envelope, envelopeWithSources, nonEmptyString } from './common.js'
+import { envelope, envelopeWithSources, nonEmptyString, timestampSchema } from './common.js'
 
 /**
  * prd1 — the money layer. Token, dollar and tool-activity facts, taken from the
@@ -26,7 +26,7 @@ import { envelope, envelopeWithSources, nonEmptyString } from './common.js'
  */
 
 /**
- * Where a telemetry fact came from. A subset of `EventSource`.
+ * Where a telemetry fact came from. Two collectors and one second hand.
  *
  * `sessionlog` names a *kind* of collector — one that tails an agent CLI's own
  * transcript file — not one specific CLI. Claude Code's collector was the only
@@ -37,12 +37,43 @@ import { envelope, envelopeWithSources, nonEmptyString } from './common.js'
  * Claude's names itself with `harness` on the attribution shared by every
  * telemetry payload (see below) — absent `harness` means Claude Code's own
  * collector, the only meaning `sessionlog` has ever had before this.
+ *
+ * **`lab` IS NOT A COLLECTOR, AND THAT IS THE WHOLE POINT OF ITS SPELLING**
+ * (prd55 ruling 1, #430). The first two members are collectors and are members
+ * of `EventSource`; `'lab'` is deliberately neither. `events/lab.ts` states the
+ * reason for the lab's own events and it is unchanged here: the laboratory is
+ * an explicitly-invoked second hand and "never runs unattended behind a poll
+ * loop the way a collector does", so `'lab'` stays out of `eventSourceSchema`
+ * where a reader of `common.ts` could mistake it for a seventh collector. A
+ * cost the lab BOOKED is the same kind of fact as a checkpoint the lab
+ * CAPTURED — not a reading anybody polled — so it names the same actor, by the
+ * same literal, kept outside the same enum.
+ *
+ * Only `llm.cost` may carry it. `llm.usage` and `tool.activity` stay bound to
+ * {@link TELEMETRY_SOURCES}, the collector pair, because nothing but a
+ * collector has ever produced a token count or a tool call: the R&D hand reads
+ * its own spend off the CLI's JSON result and has no transcript and no
+ * receiver to take either of the other two readings from. So this enum is the
+ * union of everything a telemetry RECORD's `origin` may say, and each event
+ * type's own envelope below is what fixes which of them it may say — the same
+ * shape `EVENT_SOURCE_BY_TYPE` already has for a primary source, and not a
+ * licence for the lab to sign a reading.
  */
-export const telemetryOriginSchema = z.enum(['sessionlog', 'otel'])
+export const telemetryOriginSchema = z.enum(['sessionlog', 'otel', 'lab'])
 export type TelemetryOrigin = z.infer<typeof telemetryOriginSchema>
 
-/** The two sources allowed on a telemetry envelope, as a tuple for zod. */
+/** The two COLLECTOR sources allowed on a telemetry envelope, as a tuple for zod. */
 const TELEMETRY_SOURCES = ['sessionlog', 'otel'] as const
+
+/**
+ * The sources allowed on an `llm.cost` envelope: the two collectors, plus the
+ * lab's own hand (prd55 ruling 1, #430 — see {@link telemetryOriginSchema}).
+ *
+ * A tuple of its own rather than a third entry in {@link TELEMETRY_SOURCES},
+ * because widening that one would have said that the lab may also report token
+ * usage and tool activity, which it cannot and does not.
+ */
+const LLM_COST_SOURCES = ['sessionlog', 'otel', 'lab'] as const
 
 /**
  * Who was spending. The conductor counts: orchestrated setups undercount by
@@ -266,11 +297,25 @@ export const llmUsageEventSchema = envelopeWithSources(
   'llm.usage',
   llmUsagePayloadSchema,
 )
-export const llmCostEventSchema = envelopeWithSources(
-  TELEMETRY_SOURCES,
-  'llm.cost',
-  llmCostPayloadSchema,
-)
+/**
+ * Hand-built rather than via `envelopeWithSources`, for exactly the reason
+ * `events/lab.ts`'s schemas are hand-built: that helper's `sources` generic is
+ * bound to `EventSource`, and `'lab'` is deliberately not a member of it. The
+ * shape below is identical to what `envelopeWithSources(LLM_COST_SOURCES,
+ * 'llm.cost', llmCostPayloadSchema)` would have produced if the helper could
+ * have taken the lab's literal.
+ *
+ * `EVENT_SOURCE_BY_TYPE`'s primary for this type stays `otel` and is untouched
+ * (prd1: authority for dollars). The lab, like the non-primary collector,
+ * names itself by passing `source` to `createEvent`.
+ */
+export const llmCostEventSchema = z.object({
+  id: nonEmptyString,
+  ts: timestampSchema,
+  source: z.enum(LLM_COST_SOURCES),
+  type: z.literal('llm.cost'),
+  payload: llmCostPayloadSchema,
+})
 export const toolActivityEventSchema = envelopeWithSources(
   TELEMETRY_SOURCES,
   'tool.activity',
