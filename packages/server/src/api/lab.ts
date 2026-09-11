@@ -503,6 +503,11 @@ export interface LaunchRequestBody {
   runs: number
   /** The operator's declared launch ceiling in spending lanes, when they mean to go past the default (prd53 ruling 6). */
   ceilingOverride?: number
+  /**
+   * The `rd.proposal` this launch came from (prd55 ruling 4). Absent when the
+   * operator chose the experiment themselves, which is most launches.
+   */
+  proposalId?: string
 }
 
 /** One run of a launched arm — its own worktree, its own handle, its own launch. */
@@ -583,7 +588,7 @@ function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
   if (typeof body !== 'object' || body === null) {
     throw new LaunchValidationError('request body must be a JSON object')
   }
-  const { lane, checkpointId, arms, runs: runsRaw, ceilingOverride } = body as Record<string, unknown>
+  const { lane, checkpointId, arms, runs: runsRaw, ceilingOverride, proposalId } = body as Record<string, unknown>
 
   if (typeof lane !== 'string' || lane.trim().length === 0) {
     throw new LaunchValidationError('"lane" must be a non-empty string')
@@ -626,6 +631,20 @@ function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
       '"ceilingOverride" must be a positive integer of spending lanes when present — the ceiling you are declaring for this launch (prd53 ruling 6)',
     )
   }
+  // prd55 ruling 4. Validated exactly like every other value that reaches
+  // argv: a proposal id travels as `--proposal <id>`, so the same `--help`
+  // pre-scan `refuseFlagShaped` guards the lane against reads this one too.
+  // Absent is legal and common — it means the operator chose the experiment
+  // themselves — but a proposal id that IS given must name something.
+  if (proposalId !== undefined) {
+    if (typeof proposalId !== 'string' || proposalId.trim().length === 0) {
+      throw new LaunchValidationError(
+        '"proposalId" must be a non-empty string when present — the rd.proposal this experiment came from (prd55 ruling 4)',
+      )
+    }
+    refuseFlagShaped(proposalId, '"proposalId"', 'a proposal id names a proposal the R&D hand recorded')
+  }
+
   // prd41 ruling 4: a ceiling that spends money is declared — here, in the
   // same validation block, before anything is dispatched. Read for what it
   // bounds: every RUN is a live, spending agent lane, so arms × runs is the
@@ -674,7 +693,14 @@ function parseLaunchRequestBody(body: unknown): LaunchRequestBody {
     return { model, brief }
   })
 
-  return { lane, checkpointId, arms: parsedArms, runs, ...(ceilingOverride === undefined ? {} : { ceilingOverride }) }
+  return {
+    lane,
+    checkpointId,
+    arms: parsedArms,
+    runs,
+    ...(ceilingOverride === undefined ? {} : { ceilingOverride }),
+    ...(proposalId === undefined ? {} : { proposalId: (proposalId as string).trim() }),
+  }
 }
 
 /**
@@ -989,6 +1015,9 @@ export async function launchExperiment(body: unknown, options: LaunchExperimentO
         // The operator's declared ceiling travels to the engine, which
         // records it on every fork.dispatched (prd53 ruling 6).
         ...(request.ceilingOverride === undefined ? [] : ['--ceiling-override', String(request.ceilingOverride)]),
+        // prd55 ruling 4 — travels to the engine, which records it on every
+        // fork.dispatched this launch produces.
+        ...(request.proposalId === undefined ? [] : ['--proposal', request.proposalId]),
         '--launch',
       ]
       if (hasModel) argv.push('--model', model)

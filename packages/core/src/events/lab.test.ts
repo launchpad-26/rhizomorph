@@ -166,6 +166,32 @@ describe('fork.dispatched', () => {
     const parsed = forkDispatchedPayloadSchema.safeParse(validDispatch())
     if (parsed.success) expect(parsed.data.ceilingOverride).toBeUndefined()
   })
+
+  /**
+   * prd55 ruling 4. ADDITIVE and LENIENT in the exact sense `run` and
+   * `ceilingOverride` already are: a record written before wave 5 parses
+   * unchanged and reads `proposalId === undefined`, so absence means "nobody
+   * proposed this experiment" and never "the proposal was lost". Nothing is
+   * reshaped, so this is not an `upcast()`.
+   */
+  it('carries the proposal an experiment came from, and nothing at all when it came from a hand (prd55 ruling 4)', () => {
+    expect(forkDispatchedPayloadSchema.safeParse({ ...validDispatch(), proposalId: 'proposal-1' }).success).toBe(true)
+    // Present-but-empty is not the same as absent: a field that is there must name something.
+    expect(forkDispatchedPayloadSchema.safeParse({ ...validDispatch(), proposalId: '' }).success).toBe(false)
+    expect(forkDispatchedPayloadSchema.safeParse({ ...validDispatch(), proposalId: 42 }).success).toBe(false)
+
+    // The pre-wave-5 record, byte for byte: it parses, and it says nothing
+    // about a proposal rather than inventing one.
+    const parsed = forkDispatchedPayloadSchema.safeParse(validDispatch())
+    expect(parsed.success).toBe(true)
+    if (parsed.success) expect(parsed.data.proposalId).toBeUndefined()
+
+    // …and it survives the envelope, not only the payload schema.
+    const event = createEvent('fork.dispatched', { ...validDispatch(), proposalId: 'proposal-1' }, { id: 'evt-1', ts: 1 })
+    const result = parseEvent(event)
+    expect(result.ok).toBe(true)
+    if (result.ok) expect((result.event.payload as { proposalId?: string }).proposalId).toBe('proposal-1')
+  })
 })
 
 function validMeasured() {

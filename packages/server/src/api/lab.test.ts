@@ -593,6 +593,49 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
     ).rejects.toThrow(/"runs" must be a positive integer/)
   })
 
+  /**
+   * prd55 ruling 4, end to end through the REAL dispatch: the route accepts the
+   * proposal, it travels as `--proposal` into `lab/fork.ts`, and every
+   * `fork.dispatched` the launch produces carries it. A launch nobody proposed
+   * carries NO such key — absence has to mean "an operator chose this", never
+   * "a proposal went missing".
+   */
+  it('carries the proposal a launch came from onto every recorded arm, and nothing at all when a hand chose it (prd55 ruling 4)', async () => {
+    const checkpointId = await seedCheckpoint('lane-proposal', () => 1_000_000)
+    const exec = execWithStubs((command) => (command === 'workmux' ? OK : null))
+
+    await launchExperiment(
+      { lane: 'lane-proposal', checkpointId, arms: [{ model: 'opus' }], proposalId: 'proposal-1' },
+      { repoPath: repoDir, exec, dataRoot, claudeProjectsRoot, now: () => 2_000_000 },
+    )
+    await launchExperiment(
+      { lane: 'lane-proposal', checkpointId, arms: [{ model: 'opus' }] },
+      { repoPath: repoDir, exec, dataRoot, claudeProjectsRoot, now: () => 2_000_001 },
+    )
+
+    // Read from the LOG the launches wrote, not from the results they
+    // returned: what the fold sees is what every surface will see.
+    const dispatched = recordedEvents('fork.dispatched')
+    const proposals = dispatched.map((event) => (event.payload as { proposalId?: string }).proposalId)
+    expect(proposals).toContain('proposal-1')
+    expect(proposals).toContain(undefined)
+    // Absent means the key is not there at all, not an empty string.
+    const byHand = dispatched.find((event) => (event.payload as { proposalId?: string }).proposalId === undefined)
+    expect(byHand?.payload).not.toHaveProperty('proposalId')
+  })
+
+  it('refuses a proposal id that names nothing, or one shaped like a flag, before anything is dispatched (prd55 ruling 4)', async () => {
+    const neverRuns: Exec = async (command, argv) => {
+      throw new Error(`nothing should have been executed, but got: ${command} ${argv.join(' ')}`)
+    }
+    await expect(
+      launchExperiment({ lane: 'x', checkpointId: 'y', arms: [{}], proposalId: '' }, { repoPath: repoDir, exec: neverRuns }),
+    ).rejects.toThrow(/"proposalId" must be a non-empty string/)
+    await expect(
+      launchExperiment({ lane: 'x', checkpointId: 'y', arms: [{}], proposalId: '--help' }, { repoPath: repoDir, exec: neverRuns }),
+    ).rejects.toThrow(/may not begin with "-"/)
+  })
+
   it('one launch is ONE experiment: every arm and every run folds under the forkId the launch minted, and no two share a worktree (prd53 ruling 1)', async () => {
     const checkpointId = await seedCheckpoint('lane-one-fork', () => 1_000_000)
     const exec = execWithStubs((command) => (command === 'workmux' ? OK : null))

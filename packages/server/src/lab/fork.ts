@@ -81,6 +81,18 @@ export interface DispatchForkOptions extends ForkTreatmentInput {
    * override is an act with a name, never a config nobody can find later.
    */
   ceilingOverride?: number | undefined
+  /**
+   * The `rd.proposal` this experiment came from (prd55 ruling 4). Recorded on
+   * every `fork.dispatched` this call produces, so the experiment can be read
+   * back to what SUGGESTED it. Undefined when an operator chose it by hand,
+   * which is most launches — and the absence means exactly that, never a
+   * proposal that went missing.
+   *
+   * It records provenance, never authority: `rd.override` is what says the
+   * operator changed the pick, and nothing here re-attributes a choice to the
+   * agent.
+   */
+  proposalId?: string | undefined
   exec?: Exec
   now?: () => number
   dataRoot?: string
@@ -477,6 +489,11 @@ async function dispatchArm(ctx: DispatchArmContext): Promise<DispatchedArm> {
       arm,
       run,
       ...(options.ceilingOverride === undefined ? {} : { ceilingOverride: options.ceilingOverride }),
+      // prd55 ruling 4, spread rather than assigned for the same reason the
+      // ceiling above is: an absent proposal must leave the key off the record
+      // entirely, so "nobody proposed this" and "the proposal was lost" can
+      // never look alike in the log.
+      ...(options.proposalId === undefined ? {} : { proposalId: options.proposalId }),
       treatment: ctx.treatment,
       laneHandle,
       worktreePath,

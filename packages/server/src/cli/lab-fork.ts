@@ -25,6 +25,13 @@ export interface LabForkArgs {
   armNumber: number | undefined
   /** The operator's declared launch ceiling in spending lanes (prd53 ruling 6); undefined means the default holds. */
   ceilingOverride: number | undefined
+  /**
+   * The `rd.proposal` this experiment came from (prd55 ruling 4); undefined
+   * when a hand chose it, which is most launches. Recorded on every
+   * `fork.dispatched` the dispatch produces, so an experiment can be read back
+   * to what suggested it — never to who decided it.
+   */
+  proposal: string | undefined
   /** The parent lane's worktree; undefined defaults to the current directory. */
   path: string | undefined
   /** Run the workmux launcher too. Off by default — see `lab/fork.ts`'s module doc. */
@@ -66,6 +73,10 @@ Options:
                           the default launch ceiling. A declared act: the refusal that asks for
                           it names it, and it is recorded on every fork.dispatched it produces
                           (prd53 ruling 6)
+  --proposal <id>         The rd.proposal this experiment comes from (prd55 ruling 4).
+                          Recorded on every fork.dispatched this dispatch produces, so the
+                          experiment can be read back to what suggested it. Absent means
+                          nobody proposed it — which is not the same as a proposal lost
   --path <dir>            The lane's worktree (default: current directory)
   --launch                Also run 'workmux add' for each arm. OFF by default: that
                           creates a refs/heads/ branch and a worktree of workmux's
@@ -89,6 +100,7 @@ export function parseLabForkArgs(argv: readonly string[]): LabForkArgs {
       forkId: undefined,
       armNumber: undefined,
       ceilingOverride: undefined,
+      proposal: undefined,
       path: undefined,
       launch: false,
       help: true,
@@ -103,6 +115,7 @@ export function parseLabForkArgs(argv: readonly string[]): LabForkArgs {
   let forkIdArg: string | undefined
   let armNumberArg: string | undefined
   let ceilingOverrideArg: string | undefined
+  let proposalArg: string | undefined
   let pathArg: string | undefined
   let launch = false
 
@@ -115,6 +128,7 @@ export function parseLabForkArgs(argv: readonly string[]): LabForkArgs {
     { flag: '--fork-id', read: (v) => { forkIdArg = v } },
     { flag: '--arm-number', read: (v) => { armNumberArg = v } },
     { flag: '--ceiling-override', read: (v) => { ceilingOverrideArg = v } },
+    { flag: '--proposal', read: (v) => { proposalArg = v } },
     { flag: '--path', read: (v) => { pathArg = v } },
     { flag: '--launch', boolean: true, read: () => { launch = true } },
   ]
@@ -136,6 +150,9 @@ export function parseLabForkArgs(argv: readonly string[]): LabForkArgs {
   }
   if (forkIdArg !== undefined && forkIdArg.trim().length === 0) {
     throw new Error('invalid --fork-id value: (must be a non-empty fork id)')
+  }
+  if (proposalArg !== undefined && proposalArg.trim().length === 0) {
+    throw new Error('invalid --proposal value: (must be a non-empty proposal id)')
   }
 
   const arms = armsArg === undefined ? DEFAULT_FORK_ARMS : Number(armsArg)
@@ -171,6 +188,7 @@ export function parseLabForkArgs(argv: readonly string[]): LabForkArgs {
     forkId: forkIdArg,
     armNumber,
     ceilingOverride,
+    proposal: proposalArg,
     path: pathArg,
     launch,
     help: false,

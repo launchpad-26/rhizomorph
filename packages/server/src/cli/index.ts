@@ -224,6 +224,7 @@ async function runLabForkCommand(
       forkId: args.forkId,
       armNumber: args.armNumber,
       ceilingOverride: args.ceilingOverride,
+      proposalId: args.proposal,
       model: args.model,
       promptFile: args.promptFile,
       launch: args.launch,
