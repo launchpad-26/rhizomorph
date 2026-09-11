@@ -26,8 +26,8 @@
  * #249 and `replay/rotate.ts` now does too.
  */
 
-import { missingTokenMessage, staleTokenMessage } from '../../recordings/capability-guidance.js'
 import { CAPABILITY_TOKEN_HEADER, readCapabilityToken } from '../../recordings/capability.js'
+import { missingTokenMessage, staleTokenMessage } from '../../recordings/capability-guidance.js'
 
 export const LAUNCH_URL = '/api/lab/launch'
 
@@ -50,6 +50,15 @@ export interface LaunchRequest {
    */
   runs?: number
   ceilingOverride?: number
+  /**
+   * The `rd.proposal` this launch restores, when it opened from one (prd-55
+   * ruling 4, wave 6 widening) — absent means the operator chose this
+   * launch's shape themselves, which is most launches. The route already
+   * accepts and records this (#412); the wire is what wave 6 widens: the
+   * web client now actually sends it, from `LaunchPanel`'s own `proposalId`
+   * prop.
+   */
+  proposalId?: string
 }
 
 export interface LaunchedArm {
