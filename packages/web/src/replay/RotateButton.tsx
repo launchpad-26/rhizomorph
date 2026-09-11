@@ -1,5 +1,6 @@
 import { BUTTON, BUTTON_PRIMARY } from '../ui/controls.js'
 import { useState } from 'react'
+import { Disclosure, type DisclosureContent } from '../disclosure/index.js'
 import { bootExplanation } from '../app/StatusBar.js'
 import { requestRotation, type RotateFetchLike, type RotationSummary } from './rotate.js'
 
@@ -85,24 +86,30 @@ export function RotateButton({ onRotated, fetchImpl }: RotateButtonProps = {}) {
 
   return (
     <span className="inline-flex items-center gap-2">
-      <button
-        type="button"
-        data-testid="rotate-button"
-        data-armed={armed ? 'true' : 'false'}
-        disabled={working}
-        onClick={() => {
-          if (armed) void rotate()
-          else setPhase({ status: 'armed' })
-        }}
-        title={
-          armed
-            ? 'Click again to close this session and start a new one — the closed recording stays, and stays replayable'
-            : 'Close the current session log and start a fresh one. Nothing outside the instrument’s own data directory is touched.'
-        }
-        className={armed ? BUTTON_PRIMARY : BUTTON}
-      >
-        {working ? 'ending session…' : armed ? 'confirm: end session' : 'end session · start fresh'}
-      </button>
+      {/*
+        `disabled={working}` STAYS (#389). The three controls ADR-0047 moves to
+        `aria-disabled` are the ones whose text explains their own
+        unavailability; this one's does not — it explains the act, in both the
+        armed and unarmed states, and `working` is a brief in-flight moment
+        rather than a condition a reader needs read to them. The card hangs off
+        the inline trigger, which is focusable regardless, so the explanation
+        stays keyboard-reachable throughout.
+      */}
+      <Disclosure trigger="inline" disclosure={rotateDisclosure(armed)}>
+        <button
+          type="button"
+          data-testid="rotate-button"
+          data-armed={armed ? 'true' : 'false'}
+          disabled={working}
+          onClick={() => {
+            if (armed) void rotate()
+            else setPhase({ status: 'armed' })
+          }}
+          className={armed ? BUTTON_PRIMARY : BUTTON}
+        >
+          {working ? 'ending session…' : armed ? 'confirm: end session' : 'end session · start fresh'}
+        </button>
+      </Disclosure>
 
       {armed && (
         <button
@@ -137,4 +144,34 @@ export function RotateButton({ onRotated, fetchImpl }: RotateButtonProps = {}) {
       )}
     </span>
   )
+}
+
+/**
+ * What this button is about to do, in each of its two states (#389).
+ *
+ * Both `reason` strings are the native `title=` this retires, ported verbatim.
+ * `elapsedMs: 0` in core's register for a fact re-derived on every render —
+ * the phase IS the observation, and it is read fresh each time the surface
+ * draws.
+ */
+function rotateDisclosure(armed: boolean): DisclosureContent {
+  return armed
+    ? {
+        label: 'confirm: end session',
+        why: {
+          reason:
+            'Click again to close this session and start a new one — the closed recording stays, and stays replayable',
+          evidence: { fact: 'this control is armed and the next press performs the rotation', elapsedMs: 0 },
+        },
+        remedy: { kind: 'action', action: 'press it again to end the session, or cancel beside it to stand down' },
+      }
+    : {
+        label: 'end session · start fresh',
+        why: {
+          reason:
+            'Close the current session log and start a fresh one. Nothing outside the instrument’s own data directory is touched.',
+          evidence: { fact: 'this control is unarmed — one press arms it and a second performs the rotation', elapsedMs: 0 },
+        },
+        remedy: { kind: 'action', action: 'press once to arm it; nothing is written until you confirm' },
+      }
 }

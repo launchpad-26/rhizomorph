@@ -79,6 +79,22 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Changed
 
+- **The last native tooltips are gone — every mark now explains itself on
+  hover, on focus and on tap (#389).** Twelve `title=` attributes retired from
+  the scene, the replay dock and the concierge button, which completes prd-30:
+  nine became disclosure cards, and three that were only field labels or a
+  keyboard-shortcut hint became accessible names instead, because a card whose
+  reason rests on no evidence is noise rather than disclosure. The law that
+  forbids a native tooltip now walks the whole of the web package — its
+  exemption list is deleted, not emptied.
+- **Three controls that explain why they are unavailable stay reachable
+  (#389, ADR-0047).** "Replay this session's birth" with nothing recorded,
+  "Play" before a session is chosen, and the scene's motion toggle while motion
+  is stilled in settings each carried their reason in a tooltip on a `disabled`
+  button — which drops out of the tab order, so the explanation was the one
+  thing a keyboard user could never get to. They now stay focusable and refuse
+  to act, so the reason is reachable by keyboard and by pointer alike.
+
 - **The timeline dock's four transport buttons dropped their tooltips (#221).**
   Every one already carried its name for a screen reader; the `title=` beside it
   was a second, slower, pointer-only copy. The zoom-in button's name now says
