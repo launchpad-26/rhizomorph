@@ -16,6 +16,12 @@
 # and a developer's checkout is not — the workflow's version drops an
 # untracked file next to your work.
 set -euo pipefail
+# Job control on: the backgrounded `npm start` gets its own process group
+# (pgid == its pid), so the TERM below reaches npm, the `sh -c` it spawns AND
+# the node server under them. Killing only the wrapper leaves the server alive
+# and listening after "shut down cleanly" has printed — the same gap
+# pack-smoke.sh closed for its servers (#225). Measured 2026-09-11 on Linux.
+set -m
 
 root=$(git rev-parse --show-toplevel)
 cd "$root"
@@ -26,7 +32,7 @@ echo "boot-smoke: log at $LOG"
 
 npm start -- --port 0 > "$LOG" 2>&1 &
 SERVER_PID=$!
-trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+trap 'kill -TERM -- "-$SERVER_PID" 2>/dev/null || true' EXIT
 
 URL=""
 for _ in $(seq 1 30); do
@@ -99,7 +105,7 @@ case "$ROOT_CONTENT_TYPE" in
     ;;
 esac
 
-kill -TERM "$SERVER_PID"
+kill -TERM -- "-$SERVER_PID"
 wait "$SERVER_PID" 2>/dev/null || true
 trap - EXIT
 rm -rf "$LOGDIR"
