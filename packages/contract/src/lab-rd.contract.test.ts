@@ -1,3 +1,4 @@
+import { requestLaunch } from '@rhizomorph/web/lab/launch'
 import { type RdRunRequest, requestRd } from '@rhizomorph/web/lab/rd'
 import { missingTokenMessage } from '@rhizomorph/web/recordings/capability-guidance'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -32,15 +33,22 @@ import { buildContractHarness, type ContractHarness, stripCapabilityToken, tampe
  *   side-effect free: ruling 1's own doc says the PATH answer comes before
  *   the corpus is even read.
  *
- * **Not covered here, named rather than silently absent: the override
- * record.** `packages/server/src/lab/rd.ts`'s `recordRdOverride` has no HTTP
- * caller anywhere in this tree — `grep -rn recordRdOverride packages/server/src`
- * finds only its own declaration — so there is no route this test, or the web
- * client, could reach to record one. `RdTab` (`packages/web/src/lab/rd/
- * RdTab.tsx`) detects an operator changing the checkpoint pick and SHOWS the
- * override sentence, but cannot record `rd.override` durably. This wave's
- * report carries the gap as a widening: wiring a route is
- * `packages/server/src/api/lab.ts`, out of this fence.
+ * **The override record — corrected, not this route's own.** Earlier drafts
+ * of this file said `recordRdOverride` had no caller and nothing could reach
+ * it; that gap closed in the same wave (conductor-recorded widening,
+ * 2026-09-11 15:45): `POST /api/lab/launch`, not `/api/lab/rd`, now looks a
+ * launch's own `proposalId` up in the fold and records `rd.override` itself
+ * when the checkpoints disagree (`packages/server/src/api/lab.ts`, through
+ * `createEvent` + the route's recorder — never an import of
+ * `server/src/lab/rd.ts`, which stays the namespace law's one door,
+ * `runCli`). The safe half of that behaviour — an unknown `proposalId` is
+ * refused by name, before anything dispatches — is proven for real below,
+ * through `requestLaunch` (`@rhizomorph/web/lab/launch`), the SAME real
+ * server this file already boots. The positive case (checkpoints actually
+ * disagree, an event actually lands) needs a REAL dispatch to reach — which
+ * is `launch.contract.test.ts`'s own stated line a contract test may never
+ * cross — so it is proven at the unit level instead
+ * (`packages/server/src/api/lab.test.ts`'s own describe block for it).
  */
 describe('contract: laboratory R&D (prd-55 ruling 1, moved from #412)', () => {
   const MALFORMED: RdRunRequest = { lane: '', model: 'sonnet', corpus: 'local' }
@@ -91,5 +99,29 @@ describe('contract: laboratory R&D (prd-55 ruling 1, moved from #412)', () => {
 
     await expect(requestRd(MALFORMED, transport)).rejects.toThrow(missingTokenMessage('read and propose'))
     expect(transport).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The override record's safe half (prd-55 ruling 4, wave 6 widening): proven
+ * here, against `/api/lab/launch`, not `/api/lab/rd` — see the file doc above
+ * for why the positive case (checkpoints actually disagree) belongs to a
+ * unit test instead of a contract one.
+ */
+describe('contract: an unknown proposalId is refused by the real launch route, before anything dispatches (prd-55 ruling 4)', () => {
+  let h: ContractHarness
+
+  beforeEach(async () => {
+    h = await buildContractHarness()
+  })
+
+  afterEach(async () => {
+    await h.close()
+  })
+
+  it('names the proposalId it could not find — the fold has recorded no rd.proposal by that id, and this harness seeds none', async () => {
+    await expect(
+      requestLaunch({ lane: 'feature', checkpointId: 'ckpt-1', arms: [{}], proposalId: 'proposal-nobody-recorded' }, h.fetch),
+    ).rejects.toThrow(/"proposalId" names no proposal this repo has recorded: proposal-nobody-recorded/)
   })
 })
