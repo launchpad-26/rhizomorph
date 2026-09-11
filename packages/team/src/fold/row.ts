@@ -16,10 +16,25 @@ import type { EventRow } from '../storage/contract.js'
  * transformation of something already canonical, and the failure would be
  * invisible: the row would still parse.
  *
- * An unfoldable line refuses rather than being skipped. Ruling 3's invariant is
- * *no gaps in `n`*, so silently dropping one position and folding the rest
- * would create exactly the gap the invariant forbids — the caller
- * (`worker.ts`) aborts the whole run instead, leaving the cursor where it was.
+ * ## An unfoldable line LANDS; a malformed one still refuses (ruling 16)
+ *
+ * Ruling 3's invariant is *no gaps in `n`*, so this function may not silently drop a position
+ * and fold the rest. It does not have to: an `unknown` line has an intact envelope, so the row
+ * lands with its `type` recorded, its `line` untouched and its payload whatever the line
+ * carries, and there is no gap to forbid. That is why ruling 16 beat a quarantine table — the
+ * bytes were already in the fold's hand.
+ *
+ * `malformed` is unchanged and still refuses loudly. A corrupt line in a journal the ingest
+ * fsynced is a fault in the journal, not skew between two builds, and `parseEventLenient`'s own
+ * words are *"calling that 'a newer era' would be a lie"*.
+ *
+ * **The derived columns are nulled at source on an unfoldable row.** `laneOf` and `worktreeOf`
+ * would read a payload this build refused to validate, and a marker read downstream in
+ * `projections.ts` cannot see a derivation that already happened — a projection reads a column,
+ * it does not derive a value. EXECUTED in the review of #417: the downstream-guard-only remedy
+ * closed the money leak and left `lane_state` receiving both a lane and a worktree from that
+ * payload. The cost is `events.lane`/`events.worktree` null on that row, which is recoverable
+ * precisely because `line` is preserved verbatim.
  */
 
 export type ToEventRowResult = { ok: true; row: EventRow } | { ok: false; error: string }
@@ -71,9 +86,26 @@ export function toEventRow(
     return { ok: false, error: `n=${n} is not an event line: ${parsed.error}` }
   }
   if (parsed.kind === 'unknown') {
+    const { unknown } = parsed
     return {
-      ok: false,
-      error: `n=${n} carries ${parsed.unknown.type}, which this build cannot fold (${parsed.unknown.reason}): ${parsed.unknown.detail}`,
+      ok: true,
+      row: {
+        projectId,
+        actorInstance,
+        n,
+        eventId: unknown.id,
+        tsMs: unknown.ts,
+        type: unknown.type,
+        source: unknown.source,
+        // Nulled at source, not guarded downstream — see this module's docblock.
+        lane: null,
+        worktree: null,
+        payload: unknown.payload,
+        // The caller's own bytes, not `unknown.line`. They are equal here, and routing them
+        // through a second hop would make that equality something a reader has to re-establish.
+        line,
+        unfoldable: unknown.reason,
+      },
     }
   }
 

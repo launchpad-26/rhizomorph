@@ -100,7 +100,7 @@ describe('a foldable line becomes a row with every column derived from the event
   })
 })
 
-describe('an unfoldable line refuses rather than being skipped', () => {
+describe('a MALFORMED line refuses rather than being skipped', () => {
   it('not JSON at all', () => {
     const result = toEventRow('p', 'a', 7, 'nonsense')
     expect(result.ok).toBe(false)
@@ -113,23 +113,105 @@ describe('an unfoldable line refuses rather than being skipped', () => {
     expect(result.ok ? '' : result.error).toContain('n=8')
   })
 
-  it('an envelope this era cannot fold names the type and the reason', () => {
-    const line = JSON.stringify({ id: 'e', ts: 1, source: 'git', type: 'from.the.future', payload: {} })
-    const result = toEventRow('p', 'a', 9, line)
-    expect(result.ok).toBe(false)
-    expect(result.ok ? '' : result.error).toContain('from.the.future')
-    expect(result.ok ? '' : result.error).toContain('unknown-type')
-  })
-
-  it('a known type with the wrong payload shape is unfoldable too, not silently stored', () => {
-    const line = JSON.stringify({ id: 'e', ts: 1, source: 'otel', type: 'llm.cost', payload: { nope: true } })
-    const result = toEventRow('p', 'a', 10, line)
-    expect(result.ok).toBe(false)
-    expect(result.ok ? '' : result.error).toContain('unknown-shape')
-  })
-
   it('a blank line is a refusal, not a zero-row success', () => {
     expect(toEventRow('p', 'a', 11, '').ok).toBe(false)
     expect(toEventRow('p', 'a', 12, '   ').ok).toBe(false)
+  })
+})
+
+/**
+ * RULING 16 — the unfoldable line lands.
+ *
+ * These two cases were `expect(result.ok).toBe(false)` until this commit. That was the wedge:
+ * `runOnce` returned on the first refusal, so one line a newer sender shipped stopped the whole
+ * team server's fold permanently. The envelope is intact, so there is a row to land and no gap
+ * for ruling 3 to forbid.
+ */
+describe('an UNKNOWN line lands as a row, carrying its verdict (ruling 16)', () => {
+  const UNKNOWN_TYPE = JSON.stringify({
+    id: 'evt-000009',
+    ts: 1_785_900_000_000,
+    source: 'git',
+    type: 'from.the.future',
+    payload: { lane: 'lane-a', worktreePath: '/repo-wt/lane-a', costUsd: 42.5 },
+  })
+  const UNKNOWN_SHAPE = JSON.stringify({
+    id: 'evt-000010',
+    ts: 1_785_900_000_001,
+    source: 'otel',
+    type: 'llm.cost',
+    payload: { nope: true, lane: 'lane-b', worktreePath: '/repo-wt/lane-b', costUsd: 42.5 },
+  })
+
+  it('an envelope this era cannot fold lands with its type, envelope and bytes intact', () => {
+    const result = toEventRow('p', 'a', 9, UNKNOWN_TYPE)
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('expected a row')
+    expect(result.row.type).toBe('from.the.future')
+    expect(result.row.eventId).toBe('evt-000009')
+    expect(result.row.source).toBe('git')
+    expect(result.row.tsMs).toBe(1_785_900_000_000)
+    expect(result.row.unfoldable).toBe('unknown-type')
+    // Verbatim: the bytes the caller handed over, not a re-serialization. Ruling 16's whole
+    // preservation promise rests on this field and never on a derived column.
+    expect(result.row.line).toBe(UNKNOWN_TYPE)
+    expect(result.row.payload).toEqual({
+      lane: 'lane-a',
+      worktreePath: '/repo-wt/lane-a',
+      costUsd: 42.5,
+    })
+  })
+
+  it('a known type with the wrong payload shape lands too, marked unknown-shape', () => {
+    const result = toEventRow('p', 'a', 10, UNKNOWN_SHAPE)
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('expected a row')
+    expect(result.row.type).toBe('llm.cost')
+    expect(result.row.unfoldable).toBe('unknown-shape')
+    expect(result.row.line).toBe(UNKNOWN_SHAPE)
+  })
+
+  // THE REVIEW-OF-#417 CASE. Both fixtures above carry a real `lane` AND a real `worktreePath`
+  // on purpose: without them this assertion passes vacuously, which is exactly how the first
+  // draft of ruling 16's remedy shipped a lane and a worktree into `lane_state` from a payload
+  // the build refused to validate. `laneOf`/`worktreeOf` would happily read both.
+  it.each([
+    ['unknown-type', UNKNOWN_TYPE],
+    ['unknown-shape', UNKNOWN_SHAPE],
+  ] as const)('%s: lane and worktree are nulled AT SOURCE, though the payload carries both', (_reason, line) => {
+    const result = toEventRow('p', 'a', 13, line)
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('expected a row')
+    expect(result.row.lane).toBeNull()
+    expect(result.row.worktree).toBeNull()
+    // The control: those fields really are readable, so the nulls above are a decision and not
+    // an absent-payload accident.
+    expect(laneOf(result.row.payload)).not.toBeNull()
+    expect(worktreeOf(result.row.payload)).not.toBeNull()
+  })
+
+  it('a line with no payload at all lands with payload null, never undefined', () => {
+    // `events.payload` is `jsonb NOT NULL` and the adapter binds `JSON.stringify(row.payload)`,
+    // which is the JS value `undefined` for `undefined` — a NULL bind and a constraint violation.
+    const line = JSON.stringify({ id: 'e', ts: 1_785_900_000_002, source: 'git', type: 'from.the.future' })
+    const result = toEventRow('p', 'a', 14, line)
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('expected a row')
+    expect(result.row.payload).toBeNull()
+  })
+
+  it('a foldable row is untouched — no marker, and the lane still derived', () => {
+    const line = JSON.stringify({
+      id: 'evt-000015',
+      ts: 1_785_900_000_003,
+      source: 'otel',
+      type: 'llm.cost',
+      payload: { lane: 'lane-c', role: 'worker', model: 'm', costUsd: 1, authoritative: true },
+    })
+    const result = toEventRow('p', 'a', 15, line)
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('expected a row')
+    expect(result.row.unfoldable).toBeUndefined()
+    expect(result.row.lane).toBe('lane-c')
   })
 })
