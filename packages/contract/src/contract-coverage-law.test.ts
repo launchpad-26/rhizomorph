@@ -63,6 +63,7 @@ const EXPECTED: ReadonlyArray<{ route: string; contractTest: string }> = [
   { route: '/api/concierge/launch', contractTest: 'instrument.contract.test.ts' },
   { route: '/api/concierge/clone', contractTest: 'clone.contract.test.ts' },
   { route: '/api/retarget', contractTest: 'retarget.contract.test.ts' },
+  { route: '/api/lab/comparisons', contractTest: 'lab-comparison-save.contract.test.ts' },
 ]
 
 /**
@@ -154,6 +155,18 @@ const EXPECTED_READS: ReadonlyArray<{
     contractTest: 'lab-transcript.contract.test.ts',
     refusalShape: 'swallows',
   },
+  {
+    route: '/api/lab/comparisons',
+    module: 'recordings/comparisons.ts',
+    contractTest: 'lab-comparisons.contract.test.ts',
+    refusalShape: 'throws',
+  },
+  {
+    route: '/api/lab/comparisons/:id',
+    module: 'recordings/comparisons.ts',
+    contractTest: 'lab-comparison.contract.test.ts',
+    refusalShape: 'throws',
+  },
   // prd-55 ruling 6 (#402): the frame's two closed gaps, both read through
   // `lab/frame.ts` and both proven, live/empty/refused, in the one file below
   // — one contract test file may cover more than one route's row, and the
@@ -183,16 +196,12 @@ const EXPECTED_READS: ReadonlyArray<{
  * dedicated non-contract test (`stream.test.ts`), not by this law.
  *
  * `/api/lab/comparisons` and `/api/lab/comparisons/:id` (prd-14 ruling 5,
- * #213) have no web caller until #214 (prd-14 w2) lands the comparison
- * surface's save-and-reopen; #214 removes both from this set and adds their
- * `EXPECTED_READS` rows and contract tests. Until then no fetch-shaped client
- * exists for this harness to drive.
+ * #213) had no web caller until #214 (prd-14 w3) landed the comparison
+ * surface's save-and-reopen — `recordings/comparisons.ts` is that caller now,
+ * with the two `EXPECTED_READS` rows and contract tests above, so both
+ * routes have left this exclusion set.
  */
-const DELIBERATELY_EXCLUDED_GATED_READS: ReadonlySet<string> = new Set([
-  '/api/lab/comparisons',
-  '/api/lab/comparisons/:id',
-  '/api/stream',
-])
+const DELIBERATELY_EXCLUDED_GATED_READS: ReadonlySet<string> = new Set(['/api/stream'])
 
 /**
  * THE PARSER DECISION (#61, prd-29 w3), decided here rather than left open:
@@ -336,7 +345,7 @@ describe('every gated-read route has a contract test (prd-29 w3, #61) — the re
     expect(allGatedReads).toHaveLength(19)
 
     const excludedByThisLaw = allGatedReads.filter((route) => !declaredGatedReadRoutes().includes(route))
-    expect(excludedByThisLaw).toEqual(['/api/lab/comparisons', '/api/lab/comparisons/:id', '/api/stream'])
+    expect(excludedByThisLaw).toEqual(['/api/stream'])
   })
 
   it('the server route table still declares exactly the 16 gated-read routes this law expects — the two enumerations cannot drift', () => {

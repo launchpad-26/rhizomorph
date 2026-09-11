@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { AnyCollector, CollectorContext, EventOf, Exec, ExecResult, RhizomorphEvent } from '@rhizomorph/core'
@@ -31,6 +31,40 @@ const { getManifestReadOverride, setManifestReadOverride } = vi.hoisted(() => {
     setManifestReadOverride: (fn: (() => Promise<unknown>) | null) => {
       override = fn
     },
+  }
+})
+
+/**
+ * Arms a close fault on the DERIVATION's result rather than on the real
+ * filesystem (#391). The fs route was tried and rejected: the beacon
+ * collector opens and closes the very same `gate.jsonl` one step before the
+ * derivation does, so a path-armed fault fires on the collector's close
+ * instead and reports as a collector error — testing the wrong thing and
+ * breaking the tick. Injecting here hits exactly the signal the seam's latch
+ * consumes, and `deriveGateVerdict`'s own behaviour is covered in its own
+ * file. Inert unless armed, so every other test in this file sees the real
+ * implementation.
+ */
+const derivationCloseFault = vi.hoisted(() => ({ armed: false }))
+
+vi.mock('../log/gate-verdict-derivation.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../log/gate-verdict-derivation.js')>()
+  return {
+    ...actual,
+    deriveGateVerdict: (async (...args: Parameters<typeof actual.deriveGateVerdict>) => {
+      const result = await actual.deriveGateVerdict(...args)
+      if (!derivationCloseFault.armed || result.outcome === 'not-a-gate-verdict-beacon') return result
+      // **Only where the real module COULD report one.** The first version of
+      // this injector armed a close fault on every outcome bar one, including
+      // the nine refusals that never open the file — and that over-arming is
+      // exactly why a green suite missed both of #391's review findings: under
+      // it, an unopened refusal was indistinguishable from a failed close, so
+      // the class the latch turns on was unreachable. A mock may be simpler
+      // than the thing it stands for; it may not be simpler in the dimension
+      // under test.
+      if (result.descriptor.state === 'unopened') return result
+      return { ...result, descriptor: { state: 'close-failed' as const, message: 'EIO: i/o error, close' } }
+    }) as typeof actual.deriveGateVerdict,
   }
 })
 
@@ -2508,6 +2542,12 @@ describe('the poll loop derives gate.verdict at record time (prd17 ruling 6, #28
 
   afterEach(async () => {
     await rm(root, { recursive: true, force: true })
+    // In `afterEach`, never at a test's tail (review of #391, both seats): a
+    // failing assertion aborts before an inline reset and leaves the fault
+    // armed for every later test in this file — which turns one red test into
+    // a confusing cascade and, worse, makes mutation evidence gathered here
+    // untrustworthy. Mutation evidence is what this issue's proof rests on.
+    derivationCloseFault.armed = false
   })
 
   /** The exact shape `emit_gate_verdict` in `scripts/gate.sh` writes. */
@@ -2559,6 +2599,198 @@ describe('the poll loop derives gate.verdict at record time (prd17 ruling 6, #28
       reason: 'suite-red',
       digest: outputDigest,
     })
+  })
+
+  it('a close fault on the sidecar is reported ONCE per file, and re-arms after a clean close (#391)', async () => {
+    // The whole point of the latch. A failing mount produces this fault for
+    // every gate beacon on every tick, so the bound is not "log less" but
+    // "log on the EDGE" — an unlatched line buries the collector alarms an
+    // operator actually acts on.
+    //
+    // Four ticks, and each one is load-bearing:
+    //   1. armed   -> reports (the fault is not silent, which is the issue)
+    //   2. armed   -> SILENT  (the latch holds; this is the flood bound)
+    //   3. clean   -> silent, and clears the latch
+    //   4. armed   -> reports AGAIN (a recovered mount re-arms the report,
+    //                 so the next real fault is not swallowed forever)
+    root = await mkdtemp(path.join(tmpdir(), 'poll-loop-close-fault-'))
+    dir = beaconDirFor('/repo', root)
+    await mkdir(dir, { recursive: true })
+    const outputDigest = 'c'.repeat(64)
+    const sidecar = path.join(dir, 'gate.jsonl')
+    let at = 1_000
+    const appendLanding = async () => {
+      at += 1
+      await appendFile(sidecar, `${gateLine({ at, lane: 'feature', held: false, reason: 'clean', outputDigest })}\n`)
+    }
+
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { recorder } = createFakeRecorder()
+    const pollLoop = createPollLoop({
+      repoPath: '/repo',
+      dataRoot: root,
+      collectors: [createBeaconCollector({ dataRoot: root })],
+      recorder,
+      exec: nullExec,
+      now: () => 2_000,
+    })
+
+    const closeLines = () =>
+      reported.mock.calls.map((call) => String(call[0])).filter((line) => line.includes('failed to close'))
+
+    derivationCloseFault.armed = true
+    await appendLanding()
+    await pollLoop.tick()
+    expect(closeLines()).toHaveLength(1)
+    // It names the sidecar, so the operator knows which file to look at.
+    expect(closeLines()[0]).toContain('gate.jsonl')
+    // And it carries the OS error, which is the part the operator actually
+    // acts on — EIO is a failing mount, ENOSPC is a full disk, ESTALE is a
+    // stale NFS handle, and they call for different responses. Found by the
+    // fix re-review: deleting the interpolation from the template left all 64
+    // tests green, because every latch test filtered on the phrase and
+    // asserted the filename, and none read the fault text.
+    expect(closeLines()[0]).toContain('EIO')
+
+    await appendLanding()
+    await pollLoop.tick()
+    expect(closeLines()).toHaveLength(1)
+
+    derivationCloseFault.armed = false
+    await appendLanding()
+    await pollLoop.tick()
+    expect(closeLines()).toHaveLength(1)
+
+    derivationCloseFault.armed = true
+    await appendLanding()
+    await pollLoop.tick()
+    expect(closeLines()).toHaveLength(2)
+
+    reported.mockRestore()
+  })
+
+  it('a refusal that never opened the file does NOT clear the latch (#391 review, finding 2)', async () => {
+    // The second of the two findings an independent round returned. The clear
+    // condition used to be "no close fault", which is also true of all NINE
+    // refusals that precede `open()` — so one lane-less gate line un-latched a
+    // fault that was still happening, on a mount that was still failing.
+    // Absence of a close fault is not evidence of a close.
+    root = await mkdtemp(path.join(tmpdir(), 'poll-loop-unopened-'))
+    dir = beaconDirFor('/repo', root)
+    await mkdir(dir, { recursive: true })
+    const outputDigest = 'e'.repeat(64)
+    const sidecar = path.join(dir, 'gate.jsonl')
+    let at = 3_000
+    const appendDerivable = async () => {
+      at += 1
+      await appendFile(sidecar, `${gateLine({ at, lane: 'feature', held: false, reason: 'clean', outputDigest })}\n`)
+    }
+    // A gate line with NO lane: refused before any file is opened.
+    const appendLaneless = async () => {
+      at += 1
+      await appendFile(
+        sidecar,
+        `${JSON.stringify({ v: 1, at, writer: 'gate', kind: 'gate.verdict', held: false, reason: 'clean', outputDigest })}\n`,
+      )
+    }
+
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { recorder } = createFakeRecorder()
+    const pollLoop = createPollLoop({
+      repoPath: '/repo',
+      dataRoot: root,
+      collectors: [createBeaconCollector({ dataRoot: root })],
+      recorder,
+      exec: nullExec,
+      now: () => 2_000,
+    })
+    const closeLines = () =>
+      reported.mock.calls.map((call) => String(call[0])).filter((line) => line.includes('failed to close'))
+
+    derivationCloseFault.armed = true
+    await appendDerivable()
+    await pollLoop.tick()
+    expect(closeLines()).toHaveLength(1)
+
+    // The interleaved unopened refusal — the whole point of the test.
+    await appendLaneless()
+    await pollLoop.tick()
+
+    await appendDerivable()
+    await pollLoop.tick()
+    // Still ONE. Before the fix this was 2, because the lane-less refusal
+    // cleared the latch on its way past.
+    expect(closeLines()).toHaveLength(1)
+
+    reported.mockRestore()
+  })
+
+  it('the latch is keyed PER SIDECAR FILE — a second faulting file reports on its own', async () => {
+    // The review found this claim asserted only in prose: keying the Set on a
+    // literal constant left all 62 tests in this file green, so a second
+    // faulting sidecar would have been swallowed forever with nothing red.
+    root = await mkdtemp(path.join(tmpdir(), 'poll-loop-two-sidecars-'))
+    dir = beaconDirFor('/repo', root)
+    await mkdir(dir, { recursive: true })
+    const outputDigest = 'f'.repeat(64)
+    await writeFile(
+      path.join(dir, 'gate.jsonl'),
+      `${gateLine({ at: 4_000, lane: 'one', held: false, reason: 'clean', outputDigest })}\n`,
+    )
+    await writeFile(
+      path.join(dir, 'gate-other.jsonl'),
+      `${gateLine({ at: 4_001, lane: 'two', held: true, reason: 'suite-red', outputDigest })}\n`,
+    )
+
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { recorder } = createFakeRecorder()
+    const pollLoop = createPollLoop({
+      repoPath: '/repo',
+      dataRoot: root,
+      collectors: [createBeaconCollector({ dataRoot: root })],
+      recorder,
+      exec: nullExec,
+      now: () => 2_000,
+    })
+
+    derivationCloseFault.armed = true
+    await pollLoop.tick()
+    const closeLines = reported.mock.calls.map((call) => String(call[0])).filter((line) => line.includes('failed to close'))
+    // Two files faulted in one tick, so two lines — and each names its own
+    // file, which is what a constant key would collapse to one.
+    expect(closeLines).toHaveLength(2)
+    expect(closeLines.some((line) => line.includes('gate.jsonl'))).toBe(true)
+    expect(closeLines.some((line) => line.includes('gate-other.jsonl'))).toBe(true)
+
+    reported.mockRestore()
+  })
+
+  it('a clean derivation reports nothing — the control that makes the latch test mean something', async () => {
+    // Without this, a seam that logged on EVERY derivation would satisfy the
+    // first assertion of the test above and fail nothing.
+    root = await mkdtemp(path.join(tmpdir(), 'poll-loop-close-clean-'))
+    dir = beaconDirFor('/repo', root)
+    await mkdir(dir, { recursive: true })
+    await writeFile(
+      path.join(dir, 'gate.jsonl'),
+      `${gateLine({ at: 1_000, lane: 'feature', held: false, reason: 'clean', outputDigest: 'd'.repeat(64) })}\n`,
+    )
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { recorder, events } = createFakeRecorder()
+    const pollLoop = createPollLoop({
+      repoPath: '/repo',
+      dataRoot: root,
+      collectors: [createBeaconCollector({ dataRoot: root })],
+      recorder,
+      exec: nullExec,
+      now: () => 2_000,
+    })
+    await pollLoop.tick()
+    // The verdict still lands — proving the tick did the work this test
+    // claims produced no report, rather than having done nothing at all.
+    expect(events.some((event) => event.type === 'gate.verdict')).toBe(true)
+    expect(reported.mock.calls.map((call) => String(call[0])).filter((line) => line.includes('failed to close'))).toEqual([])
+    reported.mockRestore()
   })
 
   it('an ordinary attention beacon derives no gate.verdict — only a gate writer with kind gate.verdict does', async () => {

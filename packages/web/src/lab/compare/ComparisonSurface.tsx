@@ -23,11 +23,37 @@ import type { ArmSummary, Comparison, ComparisonClaim, FailedArm, Run } from './
  *
  * No native `title=` anywhere on this surface (#220, prd-30 w1): what a dot
  * means is written beside it, for every reader, not hidden in a hover.
+ *
+ * `measure` is `null` for exactly one caller (prd-14 ruling 5, #214's
+ * reopened-comparison view): a saved artifact's `Run.value` is a resolved
+ * number with no record of which measure produced it — `compare/types.ts`'s
+ * shape carries no such field — so a reopened comparison cannot know whether
+ * it is looking at cost, duration or commits, or even whether the number is a
+ * unit at all (`verified`'s own `Run.value` is `1`/`0` for pass/fail, never
+ * meant to be spread over).
+ *
+ * NO NUMBER THIS SURFACE CANNOT NAME THE UNIT OF IS EVER PRINTED when
+ * `measure` is `null` — not a spread, not a per-run value, review round 3's
+ * own correction of round 2's own fix: defaulting to `cost` printed a false
+ * LABEL on a real number (round 2); falling through to the numeric branches
+ * with no label printed a false STATISTIC instead — a `verified` comparison's
+ * 1s and 0s summarised as if they were a real spread, formally
+ * indistinguishable from one. Ruling 3 already has the vocabulary for "no
+ * summary the data does not support": below the floor an arm shows its runs
+ * and an explicit reason instead of a number. `measure === null` takes that
+ * same path unconditionally — every run is still shown (law 1), by its
+ * verdict alone, and the arm says in words why no summary follows.
+ *
+ * Ruling 8 did not disturb that; it only moved WHERE the refusal is drawn.
+ * The unknown-basis sentence is a refusal like any other, so it is drawn in
+ * the arm's own lane on the shared scale ({@link ArmLane}) rather than in a
+ * paragraph beside it — and no scale is offered to compare against, because
+ * this surface cannot name the unit that scale would be in.
  */
 export interface ComparisonSurfaceProps {
   comparison: Comparison
-  /** The measure the runs were read for. When `onMeasureChange` is given too, the switch renders. */
-  measure?: Measure
+  /** The measure the runs were read for, or `null` when the artifact does not record one (see above). When `onMeasureChange` is given too, the switch renders — never offered when `measure` is `null`. */
+  measure?: Measure | null
   onMeasureChange?: (measure: Measure) => void
   /** Arms the launch asked for that never dispatched (prd53 ruling 7). */
   failedArms?: readonly FailedArm[]
@@ -40,12 +66,17 @@ export function ComparisonSurface({ comparison, measure = 'cost', onMeasureChang
   // reader may actually compare — and an arm that refuses still occupies its
   // own lane ON it (`ArmLane`), rather than being lifted off the scale into a
   // sentence beside it.
-  const scaleMax = Math.max(0, ...comparison.arms.flatMap((arm) => arm.values))
+  // `null` measure books no scale at all: `arm.values` under an unrecorded
+  // basis are numbers with no unit, and the widest of them is not a maximum
+  // of anything a reader could compare against.
+  const scaleMax = measure === null ? 0 : Math.max(0, ...comparison.arms.flatMap((arm) => arm.values))
   return (
-    <section data-testid="comparison-surface" data-measure={measure} className="flex flex-col gap-3 text-read-body text-(--ink-body)">
-      {onMeasureChange === undefined ? null : <MeasureSwitch measure={measure} onChange={onMeasureChange} />}
+    <section data-testid="comparison-surface" data-measure={measure ?? undefined} className="flex flex-col gap-3 text-read-body text-(--ink-body)">
+      {onMeasureChange === undefined || measure === null ? null : <MeasureSwitch measure={measure} onChange={onMeasureChange} />}
       <p data-testid="comparison-basis" className="text-(--ink-dim)">
-        {MEASURE_LABEL[measure]} — {MEASURE_BASIS[measure]}
+        {measure === null
+          ? 'measure not recorded — this artifact does not carry which measure produced these values, so no summary is shown for any arm; each run below still shows its own verdict'
+          : `${MEASURE_LABEL[measure]} — ${MEASURE_BASIS[measure]}`}
       </p>
       <ClaimBanner claim={comparison.claim} failedArms={failedArms} />
       <ol className="flex flex-col gap-3">
@@ -63,7 +94,7 @@ export function ComparisonSurface({ comparison, measure = 'cost', onMeasureChang
           </li>
         ))}
       </ol>
-      {scaleMax > 0 && measure !== 'verified' ? (
+      {scaleMax > 0 && measure !== null && measure !== 'verified' ? (
         <p data-testid="comparison-scale-ticks" className="figures flex flex-wrap justify-between gap-2 text-(--ink-dim)">
           <span>0</span>
           <span>
@@ -166,7 +197,7 @@ function claimDetail(claim: ComparisonClaim): string | null {
   }
 }
 
-function ArmPanel({ arm, measure, scaleMax }: { arm: ArmSummary; measure: Measure; scaleMax: number }) {
+function ArmPanel({ arm, measure, scaleMax }: { arm: ArmSummary; measure: Measure | null; scaleMax: number }) {
   const [expanded, setExpanded] = useState(false)
 
   function onKeyDown(event: KeyboardEvent<HTMLElement>) {
@@ -219,9 +250,10 @@ function ArmPanel({ arm, measure, scaleMax }: { arm: ArmSummary; measure: Measur
  * ONE LANE ON THE SHARED SCALE, PER ARM (prd-55 ruling 8; the Design calls:
  * *the refusal is drawn on the shared scale, not beside it*). Every arm gets
  * this lane, whatever it has to say in it: an arm with a spread draws its
- * range and its median against `scaleMax`; an arm BELOW THE FLOOR, or one
- * judged with nothing booked under this measure, draws its refusal sentence in
- * the same place the range would have been.
+ * range and its median against `scaleMax`; an arm BELOW THE FLOOR, one judged
+ * with nothing booked under this measure, or one whose artifact never recorded
+ * WHICH measure it was saved under (`measure === null`, prd-14 ruling 5),
+ * draws its refusal sentence in the same place the range would have been.
  *
  * That placement is the whole point. A refusal lifted out of the scale and set
  * beside it reads as an arm that is not in the comparison; a refusal drawn on
@@ -229,15 +261,20 @@ function ArmPanel({ arm, measure, scaleMax }: { arm: ArmSummary; measure: Measur
  * nothing summarisable to put there yet. Metrics has drawn its refusals on its
  * own track since prd53 S4; this brings Compare into agreement with it.
  */
-function ArmLane({ arm, measure, scaleMax }: { arm: ArmSummary; measure: Measure; scaleMax: number }) {
+function ArmLane({ arm, measure, scaleMax }: { arm: ArmSummary; measure: Measure | null; scaleMax: number }) {
   // One floor, whatever the measure: below it every measure refuses the same
   // way (ruling 2, amended).
   const refusal =
     arm.insufficientReason !== null
       ? { testId: 'arm-insufficient', text: arm.insufficientReason }
-      : measure !== 'verified' && arm.spread === null
-        ? { testId: 'arm-unbooked', text: arm.unbookedNote ?? '' }
-        : null
+      : measure === null
+        ? {
+            testId: 'arm-basis-unknown',
+            text: `${arm.completedCount} completed — no summary: the measure this was saved under is not recorded, so a spread or a count here would claim a unit this artifact does not carry`,
+          }
+        : measure !== 'verified' && arm.spread === null
+          ? { testId: 'arm-unbooked', text: arm.unbookedNote ?? '' }
+          : null
   const spread = refusal === null && measure !== 'verified' ? arm.spread : null
   const state = refusal !== null ? 'refused' : spread !== null ? 'spread' : 'counts'
   const bar =
@@ -299,11 +336,16 @@ interface RunWordParts {
   detail: string
 }
 
-function runWordParts(run: Run, measure: Measure): RunWordParts {
+function runWordParts(run: Run, measure: Measure | null): RunWordParts {
   if (run.status === 'pending') return { verdict: null, value: run.note ?? 'pending', detail: '' }
   const verdict = run.verdict === 'pass' ? 'passed' : 'failed'
   const detail = run.detail === undefined ? '' : ` — ${run.detail}`
-  if (measure === 'verified') return { verdict, value: null, detail }
+  // `null` takes the SAME early return as `'verified'` — verdict only, never
+  // `run.value`. A `verified`-saved run's `value` is `1`/`0`, and printing it
+  // beside any OTHER unknown-basis run would be exactly the false statistic
+  // {@link ArmLane}'s own `arm-basis-unknown` refusal declines to print in
+  // aggregate, just at the per-run point instead (review round 3, #214).
+  if (measure === 'verified' || measure === null) return { verdict, value: null, detail }
   if (run.value === null) return { verdict, value: run.note ?? 'no value booked under this measure', detail }
   return { verdict, value: formatValue(run.value), detail }
 }
@@ -332,7 +374,7 @@ interface RunGroup {
   ink: string
 }
 
-export function collapseRuns(runs: readonly Run[], measure: Measure): RunGroup[] {
+export function collapseRuns(runs: readonly Run[], measure: Measure | null): RunGroup[] {
   const groups = new Map<string, { runs: Run[]; parts: RunWordParts }>()
   for (const run of runs) {
     const parts = runWordParts(run, measure)
@@ -362,7 +404,7 @@ function collapsedWords(count: number, parts: RunWordParts): string {
  * cannot hover, and one line per distinct note rather than one per run
  * (ruling 8).
  */
-function RunPoints({ runs, measure }: { runs: Run[]; measure: Measure }) {
+function RunPoints({ runs, measure }: { runs: Run[]; measure: Measure | null }) {
   return (
     <ol data-testid="run-dots" className="flex flex-wrap gap-2">
       {collapseRuns(runs, measure).map((group) => {
@@ -391,7 +433,7 @@ function runInk(run: Run): string {
 }
 
 /** A judged run says its verdict first, then its value under this measure (or why it has none); the gate's own words follow a fail. */
-function runWords(run: Run, measure: Measure): string {
+function runWords(run: Run, measure: Measure | null): string {
   const parts = runWordParts(run, measure)
   const said = [parts.verdict ?? '', parts.value ?? ''].filter((piece) => piece.length > 0).join(' · ')
   return `${said}${parts.detail}`
