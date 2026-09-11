@@ -14,7 +14,7 @@ import {
   declaredAttentionChecks,
   type DoctorCheck,
 } from '../cli/doctor.js'
-import type { ServerContext } from '../server/context.js'
+import { dataRootFor, type ServerContext } from '../server/context.js'
 import { exec as realExec, withTimeout } from '../server/exec.js'
 import { requireCapabilityToken } from './security.js'
 
@@ -319,6 +319,7 @@ export function registerDoctorRoute(app: FastifyInstance, ctx: ServerContext): v
   let proberRepoPath = ctx.repoPath
   let probe = createRouteDoctorProbe(proberRepoPath, {
     replay: ctx.readOnly === true,
+    dataRoot: dataRootFor(ctx),
     foldSoFar: () => ctx.recorder.foldSoFar(),
   })
 
@@ -327,6 +328,7 @@ export function registerDoctorRoute(app: FastifyInstance, ctx: ServerContext): v
       proberRepoPath = ctx.repoPath
       probe = createRouteDoctorProbe(proberRepoPath, {
         replay: ctx.readOnly === true,
+        dataRoot: dataRootFor(ctx),
         foldSoFar: () => ctx.recorder.foldSoFar(),
       })
     }
