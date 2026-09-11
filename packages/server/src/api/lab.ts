@@ -6,8 +6,18 @@ import path from 'node:path'
 import type { Exec, ForkDispatchRecord, ForkOutcomeRecord, RhizomorphEvent, SessionState } from '@rhizomorph/core'
 import { buildFleet, createEvent, createIdFactory, reduceAll } from '@rhizomorph/core'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { ComparisonArtifactError, type ComparisonInput, parseComparisonInput } from '../comparisons/artifact.js'
-import { isComparisonId, listComparisons, readComparison, saveComparison } from '../comparisons/store.js'
+import {
+  ComparisonArtifactError,
+  type ComparisonInput,
+  type ComparisonInputV2,
+  type ComparisonProvenanceV2,
+  type MeasureV2,
+  parseComparisonInput,
+  parseComparisonInputV2,
+  parseMeasureV2,
+  parseProvenanceV2,
+} from '../comparisons/artifact.js'
+import { isComparisonId, listComparisons, readComparison, saveComparison, saveComparisonV2 } from '../comparisons/store.js'
 import { listSessions, readSessionEvents, sessionFilePath } from '../log/session-log.js'
 import type { ServerContext } from '../server/context.js'
 import type { SessionRecorder } from '../server/recorder.js'
@@ -1610,6 +1620,14 @@ export function registerLabRoutes(app: FastifyInstance, ctx: ServerContext): voi
   // the namespace law above is not engaged. Gated exactly as `/api/lab/launch`
   // is: the sibling miss AGENTS.md records is a save gated differently from
   // the write beside it.
+  //
+  // prd-14 ruling 6: the body is still exactly `{ input }` (`save.ts`'s own
+  // payload never widened at this boundary) — an `input` carrying its own
+  // `measure` is a v2-capable `ComparisonInput` (`compare/types.ts`), and an
+  // older client whose `input` has no `measure` at all still lands a v1 file,
+  // unchanged behaviour. `parseComparisonInputV2` reads only `input.arms`, so
+  // the sibling `measure`/`provenance` keys riding along on the same object
+  // are inert to it — extracted here, not inside that parser.
   app.post('/api/lab/comparisons', { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') }, async (request: FastifyRequest, reply) => {
     if (ctx.readOnly === true) {
       return reply.code(409).send({
@@ -1620,14 +1638,32 @@ export function registerLabRoutes(app: FastifyInstance, ctx: ServerContext): voi
     if (typeof body !== 'object' || body === null || !('input' in body)) {
       return reply.code(400).send({ error: 'body must be a JSON object carrying an "input" comparison' })
     }
+    const savedAt = new Date((ctx.now ?? Date.now)()).toISOString()
+    const rawInput = (body as { input: unknown }).input
+
+    if (typeof rawInput === 'object' && rawInput !== null && 'measure' in rawInput) {
+      const rawRecord = rawInput as { measure: unknown; provenance?: unknown }
+      let input: ComparisonInputV2
+      let measure: MeasureV2 | undefined
+      let provenance: ComparisonProvenanceV2 | null | undefined
+      try {
+        input = parseComparisonInputV2(rawInput)
+        measure = rawRecord.measure === undefined ? undefined : parseMeasureV2(rawRecord.measure)
+        provenance = !('provenance' in rawRecord) || rawRecord.provenance === undefined ? undefined : parseProvenanceV2(rawRecord.provenance)
+      } catch (err) {
+        if (err instanceof ComparisonArtifactError) return reply.code(400).send({ error: err.message })
+        throw err
+      }
+      return saveComparisonV2(ctx.sessionDir, input, measure, provenance, savedAt)
+    }
+
     let input: ComparisonInput
     try {
-      input = parseComparisonInput((body as { input: unknown }).input)
+      input = parseComparisonInput(rawInput)
     } catch (err) {
       if (err instanceof ComparisonArtifactError) return reply.code(400).send({ error: err.message })
       throw err
     }
-    const savedAt = new Date((ctx.now ?? Date.now)()).toISOString()
     return saveComparison(ctx.sessionDir, input, savedAt)
   })
 

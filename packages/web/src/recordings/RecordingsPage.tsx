@@ -5,7 +5,7 @@ import { useReplay } from '../app/ModeContext.js'
 import { Nav } from '../app/Nav.js'
 import { navigate } from '../app/router.js'
 import { TwoRepresentations } from '../fleet/TwoRepresentations.js'
-import { type Comparison, type ComparisonArtifact, ComparisonSurface, compareArms } from '../lab/compare/index.js'
+import { type Comparison, type ComparisonArtifact, ComparisonSurface, compareArms, type Measure, type Run, runForMeasure } from '../lab/compare/index.js'
 import type { FetchLike } from '../replay/api.js'
 import { fetchRecordings, type RecordingListing } from './api.js'
 import { fetchComparison, fetchComparisons, type ComparisonRowListing } from './comparisons.js'
@@ -108,13 +108,76 @@ type ComparisonsState =
  * own parser refused it (an older format version, prd-14 ruling 5's third
  * Definition-of-done bullet) — its `reason` is the parser's own sentence,
  * put on screen by name, never an empty state and never a console error.
+ *
+ * `measure` is the measure CURRENTLY shown for a `ready` comparison — `null`
+ * for a v1 artifact (it never recorded one) or a v2 artifact whose `measure`
+ * was dropped (prd14 ruling 6's second certified mutation), and one of the
+ * four real measures for an ordinary v2 artifact. It lives in this state
+ * (not derived from `artifact` alone) because switching it is exactly what
+ * ruling 6 restores: `changeOpenMeasure` re-derives `comparison` through
+ * `runForMeasure` without re-fetching anything.
  */
 type OpenComparisonState =
   | { status: 'closed' }
   | { status: 'loading'; id: string }
-  | { status: 'ready'; id: string; artifact: ComparisonArtifact; comparison: Comparison }
+  | { status: 'ready'; id: string; artifact: ComparisonArtifact; comparison: Comparison; measure: Measure | null }
   | { status: 'refused'; id: string; reason: string }
   | { status: 'error'; id: string; message: string }
+
+/**
+ * A v2 artifact's stored run, reconstructed as the shape `runForMeasure`
+ * needs — the outcome facts alone. A pending run carries no outcome at all
+ * (the same "unmeasured" branch `runForMeasure` takes for a live run nobody
+ * has judged yet), which is also what makes a stored `note` on a pending run
+ * unnecessary to thread through here: `runForMeasure` always answers a
+ * pending run with its own generic note, live or reopened alike.
+ */
+function toMeasurableRun(run: { id: string; status: 'complete' | 'pending'; verdict?: 'pass' | 'fail'; detail?: string; cost?: number | null; duration?: number | null; commits?: number | null }): Parameters<typeof runForMeasure>[0] {
+  if (run.status === 'pending' || run.verdict === undefined) return { eventId: run.id }
+  return {
+    eventId: run.id,
+    outcome: { verified: run.verdict, verifiedDetail: run.detail ?? null, costUsd: run.cost ?? null, durationMs: run.duration ?? null, commits: run.commits ?? null },
+  }
+}
+
+/**
+ * A saved comparison, read for one measure — v1 through `compareArms` exactly
+ * as before (its `Run.value` is already resolved), v2 through `runForMeasure`
+ * (prd14 ruling 6): the SAME function the live surface uses, not a second
+ * path that merely agrees with it. `measure === null` — a v1 artifact, or a
+ * v2 one with its measure dropped — takes the same "verdict only, no summary"
+ * shape either way: a `value: null` run under every arm, the identical
+ * treatment `ComparisonSurface`'s own `measure === null` path already gives a
+ * v1 file.
+ */
+function deriveOpenComparison(artifact: ComparisonArtifact, measure: Measure | null): Comparison {
+  if (artifact.version === 1) return compareArms(artifact.input)
+  if (measure === null) {
+    return compareArms({
+      arms: artifact.input.arms.map((arm) => ({
+        id: arm.id,
+        model: arm.model,
+        brief: arm.brief,
+        runs: arm.runs.map(
+          (run): Run =>
+            run.status === 'pending'
+              ? run.note === undefined
+                ? { id: run.id, status: 'pending' }
+                : { id: run.id, status: 'pending', note: run.note }
+              : { id: run.id, status: 'complete', verdict: run.verdict, value: null, ...(run.detail === undefined ? {} : { detail: run.detail }) },
+        ),
+      })),
+    })
+  }
+  return compareArms({
+    arms: artifact.input.arms.map((arm) => ({
+      id: arm.id,
+      model: arm.model,
+      brief: arm.brief,
+      runs: arm.runs.map((run) => runForMeasure(toMeasurableRun(run), measure)),
+    })),
+  })
+}
 
 function goBalcony(): void {
   navigate('/')
@@ -184,7 +247,8 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
     fetchComparison(id, fetchImpl)
       .then((result) => {
         if (result.available) {
-          setOpenComparison({ status: 'ready', id, artifact: result.artifact, comparison: compareArms(result.artifact.input) })
+          const measure = result.artifact.version === 1 ? null : (result.artifact.measure ?? null)
+          setOpenComparison({ status: 'ready', id, artifact: result.artifact, comparison: deriveOpenComparison(result.artifact, measure), measure })
         } else {
           setOpenComparison({ status: 'refused', id, reason: result.reason })
         }
@@ -192,6 +256,11 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
       .catch((err) =>
         setOpenComparison({ status: 'error', id, message: err instanceof Error ? err.message : String(err) }),
       )
+  }
+
+  /** The measure switch on a REOPENED v2 comparison (prd14 ruling 6) — re-derives `comparison` from the already-fetched artifact, no re-fetch. A no-op on a v1 artifact or a measure-less v2 one, since `ComparisonSurface` never offers the switch when `measure` is `null`. */
+  function changeOpenMeasure(measure: Measure): void {
+    setOpenComparison((prev) => (prev.status !== 'ready' ? prev : { ...prev, measure, comparison: deriveOpenComparison(prev.artifact, measure) }))
   }
 
   function closeComparison(): void {
@@ -397,7 +466,7 @@ export function RecordingsPage({ fetchImpl, labelFetchImpl, downloadEnv }: Recor
             ]}
           />
         ) : (
-          <OpenComparison state={openComparison} onClose={closeComparison} />
+          <OpenComparison state={openComparison} onClose={closeComparison} onMeasureChange={changeOpenMeasure} />
         )}
       </div>
 
@@ -516,24 +585,24 @@ function ComparisonsSection({ comparisons, onOpen }: { comparisons: ComparisonsS
  * is the way back, the same convention `RecordingsPage`'s own "← balcony"
  * button already uses.
  *
- * No measure switch here: a stored artifact's `Run.value` is already
- * resolved to whichever measure was active at save time, and the shape
- * carries no record of which one that was. `ComparisonSurface` is handed
- * `measure={null}` rather than falling back to a default — a default would
- * RELABEL the same numbers as something they are not (a duration saved and
- * reopened under a silent `cost` default is a real defect this surface must
- * not repeat), and a wrong label is worse than an admitted gap. Recording the
- * measure in the artifact itself would fix this at the source, but the
- * shape is shared with the server's own copy (ADR-0042) and versioned, and
- * `packages/server/src/comparisons/` is out of this issue's fence — flagged
- * as a finding, not a widening this issue takes.
+ * THE MEASURE SWITCH IS BACK (prd14 ruling 6) — for a v2 artifact, `state.measure`
+ * is a real measure and `onMeasureChange` re-derives the comparison through
+ * `runForMeasure` (`deriveOpenComparison`), so switching cost/duration/commits/
+ * verified on a REOPENED comparison behaves exactly as it does live. A v1
+ * artifact, or a v2 one with its measure dropped, has `state.measure === null`
+ * — `ComparisonSurface` never offers the switch in that case (it would RELABEL
+ * numbers this artifact cannot name the unit of), and every run still shows by
+ * its own verdict, no summary, the same "measure not recorded" voice a v1 file
+ * has always had.
  */
 function OpenComparison({
   state,
   onClose,
+  onMeasureChange,
 }: {
   state: Exclude<OpenComparisonState, { status: 'closed' }>
   onClose: () => void
+  onMeasureChange: (measure: Measure) => void
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -569,7 +638,7 @@ function OpenComparison({
       {state.status === 'ready' && (
         <>
           <p className="text-(--ink-dim)">saved {state.artifact.savedAt}</p>
-          <ComparisonSurface comparison={state.comparison} measure={null} />
+          <ComparisonSurface comparison={state.comparison} measure={state.measure} onMeasureChange={state.measure === null ? undefined : onMeasureChange} />
         </>
       )}
     </div>

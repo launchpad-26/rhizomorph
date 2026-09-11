@@ -57,10 +57,10 @@
     "raw": "42"
   },
   {
-    "name": "refuses an unsupported version, by name",
+    "name": "refuses an unsupported version, by name — moved to 3 since ruling 6 made 2 a real, accepted version",
     "outcome": "refuse",
-    "message": "unsupported comparison artifact version: 2",
-    "raw": "{\"version\":2,\"savedAt\":\"x\",\"input\":{\"arms\":[]}}"
+    "message": "unsupported comparison artifact version: 3",
+    "raw": "{\"version\":3,\"savedAt\":\"x\",\"input\":{\"arms\":[]}}"
   },
   {
     "name": "refuses an artifact missing savedAt",
@@ -223,5 +223,164 @@
     "outcome": "refuse",
     "message": "run is missing id",
     "raw": "{\"version\":1,\"savedAt\":\"2026-09-09T00:00:00.000Z\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"status\":\"pending\"}]}]}}"
+  },
+  {
+    "name": "accepts a v2 artifact — measure and provenance at the artifact level, cost/duration/commits per run (prd14 ruling 6)",
+    "outcome": "accept",
+    "raw": "{\"version\":2,\"savedAt\":\"2026-09-11T00:00:00.000Z\",\"measure\":\"cost\",\"provenance\":{\"verifyCommand\":\"npm test\",\"source\":\"compare-cli\",\"measuredAt\":1000},\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"brief-x\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"pass\",\"cost\":4,\"duration\":900,\"commits\":2},{\"id\":\"r2\",\"status\":\"complete\",\"verdict\":\"fail\",\"detail\":\"timed out\",\"cost\":2,\"duration\":800,\"commits\":1},{\"id\":\"r3\",\"status\":\"pending\",\"note\":\"not measured yet — no outcome is invented in its place\"}]}]}}",
+    "expected": {
+      "arms": [
+        {
+          "id": "a",
+          "model": "opus",
+          "brief": "brief-x",
+          "runs": [
+            { "id": "r1", "status": "complete", "verdict": "pass", "cost": 4, "duration": 900, "commits": 2 },
+            { "id": "r2", "status": "complete", "verdict": "fail", "detail": "timed out", "cost": 2, "duration": 800, "commits": 1 },
+            { "id": "r3", "status": "pending", "note": "not measured yet — no outcome is invented in its place" }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "accepts a v2 artifact with its measure dropped — read succeeds; the reopened surface (not this parser) is what falls back to the v1 no-summary path (prd14 ruling 6, the second certified mutation)",
+    "outcome": "accept",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[]}]}}",
+    "expected": { "arms": [{ "id": "a", "model": "opus", "brief": "b", "runs": [] }] }
+  },
+  {
+    "name": "accepts a v2 artifact whose provenance is explicitly null — nothing had been judged yet at save time",
+    "outcome": "accept",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"measure\":\"verified\",\"provenance\":null,\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"pending\"}]}]}}",
+    "expected": { "arms": [{ "id": "a", "model": "opus", "brief": "b", "runs": [{ "id": "r1", "status": "pending" }] }] }
+  },
+  {
+    "name": "accepts a v2 complete run whose cost is a large but finite double (Number.MAX_VALUE) — the finite/non-finite boundary from the accept side, mirroring v1's own",
+    "outcome": "accept",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"pass\",\"cost\":1.7976931348623157e+308,\"duration\":1,\"commits\":1}]}]}}",
+    "expected": {
+      "arms": [{ "id": "a", "model": "opus", "brief": "b", "runs": [{ "id": "r1", "status": "complete", "verdict": "pass", "cost": 1.7976931348623157e+308, "duration": 1, "commits": 1 }] }]
+    }
+  },
+  {
+    "name": "refuses a v2 artifact whose measure is not one of the four known measures",
+    "outcome": "refuse",
+    "message": "comparison artifact has an unrecognised measure: scoring",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"measure\":\"scoring\",\"input\":{\"arms\":[]}}"
+  },
+  {
+    "name": "refuses a v2 artifact whose provenance is neither null nor a JSON object",
+    "outcome": "refuse",
+    "message": "comparison artifact provenance is not null and not a JSON object",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"provenance\":\"npm test\",\"input\":{\"arms\":[]}}"
+  },
+  {
+    "name": "refuses a v2 artifact whose provenance is missing verifyCommand",
+    "outcome": "refuse",
+    "message": "comparison artifact provenance is missing verifyCommand",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"provenance\":{\"source\":\"compare-cli\",\"measuredAt\":1},\"input\":{\"arms\":[]}}"
+  },
+  {
+    "name": "refuses a v2 artifact whose provenance source is neither measure-route nor compare-cli",
+    "outcome": "refuse",
+    "message": "comparison artifact provenance has an unrecognised source: cli",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"provenance\":{\"verifyCommand\":\"npm test\",\"source\":\"cli\",\"measuredAt\":1},\"input\":{\"arms\":[]}}"
+  },
+  {
+    "name": "refuses a v2 artifact whose provenance measuredAt is not a finite number",
+    "outcome": "refuse",
+    "message": "comparison artifact provenance has a measuredAt that is not a finite number",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"provenance\":{\"verifyCommand\":\"npm test\",\"source\":\"compare-cli\",\"measuredAt\":\"soon\"},\"input\":{\"arms\":[]}}"
+  },
+  {
+    "name": "refuses a v2 complete run whose cost is neither a number nor null",
+    "outcome": "refuse",
+    "message": "complete run r1 has a cost field that is neither a number nor null",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"pass\",\"cost\":\"4\",\"duration\":1,\"commits\":1}]}]}}"
+  },
+  {
+    "name": "refuses a v2 complete run whose duration is neither a number nor null",
+    "outcome": "refuse",
+    "message": "complete run r1 has a duration field that is neither a number nor null",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"pass\",\"cost\":1,\"duration\":\"900\",\"commits\":1}]}]}}"
+  },
+  {
+    "name": "refuses a v2 complete run whose commits is neither a number nor null",
+    "outcome": "refuse",
+    "message": "complete run r1 has a commits field that is neither a number nor null",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"pass\",\"cost\":1,\"duration\":1,\"commits\":\"2\"}]}]}}"
+  },
+  {
+    "name": "refuses a v2 complete run whose cost is not finite — the 1e400 hole (#376), same as v1's",
+    "outcome": "refuse",
+    "message": "complete run r1 has a cost field that is not finite",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"pass\",\"cost\":1e400,\"duration\":1,\"commits\":1}]}]}}"
+  },
+  {
+    "name": "refuses a v2 complete run whose duration is not finite — the same 1e400 hole, on duration rather than cost (ADR-0049's falsifier: accepted-value coverage, not only throw-site coverage)",
+    "outcome": "refuse",
+    "message": "complete run r1 has a duration field that is not finite",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"pass\",\"cost\":1,\"duration\":1e400,\"commits\":1}]}]}}"
+  },
+  {
+    "name": "refuses a v2 complete run whose commits is not finite — the same 1e400 hole, on commits rather than cost (ADR-0049's falsifier: accepted-value coverage, not only throw-site coverage)",
+    "outcome": "refuse",
+    "message": "complete run r1 has a commits field that is not finite",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"pass\",\"cost\":1,\"duration\":1,\"commits\":1e400}]}]}}"
+  },
+  {
+    "name": "accepts a v2 complete run whose cost is explicitly null — judged, but nothing booked to this measure yet (ADR-0049's falsifier: every numeric field needs its own null-accepted case, not only cost's finite/non-finite pair)",
+    "outcome": "accept",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"pass\",\"cost\":null,\"duration\":900,\"commits\":2}]}]}}",
+    "expected": { "arms": [{ "id": "a", "model": "opus", "brief": "b", "runs": [{ "id": "r1", "status": "complete", "verdict": "pass", "cost": null, "duration": 900, "commits": 2 }] }] }
+  },
+  {
+    "name": "accepts a v2 complete run whose duration is explicitly null — judged, but nothing booked to this measure yet",
+    "outcome": "accept",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"pass\",\"cost\":4,\"duration\":null,\"commits\":2}]}]}}",
+    "expected": { "arms": [{ "id": "a", "model": "opus", "brief": "b", "runs": [{ "id": "r1", "status": "complete", "verdict": "pass", "cost": 4, "duration": null, "commits": 2 }] }] }
+  },
+  {
+    "name": "accepts a v2 complete run whose commits is explicitly null — judged, but nothing booked to this measure yet",
+    "outcome": "accept",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"pass\",\"cost\":4,\"duration\":900,\"commits\":null}]}]}}",
+    "expected": { "arms": [{ "id": "a", "model": "opus", "brief": "b", "runs": [{ "id": "r1", "status": "complete", "verdict": "pass", "cost": 4, "duration": 900, "commits": null }] }] }
+  },
+  {
+    "name": "accepts a v2 artifact whose measure is duration — every member of MeasureV2 must appear as an ACCEPTED value somewhere, not only cost and verified (ADR-0049's falsifier)",
+    "outcome": "accept",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"measure\":\"duration\",\"input\":{\"arms\":[]}}",
+    "expected": { "arms": [] }
+  },
+  {
+    "name": "accepts a v2 artifact whose measure is commits — every member of MeasureV2 must appear as an ACCEPTED value somewhere, not only cost and verified (ADR-0049's falsifier)",
+    "outcome": "accept",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"measure\":\"commits\",\"input\":{\"arms\":[]}}",
+    "expected": { "arms": [] }
+  },
+  {
+    "name": "accepts a v2 artifact whose provenance source is measure-route — both members of the source union must appear as ACCEPTED values, not only compare-cli (ADR-0049's falsifier)",
+    "outcome": "accept",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"measure\":\"cost\",\"provenance\":{\"verifyCommand\":\"npm test\",\"source\":\"measure-route\",\"measuredAt\":1000},\"input\":{\"arms\":[]}}",
+    "expected": { "arms": [] }
+  },
+  {
+    "name": "refuses a v2 complete run with no cost key at all, verdict otherwise valid — distinct byte shape from a wrong-typed value, same refusal branch (mirrors v1's own #376 finding, never mirrored onto v2's cost/duration/commits until now)",
+    "outcome": "refuse",
+    "message": "complete run r1 has a cost field that is neither a number nor null",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"pass\",\"duration\":1,\"commits\":1}]}]}}"
+  },
+  {
+    "name": "refuses a v2 complete run with no duration key at all, verdict otherwise valid — distinct byte shape from a wrong-typed value, same refusal branch",
+    "outcome": "refuse",
+    "message": "complete run r1 has a duration field that is neither a number nor null",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"pass\",\"cost\":1,\"commits\":1}]}]}}"
+  },
+  {
+    "name": "refuses a v2 complete run with no commits key at all, verdict otherwise valid — distinct byte shape from a wrong-typed value, same refusal branch",
+    "outcome": "refuse",
+    "message": "complete run r1 has a commits field that is neither a number nor null",
+    "raw": "{\"version\":2,\"savedAt\":\"x\",\"input\":{\"arms\":[{\"id\":\"a\",\"model\":\"opus\",\"brief\":\"b\",\"runs\":[{\"id\":\"r1\",\"status\":\"complete\",\"verdict\":\"pass\",\"cost\":1,\"duration\":1}]}]}}"
   }
 ]

@@ -20,7 +20,26 @@
  * {@link FailedArm}, not a run at all.
  */
 export type Run =
-  | { id: string; status: 'complete'; verdict: 'pass' | 'fail'; value: number | null; note?: string; detail?: string }
+  | {
+      id: string
+      status: 'complete'
+      verdict: 'pass' | 'fail'
+      value: number | null
+      note?: string
+      detail?: string
+      /**
+       * The three raw facts underlying EVERY measure, independent of which one
+       * `value` above was resolved for (prd14 ruling 6). Optional: absent on a
+       * `Run` built before ruling 6 (hand-authored fixtures, tests) — present
+       * on every run `fromExperiment.ts` produces, complete or not, so a save
+       * can persist all three and a reopened v2 artifact can re-derive any
+       * measure through the SAME `runForMeasure` the live surface uses, rather
+       * than a second path that merely agrees with it.
+       */
+      cost?: number | null
+      duration?: number | null
+      commits?: number | null
+    }
   | { id: string; status: 'pending'; note?: string }
 
 /** One arm: its own model, its own brief (ruling 2 — configured independently), and every run it has. */
@@ -31,8 +50,25 @@ export interface Arm {
   runs: Run[]
 }
 
+/** The gate's own account of how a run was judged (prd14 ruling 6) — this subtree's own vocabulary, structurally the same shape as `LabOutcomeProvenance` (`lab/types.ts`) but declared independently, the way this file already keeps its distance from that sibling module (see the file doc above). */
+export interface ComparisonProvenance {
+  verifyCommand: string
+  source: 'measure-route' | 'compare-cli'
+  measuredAt: number
+}
+
 export interface ComparisonInput {
   arms: Arm[]
+  /**
+   * The measure `Run.value`/`Run.note` above were read for, and the gate
+   * provenance behind the judgement — carried so a save can persist both
+   * without a second computation path (prd14 ruling 6). Optional: absent on a
+   * hand-built `ComparisonInput` (tests, fixtures) that predates ruling 6, and
+   * `provenance` is `null` rather than invented when nothing has been judged
+   * yet.
+   */
+  measure?: 'cost' | 'duration' | 'commits' | 'verified'
+  provenance?: ComparisonProvenance | null
 }
 
 /** A range, never a single collapsed number (ruling 3, law 2). */

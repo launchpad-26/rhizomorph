@@ -58,11 +58,26 @@ describe('contract: a saved comparison, read by id, is gated (prd-14 ruling 5)',
   })
 
   it("an older format version reaches the screen as the parser's own refusal, by name — never a throw, never an empty state", async () => {
-    await writeArtifact(JSON.stringify({ version: 2 }))
+    await writeArtifact(JSON.stringify({ version: 3 }))
 
     const result = await fetchComparison(ID)
 
-    expect(result).toEqual({ id: ID, available: false, reason: 'unsupported comparison artifact version: 2' })
+    expect(result).toEqual({ id: ID, available: false, reason: 'unsupported comparison artifact version: 3' })
+  })
+
+  it('a v2 artifact reads back with its measure, provenance and per-run facts intact (prd14 ruling 6)', async () => {
+    const artifact = {
+      version: 2,
+      savedAt: '2026-09-11T00:00:00.000Z',
+      measure: 'cost',
+      provenance: { verifyCommand: 'npm test', source: 'compare-cli', measuredAt: 1000 },
+      input: { arms: [{ id: 'a1', model: 'opus', brief: 'x', runs: [{ id: 'r1', status: 'complete', verdict: 'pass', cost: 4, duration: 900, commits: 2 }] }] },
+    }
+    await writeArtifact(`${JSON.stringify(artifact, null, 2)}\n`)
+
+    const result = await fetchComparison(ID)
+
+    expect(result).toEqual({ id: ID, available: true, artifact })
   })
 
   it('a tampered token is refused by the real gate', async () => {

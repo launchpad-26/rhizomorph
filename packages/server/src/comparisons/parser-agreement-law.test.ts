@@ -289,9 +289,13 @@ describe('the server parser agrees with the shared comparison-artifact fixtures'
     it(testCase.name, () => {
       if (testCase.outcome === 'accept') {
         const artifact = parseComparisonArtifact(testCase.raw)
-        const rawParsed = JSON.parse(testCase.raw) as { version: unknown; savedAt: unknown }
+        const rawParsed = JSON.parse(testCase.raw) as { version: unknown; savedAt: unknown; measure?: unknown; provenance?: unknown }
         expect(artifact.version, 'version passthrough').toBe(rawParsed.version)
         expect(artifact.savedAt, 'savedAt passthrough').toBe(rawParsed.savedAt)
+        if (artifact.version === 2) {
+          expect(artifact.measure, 'measure passthrough').toBe(rawParsed.measure)
+          expect(artifact.provenance, 'provenance passthrough').toEqual(rawParsed.provenance)
+        }
         expect(artifact.input).toEqual(testCase.expected)
       } else {
         if (testCase.message === undefined) throw new Error(`fixture "${testCase.name}" is a refuse case with no message`)

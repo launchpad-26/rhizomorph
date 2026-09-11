@@ -5,8 +5,12 @@ import {
   type ComparisonArtifact,
   ComparisonArtifactError,
   type ComparisonInput,
+  type ComparisonInputV2,
+  type ComparisonProvenanceV2,
+  type MeasureV2,
   parseComparisonArtifact,
   serialiseComparison,
+  serialiseComparisonV2,
 } from './artifact.js'
 
 /**
@@ -45,6 +49,26 @@ export async function saveComparison(
   const dir = comparisonsDir(sessionDir)
   await mkdir(dir, { recursive: true })
   await writeFile(path.join(dir, comparisonFileName(id)), serialiseComparison(input, savedAt), 'utf8')
+  return { id, savedAt }
+}
+
+/**
+ * The v2 sibling of `saveComparison` (prd14 ruling 6) — a separate function
+ * rather than a widened signature on the one above, so every existing v1
+ * caller and test is untouched: this format version is purely additive.
+ * Writes exactly one file and nothing else, same as v1's.
+ */
+export async function saveComparisonV2(
+  sessionDir: string,
+  input: ComparisonInputV2,
+  measure: MeasureV2 | undefined,
+  provenance: ComparisonProvenanceV2 | null | undefined,
+  savedAt: string,
+  id: string = randomUUID(),
+): Promise<SavedComparison> {
+  const dir = comparisonsDir(sessionDir)
+  await mkdir(dir, { recursive: true })
+  await writeFile(path.join(dir, comparisonFileName(id)), serialiseComparisonV2(input, measure, provenance, savedAt), 'utf8')
   return { id, savedAt }
 }
 
