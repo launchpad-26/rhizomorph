@@ -36,7 +36,7 @@ export function registerApiRoutes(app: FastifyInstance, ctx: ServerContext): voi
   // A session's first words (prd20 w6) — the read-only companion to the
   // transcript tail, sharing its attribution and its bounded-read shape.
   registerSessionPreviewRoute(app, ctx)
-  // The app's thirteen mutating routes (prd16 rulings 2 and 4; prd1's OTLP inbox;
+  // The app's fourteen mutating routes (prd16 rulings 2 and 4; prd1's OTLP inbox;
   // prd-20's two concierge powers and its repo switch; prd-17's operator
   // door) — see `ROUTE_CLASSES` below for the full classification, and
   // `rotate.ts` / `label.ts` for why each of these two is allowed to exist
@@ -114,7 +114,7 @@ export interface RouteClassification {
  * remembered.
  */
 export const ROUTE_CLASSES: readonly RouteClassification[] = [
-  // Gated mutations (9) — each carries `requireCapabilityToken` as a
+  // Gated mutations (10) — each carries `requireCapabilityToken` as a
   // route-local `preHandler` (`api/security.ts`).
   { method: 'POST', url: '/api/label', routeClass: 'gated-mutation' },
   { method: 'POST', url: '/api/rotate', routeClass: 'gated-mutation' },
@@ -126,6 +126,11 @@ export const ROUTE_CLASSES: readonly RouteClassification[] = [
   // worktree and records the verdict — so it is gated like the launch it
   // measures, and reaches the laboratory the same way (through `runCli`).
   { method: 'POST', url: '/api/lab/measure', routeClass: 'gated-mutation' },
+  // prd-55 ruling 1: the R&D hand spawns the operator's OWN paid CLI and
+  // records what it grouped and proposed — a mutation twice over, in money
+  // and in the record, so it is gated like the launch and reaches the
+  // laboratory the same way, through `runCli` (ADR-0048).
+  { method: 'POST', url: '/api/lab/rd', routeClass: 'gated-mutation' },
   // The concierge's two granted powers (prd-20 ruling 1 / ADR-0019): clone a
   // repo into its own namespace, and launch/relaunch the conductor. Both are
   // "never from a collector, never from a poll" — the gate is the grant.

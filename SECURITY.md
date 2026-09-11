@@ -139,7 +139,7 @@ exactly as the browser does. A value handed to a page over unauthenticated
 loopback HTTP cannot be hidden from something that can already reach that
 page.
 
-This server answers **thirteen** mutating routes in total, not three. Three more
+This server answers **fourteen** mutating routes in total, not three. Three more
 are gated exactly as the three above are: `POST /api/lab/measure` (prd-53 ruling
 3 — measuring runs a gate and records its verdict, so it is gated like the launch
 it measures), and the concierge's granted powers,
