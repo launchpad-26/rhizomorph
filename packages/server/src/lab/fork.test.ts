@@ -15,6 +15,7 @@ import {
   armLaneHandle,
   dispatchFork,
   FORK_EXEC_TIMEOUT_MS,
+  FORK_LAUNCH_TIMEOUT_MS,
   findCheckpoint,
   LAUNCH_CEILING_LANES,
   MODEL_GRAMMAR,
@@ -775,9 +776,19 @@ describe('dispatchFork', () => {
     expect(gitWorktreeAdd?.timeoutMs, 'git worktree add was not spawned').toBe(RESTORE_EXEC_TIMEOUT_MS)
   })
 
-  it('still gives its OWN workmux calls FORK_EXEC_TIMEOUT_MS, not the wider RESTORE_EXEC_TIMEOUT_MS (#123 review, Blocking 1)', async () => {
+  /**
+   * #123's review pinned every `workmux` call to `FORK_EXEC_TIMEOUT_MS` — true
+   * until #408: `workmux add` runs `.workmux.yaml`'s setup (`npm ci`), so a 5s
+   * plumbing ceiling killed it mid-install on a cold cache (two panel launches,
+   * both `exit null` at arm 1). The law now has two halves, proved
+   * independently by reading each subprocess's OWN recorded `timeoutMs` off
+   * the injected exec — never inferred from which constant the source
+   * mentions — so a mutation that swaps which ceiling wraps which call site
+   * fails on a NAMED call, not just "some workmux call was wrong".
+   */
+  it('gives `workmux add` FORK_LAUNCH_TIMEOUT_MS (it runs the setup) and keeps `workmux path` at the narrower FORK_EXEC_TIMEOUT_MS (plumbing) (#408)', async () => {
     await capture()
-    const seen: Array<{ command: string; timeoutMs: number | undefined }> = []
+    const seen: Array<{ command: string; args: readonly string[]; timeoutMs: number | undefined }> = []
 
     await dispatchFork({
       parentLane: 'parent-lane',
@@ -790,17 +801,19 @@ describe('dispatchFork', () => {
       launch: true,
       now: () => 1_000_100,
       exec: async (command, args, options) => {
-        seen.push({ command, timeoutMs: options?.timeoutMs })
+        seen.push({ command, args, timeoutMs: options?.timeoutMs })
         if (command === 'workmux') return { stdout: '', stderr: '', code: 0, failed: false }
         return realExec(command, args, options)
       },
     })
 
-    const workmuxCalls = seen.filter((call) => call.command === 'workmux')
-    expect(workmuxCalls.length).toBeGreaterThan(0)
-    for (const call of workmuxCalls) {
-      expect(call.timeoutMs).toBe(FORK_EXEC_TIMEOUT_MS)
-    }
+    const addCall = seen.find((call) => call.command === 'workmux' && call.args[0] === 'add')
+    const pathCall = seen.find((call) => call.command === 'workmux' && call.args[0] === 'path')
+    expect(addCall?.timeoutMs, 'workmux add was not spawned').toBe(FORK_LAUNCH_TIMEOUT_MS)
+    expect(pathCall?.timeoutMs, 'workmux path was not spawned').toBe(FORK_EXEC_TIMEOUT_MS)
+    // Pinned as distinct numbers, dispatch's above plumbing's — a law that
+    // could pass with the two ceilings equal would not be the law #408 asks for.
+    expect(FORK_LAUNCH_TIMEOUT_MS).toBeGreaterThan(FORK_EXEC_TIMEOUT_MS)
   })
 
   it('refuses a non-positive arm count', async () => {

@@ -140,8 +140,40 @@ export interface DispatchForkResult {
 /** prd12 ruling 4: three arms is the floor at which a comparison may say anything at all. */
 export const DEFAULT_ARMS = 3
 
-/** Per-exec ceiling for every subprocess this module spawns — same value as `ROUTE_EXEC_TIMEOUT_MS` / `RETARGET_EXEC_TIMEOUT_MS`. A hung git call or a hung `workmux add` must not hang `dispatchFork` itself. */
+/**
+ * Per-exec ceiling for the plumbing this module spawns directly — `workmux
+ * path`, same value as `ROUTE_EXEC_TIMEOUT_MS` / `RETARGET_EXEC_TIMEOUT_MS`. A
+ * hung read must not hang `dispatchFork` itself.
+ *
+ * NOT used for `workmux add` — see {@link FORK_LAUNCH_TIMEOUT_MS}, which
+ * bounds that spawn alone, for why the two are different kinds of wait.
+ */
 export const FORK_EXEC_TIMEOUT_MS = 5000
+
+/**
+ * Per-exec ceiling for `workmux add` alone (#408). `workmux add` runs the
+ * worktree's configured setup — `.workmux.yaml`'s `post_create` hook, `npm
+ * ci` in this repo — unless given `-H`, and {@link workmuxAddArgv} does not
+ * pass `-H`. That makes it a dependency install, not a plumbing read: walking
+ * the prd-55 stack live, two launches from the panel both failed `exit null`
+ * at arm 1 because `FORK_EXEC_TIMEOUT_MS` (5s) killed `workmux add` mid `npm
+ * install` on a cold cache, while a hand-run `workmux add` in the same
+ * environment finished in ~7s once the cache was warm — the "sometimes
+ * enough" shape that reads as a flake rather than the ceiling defect it is
+ * (`docs/design-notes/lab-launch-ceilings.md` left this open after PR #123's
+ * review named the shape without a number).
+ *
+ * Same order of magnitude as `RESTORE_EXEC_TIMEOUT_MS` (120s, `restore.ts`),
+ * which already bounds this repo's OTHER `npm install` for the identical
+ * reason — a dependency install is a wider thing to wait on than a plumbing
+ * read, and narrower than the ten-minute family that waits on a model or a
+ * test suite (`RD_HAND_TIMEOUT_MS`, `COMPARE_VERIFY_TIMEOUT_MS`). The
+ * hung-process protection `FORK_EXEC_TIMEOUT_MS` existed for is kept, only
+ * resized to what this call actually runs: `withTimeout` still kills a
+ * wedged `workmux add` and `dispatchFork` still returns and still reports
+ * it — only the wall clock before that happens moved.
+ */
+export const FORK_LAUNCH_TIMEOUT_MS = 120_000
 
 /**
  * THE LAUNCH CEILING, in spending lanes — arms × runs — that one dispatch may
@@ -320,11 +352,17 @@ export async function dispatchFork(options: DispatchForkOptions): Promise<Dispat
   // CLOSER to the raw exec wins. Wrapping here first would fix every
   // restore call to `FORK_EXEC_TIMEOUT_MS` (5s) regardless of what
   // `restoreWorkspace` asks for — exactly the composition bug #109 found.
-  // `forkExec` below carries the 5s ceiling for the calls this module makes
-  // directly (`workmux add`, `workmux path`); the raw exec is what reaches
-  // the restore so ITS OWN wrap is the one that ends up governing.
+  // The raw exec is what reaches the restore so ITS OWN wrap is the one
+  // that ends up governing — the same reason this module wraps TWICE below
+  // rather than once, each wrap as close as it can get to the one call it
+  // is meant to bound:
+  // `forkExec` carries the 5s plumbing ceiling for `workmux path`; `launchExec`
+  // carries the wider `FORK_LAUNCH_TIMEOUT_MS` (120s) for `workmux add` alone,
+  // because that spawn runs the worktree's configured setup (`npm ci`) and a
+  // plumbing ceiling killed it mid-install (#408).
   const rawExec = options.exec ?? realExec
   const forkExec = withTimeout(rawExec, FORK_EXEC_TIMEOUT_MS)
+  const launchExec = withTimeout(rawExec, FORK_LAUNCH_TIMEOUT_MS)
   const now = options.now ?? Date.now
   const dataRoot = options.dataRoot ?? defaultDataRoot()
   const parentWorktreePath = path.resolve(options.parentWorktreePath)
@@ -400,6 +438,7 @@ export async function dispatchFork(options: DispatchForkOptions): Promise<Dispat
           dataRoot,
           restoreExec: rawExec,
           forkExec,
+          launchExec,
           now,
           recorder,
           nextId,
@@ -424,8 +463,10 @@ interface DispatchArmContext {
   dataRoot: string
   /** Handed to `restoreCheckpoint` UNWRAPPED — its own `RESTORE_EXEC_TIMEOUT_MS` wrap is the one that must govern. */
   restoreExec: Exec
-  /** `FORK_EXEC_TIMEOUT_MS`-bounded — for the `workmux` calls this module makes directly. */
+  /** `FORK_EXEC_TIMEOUT_MS`-bounded (5s, plumbing) — for `workmux path` only. NOT for `workmux add`; see {@link launchExec}. */
   forkExec: Exec
+  /** `FORK_LAUNCH_TIMEOUT_MS`-bounded (120s) — for the `workmux add` spawn alone, which runs the worktree's configured setup (#408). */
+  launchExec: Exec
   now: () => number
   recorder: SessionRecorder
   nextId: () => string
@@ -455,7 +496,12 @@ async function dispatchArm(ctx: DispatchArmContext): Promise<DispatchedArm> {
   let launcherSession: SynthesizedSession | null = null
 
   if (options.launch === true) {
-    const result = await ctx.forkExec('workmux', launcherArgv, { cwd: ctx.parentWorktreePath })
+    // `launchExec`, not `forkExec`: this spawn runs the worktree's configured
+    // setup (`npm ci`), not a plumbing read, so it gets the wider ceiling
+    // (#408). `workmuxWorktreePath` below stays on `forkExec` — `workmux path`
+    // is a read, same shape as the git plumbing this ceiling family bounds
+    // elsewhere.
+    const result = await ctx.launchExec('workmux', launcherArgv, { cwd: ctx.parentWorktreePath })
     if (result.failed) {
       const detail = result.stderr.trim() || result.errorMessage || `exit ${result.code}`
       throw new Error(`workmux ${launcherArgv.join(' ')} failed: ${detail}`)
