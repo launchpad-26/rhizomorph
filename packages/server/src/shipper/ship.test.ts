@@ -344,9 +344,14 @@ describe('ruling 15 — a line larger than the read window is a skip, and an unt
     await writeFile(sessionFile('1785900000000'), oversizedLine())
     const { fetch, sent } = acceptingFetch()
 
-    expect(actorOf(await shipOnce({ sessionDir, fetch }), '1785900000000').reason).toBe(
-      'oversized-unterminated',
-    )
+    const failed = actorOf(await shipOnce({ sessionDir, fetch }), '1785900000000')
+    expect(failed.reason).toBe('oversized-unterminated')
+    // The detail is the only thing an operator reads here, so it has to agree
+    // with the rest of this case: once the terminator arrives the line is
+    // SKIPPED, never sent. It said "will terminate and ship" until this
+    // assertion existed to say otherwise.
+    expect(failed.detail).toContain('SKIPPED past')
+    expect(failed.detail).not.toContain('terminate and ship')
 
     const behind = line()
     await appendFile(sessionFile('1785900000000'), `\n${behind}\n`)

@@ -350,8 +350,9 @@ async function shipActor(
         `${session.filePath} has ${remaining} bytes after byte ${before.offset} and no newline in any of ` +
           `them, so position ${before.n + 1} is a line larger than the ${MAX_READ_BYTES}-byte read window ` +
           'with no terminator to advance past. Nothing was sent for this session and its cursor is ' +
-          'untouched; if the line is still being written it will terminate and ship, and if its writer ' +
-          'died mid-line the ledger needs truncating at that byte.',
+          'untouched; if the line is still being written it will terminate and then be SKIPPED past — a ' +
+          'line this long is never sent — and if its writer died mid-line the ledger needs truncating at ' +
+          'that byte.',
       )
     }
 
