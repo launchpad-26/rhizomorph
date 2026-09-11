@@ -358,3 +358,80 @@ parser already knows how to say why — and never migrates silently; a migration
 ever worth writing, goes through its own upcast the way prd17's chokepoint prescribes. One
 bounded slice, moderate priority: storage + library row + reopen + the refusal, and nothing
 that reopens the shipped layout, arm, spread or estimate work.
+
+## Amendment — the saved artifact carries facts, not a DTO (operator, 2026-09-11)
+
+Ruled on #347, which asked what a `version: 2` comparison artifact should carry.
+The issue's own headline claim had gone stale before it was answered — it said
+the pass/fail verdict was discarded, and #376 landed `verdict`, `note` and
+`detail` into both parsers after it was written. What is actually missing from a
+saved artifact is `durationMs`, `commits`, `provenance`, and — new since #214
+and the only one a reader can see — **the measure**, which is why a reopened
+comparison currently says *"measure not recorded"* and shows no summary at all.
+
+### Ruling 6 — v2 stores facts in the surface's own vocabulary, and a v1 file is still read
+
+**Per run, v2 stores `{ verdict, detail?, cost, duration, commits }`** — the
+compare surface's own words, not `LabRunOutcomeDTO`. **Per artifact, it stores
+the measure and the gate's provenance** (`verifyCommand`, `source`,
+`measuredAt`), at the artifact level rather than repeated on every run.
+
+The reopened surface then re-derives its view through `runForMeasure`
+(`lab/compare/fromExperiment.ts`) — **the same function the live surface uses**.
+That is the substance of the ruling and not an implementation note: it restores
+the measure switch on a saved comparison, which v1 cannot offer at all, and it
+keeps a server DTO out of a browser artifact format. A projection in the
+surface's vocabulary is a contract this repo already owns; the DTO is one it
+would have to keep in step across a boundary.
+
+**A v1 file is read, not migrated and not refused.** The parser accepts 1 and 2
+as a discriminated union, rewrites nothing on disk, and refuses 3 and above by
+name — the fixture row pinned to `unsupported comparison artifact version: 2`
+moves to `3`. An upcast is ruled out rather than deferred, and the reason is that
+**v1 → v2 is not total**: the measure is unrecoverable from a v1 artifact, so any
+upcast would have to invent one or leave the field absent, and prd-17's
+chokepoint exists for translations that are complete. The existing
+`measure === null` rendering path is **kept and retargeted at v1 artifacts**,
+where its wording — no summary, every run shown by its verdict — is exactly
+right rather than a stopgap.
+
+**`packages/core` does not become the shape's home**, and ADR-0042 is superseded
+anyway. Its deferral named a trigger — *"the day a third consumer appears or a
+`version: 2` is written"* — and this ruling meets the trigger while re-deciding
+the criterion behind it: the drift risk that trigger stood proxy for is already
+closed by the shared fixture set and the two agreement laws, no third consumer
+has appeared, and ADR-0041 keeps a comparison out of the fold and off the
+record. The superseding record is
+[ADR-0049](../adr/0049-the-comparison-shape-stays-in-two-copies-at-version-2.md),
+and it says so in its own Consequences, with the
+falsifier written down: **the two-copy decision holds only while the agreement
+law's throw-site coverage stays derived from source.** If that coverage is ever
+hand-listed, the argument for two copies has gone and the shape should move.
+
+### Sequencing
+
+**Ruling 6 is one wave — `prd14 w4`, and #347 is its only issue.** The count
+continues the milestone's own sequence (w1 #213, w2 #376, w3 #214) rather than
+restarting per ruling: `prd14` numbers waves, not amendments, and a second
+sequence under one milestone is a collision waiting to happen.
+
+It is deliberately NOT split into a storage half and a surface half. They are a
+stack rather than a bundle — the reopened surface cannot re-derive through
+`runForMeasure` until v2 exists to re-derive from — so splitting them would pay
+the queue toll twice to buy an ordering the single lane already has. The cost of
+that choice is a large PR, and it is accepted: the fence audit at landing is what
+catches a miss in a change this wide, and it audits the whole wave either way.
+
+**Held until #401 landed**, which it now has (PR #420, 2026-09-11, closing #401
+and #402). That issue fenced `packages/web/src/lab/compare/` in its entirety and
+every seam this ruling touches was inside it. Recorded rather than deleted
+because the ordering is the reason this ruling was written before the build
+instead of during it.
+
+When #347 is groomed, its fence is drawn from the real footprint and not from
+the two `artifact.ts` files the issue names — both parsers, both agreement laws,
+the shared fixture, `fromExperiment.ts`, `ComparisonSurface.tsx`, `save.ts`,
+`SaveComparisonControl.tsx`, `api/lab.ts`, `store.ts`,
+`recordings/comparisons.ts`, `RecordingsPage.tsx`, and the three contract tests.
+A version bump lands in both copies by construction; a fence naming one is a
+fence that schedules the drift this PRD has already paid for once.
