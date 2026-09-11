@@ -126,12 +126,73 @@ trigger trips. When it does, ruling 2 is the order of work, and whatever it prod
 into waves then — against measurement that exists, which is the whole point of parking it here
 rather than pre-writing them now.
 
+## Ruling 3 — the tripwire is a count, not a clock: clause 2 is retired and clause 1 is made mechanical
+
+*(Operator ruling, delegated in session — "make the call that makes the most sense to unblock and clear
+prd-49" — audited and drafted by the conductor, Lachlan Kelliher, 2026-09-12. Nothing above is
+renumbered or rewritten; rulings 1 and 2 and their amendments stand as the record of how this was
+reasoned.)*
+
+**Clause 2 — the model floor's composed 30x3 cell crossing a percentage of budget — is RETIRED as a
+trigger.** It has been re-derived twice and has never been observable. Three facts, each checked
+against the tree rather than remembered:
+
+- **It is box-dependent, and the two readings we have differ in two variables at once.** The paper's
+  provisional baseline, 76.6 %, was read on one box under `--maxWorkers`; a quiet serial reading on
+  the conductor's box reads **69.2 %** (30x1 32.3 %, 60x3 144.2 %, 180x1 116.3 %). Box and load both
+  moved, so neither supersedes the other and no honest baseline can be derived from the pair. That is
+  not a measurement problem to be fixed with a third run: `scene/perf.test.ts`'s own discipline
+  already says a wall clock measures the box, which is why every law in that file is a count.
+- **Nothing records the reading, so nobody could see the crossing.** The cells are reported and never
+  asserted, into stdout. `scripts/gate.sh`'s timing pass keeps exactly one piece of state,
+  `.swarm/timing-count`, which is **gitignored** (`.swarm/*`), counts *files* rather than readings,
+  and has never been written in this clone. There is no archive, no ratchet on a number, and no
+  assertion anywhere that a percentage moved. A condition nobody can observe is the memory this PRD
+  exists to replace — clause 2 was, in its own terms, a fact in someone's head with extra steps.
+- **After the CI retirement there is no recurring reading at all.** GitHub Actions is being retired on
+  this repo for cost, and the CI leg moves into the landing gate, so the only wall clock that will run
+  on a schedule is whoever lands a PR — on their box, under their load, writing the number nowhere.
+
+The cells stay exactly where they are. They are **ruling 2's re-measurement recipe**, which is where a
+wall clock belongs: you run them *after* something has fired, on a production build, to answer the
+question — not to notice it.
+
+**Clause 1 — the scale the instrument actually renders — is the whole trigger, and becomes
+mechanical.** It was always the clause that expressed the condition: prd-47's NO-GO is conditional on
+the scale the instrument renders, and that is a fact about the product, not about a box. Its shipped
+half is a pure count and is made a law: **no selectable stream source composes more than
+`TRIPWIRE_THREADS` threads**, and the law names this PRD and [#190][i190] in its failure message. The
+repo already proves the shape — `scene/geometry.test.ts` lays out `fleet20Spec()` and asserts twenty
+threads — so this is the same assertion drawn once around every source the operator can select
+(`live`, `fleet20`, `pathology` today) rather than around one of them.
+
+`TRIPWIRE_THREADS` is **90**, carried over unchanged from clause 1's original wording and from the
+evidence that produced it: the halfway cell, where the summed model floor already read 49.8 % of
+budget and the curve was steepening. The number does not need re-deriving because it was never a
+reading of a box — it is a scale.
+
+The live half of clause 1 — *a real session renders more than 90 threads* — stays a human
+observation, and is honest about being one: the frame loop composes exactly one colony
+(`layoutWorld([{ id: LOCAL_COLONY, … }])`), so threads are one repo's lanes, the operator can see the
+count on the fleet table, and nothing about a stranger's repo is assertable from here. When the law
+fires or the operator sees the count, **ruling 2 is unchanged and binds**: re-measure first, against a
+production build, and only then groom the pooling if the tail rather than the median is binding.
+
+**What this closes.** [#190][i190] carried a superseded table and a superseded threshold in its body
+while two comments beneath it held the corrections; its body is rewritten to state exactly this
+trigger, and the issue stays open — parked, watched by a law rather than by a person — until the law
+fires or someone rules the question irrelevant.
+
 ## Open questions
 
 - **Does a tail exist above ~90 threads on a production build?** Unmeasured. The only trace was
   a dev-server one at 20 lanes. Open, not ruled.
 - **Is 90 threads a scale this product ever reaches?** The trigger is written so nobody has to
-  answer that in advance. Open, not ruled.
+  answer that in advance. Open, not ruled. — NARROWED (ruling 3, 2026-09-12): still open, but a law
+  now answers it the moment a shipped source crosses, so nobody has to be watching.
+- **Was clause 2 ever going to fire?** Answered by ruling 3's audit rather than left open: it could
+  not have. The reading was never recorded anywhere, and the one piece of timing state the gate keeps
+  is gitignored and counts files. Retired.
 
 [i190]: https://github.com/launchpad-26/rhizomorph/issues/190
 [i320]: https://github.com/launchpad-26/rhizomorph/issues/320
