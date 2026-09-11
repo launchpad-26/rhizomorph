@@ -1541,7 +1541,7 @@ stranger's documentation) together, then **#122** (release engineering).
   CI-verified on every push; WSL is the daily development platform; macOS is
   unverified and labelled as such. **That is prd8's matrix as of 2026-08-03,
   not a current claim** — platform truth has moved house since, and the live
-  owner of it is `docs/prds/prd-25-the-third-platform.md` (blessed by the
+  owner of it is `docs/prds/done/prd-25-the-third-platform.md` (blessed by the
   operator 2026-08-24), which holds the rows, the native-Windows question and
   the gate that would witness an answer. Read the README's matrix and prd-25
   for what is claimed today; this bullet records what prd8 was willing to
@@ -2066,7 +2066,7 @@ ADR-0023 (a transcript dialect names itself with `harness`) and ADR-0025 (a
 native OTLP harness gets a mapping profile). The milestone that landed it,
 `docs/prds/done/prd-26-the-second-dialect.md`, is retired to `done/`.
 **Ruling 7 re-homed.** The named Windows-native verification pass — captures,
-not confidence — is now `docs/prds/prd-25-the-third-platform.md`, blessed by
+not confidence — is now `docs/prds/done/prd-25-the-third-platform.md`, blessed by
 the operator 2026-08-24, rather than a wave of prd15's sequencing; the support
 matrix still moves rows only on evidence, but prd-25 is the milestone that owes
 the evidence. prd15 itself is retired to

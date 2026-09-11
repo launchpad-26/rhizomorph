@@ -195,7 +195,7 @@
   prd29 wave 3 the read-side contracts, two small fixes (the recordings flat walk, CI
   evidence continuation after a red Test) are described for the next groom, and
   falsification stays practice.
-- **prd25 — the third platform** (`docs/prds/prd-25-the-third-platform.md`, blessed
+- **prd25 — the third platform** (`docs/prds/done/prd-25-the-third-platform.md`, blessed
   2026-08-24): rulings 1–6 accepted — the `windows-latest` leg starts on pack-smoke with
   promotion decided against measured cost, the pin is an expected-fail list, the node floor
   stays `>=22.22.2`. Groomable from the amendment's re-cut waves; #281's boot fix already
@@ -204,7 +204,7 @@
   the capture-gated conformance seam, Codex evidence, shared roster, and a real Pi observation
   dialect ship. Pi emits five provided signals and one honestly partial signal and verifies
   transcript flow; launching it belongs to prd20, not this PRD.
-- **prd27 — the declared voice** (`docs/prds/prd-27-the-declared-voice.md`, ruled
+- **prd27 — the declared voice** (`docs/prds/done/prd-27-the-declared-voice.md`, ruled
   2026-08-24): two of four declared-voice successes ship. Rulings 1–6 accepted: the beacon
   door is the file drop shared with prd17, configured-but-silent reads `partial` with its
   reason, and the lapse mechanism is ruled with its interval bound to a measured design
@@ -303,7 +303,7 @@
   records what the plan got wrong, including the one call site that honours ruling 2 by *not*
   importing the primitive: re-resolving a kernel-already-resolved path reopens the symlink race
   the check exists to close.
-- **prd43 — current blessed programme** (`docs/prds/prd-43-the-claim-is-a-test.md`): a
+- **prd43 — current blessed programme** (`docs/prds/done/prd-43-the-claim-is-a-test.md`): a
   document's factual claim fails the build when it goes false. Blessed and actively represented
   by the GitHub backlog. **Per-milestone issue counts are deliberately not restated here** — a
   hand-maintained number in this file goes false the same day and reads as live state; the board
@@ -340,12 +340,12 @@
 - **prd49 — potential change** (`docs/prds/prd-49-potential-change.md`, blessed 2026-09-01): not a
   programme of work — a conditional verdict given a place to live, so the condition is watched
   rather than remembered.
-- **prd50 — the fixed ceiling** (`docs/prds/prd-50-the-fixed-ceiling.md`, blessed 2026-09-02): a
+- **prd50 — the fixed ceiling** (`docs/prds/done/prd-50-the-fixed-ceiling.md`, blessed 2026-09-02): a
   refusal an operator may not soften. The lab's CLI lock ceiling is fixed because it bounds a
   wait; prd53 ruling 6 records why the launch ceiling, which bounds load, is not.
 - **prd51 — the split** (`docs/prds/prd-51-the-split.md`, blessed 2026-09-03): the ledger ships
   up, and nothing leaves the team.
-- **prd52 — the world composes** (`docs/prds/prd-52-the-world-composes.md`, blessed 2026-09-07):
+- **prd52 — the world composes** (`docs/prds/done/prd-52-the-world-composes.md`, blessed 2026-09-07):
   the scene holds several colonies, and the size it holds is a law.
 - **prd53 — the lab** (`docs/prds/prd-53-the-lab.md`, blessed 2026-09-07, *Kind: specifying*):
   the experiment is one fork, and the console stops lying about it. The completion paper for a
