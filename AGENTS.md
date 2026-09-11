@@ -442,10 +442,23 @@ Two failures worth knowing, because both actually happened (#649):
 `scripts/gate.sh <handle> <fence-regex> [load-batches]` is **not a pre-push
 check**. Running it *is* the landing. It blocks rather than reports —
 `rebase → base-ancestor assert → fence audit → commits exist → nothing stranded →
-NUL-byte guard → suite → typecheck`, every check exiting non-zero on failure —
+NUL-byte guard → suite → typecheck → lint → build → packaging guard → boot smoke →
+pack smoke`, every check exiting non-zero on failure —
 and then, once green, it merges the branch into local `main`, runs `npm install`
 and `npm run build` against the merged result, and finishes by pushing that
 merged `main` to `origin`.
+
+The last five joined when GitHub Actions was retired for cost (2026-09-11).
+They are what `.github/workflows/ci.yml` ran that nothing local did — `lint` had
+never been in this gate at all — and they sit **before** the merge on purpose,
+so a failure holds the merge and the lane keeps its work. `build-red` is
+therefore a different verdict from the post-merge `build-broken`: same command,
+opposite recovery.
+
+**They witness one platform.** CI ran ubuntu + macOS at two node legs plus a
+native Windows suite; a landing gate runs on whichever machine the operator is
+sitting at. A green gate is now evidence about that platform and silence about
+the other two — say so when reporting it, and do not write "CI passed".
 
 Exactly one step in that sequence is deliberately non-fatal: **the final push**.
 Every earlier check exits non-zero on failure — but *what* a failure holds moves

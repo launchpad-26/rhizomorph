@@ -596,11 +596,11 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    *
    * The other 19 pass structurally on their own merits: 12 same-line forms
    * (:17's `|| exit 2`, written before `fail` is even defined; 9 `|| fail` at
-   * :338 (`GATE_OUTFILE`) :414 :430 :490 :585 :595 :659 :745 :800; 2
-   * `|| { ...; fail ...; }` rescue blocks at :431 :801) and 7 next-line
+   * :338 (`GATE_OUTFILE`) :414 :430 :490 :585 :595 :682 :768 :823; 2
+   * `|| { ...; fail ...; }` rescue blocks at :431 :824) and 7 next-line
    * `_RC=$?` captures (:156's `VERDICT_LINE_RC` and :244's `BEACON_DIR_RC` —
    * both new with #274 — plus :447's `ANCESTOR_RC`, :527's `N_RC`, :531's
-   * `STATUS_RC`, :559's `DIRTY_RC`, :660's `CAT_RC`). Re-derived here THREE
+   * `STATUS_RC`, :559's `DIRTY_RC`, :683's `CAT_RC`). Re-derived here THREE
    * times now: prd17 w7 (#293) inserted the `$3` (LOAD) validation above
    * these producers (+48 lines), prd17 w7 (#292) re-worded several of the
    * stale citations these producers sit beside (+1 line net), and a review
@@ -608,6 +608,21 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    * validation (+21 more) — each closed in the SAME edit as the change that
    * moved them, the exact recurrence this paragraph's own history warns
    * about, rather than left for the law below to find red.
+   *
+   * FOURTH re-derivation: the CI leg (lint, build, packaging guard, boot
+   * smoke, pack smoke) was added to gate.sh just after the quiet gate when
+   * GitHub Actions was retired for cost, inserting 23 lines above the last
+   * five producers, which each moved by +23. The first fifteen sit above the
+   * insertion and did not move. Count is still 20 producers, still exactly
+   * one declared-unchecked and none undeclared — the five added
+   * `|| { ...; fail ...; }` lines are rescue blocks, a shape the predicate
+   * already reads as checked.
+   *
+   * NOTE for the next person: every `:<digits>` token between these markers
+   * is read as a citation by the law below, so the old line numbers cannot
+   * be written in that form here — spelling out a "was X now Y" mapping with
+   * colons silently re-cites the stale numbers and turns this red. Say it in
+   * words, as above.
    *
    * producer-citations:end
    *
