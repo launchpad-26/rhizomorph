@@ -28,17 +28,24 @@ import { type RdFetchLike, type RdRunRequest, requestRd } from './rd.js'
  * on the fetch this module is handed, render, wait, and assert it was never
  * called.
  *
- * **Two widenings this tab stops at, rather than inventing around (see the
- * lane report):** *restore n arms* and *restore and run* can prefill the
- * launch review's CHECKPOINT (`LaunchPanel`'s existing `initialCheckpointId`)
- * but not its ARMS — `LaunchPanel` has no prop for that, and this module
- * reuses it by mounting, never by editing. And an operator changing the
- * checkpoint pick before launching is DETECTED and SHOWN here, but not
- * durably recorded as `rd.override`: `packages/server/src/lab/rd.ts`'s
- * `recordRdOverride` has no HTTP route, and wiring one is
- * `packages/server/src/api/lab.ts` — out of this fence. Both are named where
- * they bite, in the surface's own words, rather than silently invented
- * around.
+ * **The two widenings this tab used to stop at are closed (conductor-recorded,
+ * 2026-09-11 15:45; waves 1-5 are on `main`).** *Restore n arms* and *restore
+ * and run* now prefill the launch review's ARMS (each arm's model —
+ * `LaunchPanel`'s `initialArms`, wave 6) and CHECKPOINT
+ * (`initialCheckpointId`, already there), and pass the proposal's own id
+ * (`proposalId`) so the resulting experiment carries it durably (ruling 4).
+ * An operator changing the checkpoint pick before launching is both SHOWN
+ * here (the override sentence, from the two checkpoint ids this component
+ * already knows) and RECORDED durably: the launch route (`/api/lab/launch`,
+ * `packages/server/src/api/lab.ts`) looks the named proposal up in the fold
+ * and records `rd.override` itself, through the same `createEvent` +
+ * recorder shape `measureExperiment` already uses — never by importing
+ * `server/src/lab/rd.ts` (the namespace law's one door stays `runCli`).
+ *
+ * A brief's TEXT is still never prefillable — a proposal's arm carries only a
+ * `briefDigest` (a sha256), never the operator's words, so a prefilled arm's
+ * brief always starts empty. That is not a widening left open; it is what
+ * the record honestly holds.
  */
 
 export interface RdTabProps {
@@ -368,10 +375,16 @@ export function RdTab({ lane, experiments, rdFetchImpl, fetchImpl, launchFetchIm
                     </p>
                     <details>
                       <summary className="cursor-pointer text-(--ink-dim)">raw result</summary>
-                      <p className="text-(--ink-dim)">
-                        not available — the R&D route (`/api/lab/rd`) reports patterns, proposals and refusals, never the hand's raw
-                        text (only its digest is kept on the record). Showing it here needs that route widened.
-                      </p>
+                      {refusal !== null ? (
+                        <pre data-testid={`rd-refusal-raw-${pattern.patternId}`} className="figures whitespace-pre-wrap text-(--ink-dim)">
+                          {refusal.rawResult}
+                        </pre>
+                      ) : (
+                        <p data-testid={`rd-refusal-raw-${pattern.patternId}`} className="text-(--ink-dim)">
+                          not available — this refusal was caught here, at the surface, rather than returned by the R&D
+                          route (the wire never sent this proposal a `refusals[]` entry to carry raw text on).
+                        </p>
+                      )}
                     </details>
                   </div>
                 )
@@ -422,11 +435,6 @@ export function RdTab({ lane, experiments, rdFetchImpl, fetchImpl, launchFetchIm
                       the rate cannot be established — {estimate.reason}
                     </p>
                   )}
-
-                  <p className="text-(--ink-dim)">
-                    arms are not prefilled below — the launch review takes the proposal's checkpoint only; match the arms
-                    above by hand (this wave's widening: `LaunchPanel` has no prop to prefill them).
-                  </p>
 
                   <div className="flex gap-2">
                     <button
@@ -509,6 +517,8 @@ export function RdTab({ lane, experiments, rdFetchImpl, fetchImpl, launchFetchIm
             {...(fetchImpl === undefined ? {} : { fetchImpl })}
             {...(launchFetchImpl === undefined ? {} : { launchFetchImpl })}
             initialCheckpointId={reviewFor.proposal.checkpointPick.chosenCheckpointId}
+            initialArms={reviewFor.proposal.arms.map((arm) => ({ ...(arm.model === null ? {} : { model: arm.model }) }))}
+            proposalId={reviewFor.proposal.proposalId}
             onLaunched={(outcome) => handleReviewLaunched(reviewFor.proposal, outcome)}
           />
         </div>

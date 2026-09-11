@@ -99,7 +99,40 @@ export const RD_REFUSED_RUN: LabRdRun = {
     },
   ],
   proposals: [],
-  refusals: [{ patternId: 'pattern-2', reason: RD_MULTI_DIMENSION_REFUSAL }],
+  // `rawResult` is the hand's own JSON text for this exact pattern and its
+  // confounded proposal (bounded server-side; unbounded here since the
+  // fixture is well under the bound) — no fixture invents a pattern, so this
+  // is the SAME `pattern-2` above, restated as the envelope the hand answered
+  // with, never a new shape.
+  refusals: [
+    {
+      patternId: 'pattern-2',
+      reason: RD_MULTI_DIMENSION_REFUSAL,
+      rawResult: JSON.stringify({
+        patterns: [
+          {
+            patternId: 'pattern-2',
+            shape: 'a launch confounding model and brief in the same arm',
+            sourceItems: ['fork.dispatched/w6-413-arm-1', 'fork.dispatched/w6-413-arm-2'],
+            count: 2,
+            heldBack: false,
+          },
+        ],
+        proposals: [
+          {
+            proposalId: 'proposal-2',
+            patternId: 'pattern-2',
+            varies: 'model',
+            arms: [
+              { model: 'sonnet', briefDigest: 'a'.repeat(64), checkpointId: 'ckpt-1', gateCommand: null },
+              { model: 'opus', briefDigest: 'b'.repeat(64), checkpointId: 'ckpt-1', gateCommand: null },
+            ],
+            checkpointPick: { chosenCheckpointId: 'ckpt-1', rejected: [] },
+          },
+        ],
+      }),
+    },
+  ],
   provenance: RD_PROVENANCE_FIXTURE,
   turns: 3,
 }

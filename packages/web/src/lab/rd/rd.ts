@@ -129,7 +129,12 @@ function isLabRdProposal(value: unknown): value is LabRdProposal {
 }
 
 function isLabRdRefusal(value: unknown): value is LabRdRefusal {
-  return isRecord(value) && typeof value.patternId === 'string' && typeof value.reason === 'string'
+  return (
+    isRecord(value) &&
+    typeof value.patternId === 'string' &&
+    typeof value.reason === 'string' &&
+    typeof value.rawResult === 'string'
+  )
 }
 
 function isLabRdProvenance(value: unknown): value is LabRdProvenance {

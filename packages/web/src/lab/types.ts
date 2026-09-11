@@ -236,10 +236,17 @@ export interface LabRdProposal {
   checkpointPick: LabRdCheckpointPick
 }
 
-/** A proposal the pure laws refused (ruling 3, ruling 9) — the reason, verbatim, beside the pattern it was drawn from. */
+/**
+ * A proposal the pure laws refused (ruling 3, ruling 9) — the reason,
+ * verbatim, beside the pattern it was drawn from, and the hand's own raw
+ * result text (bounded server-side — `RD_REFUSAL_RAW_RESULT_CHARS`,
+ * `packages/server/src/lab/rd.ts`) so the tab's `<details>` can show what was
+ * actually said rather than an honest gap.
+ */
 export interface LabRdRefusal {
   patternId: string
   reason: string
+  rawResult: string
 }
 
 /** What corpus was read, and how much of it (ruling 2) — never the items' own text, which this route does not send back. */

@@ -122,12 +122,16 @@ describe('RdTab — ruling 9\'s states, each a fixture and a test', () => {
     expect(screen.getByTestId('rd-no-proposal-pattern-1').textContent).toBe(RD_HELD_BACK_ROW_COPY)
   })
 
-  it('refused: the schema reason renders verbatim, with the raw result offered as a details element', async () => {
+  it('refused: the schema reason renders verbatim, with the hand\'s own raw result inside a details element', async () => {
     render(<RdTab lane="feature" experiments={[]} rdFetchImpl={rdFetchReturning(RD_REFUSED_RUN)} fetchImpl={NO_CHECKPOINTS} />)
     await readAndPropose()
     await waitFor(() => expect(screen.getByTestId('rd-refusal-pattern-2')).toBeInTheDocument())
     expect(screen.getByTestId('rd-refusal-pattern-2').textContent).toContain(RD_MULTI_DIMENSION_REFUSAL)
     expect(document.querySelector('#rd-refusal-pattern-2 details, [data-testid="rd-refusal-pattern-2"] details')).not.toBeNull()
+    // The real raw text, not an honest-gap placeholder — ruling 9's own words.
+    const raw = screen.getByTestId('rd-refusal-raw-pattern-2')
+    expect(raw.textContent).toBe(RD_REFUSED_RUN.refusals[0]?.rawResult)
+    expect(raw.textContent).not.toContain('not available')
   })
 
   it('live: the proposal renders its arms and its checkpoint pick, with what it rejected', async () => {
@@ -252,8 +256,27 @@ describe('RdTab — keyboard path (S5)', () => {
 })
 
 describe('RdTab — the launch review, the override sentence, and the counterfactual (ruling 4)', () => {
-  it('opens prefilled with the proposal\'s checkpoint, and dispatches through the one launch the lab already has', async () => {
-    render(<RdTab lane="feature" experiments={[]} rdFetchImpl={rdFetchReturning(RD_LIVE_RUN)} fetchImpl={fetchImplWithCheckpoint()} />)
+  it("opens prefilled with the proposal's checkpoint AND its arms, and passes the proposalId, dispatching through the one launch the lab already has", async () => {
+    const spy = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        parentLane: 'feature',
+        checkpointId: 'ckpt-1',
+        arms: [{ arm: 1, model: 'sonnet', briefProvided: false, forkId: 'fork-rd-4', laneHandle: 'fork-rd-4-arm-1', worktreePath: '/tmp/rd-4', launched: true }],
+        failed: null,
+      }),
+    }))
+    const launchFetchImpl = spy as unknown as LaunchFetchLike
+    render(
+      <RdTab
+        lane="feature"
+        experiments={[]}
+        rdFetchImpl={rdFetchReturning(RD_LIVE_RUN)}
+        fetchImpl={fetchImplWithCheckpoint()}
+        launchFetchImpl={launchFetchImpl}
+      />,
+    )
     await readAndPropose()
     await waitFor(() => expect(screen.getByTestId('rd-restore-and-run-proposal-1')).toBeInTheDocument())
 
@@ -261,6 +284,18 @@ describe('RdTab — the launch review, the override sentence, and the counterfac
     await waitFor(() =>
       expect((screen.getByTestId('launch-checkpoint-ckpt-1').querySelector('input') as HTMLInputElement).checked).toBe(true),
     )
+    // The proposal's own arms — RD_LIVE_RUN's proposal-1 varies model: sonnet/opus.
+    const modelSelects = screen.getAllByLabelText(/^arm \d+ model$/) as HTMLSelectElement[]
+    expect(modelSelects.map((select) => select.value)).toEqual(['sonnet', 'opus'])
+
+    await click(screen.getByTestId('launch-review'))
+    await waitFor(() => expect(screen.getByTestId('launch-confirm-dialog')).toBeInTheDocument())
+    await click(screen.getByTestId('launch-confirm'))
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
+
+    const [, init] = spy.mock.calls[0] as unknown as [string, { body: string }]
+    const body = JSON.parse(init.body) as Record<string, unknown>
+    expect(body).toMatchObject({ checkpointId: 'ckpt-1', proposalId: 'proposal-1', arms: [{ model: 'sonnet' }, { model: 'opus' }] })
   })
 
   it('launching against the SAME checkpoint the proposal picked reports no override', async () => {
