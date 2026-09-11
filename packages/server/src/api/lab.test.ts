@@ -6,7 +6,14 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Exec, ExecResult, RhizomorphEvent } from '@rhizomorph/core'
-import { armKey, createEventFactory, eventsToJsonl, RD_MULTI_DIMENSION_REFUSAL, reduceAll } from '@rhizomorph/core'
+import {
+  armKey,
+  createEventFactory,
+  createIdFactory,
+  eventsToJsonl,
+  RD_MULTI_DIMENSION_REFUSAL,
+  reduceAll,
+} from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runCli } from '../cli/index.js'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
@@ -251,6 +258,13 @@ describe('GET /api/lab/checkpoints and /api/lab/experiments', () => {
     // the server's own write and the CLI's really do collide on the id in one
     // session file, and a dedupe on the bare id would answer #409 by dropping
     // one of the two writes it exists to surface.
+    //
+    // #429 gave `createIdFactory` an optional `writer` tag that would stop
+    // this exact collision (see the next test) — but `createEventFactory`
+    // here, and the real callers (`lab/fork.ts`, `lab/checkpoint.ts`,
+    // `lab/rd.ts` and this file's own measure route) all still omit it, so
+    // the collision below is what the record still produces, not a stale
+    // fixture of a fixed bug.
     await mkdir(sessionDir, { recursive: true })
     const liveId = '2000'
     const liveFile = sessionFilePath(sessionDir, liveId)
@@ -288,6 +302,46 @@ describe('GET /api/lab/checkpoints and /api/lab/experiments', () => {
       'fork-from-the-cli',
       'fork-from-the-server',
     ])
+  })
+
+  it('a writer tag on createIdFactory keeps the same two events from colliding, once a caller passes one (#429)', () => {
+    // Same shapes as the collision test above — only each side now names
+    // itself, exactly as `lab/fork.ts` and this file's own measure route
+    // would once they adopt the `writer` parameter #429 added to
+    // `createIdFactory` (see events/index.ts). This is the fix PROVEN at the
+    // factory; wiring it into those four call sites is the follow-up outside
+    // this issue's fence — see this file's `liveEventKey` doc comment above.
+    const server = createEventFactory({ startTs: 1000, idPrefix: 'lab' })
+    const serverId = createIdFactory('lab', 0, 'server')
+    const serverEvent = server.forkDispatched(
+      {
+        forkId: 'fork-from-the-server',
+        parentLane: 'feature',
+        checkpointId: 'ckpt-1',
+        arm: 1,
+        laneHandle: 'fork-from-the-server-arm-1',
+        worktreePath: '/data/lab/worktrees/fork-from-the-server-arm-1',
+      },
+      { id: serverId() },
+    )
+
+    const cli = createEventFactory({ startTs: 2000, idPrefix: 'lab' })
+    const cliId = createIdFactory('lab', 0, 'cli')
+    const cliEvent = cli.forkDispatched(
+      {
+        forkId: 'fork-from-the-cli',
+        parentLane: 'feature',
+        checkpointId: 'ckpt-1',
+        arm: 1,
+        laneHandle: 'fork-from-the-cli-arm-1',
+        worktreePath: '/data/lab/worktrees/fork-from-the-cli-arm-1',
+      },
+      { id: cliId() },
+    )
+
+    expect(serverEvent.id).toBe('lab-server-000001')
+    expect(cliEvent.id).toBe('lab-cli-000001')
+    expect(serverEvent.id).not.toBe(cliEvent.id) // the collision above does not reach here
   })
 })
 
