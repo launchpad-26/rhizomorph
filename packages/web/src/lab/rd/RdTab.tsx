@@ -87,17 +87,23 @@ function measuredBaselineFor(pattern: LabRdPattern, experiments: readonly LabExp
 }
 
 /**
- * Whether a proposal, AS RENDERED, is refused — held back, or varying more
- * than one dimension (ruling 3). Runs core's OWN `rdRefusalReason` over the
- * data this tab was actually handed, so a fixture (or a malformed live
- * answer) that names a second varying dimension renders the server's refusal
- * here, never a patched proposal — the same law the server and core already
- * hold, checked again at the surface that would otherwise have to trust the
- * wire.
+ * Whether a proposal, AS RENDERED, is refused — held back, varying more than
+ * one dimension, or varying a dimension other than the one it declares
+ * (ruling 3; core's `rdRefusalReason` widened post-merge, review of #437, to
+ * check the varying dimension's IDENTITY and not merely its count — a
+ * proposal declaring `varies: 'model'` whose arms actually differ in
+ * `gateCommand` alone is exactly one dimension, so the count-only check
+ * would have missed it). Runs core's OWN `rdRefusalReason` over the data
+ * this tab was actually handed, so a fixture (or a malformed live answer)
+ * naming a second varying dimension, or the WRONG one, renders the server's
+ * refusal here, never a patched proposal — the same law the server and core
+ * already hold, checked again at the surface that would otherwise have to
+ * trust the wire.
  */
 function renderedRefusalReason(pattern: LabRdPattern, proposal: LabRdProposal): string | null {
   return rdRefusalReason({
     patternHeldBack: pattern.heldBack,
+    varies: proposal.varies,
     arms: proposal.arms.map((arm) => ({ model: arm.model, brief: arm.briefDigest, checkpoint: arm.checkpointId, gate: arm.gateCommand })),
   })
 }

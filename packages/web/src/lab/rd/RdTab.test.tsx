@@ -13,6 +13,7 @@ import {
   RD_NO_CORPUS_RUN,
   RD_NOTHING_PROPOSED_COPY,
   RD_REFUSED_RUN,
+  RD_WRONG_DIMENSION_REFUSAL,
 } from './fixtures.js'
 import { RD_NO_MEASURED_BASELINE, RD_OVERRIDE_SENTENCE, RdTab } from './RdTab.js'
 import type { RdFetchLike } from './rd.js'
@@ -171,6 +172,34 @@ describe('RdTab — a proposal\'s arms differ in exactly one dimension AS RENDER
     await readAndPropose()
     await waitFor(() => expect(screen.getByTestId('rd-refusal-pattern-3')).toBeInTheDocument())
     expect(screen.getByTestId('rd-refusal-pattern-3').textContent).toContain(RD_MULTI_DIMENSION_REFUSAL)
+    expect(screen.queryByTestId('rd-proposal-proposal-1')).toBeNull()
+  })
+
+  /**
+   * Post-merge (review of #437, `1cbc3e86`): the count of varying dimensions
+   * being exactly one is not enough — the ONE dimension that varies must be
+   * the one the proposal declares. A fixture declaring `varies: 'model'`
+   * whose arms hold the SAME model and differ only in `gateCommand` is
+   * exactly the shape that check-only-the-count missed; core's own
+   * `rdRefusalReason` (re-run here, not re-implemented) catches it.
+   */
+  it('a fixture declaring varies: "model" whose arms actually differ in gateCommand renders the wrong-dimension refusal', async () => {
+    const wrongDimension = {
+      ...RD_LIVE_RUN,
+      proposals: [
+        {
+          ...RD_LIVE_RUN.proposals[0]!,
+          arms: [
+            { ...RD_LIVE_RUN.proposals[0]!.arms[0]!, model: 'sonnet', gateCommand: 'npm test' },
+            { ...RD_LIVE_RUN.proposals[0]!.arms[1]!, model: 'sonnet', gateCommand: 'npm run verify' },
+          ],
+        },
+      ],
+    }
+    render(<RdTab lane="feature" experiments={[]} rdFetchImpl={rdFetchReturning(wrongDimension)} fetchImpl={NO_CHECKPOINTS} />)
+    await readAndPropose()
+    await waitFor(() => expect(screen.getByTestId('rd-refusal-pattern-3')).toBeInTheDocument())
+    expect(screen.getByTestId('rd-refusal-pattern-3').textContent).toContain(RD_WRONG_DIMENSION_REFUSAL)
     expect(screen.queryByTestId('rd-proposal-proposal-1')).toBeNull()
   })
 })

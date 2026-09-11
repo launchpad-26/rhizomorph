@@ -1,4 +1,4 @@
-import { RD_HELD_BACK_REFUSAL, RD_MULTI_DIMENSION_REFUSAL } from '@rhizomorph/core'
+import { RD_HELD_BACK_REFUSAL, RD_MULTI_DIMENSION_REFUSAL, RD_WRONG_DIMENSION_REFUSAL } from '@rhizomorph/core'
 import type { LabRdProvenance, LabRdRun } from '../types.js'
 
 /**
@@ -154,4 +154,4 @@ export const RD_NOTHING_PROPOSED_COPY = 'no pattern recurs — nothing is propos
 export const RD_NO_CORPUS_COPY = 'nothing to read yet — a retro, or a measured experiment, is where a pattern comes from.'
 
 /** Re-exported so a test that wants "the sentence core owns" never retypes it either. */
-export { RD_HELD_BACK_REFUSAL, RD_MULTI_DIMENSION_REFUSAL }
+export { RD_HELD_BACK_REFUSAL, RD_MULTI_DIMENSION_REFUSAL, RD_WRONG_DIMENSION_REFUSAL }
