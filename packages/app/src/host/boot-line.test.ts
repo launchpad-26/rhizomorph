@@ -68,8 +68,12 @@ describe('the marker is the server\'s own, not a copy that can drift (#563)', ()
     expect(runSource).toContain(`${BOOT_LINE_MARKER}\${url}`)
   })
 
-  it('is the same string CI\'s boot smoke greps for', () => {
-    const ci = readFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'ci.yml'), 'utf8')
-    expect(ci).toContain(BOOT_LINE_MARKER.trimEnd())
+  it('is the same string the boot smoke greps for', () => {
+    // Was `.github/workflows/ci.yml` until the smoke was extracted to a script
+    // so it could outlive the workflow and run locally. The law follows the
+    // grep to where it actually lives: reading ci.yml here would now pass
+    // vacuously on a file that no longer contains the marker at all.
+    const smoke = readFileSync(path.join(REPO_ROOT, 'scripts', 'boot-smoke.sh'), 'utf8')
+    expect(smoke).toContain(BOOT_LINE_MARKER.trimEnd())
   })
 })
