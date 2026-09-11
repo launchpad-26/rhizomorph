@@ -1,3 +1,4 @@
+import path from 'node:path'
 import type { PollLoop } from './poll-loop.js'
 import type { SessionRecorder } from './recorder.js'
 
@@ -17,7 +18,7 @@ import type { SessionRecorder } from './recorder.js'
 export interface ServerContext {
   repoPath: string
   repoName: string
-  /** Directory holding this repo's session-*.jsonl files, past and present. */
+  /** Directory holding this repo's session-*.jsonl files, past and present. See {@link dataRootFor} below for the data root this implies. */
   sessionDir: string
   recorder: SessionRecorder
   /**
@@ -73,4 +74,44 @@ export interface ServerContext {
    * wired to a port nothing is listening on.
    */
   port?: number
+}
+
+/**
+ * The data root this boot's `sessionDir` sits under — derived, never stored.
+ * `ServerContext` deliberately carries no `dataRoot` field of its own: that
+ * would be a fourth value a retarget has to remember to keep in lockstep with
+ * `sessionDir` (see the RE-POINTABLE note above), when `sessionDir` already
+ * carries the fact. Every live boot's `sessionDir` is
+ * `sessionDirFor(repoPath, dataRoot)` (`cli/run.ts`, `log/paths.ts`) —
+ * `path.join(dataRoot, repoSlug(repoPath))` — so climbing one path segment
+ * recovers exactly the root the process was given: an explicit `dataRoot`
+ * option, `RHIZOMORPH_DATA_DIR` (`log/paths.ts`'s `DATA_ROOT_ENV_VAR`), or the
+ * historical default, whichever `defaultDataRoot()` resolved to at boot.
+ *
+ * A route that wants "the data root this server is actually running
+ * against" — `api/doctor.ts`'s `session-boundary` and `shipper` checks, which
+ * otherwise default to calling `defaultDataRoot()` themselves and so read
+ * THIS PROCESS's own env rather than the value the boot resolved — reads this
+ * instead of leaving its `dataRoot` option unset (#435).
+ *
+ * Meaningless during a replay (`ctx.readOnly === true`): a replay's
+ * `sessionDir` is a temp directory unrelated to the `sessionDirFor`
+ * convention (`cli/replay.ts`; see `ServerDoctorOptions.replay`'s own doc in
+ * `api/doctor.ts`). Harmless only because every caller that reads this during
+ * a replay is already skipped by that same flag before the value is used.
+ *
+ * Replay is not the only context whose `sessionDir` breaks the
+ * `sessionDirFor` convention — `packages/contract/src/harness.ts` builds a
+ * bare `mkdtemp` `sessionDir` with `readOnly` left unset, so a route reading
+ * `dataRootFor(ctx)` there climbs one segment out of that temp directory and
+ * lands on the OS's own `tmpdir()`, not a real data root. Also harmless in
+ * practice, but for a different reason than replay's: nothing lives under
+ * `sessionDirFor(repoPath, tmpdir())` for that harness's `repoPath`, so
+ * `session-boundary` and `shipper` simply read their ordinary no-state
+ * defaults rather than anything wrong. Called out so a future reader does not
+ * assume replay is the only case that departs from the convention this
+ * function relies on.
+ */
+export function dataRootFor(ctx: Pick<ServerContext, 'sessionDir'>): string {
+  return path.dirname(ctx.sessionDir)
 }
