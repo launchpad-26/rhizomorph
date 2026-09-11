@@ -123,30 +123,42 @@
   surface (rename, open in replay, export the portable record). Closes
   #182's reserved ruling.
 - **prd17 — the complete record** (`docs/prds/prd-17-complete-record.md`, BLESSED 2026-08-06,
-  partially landed): the instrument's own judgements and the operator's
-  decisions join the log. **Landed** (ruling 3, all five laws): lenient
-  parse (an unrecognized event line is counted and voiced, never dropped —
-  see [docs/record-format.md](record-format.md#verifying-a-record)), the
-  golden era corpus (one real recording per era, folded byte-identically in
+  **every sequenced wave landed 2026-09-10**): the instrument's own judgements
+  and the operator's decisions join the log. **Ruling 3 landed, all five laws:**
+  lenient parse (an unrecognized event line is counted and voiced, never
+  dropped — see [docs/record-format.md](record-format.md#verifying-a-record)),
+  the golden era corpus (one real recording per era, folded byte-identically in
   CI), the identity `upcast()` chokepoint, durability (fsync on close
   and rotation, close-then-open ordering), and the fold-order law —
   **#205 was ruled: append order is the truth**, honoured unconditionally by
   `replayFold` and stated in `record-format.md`. See
   [docs/architecture.md](architecture.md#the-fold-order-divergence--resolved-by-205-append-order-is-the-truth)
-  for the three axes the fixture once proved diverged. **Ruling 1's nine event
-  families all exist as of #219 (2026-09-04)** — summons raised/cleared,
-  gate/dispatch/fence and operator ack/verdict/note joined the already-landed
-  `session.closed` — but they are DEFINED, not emitted: nothing raises one yet,
-  so no recording contains one. **Ruling 5 (operator, 2026-09-05)** answers who
-  raises a summons: the instrument does, server-side on the poll loop's tick,
-  and the seam owes an ADR because a state-reading judge cannot be a collector.
-  **Ruled but not yet landed:** ruling 5 itself, the emitters for ruling 1's
-  families, ruling 2's beacon ingestion — its doorway ruled 2026-08-24, shared with prd27 (the
-  file drop, one collector) — and ruling 4's timeline dividend (chapter
-  marks for gate holds, summonses, and operator verdicts) — the richer UI
-  built on top of all of it is a separate prd (prd18), not yet a doc in this
-  tree. The residual is sequenced as waves 2–6 in the PRD's 2026-09-05
-  amendment.
+  for the three axes the fixture once proved diverged.
+
+  **Ruling 1's nine event families all exist as of #219 (2026-09-04)**, and
+  **seven now have an emitter while five appear in a committed recording** —
+  the three operator acts and the summons pair, all in era-2. `gate.verdict`
+  emits since wave 6 (#280) but no captured era contains one; `session.closed`
+  likewise, its emitter predating every prd17 wave. `dispatch.brief` and
+  `fence.declared` have **no emitter in this repo to build** — the dispatch
+  tooling that would write them lives outside this checkout, so the PRD books
+  them as unfiled rather than as a wave that cannot close. That is the planned
+  end state, not a gap.
+
+  **Rulings 2, 4 and 5 have landed too:** ruling 2's beacon doorway as a
+  collector (#217, prd27 wave 1) with the gate writing through it since wave 5
+  (#274); ruling 4's mark kinds in `tide/chapters.ts`; ruling 5's summons
+  raiser server-side on the poll loop's tick (#278, ADR-0038). The richer UI
+  built on top — digest, inspectable landings, pins, drill — is prd18's and is
+  still not a doc in this tree.
+
+  **Corrected by `#416`**, which is also where the enumerated list of status
+  claims it checked is recorded. An earlier version of this bullet read
+  "partially landed" and then listed rulings 2, 4 and 5 as "ruled but not yet
+  landed" — all three had landed. It is corrected as a WHOLE bullet rather than
+  a sentence at a time, because a previous attempt changed only the status line
+  and left the list beneath it, producing a bullet that contradicted itself
+  within eleven lines.
 - **prd19 — the connection** (`docs/prds/done/prd-19-the-connection.md`, shipped): the
   `/connect` handshake, folded connection facts, exact remedies and doctor route ship; zero
   folded events is not accepted as proof that a source is live.
@@ -356,10 +368,18 @@ project rather than this week's work:
   pi is one of the six live poll-loop collectors — 13.9 ms of a measured tick in
   `docs/review/2026-08-24-performance.md` §4. Launching it belongs to prd20. What
   is left unclaimed is the LiteLLM/OpenRouter passthrough route itself.*
-- **A Langfuse forwarder** — an opt-in outbound relay, filed as a future
-  issue and gated on a re-ruling of the Trust section (see
-  [docs/telemetry.md](telemetry.md#coexisting-with-langfuse)); "nothing
-  leaves the machine" stands until that re-ruling happens.
+- **A Langfuse forwarder** — an opt-in outbound relay. **Its gate is closed:**
+  it was gated on a re-ruling of the Trust section, and that re-ruling
+  happened — [ADR-0034](adr/0034-the-fifth-hand.md) grants a fifth hand, the
+  shipper, prd-51 ruling 2 bounds it, and the README's Trust section now says
+  what leaves, when, to whom and under whose key rather than "nothing, ever".
+  What is still unbuilt is the forwarder itself, and it is not a small
+  addition: a Langfuse relay is a **second destination and a second
+  credential**, and ADR-0034 clause 2 grants exactly one of each. It needs its
+  own argument and its own record before anyone builds it.
+  [docs/telemetry.md](telemetry.md#coexisting-with-langfuse) still carries the
+  old sentence; the prd-51 wave-5 doc sweep owns that file and this bullet does
+  not pretend otherwise.
 - **Dispatch-policy optimization** — the prd6-candidate research question
   above, still standing.
 

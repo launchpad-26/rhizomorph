@@ -115,9 +115,24 @@ if the number no longer lands on it:
   uncorrected**: this pass was deliberately scoped to leave
   `docs/architecture.md` alone, so the wrong wording is still in the tree and
   is inventoried here rather than fixed.
-- `docs/prds/prd-17-complete-record.md:69-72` — ruling 3, law 1: "never
-  silently dropped, and always preserved byte-for-byte in the log and the
-  record". This is the **origin** of the `docs/architecture.md` wording above,
+- `docs/prds/prd-17-complete-record.md`, ruling 3, law 1 — **cited by phrase
+  rather than by line, deliberately (2026-09-10):** "never silently dropped,
+  and always preserved byte-for-byte in the log and the record". The range this
+  bullet used to carry (`:69-72`) was correct the day it was written
+  (`e4990328`, 2026-08-25 — the phrase sat at line 71 then, inside the range)
+  and had **already drifted well past that range before prd-17's wave-8
+  amendment touched anything**: it was at line 136 as of `df494011`, the
+  amendment's own base. That amendment moved it further; it did not break it.
+  Both numbers are tied to a sha on purpose, so they stay true as history
+  rather than becoming two more pointers to rot. Said precisely because a later reader
+  auditing "which commit broke this" would otherwise be misdirected, in a
+  document whose whole subject is stale-pointer hygiene. The drift is invisible
+  to tooling — `doc-citation-law.test.ts`
+  strips a `:NNN-NNN` suffix before its existence check, so it validates the
+  path and cannot see that the number now lands on unrelated text. The
+  preamble above already tells the reader to search the quoted phrase; this
+  bullet now simply has nothing to go stale. This is the **origin** of the
+  `docs/architecture.md` wording above,
   and it lives in `docs/prds/`, not `docs/prds/done/`, so by this repo's own
   convention it is a live ruling rather than an archival one. Whether a PRD's
   text should be amended at all is a judgement for whoever owns the ruling —

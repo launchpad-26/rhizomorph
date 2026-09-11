@@ -63,7 +63,7 @@ Reads this repo's own record, hands it to YOUR agent CLI in print mode with no
 tools granted, and records the patterns it grouped and the experiments it
 proposes. prd55 ruling 1: the R&D hand is your CLI, spawned as an explicit act
 — this instrument holds no credential, and whatever the call spends is spent
-under your own login (ADR-0046).
+under your own login (ADR-0048).
 
 The corpus is local first (prd55 ruling 2): the measured verdicts and their
 details, the lab's own experiments, and this repo's 'docs/research/*-retro.md'

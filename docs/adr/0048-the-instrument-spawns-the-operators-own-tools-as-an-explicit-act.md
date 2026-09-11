@@ -1,4 +1,4 @@
-# 0046. The instrument spawns the operator's own tools as an explicit act, and never holds a credential
+# 0048. The instrument spawns the operator's own tools as an explicit act, and never holds a credential
 
 - **Status:** accepted (prd-55 ruling 1; recorded on the build, #412)
 - **Date:** 2026-09-10

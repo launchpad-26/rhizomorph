@@ -28,7 +28,7 @@ import { SessionRecorder } from '../server/recorder.js'
  * `SessionRecorder` constructed on the live session, and events created with
  * `createEvent` under a `createIdFactory('lab')`.
  *
- * ## The instrument holds no credential (ruling 1, ADR-0046)
+ * ## The instrument holds no credential (ruling 1, ADR-0048)
  *
  * Nothing here reads, writes, forwards or logs a secret. The hand is a
  * subprocess the operator already installed and already authenticated; whatever

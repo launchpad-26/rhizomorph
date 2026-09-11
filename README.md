@@ -114,12 +114,13 @@ Every subcommand `rhizomorph` dispatches on (`packages/server/src/cli/index.ts`)
 | `rhizomorph label <sessionId> <text>` | Renames a recorded session's auto-title. |
 | `rhizomorph rotate` | Asks the running instrument to close its current session log and open a new one. |
 | `rhizomorph lab <checkpoint\|fork\|compare>` | The laboratory's namespace (opt-in, explicitly invoked) — see [The laboratory](#the-laboratory--opt-in-explicitly-invoked-and-separate-prd12-ruling-1). |
+| `rhizomorph connect team <url> --project <id>` | Turns on the shipper for this repo — the fifth hand, off by default. Reads a project-scoped `rzk_` ingest key on stdin, never argv. `--status` reports; `--ship` runs the batch timer in the foreground. See [The shipper](#the-shipper--the-fifth-hand-off-by-default-outbound-only-adr-0034--prd-51-ruling-2). |
 
 ## Trust
 
 This is a tool that reads your machine's own record of what your coding
 agents have been doing, so here is plainly what it does and doesn't do —
-not a footnote, the second thing in this file. There are four hands here,
+not a footnote, the second thing in this file. There are **five** hands here,
 not one, each with its own reach and its own enforcing test — a single
 blanket "read-only, never" claim would be weaker than this, not stronger,
 because it would erase the hands that are allowed to write anything and
@@ -152,13 +153,16 @@ lane drawer, your own Claude Code session logs under `~/.claude/projects`.
 below), that receiver listens on the same loopback address, on the same
 port, for the same reason.
 
-**What it sends, and to whom:** nothing, ever, off this machine. There is
-no analytics call, no update check, no phone-home of any kind anywhere in
-this codebase. Everything it shows is read from local files and local
-processes and rendered in your own browser. The one network call this
-instrument can make at all is the concierge's clone-by-URL — your own
-`git clone`, run because you asked for it, described in its own section
-below.
+**What it sends, and to whom:** nothing, until you type one command. There is
+no analytics call, no update check and no phone-home of any kind anywhere in
+this codebase, and the observer, the recorder and the laboratory send nothing
+anywhere under any circumstances. Two things can leave this machine, and each
+is your own explicit act, per repo: the concierge's clone-by-URL — your own
+`git clone`, run because you asked for it, described in its own section below
+— and the shipper, the fifth hand, which is off until you run
+`rhizomorph connect team` and is described below in the same detail. Until
+then there is no destination configured, no credential on disk and no timer
+running.
 
 ### The recorder — the observer's own second hand, narrower than either (prd16 ruling 2)
 
@@ -363,13 +367,14 @@ surface is `packages/server/src/lab/`, and the concierge's is
 Sweep the app and the desktop shell (`packages/web/src` and
 `packages/app/src`, every module format, comments stripped, excluding tests)
 for a **named vocabulary** of request-originating spellings, and there are
-**fifteen** call sites in **twelve** modules:
+**sixteen** call sites in **thirteen** modules:
 `packages/app/src/host/fleet-feed.ts` (two),
 `packages/web/src/app/StreamContext.tsx`,
 `packages/web/src/concierge/clone.ts`,
 `packages/web/src/concierge/instrument.ts`,
 `packages/web/src/concierge/retarget.ts`,
 `packages/web/src/hooks/useEventStream.ts`,
+`packages/web/src/lab/compare/save.ts`,
 `packages/web/src/lab/launch/launch.ts`,
 `packages/web/src/lab/measure.ts`,
 `packages/web/src/recordings/capabilityRead.ts` (two),
@@ -378,7 +383,7 @@ for a **named vocabulary** of request-originating spellings, and there are
 `packages/web/src/scene/parity/capture.mjs` (two) —
 `route-class-law.test.ts` runs that same sweep, over the same roots, and
 fails if this list stops matching what it finds. The two numbers above and the
-twelve paths below them are all read out of this file and compared to it —
+thirteen paths below them are all read out of this file and compared to it —
 nothing here is a number typed twice.
 
 **What "named vocabulary" means, and what it does not promise.** The law
@@ -410,7 +415,7 @@ Six further modules — `app/StatusBar.tsx`, `connect/meta.ts`,
 They are consumers of one egress point rather than six more of them, so
 counting them again would overstate the surface rather than describe it.
 
-Every one of the fifteen targets this instrument's own loopback origin, not
+Every one of the sixteen targets this instrument's own loopback origin, not
 the wider internet: the browser-side calls pass a path relative to the page
 itself, which only ever loads from `127.0.0.1`/`localhost` (the server binds
 nowhere else, and `mutation-guard.ts`'s `Host` check refuses anything else
@@ -419,8 +424,73 @@ regardless); `capture.mjs` drives a headless browser pointed at
 `baseUrl` that
 [`app/src/host/boot-line.ts`](packages/app/src/host/boot-line.ts)'s
 `readListeningUrl` refuses to set to anything but a loopback host in the
-first place. The clone above is still the only path that ever leaves the
-machine.
+first place. The clone above is still the only path any of those fifteen can
+take off this machine; the shipper below is the other one, and it is a
+separate hand with a separate command and a separate fence.
+
+### The shipper — the fifth hand, off by default, outbound only (ADR-0034 / prd-51 ruling 2)
+
+This is the only hand that sends anything to another machine, and it exists
+so that a team can see one shared picture instead of five private ones. It is
+off until you turn it on, per repo, with one command — there is no flag on
+the server, nothing in a config file elsewhere, and no way for a collector, a
+background poll or the server's own boot to start it. That last part is
+enforced rather than promised:
+[`packages/server/src/shipper/hand-law.test.ts`](packages/server/src/shipper/hand-law.test.ts)
+reads this repo's own import graph and its own source text and fails the build
+if anything but the `connect team` command can reach the hand or start its
+timer.
+
+**Turning it on:**
+
+```
+echo "$RZK_INGEST_KEY" | rhizomorph connect team https://team.example --project acme-widgets
+```
+
+The key arrives on standard input and never on the command line, so it is
+never in your shell history, never in `ps`, and never in this process's argv.
+
+**What leaves:** exactly the lines a portable record would carry for that
+session — every event re-serialized through the current event schema before
+it goes, never the raw bytes of your log
+([`packages/core/src/wire/reserialize.ts`](packages/core/src/wire/reserialize.ts)).
+Concretely, that is the same set of facts the ["portable
+record"](#the-recorder--the-observers-own-second-hand-narrower-than-either-prd16-ruling-2)
+already lists: file and worktree paths, which include your home directory and
+your username; branch and lane names; commit subjects with their author's
+name and email; spend and token counts; and the stderr of a `git` or `tmux`
+command that failed. It is **not** your words. Prompts, completions,
+transcripts and pane content are not in a record, so they are not on the wire
+— a field the current schema does not declare cannot survive the
+re-serialization, and a test plants one and watches it fail to cross.
+
+**When:** on a batch timer, inside a process you started and can see —
+`rhizomorph connect team --ship`. Stop that process and nothing ships. There
+is no daemon, nothing is installed into your login items, and the running
+server never does this on your behalf.
+
+**To whom:** the single team-server URL you named, and nowhere else.
+
+**Under whose key:** one project-scoped `rzk_` ingest key, which the team
+mints and can revoke. It is stored mode `0600` beside your session logs, in
+`~/.local/share/rhizomorph/<repo-slug>/shipper/ingest.key`, and nowhere else:
+never in argv, never in an environment variable, never in the browser, never
+in the hash-chained record, and never in a log line — proven by
+[`packages/server/src/shipper/no-key-in-output-law.test.ts`](packages/server/src/shipper/no-key-in-output-law.test.ts),
+which runs the hand against a failing server that echoes the key back and
+asserts the value reaches no log, no error, and no file but its own.
+
+**How to see that it is on:** `rhizomorph doctor` reports the shipper's state
+on one line — off, or on with its URL, its project, whether a credential is
+present (never its value) and how far each session has shipped.
+`rhizomorph connect team --status` prints the same in full, including any
+line this build could not fold and therefore did not send.
+
+**How to turn it off:** delete
+`~/.local/share/rhizomorph/<repo-slug>/shipper/`. With no configuration file
+there is no destination and no credential, and the hand cannot run. Your
+session logs and recordings are untouched — they were always local and they
+stay local.
 
 ## Support matrix
 

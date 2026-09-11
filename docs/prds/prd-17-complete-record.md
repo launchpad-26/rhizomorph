@@ -1,7 +1,60 @@
 # prd17 — the complete record: the instrument's judgements and the operator's decisions join the log
 
-> **Outcome:** partially shipped, and the two sides of it are worth telling apart —
-> a family that is DEFINED is not a family that is EMITTED.
+> **Outcome: SHIPPED — every wave this PRD sequenced has landed.** The eight BUILD waves,
+> wave 6 on 2026-09-10 (`6c4358f1`, PR #395) and wave 8 in `d139f88b` (PR #418); wave 0 was
+> an operator act and is marked DISCHARGED, so the Sequencing declares nine waves, 0 through
+> 8. **That claim rests on the waves alone** — shas above, issues closed, both checkable in
+> a minute — and deliberately on nothing else.
+>
+> **What it does NOT claim, and the reason is worth more than the word.** An earlier version
+> of this line said every live document describing this programme agreed with the tree.
+> That is a claim over a set nobody has bounded, and it cost four review rounds to learn:
+> wave 8 first made it as a side-effect of declaring a wave, three rounds each found one
+> more contradicting document, and `#416`'s own enumeration was then falsified twice — once
+> on the method it named, once on a document it missed. **So this PRD asserts the landings
+> and lists what `#416` actually checked; it does not assert that the list is complete.**
+>
+> What `#416` corrected, in three documents: this one's own header, table and six body
+> passages; `docs/roadmap.md`'s bullet as a whole; and four clauses plus a heading in
+> `docs/architecture.md`. Its enumeration, its candidate vocabulary and a per-document
+> verdict for every candidate are recorded on that issue — including the exclusions, which
+> previously vanished silently.
+>
+> **Two method findings from it, because they will save the next reader the same rounds.**
+> The `**Tree:**` pin this line once named is carried by exactly ONE document in the corpus,
+> so it reads six dated review passes as live; and a classification keyed on a file's PATH
+> misread FIVE complete PRDs as live, because a finished PRD whose file was never archived
+> looks live from its directory. **A closed milestone is SUFFICIENT to classify a PRD as a
+> record for a sweep's purposes** — checkable against the tracker, and it does not go stale
+> the way a path does.
+>
+> **It is deliberately not a biconditional, and not a licence to archive.** Read as "closed
+> milestone iff record" it misclassifies the PRDs in `docs/prds/done/` that predate the
+> tracker reset and carry no milestone at all. And it does NOT discharge the archival
+> decision below: this PRD's own milestone empties the moment `#416` closes, so a rule that
+> archived on milestone state alone would demote ruling 3's law 1 by merging this very
+> commit — the exact consequence the next paragraph says an operator must decide.
+> Classifying is a read; moving is an act, and prd-56 is where the act gets its rule.
+>
+> **Nothing enforces any of this.** Every figure here was re-derived by hand and will rot
+> again; a law that pins them is the only version where a fifth round does not exist.
+>
+> **It stays in `docs/prds/` rather than moving to `docs/prds/done/`, and that is a separate
+> operator decision rather than a consequence of shipping:** `docs/follow-up-292.md` reads this file's location as the difference between a LIVE
+> ruling and an archival one, and holds an open, uncorrected item against ruling 3's law 1 —
+> whose wording it calls the origin of a claim that is still false in `docs/architecture.md`.
+> Archiving this PRD would demote that ruling while the item is open, and that document
+> reserves the amendment decision for whoever owns the ruling. The move is a follow-up.
+>
+> **What "shipped" does NOT claim is worth reading before the table below**, because two of
+> ruling 1's nine families still
+> have no emitter and that is the planned end state rather than a gap:
+> `dispatch.brief` and `fence.declared` would be written by dispatch tooling that does not
+> exist in this checkout, so no wave here could ever have closed them — the Sequencing's
+> unfiled tail books them as unfiled instead of booking a wave that cannot close. Two others
+> (`gate.verdict`, `session.closed`) have emitters but appear in no committed recording,
+> which is an era-capture matter and not a wave of this PRD. So: every wave this PRD
+> sequenced is done, and a family that is DEFINED is still not a family that is EMITTED.
 > **Ruling 3 landed, all five laws:** lenient parse, the golden era corpus, the identity
 > `upcast()` chokepoint, durability (fsync on close and rotation, close-then-open), and
 > the fold-order law — ruled on #205, append order is the truth. The chokepoint was built
@@ -14,16 +67,18 @@
 > |---|---|---|
 > | `operator.ack`/`verdict`/`note` | `POST /api/operator/:act` — wave 2 | yes, era-2 |
 > | `summons.raised`/`cleared` | the poll loop's tick — wave 3 (#278) | yes, era-2 |
-> | `gate.verdict` | `scripts/gate.sh` writes the beacon line — wave 5 (#274) | not yet |
+> | `gate.verdict` | the poll loop derives it from the beacon sidecar — wave 6 (#280) | not yet |
 > | `session.closed` | the recorder, since prd-40 | not yet |
 > | `dispatch.brief`, `fence.declared` | **none** | no |
 >
 > **The reason differs by row and that is the part an earlier version of this block got
 > wrong**, by attaching one clause to all of them. `dispatch.brief` and `fence.declared`
 > are DEFINED AND UNEMITTED in the original sense: their `reduce.ts` arms return state
-> unchanged and nothing raises one. `gate.verdict` is EMITTED but not yet a first-class
-> timeline event — a landing reaches the log as `beacon.received`, and deriving the typed
-> event from that sidecar is wave 6. `session.closed` has an emitter and a fold; era-2's
+> unchanged and nothing raises one. `gate.verdict` **is a first-class timeline event as of
+> wave 6** (#280, merged in `6c4358f1`): a landing still reaches the log as
+> `beacon.received`, and `packages/server/src/log/gate-verdict-derivation.ts` derives the
+> typed event from that sidecar, recorded at RECORD time from the poll loop's own seam so a
+> pruned `beacons/` directory cannot cost a fold its verdicts. `session.closed` has an emitter and a fold; era-2's
 > window simply does not contain a clean shutdown. **SEVEN of the nine have an EMITTER;
 > FIVE appear in a real committed recording** — the three operator acts and the summons
 > pair. The two counts differ by TWO rows, not one: `gate.verdict`, which emits but has
@@ -36,15 +91,21 @@
 > waves 2, 3 and 5 gave an emitter TO; seven is the number that HAVE one. Those are
 > different claims and the difference is `session.closed`.
 > **Ruling 4's mark kinds landed** in the same wave: `chapters.ts` now carries eight,
-> including a summons and its clearance, a gate verdict and an operator verdict. They are
-> readers waiting on emitters.
-> **Ruling 2's doorway landed** as a collector on prd-27 wave 1 (#217) and nothing writes
-> to it yet — wave 5 is that writer.
-> **Rulings 5 and 6 were blessed 2026-09-05** and are unbuilt: ruling 5 (the instrument
-> raises its own summons on the poll loop's tick) is wave 3 and owes an ADR; ruling 6 (the
-> gate's verdict rides as extra keys on a beacon line) is what wave 5 builds to.
-> **Ship-out is at wave 4 (operator, 2026-09-05):** this PRD closes when waves 2–4 land,
-> with wave 5 declared and blocked and wave 6 (#280) declared after ship-out.
+> including a summons and its clearance, a gate verdict and an operator verdict. All four of
+> the new kinds now have emitters, and era-2 contains three of them.
+> **Ruling 2's doorway landed** as a collector on prd-27 wave 1 (#217), and **the gate has
+> written through it since wave 5 (#274)** — `scripts/gate.sh`'s `emit_gate_verdict` appends
+> a beacon whose `kind` is the literal `gate.verdict`. The dispatch half has no writer in
+> this checkout.
+> **Rulings 5 and 6 were blessed 2026-09-05 and are both BUILT.** Ruling 5 (the instrument
+> raises its own summons on the poll loop's tick) landed as wave 3 (#278) with ADR-0038;
+> ruling 6 (the gate's verdict rides as extra keys on a beacon line) is written to by wave 5
+> (#274) and read back by wave 6 (#280, `6c4358f1`), which is what makes `gate.verdict` a
+> typed event rather than a sidecar pointer.
+> **Ship-out was set at wave 4 (operator, 2026-09-05)** — this PRD's own closure test — and
+> waves 5 through 8 landed after it rather than being left declared and blocked, so the
+> "one declared, unbuilt wave" that decision deliberately allowed for did not come to pass.
+> The decision and its rejected alternative are recorded further down and left as ruled.
 > Reconciled 2026-09-06 at `29cde14`; previously 2026-09-05 at `612df45` and 2026-08-22 at
 > `03df141`. The residual is sequenced below and groomed onto the `prd17` milestone —
 > an earlier version of this line said the milestone held no open issue, which stopped
@@ -82,12 +143,16 @@ criterion's second clause — *"a recording folded today matches its committed
 snapshot byte for byte"* — now holds of these families rather than only of the
 ones era-1 happened to carry.
 
-**The first clause does not yet hold, and the gap is exactly one wave.** A
-replay shows the operator's decisions and the instrument's summonses as
-first-class events; it does not yet show a landing's verdict as one, because
-`gate.verdict` reaches the log as a `beacon.received` sidecar and the typed
-event's `reduce.ts` arm still returns state unchanged. **#280 (wave 6) is that
-derivation.**
+**The first clause holds as of wave 6 (#280, `6c4358f1`).** A replay shows the
+operator's decisions, the instrument's summonses AND a landing's verdict as
+first-class events: `packages/server/src/log/gate-verdict-derivation.ts` reads
+the verdict out of the `beacon.received` sidecar and the poll loop records the
+typed `gate.verdict` at record time, so a session recorded from wave 6 onward
+carries one. **Two caveats, both still true:** no committed era capture
+contains a `gate.verdict` — the corpus predates the landing, which is a capture
+matter and not a wave of this PRD — and the typed event's `reduce.ts` arm
+deliberately still folds to nothing in `SessionState`, because the UI dividend
+that would read it is prd18's.
 
 **So "this PRD closes" and "the Success criterion is met" are different
 statements**, and the ship-out line below deliberately chooses the first. The
@@ -212,6 +277,10 @@ whom, about which lane, with a pointer to the bytes; `file` + `offset` + `digest
 full verdict from the sidecar, provably unaltered. **Deriving `gate.verdict` from that
 sidecar is wave 6.**
 
+> *Ruling 6's own text is left as it was ruled — a ruling records what was decided, and this
+> one was correct. For a reader arriving later: wave 6 has since LANDED (#280, `6c4358f1`),
+> so "is wave 6" names the wave that did it rather than one still to come.*
+
 Rejected: packing the verdict into `detail` as an encoded string, which would put a
 hand-rolled parser between a landing and its typed event — the shape ADR-0002 exists to
 prevent. Also rejected: retiring `gate.verdict`, which would withdraw part of a blessed
@@ -315,10 +384,15 @@ fence carefully: put the diff in the tick and there is nothing to test without a
 
 **Wave 4 — the capture, last.** **#279** `prd17 w4: an era recording contains the instrument's
 judgements and the operator's decisions`. `packages/core/src/eras/eras.test.ts` already states
-this wave's exit condition in its own gap list — all eight new families sit in it, with the
-note *"each should leave it in the wave that starts emitting it"* — so era-2 is captured
+this wave's exit condition in its own gap list — at the time this was written all nine new
+families sat in it, with the note *"each should leave it in the wave that starts emitting
+it"*; it now holds four (`dispatch.brief`, `fence.declared`, `gate.verdict`,
+`session.closed`) — so era-2 is captured
 through `packages/core/src/eras/CAPTURE.md`'s blessing procedure and the gap list shrinks by
-whatever now emits. Last because a capture is only worth taking once the emitters it is meant
+whatever that capture actually CONTAINS — not by whatever emits. `gate.verdict` is the live
+counterexample: it has had an emitter since wave 6 and is still on the list, because no
+captured window holds one. `eras.test.ts` says the same in its own voice — coverage there is
+"a fact to state rather than a target to hit". Last because a capture is only worth taking once the emitters it is meant
 to witness exist, and because it is what makes the Success criterion's byte-for-byte clause
 true of these families rather than merely of the ones era-1 happened to hold.
 
@@ -370,13 +444,15 @@ This is also the one wave that edits the operator's landing tool, so its verific
 exactly the split AGENTS.md already draws: the lane runs `npm run typecheck`, `npm run lint`
 and the suite; the operator runs the gate, because running it *is* the landing.
 
-**Wave 6 — `gate.verdict` is derived from the sidecar.** **#280** `prd17 w6: a landing's
+**Wave 6 — `gate.verdict` is derived from the sidecar. LANDED 2026-09-10 (`6c4358f1`, PR #395).** **#280** `prd17 w6: a landing's
 verdict is a gate.verdict event, not only a beacon`. Declared by ruling 6, groomed
 2026-09-05. Once wave 5
 writes the line, `beacon.received` carries `file`, `offset` and the line's `digest`, which is
 everything needed to read the verdict back out of the sidecar and prove it unaltered. This is
-where ruling 1's `gate.verdict` finally emits, and where the reducer's arm for it stops
-returning state unchanged. It is declared after ship-out deliberately: the record already
+where ruling 1's `gate.verdict` finally emits. **Its `reduce.ts` arm deliberately does NOT
+stop returning state unchanged** — an earlier version of this paragraph said it would, and
+that was never built: the fold stays empty because the UI dividend which would read it is
+prd18's, and the arm's own comment says so. It is declared after ship-out deliberately: the record already
 holds the landing at the end of wave 5 — as an occurrence with a recoverable payload — and
 this wave upgrades how it is read, not whether it was kept.
 
@@ -454,6 +530,59 @@ Its exit condition stays mechanical but is only checkable AFTER it lands:
 `scripts/dev/prd-reconcile.sh 17` judges against `origin/main` by design — its own header
 records a stale checkout once reporting wave 7 vacant — and cannot be pointed at a working
 copy.
+
+**Wave 8 — the review residual of wave 6, sequenced 2026-09-10.** Two issues, and the wave
+exists for the same reason wave 7 did: they came out of REVIEWING wave 6 rather than out of
+this PRD's own plan, and an issue carrying a wave the document never declared is one
+`fence-lint.sh` cannot check a bundle against.
+
+| issue | fence | what becomes true |
+|---|---|---|
+| **#391** | `packages/server/src/log/gate-verdict-derivation.ts` + its test, `packages/server/src/server/poll-loop.ts` + its test | a swallowed close fault leaves a trace |
+| **#403** | this file, plus `docs/follow-up-292.md` (widened during review, recorded on the issue) | the PRD declares wave 8, says `gate.verdict` is a first-class event, and marks wave 6 landed |
+
+The two fences are disjoint — four source files against three documents — which is what
+makes this one wave and one PR rather than two of each; the wave lint passed on the fences as
+first declared, and #403's grew twice during review (the two citing documents above), each
+widening recorded before its change.
+
+**Why this wave stopped claiming a status, since that is the interesting part.** An earlier
+version of it marked this PRD shipped and then tried to sweep the documents that said
+otherwise. Three review rounds each found one more, and the count in this paragraph was
+itself wrong twice — the last version claimed "ten documents mentioning prd-17, two of them
+live", when the two spellings together reached thirty-one at `122c0dc1` (thirty-two at this
+commit's own base, `docs/prds/prd-51-the-split.md` having joined it — its single mention is a
+quoted code comment carrying no status claim, so the set of three is unchanged) and at least one more
+(`docs/architecture.md`) is live and carries the same class of claim.
+
+**And the method wave 8 proposed for the sweep was itself wrong**, which `#416` found by
+running it: the `**Tree:**` pin it named is carried by exactly one document in the corpus,
+so it reads six dated review passes as live. The four conventions that actually separate a
+record from a description are in the Outcome line above.
+
+The lesson is not that the sweep needed one more pass. It is that a status word is a claim
+over a set this wave never bounded, so no pass could be shown complete — and an unbounded
+claim asserted as swept is worse than no claim, because it reads as verified. Wave 8
+therefore states the landings, which are bounded and checkable, and hands the status
+reconciliation to `#416`, where the document set is enumerated before anything is edited. The one document this wave still touches beyond itself is
+`docs/follow-up-292.md`, and only because its citation pointed into text this amendment
+moved.
+
+**#391 is the honest residual of the fix that closed round 5's finding.** The close-fault
+catch that stopped `close()` escaping the derivation was empty, so the fault survived and
+became invisible: a persistently failing mount left no trace while it fired for every
+`beacon.received` on every tick. The swallow is correct and stays — by close
+time the bytes are already in the buffer, and the digest comparison runs on them further
+down, so a close fault never gates verification and refusing over it would discard a verdict
+the digest is about to prove — and what #391 adds is the trace, following the convention its two
+siblings in that package already set (`dropTrailingPartialLine` returns a signal,
+`advanceFold` sets `foldDesynced`); neither is silent and neither logs.
+
+**Deliberately NOT in this wave, and still open:** the seam swallowing a refusal's reason, the
+stat/open TOCTOU, and a hardlink defeating containment. All three were deferred across rounds
+4, 5 and 6 with reasons on #280, and none is a prd-17 deliverable — the first is scope the
+seam never claimed, and the other two are hardening on a path whose worst case the digest
+check already bounds.
 
 ## Open questions
 
@@ -555,15 +684,19 @@ shutdown it does not contain. Seven minus those two is five, and the arithmetic 
 out here because the previous version of this passage named both exclusions while stating
 the total as six, which does not subtract to five and was the tell. What has NOT changed is the fold: `reduce.ts` still returns state
 unchanged for all nine, so a family being emitted and recorded is not yet the same as its
-folding into state. That is the distinction wave 6 closes for `gate.verdict`, and the reason
-this PRD's Success criterion is only half met at ship-out.
+folding into state. **Wave 6 did NOT close that distinction** — an earlier version of this
+sentence said it did. It closed the emitted-and-recorded half for `gate.verdict`; the fold
+stays deliberately empty, because the surface that would read it is prd18's.
 
 `packages/core/src/eras/eras.test.ts` states the gap as an assertion rather than leaving it
 to be discovered, and it also states the exit condition this PRD sequences against: *each
-should leave it in the wave that starts emitting it.* Six have left it in a wave of THIS
-PRD's; `session.closed` left it in prd-40's recorder work, so seven have left it in all.
-The exit condition counts waves, the emitter table counts emitters, and this sentence is
-the seam the two counts have leaked across before.
+should leave it in the wave that starts emitting it.* **Five have left it, all in wave 4** —
+the three operator acts and the summons pair, which is what era-2's capture contains.
+`session.closed` has an emitter but is STILL in the gap list, because no captured era window
+holds a clean shutdown; so is `gate.verdict`, which emits since wave 6 but was not captured.
+The exit condition counts CAPTURES, the emitter table counts EMITTERS, and this sentence is
+the seam the two counts have leaked across before — an earlier version said six and seven,
+which counted emitters against a list that only moves when a capture is taken.
 
 **Ruling 2 is prd-27's, and this PRD stops holding it.** The 2026-08-24 amendment above gave
 the doorway away — one rhizomorph-owned watched directory, one collector, never a POST route
@@ -572,10 +705,13 @@ This PRD's residual against ruling 2 is therefore not the door but what comes th
 the gate trio's emitters, which are wave 5 and blocked. **prd-17 should not be held open by
 #217, and #217 should not be re-milestoned here.**
 
-**Ruling 4 has not landed and is one wave.** `packages/web/src/tide/chapters.ts` still exports
-four chapter kinds — `lane-born`, `lane-landed`, `gate-held`, `session-boundary` — and its
-module note still reasons about a world where the summons has no event and no session-end
-type exists. Both sentences were true when written and are false now. `chaptersFor` reads
+**Ruling 4's mark kinds have LANDED — this paragraph is kept as written, with its own
+correction.** It said: *"Ruling 4 has not landed and is one wave.
+`packages/web/src/tide/chapters.ts` still exports four chapter kinds — `lane-born`,
+`lane-landed`, `gate-held`, `session-boundary` — and its module note still reasons about a
+world where the summons has no event and no session-end type exists."* Both sentences were
+true when written and are false now: `chapters.ts` exports eight kinds, including a summons
+and its clearance, a gate verdict and an operator verdict. `chaptersFor` reads
 events rather than folded state, which is why this is a wave and not a programme.
 
 **What closing this PRD now requires, in order:** wave 2's two issues and wave 3, all three
@@ -593,6 +729,13 @@ done while `main` had never heard of them, and the reason a PRD's own status mus
 answerable from its own waves. So a shipped prd-17 will carry one declared, unbuilt wave, and
 that is deliberate rather than an oversight: the wave is where the gate's own verdict will be
 recorded when the door it writes through exists.
+
+> *Left as it was ruled, and the ruling was right — a PRD's status must be answerable from
+> its own waves. Recording what actually happened rather than editing the decision to match
+> it: the door was built (prd-27 wave 1, #217), so wave 5 unblocked and landed (#274), and
+> wave 6 (#280, `6c4358f1`) then derived the typed event from what it writes. A shipped
+> prd-17 therefore carries NO declared-but-unbuilt wave. The contingency this paragraph
+> provides for never had to be used.*
 
 Wave 5 is also one issue rather than three — `dispatch.brief` and `fence.declared` have no
 emitter in this repo to build, and the Sequencing's unfiled tail says so rather than booking

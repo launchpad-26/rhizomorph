@@ -180,9 +180,49 @@ Launch 3 arms × 2 runs from 14:22?
 - **prd12 ruling 3 — forks render as visibly synthetic everywhere**, with
   lineage as a verifiable prefix commitment into the record's hash chain.
 - **prd12 ruling 2 — checkpoints are captured live, never synthesized.**
-- **The lab tab shows forked realities only.** A law test asserts the lab
-  surface renders no live fleet state — the same shape as #206's
-  `no-live-fleet-law.test.ts`.
+- **The lab tab shows forked realities only.** A law test asserts that nothing
+  in the lab tab **names** live-fleet machinery — the same shape as #206's
+  `no-live-fleet-law.test.ts`. It does **not** assert that the lab tab cannot
+  reach it. Those are different sentences, and only the first is enforced.
+
+  **Narrowed 2026-09-10 (#350, #411).** The sentence above used to read *"a law
+  test asserts the lab surface renders no live fleet state"* — the stronger of
+  the two readings, and never what the law checked. It is corrected in place
+  rather than caveated, because a caveat under an over-claim leaves the
+  over-claim to be quoted: the first draft of this amendment appended the
+  paragraph below and left the old sentence standing, and a review pass
+  correctly reported the contradiction it had just created.
+
+  That law is a text sweep over one directory. It reads every
+  source file under `packages/web/src/lab/` and refuses two things by name: a
+  forbidden identifier spelled literally, and an import whose path carries a
+  forbidden prefix. What it therefore guarantees is that **nothing in the lab
+  tab NAMES live-fleet machinery** — not that the lab tab cannot reach it.
+  Those are different sentences and only the first one is enforced.
+
+  Two ways past it are known, both latent, both verified with controls, both
+  written into the law's own axis table rather than left here: an import
+  spelled in a form the specifier extractor does not read (CommonJS
+  `require()` with a concatenated argument, or `createRequire`), and a symbol
+  **renamed outside the directory** and imported under the alias, so no
+  forbidden token appears under `lab/` at all.
+
+  This is recorded as an amendment rather than a fix because closing either
+  properly means resolving the lab tab's import closure — a resolver crossing
+  package boundaries — and that was judged out of proportion to a gap nothing
+  in the tree exploits and nothing ever has. The decision is the operator's,
+  taken 2026-09-10. Five review rounds went into the first of the two; the
+  early ones changed what shipped and the later ones did not — each closed one
+  spelling of the same grammar and revealed the next, which is what made the
+  cost visible.
+
+  **It is a real weakening of what prd12 ruling 1 is read as promising**, and
+  saying so here is the whole reason this paragraph exists: the ruling's
+  read-only guarantee over the watched repo is enforced elsewhere and is
+  untouched, but a reader who took *this* law as proof the lab tab is
+  incapable of reaching fleet state was reading more than it ever checked.
+  Anyone reinstating the stronger claim owes the closure, not another regex —
+  the five rounds are on #350 and are worth reading before trying.
 - Frame budget 16.67 ms, measured under matched load, attributed honestly
   (scene vs swarm) — the #157 lesson.
 
@@ -224,6 +264,23 @@ the four above — the milestone carries no closed issues, so the shipped consol
 traceable through it. Read `w1` on a prd14 issue as ruling 5's first wave, never as the lab
 tab that shipped in 2026-08.
 
+**Amended 2026-09-10: the split is w1, w2 and w3, and the library row is w3.** The
+paragraph above and the two below are left as written, because what was planned is worth
+keeping beside what was built. What changed is that grooming found a third piece of work
+between them, and the tracker was renumbered on 2026-09-09 while this section was not — so
+for a day the plan of record said `w2` and the issue said `w3`. This paragraph is the
+document catching up, and it is the authority: **w1 = #213, w2 = #376, w3 = #214.**
+
+**w2 — the two comparison-artifact parsers accept and refuse the same bytes (#376).** Not
+foreseen here, and not optional. ADR-0042 chose a hand-ported second parser over a shared
+schema and booked the drift risk in its own Consequences; w1 (#213, server) and prd-53's
+#339 (web) then each changed the run shape in their own copy seventeen minutes apart, and
+the suite stayed green through both because each side's test only round-tripped its own
+parse. The consequence was that a completed run with nothing booked 400'd on save, and a
+run that did save came back refused by the other parser — an artifact written with a 200
+that the surface could never reopen. w3 is unsatisfiable until that agrees, which is what
+makes this a wave of its own rather than a fix folded into either neighbour.
+
 **w1 — the storage and the routes it needs (#213).** A new
 `packages/server/src/comparisons/` module, plus save and read routes on `api/lab.ts`
 registered in `ROUTE_CLASSES` with the save token-gated as the existing
@@ -234,15 +291,22 @@ reachable from an always-on route), and a stored comparison is recording-adjacen
 second hand on the repo. The version refusal is exercised here, by storing a wrong version
 and re-reading it.
 
-**w2 — the library row and the reopen (#214).** The recordings library lists a saved
+**w3 — the library row and the reopen (#214).** The recordings library lists a saved
 comparison as its own kind, visibly distinct from a session recording, and selecting one
 reopens into `ComparisonSurface` rather than the replay surface. An artifact from an older
 format version puts the parser's refusal **on screen by name** — not an empty state, not a
 console error. Saving is reachable from the comparison surface itself, so a human can
 complete the round trip without a fixture.
 
-**Neither wave is dispatchable today**, and the blockers are not the ones the issues
-originally named:
+**Every blocker below has since cleared. Recorded as of 2026-09-10:** w1 landed as #213
+(PR #351); w2 landed as #376 in PR #393; #23 is closed and #220 closed on 2026-09-09, so
+w3 is dispatchable and was dispatched the same day. The three bullets are kept unedited
+rather than deleted — a blocker that named the wrong owner is what let a real one go
+unnoticed here once, so the record of what was believed is worth more than a tidy section.
+Read them as history:
+
+**Neither wave was dispatchable when this was written**, and the blockers were not the ones
+the issues originally named:
 
 - **w1 waits on #23** (prd43 w4, open), which owns
   `packages/server/src/api/route-class-law.test.ts`. Its `ROUTE_CLASSES.length` assertion
@@ -260,7 +324,7 @@ originally named:
   (#44, #76), both closed, and no open issue fences it. That dependency has cleared; #220 is
   the one that actually bites.
 
-**Out of scope for both waves**, restating ruling 5's boundary so it does not get relitigated
+**Out of scope for all three waves**, restating ruling 5's boundary so it does not get relitigated
 mid-build: nothing reopens the shipped layout, arm-configuration, spread or estimate work; no
 migration is written for an older artifact version (it refuses, and a migration would go
 through prd17's own upcast chokepoint); and the two questions still open below — the hard

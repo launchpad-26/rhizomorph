@@ -106,7 +106,7 @@ describe('labRdHelpText', () => {
     expect(text).toContain('rhizomorph lab rd <lane> --model <m> [options]')
     expect(text).toContain('no\ntools granted')
     expect(text).toContain('this instrument holds no credential')
-    expect(text).toContain('under your own login (ADR-0046)')
+    expect(text).toContain('under your own login (ADR-0048)')
   })
 
   it('names the corpus ruling 2 fixes, and says the tracker is separately declared', () => {
