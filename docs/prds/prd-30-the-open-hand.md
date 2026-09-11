@@ -1,24 +1,34 @@
 # prd-30 — the open hand: every mark explains itself
 
 > **Outcome:** all four waves shipped; **one operator act outstanding** — the first-glance acceptance.
-> Reconciled 2026-09-10 (see the amendment at the foot of this document, which also declares
-> the waves in the form `scripts/dev/prd-reconcile.sh` reads).
+> Reconciled 2026-09-10, corrected 2026-09-11 when wave 4 reached `main` (see the amendment at the
+> foot of this document, which also declares the waves in the form `scripts/dev/prd-reconcile.sh`
+> reads).
 >
 > What landed: the shared disclosure card and the `title=` adoption sweep (#220, `8ee1b498`);
 > the re-seat that let `one-card-law.test.ts` widen to its full sentence with an **empty**
 > allowlist, retiring `MarkHoverCard` and the loupe read-out as separate card chrome (#221,
-> `ac152919`); and focus parity proven **per file** rather than per directory, with ADR-0045
-> for why the render's transitivity forces a hand-maintained map (#334, `24b836b0`).
+> `ac152919`); focus parity proven **per file** rather than per directory, with ADR-0045
+> for why the render's transitivity forces a hand-maintained map (#334, `24b836b0`); and the
+> last twelve native tooltips retired with `NOT_YET_SWEPT` **deleted** rather than emptied
+> (#389, `b33da639`).
 >
-> What is left, and it is smaller than this document used to claim:
+> **What is left is one act, and it is the operator's.** The **first-glance acceptance** —
+> not a lane, and it carries prd-33 ruling 14's Check 3 list (see the amendment further down).
+> Success criteria 1 and 3, which this block held open until wave 4 landed, are met: the laws
+> that encode them — `packages/web/src/disclosure/one-card-law.test.ts` and
+> `packages/web/src/app/title-residue-law.test.ts` — run green with no allowlist and no
+> carve-out left in either.
 >
-> - **#389 (wave 4)** — twelve native tooltips survive in three directories, held back by the
->   four carve-outs in `packages/web/src/app/title-residue-law.test.ts`'s `NOT_YET_SWEPT`.
->   Every one of those carve-outs names an owner that has since closed, so each is a promise
->   nobody is keeping; the issue retires the twelve and deletes the mechanism rather than
->   emptying it. Success criteria 1 and 3 are not met until it lands.
-> - **First-glance acceptance** — still an operator act, not a lane, and it now carries
->   prd-33 ruling 14's Check 3 list (see the amendment further down).
+> **This block said the opposite until 2026-09-11, and how it went wrong is the part worth
+> keeping.** It was written in `c243c28f`, a commit inside PR #419 sitting *directly on top of*
+> `b33da639` — the wave-4 work that same PR landed. So it described `NOT_YET_SWEPT`'s four
+> carve-outs and twelve surviving tooltips as live while the commit beneath it had already
+> deleted them, and it contradicted its own Outcome line one paragraph above. A status line
+> authored inside the PR that lands the thing it calls outstanding is stale at merge by
+> construction, and nothing went red: no law holds a PRD's status prose to the tree it
+> describes. The same commit left `docs/roadmap.md`'s prd30 entry naming three resolved items
+> as outstanding, corrected in the same change as this one.
 >
 > **The "97 native tooltips" this line used to quote was a bare-grep overcount.** The
 > residue law's own docstring records the correction: 26 of the 97 were props on local
@@ -374,7 +384,7 @@ why the render's transitivity forces a hand-maintained map over a scanner. #334,
 
 **Wave 4** — the native-title law has no exemptions left: the last twelve tooltips retire
 from `scene/`, `replay/` and `concierge/`, and `NOT_YET_SWEPT` is deleted rather than
-emptied. #389.
+emptied. #389, landed `b33da639`.
 
 Nine of those twelve became disclosure cards. Three did not, and the exception is a ruling
 rather than an omission: `scene/`'s camera buttons carried their own accessible name plus a
