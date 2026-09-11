@@ -202,8 +202,18 @@ function mergeLiveSession(
  * `listSessionListings` performs, widened by {@link mergeLiveSession} so the
  * live session is the union of its file and that buffer rather than the buffer
  * alone (#409).
+ *
+ * Typed to the two fields of `sessionDir`/`recorder` this function actually
+ * reads (prd-55 ruling 4, wave 6 widening) rather than the whole
+ * `ServerContext` or the whole `SessionRecorder` — so `launchExperiment` below
+ * can call it with only what a launch naming a `proposalId` was handed. Every
+ * existing caller still passes a real `ServerContext`, which satisfies this
+ * narrower shape without change.
  */
-async function readAllEvents(ctx: ServerContext): Promise<RhizomorphEvent[]> {
+async function readAllEvents(ctx: {
+  sessionDir: string
+  recorder: Pick<SessionRecorder, 'sessionId' | 'eventsSoFar'>
+}): Promise<RhizomorphEvent[]> {
   const summaries = await listSessions(ctx.sessionDir)
   const events: RhizomorphEvent[] = []
   let sawLive = false
@@ -945,6 +955,24 @@ export interface LaunchExperimentOptions {
    * is fixed, not operator-settable).
    */
   lockCeilingMs?: number
+  /**
+   * Where every session file lives — needed only when a launch names a
+   * `proposalId` (prd-55 ruling 4, wave 6 widening): the proposal it names is
+   * looked up in the fold, which means reading the record. Absent from every
+   * launch that carries no `proposalId`, which is most of them.
+   */
+  sessionDir?: string
+  /**
+   * The live recorder — read for the fold's own newest events (the same
+   * live-buffer union `readAllEvents` already gives every other reader) and
+   * written to directly when an override needs recording, the same way
+   * `measureExperiment` below records `fork.measured` without importing
+   * anything under `server/src/lab/` (the namespace law's one door stays
+   * `runCli`; this is a `@rhizomorph/core` event, appended through the
+   * route's own recorder, exactly like every `fork.measured` this file
+   * already writes).
+   */
+  recorder?: Pick<SessionRecorder, 'sessionId' | 'eventsSoFar' | 'record'>
 }
 
 /**
@@ -972,8 +1000,63 @@ export interface LaunchExperimentOptions {
  * recorded under the same `forkId` as the ones that never came. prd53 ruling
  * 7 names that state; this function reports it as `failed` beside `arms`.
  */
+
+/**
+ * prd-55 ruling 4 (wave 6 widening): when a launch names a `proposalId`, the
+ * proposal it names is looked up in the fold (`state.rd.proposals`, by id —
+ * the same slice `rd.ts`'s own engine folds), and if the CHECKPOINT this
+ * launch is actually using differs from the one the hand picked
+ * (`checkpointPick.chosenCheckpointId`), an `rd.override` event is recorded
+ * BEFORE anything dispatches, naming BOTH checkpoints — so the record can
+ * never be read as if the operator's choice were the agent's. A launch on the
+ * proposal's own pick records nothing: nobody overrode anything. An unknown
+ * `proposalId` is refused by name, the same way a malformed body already is.
+ *
+ * Recorded the way `measureExperiment` below records `fork.measured` —
+ * `createEvent` + the route's own recorder — never by importing
+ * `server/src/lab/rd.ts`'s `recordRdOverride`: the namespace law's one door
+ * into `server/src/lab/` is `runCli`, and this event is a
+ * `@rhizomorph/core` shape this file is already allowed to construct.
+ */
+async function recordOverrideIfNeeded(request: LaunchRequestBody, options: LaunchExperimentOptions): Promise<void> {
+  const proposalId = request.proposalId
+  if (proposalId === undefined) return
+
+  if (options.sessionDir === undefined || options.recorder === undefined) {
+    // A launch naming a proposalId always arrives through the route, which
+    // always wires both — this is a programmer error, not an operator one.
+    throw new Error('a launch naming "proposalId" needs sessionDir and a recorder to look it up')
+  }
+
+  const events = await readAllEvents({ sessionDir: options.sessionDir, recorder: options.recorder })
+  const state = reduceAll(events)
+  const proposal = state.rd.proposals.find((candidate) => candidate.proposalId === proposalId)
+  if (proposal === undefined) {
+    throw new LaunchValidationError(`"proposalId" names no proposal this repo has recorded: ${proposalId}`)
+  }
+
+  const agentCheckpointId = proposal.checkpointPick.chosenCheckpointId
+  if (agentCheckpointId === request.checkpointId) return // launched on the hand's own pick — nothing to override
+
+  const nextId = createIdFactory('lab')
+  const now = options.now ?? Date.now
+  const event = createEvent(
+    'rd.override',
+    {
+      lane: request.lane,
+      proposalId,
+      agentCheckpointId,
+      operatorCheckpointId: request.checkpointId,
+      provenance: proposal.provenance,
+    },
+    { id: nextId(), ts: now() },
+  )
+  await options.recorder.record(event)
+}
+
 export async function launchExperiment(body: unknown, options: LaunchExperimentOptions): Promise<LaunchResult> {
   const request = parseLaunchRequestBody(body)
+  await recordOverrideIfNeeded(request, options)
   // One experiment, one id — minted here, before any arm exists, and handed
   // to every dispatch. The engine's own default (`fork-${randomUUID()}`) is
   // what it would mint per call, which is exactly the fragmentation this ends.
@@ -1111,8 +1194,15 @@ export interface MeasureResult {
 }
 
 export interface MeasureExperimentOptions extends LaunchExperimentOptions {
-  /** Where the verdicts are written — the server's live recorder, the same log the experiments listing reads. */
-  recorder: Pick<SessionRecorder, 'record'>
+  /**
+   * Where the verdicts are written — the server's live recorder, the same log
+   * the experiments listing reads. Widened to the same shape
+   * `LaunchExperimentOptions.recorder` declares (rather than `record` alone)
+   * so this override stays a valid narrowing of it — measuring itself never
+   * reads `sessionId`/`eventsSoFar`, but the real call site always hands a
+   * full `SessionRecorder`, which carries both for free.
+   */
+  recorder: Pick<SessionRecorder, 'sessionId' | 'eventsSoFar' | 'record'>
 }
 
 function parseMeasureRequestBody(body: unknown): MeasureRequestBody {
@@ -1293,7 +1383,8 @@ export interface RdResult {
   corpus: { choice: 'local' | 'local+tracker'; digest: string; itemCount: number; trackerRefusal: string | null }
   patterns: RdPatternDTO[]
   proposals: Array<Record<string, unknown>>
-  refusals: Array<{ patternId: string; reason: string }>
+  /** `rawResult` is the hand's own raw text, bounded (`RD_REFUSAL_RAW_RESULT_CHARS`, `server/src/lab/rd.ts`) — prd-55 ruling 9's `<details>` shows it, never an honest-gap placeholder. */
+  refusals: Array<{ patternId: string; reason: string; rawResult: string }>
   provenance: Record<string, unknown> | null
   turns: number
   recordedTo: string | null
@@ -1404,8 +1495,10 @@ function parseRdJson(stdout: string): RdResult | null {
   if (!Array.isArray(refusals)) return null
   const readRefusals: RdResult['refusals'] = []
   for (const row of refusals) {
-    if (!isRecord(row) || typeof row.patternId !== 'string' || typeof row.reason !== 'string') return null
-    readRefusals.push({ patternId: row.patternId, reason: row.reason })
+    if (!isRecord(row) || typeof row.patternId !== 'string' || typeof row.reason !== 'string' || typeof row.rawResult !== 'string') {
+      return null
+    }
+    readRefusals.push({ patternId: row.patternId, reason: row.reason, rawResult: row.rawResult })
   }
   if (provenance !== null && !isRecord(provenance)) return null
   if (typeof turns !== 'number') return null
@@ -1592,7 +1685,12 @@ export function registerLabRoutes(app: FastifyInstance, ctx: ServerContext): voi
     }
 
     try {
-      return await launchExperiment(request.body, { repoPath: ctx.repoPath, ...(ctx.now === undefined ? {} : { now: ctx.now }) })
+      return await launchExperiment(request.body, {
+        repoPath: ctx.repoPath,
+        sessionDir: ctx.sessionDir,
+        recorder: ctx.recorder,
+        ...(ctx.now === undefined ? {} : { now: ctx.now }),
+      })
     } catch (err) {
       if (err instanceof LaunchValidationError) {
         return reply.code(400).send({ error: err.message })
