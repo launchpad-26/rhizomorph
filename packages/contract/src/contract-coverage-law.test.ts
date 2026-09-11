@@ -60,6 +60,7 @@ const EXPECTED: ReadonlyArray<{ route: string; contractTest: string }> = [
   { route: '/api/rotate', contractTest: 'rotate.contract.test.ts' },
   { route: '/api/lab/launch', contractTest: 'launch.contract.test.ts' },
   { route: '/api/lab/measure', contractTest: 'lab-measure.contract.test.ts' },
+  { route: '/api/lab/rd', contractTest: 'lab-rd.contract.test.ts' },
   { route: '/api/concierge/launch', contractTest: 'instrument.contract.test.ts' },
   { route: '/api/concierge/clone', contractTest: 'clone.contract.test.ts' },
   { route: '/api/retarget', contractTest: 'retarget.contract.test.ts' },
