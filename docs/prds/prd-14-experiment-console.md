@@ -405,8 +405,11 @@ record. The superseding record is
 [ADR-0049](../adr/0049-the-comparison-shape-stays-in-two-copies-at-version-2.md),
 and it says so in its own Consequences, with the
 falsifier written down: **the two-copy decision holds only while the agreement
-law's throw-site coverage stays derived from source.** If that coverage is ever
-hand-listed, the argument for two copies has gone and the shape should move.
+laws keep both kinds of coverage ADR-0049 names — throw sites derived from
+source, and every accepted value of every union v2 admits.** If either lapses,
+the argument for two copies has gone and the shape should move. (The ADR's
+first draft named only the first kind; two review seats defeated it, and the
+record was corrected before it shipped — see its Consequences.)
 
 ### Sequencing
 
