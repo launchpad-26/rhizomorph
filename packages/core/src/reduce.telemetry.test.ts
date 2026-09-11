@@ -6,6 +6,7 @@ import {
   fixtureTraceSpans,
 } from './fixtures.js'
 import { reduce, reduceAll } from './reduce.js'
+import { selectSessionSpend, selectSpendForLane, selectTelemetryOrigins } from './selectors/spend.js'
 import { initialSessionState } from './state.js'
 
 /**
@@ -312,6 +313,64 @@ describe('reduce — llm.cost', () => {
       origin: 'sessionlog',
       authoritative: false,
       estimateSource: 'pricing-table@litellm',
+    })
+  })
+
+  /**
+   * prd55 ruling 1 (#430): "the hand's cost is booked as spend with its basis,
+   * like a fork's." The fold's half of that is that there is no half — a cost
+   * the lab booked goes through the same arm, lands in the same array, reaches
+   * the same totals, and nothing anywhere was taught about it.
+   */
+  describe('a cost the lab booked (prd55 ruling 1)', () => {
+    it('records it as spend like any other, with the lab named as its origin', () => {
+      const state = reduceAll([
+        f.llmCost({ lane: 'rd-lane', costUsd: 0.0421, authoritative: true }, { ts: 10, source: 'lab' }),
+      ])
+
+      expect(state.telemetry.costs).toHaveLength(1)
+      expect(state.telemetry.costs[0]).toMatchObject({
+        origin: 'lab',
+        lane: 'rd-lane',
+        costUsd: 0.0421,
+        authoritative: true,
+        estimateSource: null,
+      })
+    })
+
+    it('adds its spend to the ledger total for its lane, beside what the collectors booked', () => {
+      const state = reduceAll([
+        f.llmCost({ lane: 'rd-lane', costUsd: 1, authoritative: true }, { ts: 10 }),
+        f.llmCost({ lane: 'rd-lane', costUsd: 0.25, authoritative: true }, { ts: 20, source: 'lab' }),
+        f.llmCost({ lane: 'other-lane', costUsd: 8, authoritative: true }, { ts: 30, source: 'lab' }),
+      ])
+
+      // The lane it belongs to…
+      expect(selectSpendForLane(state, 'rd-lane').costUsd).toBeCloseTo(1.25, 10)
+      expect(selectSpendForLane(state, 'other-lane').costUsd).toBeCloseTo(8, 10)
+      // …and the ledger's total.
+      expect(selectSessionSpend(state).costUsd).toBeCloseTo(9.25, 10)
+
+      // The lane index learned the lab's lane exactly as it learns a
+      // collector's — one more place a special case would have had to exist.
+      expect(Object.keys(state.telemetry.lanes).sort()).toEqual(['other-lane', 'rd-lane'])
+    })
+
+    it('rides the ordinary origin filter — neither exempt from one nor hidden by the default', () => {
+      const state = reduceAll([
+        f.llmCost({ lane: 'rd-lane', costUsd: 1, authoritative: true }, { ts: 10 }),
+        f.llmCost({ lane: 'rd-lane', costUsd: 0.25, authoritative: true }, { ts: 20, source: 'lab' }),
+      ])
+
+      // No filter is every origin — the ledger's total, which is the figure
+      // ruling 1 is about.
+      expect(selectSessionSpend(state).costUsd).toBeCloseTo(1.25, 10)
+      // A caller that asks for one origin gets exactly that one, through the
+      // same filter the two collectors go through.
+      expect(selectSessionSpend(state, { origins: ['lab'] }).costUsd).toBeCloseTo(0.25, 10)
+      expect(selectSessionSpend(state, { origins: ['otel'] }).costUsd).toBeCloseTo(1, 10)
+      expect(selectSessionSpend(state, { origins: ['sessionlog'] }).costUsd).toBe(0)
+      expect(selectTelemetryOrigins(state)).toEqual(['lab', 'otel'])
     })
   })
 })
