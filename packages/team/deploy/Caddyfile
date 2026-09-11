@@ -1,0 +1,3 @@
+rhizomorph.devacademy.life {
+	reverse_proxy app:8787
+}

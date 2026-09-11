@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:18.4-alpine  # pinned to what the schema was executed against —
+                                  # packages/team/src/migrations/0003_roles_rls.sql and
+                                  # storage/postgres.ts cite PostgreSQL 18.4 by name.
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    # Mounted at /var/lib/postgresql, NOT /var/lib/postgresql/data (#433, found
+    # by the scripted boot drill, executed against this exact image): the
+    # postgres:18+ Docker images store data under a major-version-specific
+    # subdirectory (pg_ctlcluster-style) and refuse to start against a volume
+    # mounted directly at the old .../data path — the container logs the
+    # image's own upstream migration notice
+    # (github.com/docker-library/postgres/pull/1259) and exits unhealthy.
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build:
+      context: ../../..
+      dockerfile: packages/team/Dockerfile
+    environment:
+      RZ_TEAM_DATABASE_URL: ${RZ_TEAM_DATABASE_URL}
+      PORT: "8787"
+      HOST: "0.0.0.0"
+    volumes:
+      - team_journal:/data/journal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine  # pin the current stable 2.x.y tag at build time
+                            # (docs.caddyserver.com / Docker Hub); no executed
+                            # citation for an exact patch version exists in this
+                            # repo, unlike postgres above — don't float `latest`.
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  team_journal:
+  caddy_data:
+  caddy_config:
