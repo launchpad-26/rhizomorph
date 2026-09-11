@@ -8,10 +8,12 @@ import {
   agentActiveTimeEventSchema,
   agentThreadSchema,
   createEvent,
+  eventSourceSchema,
   llmCostEventSchema,
   llmUsageEventSchema,
   parseEvent,
   sourceOf,
+  telemetryOriginSchema,
   telemetryRefusedEventSchema,
   toolActivityEventSchema,
   totalTokens,
@@ -180,6 +182,105 @@ describe('llm.cost', () => {
       { id: 'evt-1', ts: 1 },
     )
     expect(event.payload.costUsd).toBe(0)
+  })
+
+  // --- prd55 ruling 1 (#430): a cost the lab booked --------------------------
+
+  describe('the lab may name itself as the source of a cost it booked (prd55 ruling 1)', () => {
+    it('validates a lab-sourced cost, and a collector-sourced one still does', () => {
+      const booked = createEvent(
+        'llm.cost',
+        { ...cost, costUsd: 0.0421, authoritative: true },
+        { id: 'evt-1', ts: 1, source: 'lab' },
+      )
+      expect(booked.source).toBe('lab')
+      expect(booked.payload.costUsd).toBeCloseTo(0.0421, 7)
+
+      // …and neither collector lost the right to sign one.
+      for (const source of ['otel', 'sessionlog'] as const) {
+        const collected = createEvent(
+          'llm.cost',
+          { ...cost, costUsd: 1, authoritative: true },
+          { id: 'evt-2', ts: 2, source },
+        )
+        expect(collected.source).toBe(source)
+      }
+    })
+
+    it('leaves the source map alone — dollars are still otel by default', () => {
+      expect(sourceOf('llm.cost')).toBe('otel')
+      const defaulted = createEvent(
+        'llm.cost',
+        { ...cost, costUsd: 1, authoritative: true },
+        { id: 'evt-1', ts: 1 },
+      )
+      expect(defaulted.source).toBe('otel')
+    })
+
+    it('still rejects a source that is neither a telemetry collector nor the lab', () => {
+      for (const source of ['git', 'tmux', 'workmux', 'system', 'beacon', 'gate', 'operator', 'judge']) {
+        const result = parseEvent({
+          id: 'evt-1',
+          ts: 1,
+          source,
+          type: 'llm.cost',
+          payload: { ...cost, costUsd: 1, authoritative: true },
+        })
+        expect(result.ok, `llm.cost must refuse source "${source}"`).toBe(false)
+      }
+    })
+
+    /**
+     * The distinction `events/lab.ts` draws, restated as a law: the lab is an
+     * explicitly-invoked second hand, not a seventh collector. It may BOOK a
+     * cost, because the figure is one its own subprocess reported about itself.
+     * It may not TAKE a reading — a token count comes off a transcript a
+     * collector tailed and a tool call off the same, and the lab tails nothing.
+     */
+    it('does not let the lab sign a reading — usage and tool activity stay collectors-only', () => {
+      expect(
+        llmUsageEventSchema.safeParse({
+          id: 'evt-1',
+          ts: 1,
+          source: 'lab',
+          type: 'llm.usage',
+          payload: usage,
+        }).success,
+      ).toBe(false)
+      expect(
+        toolActivityEventSchema.safeParse({
+          id: 'evt-1',
+          ts: 1,
+          source: 'lab',
+          type: 'tool.activity',
+          payload: { lane: '33-core', tool: 'Bash' },
+        }).success,
+      ).toBe(false)
+      expect(parseEvent({ id: 'evt-1', ts: 1, source: 'lab', type: 'llm.usage', payload: usage }).ok).toBe(false)
+    })
+
+    /**
+     * The vocabulary keeps saying it (prd12 ruling 1, cited by prd55 ruling 1):
+     * `eventSourceSchema` documents "which collector saw it", and `'lab'` is
+     * deliberately absent from it. Widening `llm.cost` does not change that,
+     * and this law is here so a later lane cannot quietly fold the lab in on
+     * this precedent — `common.ts`'s own comment beside `'operator'` says that
+     * reopening prd12 ruling 1 is a deliberate act, never a side effect.
+     */
+    it('keeps "lab" outside the collector enum — booking a cost is not becoming a collector', () => {
+      expect(eventSourceSchema.safeParse('lab').success).toBe(false)
+      expect(eventSourceSchema.options).not.toContain('lab')
+      expect(telemetryOriginSchema.options).toContain('lab')
+    })
+
+    /**
+     * A telemetry RECORD's `origin` is the union of everything any telemetry
+     * event may say; each envelope above fixes which of them it may say.
+     * Pinned exactly, so neither half can drift into the other unnoticed.
+     */
+    it('names the two collectors and the one second hand, in that order', () => {
+      expect(telemetryOriginSchema.options).toEqual(['sessionlog', 'otel', 'lab'])
+    })
   })
 })
 
