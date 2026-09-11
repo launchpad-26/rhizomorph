@@ -219,7 +219,7 @@
   forever. prd43 #23 unblocked. The closeout records what the plan got wrong, including the
   route arithmetic that went stale between drafting and grooming with no law able to notice.
 - **prd30 — the open hand** (`docs/prds/prd-30-the-open-hand.md`, BLESSED 2026-08-08,
-  all four waves shipped): the shared card, condition selector and teach layer ship, and the
+  **all four waves landed 2026-09-11**): the shared card, condition selector and teach layer ship, and the
   `title=` sweep is finished in both halves — #220's fifty and #389's last twelve, with
   `NOT_YET_SWEPT` deleted rather than emptied. This entry named all three of
   `MarkHoverCard`, the loupe read-out and the sweep as still held by the code's own law; none

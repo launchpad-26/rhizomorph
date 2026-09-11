@@ -98,6 +98,24 @@ an open hand: hover it, focus it, and it explains itself the same way everywhere
    requires the README or AGENTS.md, or the teach affordance names a condition the selector does
    not know.
 
+**Success 1's falsifier is amended, because ADR-0044 changed the definition it rests on rather
+than the code it names.** Read literally, *"not met while `MarkHoverCard`, the loupe and the
+panels each render their own card chrome"* is unmet today and always will be: `MarkHoverCard`
+is still in `packages/web/src/tide/ChapterMarks.tsx`, still opened on hover *and* focus, and
+`tide/Loupe.tsx` still renders. Neither is a defect, and neither was re-seated. ADR-0044 ruled
+that **a panel containing controls is a menu, and a menu is not card chrome** — every row of
+`MarkHoverCard` is a `<button>` that seeks to a timestamp — and #221 found the loupe is not a
+disclosure at all: it carries no hover or focus handler and opens on zoom level
+(`tide/TideDock.tsx`, `loupeOpen = zoomLevel > maxZoomLevel`). So the criterion binds on *card
+chrome as ADR-0044 defines it*, and the law that enforces it —
+`packages/web/src/disclosure/one-card-law.test.ts` — names nothing and needs no allowlist,
+which is the criterion's real falsifier and is green.
+
+The two named idioms are left in the sentence above rather than struck from it. They are what
+the criterion was written against in 2026-08-08, and a falsifier edited to match the answer is
+not a falsifier. This paragraph is the ruling that moved, recorded beside the text it moved.
+Success 3 needs no amendment: `MarkHoverCard` takes focus, so nothing here is pointer-only.
+
 ## Non-goals
 
 - **No server work, none.** The first edition of the condition table is hand-authored over
