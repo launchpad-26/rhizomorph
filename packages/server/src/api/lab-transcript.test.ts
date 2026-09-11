@@ -16,6 +16,7 @@ import {
   readLabTranscript,
   registerLabTranscriptRoute,
 } from './lab-transcript.js'
+import { CAPABILITY_TOKEN_HEADER } from './security.js'
 import { capabilityHeaders, TEST_CAPABILITY_TOKEN } from './test-support.js'
 import { TRANSCRIPT_CHUNK_BYTES, type TranscriptEntry } from './transcript.js'
 
@@ -413,8 +414,18 @@ describe('GET /api/lab/transcript — the lab reads its own transcripts (prd-55 
     it('is a gated read — a bare request is refused before the handler runs', async () => {
       const parent = await writeParent(PARENT_LINES)
       const app = makeApp(record(parent), { claudeProjectsRoot: projectsRoot })
+      // Same readiness every other case in this file gets for free by
+      // awaiting a real 200/400/404 through the gate: the request is made
+      // only once the app is fully booted, never against a route table that
+      // might still be mid-registration.
+      await app.ready()
       const response = await app.inject({ method: 'GET', url: `/api/lab/transcript?lane=${ARM_HANDLE}` })
       expect(response.statusCode).toBe(401)
+      // The body, not just the status: a pass means requireCapabilityToken
+      // answered, never that some other 401 source did.
+      expect(response.json()).toEqual({
+        error: `missing or invalid ${CAPABILITY_TOKEN_HEADER} header — this route requires the per-process capability token`,
+      })
       await app.close()
     })
 
