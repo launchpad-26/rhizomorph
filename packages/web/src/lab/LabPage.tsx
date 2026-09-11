@@ -13,6 +13,7 @@ import type { MeasureFetchLike } from './measure.js'
 import { MeasureControl } from './measure-control/MeasureControl.js'
 import { Metrics } from './metrics/index.js'
 import { Rail } from './rail/index.js'
+import { type RdFetchLike, RdTab } from './rd/index.js'
 import { TraceDiff } from './trace/index.js'
 import { computeExperimentDimensions, isCleanlyControlled, type LabCheckpoint, type LabExperiment, type LabRun } from './types.js'
 
@@ -57,6 +58,8 @@ export interface LabPageProps {
   launchFetchImpl?: LaunchFetchLike
   /** Test-only escape hatch for the one write every experiment's measure control makes. */
   measureFetchImpl?: MeasureFetchLike
+  /** Test-only escape hatch for the R&D control's one write. */
+  rdFetchImpl?: RdFetchLike
   /** Test-only: launches this page should already know about — how the partial state is rendered deterministically. */
   seedLaunchOutcomes?: readonly LaunchOutcome[]
 }
@@ -71,8 +74,14 @@ type LoadState<T> = { status: 'loading' } | { status: 'ready'; items: T[] } | { 
  */
 export const NO_CHECKPOINTS_COPY = 'there are no checkpoints yet — capture one with `rhizomorph lab checkpoint <lane>`'
 
-/** The stage's three readings of one experiment (ruling 8) — a tablist, never a stack. */
-const TABS = ['Compare', 'Trace', 'Metrics'] as const
+/**
+ * The stage's four readings of one experiment (ruling 8; prd-55 wave 6 adds
+ * the fourth) — a tablist, never a stack. R&D joins at the END: the operator
+ * reaches it deliberately, past the three readings that were already here,
+ * and the existing `End`/wrap tests in `LabPage.test.tsx` were extended to
+ * this new last position rather than weakened to still expect the old one.
+ */
+const TABS = ['Compare', 'Trace', 'Metrics', 'R&D'] as const
 type Tab = (typeof TABS)[number]
 
 function goBalcony(): void {
@@ -307,7 +316,7 @@ function partialFacts(outcomes: readonly LaunchOutcome[]): { byFork: Record<stri
   return { byFork, byCheckpoint }
 }
 
-export function LabPage({ fetchImpl, launchFetchImpl, measureFetchImpl, seedLaunchOutcomes = [] }: LabPageProps = {}) {
+export function LabPage({ fetchImpl, launchFetchImpl, measureFetchImpl, rdFetchImpl, seedLaunchOutcomes = [] }: LabPageProps = {}) {
   const loadCheckpoints = useCallback(() => fetchLabCheckpoints(fetchImpl), [fetchImpl])
   const loadExperiments = useCallback(() => fetchLabExperiments(fetchImpl), [fetchImpl])
   const [checkpoints] = useLabLoad(loadCheckpoints)
@@ -340,6 +349,19 @@ export function LabPage({ fetchImpl, launchFetchImpl, measureFetchImpl, seedLaun
     // is no longer reading.
     setOpenRun(null)
     setDivergence(null)
+  }
+
+  /**
+   * Told by EITHER launch this page mounts — its own bottom panel, or the
+   * R&D tab's launch review, opened from a proposal (prd-55 ruling 4). Both
+   * reach the laboratory through the SAME `/api/lab/launch`, so both learn of
+   * a new experiment (and a partial one) the same way: re-read the record
+   * (ruling 7) and keep the partial fact beside it, since the record itself
+   * holds no intent event.
+   */
+  function handleLaunched(outcome: LaunchOutcome): void {
+    setLaunches((current) => [...current, outcome])
+    reloadExperiments()
   }
 
   function seatFromRail(checkpointId: string): void {
@@ -424,9 +446,33 @@ export function LabPage({ fetchImpl, launchFetchImpl, measureFetchImpl, seedLaun
                 loading experiments…
               </p>
             ) : selected === null ? (
-              <p data-testid="lab-stage-no-experiment" className="text-(--ink-dim)">
-                no experiment is open — the rail lists what there is, and fork from here starts a new one
-              </p>
+              <div className="flex flex-col gap-4">
+                <p data-testid="lab-stage-no-experiment" className="text-(--ink-dim)">
+                  no experiment is open — the rail lists what there is, and fork from here starts a new one
+                </p>
+                {/* prd-55 ruling 9 / wave 6's corrected reading: the R&D tab
+                    is not the selected experiment's reading — the hand reads
+                    retros and reviews too, and S5's *no corpus* state exists
+                    for a repo with no experiment at all. Reachable whenever a
+                    LANE is known (a checkpoint is seated), independent of
+                    Compare/Trace/Metrics' own experiment gate — no tablist
+                    here, since there is nothing else to tab between. */}
+                {seatedCheckpoint !== null && (
+                  <section aria-labelledby="lab-rd-standalone-heading" className="flex flex-col gap-2 border-(--line-hair) border-t pt-4">
+                    <h2 id="lab-rd-standalone-heading" className="heading text-(--ink-dim)">
+                      R&amp;D
+                    </h2>
+                    <RdTab
+                      lane={seatedCheckpoint.lane}
+                      experiments={experimentItems}
+                      {...(fetchImpl === undefined ? {} : { fetchImpl })}
+                      {...(rdFetchImpl === undefined ? {} : { rdFetchImpl })}
+                      {...(launchFetchImpl === undefined ? {} : { launchFetchImpl })}
+                      onLaunched={handleLaunched}
+                    />
+                  </section>
+                )}
+              </div>
             ) : (
               <section
                 id={`lab-experiment-${selected.forkId}`}
@@ -507,6 +553,20 @@ export function LabPage({ fetchImpl, launchFetchImpl, measureFetchImpl, seedLaun
                     {...(fetchImpl === undefined ? {} : { fetchImpl })}
                   />
                 </TabPanel>
+
+                {/* prd-55 wave 6: the R&D tab (ruling 9's fourth reading) —
+                    the operator's own hand reads patterns and proposes
+                    experiments; nothing here posts on mount. */}
+                <TabPanel name="R&D" tab={tab}>
+                  <RdTab
+                    lane={seatedCheckpoint?.lane ?? selected.parentLane}
+                    experiments={experimentItems}
+                    {...(fetchImpl === undefined ? {} : { fetchImpl })}
+                    {...(rdFetchImpl === undefined ? {} : { rdFetchImpl })}
+                    {...(launchFetchImpl === undefined ? {} : { launchFetchImpl })}
+                    onLaunched={handleLaunched}
+                  />
+                </TabPanel>
               </section>
             )}
 
@@ -518,14 +578,7 @@ export function LabPage({ fetchImpl, launchFetchImpl, measureFetchImpl, seedLaun
                 {...(fetchImpl === undefined ? {} : { fetchImpl })}
                 {...(launchFetchImpl === undefined ? {} : { launchFetchImpl })}
                 initialCheckpointId={seated}
-                onLaunched={(outcome) => {
-                  setLaunches((current) => [...current, outcome])
-                  // The record holds the new experiment now; read it back, so it
-                  // reaches Compare and Metrics without anyone reloading the page
-                  // (prd-55 ruling 7). The partial fact above is kept beside it —
-                  // the record holds no intent event, only the launch knew.
-                  reloadExperiments()
-                }}
+                onLaunched={handleLaunched}
               />
             </section>
           </div>

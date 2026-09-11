@@ -15,12 +15,24 @@ import { CAPABILITY_TOKEN_HEADER } from '../recordings/capability.js'
  * second; the lab's launch gives it its third; the concierge's
  * relaunch-with-continuity gives it its fourth; the concierge's clone-by-URL
  * gives it its fifth; the concierge's repo switch gives it its sixth; the
- * comparison surface's save gives it its seventh. So this law enumerates
- * instead of forbidding: across every source file in `packages/web/src`, the
- * mutating calls are EXACTLY SEVEN, each in exactly one file, each to exactly
- * one route — and every verb any one names is the same single verb, `POST`.
- * An EIGHTH one added tomorrow — anywhere, in any panel, in a branch nothing
- * renders — fails here and has to say so in a diff a reviewer reads.
+ * comparison surface's save gives it its seventh; the R&D hand's *read and
+ * propose* gives it its eighth. So this law enumerates instead of forbidding:
+ * across every source file in `packages/web/src`, the mutating calls are
+ * EXACTLY EIGHT, each in exactly one file, each to exactly one route — and
+ * every verb any one names is the same single verb, `POST`. A NINTH one added
+ * tomorrow — anywhere, in any panel, in a branch nothing renders — fails here
+ * and has to say so in a diff a reviewer reads.
+ *
+ * **The eighth (prd-55 ruling 1, wave 6).** `lab/rd/rd.ts` is the R&D hand's
+ * *read and propose* — the same three-reason bar its seven siblings argue in
+ * their own headers, argued here in this module's own: it writes only
+ * `rd.patterns` / `rd.proposal` / `rd.refused`, additive events on the
+ * laboratory's own log, never the watched repo's working tree (ADR-0048); it
+ * is reached only from the R&D control's own button, an EXPLICIT OPERATOR ACT
+ * (proven by mutation in `rd/RdTab.test.tsx` — no effect posts to this route
+ * on mount); and it holds no credential beyond the two headers every gated
+ * mutation already needs — the operator's OWN `claude` spends under their own,
+ * already-authenticated login, never one this instrument holds.
  *
  * **The fifth (#266).** `concierge/clone.ts` is prd-20 ruling 1 / ADR-0019's
  * OTHER power — the one the fourth row's own module doc names and does not
@@ -113,8 +125,8 @@ const REPLAY_DIR = path.dirname(fileURLToPath(import.meta.url))
 const WEB_SRC = path.resolve(REPLAY_DIR, '..')
 
 /**
- * The six files allowed to mutate, the one route each may reach, and the
- * exact header set each may send — every verb across all six is `POST`.
+ * The eight files allowed to mutate, the one route each may reach, and the
+ * exact header set each may send — every verb across all eight is `POST`.
  *
  * AMENDED for #234: all these routes are token-gated now, not just
  * `/api/label`, so every call names {@link CAPABILITY_TOKEN_HEADER}.
@@ -144,6 +156,13 @@ const WEB_SRC = path.resolve(REPLAY_DIR, '..')
  * has ever had. Its payload is the whole `ComparisonInput` being shown, and
  * it carries the same two headers for the same reasons the launch and the
  * measure do: a JSON body and a write real enough to need the token.
+ *
+ * AMENDED for prd-55 wave 6 (#413): the R&D hand's *read and propose*
+ * (`lab/rd/rd.ts`) is the eighth row. Its payload is the model, the corpus
+ * choice and the optional turn/agent-command overrides — no credential of
+ * its own, since the operator's `claude` is already authenticated — and it
+ * carries the same two headers for the same reason every gated mutation
+ * with a JSON body does.
  */
 const MUTATING_MODULES: ReadonlyArray<{ file: string; route: string; headers: readonly string[] }> = [
   { file: path.join(WEB_SRC, 'replay', 'rotate.ts'), route: '/api/rotate', headers: [CAPABILITY_TOKEN_HEADER] },
@@ -183,6 +202,11 @@ const MUTATING_MODULES: ReadonlyArray<{ file: string; route: string; headers: re
   {
     file: path.join(WEB_SRC, 'lab', 'compare', 'save.ts'),
     route: '/api/lab/comparisons',
+    headers: ['Content-Type', CAPABILITY_TOKEN_HEADER],
+  },
+  {
+    file: path.join(WEB_SRC, 'lab', 'rd', 'rd.ts'),
+    route: '/api/lab/rd',
     headers: ['Content-Type', CAPABILITY_TOKEN_HEADER],
   },
 ]
@@ -410,7 +434,7 @@ function assertHeaderBlocksExact(text: string, allowed: readonly string[], fromD
   }
 }
 
-describe('the web app names exactly seven mutating calls (prd16 rulings 2 and 4; prd12/prd14 for the launch; prd-20 ruling 6 / ADR-0020 for the instrument button; prd-20 ruling 1 / ADR-0019 for the clone; prd-20 ruling 5 for the retarget; prd-14 ruling 5 for the comparison save)', () => {
+describe('the web app names exactly eight mutating calls (prd16 rulings 2 and 4; prd12/prd14 for the launch; prd-20 ruling 6 / ADR-0020 for the instrument button; prd-20 ruling 1 / ADR-0019 for the clone; prd-20 ruling 5 for the retarget; prd-14 ruling 5 for the comparison save; prd-55 ruling 1 / ADR-0048 for the R&D hand)', () => {
   it('has the whole app to check, not one directory — an empty grep proves nothing', () => {
     const files = sourceFiles()
     expect(files.length).toBeGreaterThan(80)
@@ -419,7 +443,7 @@ describe('the web app names exactly seven mutating calls (prd16 rulings 2 and 4;
     expect(files.map((file) => file.name)).toContain(path.join('drawer', 'useTranscript.ts'))
   })
 
-  it('are the ONLY seven files in the app that name a mutating verb or build a request init', () => {
+  it('are the ONLY eight files in the app that name a mutating verb or build a request init', () => {
     expect(mutatingFiles()).toEqual(
       MUTATING_MODULES.map((module) => path.relative(WEB_SRC, module.file)).sort(),
     )
@@ -679,6 +703,29 @@ describe('the web app names exactly seven mutating calls (prd16 rulings 2 and 4;
     ).not.toThrow()
 
     expect(text).toMatch(/body\s*:\s*JSON\.stringify\(\{\s*input\s*\}\)/)
+  })
+
+  /**
+   * The R&D hand's own row (prd-55 ruling 1, wave 6, #413). Its payload is
+   * the whole `RdRunRequest` — lane, model, corpus, and the two optional
+   * overrides — behind the same two headers every gated mutation with a body
+   * needs. No credential of any kind: the operator's own `claude` is already
+   * authenticated, and ADR-0048 is exactly the record that this instrument
+   * never holds or forwards one.
+   */
+  it("rd.ts's payload is the R&D request, behind exactly the two headers the gated call needs, no credential", () => {
+    const dir = path.join(WEB_SRC, 'lab', 'rd')
+    const text = readFileSync(path.join(dir, 'rd.ts'), 'utf8')
+    expect(text).not.toMatch(/FormData|URLSearchParams|new Request\(/)
+    expect(text).not.toMatch(/apiKey|api_key|ANTHROPIC_API_KEY|Authorization|Bearer\s/i)
+    expect(text).not.toMatch(/credentials\s*:/)
+
+    expect(
+      () => assertHeaderBlocksExact(text, ['Content-Type', CAPABILITY_TOKEN_HEADER], dir),
+      'the header law must hold on the real rd.ts',
+    ).not.toThrow()
+
+    expect(text).toMatch(/body\s*:\s*JSON\.stringify\(request\)/)
   })
 
   it('the header checks themselves catch what they claim to — a computed credential under a different name, a shadowed import, and headers hidden in a variable', () => {

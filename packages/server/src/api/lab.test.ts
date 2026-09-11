@@ -534,6 +534,27 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
     return checkpointId
   }
 
+  /**
+   * Writes an `rd.proposal` event straight to a session file, bypassing a
+   * real R&D run — `recordOverrideIfNeeded`'s lookup reads the same fold any
+   * other surface would, so a synthetic proposal is exactly what a real one
+   * looks like on the record. `chosenCheckpointId` need not be a REAL,
+   * restorable checkpoint: it is only ever compared as a string against the
+   * launch's own `checkpointId`, never restored from.
+   */
+  async function seedProposal(proposalId: string, chosenCheckpointId: string, startTs: number): Promise<void> {
+    const f = createEventFactory({ startTs })
+    f.rdProposal({ proposalId, checkpointPick: { chosenCheckpointId, rejected: [] } })
+    const dir = sessionDirFor(repoDir, dataRoot)
+    await mkdir(dir, { recursive: true })
+    await writeFile(path.join(dir, sessionFileName(startTs)), eventsToJsonl(f.all()), 'utf8')
+  }
+
+  /** A fresh, never-before-used live recorder over this test's own `sessionDir` — what `sessionDir`/`recorder` options 2 need to look a proposal up and, if it applies, record an override. */
+  function freshRecorder(id: string): SessionRecorder {
+    return new SessionRecorder(id, sessionFilePath(sessionDirFor(repoDir, dataRoot), id))
+  }
+
   it('rejects a malformed request before touching the laboratory at all', async () => {
     await expect(launchExperiment({}, { repoPath: repoDir })).rejects.toThrow(LaunchValidationError)
     await expect(
@@ -602,11 +623,15 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
    */
   it('carries the proposal a launch came from onto every recorded arm, and nothing at all when a hand chose it (prd55 ruling 4)', async () => {
     const checkpointId = await seedCheckpoint('lane-proposal', () => 1_000_000)
+    // The proposal's own pick IS the checkpoint this launch uses — no
+    // override to record, so this test's claim stays exactly what it always
+    // was: the proposal id travels, and only that.
+    await seedProposal('proposal-1', checkpointId, 1_500_000)
     const exec = execWithStubs((command) => (command === 'workmux' ? OK : null))
 
     await launchExperiment(
       { lane: 'lane-proposal', checkpointId, arms: [{ model: 'opus' }], proposalId: 'proposal-1' },
-      { repoPath: repoDir, exec, dataRoot, claudeProjectsRoot, now: () => 2_000_000 },
+      { repoPath: repoDir, exec, dataRoot, claudeProjectsRoot, now: () => 2_000_000, sessionDir: sessionDirFor(repoDir, dataRoot), recorder: freshRecorder('9000000') },
     )
     await launchExperiment(
       { lane: 'lane-proposal', checkpointId, arms: [{ model: 'opus' }] },
@@ -622,6 +647,8 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
     // Absent means the key is not there at all, not an empty string.
     const byHand = dispatched.find((event) => (event.payload as { proposalId?: string }).proposalId === undefined)
     expect(byHand?.payload).not.toHaveProperty('proposalId')
+    // The pick matched the launch — no override event exists.
+    expect(recordedEvents('rd.override')).toHaveLength(0)
   })
 
   it('refuses a proposal id that names nothing, or one shaped like a flag, before anything is dispatched (prd55 ruling 4)', async () => {
@@ -634,6 +661,141 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
     await expect(
       launchExperiment({ lane: 'x', checkpointId: 'y', arms: [{}], proposalId: '--help' }, { repoPath: repoDir, exec: neverRuns }),
     ).rejects.toThrow(/may not begin with "-"/)
+  })
+
+  /**
+   * prd-55 ruling 4 (wave 6 widening): the launch route itself records
+   * `rd.override` — looked up in the fold by `proposalId`, compared against
+   * the checkpoint THIS launch actually uses, before a single arm dispatches.
+   */
+  describe('a launch naming a proposalId records an override exactly when the checkpoints disagree (prd-55 ruling 4)', () => {
+    it("records rd.override, naming BOTH checkpoints, before anything dispatches — the operator's choice is never re-attributed", async () => {
+      const checkpointId = await seedCheckpoint('lane-override', () => 1_000_000)
+      await seedProposal('proposal-override-1', 'ckpt-the-hand-picked', 1_500_000)
+      const exec = execWithStubs((command) => (command === 'workmux' ? OK : null))
+
+      const result = await launchExperiment(
+        { lane: 'lane-override', checkpointId, arms: [{ model: 'opus' }], proposalId: 'proposal-override-1' },
+        {
+          repoPath: repoDir,
+          exec,
+          dataRoot,
+          claudeProjectsRoot,
+          now: () => 2_000_000,
+          sessionDir: sessionDirFor(repoDir, dataRoot),
+          recorder: freshRecorder('9100000'),
+        },
+      )
+
+      expect(result.failed).toBeNull()
+      const overrides = recordedEvents('rd.override')
+      expect(overrides).toHaveLength(1)
+      expect(overrides[0]?.payload).toMatchObject({
+        lane: 'lane-override',
+        proposalId: 'proposal-override-1',
+        agentCheckpointId: 'ckpt-the-hand-picked',
+        operatorCheckpointId: checkpointId,
+      })
+    })
+
+    it('records the override BEFORE dispatching — it survives even when the arm itself then fails to dispatch', async () => {
+      // workmux fails on purpose: the launch's own arm never actually
+      // dispatches (a PARTIAL experiment, prd53 ruling 7), and the override
+      // is still on the record — proof it was written before the dispatch
+      // loop even started, not as a side effect of a successful one.
+      const checkpointId = await seedCheckpoint('lane-override-order', () => 1_000_000)
+      await seedProposal('proposal-override-2', 'ckpt-the-hand-picked-2', 1_500_000)
+      const exec = execWithStubs((command) =>
+        command === 'workmux' ? { stdout: '', stderr: 'tmux server not running', code: 1, failed: true } : null,
+      )
+
+      const result = await launchExperiment(
+        { lane: 'lane-override-order', checkpointId, arms: [{ model: 'opus' }], proposalId: 'proposal-override-2' },
+        {
+          repoPath: repoDir,
+          exec,
+          dataRoot,
+          claudeProjectsRoot,
+          now: () => 2_000_000,
+          sessionDir: sessionDirFor(repoDir, dataRoot),
+          recorder: freshRecorder('9200000'),
+        },
+      )
+
+      expect(result.failed).not.toBeNull() // the arm itself did not dispatch…
+      expect(recordedEvents('rd.override')).toHaveLength(1) // …and the override still landed
+    })
+
+    it("a launch on the proposal's own pick records nothing — no override for a choice nobody changed", async () => {
+      const checkpointId = await seedCheckpoint('lane-no-override', () => 1_000_000)
+      await seedProposal('proposal-no-override', checkpointId, 1_500_000)
+      const exec = execWithStubs((command) => (command === 'workmux' ? OK : null))
+
+      await launchExperiment(
+        { lane: 'lane-no-override', checkpointId, arms: [{ model: 'opus' }], proposalId: 'proposal-no-override' },
+        {
+          repoPath: repoDir,
+          exec,
+          dataRoot,
+          claudeProjectsRoot,
+          now: () => 2_000_000,
+          sessionDir: sessionDirFor(repoDir, dataRoot),
+          recorder: freshRecorder('9300000'),
+        },
+      )
+
+      expect(recordedEvents('rd.override')).toHaveLength(0)
+    })
+
+    /**
+     * THE ID MUST ADVANCE, and every assertion above this one survives it not
+     * advancing — they all count overrides (`toHaveLength(0|1)`) and none reads
+     * an id. The defect this pins is scope, not spelling: `recordOverrideIfNeeded`
+     * runs once per launch, so a factory built inside it restarts at one and
+     * stamps `lab-000001` on every override a session records.
+     *
+     * Two launches, ONE recorder — the same session file, which is the scope
+     * `createIdFactory` promises uniqueness within.
+     */
+    it('two overrides in one session mint distinct, advancing ids — the id is seeded from the record, not restarted (#429)', async () => {
+      const recorder = freshRecorder('9350000')
+      for (const n of [1, 2]) {
+        const lane = `lane-two-overrides-${n}`
+        const checkpointId = await seedCheckpoint(lane, () => 1_000_000 + n)
+        await seedProposal(`proposal-two-overrides-${n}`, 'ckpt-the-hand-picked', 1_500_000 + n)
+        await launchExperiment(
+          { lane, checkpointId, arms: [{ model: 'opus' }], proposalId: `proposal-two-overrides-${n}` },
+          {
+            repoPath: repoDir,
+            exec: execWithStubs((command) => (command === 'workmux' ? OK : null)),
+            dataRoot,
+            claudeProjectsRoot,
+            now: () => 2_000_000 + n,
+            sessionDir: sessionDirFor(repoDir, dataRoot),
+            recorder,
+          },
+        )
+      }
+
+      const ids = recordedEvents('rd.override').map((event) => event.id)
+      expect(ids).toHaveLength(2)
+      // Stated as the exact pair, not as `new Set(ids).size`: a set assertion
+      // passes for ANY two distinct ids, including a random one, and this is a
+      // claim about a readable counter that advances by one.
+      expect(ids).toEqual(['lab-override-000001', 'lab-override-000002'])
+    })
+
+    it('an unknown proposalId is refused by name, before anything is dispatched', async () => {
+      const neverRuns: Exec = async (command, argv) => {
+        throw new Error(`nothing should have been executed, but got: ${command} ${argv.join(' ')}`)
+      }
+      await expect(
+        launchExperiment(
+          { lane: 'x', checkpointId: 'y', arms: [{}], proposalId: 'proposal-nobody-recorded' },
+          { repoPath: repoDir, exec: neverRuns, dataRoot, sessionDir: sessionDirFor(repoDir, dataRoot), recorder: freshRecorder('9400000') },
+        ),
+      ).rejects.toThrow(/"proposalId" names no proposal this repo has recorded: proposal-nobody-recorded/)
+    })
   })
 
   it('one launch is ONE experiment: every arm and every run folds under the forkId the launch minted, and no two share a worktree (prd53 ruling 1)', async () => {
@@ -1718,7 +1880,10 @@ describe('POST /api/lab/rd (prd-55 ruling 1 — the R&D hand, gated, reached thr
       const result = await runRdExperiment(BODY, { repoPath, exec: handExec(CONFOUNDED), dataRoot: sessionDir })
 
       expect(result.proposals).toEqual([])
-      expect(result.refusals).toEqual([{ patternId: 'pattern-slow-gate', reason: RD_MULTI_DIMENSION_REFUSAL }])
+      // prd-55 ruling 9 (wave 6 widening): the route's own answer carries the
+      // hand's raw result text too, so the tab's <details> has something real
+      // to show — bounded, but this fixture is well under the bound.
+      expect(result.refusals).toEqual([{ patternId: 'pattern-slow-gate', reason: RD_MULTI_DIMENSION_REFUSAL, rawResult: CONFOUNDED }])
     })
 
     it('no claude on PATH is a 200 carrying the sentence, not an error — ruling 9 draws it as a state', async () => {

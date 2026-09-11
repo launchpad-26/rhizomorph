@@ -465,6 +465,15 @@ describe('the lab tab NAMES no live-fleet machinery, by the identifiers and impo
     // prd-14 wave 3's 11 — this wave's note collapse and shared-scale
     // refusal grew INSIDE `ComparisonSurface.tsx` rather than adding a
     // module, the way branching's glyph shrank inside `geometry.ts`.
+    //
+    // prd-55 wave 6 (#413) pays one row: a new `rd` directory arrives with
+    // 4 — `rd.ts` (the R&D route's client, the app's eighth mutating call),
+    // `RdTab.tsx` (the control, the patterns list, the proposal panel, the
+    // counterfactual), `fixtures.ts` (ruling 9's state specimens, the same
+    // reason rail's and canvas's are counted) and `index.ts`. The root stays
+    // 6 — the fourth tab and its mount grew INSIDE `LabPage.tsx` rather than
+    // adding a module, the way branching's glyph and compare's note collapse
+    // did.
     expect(sourceFileCountsByDirectory()).toEqual({
       '': 6,
       axis: 3,
@@ -476,6 +485,7 @@ describe('the lab tab NAMES no live-fleet machinery, by the identifiers and impo
       'measure-control': 1,
       metrics: 3,
       rail: 4,
+      rd: 4,
       trace: 4,
     })
   })

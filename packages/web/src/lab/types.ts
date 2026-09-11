@@ -168,3 +168,106 @@ export type LabExperimentDimensions = ExperimentDimensions
 export function computeExperimentDimensions(experiment: LabExperiment): LabExperimentDimensions {
   return dimensionsOf(experiment.arms.map((arm) => arm.treatment))
 }
+
+// --- prd-55 wave 6 — the R&D tab's DTOs (ruling 1, 2, 3, 4, 9; S5) ----------
+//
+// Mirror the R&D route's answer (`/api/lab/rd`'s `RdResult`, `packages/server/src/api/
+// lab.ts`) field for field, the same discipline `LabCheckpoint`/`LabExperiment`
+// keep with the two GET routes above — a shape the route does not send is a
+// shape this console does not invent. `packages/core/src/events/lab.ts`'s
+// `rdProvenanceSchema` names `total_cost_usd`/`duration_ms` in snake_case ON
+// PURPOSE ("a direct copy of what the CLI returned, not a rhizomorph-shaped
+// figure") and this DTO keeps that spelling for the same reason: the
+// provenance line's cost must equal the event's, and renaming the field here
+// would be one more place the two could quietly drift.
+
+/** Which corpus a run read (prd-55 ruling 2) — the record `lab.rdCorpus` declares. */
+export type LabRdCorpusChoice = 'local' | 'local+tracker'
+
+/** The closed vocabulary a proposal's arms may vary in (prd-55 ruling 3). */
+export type LabRdVariesDimension = 'model' | 'brief' | 'checkpoint' | 'gate'
+
+/** Every rd.* run's audit trail (ruling 1) — the CLI's own reported figures, copied never re-derived. */
+export interface LabRdProvenance {
+  model: string
+  total_cost_usd: number
+  duration_ms: number
+  promptDigest: string
+  corpusDigest: string
+  claudeVersion: string
+  corpus: LabRdCorpusChoice
+}
+
+/** One pattern the hand grouped from the corpus (ruling 3). */
+export interface LabRdPattern {
+  patternId: string
+  shape: string
+  sourceItems: string[]
+  count: number
+  heldBack: boolean
+}
+
+/** What one arm of a proposal carries on each of the four dimensions (ruling 3). `null` means the arm inherits the default. */
+export interface LabRdArm {
+  model: string | null
+  briefDigest: string | null
+  checkpointId: string | null
+  gateCommand: string | null
+}
+
+/** One checkpoint the hand considered and did not choose, with why (ruling 3). */
+export interface LabRdCheckpointConsideration {
+  checkpointId: string
+  reason: string
+}
+
+/** The hand's checkpoint pick (ruling 3): the chosen checkpoint, and every considered-and-rejected one with its reason. */
+export interface LabRdCheckpointPick {
+  chosenCheckpointId: string
+  rejected: LabRdCheckpointConsideration[]
+}
+
+/** One clean, single-dimension proposal the hand drew from a pattern (ruling 3). */
+export interface LabRdProposal {
+  proposalId: string
+  patternId: string
+  varies: LabRdVariesDimension
+  arms: LabRdArm[]
+  checkpointPick: LabRdCheckpointPick
+}
+
+/**
+ * A proposal the pure laws refused (ruling 3, ruling 9) — the reason,
+ * verbatim, beside the pattern it was drawn from, and the hand's own raw
+ * result text (bounded server-side — `RD_REFUSAL_RAW_RESULT_CHARS`,
+ * `packages/server/src/lab/rd.ts`) so the tab's `<details>` can show what was
+ * actually said rather than an honest gap.
+ */
+export interface LabRdRefusal {
+  patternId: string
+  reason: string
+  rawResult: string
+}
+
+/** What corpus was read, and how much of it (ruling 2) — never the items' own text, which this route does not send back. */
+export interface LabRdCorpusSummary {
+  choice: LabRdCorpusChoice
+  digest: string
+  itemCount: number
+  /** Set when `local+tracker` was asked for and `gh` could not answer. */
+  trackerRefusal: string | null
+}
+
+/** One R&D route (`/api/lab/rd`) answer, parsed (`rd/rd.ts`'s `requestRd`). */
+export interface LabRdRun {
+  lane: string
+  /** False means the operator's CLI is not on the server's PATH — `reason` is the sentence, verbatim, and nothing was spawned. */
+  available: boolean
+  reason: string | null
+  corpus: LabRdCorpusSummary
+  patterns: LabRdPattern[]
+  proposals: LabRdProposal[]
+  refusals: LabRdRefusal[]
+  provenance: LabRdProvenance | null
+  turns: number
+}

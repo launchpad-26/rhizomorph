@@ -73,6 +73,16 @@ describe('requestLaunch', () => {
     expect(Object.keys(bodies[1] ?? {})).not.toContain('ceilingOverride')
   })
 
+  /** prd-55 ruling 4 (wave 6 widening): the proposal a launch restores travels, or does not, exactly as the launch's own runs/ceilingOverride already do. */
+  it('a request carrying a proposalId sends it as given — and one carrying none sends no such key', async () => {
+    const fetchImpl = vi.fn(answering(OUTCOME))
+    await requestLaunch({ lane: 'feature', checkpointId: 'ckpt-1', arms: [{}], proposalId: 'proposal-1' }, fetchImpl)
+    await requestLaunch({ lane: 'feature', checkpointId: 'ckpt-1', arms: [{}] }, fetchImpl)
+    const bodies = fetchImpl.mock.calls.map(([, init]) => JSON.parse(init.body) as Record<string, unknown>)
+    expect(bodies[0]).toEqual({ lane: 'feature', checkpointId: 'ckpt-1', arms: [{}], proposalId: 'proposal-1' })
+    expect(Object.keys(bodies[1] ?? {})).not.toContain('proposalId')
+  })
+
   /**
    * ADR-0012's known dev-mode gap, made honest rather than closed. Under `npm
    * run dev:web` vite serves `index.html` itself, so the injection never runs

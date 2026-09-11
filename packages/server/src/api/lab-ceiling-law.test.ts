@@ -906,8 +906,14 @@ describe('the lab ceiling law (prd-50 ruling 2) — every enumerated wiring to L
      * enumeration of forbidden spellings required.
      */
     const KNOWN_GOOD_OPTIONS: Readonly<Record<string, string>> = {
+      // prd-55 ruling 4 (wave 6 widening, conductor-recorded 2026-09-11
+      // 15:45): a launch naming a `proposalId` looks it up in the fold and
+      // may record `rd.override` before dispatching, so this call site now
+      // hands the route's own `sessionDir` and `recorder` through — the same
+      // two the measure entry below already carries, for the same reason
+      // (recording an event needs a place to write it).
       [THE_LAUNCH_ENTRY_POINT]: normalizeWhitespace(
-        '{ repoPath: ctx.repoPath, ...(ctx.now === undefined ? {} : { now: ctx.now }) }',
+        '{ repoPath: ctx.repoPath, sessionDir: ctx.sessionDir, recorder: ctx.recorder, ...(ctx.now === undefined ? {} : { now: ctx.now }), }',
       ),
       [THE_MEASURE_ENTRY_POINT]: normalizeWhitespace(
         '{ repoPath: ctx.repoPath, recorder: ctx.recorder, ...(ctx.now === undefined ? {} : { now: ctx.now }), }',
@@ -943,7 +949,7 @@ describe('the lab ceiling law (prd-50 ruling 2) — every enumerated wiring to L
     })
 
     it('bites: reformatting the same literal (whitespace only) still matches — the check is content-exact, not text-exact', () => {
-      const reformatted = `${THE_LAUNCH_ENTRY_POINT}(request.body,   {\n  repoPath: ctx.repoPath,\n  ...(ctx.now === undefined ? {} : { now: ctx.now })\n})`
+      const reformatted = `${THE_LAUNCH_ENTRY_POINT}(request.body,   {\n  repoPath: ctx.repoPath,\n  sessionDir: ctx.sessionDir,\n  recorder: ctx.recorder,\n  ...(ctx.now === undefined ? {} : { now: ctx.now }),\n})`
       const calls = callsTo(reformatted, THE_LAUNCH_ENTRY_POINT)
       expect(normalizeWhitespace(calls[0]![1]!)).toBe(KNOWN_GOOD_OPTIONS[THE_LAUNCH_ENTRY_POINT])
     })
