@@ -720,4 +720,55 @@ describe('the R&D tab (prd-55 wave 6, ruling 9)', () => {
 
     expect(screen.queryByTestId('rd-no-lane')).toBeNull()
   })
+
+  /**
+   * The reading corrected in the same widening (conductor, 2026-09-11
+   * 15:45): the R&D tab is NOT the selected experiment's reading — the hand
+   * reads retros and reviews too, and S5's *no corpus* state exists for a
+   * repo with no experiment at all. Reachable whenever a LANE is known (a
+   * seated checkpoint), independent of Compare/Trace/Metrics' own gate.
+   */
+  it('is reachable with a checkpoint seated and ZERO experiments — independent of the gate Compare/Trace/Metrics keep', async () => {
+    const noCorpusRun = {
+      lane: 'feature',
+      available: true,
+      reason: null,
+      corpus: { choice: 'local', digest: 'x'.repeat(64), itemCount: 0, trackerRefusal: null },
+      patterns: [],
+      proposals: [],
+      refusals: [],
+      provenance: {
+        model: 'sonnet',
+        total_cost_usd: 0.01,
+        duration_ms: 100,
+        promptDigest: 'a'.repeat(64),
+        corpusDigest: 'x'.repeat(64),
+        claudeVersion: '2.1.266',
+        corpus: 'local',
+      },
+      turns: 1,
+    }
+    const rdFetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => noCorpusRun })) as unknown as RdFetchLike
+    render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [])} rdFetchImpl={rdFetchImpl} />)
+    await waitFor(() => expect(screen.getByTestId('lab-checkpoint-row-ckpt-1')).toBeInTheDocument())
+
+    // Not seated yet: Compare/Trace/Metrics have nothing to gate on, and
+    // neither does R&D — no lane is known yet.
+    expect(screen.queryByTestId('rd-tab')).toBeNull()
+    expect(screen.queryByRole('tablist')).toBeNull()
+
+    await click(screen.getByTestId('lab-checkpoint-row-ckpt-1'))
+
+    // R&D is mounted and usable now — still no experiment, still no tablist
+    // (nothing else to tab between), but the hand is reachable.
+    await waitFor(() => expect(screen.getByTestId('rd-tab')).toBeInTheDocument())
+    expect(screen.queryByRole('tablist')).toBeNull()
+    expect(screen.getByTestId('lab-stage-no-experiment')).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('rd-model'), { target: { value: 'sonnet' } })
+    })
+    await click(screen.getByTestId('rd-read-and-propose'))
+    await waitFor(() => expect(screen.getByTestId('rd-no-corpus')).toBeInTheDocument())
+  })
 })

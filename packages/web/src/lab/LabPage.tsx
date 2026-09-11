@@ -446,9 +446,33 @@ export function LabPage({ fetchImpl, launchFetchImpl, measureFetchImpl, rdFetchI
                 loading experiments…
               </p>
             ) : selected === null ? (
-              <p data-testid="lab-stage-no-experiment" className="text-(--ink-dim)">
-                no experiment is open — the rail lists what there is, and fork from here starts a new one
-              </p>
+              <div className="flex flex-col gap-4">
+                <p data-testid="lab-stage-no-experiment" className="text-(--ink-dim)">
+                  no experiment is open — the rail lists what there is, and fork from here starts a new one
+                </p>
+                {/* prd-55 ruling 9 / wave 6's corrected reading: the R&D tab
+                    is not the selected experiment's reading — the hand reads
+                    retros and reviews too, and S5's *no corpus* state exists
+                    for a repo with no experiment at all. Reachable whenever a
+                    LANE is known (a checkpoint is seated), independent of
+                    Compare/Trace/Metrics' own experiment gate — no tablist
+                    here, since there is nothing else to tab between. */}
+                {seatedCheckpoint !== null && (
+                  <section aria-labelledby="lab-rd-standalone-heading" className="flex flex-col gap-2 border-(--line-hair) border-t pt-4">
+                    <h2 id="lab-rd-standalone-heading" className="heading text-(--ink-dim)">
+                      R&amp;D
+                    </h2>
+                    <RdTab
+                      lane={seatedCheckpoint.lane}
+                      experiments={experimentItems}
+                      {...(fetchImpl === undefined ? {} : { fetchImpl })}
+                      {...(rdFetchImpl === undefined ? {} : { rdFetchImpl })}
+                      {...(launchFetchImpl === undefined ? {} : { launchFetchImpl })}
+                      onLaunched={handleLaunched}
+                    />
+                  </section>
+                )}
+              </div>
             ) : (
               <section
                 id={`lab-experiment-${selected.forkId}`}
