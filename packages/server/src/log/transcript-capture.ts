@@ -57,12 +57,36 @@ export interface TranscriptCaptureManifest {
    * This is a different question from {@link complete}, and the two are
    * deliberately separate: `complete` is about the lanes that were found,
    * `attributedFrom` is about whether finding them was possible at all.
+   *
+   * `'tombstone'` (prd-51 ruling 11, #432) is the third value and the honest
+   * one: the lane list was reconstructed **from the log by `log/archive.ts` at
+   * prune time**, not from a capture at all — **no transcript was ever copied
+   * for any entry a tombstone manifest added**, and every such entry carries
+   * `captured: false`, `bytes: 0` and a `reason` saying so. The manifest exists
+   * only so a pruned lane still reads as *pruned* through `lane-index.ts`'s
+   * existing missing-recording branch, rather than vanishing as if it had never
+   * run (the spike's scenario A,
+   * `docs/research/2026-08-29-shared-record-s7-archive-tombstone.md`).
+   *
+   * Purely additive: this value is declared here and nothing reads it through
+   * an exhaustive switch, and `captureSessionTranscripts` below still writes
+   * only `'recording'` or `'window'` — pinned by a law in this module's test,
+   * so the widening can never quietly become a hole in the capture path.
    */
-  attributedFrom?: 'recording' | 'window'
+  attributedFrom?: 'recording' | 'window' | 'tombstone'
 }
 
 function manifestFilePath(sessionDir: string, sessionId: string): string {
   return path.join(transcriptCaptureDir(sessionDir, sessionId), TRANSCRIPT_CAPTURE_MANIFEST_FILE_NAME)
+}
+
+/**
+ * Where a session's capture manifest lives — exported (#432) so `log/archive.ts`
+ * and its tests name it **through this module** rather than rebuilding the path
+ * from `paths.ts` helpers, which is how two writers of one file drift apart.
+ */
+export function transcriptCaptureManifestPath(sessionDir: string, sessionId: string): string {
+  return manifestFilePath(sessionDir, sessionId)
 }
 
 /**
@@ -88,7 +112,14 @@ export async function readTranscriptCaptureManifest(
   }
 }
 
-async function writeTranscriptCaptureManifest(
+/**
+ * Writes a session's capture manifest, creating its directory. Exported since
+ * #432: `log/archive.ts`'s tombstone writer is the **second and only other**
+ * writer of this file, and it shares this function precisely so the manifest's
+ * path, its directory creation and its trailing newline stay in one place
+ * rather than being reproduced beside a second caller.
+ */
+export async function writeTranscriptCaptureManifest(
   sessionDir: string,
   manifest: TranscriptCaptureManifest,
 ): Promise<void> {

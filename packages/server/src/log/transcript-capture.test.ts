@@ -8,6 +8,8 @@ import {
   captureSessionTranscripts,
   readTranscriptCaptureManifest,
   redactTranscript,
+  transcriptCaptureManifestPath,
+  writeTranscriptCaptureManifest,
 } from './transcript-capture.js'
 
 const LANE = '84-chat-drawer'
@@ -380,5 +382,87 @@ describe('captureSessionTranscripts — the lane list comes from the recording',
     // was never instrumented, rather than an empty manifest claiming a capture.
     expect(manifest).toBeNull()
     expect(await readTranscriptCaptureManifest(sessionDir, RECORDING_SESSION_ID)).toBeNull()
+  })
+})
+
+// ── the 'tombstone' widening stays additive (prd-51 ruling 11, #432) ────────
+
+/**
+ * `attributedFrom` gained a third value, `'tombstone'`, so `log/archive.ts` can
+ * say plainly that a manifest's lane list was reconstructed from the log at
+ * prune time rather than copied from any transcript. The widening is only
+ * honest while the CAPTURE path never writes it: a real capture that started
+ * claiming `'tombstone'` would be a manifest saying no transcript was ever
+ * taken while sitting beside the transcripts it took. These two hold that.
+ */
+describe('attributedFrom: the tombstone value is declared here and written only by log/archive.ts (#432)', () => {
+  let sessionDir: string
+  let claudeProjectsRoot: string
+
+  beforeEach(async () => {
+    sessionDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-capture-tombstone-'))
+    claudeProjectsRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-capture-tombstone-projects-'))
+  })
+
+  afterEach(async () => {
+    await Promise.all([
+      rm(sessionDir, { recursive: true, force: true }),
+      rm(claudeProjectsRoot, { recursive: true, force: true }),
+    ])
+  })
+
+  it('T26: every branch of captureSessionTranscripts still writes "recording" or "window" — never "tombstone"', async () => {
+    const dir = path.join(claudeProjectsRoot, PROJECT_SLUG)
+    await mkdir(dir, { recursive: true })
+    await writeFile(path.join(dir, `${SESSION_ID}.jsonl`), '{"type":"user"}\n')
+
+    const capture = async (options: { recordedEvents?: ReturnType<typeof laneEvents> }, sessionId: string) =>
+      captureSessionTranscripts({
+        events: laneEvents(),
+        ...(options.recordedEvents === undefined ? {} : { recordedEvents: options.recordedEvents }),
+        sessionDir,
+        sessionId,
+        claudeProjectsRoot,
+        now: 5000,
+      })
+
+    // All three doors into the write site: attributed from the recording,
+    // attributed from the window because the read gave nothing back, and
+    // attributed from the window because the caller never offered a recording.
+    const values = [
+      (await capture({ recordedEvents: laneEvents() }, '1700000000001'))?.attributedFrom,
+      (await capture({ recordedEvents: [] }, '1700000000002'))?.attributedFrom,
+      (await capture({}, '1700000000003'))?.attributedFrom,
+    ]
+
+    expect(values).toEqual(['recording', 'window', 'window'])
+    expect(values).not.toContain('tombstone')
+  })
+
+  it('T27: a tombstone manifest round-trips, at exactly the path transcriptCaptureManifestPath names', async () => {
+    const sessionId = '1700000000004'
+    const written = {
+      sessionId,
+      capturedAt: 4242,
+      complete: false,
+      totalBytes: 0,
+      lanes: [
+        {
+          lane: 'scratch-407',
+          claudeSessionId: 'claude-407',
+          captured: false,
+          bytes: 0,
+          reason: 'TOMBSTONE for "scratch-407" — no transcript capture ever ran for this session',
+        },
+      ],
+      attributedFrom: 'tombstone' as const,
+    }
+
+    await writeTranscriptCaptureManifest(sessionDir, written)
+
+    const manifestPath = transcriptCaptureManifestPath(sessionDir, sessionId)
+    expect(manifestPath).toBe(path.join(transcriptCaptureDir(sessionDir, sessionId), 'manifest.json'))
+    expect(JSON.parse(await readFile(manifestPath, 'utf8'))).toEqual(written)
+    expect(await readTranscriptCaptureManifest(sessionDir, sessionId)).toEqual(written)
   })
 })

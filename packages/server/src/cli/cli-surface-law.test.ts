@@ -49,6 +49,7 @@ function missing(from: ReadonlySet<string>, comparedTo: ReadonlySet<string>): st
 }
 
 const KNOWN_SURFACE = new Set([
+  'archive',
   'connect',
   'doctor',
   'env',

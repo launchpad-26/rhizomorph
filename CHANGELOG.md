@@ -38,6 +38,28 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Added
 
+- **`rhizomorph archive` — seal, archive, verify, tombstone and prune are one
+  local command, in that order, or it does not run (prd-51 ruling 11, #432).**
+  One subcommand builds the portable record for every session older than the
+  age you name, gzips it to
+  `<repo-slug>-<session>.rhizorecord.json.gz`, verifies that archive **read
+  back off disk**, writes a tombstone manifest beside the log **while the log
+  still exists**, and only then prunes that one log. Every step gates the next:
+  an archive that does not verify, a capture manifest naming a lane the log
+  never does, or a log that is bytes-on-disk but not one parseable event all
+  refuse the candidate and leave its log exactly where it was — and one refused
+  candidate never costs its siblings their archive. `--older-than` is
+  **required** (`30d`, `90m`, `0d`; a bare number is refused), because a
+  default retention age would be a policy that reaps a lane nobody thought
+  about; `--dry-run` reports the plan in retention's own voice and writes
+  nothing. The tombstone is what makes a pruned lane still read as *pruned*
+  rather than as one that never ran, and it names lanes git alone knows about —
+  a non-main worktree branch with no instrumented agent — as well as the ones
+  telemetry attributed, saying out loud how many came from each.
+  `attributedFrom` gains `'tombstone'` as a declared value. Prune is reachable
+  by no other route: `log/archive.ts` is the only shipped importer of
+  `log/retention.ts`, and a law holds it there.
+
 - **A saved comparison carries the measure and the facts that judged it, and
   the measure switch works again on reopen (prd-14 ruling 6, wave 4, #347).**
   A `version: 2` comparison artifact stores, per run, `{ verdict, detail?,
