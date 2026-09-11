@@ -74,7 +74,9 @@ export async function captureCheckpoint(options: CaptureCheckpointOptions): Prom
   const eventIndex = resumed?.events.length ?? 0
 
   const recorder = new SessionRecorder(sessionId, logFilePath, resumed ? { resumeFrom: resumed.events } : {})
-  const nextId = createIdFactory('lab')
+  // Tagged `checkpoint` (#429): the CLI verb this module is invoked as
+  // (`rhizomorph lab checkpoint`), the same word `fork.checkpoint` already carries.
+  const nextId = createIdFactory('lab', 0, 'checkpoint')
   const event = createEvent(
     'fork.checkpoint',
     {

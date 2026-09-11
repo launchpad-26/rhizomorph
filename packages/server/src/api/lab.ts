@@ -175,24 +175,26 @@ export interface LabExperimentDTO {
  * #429 gave `createIdFactory` an optional `writer` tag precisely for this
  * case: two factories with the same prefix and the same start never collide
  * when each names itself (`events/index.ts`'s own doc comment on
- * {@link createIdFactory} has the full reasoning). That fix is CONTAINED to
- * the factory, not yet WIRED to it — this file's own measure route call and
- * `lab/fork.ts`, `lab/checkpoint.ts` and `lab/rd.ts` all still call
- * `createIdFactory('lab')` with no tag, so the collision this paragraph
- * describes is still one the record can produce today, not merely one a
- * future edit could reintroduce. The composite key stays load-bearing, not
- * belt-and-braces, until those four call sites are updated to pass a `writer`
- * — tracked as the follow-up #429 could not reach from this file's fence.
+ * {@link createIdFactory} has the full reasoning). That fix is now WIRED, not
+ * merely contained to the factory: this file's own measure route and
+ * `lab/fork.ts`, `lab/checkpoint.ts` and `lab/rd.ts` each pass their own tag —
+ * `measure`, `fork`, `checkpoint` and `rd` — so the four hands that write into
+ * one session file mint `lab-measure-000001`, `lab-fork-000001` and so on, and
+ * can no longer produce the pair this paragraph describes. The composite key
+ * below is belt-and-braces now, not load-bearing: nothing among these four
+ * writers can hand it a collision to resolve any more.
  *
  * MEASURED, so nobody reads more into the key than is proven. Swapping
  * `liveEventKey` for the bare `event.id` leaves `lab.test.ts` GREEN — because
  * the file half is copied whole and only the BUFFER half is filtered, so a
  * colliding pair both of whose halves are on disk survives either way. What
  * does go red is the natural wrong shape, deduping the whole concatenation by
- * id (EXECUTED: the collision test fails, 1 of 67). The composite key is
- * therefore defence against a REAL collision today AND against a future edit
- * that widens what gets deduped by id alone — both at once, not one or the
- * other, until the `writer` tag above is actually wired in.
+ * id (EXECUTED: the collision test fails). The composite key is therefore
+ * belt-and-braces: insurance against a writer this file cannot see — a future
+ * call site, or a regression in one of the four above, that omits its own
+ * `writer` tag and reintroduces the exact collision this paragraph used to
+ * describe — never a fix for a collision any of today's four writers can
+ * still produce, which they cannot.
  */
 function liveEventKey(event: RhizomorphEvent): string {
   return `${event.id}|${event.ts}|${event.type}`
@@ -1249,7 +1251,11 @@ export async function measureExperiment(body: unknown, options: MeasureExperimen
     throw new Error(`could not read the comparison for fork ${request.forkId} — unexpected CLI output`)
   }
 
-  const nextId = createIdFactory('lab')
+  // Tagged `measure` (#429): this route's own name (`POST /api/lab/measure`),
+  // distinct from the `compare` CLI it delegates the gate run to — this call
+  // site writes the `fork.measured` events itself, in-process, after that
+  // subprocess returns.
+  const nextId = createIdFactory('lab', 0, 'measure')
   const now = options.now ?? Date.now
   const measured: MeasuredRunResult[] = []
   for (const row of comparison.arms) {

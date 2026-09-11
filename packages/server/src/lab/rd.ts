@@ -822,7 +822,9 @@ async function openRecorder(
     logFilePath,
     resumed ? { resumeFrom: resumed.events } : {},
   )
-  return { recorder, logFilePath, nextId: createIdFactory('lab') }
+  // Tagged `rd` (#429): the CLI verb this module is invoked as
+  // (`rhizomorph lab rd`), the same word every `rd.*` event type already carries.
+  return { recorder, logFilePath, nextId: createIdFactory('lab', 0, 'rd') }
 }
 
 /** A proposal id for a hand that did not mint one — never a silent rename of one it did. */

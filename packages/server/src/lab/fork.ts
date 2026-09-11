@@ -416,7 +416,9 @@ export async function dispatchFork(options: DispatchForkOptions): Promise<Dispat
   const resumed = await findResumableSession(sessionDir, ts, RESUME_WINDOW_MS)
   const logFilePath = resumed?.filePath ?? path.join(sessionDir, sessionFileName(ts))
   const recorder = new SessionRecorder(resumed?.sessionId ?? String(ts), logFilePath, resumed ? { resumeFrom: resumed.events } : {})
-  const nextId = createIdFactory('lab')
+  // Tagged `fork` (#429): the CLI verb this module is invoked as
+  // (`rhizomorph lab fork`), the same word `fork.dispatched` already carries.
+  const nextId = createIdFactory('lab', 0, 'fork')
 
   // Arm-major, run-minor: every run of arm k is restored before arm k+1
   // begins, so a partial dispatch leaves whole arms behind it, never half of
