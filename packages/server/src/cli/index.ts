@@ -12,6 +12,11 @@ import { dispatchFork } from '../lab/fork.js'
 // is the single-element set naming this file, and `lab/rd.test.ts` narrows that
 // further to `runRdHand` by name.
 import { runRdHand } from '../lab/rd.js'
+// prd-51 ruling 11's one ordered act — and the ONLY route to a prune anywhere
+// in this package: `log/archive.ts` is the sole importer of `log/retention.ts`
+// (`log/archive.test.ts` holds that set), so "removing the archive step removes
+// the prune" is structural rather than a habit.
+import { runArchiveCommand } from './archive.js'
 // The one importer the fifth hand's law (ADR-0034 clause 3, prd-51 ruling 14)
 // allows: `connect-team.ts` is the sole declared importer of `shipper/` and
 // the sole site permitted to construct its timer. This is the dispatch entry
@@ -65,6 +70,10 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
 
   if (argv[0] === 'export-otlp') {
     return runExportOtlpCommand(argv.slice(1), log, exit, options)
+  }
+
+  if (argv[0] === 'archive') {
+    return runArchiveCommand(argv.slice(1), log, exit, options)
   }
 
   if (argv[0] === 'replay') {
