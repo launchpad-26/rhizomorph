@@ -111,10 +111,19 @@ chrome as ADR-0044 defines it*, and the law that enforces it —
 `packages/web/src/disclosure/one-card-law.test.ts` — names nothing and needs no allowlist,
 which is the criterion's real falsifier and is green.
 
-The two named idioms are left in the sentence above rather than struck from it. They are what
-the criterion was written against in 2026-08-08, and a falsifier edited to match the answer is
-not a falsifier. This paragraph is the ruling that moved, recorded beside the text it moved.
-Success 3 needs no amendment: `MarkHoverCard` takes focus, so nothing here is pointer-only.
+**The third name in that sentence — the panels — is disposed of the opposite way, by code.**
+It is the `title=` idiom of *Evidence*'s triple: ~85 native sites across 25 files, heaviest in
+`drawer/Vitals.tsx`, `panels/burn` and `panels/fleet`. Those were not reasoned out of scope;
+they were retired, fifty by #220 and the last twelve by #389, and
+`packages/web/src/app/title-residue-law.test.ts` keeps them gone with no carve-out. So
+criterion 1 has three names and two kinds of answer: two ruled not to be card chrome, one
+actually swept. Both kinds are needed before the criterion reads as met, and both now hold.
+
+All three names are left in the sentence above rather than struck from it. They are what the
+criterion was written against on **2026-08-13** (`3df88982`, the commit that introduced this
+PRD), and a falsifier edited to match the answer is not a falsifier. This paragraph is the
+ruling that moved, recorded beside the text it moved. Success 3 needs no amendment:
+`MarkHoverCard` takes focus, so nothing here is pointer-only.
 
 ## Non-goals
 
