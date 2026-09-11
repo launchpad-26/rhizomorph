@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { sessionFilePath } from '../log/session-log.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { readLabFootprint, readLabTelemetry, registerLabSeriesRoute } from './lab-series.js'
+import { CAPABILITY_TOKEN_HEADER } from './security.js'
 import { capabilityHeaders, TEST_CAPABILITY_TOKEN } from './test-support.js'
 
 /**
@@ -117,8 +118,18 @@ describe('GET /api/lab/telemetry — the fold\'s own OTel readings, sliced by by
   describe('the route', () => {
     it('is a gated read — a bare request is refused before the handler runs', async () => {
       const app = makeApp(record().all())
+      // Same readiness every other case in this file gets for free by
+      // awaiting a real 200/400 through the gate: the request is made only
+      // once the app is fully booted, never against a route table that
+      // might still be mid-registration.
+      await app.ready()
       const response = await app.inject({ method: 'GET', url: `/api/lab/telemetry?lane=${LANE}&atByte=0` })
       expect(response.statusCode).toBe(401)
+      // The body, not just the status: a pass means requireCapabilityToken
+      // answered, never that some other 401 source did.
+      expect(response.json()).toEqual({
+        error: `missing or invalid ${CAPABILITY_TOKEN_HEADER} header — this route requires the per-process capability token`,
+      })
       await app.close()
     })
 
@@ -235,8 +246,18 @@ describe('GET /api/lab/footprint — selectFilesTouchedByBranch ∩ selectCollis
   describe('the route', () => {
     it('is a gated read — a bare request is refused before the handler runs', async () => {
       const app = makeApp(record().all())
+      // Same readiness every other case in this file gets for free by
+      // awaiting a real 200/400 through the gate: the request is made only
+      // once the app is fully booted, never against a route table that
+      // might still be mid-registration.
+      await app.ready()
       const response = await app.inject({ method: 'GET', url: '/api/lab/footprint?lane=feature' })
       expect(response.statusCode).toBe(401)
+      // The body, not just the status: a pass means requireCapabilityToken
+      // answered, never that some other 401 source did.
+      expect(response.json()).toEqual({
+        error: `missing or invalid ${CAPABILITY_TOKEN_HEADER} header — this route requires the per-process capability token`,
+      })
       await app.close()
     })
 
