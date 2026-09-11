@@ -1,0 +1,23 @@
+{
+  "patterns": [
+    {
+      "patternId": "pattern-one-off",
+      "shape": "one arm timed out on a machine under load",
+      "sourceItems": ["docs/review/one.md"],
+      "count": 1,
+      "heldBack": true
+    }
+  ],
+  "proposals": [
+    {
+      "proposalId": "proposal-one-off-1",
+      "patternId": "pattern-one-off",
+      "varies": "model",
+      "arms": [
+        { "model": "opus", "briefDigest": null, "checkpointId": null, "gateCommand": null },
+        { "model": "sonnet", "briefDigest": null, "checkpointId": null, "gateCommand": null }
+      ],
+      "checkpointPick": { "chosenCheckpointId": "ckpt-1", "rejected": [] }
+    }
+  ]
+}

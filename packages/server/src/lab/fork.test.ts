@@ -455,6 +455,41 @@ describe('dispatchFork', () => {
     expect(plain.arms[0]?.event.payload).not.toHaveProperty('ceilingOverride')
   })
 
+  it('records the proposal an experiment came from on EVERY arm, and leaves the key off entirely when a hand chose it (prd55 ruling 4)', async () => {
+    await capture()
+
+    const proposed = await dispatchFork({
+      parentLane: 'parent-lane',
+      parentWorktreePath: repoDir,
+      arms: 1,
+      runs: 2,
+      proposalId: 'proposal-1',
+      forkId: uniqueId('fork'),
+      dataRoot,
+      claudeProjectsRoot,
+      exec: realExec,
+      install: false,
+      now: () => 1_000_100,
+    })
+    expect(proposed.arms.map((d) => d.event.payload.proposalId)).toEqual(['proposal-1', 'proposal-1'])
+
+    // Absent, and ABSENT — not an empty string and not a null. The record has
+    // to be able to say "nobody proposed this" without it reading like a
+    // proposal that went missing.
+    const byHand = await dispatchFork({
+      parentLane: 'parent-lane',
+      parentWorktreePath: repoDir,
+      arms: 1,
+      forkId: uniqueId('fork'),
+      dataRoot,
+      claudeProjectsRoot,
+      exec: realExec,
+      install: false,
+      now: () => 1_000_100,
+    })
+    expect(byHand.arms[0]?.event.payload).not.toHaveProperty('proposalId')
+  })
+
   it('refuses a zero, negative or fractional run count or arm number before anything is restored', async () => {
     await capture()
     for (const bad of [{ runs: 0 }, { runs: -1 }, { runs: 1.5 }, { armNumber: 0 }, { armNumber: 2.5 }]) {

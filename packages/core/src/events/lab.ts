@@ -132,6 +132,24 @@ export const forkDispatchedPayloadSchema = z
      * config. Optional and additive, like `run`.
      */
     ceilingOverride: z.number().int().positive().optional(),
+    /**
+     * The `rd.proposal` this experiment came from (prd55 ruling 4), when it
+     * came from one. Absent on every experiment an operator launched by hand,
+     * which is most of them and will stay most of them — so absence means
+     * "nobody proposed this", never "the proposal was lost".
+     *
+     * Optional and additive for the same reason `run` and `ceilingOverride`
+     * are, and stated in the same words: nothing is reshaped, one field is
+     * added, so this is NOT an `upcast()`. A record written before wave 5
+     * reads back exactly as it always did.
+     *
+     * It points the other way from {@link rdOverridePayloadSchema}, and the
+     * pair is what ruling 4 needs: the override names the proposal and both
+     * checkpoints so the operator's choice can never be re-attributed to the
+     * agent, and this names the proposal so the experiment can be read back to
+     * what suggested it. Neither says the agent decided anything.
+     */
+    proposalId: nonEmptyString.optional(),
     treatment: forkTreatmentSchema,
     /** The synthetic lane handle this arm runs under — what the observer will see it as. */
     laneHandle: nonEmptyString,
