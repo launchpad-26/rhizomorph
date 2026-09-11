@@ -99,6 +99,30 @@ export const RD_HAND_TIMEOUT_MS = 600_000
 export const RD_PROBE_TIMEOUT_MS = 5000
 
 /**
+ * Per-exec ceiling for the TRACKER read (`gh issue list`) — its own number,
+ * because a network call is not a plumbing probe.
+ *
+ * `RD_PROBE_TIMEOUT_MS` is the 5s this repo gives `git` plumbing and a
+ * `--version` string: calls that touch the local disk and answer immediately,
+ * where five seconds already means something is wedged. `gh issue list` is a
+ * different animal — it resolves a host, opens TLS, authenticates and pages an
+ * API — and five seconds is an ordinary latency for it on a slow or distant
+ * link, not a wedge. Bounding it at the plumbing number would make the tracker
+ * corpus fail for people whose only problem is their connection.
+ *
+ * It degrades loudly either way (`RdCorpus.trackerRefusal` says `gh` could not
+ * answer, and the run continues on the local corpus rather than pretending the
+ * tracker was empty), so the cost of the wrong number is not silence — it is a
+ * second corpus the operator declared and keeps not getting, for a reason that
+ * reads like a broken `gh`. That is worth its own constant.
+ *
+ * 30s, the same order as this repo's other bound on a call that waits on
+ * something outside the machine, and far short of `RD_HAND_TIMEOUT_MS`'s ten
+ * minutes: the hand waits on a model, the tracker waits on an HTTP page.
+ */
+export const RD_TRACKER_TIMEOUT_MS = 30_000
+
+/**
  * How many items of any one corpus source reach the prompt. A bound on the
  * PROMPT, which is money: every item is tokens the operator pays for, and an
  * unbounded corpus makes the cost of one `lab rd` a function of how long the
@@ -276,7 +300,8 @@ export async function readRdCorpus(options: ReadRdCorpusOptions): Promise<RdCorp
   let tracker: RdCorpusItem[] = []
   let trackerRefusal: string | null = null
   if (choice === 'local+tracker') {
-    const read = await readTrackerItems(withTimeout(options.exec ?? realExec, RD_PROBE_TIMEOUT_MS), repoPath)
+    // The tracker's OWN ceiling, not the probe's — see {@link RD_TRACKER_TIMEOUT_MS}.
+    const read = await readTrackerItems(withTimeout(options.exec ?? realExec, RD_TRACKER_TIMEOUT_MS), repoPath)
     tracker = read.items
     trackerRefusal = read.refusal
   }
