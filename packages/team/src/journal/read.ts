@@ -38,6 +38,14 @@ import { type JournalEntry, crc32Hex, decodeEntry, parseHeaderLine } from './for
  * | header parses, CRC matches, the terminator is not `\n` | corrupt |
  * | header parses, CRC matches, payload will not decode | corrupt |
  * | header parses, CRC matches, `seq` is not `previous + 1` | corrupt |
+ *
+ * **A verdict is not the whole answer — `completeBytes` is the other half.**
+ * `torn` says the tail was never completed; `completeBytes` says where the
+ * completed part ends. The writer needs both, because a torn tail is not
+ * merely tolerable, it is *repaired* at open: `journal.ts`'s `openJournal`
+ * truncates to this offset before it opens for append. Reading a journal
+ * without opening it for append — the fold does exactly that — changes
+ * nothing on disk, and the fold's own torn case still sees the torn bytes.
  */
 
 /** One record read back, with the byte offset its header started at. */
@@ -51,7 +59,23 @@ export interface JournalRecord {
 export type JournalVerdict = 'clean' | 'torn'
 
 export type ReadJournalResult =
-  | { ok: true; verdict: JournalVerdict; records: JournalRecord[]; lastSeq: number }
+  | {
+      ok: true
+      verdict: JournalVerdict
+      records: JournalRecord[]
+      lastSeq: number
+      /**
+       * Bytes of complete, chain-valid records from byte 0 — one past the last
+       * record this reader accepted.
+       *
+       * On `clean` this is the file's length. On `torn` it is where the torn
+       * bytes begin, which is exactly the truncation point `openJournal`'s
+       * repair needs (#398): the reader is standing on it when it gives its
+       * verdict, and re-deriving it in the writer would be a second
+       * implementation of the chain walk.
+       */
+      completeBytes: number
+    }
   | { ok: false; error: string }
 
 const NEWLINE = 0x0a
@@ -91,6 +115,7 @@ export function readJournal(path: string, fromSeq = 0): ReadJournalResult {
     verdict: 'torn',
     records: records.filter((r) => r.seq > fromSeq),
     lastSeq: previousSeq,
+    completeBytes: offset,
   })
   const corrupt = (at: number, why: string): ReadJournalResult => ({
     ok: false,
@@ -134,5 +159,11 @@ export function readJournal(path: string, fromSeq = 0): ReadJournalResult {
     offset = payloadEnd + 1
   }
 
-  return { ok: true, verdict: 'clean', records: records.filter((r) => r.seq > fromSeq), lastSeq: previousSeq }
+  return {
+    ok: true,
+    verdict: 'clean',
+    records: records.filter((r) => r.seq > fromSeq),
+    lastSeq: previousSeq,
+    completeBytes: bytes.length,
+  }
 }
