@@ -63,15 +63,15 @@ in watch mode individually, if you're working on one side.
 A change is done when `npm run build`, `npm test`, `npm run typecheck` and
 `npm run lint` are green — that's the bar CI (`.github/workflows/ci.yml`) checks
 on every push and pull request, and `Build` runs *ahead* of `Test` on every leg
-(`ci.yml:60`), so a bundle that no longer builds fails in front of the suite
+(the `Build` step precedes `Test`), so a bundle that no longer builds fails in front of the suite
 rather than behind it. CI checks two more things the local four do not: a
-packaging guard (`ci.yml:72`) that fails if `npm pack` would ship anything
-outside its allowlist, and a boot smoke test (`ci.yml:97` — start the server, hit
+packaging guard (the `Packaging guard` step, `scripts/packaging-guard.mjs`) that fails if `npm pack` would ship anything
+outside its allowlist, and a boot smoke test (the `Boot smoke` step, `scripts/boot-smoke.sh` — start the server, hit
 `/api/meta` and `/`, shut it down cleanly). Lint is a required CI step
-(`ci.yml:69`), not an optional tidy-up: skipping it locally means finding out in
+(the `Lint` step), not an optional tidy-up: skipping it locally means finding out in
 CI.
 
-There is also a **second job**, `pack-smoke` (`ci.yml:166`), which packs the repo
+There is also a **second job**, `pack-smoke` (`scripts/pack-smoke.sh`), which packs the repo
 the way a release would, installs the tarball into a project that has never heard
 of this checkout, and runs the CLI from those installed files — on both operating
 systems and both the declared-minimum and the current Node. None of what it
