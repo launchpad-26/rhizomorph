@@ -140,3 +140,14 @@ packages/server/src/api/lab-ceiling-law.test.ts  # pins the number of production
 SECURITY.md  # spells the mutating-route COUNT in prose ("thirteen mutating routes in total") and api/route-class-law.test.ts reads the word back against ROUTE_CLASSES — a new mutating route, gated or not, reddens route-class-law through THIS file; fence it with the route beside server/mutation-guard.ts, docs/adr/0008-…, docs/architecture.md and api/index.ts, which spell the same counts (#412: planting one gated-mutation row took route-class-law from 2 red to 10)
 packages/server/src/server/mutation-guard.ts  # spells two counts in its doc comment — "nine GATED mutating routes" and "thirteen mutating routes today" — both read back by api/route-class-law.test.ts; a new mutating route moves one or both; fence with the route (#412)
 docs/adr/0008-localhost-only-single-origin-server.md  # its amendment "declares nine gated mutations — …" is read by api/route-class-law.test.ts as a count; a new gated mutation moves it; fence with the route (#412). Note the sibling hazard the same lane met: ADR NUMBERS are claimed by whoever lands first — an ADR written on a branch as 00NN can be taken on main before the branch lands (#412's 0046 → 0047); check `git ls-tree origin/main docs/adr/` and every open PR head at the moment of the change, not at drafting
+packages/core/src/selectors/connection.ts  # `selectConnection` builds an exhaustive `Record<ConnectionSource, Flow>` and then indexes it with every telemetry record's own `origin`, so widening the SOURCE vocabulary of any telemetry event (not adding an event type — widening a source enum) stops this file typechecking and would index a missing key at runtime; fence it with the enum. The fix is a guard, never a new flow row: `CONNECTION_SOURCES`' own doc comment says the lab and judge hands are absent because both are explicitly invoked by us, so a cost the lab booked proves nothing about an external link being wired (#430)
+# ── a widened SOURCE enum is a DIFFERENT fan-out from a new event TYPE ──────
+# Measured by prd-55 wave 8 (#430) and worth stating once, because the three
+# hand-enumerated event-type lists recorded above (upcast-chokepoint-law.test.ts,
+# wire/reserialize.test.ts, recorder/session-recorder.test.ts) are NOT reached by
+# a widened source — they enumerate types, and a widened source adds none. What a
+# widened source reaches instead is (a) every exhaustive `Record` keyed by that
+# enum — today exactly one, selectors/connection.ts above — and (b) the count
+# pins on any producer whose recorded event list grows, today api/lab.test.ts's
+# R&D route pin. A lane widening a source measures for those two shapes, not for
+# the type lists.
