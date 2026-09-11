@@ -29,7 +29,9 @@ import { SessionRecorder } from '../server/recorder.js'
  * `fork.ts` (dispatch) and `compare.ts` (measure) and follows their shape
  * exactly: a bounded `Exec`, a
  * `SessionRecorder` constructed on the live session, and events created with
- * `createEvent` under a `createIdFactory('lab')`.
+ * `createEvent` under a `createIdFactory('lab', 0, 'rd')` — the writer tag
+ * #429 added, so this hand's ids never collide with the other three that write
+ * into the same session file.
  *
  * ## The instrument holds no credential (ruling 1, ADR-0048)
  *
