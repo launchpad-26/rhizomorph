@@ -345,9 +345,11 @@ describe('reduce — llm.cost', () => {
         f.llmCost({ lane: 'other-lane', costUsd: 8, authoritative: true }, { ts: 30, source: 'lab' }),
       ])
 
-      // The lane it belongs to…
-      expect(selectSpendForLane(state, 'rd-lane').costUsd).toBeCloseTo(1.25, 10)
-      expect(selectSpendForLane(state, 'other-lane').costUsd).toBeCloseTo(8, 10)
+      // The lane it belongs to… (`?.` rather than `!`: a lane the selector
+      // does not know at all would be `undefined`, which fails this comparison
+      // as loudly as a wrong total — never silently as zero.)
+      expect(selectSpendForLane(state, 'rd-lane')?.costUsd).toBeCloseTo(1.25, 10)
+      expect(selectSpendForLane(state, 'other-lane')?.costUsd).toBeCloseTo(8, 10)
       // …and the ledger's total.
       expect(selectSessionSpend(state).costUsd).toBeCloseTo(9.25, 10)
 
