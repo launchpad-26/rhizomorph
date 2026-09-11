@@ -2261,7 +2261,7 @@ the committed era-1 snapshot is the append-order fold — while
 in core only as the named counterexample that keeps the law from being a rule
 about nothing.
 
-### Ruling 1 — the new event families (ruled, landing)
+### Ruling 1 — the new event families (ruled; all nine defined, seven emitting)
 
 All nine of ruling 1's event types now exist in `packages/core/src/events/`.
 `session.closed` landed first (prd16's own durability fact — a session's end is
@@ -2275,13 +2275,44 @@ JSON beacons in one rhizomorph-owned directory (#217, prd-27 wave 1,
 [ADR-0036](adr/0036-a-beacon-is-a-line-in-a-watched-directory.md)), and
 `beacon` is a member of `eventSourceSchema` rather than a widening literal
 because it is a real polled collector. What `gate.sh`/`dispatch.sh` will write
-through that door is still nobody's — the door exists, no writer uses it yet.
+through that door is written by the gate as of prd17 wave 5 (#274):
+`scripts/gate.sh`'s `emit_gate_verdict` appends a one-line JSON beacon whose
+`kind` is the literal `"gate.verdict"`. The dispatch half is still nobody's —
+`dispatch.sh` does not exist in this checkout, and prd17's Sequencing books it
+as unfiled rather than as a wave that cannot close.
 
-**Defined, not emitted.** #219 ruled the contracts and deliberately shipped no
-emitter, so a recording cannot contain one of these yet — `eras.test.ts` lists
-all eight in its corpus gap list for that reason, and each should leave that
-list in the wave that starts emitting it. The gate and dispatch emitters, the
-UI's operator acts, and the timeline dividend (ruling 4) are all still open.
+**Defined, then emitted — and the split is per family, not one clause for all
+nine (corrected 2026-09-10, #416).** #219 ruled the contracts and deliberately
+shipped no emitter; prd17's waves 2, 3, 5 and 6 then supplied them. As of
+prd17 wave 8 (`d139f88b`):
+
+| family | emitter | in a committed recording? |
+|---|---|---|
+| `operator.ack` / `.verdict` / `.note` | `POST /api/operator/:act` — wave 2 | **yes**, era-2 |
+| `summons.raised` / `.cleared` | the poll loop's tick — wave 3 (#278) | **yes**, era-2 |
+| `gate.verdict` | derived from the beacon sidecar at record time — wave 6 (#280) | not yet |
+| `session.closed` | the recorder, since prd-40 | not yet |
+| `dispatch.brief`, `fence.declared` | **none** — the writer lives outside this checkout | no |
+
+So **seven of the nine have an emitter and five appear in a committed
+recording.** The two counts differ by two rows, not one: `gate.verdict`, which
+emits but has not been captured, and `session.closed`, whose emitter predates
+every prd17 wave and whose clean shutdown neither era window contains.
+
+`eras.test.ts`'s corpus gap list holds **four** of the nine — `dispatch.brief`,
+`fence.declared`, `gate.verdict`, `session.closed` — not all of them. The other
+five left in **wave 4**, when the era-2 recording was captured, and that
+distinction matters: the gap list is a property of the CORPUS, not of the
+emitter waves. Immediately before #279 it still held all nine, with waves 2 and
+3 having already landed their emitters. `session.closed` and `gate.verdict`
+have emitters and remain in the list for exactly that reason — no captured
+window holds them. An earlier version of this paragraph said "all eight", which was
+wrong on both halves: nine families, four listed.
+
+Still open: the dispatch emitter, the UI's operator acts (no `/api/operator`
+caller exists in `packages/web`), and the timeline dividend's remaining
+surfaces (ruling 4's mark kinds themselves landed — `tide/chapters.ts` carries
+them).
 
 The operator families carry `sessionId` plus a record LINE index rather than a
 fold count, because `eventCount` restarts at a session boundary and counts only
