@@ -1030,3 +1030,76 @@ worth naming for whoever grooms wave 5: **the first fence was derived from a rul
 built against.** Both moves came from reading the types the ruling would have to satisfy, and
 both were available at grooming time. Re-lint before dispatch rather than trusting the pass this
 document already reports.
+
+## Amendment — the wedge wave took number 4, and wave 5 is groomed (operator, 2026-09-11)
+
+The 2026-09-09 map above put *seal → archive → verify → tombstone → prune* and *membership is the
+boundary* at wave 4. The 2026-09-10 *two wedges* amendment then filed #387, #398, #399 and #410 as
+**wave 4** and did not renumber the map, so from that day the archive/membership pair had no wave
+number at all and the map read as describing work that was already in flight. Wave 4 as built is
+the wedge wave: three of its four issues landed in PR #425, merged as `a3c5b305` on 2026-09-11,
+and #410 follows in its own PR.
+
+**The pair moves to wave 5 and beyond.** Everything the old map listed as "5+" moves with it, one
+place down. That is the whole of the numbering ruling; the rest of this amendment is what grooming
+found when it tried to build the new wave 5 out of the pair.
+
+### Wave 5 is not the pair, because #410 is live in `packages/team/src/`
+
+Membership needs a keys port, and a keys port is `storage/contract.ts`, `fake.ts` and
+`postgres.ts`. **#410 already holds all three** — the *Consequence for the wave-4 fences* section
+above widened it onto them for ruling 16's `unfoldable` marker, and #410 is still open, still
+blocked by #407. Grooming membership into a wave that dispatches before #410 lands would bundle
+across a live fence, which this document has already refused once in the paragraph that widened it.
+
+So wave 5 was inverted: **it touches no path under `packages/team/src/` at all.** Membership goes
+to wave 6, behind #410, where it can have the storage port and the wave's single migration
+uncontested.
+
+### The map, superseded
+
+| wave | what | state |
+|---|---|---|
+| 0 | operator acts | recorded in the 2026-09-08 amendment |
+| 1 | the Keystone | **merged** (#257, #258, #259) |
+| 2 | `packages/team`: the storage port, ruling 5's schema, the migration runner | **merged** (#355) |
+| 3 | the shipper outbound · the ingest journals before it acks | **merged** (#386) |
+| 4 | the two wedges and the doctor route | **merged** (#425, `a3c5b305`) — except **#410**, blocked by #407, its own PR |
+| 5 | ruling 11's local archive command · ruling 13's image and `init.sh` · the three wave-4 deferrals | **groomed** — #432, #433, #434, #435, #436 |
+| 6 | membership is the boundary and a key is a hash (absorbs #169) — needs #410 landed | not groomed |
+| 7+ | the three questions and the read-only role · retention under a named ceiling (rulings 9, 10) · the team server's doctor and `/connect`'s row (ruling 12's second half) · #171's timed drill · the doc sweep (absorbs or fences #354) | not groomed |
+
+Waves 6 and 7+ stay a set, for the reason the 2026-09-09 amendment gave and this grooming
+confirmed: every split above was forced by a constraint discovered at grooming time, and the
+remaining team-package pieces collide on `packages/team/src/api/http.ts` — a 126-line hand-rolled
+listener — and on the one-migration-per-wave rule in ways nobody has built against yet.
+
+### What wave 5 is, and what held it apart
+
+Five lanes, `fence-lint.sh 432 433 434 435 436` **PASSED**: 22 paths extracted against 22 declared,
+no overlap, and four coupling points owned rather than orphaned (`README.md`, `docs/architecture.md`,
+and both doctor tests). Re-linted against the two live lanes and #410 — the only overlap in that
+wider run is the already-recorded #407/#410 one.
+
+- **#432** — ruling 11's `rhizomorph archive`. **The wave's single `README.md` claimant**, since
+  `cli-surface-law.test.ts` binds the dispatch table and the CLI reference in both directions.
+- **#433** — ruling 13's `compose.yml`, `Dockerfile` and `init.sh`, in `packages/team/deploy/`,
+  which is new ground outside `src/`. Narrowed by the 2026-09-08 backup parking: it proves the
+  **restore ordering** and the runbook says in those words that there is no recovery story.
+- **#434, #435, #436** — the three deferrals PR #425's body parked *for this grooming*, because
+  filing them needed a milestone that did not exist yet. #434 is the one labelled REASONED rather
+  than executed, and its Definition of done makes refuting it an acceptable outcome.
+
+**No lane adds a migration and no lane adds a dependency**, so neither of the two one-per-wave
+rules is spent.
+
+### #169 and #171 still carry their prd-48 bodies
+
+Recorded so the next groomer does not dispatch them as they stand. Both were absorbed into this
+PRD by the status line above, and neither body was rewritten: #169 fences
+`docs/research/2026-08-29-shared-record-s5-pending-invite.md` and #171 fences
+`docs/research/2026-08-29-shared-record-s8-vps.md`, **neither of which exists** — they were prd-48
+spike outputs that were never written — and both declare blockers (#165 through #170) belonging to
+a wave structure this PRD replaced. They are re-groomed into build issues when waves 6 and 7 come
+up, not before. #354 is different: its body is current, and it names its own absorption into the
+doc sweep as the outcome to prefer.
