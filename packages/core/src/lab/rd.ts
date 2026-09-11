@@ -73,15 +73,45 @@ export const RD_HELD_BACK_REFUSAL =
 export const RD_MULTI_DIMENSION_REFUSAL = 'these arms differ in more than one dimension — a difference cannot be attributed to any of them'
 
 /**
+ * The one sentence a surface prints for a proposal whose arms vary exactly one
+ * dimension, but not the one the proposal declares it varies. The COUNT being
+ * one is not enough: ruling 3's arms differ "in that dimension only", and a
+ * proposal that says `varies: 'model'` while its arms actually differ in the
+ * gate would have its difference booked against the model — the same
+ * misattribution {@link RD_MULTI_DIMENSION_REFUSAL} exists to prevent, one
+ * size smaller and invisible to a count.
+ */
+export const RD_WRONG_DIMENSION_REFUSAL =
+  'these arms differ in a dimension this proposal does not declare — the difference would be attributed to the wrong one'
+
+/**
+ * Whether every dimension that actually varies across these arms is the one
+ * the proposal declares (ruling 3's "2-3 arms differing in that dimension
+ * only"). Zero varying dimensions passes: that is a replication, which
+ * {@link rdDimensionsVariedCount}'s own doc comment already treats as a
+ * legitimate shape rather than a confound — this law rules only on a
+ * difference that would be booked against the wrong dimension.
+ */
+export function rdVariesOnlyDeclaredDimension(declared: RdVariesDimension, arms: readonly RdArmTreatment[]): boolean {
+  const dimensions = rdDimensionsOf(arms)
+  return (Object.keys(dimensions) as RdVariesDimension[]).every((dimension) => !dimensions[dimension] || dimension === declared)
+}
+
+/**
  * The one function that decides whether a proposal is refused (prd55 ruling
- * 3): against a held-back pattern, or with arms varying more than one
- * dimension. Returns the sentence a surface prints verbatim, or `null` when
+ * 3): against a held-back pattern, with arms varying more than one dimension,
+ * or with arms varying a dimension other than the one it declares. Returns
+ * the sentence a surface prints verbatim, or `null` when
  * the proposal is clean. Held-back is checked first — a held-back pattern's
  * proposal is refused for that reason even when its arms would otherwise be
- * clean, so the reason a reader sees is always the more fundamental one.
+ * clean, so the reason a reader sees is always the more fundamental one. `varies` is
+ * required, not optional: an optional dimension is a check that silently does
+ * not run for whoever forgets to pass one, and the compiler asking every
+ * caller for it is the whole guard.
  */
-export function rdRefusalReason(input: { patternHeldBack: boolean; arms: readonly RdArmTreatment[] }): string | null {
+export function rdRefusalReason(input: { patternHeldBack: boolean; varies: RdVariesDimension; arms: readonly RdArmTreatment[] }): string | null {
   if (input.patternHeldBack) return RD_HELD_BACK_REFUSAL
   if (rdDimensionsVariedCount(rdDimensionsOf(input.arms)) > 1) return RD_MULTI_DIMENSION_REFUSAL
+  if (!rdVariesOnlyDeclaredDimension(input.varies, input.arms)) return RD_WRONG_DIMENSION_REFUSAL
   return null
 }

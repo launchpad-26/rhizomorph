@@ -7,10 +7,12 @@ import {
   RD_HELD_BACK_REFUSAL,
   RD_MULTI_DIMENSION_REFUSAL,
   RD_PATTERN_FLOOR,
+  RD_WRONG_DIMENSION_REFUSAL,
   type RdArmTreatment,
   rdDimensionsOf,
   rdDimensionsVariedCount,
   rdRefusalReason,
+  rdVariesOnlyDeclaredDimension,
 } from './rd.js'
 
 const NONE: RdArmTreatment = { model: null, brief: null, checkpoint: null, gate: null }
@@ -83,19 +85,19 @@ describe('rdRefusalReason (prd55 ruling 3 — the schema refuses a held-back pro
   ]
 
   it('is null for a clean, single-dimension proposal against a live pattern', () => {
-    expect(rdRefusalReason({ patternHeldBack: false, arms: cleanArms })).toBeNull()
+    expect(rdRefusalReason({ patternHeldBack: false, varies: 'model', arms: cleanArms })).toBeNull()
   })
 
   it('refuses a proposal against a held-back pattern, even with otherwise-clean arms', () => {
-    expect(rdRefusalReason({ patternHeldBack: true, arms: cleanArms })).toBe(RD_HELD_BACK_REFUSAL)
+    expect(rdRefusalReason({ patternHeldBack: true, varies: 'model', arms: cleanArms })).toBe(RD_HELD_BACK_REFUSAL)
   })
 
   it('refuses a proposal whose arms vary more than one dimension', () => {
-    expect(rdRefusalReason({ patternHeldBack: false, arms: dirtyArms })).toBe(RD_MULTI_DIMENSION_REFUSAL)
+    expect(rdRefusalReason({ patternHeldBack: false, varies: 'model', arms: dirtyArms })).toBe(RD_MULTI_DIMENSION_REFUSAL)
   })
 
   it('held-back is checked first — a held-back pattern with dirty arms still reads the held-back reason', () => {
-    expect(rdRefusalReason({ patternHeldBack: true, arms: dirtyArms })).toBe(RD_HELD_BACK_REFUSAL)
+    expect(rdRefusalReason({ patternHeldBack: true, varies: 'model', arms: dirtyArms })).toBe(RD_HELD_BACK_REFUSAL)
   })
 
   /**
@@ -110,14 +112,68 @@ describe('rdRefusalReason (prd55 ruling 3 — the schema refuses a held-back pro
    * above is the restored form.
    */
   it('both refusal arms are load-bearing, restated as the two prior tests together', () => {
-    expect(rdRefusalReason({ patternHeldBack: true, arms: cleanArms })).not.toBeNull()
-    expect(rdRefusalReason({ patternHeldBack: false, arms: dirtyArms })).not.toBeNull()
+    expect(rdRefusalReason({ patternHeldBack: true, varies: 'model', arms: cleanArms })).not.toBeNull()
+    expect(rdRefusalReason({ patternHeldBack: false, varies: 'model', arms: dirtyArms })).not.toBeNull()
   })
 
   it('the two refusal sentences are fixed and distinct — a surface can print either verbatim', () => {
     expect(RD_HELD_BACK_REFUSAL).not.toBe(RD_MULTI_DIMENSION_REFUSAL)
+    expect(RD_WRONG_DIMENSION_REFUSAL).not.toBe(RD_MULTI_DIMENSION_REFUSAL)
+    expect(RD_WRONG_DIMENSION_REFUSAL).not.toBe(RD_HELD_BACK_REFUSAL)
+    expect(RD_WRONG_DIMENSION_REFUSAL).toContain('does not declare')
     expect(RD_HELD_BACK_REFUSAL).toContain('held back')
     expect(RD_MULTI_DIMENSION_REFUSAL).toContain('more than one dimension')
+  })
+})
+
+describe('rdVariesOnlyDeclaredDimension (prd55 ruling 3 — the arms differ in THAT dimension only)', () => {
+  const NONE_T: RdArmTreatment = { model: null, brief: null, checkpoint: null, gate: null }
+  const modelArms: RdArmTreatment[] = [
+    { ...NONE_T, model: 'opus' },
+    { ...NONE_T, model: 'sonnet' },
+  ]
+  const gateArms: RdArmTreatment[] = [
+    { ...NONE_T, gate: 'npm test' },
+    { ...NONE_T, gate: 'npm run lint' },
+  ]
+
+  it('accepts arms that vary the declared dimension', () => {
+    expect(rdVariesOnlyDeclaredDimension('model', modelArms)).toBe(true)
+    expect(rdVariesOnlyDeclaredDimension('gate', gateArms)).toBe(true)
+  })
+
+  it('refuses arms that vary exactly one dimension — the wrong one', () => {
+    expect(rdVariesOnlyDeclaredDimension('model', gateArms)).toBe(false)
+    expect(rdVariesOnlyDeclaredDimension('gate', modelArms)).toBe(false)
+  })
+
+  it('accepts arms that vary nothing at all — a replication is not a misattribution', () => {
+    expect(rdVariesOnlyDeclaredDimension('model', [NONE_T, NONE_T])).toBe(true)
+  })
+
+  /**
+   * THE MUTATION THIS LAW EXISTS FOR, and the one the count could not see:
+   * `rdDimensionsVariedCount(...) > 1` is satisfied by `gateArms` under
+   * `varies: 'model'` — exactly ONE dimension varies, so the count-based
+   * check passes and the difference is booked against the model. Stated as a
+   * count assertion beside the law so the two cannot be confused.
+   */
+  it('the count-based check cannot catch this — exactly one dimension varies, and it is the wrong one', () => {
+    expect(rdDimensionsVariedCount(rdDimensionsOf(gateArms))).toBe(1)
+    expect(rdVariesOnlyDeclaredDimension('model', gateArms)).toBe(false)
+    expect(rdRefusalReason({ patternHeldBack: false, varies: 'model', arms: gateArms })).toBe(RD_WRONG_DIMENSION_REFUSAL)
+  })
+
+  it('the count refusal still wins when both causes apply — the reader sees the more fundamental one', () => {
+    const twoDimensions: RdArmTreatment[] = [
+      { model: 'opus', brief: 'a'.repeat(64), checkpoint: null, gate: null },
+      { model: 'sonnet', brief: 'b'.repeat(64), checkpoint: null, gate: null },
+    ]
+    expect(rdRefusalReason({ patternHeldBack: false, varies: 'checkpoint', arms: twoDimensions })).toBe(RD_MULTI_DIMENSION_REFUSAL)
+  })
+
+  it('held-back still outranks both', () => {
+    expect(rdRefusalReason({ patternHeldBack: true, varies: 'model', arms: gateArms })).toBe(RD_HELD_BACK_REFUSAL)
   })
 })
 

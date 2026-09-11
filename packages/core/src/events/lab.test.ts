@@ -288,6 +288,14 @@ function twoDimensionArms() {
   ]
 }
 
+/** Arms varying exactly ONE dimension — the gate. Under `varies: 'model'` (which `validProposalContent()` declares) the count-based check passes and the difference is booked against the wrong dimension. */
+function wrongDimensionArms() {
+  return [
+    { model: 'opus', briefDigest: null, checkpointId: null, gateCommand: 'npm test' },
+    { model: 'opus', briefDigest: null, checkpointId: null, gateCommand: 'npm run lint' },
+  ]
+}
+
 function validProposalContent() {
   return {
     proposalId: 'proposal-1',
@@ -321,6 +329,21 @@ describe('rdProposalContentSchema (prd55 ruling 3 — a proposal varies exactly 
     expect(rdProposalContentSchema.safeParse({ ...validProposalContent(), arms: [...oneDimensionArms(), ...oneDimensionArms()] }).success).toBe(false)
   })
 
+  /**
+   * THE SIBLING THE COUNT CHECK CANNOT SEE: `wrongDimensionArms()` varies
+   * exactly one dimension, so `hasAtMostOneVaryingDimension` passes it. Only
+   * `variesOnlyTheDeclaredDimension` refuses it, and it must, or a proposal
+   * announcing `varies: 'model'` records a gate difference as a model one.
+   * MUTATION, EXECUTED: the second `.refine(variesOnlyTheDeclaredDimension,
+   * …)` dropped from `rdProposalContentSchema` — this test and
+   * `rdResultSchema`'s sibling below went red; the rest stayed green.
+   */
+  it('refuses arms that vary the wrong single dimension — varies says model, the arms differ in the gate', () => {
+    const mismatched = { ...validProposalContent(), varies: 'model' as const, arms: wrongDimensionArms() }
+    expect(rdProposalContentSchema.safeParse(mismatched).success).toBe(false)
+    expect(rdProposalContentSchema.safeParse({ ...mismatched, varies: 'gate' as const }).success).toBe(true)
+  })
+
   it('refuses a varies dimension outside the closed vocabulary', () => {
     expect(rdProposalContentSchema.safeParse({ ...validProposalContent(), varies: 'brief-check' }).success).toBe(false)
   })
@@ -334,6 +357,12 @@ describe('rdResultSchema — the fixed shape of one R&D call, patterns and propo
 
   it('refuses when any proposal inside it is dirty', () => {
     expect(rdResultSchema.safeParse({ patterns: [livePattern()], proposals: [{ ...validProposalContent(), arms: twoDimensionArms() }] }).success).toBe(false)
+  })
+
+  it('refuses a proposal varying the wrong single dimension too — the result schema inherits both gates', () => {
+    expect(
+      rdResultSchema.safeParse({ patterns: [livePattern()], proposals: [{ ...validProposalContent(), varies: 'model', arms: wrongDimensionArms() }] }).success,
+    ).toBe(false)
   })
 })
 
@@ -388,6 +417,17 @@ describe('rd.proposal', () => {
    */
   it('refuses a two-dimension proposal at the payload level too — a second, independent gate', () => {
     expect(rdProposalPayloadSchema.safeParse({ ...validRdProposal(), arms: twoDimensionArms() }).success).toBe(false)
+  })
+
+  /**
+   * MUTATION, EXECUTED: the second `.refine(variesOnlyTheDeclaredDimension,
+   * …)` dropped from `rdProposalPayloadSchema` ALONE, with
+   * `rdProposalContentSchema`'s left in place — exactly this test went red,
+   * proving the payload carries its own declared-dimension gate rather than
+   * inheriting the content schema's.
+   */
+  it('refuses the wrong single dimension at the payload level too — a second, independent gate', () => {
+    expect(rdProposalPayloadSchema.safeParse({ ...validRdProposal(), varies: 'model', arms: wrongDimensionArms() }).success).toBe(false)
   })
 
   it('refuses a missing provenance field', () => {

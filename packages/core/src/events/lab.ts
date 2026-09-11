@@ -1,5 +1,13 @@
 import { z } from 'zod'
-import { isHeldBack, RD_MULTI_DIMENSION_REFUSAL, RD_PATTERN_FLOOR, rdDimensionsOf, rdDimensionsVariedCount } from '../lab/rd.js'
+import {
+  isHeldBack,
+  RD_MULTI_DIMENSION_REFUSAL,
+  RD_PATTERN_FLOOR,
+  RD_WRONG_DIMENSION_REFUSAL,
+  rdDimensionsOf,
+  rdDimensionsVariedCount,
+  rdVariesOnlyDeclaredDimension,
+} from '../lab/rd.js'
 import { nonEmptyString, timestampSchema } from './common.js'
 
 /**
@@ -313,6 +321,21 @@ function hasAtMostOneVaryingDimension(proposal: { arms: readonly RdArm[] }): boo
   return rdDimensionsVariedCount(rdDimensionsOf(proposal.arms.map(armTreatmentOf))) <= 1
 }
 
+/**
+ * True when the one dimension a proposal's arms actually vary is the one it
+ * DECLARES it varies (prd55 ruling 3's "arms differing in that dimension
+ * only") — the sibling of {@link hasAtMostOneVaryingDimension}, which counts
+ * varying dimensions and so cannot see a count of exactly one landing on the
+ * wrong dimension. Chained as a second refine rather than folded into the
+ * first, so each cause keeps its own verbatim sentence: zod runs chained
+ * refinements in order and reports them in order, so a proposal failing both
+ * still reads the more fundamental `RD_MULTI_DIMENSION_REFUSAL` at
+ * `issues[0]`, which is what `server/src/lab/rd.ts` records as the refusal.
+ */
+function variesOnlyTheDeclaredDimension(proposal: { varies: RdVariesDimension; arms: readonly RdArm[] }): boolean {
+  return rdVariesOnlyDeclaredDimension(proposal.varies, proposal.arms.map(armTreatmentOf))
+}
+
 const rdProposalShape = z.object({
   /** A later launch (ruling 4) and a later override name this — minted once, at proposal time. */
   proposalId: nonEmptyString,
@@ -331,10 +354,12 @@ const rdProposalShape = z.object({
  * second, independent gate (mutation: dropping either `.refine` call lets a
  * two-dimension proposal in through that half alone).
  */
-export const rdProposalContentSchema = rdProposalShape.refine(hasAtMostOneVaryingDimension, {
-  message: RD_MULTI_DIMENSION_REFUSAL,
-  path: ['arms'],
-})
+export const rdProposalContentSchema = rdProposalShape
+  .refine(hasAtMostOneVaryingDimension, {
+    message: RD_MULTI_DIMENSION_REFUSAL,
+    path: ['arms'],
+  })
+  .refine(variesOnlyTheDeclaredDimension, { message: RD_WRONG_DIMENSION_REFUSAL, path: ['arms'] })
 export type RdProposalContent = z.infer<typeof rdProposalContentSchema>
 
 /**
@@ -368,6 +393,7 @@ export const rdPatternsEventSchema = z.object({
 export const rdProposalPayloadSchema = rdProposalShape
   .extend({ lane: nonEmptyString, provenance: rdProvenanceSchema })
   .refine(hasAtMostOneVaryingDimension, { message: RD_MULTI_DIMENSION_REFUSAL, path: ['arms'] })
+  .refine(variesOnlyTheDeclaredDimension, { message: RD_WRONG_DIMENSION_REFUSAL, path: ['arms'] })
 export type RdProposalPayload = z.infer<typeof rdProposalPayloadSchema>
 
 /** Hand-built for the same reason `forkCheckpointEventSchema` is — see its doc comment. */
