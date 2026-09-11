@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Exec, ExecResult, RhizomorphEvent } from '@rhizomorph/core'
-import { armKey, createEventFactory, eventsToJsonl, reduceAll } from '@rhizomorph/core'
+import { armKey, createEventFactory, eventsToJsonl, RD_MULTI_DIMENSION_REFUSAL, reduceAll } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runCli } from '../cli/index.js'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
@@ -27,6 +27,7 @@ import {
   MODEL_GRAMMAR,
   measureExperiment,
   parseForkStdout,
+  runRdExperiment,
 } from './lab.js'
 import { CAPABILITY_TOKEN_HEADER } from './security.js'
 import { capabilityHeaders } from './test-support.js'
@@ -1465,6 +1466,236 @@ describe('POST /api/lab/launch (route wiring — validation and the read-only re
       payload: { lane: 'x', checkpointId: 'y', arms: [{ model: 'opus' }] },
     })
     expect(response.statusCode).toBe(409)
+  })
+})
+
+describe('POST /api/lab/rd (prd-55 ruling 1 — the R&D hand, gated, reached through runCli)', () => {
+  let repoPath: string
+  let sessionDir: string
+
+  beforeEach(async () => {
+    repoPath = await mkdtemp(path.join(tmpdir(), 'rhizomorph-lab-rd-route-repo-'))
+    sessionDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-lab-rd-route-dir-'))
+  })
+
+  afterEach(async () => {
+    await Promise.all([
+      rm(repoPath, { recursive: true, force: true }),
+      rm(sessionDir, { recursive: true, force: true }),
+    ])
+  })
+
+  function authorised(app: ReturnType<typeof buildApp>): Record<string, string> {
+    return { [CAPABILITY_TOKEN_HEADER]: app.capabilityToken }
+  }
+
+  const BODY = { lane: 'w5b-412', model: 'opus' }
+
+  /**
+   * The gate, on the route that spends the MOST per call in this file: an R&D
+   * run is a real model call billed to the operator. Asserting the status is
+   * not enough — `runRdExperiment` must never be entered, because a 401
+   * arriving after the hand was already spawned would be a gate in name only,
+   * exactly as #234 found for the launch.
+   */
+  it('refuses a tokenless run before the laboratory is touched — a bare curl never spends the operator money', async () => {
+    const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+    const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+    const response = await app.inject({ method: 'POST', url: '/api/lab/rd', payload: BODY })
+
+    expect(response.statusCode).toBe(401)
+    expect((response.json() as { error: string }).error).toContain(CAPABILITY_TOKEN_HEADER)
+    expect(recorder.eventsSoFar()).toEqual([])
+  })
+
+  it('refuses a wrong token just as flatly — a guess is not a capability', async () => {
+    const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+    const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/lab/rd',
+      headers: { [CAPABILITY_TOKEN_HEADER]: 'not-the-token' },
+      payload: BODY,
+    })
+
+    expect(response.statusCode).toBe(401)
+    expect(recorder.eventsSoFar()).toEqual([])
+  })
+
+  it('refuses on a replayed record — there is no repo whose record the hand could read', async () => {
+    const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+    const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder, readOnly: true })
+
+    const response = await app.inject({ method: 'POST', url: '/api/lab/rd', headers: authorised(app), payload: BODY })
+
+    expect(response.statusCode).toBe(409)
+    expect((response.json() as { error: string }).error).toContain('replaying a session record')
+  })
+
+  describe('the body is refused at the boundary, before anything is spawned', () => {
+    async function refusal(payload: Record<string, unknown>): Promise<{ status: number; error: string }> {
+      const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+      const app = buildApp({ repoPath, repoName: 'repo', sessionDir, recorder })
+      const response = await app.inject({ method: 'POST', url: '/api/lab/rd', headers: authorised(app), payload })
+      return { status: response.statusCode, error: (response.json() as { error: string }).error }
+    }
+
+    it('a run with no lane, or no model, is 400 in the operator’s own vocabulary', async () => {
+      expect(await refusal({ model: 'opus' })).toMatchObject({ status: 400, error: expect.stringContaining('"lane"') })
+      expect(await refusal({ lane: 'x' })).toMatchObject({
+        status: 400,
+        error: expect.stringContaining('does not choose its own model'),
+      })
+    })
+
+    it('a third corpus is refused, and the refusal says why there is no third', async () => {
+      const { status, error } = await refusal({ ...BODY, corpus: 'everything' })
+      expect(status).toBe(400)
+      expect(error).toContain('second declared act')
+    })
+
+    it('a model the grammar refuses never reaches argv — the same sentence the launch says (#234)', async () => {
+      const { status, error } = await refusal({ ...BODY, model: 'opus; rm -rf /' })
+      expect(status).toBe(400)
+      expect(error).toContain('this instrument refuses')
+    })
+
+    it('a flag-shaped lane is refused, because parseLabRdArgs scans raw argv for --help before -- can cover it', async () => {
+      const { status, error } = await refusal({ ...BODY, lane: '--help' })
+      expect(status).toBe(400)
+      expect(error).toContain('may not begin with "-"')
+    })
+
+    it('an agent command that is really a command line is refused — a binary name is one word', async () => {
+      const { status, error } = await refusal({ ...BODY, agentCommand: 'claude --dangerously-skip-permissions' })
+      expect(status).toBe(400)
+      expect(error).toContain('one word, not a command line')
+    })
+
+    it('a maxTurns that is not a count is refused', async () => {
+      expect(await refusal({ ...BODY, maxTurns: 0 })).toMatchObject({ status: 400 })
+      expect(await refusal({ ...BODY, maxTurns: 2.5 })).toMatchObject({ status: 400 })
+    })
+  })
+
+  /**
+   * The end-to-end pass, through the REAL `runCli` and the REAL engine, with
+   * only the subprocess faked. This is what proves the route reaches the
+   * laboratory the way the namespace law requires — `runCli(['lab','rd',…])`,
+   * in-process — rather than by an import this file is forbidden to make.
+   */
+  describe('through the real CLI, with only the subprocess faked', () => {
+    /** The whole `claude -p --output-format json` envelope, around one R&D document. */
+    function handExec(document: string, onPath = true): Exec {
+      return async (command, args) => {
+        if (args[0] === '--version') {
+          return onPath
+            ? { stdout: '2.1.266 (Claude Code)\n', stderr: '', code: 0, failed: false }
+            : { stdout: '', stderr: '', code: null, failed: true, errorMessage: `spawn ${command} ENOENT` }
+        }
+        return {
+          stdout: JSON.stringify({
+            result: document,
+            total_cost_usd: 0.0421,
+            duration_ms: 8123,
+            num_turns: 1,
+            session_id: 's',
+          }),
+          stderr: '',
+          code: 0,
+          failed: false,
+        }
+      }
+    }
+
+    const CLEAN = JSON.stringify({
+      patterns: [
+        {
+          patternId: 'pattern-slow-gate',
+          shape: 'the gate is the slowest step',
+          sourceItems: ['a', 'b'],
+          count: 2,
+          heldBack: false,
+        },
+      ],
+      proposals: [
+        {
+          proposalId: 'proposal-1',
+          patternId: 'pattern-slow-gate',
+          varies: 'gate',
+          arms: [
+            { model: null, briefDigest: null, checkpointId: null, gateCommand: 'npm test' },
+            { model: null, briefDigest: null, checkpointId: null, gateCommand: 'npm run typecheck' },
+          ],
+          checkpointPick: { chosenCheckpointId: 'ckpt-1', rejected: [] },
+        },
+      ],
+    })
+
+    const CONFOUNDED = JSON.stringify({
+      patterns: [
+        {
+          patternId: 'pattern-slow-gate',
+          shape: 'the gate is the slowest step',
+          sourceItems: ['a', 'b'],
+          count: 2,
+          heldBack: false,
+        },
+      ],
+      proposals: [
+        {
+          proposalId: 'proposal-2',
+          patternId: 'pattern-slow-gate',
+          varies: 'gate',
+          arms: [
+            { model: 'opus', briefDigest: null, checkpointId: null, gateCommand: 'npm test' },
+            { model: 'sonnet', briefDigest: null, checkpointId: null, gateCommand: 'npm run typecheck' },
+          ],
+          checkpointPick: { chosenCheckpointId: 'ckpt-1', rejected: [] },
+        },
+      ],
+    })
+
+    it('runs the hand and answers with the patterns, the proposal and the CLI’s own provenance', async () => {
+      const result = await runRdExperiment(BODY, { repoPath, exec: handExec(CLEAN), dataRoot: sessionDir })
+
+      expect(result.available).toBe(true)
+      expect(result.lane).toBe('w5b-412')
+      expect(result.patterns.map((pattern) => pattern.patternId)).toEqual(['pattern-slow-gate'])
+      expect(result.proposals).toHaveLength(1)
+      expect(result.refusals).toEqual([])
+      expect(result.provenance).toMatchObject({ model: 'opus', total_cost_usd: 0.0421, corpus: 'local' })
+      expect(result.turns).toBe(1)
+      expect(result.eventIds).toHaveLength(2)
+    })
+
+    it('a two-dimension proposal comes back REFUSED, in core’s own words, and never as a proposal', async () => {
+      const result = await runRdExperiment(BODY, { repoPath, exec: handExec(CONFOUNDED), dataRoot: sessionDir })
+
+      expect(result.proposals).toEqual([])
+      expect(result.refusals).toEqual([{ patternId: 'pattern-slow-gate', reason: RD_MULTI_DIMENSION_REFUSAL }])
+    })
+
+    it('no claude on PATH is a 200 carrying the sentence, not an error — ruling 9 draws it as a state', async () => {
+      const result = await runRdExperiment(BODY, { repoPath, exec: handExec(CLEAN, false), dataRoot: sessionDir })
+
+      expect(result.available).toBe(false)
+      expect(result.reason).toBe("no claude on this machine's PATH — the R&D hand is your CLI, installed by you")
+      expect(result.recordedTo).toBeNull()
+      expect(result.eventIds).toEqual([])
+    })
+
+    it('the tracker corpus is carried through the CLI and recorded on the provenance', async () => {
+      const result = await runRdExperiment(
+        { ...BODY, corpus: 'local+tracker' },
+        { repoPath, exec: handExec(CLEAN), dataRoot: sessionDir },
+      )
+
+      expect(result.corpus.choice).toBe('local+tracker')
+      expect(result.provenance).toMatchObject({ corpus: 'local+tracker' })
+    })
   })
 })
 

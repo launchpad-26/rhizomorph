@@ -55,10 +55,10 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
  *    (true of every non-browser client, `rhizomorph rotate` included) is
  *    allowed through this check, deliberately and permanently — this guard is
  *    not the control for a caller with no browser. `requireCapabilityToken`
- *    in `api/security.ts` is, and since #234 each of this server's nine
+ *    in `api/security.ts` is, and since #234 each of this server's ten
  *    GATED mutating routes requires it: `/api/label`, `/api/rotate`,
  *    `/api/retarget`, `/api/lab/launch`, `/api/lab/measure`,
- *    `/api/lab/comparisons`, `/api/operator/:act`, and the
+ *    `/api/lab/comparisons`, `/api/lab/rd`, `/api/operator/:act`, and the
  *    concierge's two granted powers `/api/concierge/clone` and
  *    `/api/concierge/launch` (prd-20 ruling 1 /
  *    ADR-0019 — the gate IS the grant there, which is why neither may ever
@@ -97,11 +97,11 @@ const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
 
 /**
  * Methods the `Origin` and `Content-Type` checks apply to — `Host` above
- * runs for every method regardless. This server has thirteen mutating routes
+ * runs for every method regardless. This server has fourteen mutating routes
  * today (prd-23 ruling 5's route-class law — `api/index.ts`'s `ROUTE_CLASSES`
- * is where all thirteen are declared): nine gated (`/api/label`,
+ * is where all fourteen are declared): ten gated (`/api/label`,
  * `/api/rotate`, `/api/retarget`, `/api/lab/launch`, `/api/lab/measure`,
- * `/api/lab/comparisons`, `/api/operator/:act`,
+ * `/api/lab/comparisons`, `/api/lab/rd`, `/api/operator/:act`,
  * `/api/concierge/clone`, `/api/concierge/launch`) and four ungated by
  * design (the OTLP inbox: `/v1/metrics`, `/v1/logs`, `/v1/traces`, and the
  * bare-path fallback `POST /`, ADR-0018) — every one of them a `POST`;

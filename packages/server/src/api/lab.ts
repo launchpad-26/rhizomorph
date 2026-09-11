@@ -1231,6 +1231,233 @@ export async function measureExperiment(body: unknown, options: MeasureExperimen
   return { forkId: comparison.forkId, verifyCommand: comparison.verifyCommand, measured }
 }
 
+// --- R&D (prd-55 ruling 1: the operator's own CLI, spawned as an explicit act) ---
+
+export class RdValidationError extends Error {}
+
+export interface RdRequestBody {
+  /** The lane this run is booked to — every rd.* payload carries it. */
+  lane: string
+  /** Which model the hand runs. Required for the reason the CLI gives: a call that spends money does not choose its own model. */
+  model: string
+  /** prd-55 ruling 2. `local` when the request did not say. */
+  corpus: 'local' | 'local+tracker'
+  maxTurns?: number
+  /** The operator's declared binary name (`lab.agentCommand`), carried from settings by the caller. */
+  agentCommand?: string
+}
+
+/** One pattern as the route hands it back — the shape `rhizomorph lab rd --json` prints, read without importing `lab/rd.ts`. */
+interface RdPatternDTO {
+  patternId: string
+  shape: string
+  sourceItems: string[]
+  count: number
+  heldBack: boolean
+}
+
+export interface RdResult {
+  lane: string
+  /** False means the operator's CLI is not on the server's PATH: `reason` is the sentence, and nothing was spawned. */
+  available: boolean
+  reason: string | null
+  corpus: { choice: 'local' | 'local+tracker'; digest: string; itemCount: number; trackerRefusal: string | null }
+  patterns: RdPatternDTO[]
+  proposals: Array<Record<string, unknown>>
+  refusals: Array<{ patternId: string; reason: string }>
+  provenance: Record<string, unknown> | null
+  turns: number
+  recordedTo: string | null
+  eventIds: string[]
+}
+
+/** {@link refuseFlagShaped}'s sentence, raised as the R&D error class so the route maps it to 400 like every other body fault. */
+function refuseFlagShapedRd(value: string, label: string, why: string): void {
+  try {
+    refuseFlagShaped(value, label, why)
+  } catch (err) {
+    throw new RdValidationError(err instanceof Error ? err.message : String(err))
+  }
+}
+
+function parseRdRequestBody(body: unknown): RdRequestBody {
+  if (typeof body !== 'object' || body === null) {
+    throw new RdValidationError('request body must be a JSON object')
+  }
+  const { lane, model, corpus, maxTurns, agentCommand } = body as Record<string, unknown>
+
+  if (typeof lane !== 'string' || lane.trim().length === 0) {
+    throw new RdValidationError('"lane" must be a non-empty string — an R&D run is booked to a lane')
+  }
+  // Every value below reaches the CLI as argv, so the same first-character rule
+  // the launch and measure bodies apply applies here: `parseLabRdArgs` scans raw
+  // argv for `--help`/`-h` before `parseFlags` runs, and the `--` separator
+  // cannot cover that pre-scan.
+  refuseFlagShapedRd(lane.trim(), '"lane"', 'a lane names the run this is booked to')
+
+  if (typeof model !== 'string' || model.trim().length === 0) {
+    throw new RdValidationError(
+      '"model" must be a non-empty string — a call that spends real money does not choose its own model (prd-55 ruling 1)',
+    )
+  }
+  const trimmedModel = model.trim()
+  const offender = offendingModelCharacter(trimmedModel)
+  if (offender !== null) throw new RdValidationError(modelRefusalMessage(trimmedModel, offender))
+  refuseFlagShapedRd(trimmedModel, '"model"', 'a model is a name, not a flag')
+
+  const chosenCorpus = corpus === undefined ? 'local' : corpus
+  if (chosenCorpus !== 'local' && chosenCorpus !== 'local+tracker') {
+    throw new RdValidationError(
+      '"corpus" must be "local" or "local+tracker" when present — reading the tracker through your own gh is a second declared act (prd-55 ruling 2), and there is no third corpus',
+    )
+  }
+
+  if (maxTurns !== undefined && (typeof maxTurns !== 'number' || !Number.isInteger(maxTurns) || maxTurns < 1)) {
+    throw new RdValidationError('"maxTurns" must be a positive integer when present — the bound on the hand’s turns')
+  }
+
+  let trimmedAgentCommand: string | undefined
+  if (agentCommand !== undefined) {
+    if (typeof agentCommand !== 'string' || agentCommand.trim().length === 0) {
+      throw new RdValidationError(
+        '"agentCommand" must be a non-empty string when present — the binary to look for on this machine’s PATH',
+      )
+    }
+    trimmedAgentCommand = agentCommand.trim()
+    if (/\s/.test(trimmedAgentCommand)) {
+      throw new RdValidationError(
+        `"agentCommand" may not contain whitespace (received "${trimmedAgentCommand}") — a binary name is one word, not a command line`,
+      )
+    }
+    refuseFlagShapedRd(trimmedAgentCommand, '"agentCommand"', 'a binary name is a name, not a flag')
+  }
+
+  return {
+    lane: lane.trim(),
+    model: trimmedModel,
+    corpus: chosenCorpus,
+    ...(maxTurns === undefined ? {} : { maxTurns }),
+    ...(trimmedAgentCommand === undefined ? {} : { agentCommand: trimmedAgentCommand }),
+  }
+}
+
+function isRdPatternDTO(value: unknown): value is RdPatternDTO {
+  if (!isRecord(value)) return false
+  const { patternId, shape, sourceItems, count, heldBack } = value
+  return (
+    typeof patternId === 'string' &&
+    typeof shape === 'string' &&
+    Array.isArray(sourceItems) &&
+    sourceItems.every((item) => typeof item === 'string') &&
+    typeof count === 'number' &&
+    typeof heldBack === 'boolean'
+  )
+}
+
+/** The document `rhizomorph lab rd --json` prints, read back without importing `lab/rd.ts` — the posture `parseComparisonJson` already keeps for the measure route. */
+function parseRdJson(stdout: string): RdResult | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(stdout.trim())
+  } catch {
+    return null
+  }
+  if (!isRecord(parsed)) return null
+  const { lane, available, reason, corpus, patterns, proposals, refusals, provenance, turns, recordedTo, eventIds } =
+    parsed
+  if (typeof lane !== 'string' || typeof available !== 'boolean') return null
+  if (reason !== null && typeof reason !== 'string') return null
+  if (!isRecord(corpus) || (corpus.choice !== 'local' && corpus.choice !== 'local+tracker')) return null
+  if (typeof corpus.digest !== 'string' || typeof corpus.itemCount !== 'number') return null
+  if (corpus.trackerRefusal !== null && typeof corpus.trackerRefusal !== 'string') return null
+  if (!Array.isArray(patterns) || !patterns.every(isRdPatternDTO)) return null
+  if (!Array.isArray(proposals) || !proposals.every(isRecord)) return null
+  if (!Array.isArray(refusals)) return null
+  const readRefusals: RdResult['refusals'] = []
+  for (const row of refusals) {
+    if (!isRecord(row) || typeof row.patternId !== 'string' || typeof row.reason !== 'string') return null
+    readRefusals.push({ patternId: row.patternId, reason: row.reason })
+  }
+  if (provenance !== null && !isRecord(provenance)) return null
+  if (typeof turns !== 'number') return null
+  if (recordedTo !== null && typeof recordedTo !== 'string') return null
+  if (!Array.isArray(eventIds) || !eventIds.every((id) => typeof id === 'string')) return null
+
+  return {
+    lane,
+    available,
+    reason,
+    corpus: {
+      choice: corpus.choice,
+      digest: corpus.digest,
+      itemCount: corpus.itemCount,
+      trackerRefusal: corpus.trackerRefusal as string | null,
+    },
+    patterns,
+    proposals: proposals as Array<Record<string, unknown>>,
+    refusals: readRefusals,
+    provenance: provenance as Record<string, unknown> | null,
+    turns,
+    recordedTo,
+    eventIds,
+  }
+}
+
+/**
+ * Runs ONE R&D hand (prd-55 ruling 1) — `rhizomorph lab rd <lane> --json`
+ * through `runCli`, the one door the namespace law leaves this file, so the
+ * operator's own CLI is spawned exactly as it would be for a human typing the
+ * command.
+ *
+ * A gated MUTATION, not the read it might resemble, and twice over: it spends
+ * the operator's real money on a real model call, and it records
+ * `rd.patterns` / `rd.proposal` / `rd.refused` on the log. Unlike the measure
+ * route it carries no `recorder` of its own — the engine constructs one on the
+ * live session exactly as `lab/fork.ts` does, which is precisely the write
+ * #409's merge above exists to make visible without a restart.
+ *
+ * "No claude on this machine's PATH" comes back as a 200 carrying
+ * `available: false` and the sentence, never as an error: ruling 9 draws it as
+ * a state of the control, and a 4xx would make the console render a failure
+ * where the truth is that the operator has not installed the hand.
+ */
+export async function runRdExperiment(body: unknown, options: LaunchExperimentOptions): Promise<RdResult> {
+  const request = parseRdRequestBody(body)
+  const argv = [
+    'rd',
+    '--json',
+    '--path', options.repoPath,
+    '--model', request.model,
+    '--corpus', request.corpus,
+    ...(request.maxTurns === undefined ? [] : ['--max-turns', String(request.maxTurns)]),
+    ...(request.agentCommand === undefined ? [] : ['--agent-command', request.agentCommand]),
+    '--', request.lane,
+  ]
+
+  const invocation = await withLabCliLock(
+    `R&D run for lane "${request.lane}"`,
+    () =>
+      runLabCliOnce(argv, {
+        ...(options.exec === undefined ? {} : { exec: options.exec }),
+        ...(options.dataRoot === undefined ? {} : { dataRoot: options.dataRoot }),
+        ...(options.claudeProjectsRoot === undefined ? {} : { claudeProjectsRoot: options.claudeProjectsRoot }),
+        ...(options.now === undefined ? {} : { now: options.now }),
+      }),
+    options.lockCeilingMs,
+  )
+
+  if (invocation.exitCode !== 0) {
+    const detail = invocation.stderr.trim() || `rhizomorph lab rd exited ${invocation.exitCode}`
+    throw new Error(`could not run the R&D hand for lane ${request.lane}: ${detail}`)
+  }
+
+  const result = parseRdJson(invocation.stdout)
+  if (result === null || result.lane !== request.lane) {
+    throw new Error(`could not read the R&D result for lane ${request.lane} — unexpected CLI output`)
+  }
+  return result
+}
+
 export function registerLabRoutes(app: FastifyInstance, ctx: ServerContext): void {
   app.get('/api/lab/checkpoints', { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') }, async () => {
     const events = await readAllEvents(ctx)
@@ -1287,6 +1514,31 @@ export function registerLabRoutes(app: FastifyInstance, ctx: ServerContext): voi
       }
       if (err instanceof MeasureUnknownForkError) {
         return reply.code(404).send({ error: err.message })
+      }
+      if (err instanceof LabCliLockCeilingError) {
+        return reply.code(503).send({ error: err.message })
+      }
+      throw err
+    }
+  })
+
+  // prd-55 ruling 1: the R&D hand is a gated mutation for the same two reasons
+  // measuring is, at a higher price — it spends the operator's real money on a
+  // real model call, and it records rd.* events on the log. Gated exactly as
+  // the launch and the measure are, and reaching the laboratory the same way,
+  // through `runCli` (ADR-0048).
+  app.post('/api/lab/rd', { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') }, async (request: FastifyRequest, reply) => {
+    if (ctx.readOnly === true) {
+      return reply.code(409).send({
+        error: 'this server is replaying a session record, not watching a repo — there is no record here for the R&D hand to read',
+      })
+    }
+
+    try {
+      return await runRdExperiment(request.body, { repoPath: ctx.repoPath, ...(ctx.now === undefined ? {} : { now: ctx.now }) })
+    } catch (err) {
+      if (err instanceof RdValidationError) {
+        return reply.code(400).send({ error: err.message })
       }
       if (err instanceof LabCliLockCeilingError) {
         return reply.code(503).send({ error: err.message })

@@ -113,7 +113,7 @@ Every subcommand `rhizomorph` dispatches on (`packages/server/src/cli/index.ts`)
 | `rhizomorph sessions [path]` | Lists every session recorded for a repo, newest first, with a title derived from its own events. |
 | `rhizomorph label <sessionId> <text>` | Renames a recorded session's auto-title. |
 | `rhizomorph rotate` | Asks the running instrument to close its current session log and open a new one. |
-| `rhizomorph lab <checkpoint\|fork\|compare>` | The laboratory's namespace (opt-in, explicitly invoked) — see [The laboratory](#the-laboratory--opt-in-explicitly-invoked-and-separate-prd12-ruling-1). |
+| `rhizomorph lab <checkpoint\|fork\|compare\|rd>` | The laboratory's namespace (opt-in, explicitly invoked) — see [The laboratory](#the-laboratory--opt-in-explicitly-invoked-and-separate-prd12-ruling-1). `rd` spawns **your own** agent CLI and spends **your own** money; this instrument holds no credential ([ADR-0048](docs/adr/0048-the-instrument-spawns-the-operators-own-tools-as-an-explicit-act.md)). |
 | `rhizomorph connect team <url> --project <id>` | Turns on the shipper for this repo — the fifth hand, off by default. Reads a project-scoped `rzk_` ingest key on stdin, never argv. `--status` reports; `--ship` runs the batch timer in the foreground. See [The shipper](#the-shipper--the-fifth-hand-off-by-default-outbound-only-adr-0034--prd-51-ruling-2). |
 
 ## Trust
@@ -266,13 +266,23 @@ Everything above runs the moment you start the server. The laboratory does
 not: it's a second actor, reachable only by an explicit human action, never
 a background poll — either your own command line (`rhizomorph lab
 checkpoint <lane>`, `rhizomorph lab fork <lane> [--at <checkpoint>]
-[--launch]`, `rhizomorph lab compare <forkId>`), or the dashboard's launch
-button, which sends `POST /api/lab/launch` to a server route that runs that
-same `fork --launch` in-process (see [SECURITY.md](SECURITY.md) for what
-guards that route today). `checkpoint` snapshots a lane's live workspace
+[--launch]`, `rhizomorph lab compare <forkId>`, `rhizomorph lab rd <lane>
+--model <m>`), or the dashboard's buttons, which send `POST /api/lab/launch`
+and `POST /api/lab/rd` to server routes that run those same commands
+in-process (see [SECURITY.md](SECURITY.md) for what guards those routes
+today). `checkpoint` snapshots a lane's live workspace
 and session position; `fork` restores as many arms of one checkpoint as you
 ask for, each into its own worktree, and runs `npm install` in each one;
 `compare` reports what happened across them.
+
+`rd` is the one that spends money somewhere other than a lane you started:
+it reads this repo's own record — measured verdicts, retros, reviews — and
+hands it to **your** agent CLI, resolved on this machine's PATH under the
+name you declare, with **no tools granted**. This instrument holds no
+credential and forwards none; the call is authenticated by your own already-
+installed login and billed to your own account, which is the boundary
+[ADR-0048](docs/adr/0048-the-instrument-spawns-the-operators-own-tools-as-an-explicit-act.md)
+records. With no such CLI on your PATH it says so and spawns nothing.
 
 What it's allowed to write, exactly: refs under `refs/rhizomorph/`, the git
 objects those refs require, worktrees it creates itself under

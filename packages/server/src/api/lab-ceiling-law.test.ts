@@ -831,7 +831,7 @@ describe('the lab ceiling law (prd-50 ruling 2) — every enumerated wiring to L
   })
 
   describe('the seam that could carry an override is never fed from production code', () => {
-    it("withLabCliLock's two production call sites pass the ceiling as the bare options.lockCeilingMs, nothing computed onto it", () => {
+    it("withLabCliLock's three production call sites pass the ceiling as the bare options.lockCeilingMs, nothing computed onto it", () => {
       const calls = callsTo(labCode, 'withLabCliLock')
       // Computed AFTER finding the real calls, not hard-coded: the count
       // itself is asserted below (`calls.length`), and the per-call checks
@@ -839,7 +839,11 @@ describe('the lab ceiling law (prd-50 ruling 2) — every enumerated wiring to L
       // correct even if a future legitimate third call site changes the
       // expected total, without anyone having to update a magic number here.
       expect.assertions(1 + calls.length * 2)
-      expect(calls.length).toBe(2)
+      // 2 -> 3: prd-55 ruling 1's R&D hand (#412), the third route that
+      // reaches the laboratory through `runCli`. The per-call checks below
+      // multiply by whatever this turns out to be, which is why only this one
+      // line moves.
+      expect(calls.length).toBe(3)
       for (const args of calls) {
         expect(args.length).toBe(3)
         expect(args[2]).toBe('options.lockCeilingMs')
@@ -889,6 +893,7 @@ describe('the lab ceiling law (prd-50 ruling 2) — every enumerated wiring to L
     // comment, the way that law's own blunt text scan reads a file.
     const THE_LAUNCH_ENTRY_POINT = ['launch', 'Experiment'].join('')
     const THE_MEASURE_ENTRY_POINT = ['measure', 'Experiment'].join('')
+    const THE_RD_ENTRY_POINT = ['runRd', 'Experiment'].join('')
 
     /**
      * The exact, reviewed options-object text at each production call site,
@@ -907,12 +912,19 @@ describe('the lab ceiling law (prd-50 ruling 2) — every enumerated wiring to L
       [THE_MEASURE_ENTRY_POINT]: normalizeWhitespace(
         '{ repoPath: ctx.repoPath, recorder: ctx.recorder, ...(ctx.now === undefined ? {} : { now: ctx.now }), }',
       ),
+      // prd-55 ruling 1's R&D hand. No `recorder`, and that absence is the
+      // reviewed fact rather than an omission: the engine constructs its own
+      // `SessionRecorder` on the live session exactly as `lab/fork.ts` does,
+      // so the route hands it nothing to write through.
+      [THE_RD_ENTRY_POINT]: normalizeWhitespace(
+        '{ repoPath: ctx.repoPath, ...(ctx.now === undefined ? {} : { now: ctx.now }) }',
+      ),
     }
 
-    it('the two lab route handlers that dispatch an experiment build their options object from exactly the one reviewed literal', () => {
-      // 2 entry points × 3 assertions each (call count, body arg, options arg).
-      expect.assertions(2 * 3)
-      for (const fnName of [THE_LAUNCH_ENTRY_POINT, THE_MEASURE_ENTRY_POINT]) {
+    it('the three lab route handlers that dispatch an experiment build their options object from exactly the one reviewed literal', () => {
+      // 3 entry points × 3 assertions each (call count, body arg, options arg).
+      expect.assertions(3 * 3)
+      for (const fnName of [THE_LAUNCH_ENTRY_POINT, THE_MEASURE_ENTRY_POINT, THE_RD_ENTRY_POINT]) {
         const calls = callsTo(labCode, fnName)
         expect(calls.length, `${fnName} has no production call site`).toBe(1)
         const [body, options] = calls[0]!
