@@ -437,10 +437,35 @@ export interface RunRdOptions {
   dataRoot?: string
 }
 
-/** One proposal the pure laws refused — the reason, verbatim, beside the pattern it was drawn from. */
+/**
+ * How much of the hand's raw result text a refusal carries (prd-55 ruling 9,
+ * wave 6 widening: the tab's `<details>` shows it, not an honest-gap
+ * placeholder). Bounded for the same reason `RD_CORPUS_ITEM_CEILING`/
+ * `RD_DOCUMENT_HEAD_CHARS` are: the raw text is the WHOLE JSON document the
+ * hand answered with, patterns and proposals and all, and an unbounded
+ * refusal would make one malformed answer's HTTP response as large as the
+ * hand's own output — a UI affordance is not a reason to skip the same
+ * discipline every other size here already keeps.
+ */
+export const RD_REFUSAL_RAW_RESULT_CHARS = 8_000
+
+/** The hand's raw result text, bounded — never the whole unbounded document. */
+function boundedRawResult(text: string): string {
+  return text.length > RD_REFUSAL_RAW_RESULT_CHARS ? `${text.slice(0, RD_REFUSAL_RAW_RESULT_CHARS)}…` : text
+}
+
+/**
+ * One proposal the pure laws refused — the reason, verbatim, beside the
+ * pattern it was drawn from, and the hand's own raw result text (bounded by
+ * {@link RD_REFUSAL_RAW_RESULT_CHARS}) so a surface can show what was
+ * actually said rather than an honest gap. Every refusal from ONE hand call
+ * carries the SAME raw text — there is one JSON document per call, however
+ * many patterns or proposals it named.
+ */
 export interface RdRefusal {
   patternId: string
   reason: string
+  rawResult: string
 }
 
 export interface RunRdResult {
@@ -589,7 +614,11 @@ export async function runRdHand(options: RunRdOptions): Promise<RunRdResult> {
       // The schema's own refusal message is core's sentence for a two-dimension
       // proposal (`RD_MULTI_DIMENSION_REFUSAL`, set as the refine's message), so
       // a proposal refused here reads identically to one refused below.
-      refusals.push({ patternId, reason: parsed.error.issues[0]?.message ?? 'this proposal is not the shape prd55 ruling 3 fixes' })
+      refusals.push({
+        patternId,
+        reason: parsed.error.issues[0]?.message ?? 'this proposal is not the shape prd55 ruling 3 fixes',
+        rawResult: boundedRawResult(answer.result),
+      })
       continue
     }
     const reason = rdRefusalReason({
@@ -603,7 +632,7 @@ export async function runRdHand(options: RunRdOptions): Promise<RunRdResult> {
       })),
     })
     if (reason !== null) {
-      refusals.push({ patternId: parsed.data.patternId, reason })
+      refusals.push({ patternId: parsed.data.patternId, reason, rawResult: boundedRawResult(answer.result) })
       continue
     }
     accepted.push(parsed.data)

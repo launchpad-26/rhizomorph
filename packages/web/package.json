@@ -44,6 +44,7 @@
     "./replay/rotate": "./src/replay/rotate.ts",
     "./lab/launch": "./src/lab/launch/launch.ts",
     "./lab/measure": "./src/lab/measure.ts",
+    "./lab/rd": "./src/lab/rd/rd.ts",
     "./concierge/instrument": "./src/concierge/instrument.ts",
     "./concierge/clone": "./src/concierge/clone.ts",
     "./concierge/retarget": "./src/concierge/retarget.ts",

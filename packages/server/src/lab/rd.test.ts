@@ -328,12 +328,16 @@ describe('the schema decides what is recorded (prd55 ruling 3)', () => {
    * seeing green would otherwise conclude this law was vacuous.
    */
   it('a proposal whose arms differ in two dimensions is refused in core\'s own words, and never recorded as a proposal', async () => {
-    const { exec } = handExec(fixture('rd-result-two-dimensions.json'))
+    const document = fixture('rd-result-two-dimensions.json')
+    const { exec } = handExec(document)
 
     const result = await runRdHand({ lane: uniqueId('lane'), repoPath: repoDir, model: 'opus', exec, dataRoot })
 
     expect(result.proposals).toEqual([])
-    expect(result.refusals).toEqual([{ patternId: 'pattern-slow-gate', reason: RD_MULTI_DIMENSION_REFUSAL }])
+    // prd-55 ruling 9 (wave 6 widening): the refusal also carries the hand's
+    // own raw result text — bounded, but this fixture is well under the bound,
+    // so it is exactly the document the hand answered with.
+    expect(result.refusals).toEqual([{ patternId: 'pattern-slow-gate', reason: RD_MULTI_DIMENSION_REFUSAL, rawResult: document }])
 
     const events = await recordedEvents()
     expect(events.map((event) => event.type)).toEqual(['rd.patterns', 'rd.refused', 'llm.cost'])
@@ -362,12 +366,13 @@ describe('the schema decides what is recorded (prd55 ruling 3)', () => {
    * held.
    */
   it('a proposal that varies one dimension but declares another is refused, and never recorded as a proposal', async () => {
-    const { exec } = handExec(fixture('rd-result-wrong-dimension.json'))
+    const document = fixture('rd-result-wrong-dimension.json')
+    const { exec } = handExec(document)
 
     const result = await runRdHand({ lane: uniqueId('lane'), repoPath: repoDir, model: 'opus', exec, dataRoot })
 
     expect(result.proposals).toEqual([])
-    expect(result.refusals).toEqual([{ patternId: 'pattern-slow-gate', reason: RD_WRONG_DIMENSION_REFUSAL }])
+    expect(result.refusals).toEqual([{ patternId: 'pattern-slow-gate', reason: RD_WRONG_DIMENSION_REFUSAL, rawResult: document }])
 
     const events = await recordedEvents()
     expect(events.map((event) => event.type)).toEqual(['rd.patterns', 'rd.refused', 'llm.cost'])
@@ -378,13 +383,14 @@ describe('the schema decides what is recorded (prd55 ruling 3)', () => {
   })
 
   it('a proposal against a held-back pattern is refused for THAT reason — a single occurrence is not yet a pattern', async () => {
-    const { exec } = handExec(fixture('rd-result-held-back.json'))
+    const document = fixture('rd-result-held-back.json')
+    const { exec } = handExec(document)
 
     const result = await runRdHand({ lane: uniqueId('lane'), repoPath: repoDir, model: 'opus', exec, dataRoot })
 
     expect(result.patterns[0]?.heldBack).toBe(true)
     expect(result.proposals).toEqual([])
-    expect(result.refusals).toEqual([{ patternId: 'pattern-one-off', reason: RD_HELD_BACK_REFUSAL }])
+    expect(result.refusals).toEqual([{ patternId: 'pattern-one-off', reason: RD_HELD_BACK_REFUSAL, rawResult: document }])
     expect((await recordedEvents()).map((event) => event.type)).toEqual(['rd.patterns', 'rd.refused', 'llm.cost'])
   })
 

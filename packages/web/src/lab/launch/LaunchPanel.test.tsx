@@ -441,3 +441,57 @@ describe('LaunchPanel — the Workspace seam (prd53 S1, ruling 7)', () => {
     expect((screen.getByTestId('launch-checkpoint-ckpt-1').querySelector('input') as HTMLInputElement).checked).toBe(true)
   })
 })
+
+describe('LaunchPanel — prefilled from a proposal (prd-55 ruling 4, wave 6 widening)', () => {
+  it("initialArms seats each arm's model, replacing the default three — brief always starts empty", async () => {
+    render(<LaunchPanel fetchImpl={fetchImplFor({})} initialArms={[{ model: 'sonnet' }, { model: 'opus' }]} />)
+    await waitFor(() => expect(screen.getByTestId(`launch-checkpoint-${CHECKPOINT.checkpointId}`)).toBeInTheDocument())
+
+    const selects = modelSelects()
+    expect(selects).toHaveLength(2)
+    expect(selects[0]).toHaveValue('sonnet')
+    expect(selects[1]).toHaveValue('opus')
+    for (const brief of screen.getAllByPlaceholderText('brief (no brief if blank)')) {
+      expect(brief).toHaveValue('')
+    }
+  })
+
+  it('a proposalId travels in the launch body, unchanged, beside the arms and checkpoint it prefilled', async () => {
+    const launchFetchImpl = answering(ANSWER)
+    render(
+      <LaunchPanel
+        fetchImpl={fetchImplFor({ estimate: AVAILABLE_ESTIMATE })}
+        launchFetchImpl={launchFetchImpl}
+        initialCheckpointId="ckpt-1"
+        initialArms={[{ model: 'sonnet' }, { model: 'opus' }]}
+        proposalId="proposal-1"
+      />,
+    )
+    await waitFor(() => expect((screen.getByTestId('launch-checkpoint-ckpt-1').querySelector('input') as HTMLInputElement).checked).toBe(true))
+    await review()
+    await click(screen.getByTestId('launch-confirm'))
+    await waitFor(() => expect(screen.getByTestId('launch-result')).toBeInTheDocument())
+
+    // MUTATION: dropping the `...(proposalId === undefined ? {} : { proposalId })`
+    // spread from LaunchPanel's request construction turns this assertion red
+    // — `proposalId` would be absent from the body entirely (verified: see
+    // this wave's report).
+    expect(launchBody(launchFetchImpl)).toEqual({
+      lane: 'feature',
+      checkpointId: 'ckpt-1',
+      arms: [{ model: 'sonnet' }, { model: 'opus' }],
+      proposalId: 'proposal-1',
+    })
+  })
+
+  it('with no proposalId, the body carries none — an operator-configured launch is not silently attributed to a proposal', async () => {
+    const launchFetchImpl = answering(ANSWER)
+    render(<LaunchPanel fetchImpl={fetchImplFor({ estimate: AVAILABLE_ESTIMATE })} launchFetchImpl={launchFetchImpl} />)
+    await seatCheckpoint()
+    await review()
+    await click(screen.getByTestId('launch-confirm'))
+    await waitFor(() => expect(screen.getByTestId('launch-result')).toBeInTheDocument())
+
+    expect(Object.keys(launchBody(launchFetchImpl))).not.toContain('proposalId')
+  })
+})

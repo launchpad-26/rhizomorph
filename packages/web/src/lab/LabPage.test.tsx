@@ -6,6 +6,7 @@ import { AXIS_EMPTY_COPY } from './axis/index.js'
 import { LabPage, NO_CHECKPOINTS_COPY } from './LabPage.js'
 import type { LaunchFetchLike } from './launch/launch.js'
 import type { MeasureFetchLike } from './measure.js'
+import type { RdFetchLike } from './rd/index.js'
 
 afterEach(() => {
   cleanup()
@@ -550,7 +551,9 @@ describe('Compare, Trace and Metrics are tabs, not a stack (prd-55 ruling 8, S1-
 
     expect(screen.getByRole('tablist')).toBeInTheDocument()
     const tabs = screen.getAllByRole('tab')
-    expect(tabs.map((tab) => tab.textContent)).toEqual(['Compare', 'Trace', 'Metrics'])
+    // prd-55 wave 6: R&D joins as the fourth tab, at the end — extending this
+    // assertion to the new fact rather than weakening it to still expect three.
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['Compare', 'Trace', 'Metrics', 'R&D'])
     for (const tab of tabs) {
       const panel = document.getElementById(tab.getAttribute('aria-controls') as string)
       expect(panel, `${tab.textContent} controls a panel`).not.toBeNull()
@@ -580,10 +583,13 @@ describe('Compare, Trace and Metrics are tabs, not a stack (prd-55 ruling 8, S1-
     })
     expect(screen.getByTestId('lab-tab-Compare').getAttribute('aria-selected')).toBe('true')
 
+    // prd-55 wave 6: End now reaches R&D — the new true last tab — not
+    // Metrics; extended to the new fact, never weakened to still expect the
+    // old one.
     await act(async () => {
       fireEvent.keyDown(screen.getByRole('tablist'), { key: 'End' })
     })
-    expect(screen.getByTestId('lab-tab-Metrics').getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('lab-tab-R&D').getAttribute('aria-selected')).toBe('true')
 
     await act(async () => {
       fireEvent.keyDown(screen.getByRole('tablist'), { key: 'Home' })
@@ -594,10 +600,11 @@ describe('Compare, Trace and Metrics are tabs, not a stack (prd-55 ruling 8, S1-
   it('the arrow wraps at both ends, so the strip is a ring rather than a dead stop', async () => {
     await openWorkspace()
 
+    // ArrowLeft from the first tab (Compare) wraps to the new last tab (R&D).
     await act(async () => {
       fireEvent.keyDown(screen.getByRole('tablist'), { key: 'ArrowLeft' })
     })
-    expect(screen.getByTestId('lab-tab-Metrics').getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('lab-tab-R&D').getAttribute('aria-selected')).toBe('true')
     await act(async () => {
       fireEvent.keyDown(screen.getByRole('tablist'), { key: 'ArrowRight' })
     })
@@ -691,5 +698,77 @@ describe('the workspace holds its Stage 1 laws through the rearrangement', () =>
     // fork-3: one run passed, one `not-run` — judged by nobody, so unmeasured.
     expect(screen.getByTestId('lab-experiment-row-fork-3')).toHaveTextContent('1 passed · 0 failed · 1 unmeasured')
     expect(screen.getByTestId('lab-experiment-row-fork-3')).toHaveTextContent('2 arms · 2 runs')
+  })
+})
+
+describe('the R&D tab (prd-55 wave 6, ruling 9)', () => {
+  it('joins the strip as the fourth tab and mounts silently — the hand never runs without a click', async () => {
+    const rdFetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) })) as unknown as RdFetchLike
+    render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [CLEAN_EXPERIMENT])} rdFetchImpl={rdFetchImpl} />)
+    await waitFor(() => expect(screen.getByTestId('lab-experiment-fork-1')).toBeInTheDocument())
+
+    expect(screen.getByTestId('lab-tab-R&D')).toBeInTheDocument()
+    await click(screen.getByTestId('lab-tab-R&D'))
+    expect(screen.getByTestId('rd-tab')).toBeInTheDocument()
+    expect(rdFetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('books the run to the seated checkpoint\'s lane, falling back to the selected experiment\'s parent lane', async () => {
+    render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [CLEAN_EXPERIMENT])} />)
+    await waitFor(() => expect(screen.getByTestId('lab-experiment-fork-1')).toBeInTheDocument())
+    await click(screen.getByTestId('lab-tab-R&D'))
+
+    expect(screen.queryByTestId('rd-no-lane')).toBeNull()
+  })
+
+  /**
+   * The reading corrected in the same widening (conductor, 2026-09-11
+   * 15:45): the R&D tab is NOT the selected experiment's reading — the hand
+   * reads retros and reviews too, and S5's *no corpus* state exists for a
+   * repo with no experiment at all. Reachable whenever a LANE is known (a
+   * seated checkpoint), independent of Compare/Trace/Metrics' own gate.
+   */
+  it('is reachable with a checkpoint seated and ZERO experiments — independent of the gate Compare/Trace/Metrics keep', async () => {
+    const noCorpusRun = {
+      lane: 'feature',
+      available: true,
+      reason: null,
+      corpus: { choice: 'local', digest: 'x'.repeat(64), itemCount: 0, trackerRefusal: null },
+      patterns: [],
+      proposals: [],
+      refusals: [],
+      provenance: {
+        model: 'sonnet',
+        total_cost_usd: 0.01,
+        duration_ms: 100,
+        promptDigest: 'a'.repeat(64),
+        corpusDigest: 'x'.repeat(64),
+        claudeVersion: '2.1.266',
+        corpus: 'local',
+      },
+      turns: 1,
+    }
+    const rdFetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => noCorpusRun })) as unknown as RdFetchLike
+    render(<LabPage fetchImpl={fetchImplFor([CHECKPOINT], [])} rdFetchImpl={rdFetchImpl} />)
+    await waitFor(() => expect(screen.getByTestId('lab-checkpoint-row-ckpt-1')).toBeInTheDocument())
+
+    // Not seated yet: Compare/Trace/Metrics have nothing to gate on, and
+    // neither does R&D — no lane is known yet.
+    expect(screen.queryByTestId('rd-tab')).toBeNull()
+    expect(screen.queryByRole('tablist')).toBeNull()
+
+    await click(screen.getByTestId('lab-checkpoint-row-ckpt-1'))
+
+    // R&D is mounted and usable now — still no experiment, still no tablist
+    // (nothing else to tab between), but the hand is reachable.
+    await waitFor(() => expect(screen.getByTestId('rd-tab')).toBeInTheDocument())
+    expect(screen.queryByRole('tablist')).toBeNull()
+    expect(screen.getByTestId('lab-stage-no-experiment')).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('rd-model'), { target: { value: 'sonnet' } })
+    })
+    await click(screen.getByTestId('rd-read-and-propose'))
+    await waitFor(() => expect(screen.getByTestId('rd-no-corpus')).toBeInTheDocument())
   })
 })

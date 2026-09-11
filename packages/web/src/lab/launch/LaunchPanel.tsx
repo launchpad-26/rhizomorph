@@ -52,6 +52,27 @@ export interface LaunchPanelProps {
    */
   initialCheckpointId?: string | null
   /**
+   * Prefills each arm's MODEL, in order — how *restore n arms* and *restore
+   * and run* (the R&D tab, prd-55 ruling 4) seat the review with a proposal's
+   * own arms rather than three blank ones. One arm is drawn per entry,
+   * replacing the default three; a shorter or longer list is honoured as given.
+   *
+   * Brief text is never prefillable: a proposal's arm carries only a
+   * `briefDigest` (a sha256), never the operator's words
+   * (`core/events/lab.ts`'s own discipline for exactly this reason), so a
+   * prefilled arm always starts with an empty brief regardless of what the
+   * proposal's arm held — there is nothing to put there honestly.
+   */
+  initialArms?: readonly { model?: string }[]
+  /**
+   * The `rd.proposal` this launch restores, when it opened from one (prd-55
+   * ruling 4) — travels in the launch body unchanged, so the resulting
+   * experiment carries it (the server already accepts and records this,
+   * #412) and the route can detect an operator override of the checkpoint
+   * pick (wave 6 widening, `api/lab.ts`).
+   */
+  proposalId?: string
+  /**
    * Told once per launch, with the outcome — how the Workspace learns of a
    * PARTIAL launch (prd53 ruling 7): the arms that failed are known only to
    * the launch that saw them; the record holds no intent event. The outcome
@@ -88,6 +109,12 @@ let armKeySeq = 0
 function freshArm(): ArmDraft {
   armKeySeq += 1
   return { key: `arm-${armKeySeq}`, choice: '', typed: '', brief: '' }
+}
+
+/** One arm, seeded from a proposal's own (model: string | undefined) — never a brief; see `initialArms`'s own doc for why. */
+function armFromInitial(model: string | undefined): ArmDraft {
+  armKeySeq += 1
+  return { key: `arm-${armKeySeq}`, choice: model ?? '', typed: '', brief: '' }
 }
 
 const DEFAULT_ARM_COUNT = 3
@@ -137,7 +164,14 @@ function lanesBasis(estimate: LabEstimate): string {
   return `${estimate.arms} arm(s)`
 }
 
-export function LaunchPanel({ fetchImpl, launchFetchImpl, initialCheckpointId = null, onLaunched }: LaunchPanelProps = {}) {
+export function LaunchPanel({
+  fetchImpl,
+  launchFetchImpl,
+  initialCheckpointId = null,
+  initialArms,
+  proposalId,
+  onLaunched,
+}: LaunchPanelProps = {}) {
   const [checkpoints, setCheckpoints] = useState<CheckpointsState>({ status: 'loading' })
   const [checkpointId, setCheckpointId] = useState<string | null>(initialCheckpointId)
 
@@ -146,7 +180,11 @@ export function LaunchPanel({ fetchImpl, launchFetchImpl, initialCheckpointId = 
   useEffect(() => {
     if (initialCheckpointId !== null) setCheckpointId(initialCheckpointId)
   }, [initialCheckpointId])
-  const [arms, setArms] = useState<ArmDraft[]>(() => Array.from({ length: DEFAULT_ARM_COUNT }, freshArm))
+  const [arms, setArms] = useState<ArmDraft[]>(() =>
+    initialArms !== undefined && initialArms.length > 0
+      ? initialArms.map((arm) => armFromInitial(arm.model))
+      : Array.from({ length: DEFAULT_ARM_COUNT }, freshArm),
+  )
   const [runsText, setRunsText] = useState('')
   const [ceilingText, setCeilingText] = useState('')
   const [phase, setPhase] = useState<Phase>({ status: 'configuring' })
@@ -234,6 +272,9 @@ export function LaunchPanel({ fetchImpl, launchFetchImpl, initialCheckpointId = 
       // server's own defaults — one run, the declared ceiling — rule.
       ...(runs === undefined ? {} : { runs }),
       ...(ceilingOverride === undefined ? {} : { ceilingOverride }),
+      // prd-55 ruling 4: absent unless this review opened from a proposal —
+      // an operator-chosen launch carries no proposalId, which is most of them.
+      ...(proposalId === undefined ? {} : { proposalId }),
     }
     try {
       const outcome = await requestLaunch(request, launchFetchImpl)
