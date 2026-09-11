@@ -142,6 +142,30 @@ describe('RdTab — ruling 9\'s states, each a fixture and a test', () => {
     expect(screen.getByTestId('rd-restore-and-run-proposal-1')).toBeInTheDocument()
   })
 
+  it("the proposal carries its own estimate — the server's basis, never a figure this tab derives itself", async () => {
+    render(<RdTab lane="feature" experiments={[]} rdFetchImpl={rdFetchReturning(RD_LIVE_RUN)} fetchImpl={fetchImplWithCheckpoint()} />)
+    await readAndPropose()
+    await waitFor(() => expect(screen.getByTestId('rd-estimate-proposal-1')).toBeInTheDocument())
+    expect(screen.getByTestId('rd-estimate-proposal-1').textContent).toContain(NO_RATE.reason)
+  })
+
+  it('a pattern names which corpus it drew on, beside its shape and count', async () => {
+    const tracked = {
+      ...RD_LIVE_RUN,
+      patterns: [{ ...RD_LIVE_RUN.patterns[0]!, sourceItems: [...RD_LIVE_RUN.patterns[0]!.sourceItems, 'tracker#99'] }],
+    }
+    render(<RdTab lane="feature" experiments={[]} rdFetchImpl={rdFetchReturning(RD_LIVE_RUN)} fetchImpl={NO_CHECKPOINTS} />)
+    await readAndPropose()
+    await waitFor(() => expect(screen.getByTestId('rd-pattern-pattern-3')).toBeInTheDocument())
+    expect(screen.getByTestId('rd-pattern-pattern-3').textContent).toContain('local')
+
+    cleanup()
+    render(<RdTab lane="feature" experiments={[]} rdFetchImpl={rdFetchReturning(tracked)} fetchImpl={NO_CHECKPOINTS} />)
+    await readAndPropose()
+    await waitFor(() => expect(screen.getByTestId('rd-pattern-pattern-3')).toBeInTheDocument())
+    expect(screen.getByTestId('rd-pattern-pattern-3').textContent).toContain('local+tracker')
+  })
+
   it('the provenance line carries the run\'s own cost, turns and version — never a re-derived figure', async () => {
     render(<RdTab lane="feature" experiments={[]} rdFetchImpl={rdFetchReturning(RD_LIVE_RUN)} fetchImpl={NO_CHECKPOINTS} />)
     await readAndPropose()

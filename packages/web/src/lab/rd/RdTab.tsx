@@ -3,6 +3,7 @@ import { type KeyboardEvent, useEffect, useState } from 'react'
 import type { FetchLike } from '../../replay/api.js'
 import { readChoice, readFlag, subscribeToPreferences, writePreference } from '../../settings/registry.js'
 import { ExperimentComparison } from '../compare/index.js'
+import { fetchLabEstimate, type LabEstimate } from '../launch/estimate.js'
 import { LaunchPanel } from '../launch/LaunchPanel.js'
 import type { LaunchFetchLike, LaunchOutcome } from '../launch/launch.js'
 import { useOfferedModels } from '../launch/models.js'
@@ -58,6 +59,20 @@ export interface RdTabProps {
 /** *"1 issue · not yet a pattern — testing a shape that may not recur spends real money."* (ruling 3, verbatim; pluralised honestly for the count>1 case a schema violation could still carry). */
 function heldBackRowCopy(count: number): string {
   return `${count} issue${count === 1 ? '' : 's'} · not yet a pattern — testing a shape that may not recur spends real money`
+}
+
+/**
+ * Which corpus contributed to a pattern (ruling 2: "the surface prints which
+ * corpus produced a pattern beside the pattern") — read off the shape of the
+ * source item ids themselves (`tracker#<n>` is the tracker's own spelling,
+ * `server/src/lab/rd.ts`'s `readTrackerItems`), since a pattern carries no
+ * `corpus` field of its own on the wire. Never invented: a pattern with no
+ * `tracker#` id among its sources is local only, whatever the run-level
+ * corpus CHOICE was — the choice says what was ASKED for, this says what
+ * this particular pattern actually drew on.
+ */
+function patternCorpusLabel(pattern: LabRdPattern): string {
+  return pattern.sourceItems.some((id) => id.startsWith('tracker#')) ? 'local+tracker' : 'local'
 }
 
 /** The sentence rendered when the operator changes a proposal's checkpoint pick before launching (ruling 4, verbatim). */
@@ -178,6 +193,35 @@ export function RdTab({ lane, experiments, rdFetchImpl, fetchImpl, launchFetchIm
     if (event.key === 'Escape') setReviewFor(null)
   }
 
+  const selectedPattern = run?.patterns.find((candidate) => candidate.patternId === selectedPatternId) ?? null
+  const selectedProposal = selectedPattern === null ? null : (run?.proposals.find((candidate) => candidate.patternId === selectedPattern.patternId) ?? null)
+
+  /**
+   * The proposal's own estimate (S5: "the estimate" beside its arms and the
+   * two restore buttons) — a READ, never gated behind a click the way the
+   * hand's own run is: `fetchLabEstimate` spends nothing, so showing it the
+   * moment a proposal is selected costs the operator nothing to see.
+   */
+  const [estimate, setEstimate] = useState<LabEstimate | 'loading' | null>(null)
+  useEffect(() => {
+    if (lane === null || selectedProposal === null) {
+      setEstimate(null)
+      return
+    }
+    let live = true
+    setEstimate('loading')
+    fetchLabEstimate(lane, selectedProposal.arms.length, fetchImpl)
+      .then((result) => {
+        if (live) setEstimate(result)
+      })
+      .catch(() => {
+        if (live) setEstimate(null)
+      })
+    return () => {
+      live = false
+    }
+  }, [lane, selectedProposal?.proposalId, fetchImpl]) // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div data-testid="rd-tab" className="flex flex-col gap-4">
       <section data-testid="rd-control" aria-label="the R&D control" className="flex flex-col gap-2 border-(--line-hair) border-b pb-3">
@@ -285,13 +329,12 @@ export function RdTab({ lane, experiments, rdFetchImpl, fetchImpl, launchFetchIm
                           }`}
                         >
                           <span className="truncate">{pattern.shape}</span>
-                          {pattern.heldBack ? (
+                          <span className="figures text-(--ink-dim)">
+                            {pattern.count} item(s) · {patternCorpusLabel(pattern)}
+                          </span>
+                          {pattern.heldBack && (
                             <span data-testid={`rd-pattern-held-back-${pattern.patternId}`} className="figures text-(--ink-dim)">
                               {heldBackRowCopy(pattern.count)}
-                            </span>
-                          ) : (
-                            <span className="figures text-(--ink-dim)">
-                              {pattern.count} item(s) · {pattern.sourceItems.length}
                             </span>
                           )}
                         </button>
@@ -310,9 +353,9 @@ export function RdTab({ lane, experiments, rdFetchImpl, fetchImpl, launchFetchIm
 
           <section aria-label="the selected pattern's proposals" className="flex flex-col gap-3">
             {(() => {
-              const pattern = run.patterns.find((candidate) => candidate.patternId === selectedPatternId) ?? null
+              const pattern = selectedPattern
               if (pattern === null) return null
-              const proposal = run.proposals.find((candidate) => candidate.patternId === pattern.patternId) ?? null
+              const proposal = selectedProposal
               const refusal = run.refusals.find((candidate) => candidate.patternId === pattern.patternId) ?? null
               const renderedRefusal = proposal !== null ? renderedRefusalReason(pattern, proposal) : null
 
@@ -365,6 +408,20 @@ export function RdTab({ lane, experiments, rdFetchImpl, fetchImpl, launchFetchIm
                       </p>
                     ))}
                   </div>
+
+                  {estimate === 'loading' ? (
+                    <p data-testid={`rd-estimate-${proposal.proposalId}`} className="text-(--ink-dim)">
+                      checking the rate…
+                    </p>
+                  ) : estimate === null ? null : estimate.available ? (
+                    <p data-testid={`rd-estimate-${proposal.proposalId}`} className="figures text-(--ink-dim)">
+                      est. spend ~${(estimate.estimatedTotalUsd ?? 0).toFixed(2)} across {proposal.arms.length} arm(s)
+                    </p>
+                  ) : (
+                    <p data-testid={`rd-estimate-${proposal.proposalId}`} className="text-(--ink-dim)">
+                      the rate cannot be established — {estimate.reason}
+                    </p>
+                  )}
 
                   <p className="text-(--ink-dim)">
                     arms are not prefilled below — the launch review takes the proposal's checkpoint only; match the arms
