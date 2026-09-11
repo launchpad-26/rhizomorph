@@ -6,7 +6,14 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Exec, ExecResult, RhizomorphEvent } from '@rhizomorph/core'
-import { armKey, createEventFactory, eventsToJsonl, RD_MULTI_DIMENSION_REFUSAL, reduceAll } from '@rhizomorph/core'
+import {
+  armKey,
+  createEventFactory,
+  createIdFactory,
+  eventsToJsonl,
+  RD_MULTI_DIMENSION_REFUSAL,
+  reduceAll,
+} from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runCli } from '../cli/index.js'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
@@ -247,10 +254,22 @@ describe('GET /api/lab/checkpoints and /api/lab/experiments', () => {
 
   it('keeps two events that genuinely share an id — createIdFactory restarts at one per process, so the id alone is not identity (#409)', async () => {
     // `createIdFactory('lab')` mints `lab-000001` upward from ONE in every
-    // process, and both this file's measure route and `lab/fork.ts` call it. So
-    // the server's own write and the CLI's really do collide on the id in one
-    // session file, and a dedupe on the bare id would answer #409 by dropping
-    // one of the two writes it exists to surface.
+    // process, and both this file's measure route and `lab/fork.ts` used to
+    // call it exactly like that. So the server's own write and the CLI's
+    // really did collide on the id in one session file, and a dedupe on the
+    // bare id would answer #409 by dropping one of the two writes it exists
+    // to surface.
+    //
+    // #429 gave `createIdFactory` an optional `writer` tag that stops this
+    // exact collision, and this file's own measure route and `lab/fork.ts`,
+    // `lab/checkpoint.ts` and `lab/rd.ts` are now wired to pass one each (see
+    // the next test, which proves it with their real tags). The fixture below
+    // still builds the collision on purpose, through `createEventFactory`,
+    // which mints with no tag of its own — this is the shape none of the four
+    // real callers can produce any more, and exactly the shape a future
+    // caller that forgets its own tag would reintroduce. It is what
+    // `liveEventKey`'s belt-and-braces comment above is insurance against,
+    // not a live defect in today's four writers.
     await mkdir(sessionDir, { recursive: true })
     const liveId = '2000'
     const liveFile = sessionFilePath(sessionDir, liveId)
@@ -288,6 +307,45 @@ describe('GET /api/lab/checkpoints and /api/lab/experiments', () => {
       'fork-from-the-cli',
       'fork-from-the-server',
     ])
+  })
+
+  it('a writer tag on createIdFactory keeps the same two events from colliding, wired with the real tags (#429)', () => {
+    // Same shapes as the collision test above — only each side now names
+    // itself with the ACTUAL tags #429's wiring gives them: `measure` for
+    // this file's own measure route, `fork` for `lab/fork.ts`. This is the
+    // exact pair the record used to collide on, proven closed with the real
+    // vocabulary a reader of the log now sees, not a placeholder.
+    const server = createEventFactory({ startTs: 1000, idPrefix: 'lab' })
+    const serverId = createIdFactory('lab', 0, 'measure')
+    const serverEvent = server.forkDispatched(
+      {
+        forkId: 'fork-from-the-server',
+        parentLane: 'feature',
+        checkpointId: 'ckpt-1',
+        arm: 1,
+        laneHandle: 'fork-from-the-server-arm-1',
+        worktreePath: '/data/lab/worktrees/fork-from-the-server-arm-1',
+      },
+      { id: serverId() },
+    )
+
+    const cli = createEventFactory({ startTs: 2000, idPrefix: 'lab' })
+    const cliId = createIdFactory('lab', 0, 'fork')
+    const cliEvent = cli.forkDispatched(
+      {
+        forkId: 'fork-from-the-cli',
+        parentLane: 'feature',
+        checkpointId: 'ckpt-1',
+        arm: 1,
+        laneHandle: 'fork-from-the-cli-arm-1',
+        worktreePath: '/data/lab/worktrees/fork-from-the-cli-arm-1',
+      },
+      { id: cliId() },
+    )
+
+    expect(serverEvent.id).toBe('lab-measure-000001')
+    expect(cliEvent.id).toBe('lab-fork-000001')
+    expect(serverEvent.id).not.toBe(cliEvent.id) // the collision above does not reach here
   })
 })
 
@@ -930,6 +988,10 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
     const recorded = recorder.eventsSoFar().filter((event) => event.type === 'fork.measured')
     expect(recorded).toHaveLength(2)
     expect(recorded.map((event) => (event.payload as { source: string }).source)).toEqual(['measure-route', 'measure-route'])
+    // #429: this route names itself, so its ids read as `lab-measure-<n>` —
+    // ordered, and never confusable with `lab/fork.ts`, `lab/checkpoint.ts` or
+    // `lab/rd.ts`'s own writes into the same session file.
+    expect(recorded.map((event) => event.id)).toEqual(['lab-measure-000001', 'lab-measure-000002'])
 
     // After measuring: each run carries ITS OWN verdict, with the provenance.
     const after = await listing()
@@ -1873,7 +1935,27 @@ describe('POST /api/lab/rd (prd-55 ruling 1 — the R&D hand, gated, reached thr
       expect(result.refusals).toEqual([])
       expect(result.provenance).toMatchObject({ model: 'opus', total_cost_usd: 0.0421, corpus: 'local' })
       expect(result.turns).toBe(1)
-      expect(result.eventIds).toHaveLength(2)
+      // Three since prd55 ruling 1 (#430): the patterns, the proposal, and the
+      // bill. The run's cost is booked as spend, "like a fork's".
+      expect(result.eventIds).toHaveLength(3)
+
+      // And the third really IS the booking, read back off the LOG rather than
+      // off the result object — a count alone would tolerate any third event.
+      const written = readFileSync(result.recordedTo as string, 'utf8')
+        .split('\n')
+        .filter((line) => line.length > 0)
+        .map((line) => JSON.parse(line) as RhizomorphEvent)
+      expect(written.map((event) => event.id)).toEqual(result.eventIds)
+      expect(written.map((event) => event.type)).toEqual(['rd.patterns', 'rd.proposal', 'llm.cost'])
+
+      const booked = written[2] as RhizomorphEvent & { payload: Record<string, unknown> }
+      // Sourced to the lab, never to a collector: no transcript was tailed for
+      // this call and no OTLP receiver saw it.
+      expect(booked.source).toBe('lab')
+      // The figure is the CLI's own, the same one the provenance carries — so
+      // the R&D tab's provenance line and the ledger cannot disagree.
+      expect(booked.payload.costUsd).toBe(result.provenance?.total_cost_usd)
+      expect(booked.payload).toMatchObject({ lane: 'w5b-412', authoritative: true, model: 'opus' })
     })
 
     it('a two-dimension proposal comes back REFUSED, in core’s own words, and never as a proposal', async () => {

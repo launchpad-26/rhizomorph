@@ -1081,6 +1081,18 @@ function foldUsage(existing: UsageRecord, incoming: UsageRecord): UsageRecord {
  * {@link placeCosts} comes back for it when the usage side finally says where
  * that session lives. Either arrival order lands the same dollars on the same
  * branch; neither drops them.
+ *
+ * **A cost the lab booked folds through this same arm and NOTHING here knows
+ * it** (prd55 ruling 1, #430). `llm.cost` is the one telemetry type whose
+ * envelope admits `source: 'lab'` beside the two collectors — see
+ * `events/telemetry.ts` for why that literal stays outside the collector enum
+ * — and `origin: event.source` carries that answer onto the record verbatim,
+ * exactly as it carries `'otel'` or `'sessionlog'`. There is deliberately no
+ * arm, no branch and no filter for it: the lab's dollars reach the ledger's
+ * total, its lane, and the spend surfaces' basis lines because they are
+ * ordinary spend, and a special case here would be the first place they could
+ * stop being. The dedup above is the usage side's alone — two collectors can
+ * see one request, and cost events have never been cross-reported at all.
  */
 function llmCost(state: SessionState, event: EventOf<'llm.cost'>): SessionState {
   const p = event.payload

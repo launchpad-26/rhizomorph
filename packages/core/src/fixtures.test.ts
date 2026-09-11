@@ -129,6 +129,22 @@ describe('the fixture factory', () => {
     expect(rhizomorphEventSchema.safeParse(event).success).toBe(true)
   })
 
+  /**
+   * prd55 ruling 1 (#430). The sugar needed no widening of its own — `init.source`
+   * is `SourceOf<'llm.cost'>`, so the envelope's own widening reached it — and
+   * this law is what says so out loud, because every other package's tests build
+   * a lab-booked cost through exactly this call and a silent narrowing would
+   * take them all out at once.
+   */
+  it('builds a lab-sourced llm.cost through the ordinary sugar, and it validates like the real thing', () => {
+    const event = createEventFactory().llmCost({ lane: 'rd-lane', costUsd: 0.0421 }, { source: 'lab' })
+    expect(event.source).toBe('lab')
+    expect(event.payload.costUsd).toBe(0.0421)
+    expect(rhizomorphEventSchema.safeParse(event).success).toBe(true)
+    // …and the default is still the authority on dollars, untouched.
+    expect(createEventFactory().llmCost().source).toBe('otel')
+  })
+
   it('builds a judge.finding with source "judge", silent-log severity', () => {
     const event = createEventFactory().judgeFinding({ lanes: ['2-core', '7-web'] })
     expect(event.source).toBe('judge')

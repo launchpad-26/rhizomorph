@@ -451,6 +451,42 @@ describe('createIdFactory', () => {
     const other = createIdFactory('git', 10)
     expect(other()).toBe('git-000011')
   })
+
+  /**
+   * #429 — the case the record actually contains: `lab/fork.ts` and the
+   * server's own measure route both call `createIdFactory('lab')`, in
+   * separate processes, and neither learns of the other. A `writer` tag lets
+   * two factories with the same prefix, restarting at the same count, in one
+   * session never mint the same id — by construction, not by luck.
+   */
+  it('never collides across two writers of the same prefix, in one session (#429)', () => {
+    const server = createIdFactory('lab', 0, 'server')
+    const cli = createIdFactory('lab', 0, 'cli')
+    expect(server()).toBe('lab-server-000001')
+    expect(cli()).toBe('lab-cli-000001')
+    // Same prefix, same start, same first tick — and still never equal.
+    expect(server()).not.toBe(cli())
+  })
+
+  it('keeps a single factory ordered and readable with a writer tag, same as without one', () => {
+    const next = createIdFactory('lab', 0, 'server')
+    expect(next()).toBe('lab-server-000001')
+    expect(next()).toBe('lab-server-000002')
+  })
+
+  it('omitting writer leaves the bare-counter shape unchanged — every caller in this tree today', () => {
+    // The mechanism above is opt-in on purpose: every real caller of
+    // `createIdFactory('lab')` (lab/fork.ts, lab/checkpoint.ts, lab/rd.ts and
+    // api/lab.ts's own measure route) still omits `writer`, so two such
+    // factories still mint the identical BARE id — `lab-000001`, not
+    // `lab-<some-default-tag>-000001` — which is the collision api/lab.ts's
+    // `liveEventKey` doc comment still defends against.
+    const first = createIdFactory('lab')
+    const second = createIdFactory('lab')
+    expect(first()).toBe('lab-000001')
+    expect(first()).toBe('lab-000002')
+    expect(second()).toBe('lab-000001')
+  })
 })
 
 /** One valid event per type — also the guard that the union stays complete. */

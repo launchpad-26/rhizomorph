@@ -275,7 +275,11 @@ describe('the corpus (prd55 ruling 2)', () => {
     })
     await runRdHand({ lane: uniqueId('lane'), repoPath: repoDir, model: 'opus', corpus: 'local+tracker', exec, dataRoot })
 
-    const events = await recordedEvents()
+    // Every rd.* event. The run's `llm.cost` is the exception by construction
+    // and not by exemption: its payload is core's shared telemetry shape, which
+    // has no provenance block to carry a corpus on — the corpus travels on the
+    // records that are ABOUT the read, and the cost record is about the money.
+    const events = (await recordedEvents()).filter((event) => event.type.startsWith('rd.'))
     expect(events.length).toBeGreaterThan(0)
     for (const event of events) {
       expect((event.payload as { provenance: { corpus: string } }).provenance.corpus).toBe('local+tracker')
@@ -298,8 +302,12 @@ describe('the schema decides what is recorded (prd55 ruling 3)', () => {
     expect(result.refusals).toEqual([])
 
     const events = await recordedEvents()
-    expect(events.map((event) => event.type)).toEqual(['rd.patterns', 'rd.proposal'])
+    expect(events.map((event) => event.type)).toEqual(['rd.patterns', 'rd.proposal', 'llm.cost'])
     expect(events.every((event) => (event.payload as { lane: string }).lane === lane)).toBe(true)
+    // #429: this hand names itself, so its ids read as `lab-rd-<n>` — ordered,
+    // and never confusable with `lab/fork.ts`, `lab/checkpoint.ts` or the
+    // measure route's own writes into the same session file.
+    expect(events.map((event) => event.id)).toEqual(['lab-rd-000001', 'lab-rd-000002', 'lab-rd-000003'])
 
     // The hand really was spawned with no tools — read off the recorded argv,
     // not off the argv builder a second time.
@@ -332,7 +340,7 @@ describe('the schema decides what is recorded (prd55 ruling 3)', () => {
     expect(result.refusals).toEqual([{ patternId: 'pattern-slow-gate', reason: RD_MULTI_DIMENSION_REFUSAL, rawResult: document }])
 
     const events = await recordedEvents()
-    expect(events.map((event) => event.type)).toEqual(['rd.patterns', 'rd.refused'])
+    expect(events.map((event) => event.type)).toEqual(['rd.patterns', 'rd.refused', 'llm.cost'])
     const refused = events[1]?.payload as { reason: string; rawResultDigest: string }
     expect(refused.reason).toBe(RD_MULTI_DIMENSION_REFUSAL)
     expect(refused.rawResultDigest).toMatch(/^[0-9a-f]{64}$/)
@@ -367,7 +375,7 @@ describe('the schema decides what is recorded (prd55 ruling 3)', () => {
     expect(result.refusals).toEqual([{ patternId: 'pattern-slow-gate', reason: RD_WRONG_DIMENSION_REFUSAL, rawResult: document }])
 
     const events = await recordedEvents()
-    expect(events.map((event) => event.type)).toEqual(['rd.patterns', 'rd.refused'])
+    expect(events.map((event) => event.type)).toEqual(['rd.patterns', 'rd.refused', 'llm.cost'])
     const refused = events[1]?.payload as { reason: string; rawResultDigest: string }
     expect(refused.reason).toBe(RD_WRONG_DIMENSION_REFUSAL)
     expect(refused.rawResultDigest).toMatch(/^[0-9a-f]{64}$/)
@@ -383,7 +391,7 @@ describe('the schema decides what is recorded (prd55 ruling 3)', () => {
     expect(result.patterns[0]?.heldBack).toBe(true)
     expect(result.proposals).toEqual([])
     expect(result.refusals).toEqual([{ patternId: 'pattern-one-off', reason: RD_HELD_BACK_REFUSAL, rawResult: document }])
-    expect((await recordedEvents()).map((event) => event.type)).toEqual(['rd.patterns', 'rd.refused'])
+    expect((await recordedEvents()).map((event) => event.type)).toEqual(['rd.patterns', 'rd.refused', 'llm.cost'])
   })
 
   it('a pattern whose heldBack disagrees with its own count stops the run — there is no patternId to file a refusal against', async () => {
@@ -452,7 +460,134 @@ describe('provenance (prd55 ruling 1)', () => {
     expect((await readSessionEvents(result.recordedTo as string)).map((event) => event.type)).toEqual([
       'rd.patterns',
       'rd.proposal',
+      'llm.cost',
     ])
+  })
+})
+
+// --- ruling 1: the hand's cost, booked as spend, like a fork's --------------------
+
+/**
+ * prd55 ruling 1: *"The R&D hand's cost is booked as spend with its basis, like
+ * a fork's."* Wave 5 (#412) carried the figure on every `rd.*` event's
+ * provenance and said, in its own report, that it booked no spend — because
+ * `llm.cost` admitted only the two collectors and signing one `otel` would have
+ * been a false provenance. #430 widened the envelope; this is the engine half.
+ */
+describe("the hand's cost is booked as spend (prd55 ruling 1, #430)", () => {
+  /** The one `llm.cost` a run recorded, or null. */
+  async function bookedCost(): Promise<RhizomorphEvent | null> {
+    const costs = (await recordedEvents()).filter((event) => event.type === 'llm.cost')
+    expect(costs.length).toBeLessThanOrEqual(1)
+    return costs[0] ?? null
+  }
+
+  it('books the CLI\'s own figure, sourced to the lab, on the lane the run was booked to', async () => {
+    const lane = uniqueId('lane')
+    const { exec } = handExec(fixture('rd-result-clean.json'))
+
+    const result = await runRdHand({ lane, repoPath: repoDir, model: 'opus', exec, dataRoot })
+
+    const cost = await bookedCost()
+    expect(cost).not.toBeNull()
+    // The source is the whole point: no transcript was tailed for this call and
+    // no OTLP receiver saw it, so neither collector may sign it.
+    expect(cost?.source).toBe('lab')
+    expect(cost?.payload).toEqual({
+      lane,
+      role: 'auxiliary',
+      model: 'opus',
+      costUsd: 0.0421,
+      authoritative: true,
+    })
+    // The basis: the figure is the provenance's, not a second arithmetic that
+    // could disagree with the R&D tab's provenance line.
+    expect((cost?.payload as { costUsd: number }).costUsd).toBe(result.provenance?.total_cost_usd)
+    // …and no sessionId, which would read downstream as a session running
+    // without instrumentation — a setup gap that does not exist.
+    expect(cost?.payload).not.toHaveProperty('sessionId')
+  })
+
+  it('books exactly one cost per run, however many patterns and proposals it recorded', async () => {
+    const { exec } = handExec(fixture('rd-result-clean.json'))
+    await runRdHand({ lane: uniqueId('lane'), repoPath: repoDir, model: 'opus', exec, dataRoot })
+
+    const events = await recordedEvents()
+    expect(events.filter((event) => event.type === 'llm.cost')).toHaveLength(1)
+    // Last, so a run that half-recorded books nothing: the bill closes a run.
+    expect(events[events.length - 1]?.type).toBe('llm.cost')
+  })
+
+  it('books nothing, and says nothing, for a run whose result reports no cost — never a zero', async () => {
+    const { exec } = stubExec((call) => {
+      if (call.args[0] === '--version') return { ...OK, stdout: '2.1.266\n' }
+      return agentAnswer(fixture('rd-result-clean.json'), { total_cost_usd: 0 })
+    })
+
+    const result = await runRdHand({ lane: uniqueId('lane'), repoPath: repoDir, model: 'opus', exec, dataRoot })
+
+    // The run itself is entirely ordinary — this is not a refusal.
+    expect(result.available).toBe(true)
+    expect(result.provenance?.total_cost_usd).toBe(0)
+    expect((await recordedEvents()).map((event) => event.type)).toEqual(['rd.patterns', 'rd.proposal'])
+    expect(await bookedCost()).toBeNull()
+  })
+
+  it('books nothing at all on the no-CLI path — nothing was spawned, so nothing was spent', async () => {
+    const { exec } = stubExec(() => NOT_ON_PATH)
+    await runRdHand({ lane: uniqueId('lane'), repoPath: repoDir, model: 'opus', exec, dataRoot })
+    expect(await bookedCost()).toBeNull()
+  })
+
+  it('books nothing at all when the hand\'s own answer is refused — a refused run records no spend either', async () => {
+    // Not the fixed document.
+    const shapeless = handExec('I had a think about it and here are my ideas.')
+    await expect(
+      runRdHand({ lane: uniqueId('lane'), repoPath: repoDir, model: 'opus', exec: shapeless.exec, dataRoot }),
+    ).rejects.toThrow(/not the fixed JSON document/)
+    expect(await bookedCost()).toBeNull()
+
+    // A pattern whose heldBack disagrees with its own count.
+    const contradictory = handExec(
+      JSON.stringify({
+        patterns: [{ patternId: 'p', shape: 's', sourceItems: ['one'], count: 1, heldBack: false }],
+        proposals: [],
+      }),
+    )
+    await expect(
+      runRdHand({ lane: uniqueId('lane'), repoPath: repoDir, model: 'opus', exec: contradictory.exec, dataRoot }),
+    ).rejects.toThrow(/heldBack must equal count < 2/)
+    expect(await bookedCost()).toBeNull()
+
+    // No cost figure at all — refused before anything is recorded.
+    const figureless = stubExec((call) => {
+      if (call.args[0] === '--version') return { ...OK, stdout: '2.1.266\n' }
+      return agentAnswer(fixture('rd-result-clean.json'), { total_cost_usd: undefined })
+    })
+    await expect(
+      runRdHand({ lane: uniqueId('lane'), repoPath: repoDir, model: 'opus', exec: figureless.exec, dataRoot }),
+    ).rejects.toThrow(/total_cost_usd/)
+    expect(await bookedCost()).toBeNull()
+  })
+
+  it('the override records no cost of its own — the run that produced the proposal already booked it', async () => {
+    const lane = uniqueId('lane')
+    const { exec } = handExec(fixture('rd-result-clean.json'))
+    const run = await runRdHand({ lane, repoPath: repoDir, model: 'opus', exec, dataRoot })
+
+    await recordRdOverride({
+      lane,
+      repoPath: repoDir,
+      proposalId: 'proposal-slow-gate-1',
+      agentCheckpointId: 'ckpt-a',
+      operatorCheckpointId: 'ckpt-b',
+      provenance: run.provenance as NonNullable<typeof run.provenance>,
+      dataRoot,
+    })
+
+    // Still one: the operator changing a pick spends nothing, and re-booking
+    // the run's cost against the carried-forward provenance would double it.
+    expect((await recordedEvents()).filter((event) => event.type === 'llm.cost')).toHaveLength(1)
   })
 })
 
@@ -485,6 +620,8 @@ describe('the override (prd55 ruling 4)', () => {
     expect(event.payload.agentCheckpointId).toBe('ckpt-agent')
     expect(event.payload.operatorCheckpointId).toBe('ckpt-operator')
     expect((await recordedEvents()).map((e) => e.type)).toEqual(['rd.override'])
+    // #429: `openRecorder` (shared by this and `runRdHand`) tags itself `rd`.
+    expect(event.id).toBe('lab-rd-000001')
   })
 
   it('refuses an override that changed nothing — a record of a decision nobody made is worse than none', async () => {
