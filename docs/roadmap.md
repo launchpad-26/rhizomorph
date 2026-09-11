@@ -346,6 +346,15 @@
   as `docs/vision-the-lab.md`, its design specified in a companion artifact, its user guide
   turned into a law (`packages/web/src/lab/the-lab-guide-law.test.ts`). Per-milestone counts are
   deliberately not restated here; the board is the source.
+- **prd55 — the lab, stage two** (`docs/prds/prd-55-the-lab-stage-two.md`, blessed 2026-09-10,
+  *Kind: specifying*): the R&D hand is the operator's own agent, spawned as an explicit act
+  through `rhizomorph lab rd` and the console's own *read and propose* button, never a credential
+  the instrument holds itself ([ADR-0048](adr/0048-the-instrument-spawns-the-operators-own-tools-as-an-explicit-act.md));
+  the workspace becomes a rail and a pinned stage with a four-tab strip (Compare, Trace, Metrics,
+  R&D); the lab reads its own transcript, telemetry and footprint rather than the fleet's; the
+  lane canvas paints with the scene's six pure brushes. Left unfiled, described but not numbered:
+  atomic launch (prd-53's own open item), recursive forking, and a scoring measure — the R&D
+  hand's proposals are judged by the gate, not scored.
 
 ## Unclaimed candidates (cohort-facing)
 

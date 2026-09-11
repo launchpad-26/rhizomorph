@@ -15,6 +15,8 @@ import { OTHER_MODEL } from './launch/models.js'
 import { MEASURE_URL } from './measure.js'
 import { DEFAULT_GATE_COMMAND } from './measure-control/MeasureControl.js'
 import { EMPTY_COPY } from './metrics/Metrics.js'
+import { RD_HELD_BACK_ROW_COPY, RD_NO_CLI_SENTENCE_FIXTURE, RD_NO_CORPUS_COPY, RD_NOTHING_PROPOSED_COPY } from './rd/fixtures.js'
+import { RD_NO_MEASURED_BASELINE, RD_OVERRIDE_SENTENCE } from './rd/index.js'
 import type { LabCheckpoint, LabExperiment, LabRun } from './types.js'
 
 /**
@@ -53,6 +55,7 @@ const server = {
   cli: () => read('packages/server/src/cli/index.ts'),
   labFork: () => read('packages/server/src/cli/lab-fork.ts'),
   coreEvents: () => read('packages/core/src/events/lab.ts'),
+  rd: () => read('packages/server/src/lab/rd.ts'),
 }
 const web = {
   nav: () => read('packages/web/src/app/Nav.tsx'),
@@ -62,6 +65,10 @@ const web = {
   metrics: () => read('packages/web/src/lab/metrics/Metrics.tsx'),
   trace: () => read('packages/web/src/lab/trace/TraceDiff.tsx'),
   api: () => read('packages/web/src/lab/api.ts'),
+  rail: () => read('packages/web/src/lab/rail/Rail.tsx'),
+  rows: () => read('packages/web/src/lab/rail/rows.ts'),
+  rdTab: () => read('packages/web/src/lab/rd/RdTab.tsx'),
+  rdClient: () => read('packages/web/src/lab/rd/rd.ts'),
 }
 
 /** The measure route's handler, as text — from its registration to the next route's. */
@@ -399,6 +406,32 @@ const CLAIMS: Readonly<Record<string, Claim>> = {
       expect(read('packages/server/src/api/lab.ts'), 'grep: only the grammar refuses a model').toContain('export const MODEL_GRAMMAR')
     },
   },
+  'workspace-regions': {
+    says: /prd-55 ruling 8[\s\S]*prd-53-the-lab\.md[\s\S]*prd-55-the-lab-stage-two\.md/,
+    check: () => {
+      expect(web.page(), 'grep: the two regions in the live tree').toMatch(/<Rail/)
+      expect(web.page(), 'grep: the stage top is pinned').toContain('data-testid="lab-stage-pinned"')
+      expect(web.page(), 'grep: pinned means sticky, not merely first in DOM order').toMatch(/lab-stage-pinned"[^>]*sticky top-0/)
+    },
+  },
+  'rail-rows': {
+    says: /lists every checkpoint and every experiment[\s\S]*launch's\s+own step 1 reuses that same rail selection[\s\S]*arms ·\s+runs ·\s+verdict counts[\s\S]*partial launch's row says how many/,
+    check: () => {
+      expect(web.rail(), 'grep: one row per checkpoint').toContain('data-checkpoint-row')
+      expect(web.rail(), 'grep: one row per experiment').toContain('data-experiment-row')
+      expect(web.rows(), 'grep: the row carries a passed/failed/unmeasured verdict count').toMatch(/passed.*failed.*unmeasured/)
+      expect(web.rows(), 'grep: a partial row is k of N arms, N the requested count').toMatch(/\$\{counts\.arms\} of \$\{counts\.arms \+ failedArms\.length\} arms/)
+      expect(web.page(), 'grep: launch step 1 is the rail selection, not a second table').toMatch(/initialCheckpointId=\{seated/)
+    },
+  },
+  'stage-tablist': {
+    says: /Compare, Trace,\s+Metrics and R&D.*sit in a `role="tablist"`[\s\S]*R&D sits last in the strip[\s\S]*also reachable the moment a checkpoint is seated, before any experiment\s+exists at all/,
+    check: () => {
+      expect(web.page(), 'grep: the four tabs, R&D last').toContain("const TABS = ['Compare', 'Trace', 'Metrics', 'R&D'] as const")
+      expect(web.page(), 'grep: it really is a tablist').toContain('role="tablist"')
+      expect(web.page(), 'grep: R&D mounts even with no experiment selected, when a checkpoint is seated').toMatch(/seatedCheckpoint !== null[\s\S]{0,500}<RdTab/)
+    },
+  },
   'refusals-verbatim': {
     says: /prints the refusal it received verbatim/,
     check: () => {
@@ -470,6 +503,141 @@ const CLAIMS: Readonly<Record<string, Claim>> = {
         expect(organism, `grep: the ${brush} brush, through its public export`).toContain(`from '../../scene/${brush}.js'`)
       }
       expect(organism, 'grep: and never a scene module that reads the fold').not.toMatch(/scene\/(?:retire|salience|variation|pulses|SceneView)/)
+    },
+  },
+  'rd-explicit-act': {
+    says: /same\s+second hand \(prd12 ruling 1\)[\s\S]*same shape as `lab fork --launch` reaching `workmux add`[\s\S]*no tools granted[\s\S]*runCli[\s\S]*0048-the-instrument-spawns-the-operators-own-tools-as-an-explicit-act\.md/,
+    check: () => {
+      const rd = server.rd()
+      expect(rd, 'grep: the hand is spawned in print mode with no tools').toMatch(/'-p',\s*'--output-format',\s*'json'/)
+      expect(rd, 'grep: --tools "" is the no-tools flag').toContain("'--tools', ''")
+      expect(server.api(), 'grep: the route reaches the CLI in-process, the same seam as every other lab write').toContain("app.post('/api/lab/rd'")
+      expect(server.cli(), 'grep: the CLI subcommand exists too').toContain('runLabRdCommand')
+      expect(existsSync(path.join(REPO, 'docs', 'adr', '0048-the-instrument-spawns-the-operators-own-tools-as-an-explicit-act.md')), 'the ADR this paragraph cites exists').toBe(true)
+      expect(rd, 'grep: provenance carries the CLI\'s own reported cost, never a re-derived one').toContain('total_cost_usd')
+    },
+  },
+  'rd-no-cli': {
+    says: /resolved on the server's own PATH under the name the operator\s+declares \(`lab\.agentCommand`, default `claude`\); absent, the control is\s+disabled and says so, character for character/,
+    check: () => {
+      expect(read('packages/web/src/settings/registry.ts'), 'grep: the operator declares the binary name').toMatch(/id: 'lab\.agentCommand'/)
+      expect(web.rdTab(), 'grep: the control reads that preference and disables on the no-CLI state').toContain("readChoice('lab.agentCommand')")
+      expect(web.rdTab(), 'grep: disabled tracks the same run as the sentence').toContain('const noCli =')
+    },
+  },
+  'rd-no-cli-quote': {
+    says: /no claude on this machine's PATH — the R&D hand is your CLI, installed by you/,
+    check: (text) => {
+      expect(server.rd(), 'grep: the server\'s own sentence, verbatim').toContain(
+        "export const RD_NO_CLI_SENTENCE = \"no claude on this machine's PATH — the R&D hand is your CLI, installed by you\"",
+      )
+      expect(quotedText(text), 'the guide quotes the fixture already proven against the real route by the contract test').toBe(RD_NO_CLI_SENTENCE_FIXTURE)
+    },
+  },
+  'rd-control': {
+    says: /model select over this repo's own list \(`lab\.models`,\s+prd-55 ruling 5[\s\S]*hand never runs without a click[\s\S]*no effect posts to\s+`\/api\/lab\/rd` on mount or on any prop change/,
+    check: () => {
+      expect(web.rdTab(), 'grep: the model select reads the shared offered-models hook').toContain('useOfferedModels()')
+      expect(web.rdTab(), 'grep: the corpus checkbox is the rdCorpus preference').toContain("data-testid=\"rd-corpus-tracker\"")
+      expect(web.rdTab(), 'grep: the one write is behind the button\'s own click').toMatch(/data-testid="rd-read-and-propose"[\s\S]{0,200}onClick=\{\(\) => void readAndPropose\(\)\}/)
+      expect(web.rdTab(), 'grep: nothing calls requestRd from an effect').not.toMatch(/useEffect\([^)]*requestRd/)
+    },
+  },
+  'rd-corpus': {
+    says: /The corpus is local first\*\* \(prd-55 ruling 2\)[\s\S]*second, separately declared act[\s\S]*`lab\.rdCorpus`, off by default, repo-scoped\s+in settings[\s\S]*refused by name rather than silently dropped[\s\S]*prints\s+which corpus produced each\s+pattern beside the pattern/,
+    check: () => {
+      expect(read('packages/web/src/settings/registry.ts'), 'grep: off by default, repo-scoped').toMatch(/id: 'lab\.rdCorpus'[\s\S]{0,400}scope: 'repo'[\s\S]{0,200}fallback: false/)
+      expect(server.rd(), 'grep: a gh failure is refused by name, not swallowed').toContain('the tracker corpus was asked for and gh could not answer')
+      expect(web.rdTab(), 'grep: the pattern-level corpus label is read off the pattern\'s own sources').toContain('function patternCorpusLabel')
+      expect(web.rdTab(), 'grep: a tracker-sourced item is spelled tracker#').toContain("id.startsWith('tracker#')")
+    },
+  },
+  'rd-pattern-floor': {
+    says: /Patterns are grouped by shape, and a single occurrence is held back\*\*\s+\(prd-55 ruling 3\)/,
+    check: () => {
+      expect(read('packages/core/src/lab/rd.ts'), 'grep: the floor is two').toContain('RD_PATTERN_FLOOR = 2')
+      expect(read('packages/core/src/lab/rd.ts'), 'grep: below it, held back').toContain('export function isHeldBack')
+    },
+  },
+  'rd-held-back-quote': {
+    says: /1 issue · not yet a pattern — testing a shape that may not recur spends real money/,
+    check: (text) => {
+      expect(quotedText(text), 'the guide quotes the one-row copy, verbatim').toBe(RD_HELD_BACK_ROW_COPY)
+      expect(web.rdTab(), 'grep: the row copy is a live function of the count, not a retyped literal').toContain('function heldBackRowCopy')
+    },
+  },
+  'rd-nothing-proposed-quote': {
+    says: /no pattern recurs — nothing is proposed\./,
+    check: (text) => {
+      expect(quotedText(text), 'the guide quotes the empty-list copy, verbatim').toBe(RD_NOTHING_PROPOSED_COPY)
+      expect(web.rdTab(), 'grep: rendered when every pattern is held back').toContain('run.patterns.every((pattern) => pattern.heldBack)')
+    },
+  },
+  'rd-no-corpus-quote': {
+    says: /nothing to read yet — a retro, or a measured experiment, is where a pattern comes from\./,
+    check: (text) => {
+      expect(quotedText(text), 'the guide quotes the no-corpus copy, verbatim').toBe(RD_NO_CORPUS_COPY)
+      expect(web.rdTab(), 'grep: rendered when the corpus read nothing').toContain('run.corpus.itemCount === 0')
+    },
+  },
+  'rd-patterns': {
+    says: /A proposal names one pattern, one varying dimension, and 2–3 arms differing\s+only in that dimension[\s\S]*Zero\s+varying dimensions is a replication, not a confound, and passes clean[\s\S]*raw JSON as a download-free `<details>`[\s\S]*genuinely no raw text for that case/,
+    check: () => {
+      expect(read('packages/core/src/lab/rd.ts'), 'grep: zero varying dimensions passes — a replication, not a confound').toMatch(/Zero varying dimensions passes: that is a replication/)
+      expect(read('packages/core/src/lab/rd.ts'), 'grep: the three refusal reasons').toContain('RD_HELD_BACK_REFUSAL')
+      expect(read('packages/core/src/lab/rd.ts'), 'grep: and the wrong-dimension one').toContain('RD_WRONG_DIMENSION_REFUSAL')
+      expect(web.rdTab(), 'grep: a live refusal offers the hand\'s own raw text').toContain('refusal.rawResult')
+      expect(web.rdTab(), 'grep: a client-caught refusal says plainly it was caught here').toMatch(/caught here, at the surface, rather than returned by the R&D\s+route/)
+    },
+  },
+  'rd-launch-review': {
+    says: /A proposal dispatches through the launch the lab already has\*\* \(prd-55\s+ruling 4\)[\s\S]*prefilled with the proposal's\s+own checkpoint and every arm's model[\s\S]*resulting experiment's\s+`fork\.dispatched`\s+record holds `proposalId` durably[\s\S]*launch route itself records `rd\.override`, naming both checkpoints/,
+    check: () => {
+      expect(web.rdTab(), 'grep: the review prefills the proposal\'s arms and checkpoint').toMatch(/initialArms=\{reviewFor\.proposal\.arms/)
+      expect(web.rdTab(), 'grep: and carries the proposal id to the route').toContain('proposalId={reviewFor.proposal.proposalId}')
+      expect(web.launch(), 'grep: the launch body sends it, only when set').toMatch(/proposalId === undefined \? \{\} : \{ proposalId \}/)
+      expect(server.api(), 'grep: the launch route looks the proposal up and records the override itself').toContain('recordOverrideIfNeeded')
+      expect(server.api(), 'grep: an unknown proposal id is refused by name').toMatch(/names no proposal this repo has recorded/)
+    },
+  },
+  'rd-override-quote': {
+    says: /operator override — the choice is never re-attributed to the agent/,
+    check: (text) => {
+      expect(quotedText(text), 'the guide quotes the override sentence, verbatim').toBe(RD_OVERRIDE_SENTENCE)
+      expect(web.rdTab(), 'grep: rendered when the launched checkpoint disagrees with the proposal\'s own pick').toContain('linked.outcome.checkpointId !== proposal.checkpointPick.chosenCheckpointId')
+    },
+  },
+  'rd-baseline-quote': {
+    says: /no measured baseline — the retro's own words/,
+    check: (text) => {
+      expect(quotedText(text), 'the guide quotes the no-measured-baseline sentence, verbatim').toBe(RD_NO_MEASURED_BASELINE)
+      expect(web.rdTab(), 'grep: the baseline is the source item\'s own measured run, one observation').toContain('function measuredBaselineFor')
+    },
+  },
+  'rd-keyboard': {
+    says: /`↑`\/`↓` move the patterns list, `Enter` opens a pattern\s+or a proposal[\s\S]*`Tab` reaches the proposal panel in DOM order, `Esc` closes the launch\s+review/,
+    check: () => {
+      expect(web.rdTab(), 'grep: arrow keys move the patterns list').toContain('function onPatternsKeyDown')
+      expect(web.rdTab(), 'grep: Escape closes the review').toMatch(/event\.key === 'Escape'/)
+      expect(web.rdTab(), 'grep: the model field is a native select').toContain('data-testid="rd-model"')
+      expect(web.rdTab(), 'grep: no title attribute anywhere in this surface').not.toMatch(/\btitle=\{/)
+    },
+  },
+  'rd-refusals': {
+    says: /Refusals from `POST \/api\/lab\/rd` itself\*\*: \*\*400\*\* for a malformed body[\s\S]*\*\*503\*\* when the\s+lab's CLI lock could not be taken[\s\S]*\*\*409\*\* on a server that is replaying a session record/,
+    check: () => {
+      expect(server.api(), 'grep: a bad model names the ruling').toContain('a call that spends real money does not choose its own model (prd-55 ruling 1)')
+      expect(server.api(), 'grep: a bad corpus names the ruling and the two legal values').toContain('reading the tracker through your own gh is a second declared act (prd-55 ruling 2), and there is no third corpus')
+      expect(server.api(), 'grep: the rd route answers 400 for a validation error').toMatch(/RdValidationError\) \{\s*return reply\.code\(400\)/)
+      expect(server.api(), 'grep: and 503 for the CLI lock').toMatch(/LabCliLockCeilingError\) \{\s*return reply\.code\(503\)/)
+      expect(server.api(), 'grep: and 409 while replaying').toContain('there is no record here for the R&D hand to read')
+    },
+  },
+  'rd-cost-gap': {
+    says: /not yet booked as `llm\.cost`\.\*\*[\s\S]*TELEMETRY_SOURCES`\s+still names only `sessionlog` and\s+`otel`/,
+    check: () => {
+      expect(read('packages/core/src/events/telemetry.ts'), 'grep: the gap this claim names is real, not stale').toContain("const TELEMETRY_SOURCES = ['sessionlog', 'otel'] as const")
+      expect(server.rd(), 'grep: the cost the guide describes is on the event\'s own provenance').toContain('total_cost_usd')
     },
   },
   'windows-five': {

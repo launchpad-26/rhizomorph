@@ -204,33 +204,56 @@ session is history"*) rather than quietly disappearing. Its own header names
 the constitutional limit: *"forked realities only — checkpoints you captured,
 and experiments forked from them. Never live fleet state."* <!-- claim: nav-and-header -->
 
-Six sections, in this order (prd53 rulings 4, 5, 7 and 8; the specification is
-`docs/prds/prd-53-the-lab.md` and its companion artifact):
+Two regions, not six sections stacked in one column (prd-55 ruling 8; Stage 1's
+own specification is `docs/prds/prd-53-the-lab.md`, the rearrangement's is
+`docs/prds/prd-55-the-lab-stage-two.md`, both with their companion artifacts): a
+**rail** and a **stage**. <!-- claim: workspace-regions -->
 
-1. **The session axis** — the lab's own view of time: every checkpoint placed
-   as a percentage of its session, computed from the checkpoint's cut byte
-   over the transcript's length by exactly one function
-   (`packages/web/src/lab/axis/position.ts`), which every surface that places a
-   moment shares. A checkpoint whose length is unknown is drawn at the inset
-   and named degraded. Seat a checkpoint and the frame below reads from it. <!-- claim: axis-one-function -->
-2. **The frame** — one switch over five ways of looking at the seated moment:
-   telemetry, cost, scene, divergence, footprint (keys 1–5). Telemetry (1)
-   and footprint (5) read the lab's own routes the moment a checkpoint is
-   seated: a lane the fold has never seen, or a byte past the session's
-   length, is refused by name, and an empty reading draws its own sentence
-   too — refused and empty are sentences of their own, never blanks. The
-   scene position is the lane canvas (below). <!-- claim: frame-five -->
-3. **Checkpoints** — every checkpoint this repo has captured, one row each.
-4. **Launch** — the act itself: pick a checkpoint from the rows the engine
-   actually holds, give each arm its own model — from this repo's list, or
-   typed under *other…* — and its own brief, set runs per arm and a ceiling
-   override if you mean more than the defaults, read the estimate, press the
-   one button. There is no second dialog after that one (prd14 ruling 4 asks
-   for one confirmation). <!-- claim: launch-one-confirmation -->
-5. **Experiments** — one panel per experiment: the branching picture, the
-   comparison surface, Trace, and the measure control.
-6. **Metrics** — spend and outcome across experiments, every figure with its
-   basis beside it.
+**The rail** lists every checkpoint and every experiment this repo has
+captured, one row each — the whole record at a glance, and the only place
+either is listed. Selecting a checkpoint row seats the playhead; the launch's
+own step 1 reuses that same rail selection rather than repeating a table of
+checkpoints a second time. An experiment's row carries its own arms · runs ·
+verdict counts, and a partial launch's row says how many of the requested arms
+actually dispatched. <!-- claim: rail-rows -->
+
+**The stage** keeps its own top pinned — the session axis and the frame never
+scroll away:
+
+**The session axis** — the lab's own view of time: every checkpoint placed
+as a percentage of its session, computed from the checkpoint's cut byte
+over the transcript's length by exactly one function
+(`packages/web/src/lab/axis/position.ts`), which every surface that places a
+moment shares. A checkpoint whose length is unknown is drawn at the inset
+and named degraded. Seat a checkpoint and the frame below reads from it. <!-- claim: axis-one-function -->
+
+**The frame** — one switch over five ways of looking at the seated moment:
+telemetry, cost, scene, divergence, footprint (keys 1–5). Telemetry (1)
+and footprint (5) read the lab's own routes the moment a checkpoint is
+seated: a lane the fold has never seen, or a byte past the session's
+length, is refused by name, and an empty reading draws its own sentence
+too — refused and empty are sentences of their own, never blanks. The
+scene position is the lane canvas (below). <!-- claim: frame-five -->
+
+Below the pinned top, one experiment's reading at a time: **Compare, Trace,
+Metrics and R&D** sit in a `role="tablist"`, never a stack, sharing one
+roving-tabindex keyboard path (←/→ moves, Home/End jump to the ends) —
+switching between four readings of the same experiment costs a keystroke,
+never a scroll. R&D sits last in the strip, and unlike the other three it is
+also reachable the moment a checkpoint is seated, before any experiment
+exists at all: the operator's hand reads retros and reviews too, not only a
+selected experiment's own record. <!-- claim: stage-tablist -->
+
+**Launch** — the act itself: pick a checkpoint from the rows the engine
+actually holds — the rail's own selection, never a table of its own — give
+each arm its own model — from this repo's list, or typed under *other…* —
+and its own brief, set runs per arm and a ceiling override if you mean more
+than the defaults, read the estimate, press the one button. There is no second dialog after that one
+(prd14 ruling 4 asks for one confirmation). <!-- claim: launch-one-confirmation -->
+
+**Compare** is the comparison surface (below); **Trace** and **Metrics** are
+each described in their own sections below; **R&D** — the operator's own
+agent — has a section of its own next.
 
 ### The estimate and its basis
 
@@ -312,6 +335,120 @@ with the arm floor it was booked against, rates over the window they were
 measured in — and a number without a basis is a law failure, not a style
 choice. With no experiments it says so in the same words as the experiments
 panel. <!-- claim: metrics-basis -->
+
+### The R&D hand
+
+The lab's fourth reading is not a fifth constitutional hand — it is the same
+second hand (prd12 ruling 1) reaching a tool the operator already owns, the
+same shape as `lab fork --launch` reaching `workmux add`. `rhizomorph lab rd
+<lane> --model <m> [--corpus local|local+tracker] [--max-turns n]` and the R&D
+control's own *read and propose* button both spawn the operator's own `claude`
+in print mode with the corpus in the prompt and no tools granted; the button
+reaches `POST /api/lab/rd`, a gated mutation through the same `runCli` seam
+every lab write goes through, so there is one implementation of the act
+whichever hand invokes it. Nothing under `packages/server/src` reads, stores
+or forwards a credential of its own — the operator's CLI is already
+authenticated, by the operator, before this instrument ever runs — and
+`docs/adr/0048-the-instrument-spawns-the-operators-own-tools-as-an-explicit-act.md`
+records the boundary in full (prd-55 ruling 1). Every run's provenance — the
+model, the CLI's own cost and duration, the prompt digest, the corpus digest,
+`claude --version` — is booked on the `rd.patterns` / `rd.proposal` /
+`rd.refused` event it produced and printed beside the control, so the figure a
+reader sees is never re-derived from anything but the hand's own report. <!-- claim: rd-explicit-act -->
+
+The binary is resolved on the server's own PATH under the name the operator
+declares (`lab.agentCommand`, default `claude`); absent, the control is
+disabled and says so, character for character: <!-- claim: rd-no-cli -->
+
+> no claude on this machine's PATH — the R&D hand is your CLI, installed by you <!-- claim: rd-no-cli-quote -->
+
+The control itself is a model select over this repo's own list (`lab.models`,
+prd-55 ruling 5 — the same list the launch panel reads), a checkbox for
+whether the hand may also read the tracker, and the *read and propose*
+button. The hand never runs without a click: no effect posts to
+`/api/lab/rd` on mount or on any prop change, only the button's own
+`onClick`. <!-- claim: rd-control -->
+
+**The corpus is local first** (prd-55 ruling 2): what the record already
+holds — every `fork.measured` verdict, every retro and review this repo's own
+`docs/research/` and `docs/review/` carry, and the lab's own past
+experiments. Reading closed issues through the operator's own `gh` is a
+second, separately declared act — `lab.rdCorpus`, off by default, repo-scoped
+in settings — and its use is recorded on the run (`corpus: 'local+tracker'`).
+A `gh` read that fails is refused by name rather than silently dropped: the
+corpus falls back to what the record already holds and the run says why the
+tracker half is missing. The control prints which corpus produced each
+pattern beside the pattern, read off the pattern's own source items rather
+than the run's own choice, since one pattern can draw on fewer sources than
+the run asked for. <!-- claim: rd-corpus -->
+
+**Patterns are grouped by shape, and a single occurrence is held back**
+(prd-55 ruling 3): fewer than two source items and the pattern renders
+dimmer, with its own count and the reason, never a proposal beside it — <!-- claim: rd-pattern-floor -->
+
+> 1 issue · not yet a pattern — testing a shape that may not recur spends real money <!-- claim: rd-held-back-quote -->
+
+— and when every pattern the hand grouped is held back, the whole list says
+so once:
+
+> no pattern recurs — nothing is proposed. <!-- claim: rd-nothing-proposed-quote -->
+
+A repo with nothing to read yet — no retro, no measured experiment — says so
+before anything else:
+
+> nothing to read yet — a retro, or a measured experiment, is where a pattern comes from. <!-- claim: rd-no-corpus-quote -->
+
+**A proposal names one pattern, one varying dimension, and 2–3 arms differing
+only in that dimension** — model, brief, checkpoint or gate, never two at
+once and never a dimension other than the one the proposal declares. Zero
+varying dimensions is a replication, not a confound, and passes clean. The
+checkpoint pick names its own choice and every checkpoint it considered and
+rejected, with the reason. A proposal against a held-back pattern, one
+varying more than one dimension, or one varying the wrong dimension is
+refused rather than patched — the surface shows the reason and offers the
+hand's own raw JSON as a download-free `<details>` beside it, when the
+refusal came from the route itself; a refusal this surface catches on its own
+defensive re-check says plainly that it was caught here instead, since there
+is genuinely no raw text for that case. <!-- claim: rd-patterns -->
+
+**A proposal dispatches through the launch the lab already has** (prd-55
+ruling 4): *restore n arms* and *restore and run* open the same launch
+review, prefilled with the proposal's own checkpoint and every arm's model,
+and carry the proposal's id so the resulting experiment's `fork.dispatched`
+record holds `proposalId` durably — not only for the browser session that
+launched it. If the operator changes the checkpoint pick before launching,
+the launch route itself records `rd.override`, naming both checkpoints, and
+the surface says so in the same words every time: <!-- claim: rd-launch-review -->
+
+> operator override — the choice is never re-attributed to the agent <!-- claim: rd-override-quote -->
+
+Once an experiment exists, the panel draws it *against what actually
+happened* — the source item's own measured observation, stated as one
+observation, never a spread. A retro with no measured figure of its own
+reads as text, never a fabricated number:
+
+> no measured baseline — the retro's own words <!-- claim: rd-baseline-quote -->
+
+**The keyboard path**: `↑`/`↓` move the patterns list, `Enter` opens a pattern
+or a proposal (a native button's own behaviour — nothing here re-implements
+it), `Tab` reaches the proposal panel in DOM order, `Esc` closes the launch
+review; the model field is a native `<select>` and no label anywhere is a
+`title` attribute. <!-- claim: rd-keyboard -->
+
+**Refusals from `POST /api/lab/rd` itself**: **400** for a malformed body — an
+empty lane, a model the grammar refuses, or a corpus other than `local` or
+`local+tracker`, each naming the ruling that made it a field; **503** when the
+lab's CLI lock could not be taken inside the same 30 s ceiling every other lab
+write waits on; **409** on a server that is replaying a session record, where
+there is nothing live for the hand to read. <!-- claim: rd-refusals -->
+
+**The hand's cost is not yet booked as `llm.cost`.** Every `rd.*` event
+carries the CLI's own `total_cost_usd` on its provenance, and every figure the
+R&D control prints is read from that provenance — but `packages/core/src/
+events/telemetry.ts`'s `TELEMETRY_SOURCES` still names only `sessionlog` and
+`otel`, neither of which is true of a CLI this instrument spawned itself, so
+none of it reaches Metrics' own spend figures yet. Stated here rather than
+silently left for a reader to notice missing (#430). <!-- claim: rd-cost-gap -->
 
 ### The lane canvas
 
