@@ -2234,3 +2234,832 @@ describe('citation ceiling law: a #NNN citation above the live maximum cannot en
     expect(violations, JSON.stringify(violations)).toEqual([])
   })
 })
+
+/**
+ * #369's law — a SYMBOL cited from a document or a comment must still exist in source.
+ *
+ * The third law in this file, and a third mechanism: the path law above asks the
+ * filesystem, the citation-ceiling law asks a numeric baseline, and this one asks whether
+ * a backticked identifier is still a name this repo has. It is a separate law rather than
+ * a clause of the first for the reason the ceiling law's own docblock already gives —
+ * a different notion of "exists", a different tolerance problem — while sharing every
+ * SCOPE helper above (`sweepFiles`, `isExcludedCitingFile`, `isPinnedArtefact`,
+ * `stripFencedCodeBlocks`, `extractComments`, `readSweptFile`, `OWN_FILE`,
+ * `repoIsShallow`). Sharing the file is what keeps "which files does a citation come
+ * from" spelled once instead of twice; that, not the resolver, is where two separate
+ * files would have drifted.
+ *
+ * ## What it cost, and why the obvious matcher is the wrong one
+ *
+ * `8f7a60ec` (#324) renamed `MAX_ARMS` to `LAUNCH_CEILING_LANES`. The path law swept the
+ * design note that went on saying `MAX_ARMS` and passed, correctly — every PATH in it
+ * resolved. The stale note was then read into an issue's Definition of done, executed
+ * faithfully by a lane, and caught by a human reviewer on PR #368 after the review round
+ * had been paid for.
+ *
+ * The naive fix — classify every backticked token and check whether it is a symbol —
+ * was MEASURED before this was written, and it does not work. Of 2,092 identifier-shaped
+ * candidates in scope at `a3c5b305` (2,187 and 107 at the tree this landed on — the shape
+ * is the argument, not the figure), 106 are absent from source; 72 of those were never this repo's
+ * symbols at all (`shadowBlur`, `URIError`, `OTLP_ENDPOINT`, `isolatedModules`, and the
+ * `userId`/`orgUuid` fields belonging to Claude Code's OWN session files). A 72-entry
+ * allowlist of things that were never ours is a law allowlisted into uselessness.
+ *
+ * So the question is inverted, as the issue suggested: not "is this a symbol?" but
+ * **"was this ever a symbol HERE, and is it still?"** Three arms, in order:
+ *
+ *   1. PRESENT     — the token appears in the non-comment text of this repo's own
+ *                    sources. Resolves; nothing to report.
+ *   2. RENAMED-AWAY — absent from source, but a DECLARATION of that name was once added
+ *                    under `packages/`. It was ours and it is gone: a VIOLATION.
+ *   3. NOT-OURS    — neither. An external API, an env var we do not read, a key in
+ *                    someone else's config, or a spelling our own prose warns about.
+ *
+ * ## A citation can name a removed symbol ON PURPOSE — the third baseline section
+ *
+ * RULED at the review of #369, and it is the gap the path law next door had already
+ * named: its docblock declines to widen to `.mjs` because "the law needs a way to say
+ * 'cited from history, on purpose' … that mechanism does not exist yet". This law widened
+ * into that gap, and the first such citation arrived within 72 commits of the measurement
+ * — `docs/roadmap.md` saying the `title=` sweep finished "with `NOT_YET_SWEPT` deleted
+ * rather than emptied". That sentence is correct, and it is correct BECAUSE it names a
+ * symbol this repo removed.
+ *
+ * Arm 2 is right to call it renamed-away; what was missing was a home for the verdict.
+ * `[renamed-away]` is the wrong one — its own header calls its entries debt and says
+ * removing them is the destination, so filing a true sentence there sends the next reader
+ * to "fix" a document that has nothing to correct. `[historical]` is the ruling: same
+ * mechanical checks (the file must still cite it, the symbol must still be absent),
+ * opposite meaning. It is expected to stay small; the pinned count makes every addition a
+ * decision rather than a chore.
+ *
+ * ## Arm 2 matches a DECLARATION, never a raw pickaxe — the finding that decided it
+ *
+ * EXECUTED while writing this: `git log -S` reports hits for `canonicalizeUnderRoot` (2),
+ * `pathIsContained` (1), `humanizeTime` (1) and `RAW_COLLECTORS` (1) — and every one of
+ * those hits is a mention INSIDE A COMMENT, a hypothetical spelling this repo was warning
+ * itself about, never a declaration:
+ *
+ *     + * FIFTH copy under a spelling not listed here (`canonicalizeUnderRoot`,
+ *     + * (`formatDuration` vs `humanizeTime`) — that residue is exactly what the
+ *
+ * A pickaxe arm would turn four of this repo's own cautionary comments into violations.
+ * Matching declaration shape on ADDED lines rejects all four. The regexes are applied to
+ * raw diff lines, comments included — they are precise not because comments are stripped
+ * (they are not; a diff has no reliable comment structure) but because a comment almost
+ * never takes a declaration's shape. The four above are the evidence that this holds.
+ *
+ * ## Arm 2's last two rows are load-bearing
+ *
+ * A `const|function|class|type|interface`-only declaration set scored 543 absent
+ * candidates instead of 106, because it cannot see a zod field, an object key or a
+ * method — `listByHandle`, `landedTokens`, `removedAt`, `stateTitle` and `commitOrder`
+ * all read as never-ours, and the law went quiet on five real violations. The property
+ * and method rows are why the number is 106.
+ *
+ * ## This law's own file is its own data — the trap, and the exact shape of the fix
+ *
+ * Arm 1 reads STRING LITERALS deliberately: an env var such as `RHIZOMORPH_DATA_DIR`
+ * appears in source nowhere else, and dropping literals would report it renamed-away.
+ * But that makes this file's own contents self-certifying twice over — the baseline's
+ * symbol names, and the control tests below, are string literals naming exactly the
+ * symbols the law must find MISSING. Both would resolve as `present` against themselves.
+ *
+ * Two halves to the fix, and neither alone is enough:
+ *
+ *   * the lists live in `.symbol-citation-baseline`, a committed data file at the repo
+ *     root, copying `.citation-prior-tracker`'s shape one law over — both arms sweep
+ *     `packages/**` and `scripts/**`, so a root dotfile is outside their reach; and
+ *   * for `OWN_FILE` ALONE, arm 1 contributes only names this file DECLARES, parsed with
+ *     the same declaration shapes arm 2 uses, rather than every token in it.
+ *
+ * Excluding `OWN_FILE` wholesale was tried first and is WRONG: it invents three fresh
+ * violations — `CITATION_RE`, `EXCLUDED_DIRS` and `stripCitationSuffix` are real symbols
+ * declared here and cited from `remedy-reachability-law.test.ts` and `manifest-law.test.ts`,
+ * and a law that cannot see its own exports breaks its own siblings' citations.
+ *
+ * ## The input table
+ *
+ * Every shape a backticked span can take in this corpus, with a verdict per row,
+ * including the ones deliberately out of scope — `AGENTS.md`'s rule: a form not listed is
+ * a form not reviewed. Counts are EXECUTED over the in-scope corpus (28,300 backticked
+ * spans, 10,118 distinct).
+ *
+ * | Form                                   | Verdict                                     |
+ * |----------------------------------------|---------------------------------------------|
+ * | SCREAMING_SNAKE (`MAX_ARMS`)           | HANDLED — 317 distinct                      |
+ * | camelCase (`withLabCliLock`)           | HANDLED — 1,481 distinct                    |
+ * | PascalCase (`LabRunDTO`)                | HANDLED — 292 distinct                      |
+ * | trailing call parens (`foo()`)          | HANDLED — `()` stripped before lookup; 81 distinct |
+ * | contains `/` (`packages/foo.ts`)        | OUT OF SCOPE — the PATH law above owns it. The two laws partition the same span set rather than overlapping on it |
+ * | single all-lowercase word (`main`)      | SKIPPED — 1,035 distinct, indistinguishable from prose, git refs, branch names and npm scripts. Deliberate under-inclusion: a renamed `foo` is NOT caught |
+ * | single Capitalised word (`Read`, `Task`)| HANDLED, and it MUST be — a one-word PascalCase name is exactly what `Fleet`, `Lane` and `Exec` are, and no matcher can tell those from the prose word `Read` by shape. This row claimed SKIPPED until the control test below failed on it. The prose ones land in arm 3 and are pinned there: `[not-ours]`'s "ordinary words that happen to take an identifier casing" group exists for precisely this row |
+ * | dotted member (`Foo.bar`, `z.string`)   | SKIPPED — 1,627 distinct; resolving a member needs the head's type, which a regex has not got. The head is usually cited alone and covered by that |
+ * | generic (`Type<T>`)                     | SKIPPED — 100 distinct; `<` and `>` are also prose comparisons |
+ * | contains whitespace (`npm run build`, `POST /api/lab/launch`) | SKIPPED — commands and routes, not identifiers |
+ * | CLI flag (`--ceiling-override`)         | SKIPPED — a leading `-` fails identifier shape, so no rule is needed. Listed because the issue named it, and a form not listed is a form not reviewed |
+ * | sha or hex ref (`8f7a60ec`)             | SKIPPED — all-lowercase-alnum fails all three casings |
+ * | env var this repo READS (`RHIZOMORPH_DATA_DIR`) | RESOLVES via arm 1 — present as a string literal in source, which is why arm 1 keeps literals |
+ * | env var this repo does NOT read (`XDG_CONFIG_HOME`, `OTLP_PROTOCOL`) | SKIPPED via arm 3 — never declared here |
+ * | external symbol we USE (`structuredClone`, `querySelector`) | RESOLVES via arm 1 — present in our source |
+ * | external symbol we only DESCRIBE (`shadowBlur`) | SKIPPED via arm 3 — never declared here. CONTROL test below |
+ * | a spelling this repo warns about but never had (`canonicalizeUnderRoot`) | SKIPPED via arm 3 — comment-only in history. CONTROL test below |
+ * | our symbol, renamed away (`MAX_ARMS`)   | VIOLATION — the regression fixture below |
+ * | our symbol, named BECAUSE it was removed (`NOT_YET_SWEPT`) | VIOLATION unless pinned in `[historical]` — indistinguishable from the row above by shape, so the corpus cannot resolve it and a human ruling does. See the section above |
+ * | `//` inside a STRING literal in a SOURCE file (`` const u = 'https://x/y' ``) | DECLARED LIMITATION, raised at the review of #369 — `stripCommentsFromSource` has no string-awareness, so it reads that `//` as starting a comment and drops the REST OF THAT LINE from arm 1's token set. The harm is the mirror of the path law's row above and strictly worse in kind: a symbol declared after such a literal goes missing from the source set, so a citation of it elsewhere reads absent and reddens as a violation that is not one. Same verdict for the same reason — closing it needs a string-literal-aware tokenizer, categorically bigger than the regex extractor this file deliberately is. No live instance (the corpus is green), pinned by a CONTROL test below so it cannot silently change |
+ * | in a SHELL source comment (`scripts/*.sh`) | HANDLED as a comment wherever it starts on the line — `#` to end-of-line, not merely a whole-line `#`. Found by the independent review of `62a1f561`: with whole-line-only stripping, `true # DeadName` in any script silenced a real violation, because arm 1 read the dead name as still present. A CONTROL test below pins the A/B |
+ * | `#` inside a SHELL STRING (`echo "a#b"`)  | DECLARED LIMITATION — no string-awareness, so the rest of that line leaves arm 1's token set. The direction of harm is SPLIT, and saying only half of it is how this row read until the delta review of `373365bc`: in the SWEEP a dropped token makes a symbol read absent, which REDDENS; in the three baseline honesty tests absence is the PASSING condition, so there it is the quiet direction and a stale `[renamed-away]` row can survive. Kept, because the gap it closes silenced a real citation while this costs at most a stale row — and the JS half has carried the same property, declared, since it was written. MEASURED at `373365bc`: 16 tokens drop from the sweep today, 4 of them symbol-shaped (`Fence`, `Ff`, `Field`, `Option`), and not one is cited in `docs/` or `packages/` |
+ * | inside a fenced code block              | SKIPPED — inherited from `stripFencedCodeBlocks`, same reasoning as the path law |
+ * | in `.ts` CODE rather than a comment     | SKIPPED — inherited from `extractComments`; ruling 1's scope is comments |
+ * | `.tsx` / `.mjs` comments                | OUT OF SCOPE as CITING files — inherited from the path law's #186 item 9 ruling, unchanged. Note the deliberate asymmetry: `.tsx` and `.mjs` ARE read as SOURCES for arm 1, because a symbol declared in a `.tsx` file is no less present for it |
+ *
+ * ## Every read this law makes, and whether it needs `readSweptFile`'s guard
+ *
+ * Scoped to THIS law, the way the path law's table above had to be scoped once a second
+ * law moved into this file.
+ *
+ * | read | where its path comes from | verdict |
+ * |---|---|---|
+ * | `symbolCitations`'s two loops | `sweepFiles` | GUARDED — `readSweptFile` |
+ * | `buildSourceTokens` | `sweepFiles` | GUARDED — `readSweptFile`; a source file can vanish between listing and read exactly as a doc can |
+ * | the baseline read | `SYMBOL_BASELINE_PATH`, a literal | NOT NEEDED — absence is a hard failure with a message, not a skip |
+ * | `buildEverDeclaredTokens` | `git log`, not a file listing | NOT NEEDED — no filesystem read at all |
+ */
+const SYMBOL_BASELINE_PATH = path.join(REPO_ROOT, '.symbol-citation-baseline')
+
+/**
+ * The stamp's grammar, so its numbers are CHECKED rather than asserted by prose.
+ *
+ * `.citation-prior-tracker` one law over has had `BASELINE_MEASURED_RE` and
+ * `Number(m?.[3]) === entries.length` since it was written; this file's stamp was free
+ * text, and the independent review of `62a1f561` proved the cost by mutation — rewriting
+ * it to `# measured: banana tree=deadbeef candidates=1 renamed-away=999 historical=999
+ * not-ours=999` left the suite GREEN. A stale-provenance claim inside the artefact built
+ * to catch stale claims, with nothing holding it. The mechanism the sibling already
+ * ships is carried across here rather than reinvented.
+ *
+ * `candidates` is deliberately NOT asserted against the live sweep, and that is the one
+ * judgement in this regex. It counts distinct identifier-shaped citations across a corpus
+ * that grows whenever anyone writes a document, so pinning it would redden this law on
+ * edits that have nothing to do with it — a ceiling, which is the ceiling law's job and
+ * not this one's. It stays provenance. The three list counts are different in kind: they
+ * describe THIS FILE, so the file can check them.
+ */
+const SYMBOL_MEASURED_RE =
+  /^# measured: (\d{4}-\d{2}-\d{2}) tree=([0-9a-f]{7,40}) candidates=(\d+) renamed-away=(\d+) historical=(\d+) not-ours=(\d+)$/
+
+interface RenamedAwayEntry {
+  file: string
+  symbol: string
+  reason: string
+}
+
+interface NotOursEntry {
+  symbol: string
+  citedBy: string
+}
+
+/**
+ * Same three fields as `RenamedAwayEntry`, and deliberately NOT the same type: the two
+ * sections mean opposite things. A `[renamed-away]` reason names the commit that removed
+ * the symbol and is DEBT — the section's own header says removing entries is the
+ * destination. A `[historical]` reason says why the sentence names a removed symbol on
+ * purpose, and is not expected ever to be removed.
+ */
+interface HistoricalEntry {
+  file: string
+  symbol: string
+  reason: string
+}
+
+interface SymbolBaseline {
+  measured: string[]
+  renamedAway: RenamedAwayEntry[]
+  historical: HistoricalEntry[]
+  notOurs: NotOursEntry[]
+}
+
+/**
+ * `split(/\r?\n/)`, not `split('\n')`, and trailing whitespace trimmed — the same
+ * normalisation `parseBaseline` above does, for the same reason: a literal comparison
+ * against a checked-out text file reddens on the native Windows suite ONLY, where the
+ * checkout carries CRLF, and a sibling law spelling it `[\s\S]*` hides the defect.
+ */
+function parseSymbolBaseline(text: string): SymbolBaseline {
+  const measured: string[] = []
+  const renamedAway: RenamedAwayEntry[] = []
+  const historical: HistoricalEntry[] = []
+  const notOurs: NotOursEntry[] = []
+  let section: 'renamed-away' | 'historical' | 'not-ours' | undefined
+  text.split(/\r?\n/).forEach((raw, index) => {
+    const line = raw.replace(/\s+$/, '')
+    if (line.length === 0) return
+    if (line.startsWith('#')) {
+      if (/^# measured:/.test(line)) measured.push(line)
+      return
+    }
+    if (line === '[renamed-away]') {
+      section = 'renamed-away'
+      return
+    }
+    if (line === '[historical]') {
+      section = 'historical'
+      return
+    }
+    if (line === '[not-ours]') {
+      section = 'not-ours'
+      return
+    }
+    const where = `.symbol-citation-baseline:${index + 1}`
+    if (section === 'renamed-away') {
+      const m = /^(\S+)\s+(\S+)\s+(.+)$/.exec(line)
+      if (m === null) throw new Error(`${where} does not match "<file>  <symbol>  <reason>": ${line}`)
+      renamedAway.push({ file: m[1] ?? '', symbol: m[2] ?? '', reason: m[3] ?? '' })
+      return
+    }
+    if (section === 'historical') {
+      const m = /^(\S+)\s+(\S+)\s+(.+)$/.exec(line)
+      if (m === null) throw new Error(`${where} does not match "<file>  <symbol>  <why it is named on purpose>": ${line}`)
+      historical.push({ file: m[1] ?? '', symbol: m[2] ?? '', reason: m[3] ?? '' })
+      return
+    }
+    if (section === 'not-ours') {
+      const m = /^(\S+)\s+(\S+)$/.exec(line)
+      if (m === null) throw new Error(`${where} does not match "<symbol>  <citing-file>": ${line}`)
+      notOurs.push({ symbol: m[1] ?? '', citedBy: m[2] ?? '' })
+      return
+    }
+    throw new Error(`${where} sits outside any [section]: ${line}`)
+  })
+  return { measured, renamedAway, historical, notOurs }
+}
+
+function symbolBaseline(): SymbolBaseline {
+  if (!existsSync(SYMBOL_BASELINE_PATH)) {
+    throw new Error(
+      '.symbol-citation-baseline is missing — this law cannot certify the corpus without its three committed lists. ' +
+        'It is not optional and its absence is not an empty baseline.',
+    )
+  }
+  return parseSymbolBaseline(readFileSync(SYMBOL_BASELINE_PATH, 'utf8'))
+}
+
+/**
+ * The three casings a prose word cannot accidentally take. A single all-lowercase or
+ * single Capitalised word is deliberately absent — see the input table's two SKIPPED
+ * rows for the 2,000-odd spans that would otherwise arrive.
+ */
+const SYMBOL_SHAPE_RES: readonly RegExp[] = [
+  /^[a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*$/,
+  /^[A-Z][a-zA-Z0-9]*[a-z][a-zA-Z0-9]*$/,
+  /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/,
+]
+
+function isSymbolShaped(token: string): boolean {
+  return SYMBOL_SHAPE_RES.some((re) => re.test(token))
+}
+
+/** Rejects every span the input table marks SKIPPED or OUT OF SCOPE: paths, dotted members, generics, commands and routes. */
+const NON_SYMBOL_CHARS_RE = /[\s/.<>]/
+
+/**
+ * Every backtick-delimited identifier-shaped span in `text`, with a trailing `()`
+ * stripped so `` `foo()` `` and `` `foo` `` are the same claim.
+ *
+ * Exactly ONE `()` is stripped, not a run: `` `foo()()` `` strips to `foo()`, which then
+ * fails `NON_SYMBOL_CHARS_RE`'s check and is skipped. Pinned by a test rather than left
+ * undefined — the compound-suffix regression `stripCitationSuffix` above records is the
+ * same defect one law over, and it was introduced by leaving an order undecided.
+ */
+function extractSymbolCitations(text: string): string[] {
+  const out: string[] = []
+  for (const m of text.matchAll(/`([^`\n]+)`/g)) {
+    const token = (m[1] ?? '').trim().replace(/\(\)$/, '')
+    if (NON_SYMBOL_CHARS_RE.test(token)) continue
+    if (isSymbolShaped(token)) out.push(token)
+  }
+  return out
+}
+
+/** Source files arm 1 reads. `.tsx` and `.mjs` are IN here though they are out of scope as CITING files — see the input table's last row. */
+const SOURCE_SWEEP_PATTERNS = ['packages/*.ts', 'packages/*.tsx', 'packages/*.mjs', 'scripts/*']
+const SOURCE_EXT_RE = /\.(ts|tsx|mjs|js|sh)$/
+const JS_FAMILY_RE = /\.(ts|tsx|mjs|js)$/
+
+/**
+ * Declaration shapes, anchored to the start of a line. Used twice, on purpose: over
+ * `OWN_FILE`'s current text (arm 1's carve-out) and, with a leading `+`, over added diff
+ * lines (arm 2). One list, so the two can never disagree about what a declaration is.
+ *
+ * `export default` is admitted on the function and class arms, and it is not decoration:
+ * this repo declares most of its panels that way — `FleetTable`, `LedgerPanel`,
+ * `TracePanel`, `AttentionStrip` — and `SpendPanel` is already in `[renamed-away]`, so a
+ * panel name demonstrably gets cited AND renamed here. Without it a renamed panel would
+ * reclassify as not-ours and this law would go silent on exactly the case it was built
+ * for. MEASURED when the gap was found (review of #369): widening these two arms adds 3
+ * names to the ever-declared set and moves ZERO of the 72 `[not-ours]` entries, so the
+ * gap was latent rather than live — closed here before it stopped being latent.
+ *
+ * The generator star is admitted with it (`function*gen()`, `function * gen()`), since
+ * `namespace-law.test.ts` already records that form as one this corpus writes both ways.
+ */
+const DECLARATION_RES: readonly RegExp[] = [
+  /^\s*(?:export\s+(?:default\s+)?)?(?:declare\s+)?(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)/,
+  /^\s*(?:export\s+(?:default\s+)?)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)/,
+  /^\s*(?:export\s+)?interface\s+([A-Za-z_$][\w$]*)/,
+  /^\s*(?:export\s+)?type\s+([A-Za-z_$][\w$]*)/,
+  /^\s*(?:export\s+)?enum\s+([A-Za-z_$][\w$]*)/,
+  /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)/,
+  /^\s*(?:readonly\s+)?([A-Za-z_$][\w$]*)\s*[?!]?\s*:/,
+  /^\s*(?:public|private|protected|static|async|\*)?\s*([A-Za-z_$][\w$]*)\s*\(/,
+]
+
+function declaredNamesIn(text: string, linePrefix: '' | '+'): Set<string> {
+  const out = new Set<string>()
+  for (const line of text.split(/\r?\n/)) {
+    if (linePrefix === '+' && !line.startsWith('+')) continue
+    const body = linePrefix === '+' ? line.slice(1) : line
+    for (const re of DECLARATION_RES) {
+      const m = re.exec(body)
+      if (m?.[1] !== undefined) out.add(m[1])
+    }
+  }
+  return out
+}
+
+/** Comments removed; string literals deliberately KEPT — see the docblock's arm-1 note. */
+function stripCommentsFromSource(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/.*$/gm, ' ')
+}
+
+/**
+ * The same job for the shell half of `SOURCE_SWEEP_PATTERNS`, and it is `#.*$` rather
+ * than `^\s*#.*$` deliberately.
+ *
+ * This read `^\s*#` — WHOLE-LINE comments only — until the independent review of
+ * `62a1f561` found it, and the gap is the one arm 1 exists to prevent: a symbol named
+ * only in a TRAILING shell comment entered the source token set, so a document citing
+ * that dead name resolved `present` and the law went green on a real violation.
+ * EXECUTED as an A/B at the finding: a `docs/roadmap.md` citation of a never-declared
+ * name reddens, and adding `true # ThatName` to any `scripts/*.sh` turns it green again.
+ * That is exactly the stale-pair defect `arm 1 reads string literals but NOT comments`
+ * below is named for — it held for the JS family and not for shell.
+ *
+ * The over-strip direction is chosen on purpose. `#` inside a shell string (`echo "a#b"`)
+ * loses the rest of that line, so this drops tokens it should have kept.
+ *
+ * "A dropped token reddens" is TRUE OF THE SWEEP and FALSE OF THE THREE BASELINE HONESTY
+ * TESTS, and the first draft of this comment claimed it flatly. Corrected at the
+ * delta review of `373365bc`, which demonstrated it rather than argued it. The main sweep
+ * asserts PRESENCE, so a smaller token set can only add violations. The `[renamed-away]`,
+ * `[historical]` and `[not-ours]` tests assert a NON-PRESENT verdict — there, "reads
+ * absent" is the passing condition, so over-stripping is the quiet direction. EXECUTED:
+ * a `scripts/*.sh` containing `echo "plain foldReplay"` reddens the `[renamed-away]`
+ * honesty test, because that symbol has genuinely come back; the same file spelled
+ * `echo "a#b foldReplay"` leaves the whole law GREEN.
+ *
+ * Kept anyway, and the trade is worth stating plainly rather than burying. What it costs
+ * is a stale baseline ROW surviving — a symbol re-introduced only after a `#` inside a
+ * shell string and nowhere in `packages/*.ts|tsx|mjs`. What it buys is closing a gap that
+ * silenced a real CITATION, which is what this law exists to catch. The JS half has had
+ * the identical property since it was written (`stripCommentsFromSource`, and `//` inside
+ * a string literal), and the input table has always declared it there.
+ */
+function stripCommentsFromShell(source: string): string {
+  return source.replace(/#.*$/gm, ' ')
+}
+
+let sourceTokensCache: Set<string> | undefined
+let sourceTokensBuilds = 0
+
+function buildSourceTokens(): Set<string> {
+  const out = new Set<string>()
+  for (const pattern of SOURCE_SWEEP_PATTERNS) {
+    for (const file of sweepFiles(pattern)) {
+      if (!SOURCE_EXT_RE.test(file)) continue
+      const raw = readSweptFile(file)
+      if (raw === undefined) continue
+      // `OWN_FILE` contributes only what it DECLARES. Every other file contributes every
+      // token in its non-comment text. See the docblock: this file's baseline names and
+      // control-test literals would otherwise certify themselves, and excluding the file
+      // outright invents three violations against its own real exports.
+      if (file === OWN_FILE) {
+        for (const name of declaredNamesIn(stripCommentsFromSource(raw), '')) out.add(name)
+        continue
+      }
+      const code = JS_FAMILY_RE.test(file) ? stripCommentsFromSource(raw) : stripCommentsFromShell(raw)
+      for (const m of code.matchAll(/[A-Za-z_$][\w$]*/g)) out.add(m[0])
+    }
+  }
+  return out
+}
+
+function sourceTokens(): Set<string> {
+  if (sourceTokensCache === undefined) {
+    sourceTokensBuilds += 1
+    sourceTokensCache = buildSourceTokens()
+  }
+  return sourceTokensCache
+}
+
+let everDeclaredCache: Set<string> | undefined
+let everDeclaredBuilds = 0
+
+/**
+ * Every identifier ever DECLARED in the paths arm 1 sweeps, from one pass over history.
+ *
+ * The pathspec is `SOURCE_SWEEP_PATTERNS` itself, not a second list that happens to
+ * agree — review of #369 found it spelled `packages/*.ts`, `packages/*.tsx` while arm 1
+ * already read `packages/*.mjs` and `scripts/*` too, so 145 names this repo really
+ * declared were invisible to arm 2. That is not a silent pass: such a name reddens as
+ * `not-ours`. It is worse — a WRONG DIAGNOSIS with a harmful instructed remedy, because
+ * the message then tells the next reader to pin a genuinely renamed-away symbol into
+ * `[not-ours]`, where nothing ever reddens again. Structurally the same defect as the
+ * `export default` gap closed above, one scope dimension over. MEASURED at the widening:
+ * zero of the 72 `[not-ours]` entries flip, so the gap was latent rather than live.
+ * Sharing the constant is what stops it reopening.
+ *
+ * One `git log`, not a pickaxe per token: EXECUTED at 1.9 s for 2,119 commits and ~397k
+ * diff lines, against ~1 s for each of 106 per-token pickaxes. `maxBuffer` is raised
+ * because the pass is ~19 MB and the default 1 MB throws ENOBUFS — a failure that would
+ * arrive as a crash, not as a law.
+ *
+ * `isShallow` is a parameter only so a test can force the refusal path; every real call
+ * site takes the default. A shallow clone holds no history, so arm 2 would find nothing
+ * ever declared and every renamed-away symbol would silently reclassify as not-ours —
+ * the law would go green while going blind. It REFUSES instead, the same way `pinVerdict`
+ * above refuses an unresolvable landing ref rather than blaming the corpus.
+ */
+function buildEverDeclaredTokens(isShallow: () => boolean = repoIsShallow): Set<string> {
+  if (isShallow()) {
+    throw new Error(
+      'this clone is SHALLOW, so `git log` cannot see the history arm 2 needs — every symbol this repo once ' +
+        'declared would read as never-ours and this law would pass while checking nothing. Run `git fetch ' +
+        '--unshallow`, or keep `fetch-depth: 0` on the suite leg in `.github/workflows/ci.yml`. NOT a corpus violation.',
+    )
+  }
+  const patch = execFileSync(
+    'git',
+    ['log', '-p', '--unified=0', '--no-renames', '--diff-filter=AM', '--', ...SOURCE_SWEEP_PATTERNS],
+    { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 512 * 1024 * 1024 },
+  )
+  return declaredNamesIn(patch, '+')
+}
+
+function everDeclaredTokens(): Set<string> {
+  if (everDeclaredCache === undefined) {
+    everDeclaredBuilds += 1
+    everDeclaredCache = buildEverDeclaredTokens()
+  }
+  return everDeclaredCache
+}
+
+type SymbolVerdict = 'present' | 'renamed-away' | 'not-ours'
+
+/**
+ * Arm 2 is reached only when arm 1 has already failed, so the history pass never runs at
+ * all on a corpus with nothing absent — the gating the plan asked for falls out of the
+ * ordering rather than needing a flag.
+ */
+function symbolVerdict(token: string): SymbolVerdict {
+  if (sourceTokens().has(token)) return 'present'
+  return everDeclaredTokens().has(token) ? 'renamed-away' : 'not-ours'
+}
+
+interface SymbolCitation {
+  file: string
+  symbol: string
+}
+
+/**
+ * Every symbol citation from every in-scope document and every in-scope `.ts` file's
+ * comments — the same scope the path law's `allCitations` uses, through the same helpers,
+ * deduplicated per file.
+ */
+function symbolCitations(): SymbolCitation[] {
+  const out: SymbolCitation[] = []
+  for (const file of sweepFiles('docs/*.md')) {
+    if (isExcludedCitingFile(file)) continue
+    const raw = readSweptFile(file)
+    if (raw === undefined) continue
+    const text = stripFencedCodeBlocks(raw)
+    if (isPinnedArtefact(text)) continue
+    for (const symbol of new Set(extractSymbolCitations(text))) out.push({ file, symbol })
+  }
+  for (const file of sweepFiles('packages/*.ts')) {
+    if (isExcludedCitingFile(file)) continue
+    const raw = readSweptFile(file)
+    if (raw === undefined) continue
+    for (const symbol of new Set(extractSymbolCitations(extractComments(raw)))) out.push({ file, symbol })
+  }
+  return out
+}
+
+/** The commit that renamed `MAX_ARMS` away (#324) — this law's regression fixture, pinned because a law that passes against it is decorative. */
+const MAX_ARMS_RENAME_SHA = '8f7a60ec9c4cda354f7b549c7710d6c23e4935b7'
+
+describe('doc symbol law: a symbol cited from a document or a comment still exists in source (#369)', () => {
+  it('the sweep is non-empty and the source-token set is real — every check below would pass vacuously otherwise', () => {
+    expect(symbolCitations().length).toBeGreaterThan(500)
+    expect(sourceTokens().size).toBeGreaterThan(5000)
+    expect(everDeclaredTokens().size).toBeGreaterThan(5000)
+  })
+
+  it('the shape matcher takes the three casings a prose word cannot, and rejects every SKIPPED row of the input table', () => {
+    for (const accepted of ['MAX_ARMS', 'withLabCliLock', 'LabRunDTO', 'RANK_HUE', 'aB']) {
+      expect(isSymbolShaped(accepted), `${accepted} is identifier-shaped`).toBe(true)
+    }
+    for (const rejected of ['main', 'fold', 'docs', '8f7a60ec', 'lowercase']) {
+      expect(isSymbolShaped(rejected), `${rejected} is prose or a ref — not a symbol claim`).toBe(false)
+    }
+    // A single Capitalised word IS shaped like a symbol, because `Fleet` and `Lane` are
+    // real one-word types here. Shape cannot separate them from the prose word `Read`;
+    // arm 3 does, and `[not-ours]` pins the result.
+    for (const shapedButProse of ['Read', 'Task', 'Stop']) {
+      expect(isSymbolShaped(shapedButProse), `${shapedButProse} is shaped like a one-word type — arm 3 is what clears it`).toBe(true)
+      expect(symbolVerdict(shapedButProse)).not.toBe('renamed-away')
+    }
+  })
+
+  it('a span carrying a path, a member, a generic, a flag or whitespace never reaches the shape matcher', () => {
+    for (const span of [
+      '`packages/server/src/app.ts`',
+      '`Foo.bar`',
+      '`z.string`',
+      '`Type<T>`',
+      '`npm run build`',
+      '`POST /api/lab/launch`',
+      '`--ceiling-override`',
+    ]) {
+      expect(extractSymbolCitations(span), `${span} is not a symbol citation`).toEqual([])
+    }
+  })
+
+  it('a trailing `()` is stripped, and a DOUBLED one is skipped rather than left undefined', () => {
+    expect(extractSymbolCitations('`withLabCliLock()`')).toEqual(['withLabCliLock'])
+    expect(extractSymbolCitations('`withLabCliLock`')).toEqual(['withLabCliLock'])
+    // One level only: `foo()()` strips to `foo()`, which then fails the character check.
+    expect(extractSymbolCitations('`withLabCliLock()()`')).toEqual([])
+  })
+
+  it('a declaration behind `export default` is seen — this repo declares its panels that way, and a renamed panel must not read as not-ours (review of #369)', () => {
+    const declared = declaredNamesIn(
+      [
+        'export default function LaneDrawerLike() {}',
+        'export default class DefaultClassLike {}',
+        'export default async function AsyncDefaultLike() {}',
+        'export default function*GeneratorLike() {}',
+        'export function PlainExportLike() {}',
+        'class BareClassLike {}',
+      ].join('\n'),
+      '',
+    )
+    for (const name of [
+      'LaneDrawerLike',
+      'DefaultClassLike',
+      'AsyncDefaultLike',
+      'GeneratorLike',
+      'PlainExportLike',
+      'BareClassLike',
+    ]) {
+      expect(declared.has(name), `${name} is a declaration and arm 2 must be able to see it`).toBe(true)
+    }
+    // The same list drives arm 2 over diff lines, so the `+` form must agree.
+    expect(declaredNamesIn('+export default function DiffLineLike() {}', '+').has('DiffLineLike')).toBe(true)
+  })
+
+  it('fenced code blocks are stripped before extraction — an illustrative example is not a claim', () => {
+    const doc = ['Real claim: `RealSymbolHere`.', '', '```ts', 'const FabricatedExample = 1', '```', ''].join('\n')
+    expect(extractSymbolCitations(stripFencedCodeBlocks(doc))).toEqual(['RealSymbolHere'])
+  })
+
+  it('arm 1 reads string literals but NOT comments — the stale-pair defect, where a dead doc and a dead comment certify each other', () => {
+    const source = ["const read = process.env['RHIZOMORPH_FAKE_VAR_FOR_TEST']", '// const CommentOnlyName = 1'].join('\n')
+    const code = stripCommentsFromSource(source)
+    expect(code, 'a string literal survives — an env var appears in source nowhere else').toContain('RHIZOMORPH_FAKE_VAR_FOR_TEST')
+    expect(code, 'a comment does not — otherwise a stale comment resolves a stale doc').not.toContain('CommentOnlyName')
+  })
+
+  it('CONTROL: an external symbol this repo only DESCRIBES is not-ours, not a violation', () => {
+    expect(sourceTokens().has('shadowBlur'), 'shadowBlur is a canvas API this repo does not call').toBe(false)
+    expect(symbolVerdict('shadowBlur')).toBe('not-ours')
+  })
+
+  it('CONTROL: a spelling this repo WARNS about in comments has history hits and is still not-ours — arm 2 matches a declaration, not a pickaxe', () => {
+    // The pickaxe DOES find it: every hit is a comment naming a hypothetical spelling.
+    const pickaxe = execFileSync('git', ['log', '--oneline', '-S', 'canonicalizeUnderRoot', '--', 'packages/'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+    })
+      .split('\n')
+      .filter((line) => line.length > 0)
+    expect(pickaxe.length, 'a raw pickaxe finds this — which is exactly why arm 2 is not a pickaxe').toBeGreaterThan(0)
+    expect(symbolVerdict('canonicalizeUnderRoot'), 'never DECLARED here, so never ours').toBe('not-ours')
+  })
+
+  it('REGRESSION FIXTURE (#324): the law reddens on the rename that motivated it — MAX_ARMS was declared at 8f7a60ec~1 and is gone today', () => {
+    expect(pinResolves(MAX_ARMS_RENAME_SHA), 'the fixture commit must be a landed ancestor, or this test proves nothing').toBe(true)
+
+    const declaringFiles = execFileSync('git', ['grep', '-l', 'MAX_ARMS', `${MAX_ARMS_RENAME_SHA}~1`, '--', 'packages/'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+    })
+      .split('\n')
+      .filter((line) => line.length > 0)
+    expect(declaringFiles.join('\n'), 'the pre-rename tree must actually carry the symbol').toContain(
+      'packages/server/src/api/lab.ts',
+    )
+
+    expect(sourceTokens().has('MAX_ARMS'), 'no source carries this name today').toBe(false)
+    expect(everDeclaredTokens().has('MAX_ARMS'), 'but history declared it — that is what makes it a violation, not an external name').toBe(true)
+    expect(symbolVerdict('MAX_ARMS')).toBe('renamed-away')
+  })
+
+  it('the measured stamp parses, its tree sha landed, and its counts match the lists it describes', () => {
+    const { measured, renamedAway, historical, notOurs } = symbolBaseline()
+    expect(measured).toHaveLength(1)
+    const m = SYMBOL_MEASURED_RE.exec(measured[0] ?? '')
+    expect(m, `the measured line does not match the grammar: ${measured[0]}`).not.toBeNull()
+
+    // The sha is provenance, so it is held to the same bar every other sha in this corpus
+    // is: it must resolve AND be an ancestor of the landing ref. A lane sha vanishes under
+    // squash-and-merge, and a stamp naming one is a pointer to nothing.
+    expect(pinVerdict(m?.[2] ?? ''), `the stamp's tree=${m?.[2]} is not a landed commit`).toBe('landed')
+
+    expect(Number(m?.[4]), 'the stamp disagrees with [renamed-away]').toBe(renamedAway.length)
+    expect(Number(m?.[5]), 'the stamp disagrees with [historical]').toBe(historical.length)
+    expect(Number(m?.[6]), 'the stamp disagrees with [not-ours]').toBe(notOurs.length)
+  })
+
+  it('the baseline is pinned — a silent addition to any of the three lists is how a real regression gets waved through', () => {
+    const { measured, renamedAway, historical, notOurs } = symbolBaseline()
+    expect(measured.length, '.symbol-citation-baseline has no parseable "# measured:" line').toBe(1)
+    expect(renamedAway.length, '40 pairs over 34 distinct symbols — a symbol cited from three files is three entries').toBe(40)
+    expect(historical.length, 'cited-on-purpose is the RARE section — every addition is a ruling, not a chore').toBe(1)
+    expect(notOurs.length).toBe(72)
+    for (const { reason } of renamedAway) expect(reason.length).toBeGreaterThan(0)
+    for (const { reason } of historical) expect(reason.length).toBeGreaterThan(0)
+    expect(new Set(notOurs.map(({ symbol }) => symbol)).size, 'a duplicate not-ours entry hides a second citing file').toBe(72)
+
+    // The two sections mean opposite things about the same pair — debt to be removed, or a
+    // ruling that stands. A pair in both would make "is this fixed yet?" unanswerable.
+    const renamedPairs = new Set(renamedAway.map(({ file, symbol }) => `${file}\t${symbol}`))
+    for (const { file, symbol } of historical) {
+      expect(renamedPairs.has(`${file}\t${symbol}`), `${file} cites ${symbol} in BOTH [renamed-away] and [historical] — pick one`).toBe(
+        false,
+      )
+    }
+  })
+
+  it('every [renamed-away] entry is still cited by its file, and still fails today — a stale entry would silently widen the law', () => {
+    const { renamedAway } = symbolBaseline()
+    expect.assertions(renamedAway.length * 3)
+    for (const { file, symbol } of renamedAway) {
+      const raw = readSweptFile(file)
+      expect(raw, `${file} no longer exists — remove its baseline entry`).not.toBeUndefined()
+      const text = file.endsWith('.md') ? stripFencedCodeBlocks(raw ?? '') : extractComments(raw ?? '')
+      expect(extractSymbolCitations(text), `${file} no longer cites ${symbol} — this entry is stale`).toContain(symbol)
+      expect(symbolVerdict(symbol), `${symbol} now resolves — remove this entry, ${file} is fixed`).toBe('renamed-away')
+    }
+  })
+
+  it('every [historical] entry is still cited by its file and still absent — a citation that came back is not historical any more', () => {
+    const { historical } = symbolBaseline()
+    expect.assertions(historical.length * 3)
+    for (const { file, symbol } of historical) {
+      const raw = readSweptFile(file)
+      expect(raw, `${file} no longer exists — remove its baseline entry`).not.toBeUndefined()
+      const text = file.endsWith('.md') ? stripFencedCodeBlocks(raw ?? '') : extractComments(raw ?? '')
+      expect(extractSymbolCitations(text), `${file} no longer cites ${symbol} — this entry is stale`).toContain(symbol)
+      expect(
+        symbolVerdict(symbol),
+        `${symbol} exists again — ${file} is no longer naming something removed, so the ruling no longer applies`,
+      ).toBe('renamed-away')
+    }
+  })
+
+  it('every [not-ours] entry is still not-ours, and its named file still cites it — a row whose provenance is false is a row nobody can check', () => {
+    const { notOurs } = symbolBaseline()
+    expect.assertions(notOurs.length * 3)
+    for (const { symbol, citedBy } of notOurs) {
+      // The `citedBy` field went unchecked until the independent review of `62a1f561`
+      // mutated it: pointing a row at `docs/this-file-does-not-exist.md`, and separately
+      // deleting the only citation and orphaning the row, both left the suite GREEN. The
+      // other two sections have asserted this since they were written, so this was a
+      // sibling case sitting inside the same parser — two of three sections checking
+      // their file field and the third taking it on trust. The header calls the column
+      // "a file that cites it"; now something holds that claim.
+      const raw = readSweptFile(citedBy)
+      expect(raw, `${citedBy} no longer exists — this [not-ours] row points at nothing`).not.toBeUndefined()
+      const text = citedBy.endsWith('.md') ? stripFencedCodeBlocks(raw ?? '') : extractComments(raw ?? '')
+      expect(extractSymbolCitations(text), `${citedBy} no longer cites ${symbol} — this row is dead weight`).toContain(symbol)
+      expect(symbolVerdict(symbol), `${symbol} (cited by ${citedBy}) is no longer not-ours — move it to [renamed-away] or drop it`).toBe(
+        'not-ours',
+      )
+    }
+  })
+
+  it('a shallow clone REFUSES to certify rather than passing — arm 2 would otherwise find nothing and call everything not-ours', () => {
+    expect(() => buildEverDeclaredTokens(() => true)).toThrow(/SHALLOW/)
+    expect(repoIsShallow(), 'this clone is shallow — restore `fetch-depth: 0` on the suite leg').toBe(false)
+  })
+
+  it('a file the git listing names but that is gone from disk is skipped, not a crash', () => {
+    expect(readSweptFile('packages/server/src/this-source-file-does-not-exist.ts')).toBeUndefined()
+  })
+
+  it('CONTROL: a shell comment is stripped wherever it starts on the line — a trailing `#` used to silence a real violation', () => {
+    // The A/B that found this, at the independent review of `62a1f561`: a `docs/roadmap.md`
+    // citation of a never-declared name reddened, and adding `true # ThatName` to any
+    // `scripts/*.sh` turned the suite green again. Whole-line-only stripping let a dead
+    // name into arm 1's token set, so the dead citation resolved `present`.
+    expect(stripCommentsFromShell('true # DeadName'), 'a TRAILING comment is a comment').not.toContain('DeadName')
+    expect(stripCommentsFromShell('# DeadName on its own line'), 'and a whole-line one still is').not.toContain('DeadName')
+    expect(stripCommentsFromShell('run_thing --flag "$arg"'), 'code outside a comment survives').toContain('run_thing')
+
+    // The declared cost of the over-strip direction, pinned so it cannot change in silence.
+    // A dropped token makes a symbol read ABSENT, which reddens; under-stripping goes silent.
+    expect(
+      stripCommentsFromShell('echo "a#b"; AFTER_THE_HASH=1'),
+      'no string-awareness — the rest of the line goes, and that is the safe direction',
+    ).not.toContain('AFTER_THE_HASH')
+  })
+
+  it('CONTROL: arm 1\'s comment strip has no string-awareness — a `//` inside a literal costs the rest of that line', () => {
+    // DECLARED, not fixed — see the input table's row. Pinned so the behaviour cannot
+    // change in silence, the way the path law pins the mirror case of the same gap.
+    const line = "const u = 'https://example.test/a'; const AFTER_THE_LITERAL = 1"
+    const stripped = stripCommentsFromSource(line)
+    expect(stripped, 'the literal itself survives up to the `//`').toContain('const u =')
+    expect(stripped, 'everything after the `//` is gone — this is the declared cost').not.toContain('AFTER_THE_LITERAL')
+
+    // The two forms it IS for still work, or the row above would be describing a different bug.
+    expect(stripCommentsFromSource('const KEPT = 1 // DROPPED')).toContain('KEPT')
+    expect(stripCommentsFromSource('const KEPT = 1 // DROPPED')).not.toContain('DROPPED')
+    expect(stripCommentsFromSource('/* DROPPED */ const KEPT = 1')).not.toContain('DROPPED')
+  })
+
+  it('CONTROL: arm 2 sees a name declared ONLY outside `packages/*.ts` — its history scope is arm 1\'s source scope, not a narrower list', () => {
+    // The finding this pins (review of #369): arm 2's pathspec was its own narrower list,
+    // `packages/*.ts` and `*.tsx`, while arm 1 already read `packages/*.mjs` and
+    // `scripts/*`. 145 names this repo really declared were invisible to arm 2. Such a
+    // name does not pass silently — it reddens as not-ours — so the damage is the
+    // DIAGNOSIS: rename one of these away and the law says "this repo never declared it,
+    // add it to [not-ours]", which is false, and following that instruction pins a real
+    // violation into the section where nothing ever reddens again.
+    //
+    // Two names, one per path shape the narrower list dropped: a `const` in a `.mjs`
+    // (`scripts/dev/visit.mjs`) and a shell `function` under `scripts/` — both declared
+    // there and never under `packages/*.ts|tsx`, so each fails if the pathspec narrows.
+    for (const name of ['setClip', 'summaryAndExit']) {
+      expect(sourceTokens().has(name), `arm 1 reads this path, so ${name} is present today`).toBe(true)
+      expect(everDeclaredTokens().has(name), `arm 2 must read every path arm 1 does, or ${name} reads as never-ours`).toBe(true)
+    }
+  })
+
+  it('both token sets are built exactly once per process, however many verdicts are asked for', () => {
+    // Prime FIRST, then measure. Capturing the counters before the first verdict made this
+    // test depend on an earlier test in the file having warmed both caches: run alone —
+    // `-t`, `.only`, or any reordering — it measured the first build and reddened for a
+    // reason that has nothing to do with the memo (review of #369).
+    symbolVerdict('MAX_ARMS')
+    const sourceBuildsBefore = sourceTokensBuilds
+    const historyBuildsBefore = everDeclaredBuilds
+    for (let i = 0; i < 3; i += 1) {
+      expect(symbolVerdict('MAX_ARMS')).toBe('renamed-away')
+      expect(symbolVerdict('shadowBlur')).toBe('not-ours')
+    }
+    expect(sourceTokensBuilds - sourceBuildsBefore, 'arm 1 rebuilt — the memo is broken and this law costs 4x under the load probe').toBe(0)
+    expect(everDeclaredBuilds - historyBuildsBefore, 'arm 2 rebuilt — the history pass is ~1.9 s and must not repeat').toBe(0)
+  })
+
+  it('every symbol cited from an in-scope document or comment still exists, unless the baseline names it', () => {
+    const { renamedAway, historical, notOurs } = symbolBaseline()
+    const allowed = new Set(
+      [...renamedAway, ...historical].map(({ file, symbol }) => `${file}\t${symbol}`),
+    )
+    const notOursSet = new Set(notOurs.map(({ symbol }) => symbol))
+
+    const violations: string[] = []
+    for (const { file, symbol } of symbolCitations()) {
+      const verdict = symbolVerdict(symbol)
+      if (verdict === 'present') continue
+      if (verdict === 'not-ours') {
+        if (!notOursSet.has(symbol)) {
+          violations.push(
+            `${file} cites \`${symbol}\`, which this repo never declared in the paths arm 2 reads — add it to [not-ours] with its citing file`,
+          )
+        }
+        continue
+      }
+      if (!allowed.has(`${file}\t${symbol}`)) {
+        violations.push(
+          `${file} cites \`${symbol}\`, which this repo declared once and no longer has — fix the citation, record it in ` +
+            `[renamed-away], or in [historical] if the sentence names the removal on purpose`,
+        )
+      }
+    }
+    expect(violations, violations.join('\n')).toEqual([])
+  })
+})

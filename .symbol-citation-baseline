@@ -1,0 +1,191 @@
+# .symbol-citation-baseline — the doc SYMBOL law's three committed lists (#369).
+#
+# The law lives in `packages/server/src/doc-citation-law.test.ts`; read its
+# "doc symbol law" docblock for the grammar, the three arms and the rejected
+# alternatives. This file carries only the data, and it is a separate file for
+# a mechanical reason, not a stylistic one: arm 1 decides "does this symbol
+# still exist" by extracting identifiers from the NON-COMMENT text of this
+# repo's sources, string literals included (an env var such as
+# `RHIZOMORPH_DATA_DIR` appears nowhere else). A TypeScript const holding these
+# names would therefore put every one of them INTO arm 1's token set, and each
+# would resolve as 'present' against its own baseline entry — the list would
+# silently certify itself and both honesty checks below would pass vacuously.
+# Shape copied from `.citation-prior-tracker`, which is the same idea one law
+# over.
+#
+# Sections are `[name]` on a line of their own. `#` comments and blank lines
+# are ignored. Fields are whitespace-separated; only the last field may
+# contain spaces.
+#
+# [renamed-away] — EXPECTED VIOLATIONS. A symbol cited by `<file>` that this
+#   repo once declared and no longer has. Every entry is re-checked on every
+#   run: an entry whose file no longer cites it, or which now resolves, is
+#   itself a failure, so the list cannot drift. Removing entries is the
+#   destination — this law is the instrument, and correcting the documents is
+#   follow-up work.
+#   Keyed on the PAIR, not the symbol: a symbol cited from three files is three
+#   entries, because each citation is a separate wrong claim and each is fixed
+#   separately. 40 entries over 34 distinct symbols.
+#     <citing-file>  <symbol>  <the commit that removed it, and what it did>
+#
+# [historical] — NOT VIOLATIONS, and NOT debt. A symbol `<file>` names ON
+#   PURPOSE precisely because this repo removed it: a sentence recording a
+#   deletion, a comment warning about a spelling that used to exist. The row
+#   is a RULING, not a chore — nothing here is expected to be removed, which
+#   is exactly what separates it from [renamed-away] above, whose entries are
+#   debt against documents that have something to correct. Mechanically the
+#   two are checked the same way: an entry whose file stops citing it, or
+#   whose symbol comes back, reddens.
+#   Opened by the review of #369. `docs/roadmap.md`'s `NOT_YET_SWEPT` line is
+#   the case that opened it, and it is the one the path law next door had
+#   already foreseen — its docblock declines to widen to `.mjs` for exactly
+#   this reason, "the law needs a way to say 'cited from history, on purpose'
+#   … that mechanism does not exist yet". Filing such a line under
+#   [renamed-away] would send the next reader to "fix" a true sentence.
+#     <citing-file>  <symbol>  <why the citation names it on purpose>
+#
+# [not-ours] — NOT VIOLATIONS, pinned so the category cannot widen in silence.
+#   A cited token that is identifier-shaped but was never declared in
+#   `packages/` history: an external API, an env var this repo does not read, a
+#   key in someone else's config or JSON, or a spelling this repo's own prose
+#   warns about without ever having had. Arm 3 would skip these silently; the
+#   issue's definition of done says "not silently skipped", so they are listed.
+#   A member that becomes ours, or becomes renamed-away, reddens.
+#     <symbol>  <a file that cites it>
+#
+# measured: 2026-09-13 tree=aaf9a50c candidates=2187 renamed-away=40 historical=1 not-ours=72
+#   Re-derived at the review of #369, on the tree this actually lands on. The
+#   previous stamp read `a3c5b305`, a tree two rebases old — a stale provenance
+#   claim inside the artefact built to catch stale claims.
+
+[renamed-away]
+docs/adr/0002-one-reducer-for-live-and-replay.md           foldReplay                           8d249b43 the fold-order fixture was restated and this spelling went with it (#268)
+docs/adr/0015-agent-removed-is-an-event.md                 listByHandle                         0393468c the codex capability work reshaped the collector's lookup surface (#322)
+docs/architecture.md                                       formatCostOverhead                   b1cb3d5a the spend ticker panel dissolved (prd13 ruling 13)
+docs/architecture.md                                       knotMark                             94daa713 done-ness became the cord folding home, not a badge (#117)
+docs/architecture.md                                       landedTokens                         504236de mass grew with the work and the token split was recut (#118)
+docs/architecture.md                                       outputHoverTitle                     8ee1b498 every mark's hover text moved behind one explainer (#220)
+docs/architecture.md                                       rootGirth                            7e0053dc the interior gained resolution and girth was recut (#118)
+docs/architecture.md                                       SCAR_FLOOR                           741127fa the finished-lane strand replaced the scar constants (#161)
+docs/architecture.md                                       SCAR_LENGTH_MAX_PX                   741127fa the finished-lane strand replaced the scar constants (#161)
+docs/architecture.md                                       SCAR_LENGTH_MIN_PX                   741127fa the finished-lane strand replaced the scar constants (#161)
+docs/architecture.md                                       SCAR_LENGTH_PX                       e84220b7 the living-cycle rework replaced the absolute scar length (#106)
+docs/architecture.md                                       ScarControl                          741127fa the finished-lane strand replaced the scar constants (#161)
+docs/architecture.md                                       scarLengthPx                         741127fa the finished-lane strand replaced the scar constants (#161)
+docs/architecture.md                                       selectCostOverhead                   b1cb3d5a the spend ticker panel dissolved (prd13 ruling 13)
+docs/architecture.md                                       SpendPanel                           6469800d architecture.md was corrected about where the spend panel lives (#17)
+docs/architecture.md                                       traceViews                           a1c45863 the drawer became a peek and the trace views went with it (#562)
+docs/design-notes/root-conductor-bud-liveness.md           conductorSubagentAt                  e75a8679 marks/root.ts's historical narration moved out to docs/
+docs/follow-up-292.md                                      lastNonEmptyLine                     6663ca61 pane activity stopped carrying terminal text (#292)
+docs/telemetry.md                                          overheadHoverTitle                   8ee1b498 every mark's hover text moved behind one explainer (#220)
+packages/core/src/fleet/diagnose.ts                        stateTitle                           8ee1b498 every mark's hover text moved behind one explainer (#220)
+packages/core/src/fleet/diagnose.ts                        terminalDoneTitle                    8ee1b498 every mark's hover text moved behind one explainer (#220)
+packages/core/src/reduce.telemetry.test.ts                 commitOrder                          a328883e the commit slice's prose was rewritten for its nested shape (#342)
+packages/core/src/reduce.ts                                crossesRepoBoundary                  ff7ea524 a new session.started became a new recording (#592)
+packages/core/src/selectors/condition.ts                   stateTitle                           8ee1b498 every mark's hover text moved behind one explainer (#220)
+packages/core/src/selectors/condition.ts                   terminalDoneTitle                    8ee1b498 every mark's hover text moved behind one explainer (#220)
+packages/core/src/selectors/spend-cursor.ts                costCoverage                         3ac92f13 the six spend rollups collapsed onto one grouping
+packages/core/src/state.ts                                 commitOrder                          a328883e the commit slice's prose was rewritten for its nested shape (#342)
+packages/server/src/api/lab-ceiling-law.test.ts            MAX_ARMS                             8f7a60ec renamed to LAUNCH_CEILING_LANES and recounted in lanes (#324) - this issue's regression fixture
+packages/server/src/no-personal-paths-law.test.ts          EXCLUDED_PENDING_FIXTURE_REDACTION   174afc05 the redaction list was reshaped when the path-citation law landed (#16)
+packages/server/src/server/retarget-cost.ts                createRefusalThrottle                302b63bd the retarget cost path was rebuilt (#391)
+packages/web/src/app/streamState.test.ts                   commitOrder                          a328883e the commit slice's prose was rewritten for its nested shape (#342)
+packages/web/src/lab/metrics/spend.ts                      isMeasured                           aa225f9b one denominator for the arm floor (review of #339)
+packages/web/src/lab/types.ts                              LabArmOutcome                        8f7a60ec the measured outcome was retyped per run (#324)
+packages/web/src/panels/fleet/format.ts                    stateTitle                           8ee1b498 every mark's hover text moved behind one explainer (#220)
+packages/web/src/replay/useReplaySession.test.ts           eventsAtScrubTime                    b225a109 the per-tick identity churn was killed (#162)
+packages/web/src/scene/marks/node.ts                       RANK_HUE                             40574deb nodes paint from the frame's palette (#551)
+packages/web/src/scene/view/useFrameLoop.test.ts           setPanning                           9f15a697 the hover path stopped reading layout (#159)
+packages/web/src/scene/view/useFrameLoop.ts                setPanning                           9f15a697 the hover path stopped reading layout (#159)
+packages/web/src/tide/duration.ts                          formatRange                          1d063540 the density band, rows and chip were cut (prd13 ruling 13)
+packages/web/src/tide/fixtures.ts                          generateEventLog                     1d063540 the density band, rows and chip were cut (prd13 ruling 13)
+
+[historical]
+docs/roadmap.md                                            NOT_YET_SWEPT                        b33da639 (#389) deleted it; 715f0a21 then wrote the sentence that says so, and the sentence is TRUE BECAUSE it names the removed symbol
+
+[not-ours]
+# --- external browser / DOM / canvas APIs ---
+shadowBlur                    docs/adr/0006-canvas-2d-over-webgl.md
+postMessage                   docs/architecture.md
+stopImmediatePropagation      packages/web/src/scene/view/useFrameLoop.ts
+clientWidth                   packages/web/src/scene/view/useFrameLoop.ts
+ImageData                     packages/web/src/scene/gl/frame.test.ts
+DOMHighResTimeStamp           packages/web/src/replay/usePlayback.test.ts
+URIError                      packages/server/src/api/security.ts
+onPointerEnter                packages/web/src/disclosure/one-card-law.test.ts
+glClear                       packages/web/src/scene/gl/painter.ts
+# --- node built-ins and OS-level constants ---
+ChildProcess                  packages/server/src/concierge/clone.ts
+allocUnsafe                   packages/server/src/log/gate-verdict-derivation.ts
+O_APPEND                      docs/adr/0029-a-recording-may-repeat-a-fact.md
+SYMLOOP_MAX                   packages/server/src/paths/containment.ts
+CAP_LINUX_IMMUTABLE           packages/server/src/gate-honesty-law.test.ts
+# --- third-party library symbols (d3, framer-motion, xyflow, vitest) ---
+createFilter                  docs/architecture.md
+curveBasis                    docs/architecture.md
+XYPanZoom                     packages/web/src/scene/view/useFrameLoop.ts
+defaultExtent                 packages/web/src/scene/view/useFrameLoop.ts
+dragDisable                   packages/web/src/scene/view/useFrameLoop.test.ts
+restDelta                     packages/web/src/scene/spring.ts
+restSpeed                     packages/web/src/scene/spring.ts
+toMatchFileSnapshot           docs/adr/0011-recordings-never-rot.md
+# --- environment variables this repo does not itself read ---
+NODE_OPTIONS                  packages/web/src/scene/perf.test.ts
+OTLP_ENDPOINT                 docs/adr/0025-a-native-otlp-harness-gets-a-mapping-profile.md
+OTLP_PROTOCOL                 docs/adr/0025-a-native-otlp-harness-gets-a-mapping-profile.md
+USE_COLLECTOR                 docs/adr/0025-a-native-otlp-harness-gets-a-mapping-profile.md
+# --- OTLP wire-format type names, defined by the protobuf schema, not here ---
+AnyValue                      packages/server/src/collectors/otel/types.ts
+KeyValue                      packages/server/src/collectors/otel/fixture-hygiene-law.test.ts
+ExportTraceServiceRequest     packages/server/src/cli/export-otlp.ts
+ExportMetricsServiceRequest   packages/server/src/collectors/otel/parse-metrics.ts
+hrTime                        docs/adr/0025-a-native-otlp-harness-gets-a-mapping-profile.md
+# --- keys in someone else's config file (tsconfig, biome) ---
+noUncheckedIndexedAccess      packages/server/src/collectors/git/git-collector.ts
+isolatedModules               packages/server/src/recorder/namespace-law.test.ts
+useImportType                 packages/server/src/recorder/namespace-law.test.ts
+includeTypes                  packages/server/src/recorder/namespace-law.test.ts
+useLiteralKeys                packages/server/src/api/route-class-law.test.ts
+exposeHeadRoutes              packages/server/src/api/route-class-law.test.ts
+computedKey                   packages/server/src/api/lab-ceiling-law.test.ts
+# --- fields in Claude Code's own session JSON, not this repo's shapes ---
+userId                        docs/user-guide/sessions.md
+userUuid                      docs/user-guide/sessions.md
+accountId                     docs/user-guide/sessions.md
+accountUuid                   docs/user-guide/sessions.md
+orgId                         docs/user-guide/sessions.md
+orgUuid                       docs/user-guide/sessions.md
+organizationUuid              docs/user-guide/sessions.md
+machineId                     docs/user-guide/sessions.md
+# --- spellings this repo's own prose names WITHOUT ever having had them:
+#     hypothetical names a law warns about, or a rejected alternative spelling.
+#     These are the reason arm 2 matches a DECLARATION and not a raw pickaxe —
+#     each one HAS history hits, all of them inside comments.
+canonicalizeUnderRoot         packages/server/src/paths/containment.test.ts
+pathIsContained               packages/server/src/paths/containment.test.ts
+humanizeTime                  packages/server/src/judge/symbols.ts
+RAW_COLLECTORS                packages/server/src/server/collector-wrap-boundary.test.ts
+manifestReadOverride          packages/server/src/server/poll-loop.test.ts
+readLive                      packages/web/src/lab/no-live-fleet-law.test.ts
+autoClose                     packages/server/src/server/static.test.ts
+requireDurableCommit          packages/team/src/config/config.test.ts
+selectX                       packages/core/src/selectors/spend-cursor.ts
+LAB_UNRELATED_LABEL           packages/server/src/api/lab-ceiling-law.test.ts
+buildResources                packages/app/src/host/icon-law.test.ts
+MigrationResult               packages/contract/src/instrument.contract.test.ts
+# --- named in prose about a design that was never built under this spelling ---
+TurnExtraction                docs/adr/0017-one-turngrammar-seams-shape-and-extraction.md
+TranscriptDialect             docs/adr/0017-one-turngrammar-seams-shape-and-extraction.md
+FocusPanel                    docs/vision-the-lab.md
+BTab                          docs/design-notes/beacon-lapse-interval.md
+MAX_PX                        docs/design-notes/geometry-relax-reach.md
+groundLum                     packages/web/src/scene/palette.ts
+# --- ordinary words that happen to take an identifier casing ---
+Makefile                      packages/web/src/lab/trace/steps.ts
+Teach                         packages/web/src/disclosure/index.ts
+Usage                         packages/server/src/collectors/pi/grammar.test.ts
+SessionEntryBase              packages/server/src/collectors/pi/grammar.ts
+Sql                           packages/team/src/storage/driver.ts
+TimeZone                      packages/team/src/storage/postgres.ts
+Pae                           packages/server/src/collectors/sessionlog/worktree-slug.ts
+iB                            packages/server/src/collectors/sessionlog/worktree-slug.ts
