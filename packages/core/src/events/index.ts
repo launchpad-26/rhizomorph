@@ -408,11 +408,36 @@ function formatIssues(issues: readonly z.core.$ZodIssue[]): string {
 /**
  * Sequential, human-readable event ids. Unique within a session, which is all
  * the log needs, and stable enough to diff two recordings by eye.
+ *
+ * A session file can have more than one writer — `lab/fork.ts`, `lab
+ * checkpoint` and `lab rd` each construct their own `SessionRecorder` on the
+ * SAME session file the server's own measure route writes to (#429), and
+ * every one of them calls `createIdFactory('lab')` in its own process. Two
+ * factories that both restart their counter at one and never learn of each
+ * other mint the SAME id — `lab-000001` twice into one file, which is what
+ * "unique within a session" promised and did not, until now, deliver.
+ *
+ * The optional `writer` tag is the fix, contained entirely here: a caller
+ * that knows it may not be the only hand on a session's file passes a short
+ * tag identifying itself, and the tag rides inside the id right after the
+ * prefix — `lab-cli-000001` beside `lab-server-000001` — so two writers with
+ * the same prefix and the same start can never collide, by construction of
+ * the string, not by luck of the counter. The id stays exactly as readable
+ * and diffable as before, just one segment longer when a writer is given.
+ *
+ * Omitting `writer` (every caller in this tree today, including the four
+ * named above) leaves the factory's behaviour byte-for-byte what it was:
+ * `createIdFactory('lab')` still mints the bare `lab-000001`, and two such
+ * factories still collide exactly as the record shows. The mechanism is
+ * proven here; wiring `lab/fork.ts`, `lab/checkpoint.ts`, `lab/rd.ts` and this
+ * file's own callers to pass a `writer` is the follow-up that makes the
+ * promise true in production, not merely in this factory.
  */
-export function createIdFactory(prefix = 'evt', start = 0): () => string {
+export function createIdFactory(prefix = 'evt', start = 0, writer?: string): () => string {
   let n = start
+  const tag = writer ? `${writer}-` : ''
   return () => {
     n += 1
-    return `${prefix}-${String(n).padStart(6, '0')}`
+    return `${prefix}-${tag}${String(n).padStart(6, '0')}`
   }
 }
