@@ -11,7 +11,10 @@ import { sessionDirFor } from '../log/paths.js'
 import { readSessionEvents } from '../log/session-log.js'
 import {
   DEFAULT_AGENT_COMMAND,
+  RD_HAND_TIMEOUT_MS,
   RD_NO_CLI_SENTENCE,
+  RD_PROBE_TIMEOUT_MS,
+  RD_TRACKER_TIMEOUT_MS,
   rdAgentArgv,
   rdPrompt,
   readRdCorpus,
@@ -241,6 +244,50 @@ describe('the corpus (prd55 ruling 2)', () => {
     const { exec, calls } = stubExec(() => OK)
     await readRdCorpus({ repoPath: repoDir, dataRoot, exec })
     expect(calls.filter((call) => call.command === 'gh')).toEqual([])
+  })
+
+  /**
+   * EACH CALL UNDER ITS OWN CEILING — a network call is not a plumbing probe
+   * (review of #437).
+   *
+   * `withTimeout` sets `options.timeoutMs` on every call it wraps, so the
+   * ceiling each subprocess actually ran under is readable off the recorded
+   * call rather than inferred from which constant the source mentions. That
+   * matters here because all three ceilings live in one module and a wrong one
+   * is a single-token slip: `gh issue list` resolves a host, opens TLS,
+   * authenticates and pages an API, and the 5s this repo gives `git` plumbing
+   * is an ordinary latency for it on a slow link, not a wedge. The failure
+   * would be loud (`trackerRefusal`) and WRONG — a corpus the operator
+   * declared and keeps not getting.
+   *
+   * Asserted as three distinct numbers, and asserted to BE distinct: a test
+   * that only checked "some timeout was set" would pass on the swap it exists
+   * to catch.
+   */
+  it('bounds the tracker read by the tracker ceiling and the PATH probe by the probe ceiling — not one number for both', async () => {
+    const { exec, calls } = handExec(fixture('rd-result-clean.json'), { gh: { ...OK, stdout: '[]' } })
+
+    await runRdHand({
+      lane: uniqueId('lane'),
+      repoPath: repoDir,
+      model: 'opus',
+      corpus: 'local+tracker',
+      exec,
+      dataRoot,
+    })
+
+    const probe = calls.find((call) => call.args[0] === '--version')
+    const tracker = calls.find((call) => call.command === 'gh')
+    const hand = calls.find((call) => call.args.includes('--output-format'))
+
+    expect(probe?.options?.timeoutMs).toBe(RD_PROBE_TIMEOUT_MS)
+    expect(tracker?.options?.timeoutMs).toBe(RD_TRACKER_TIMEOUT_MS)
+    expect(hand?.options?.timeoutMs).toBe(RD_HAND_TIMEOUT_MS)
+
+    // The three are three, and the tracker's is the wider of the two short
+    // ones — the whole point of giving it its own number.
+    expect(new Set([RD_PROBE_TIMEOUT_MS, RD_TRACKER_TIMEOUT_MS, RD_HAND_TIMEOUT_MS]).size).toBe(3)
+    expect(RD_TRACKER_TIMEOUT_MS).toBeGreaterThan(RD_PROBE_TIMEOUT_MS)
   })
 
   it('runs the operator\'s own gh, repo-scoped, only when local+tracker is declared', async () => {
