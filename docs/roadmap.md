@@ -219,9 +219,16 @@
   forever. prd43 #23 unblocked. The closeout records what the plan got wrong, including the
   route arithmetic that went stale between drafting and grooming with no law able to notice.
 - **prd30 — the open hand** (`docs/prds/prd-30-the-open-hand.md`, BLESSED 2026-08-08,
-  partially shipped): the shared card, condition selector and teach layer ship, but the code's
-  own law still names `MarkHoverCard`, the loupe read-out and the semantic `title=` adoption
-  sweep. First-glance acceptance follows that sweep.
+  **all four waves landed 2026-09-11**): the shared card, condition selector and teach layer ship, and the
+  `title=` sweep is finished in both halves — #220's fifty and #389's last twelve, with
+  `NOT_YET_SWEPT` deleted rather than emptied. This entry named all three of
+  `MarkHoverCard`, the loupe read-out and the sweep as still held by the code's own law; none
+  of them is. `disclosure/one-card-law.test.ts` *"names nothing and needs no allowlist"* —
+  `MarkHoverCard` was never re-seated but ruled out of scope (ADR-0044: a menu of seek targets
+  is not card chrome, and it keeps its open delay for that reason), and the loupe read-out is
+  not a disclosure at all, opening on zoom level with no hover or focus handler. Only the
+  first-glance acceptance is outstanding; it is an operator act with a real lay viewer,
+  carrying prd-33 ruling 14's Check 3 list (`docs/design/glance-2026-09-02.md`).
 - **prd31 — the bracketed voice** (`docs/prds/done/prd-31-the-bracketed-voice.md`, shipped):
   one kind grammar, structural conversation bracketing, trace density, and one typed search over
   conversation, feed and trace all ship; filtered surfaces state what they hide.
