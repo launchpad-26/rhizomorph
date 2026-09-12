@@ -568,6 +568,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    * | 20 | a `#` comment inside a multi-line `$(...)` or backtick body | `VAR=$(`⏎`  cmd  # note`⏎`)` | correctly parsed | HANDLED (verification review) — an UNBALANCED apostrophe in the comment (`# don't`) used to open a phantom single-quoted string that swallowed the real closing `)`, vanishing the whole producer; a `)` in the comment used to close the substitution early, turning a checked producer's real tail into unrelated later text and convicting it falsely. The scanner now recognises a `#` at a word boundary (start-of-scan or after whitespace, the same convention `stripQuotedRunsAndComments` already uses) and skips to end of line before resuming depth/quote tracking |
    * | 21 | `VAR=$(...)`-shaped TEXT inside a heredoc body | `cat <<'EOF'`⏎`X=$(cmd)`⏎`EOF` | no — not a producer | HANDLED (verification review) — heredoc body lines (quoted or unquoted delimiter, `<<`/`<<-`) are DATA being piped to a command, not executable assignments; a quoted delimiter's body cannot even expand `$(...)` if it somehow were code. Body lines between the opener and the matching terminator are excluded from producer-scanning entirely. `findHeredocStart` tracks quote state and comments itself (rather than reusing `stripQuotedRunsAndComments`, which DISCARDS quoted text and so cannot see a QUOTED delimiter) so a `<<EOF`-looking substring inside a message or comment (`echo "example: cmd <<EOF"`) is not mistaken for a real opener — that direction of mistake is the dangerous one, since it would hide every real producer between the false opener and wherever a same-named terminator line next happens to occur. Declared, not fully closed: two heredocs opened on the same line is not disambiguated further than "first one found, scanned greedily" — no such line exists in gate.sh today |
    * | 22 | a `<<` that is NOT a heredoc opener — the `<<<` here-string, and the `<<` LEFT-SHIFT operator inside an arithmetic `((...))` | `grep -q x <<< foo`, `if (( a << b ))` | no — neither opens a heredoc | HANDLED (review of #191) — row 21's opener scan matched any `<<` whose next word looked like a delimiter, so both of these were read as heredoc openers whose terminator never arrives, marking EVERY remaining line of the script as body. That is row 21's own stated dangerous direction, reached by two spellings its CONTROL (a `<<EOF` inside a quoted message) did not cover. EXECUTED against the real scripts/gate.sh: inserting one `grep -q x <<< foo` line — or one `if (( a << b ))` line — above the first producer took the producer count from **17 to 0**. The pinned-count test does redden on that, so the law never went silently blind; it reddened with a count that points nowhere near the offending line, and a re-derive of the pin to the new smaller number would have blinded it for real. `findHeredocStart` now skips all three characters of `<<<` (retrying at `i + 1` would re-find the trailing `<<`) and skips an arithmetic `((...))` span by paren depth |
+   * | 23 | compound-command guard — `( … ) \|\| { …; fail … }` and its brace-less twin `( … ) \|\| fail …` | `( cd "$W" && npm run lint ) \|\| { tail -8 …; fail "lint red" lint-red; }` | no — not a producer | OUT OF SCOPE for this predicate, HELD ELSEWHERE (review of the CI leg, 2026-09-11) — nothing assigns, so ruling 1 never reads the line: rows 11-13's limit reached by a third spelling. It carries more weight than they do, because it is how EVERY check in the gate is written — suite, typecheck, and the five the CI leg added. EXECUTED: before row 23's test, replacing the lint guard's `fail "lint red" lint-red` with a bare `echo "GATE FAILED: lint red"` left the law GREEN (228 passed), while the CONTROL (dropping `lint-red` from `GATE_VERDICT_VOCAB`) reddened it — alive on the line, blind to the missing `fail`. The row 23 test below now holds every `( cd "$W" && … )` line as a CLASS, so the same mutation reddens, and so does the brace-less typecheck twin, and so does deleting a guard outright |
    *
    * MEASURED FALSE-POSITIVE RATE (EXECUTED, run against every real producer
    * of ANY spelling above in scripts/gate.sh — prd-46's own open question,
@@ -596,11 +597,11 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    *
    * The other 19 pass structurally on their own merits: 12 same-line forms
    * (:17's `|| exit 2`, written before `fail` is even defined; 9 `|| fail` at
-   * :338 (`GATE_OUTFILE`) :414 :430 :490 :585 :595 :659 :745 :800; 2
-   * `|| { ...; fail ...; }` rescue blocks at :431 :801) and 7 next-line
+   * :338 (`GATE_OUTFILE`) :414 :430 :490 :585 :595 :682 :768 :823; 2
+   * `|| { ...; fail ...; }` rescue blocks at :431 :824) and 7 next-line
    * `_RC=$?` captures (:156's `VERDICT_LINE_RC` and :244's `BEACON_DIR_RC` —
    * both new with #274 — plus :447's `ANCESTOR_RC`, :527's `N_RC`, :531's
-   * `STATUS_RC`, :559's `DIRTY_RC`, :660's `CAT_RC`). Re-derived here THREE
+   * `STATUS_RC`, :559's `DIRTY_RC`, :683's `CAT_RC`). Re-derived here THREE
    * times now: prd17 w7 (#293) inserted the `$3` (LOAD) validation above
    * these producers (+48 lines), prd17 w7 (#292) re-worded several of the
    * stale citations these producers sit beside (+1 line net), and a review
@@ -608,6 +609,21 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    * validation (+21 more) — each closed in the SAME edit as the change that
    * moved them, the exact recurrence this paragraph's own history warns
    * about, rather than left for the law below to find red.
+   *
+   * FOURTH re-derivation: the CI leg (lint, build, packaging guard, boot
+   * smoke, pack smoke) was added to gate.sh just after the quiet gate when
+   * GitHub Actions was retired for cost, inserting 23 lines above the last
+   * five producers, which each moved by +23. The first fifteen sit above the
+   * insertion and did not move. Count is still 20 producers, still exactly
+   * one declared-unchecked and none undeclared — the five added
+   * `|| { ...; fail ...; }` lines are rescue blocks, a shape the predicate
+   * already reads as checked.
+   *
+   * NOTE for the next person: every `:<digits>` token between these markers
+   * is read as a citation by the law below, so the old line numbers cannot
+   * be written in that form here — spelling out a "was X now Y" mapping with
+   * colons silently re-cites the stale numbers and turns this red. Say it in
+   * words, as above.
    *
    * producer-citations:end
    *
@@ -1612,6 +1628,67 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
 
     it('EXECUTED — an array assignment (`ARR=($(cmd))`) is a different shape entirely, not a degraded case of the scalar producer (row 13)', () => {
       expect(findUncheckedProducers(['ARR=($(some_new_check))'])).toEqual([])
+    })
+
+    /**
+     * ROW 23 — the compound-command guard, `( cd "$W" && … ) || { …; fail
+     * … }`. Nothing assigns and no `VAR=` opens the line, so ruling 1's
+     * predicate never reads it: the same limit rows 11-13 declare, reached
+     * by a third spelling.
+     *
+     * It matters more than those do, because it is how EVERY check in the
+     * landing gate is written — the suite and typecheck guards, and the
+     * five the CI leg added (`4494b277`). That commit's body claimed the
+     * predicate "already reads [them] as checked". It does not read them at
+     * all, and the difference is the whole point of this law: "read and
+     * found honest" means a regression reddens.
+     *
+     * MEASURED on the real file, EXECUTED both directions, before this test
+     * existed: replacing the lint guard's `fail "lint red" lint-red` with a
+     * bare `echo "GATE FAILED: lint red"` — the fault printed, the landing
+     * not held — left this law GREEN (228 passed). The CONTROL, dropping
+     * `lint-red` from `GATE_VERDICT_VOCAB` while the real `fail` stands,
+     * reddened it (1 failed / 227): so the law was alive on those lines and
+     * blind only to a guard that skips `fail` altogether.
+     *
+     * The test below closes that, as a CLASS and not an enumeration (#179's
+     * own lesson, twice learned): every `( cd "$W" && … )` line in the
+     * tracked file must honour its fault through `fail`, whatever it runs,
+     * so a sixth check written in this shape is covered the day it lands
+     * rather than the day someone remembers to list it. The same mutation
+     * now reddens (1 failed / 228 of 229).
+     *
+     * Two things it deliberately does NOT do. It does not widen
+     * `findUncheckedProducers` past line-initial assignments — that has its
+     * own false-positive surface, and rows 11-13 are the standing argument
+     * against chasing a hypothetical into a new false positive. And it does
+     * not admit a deliberately non-fatal subshell guard: there are none
+     * today, and one added later should be declared here in the open, the
+     * way row 11 declares the live `W=` producer it cannot judge.
+     */
+    it('EXECUTED — row 23: ruling 1\'s predicate does not read a compound-command guard at all, honest or not, so every `( cd "$W" && … )` line in the real gate.sh is held HERE instead — as a class, not a list', () => {
+      const honest = '( cd "$W" && npm run lint >/tmp/l.log 2>&1 ) || { tail -8 /tmp/l.log; fail "lint red" lint-red; }'
+      const dishonest = '( cd "$W" && npm run lint >/tmp/l.log 2>&1 ) || { tail -8 /tmp/l.log; echo "GATE FAILED: lint red"; }'
+      // The limit itself: identical silence on a guard that holds its
+      // landing and one that merely prints. A predicate that READ these
+      // would separate them.
+      expect(findUncheckedProducers([honest])).toEqual([])
+      expect(findUncheckedProducers([dishonest])).toEqual([])
+
+      // So they are held by this instead. `>= 7` is a vacuity guard, not a
+      // census: with an empty match the loop below would assert nothing.
+      const guards = LINES.filter((l) => l.startsWith('( cd "$W" &&'))
+      expect(guards.length).toBeGreaterThanOrEqual(7)
+      for (const guard of guards) {
+        expect(guard).toMatch(/\|\|\s*(\{[^}]*;\s*)?fail "[^"]+" [a-z-]+;?\s*\}?$/)
+      }
+
+      // The category each one names is then held by the vocabulary test
+      // above; these five are the CI leg's, named so that DELETING a check
+      // is as visible as breaking one.
+      for (const category of ['lint-red', 'build-red', 'packaging-red', 'boot-smoke-red', 'pack-smoke-red']) {
+        expect(guards.filter((g) => g.includes(` ${category};`))).toHaveLength(1)
+      }
     })
   })
 

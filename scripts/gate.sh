@@ -42,7 +42,7 @@ fail()  { echo "GATE FAILED: $1"
 # category gate.ts's own gateVerdictPayloadSchema doc comment already
 # illustrates with 'suite-red' and 'clean'. Declared here, once, so a new
 # failure mode cannot invent a fresh spelling nobody reviewed.
-GATE_VERDICT_VOCAB="clean push-failed uncategorized setup load-invalid git-error mid-rebase rebase-stale fence-invalid off-boundary-file empty-branch stranded-work nul-byte suite-red typecheck-red timing-config timing-regression load-flake timing-red merge-failed lane-manifest install-broken build-broken"
+GATE_VERDICT_VOCAB="clean push-failed uncategorized setup load-invalid git-error mid-rebase rebase-stale fence-invalid off-boundary-file empty-branch stranded-work nul-byte suite-red typecheck-red timing-config timing-regression load-flake timing-red merge-failed lane-manifest install-broken build-broken lint-red build-red packaging-red boot-smoke-red pack-smoke-red"
 
 # prd17 w5 (#273): the gate derives its own verdict — one v1 beacon line
 # (ADR-0036; packages/core/src/events/beacon.ts) printed to the REAL stdout
@@ -602,6 +602,29 @@ echo "  no NUL bytes (text files; binary assets exempt)"
 ( cd "$W" && npm test >/tmp/gate-$H.log 2>&1 ) || { tail -8 /tmp/gate-$H.log; fail "test suite red" suite-red; }
 ( cd "$W" && npm run typecheck >/dev/null 2>&1 ) || fail "typecheck red" typecheck-red
 echo "  quiet gate GREEN: $(grep -aoE 'Tests.*passed' /tmp/gate-$H.log | tail -1)"
+
+# The CI leg, on this machine. GitHub Actions is being retired for cost, and
+# these five checks are what `.github/workflows/ci.yml` ran that nothing local
+# did: `lint` was never in this gate at all, and the three artefact checks need
+# a build to exist first.
+#
+# They run HERE, before the merge, deliberately. A check that fails before the
+# merge holds the MERGE and the lane keeps its work; the post-merge `npm
+# install` / `npm run build` further down can only hold the PUSH, with recovery
+# by fixing forward on main. Same commands, opposite recovery — which is also
+# why `build-red` below is a separate verdict from the post-merge
+# `build-broken`. Read which one the gate printed before deciding where to go.
+#
+# What this does NOT witness: the other two platforms and the min-node leg.
+# ci.yml ran ubuntu + macOS at two node legs plus a native Windows suite; one
+# operator machine is one of those. A green here is evidence about THIS
+# platform and silence about the rest — see scripts/ci-local.sh's header.
+( cd "$W" && npm run lint >/tmp/gate-lint-$H.log 2>&1 ) || { tail -8 /tmp/gate-lint-$H.log; fail "lint red" lint-red; }
+( cd "$W" && npm run build >/tmp/gate-prebuild-$H.log 2>&1 ) || { tail -8 /tmp/gate-prebuild-$H.log; fail "build red before merge" build-red; }
+( cd "$W" && node scripts/packaging-guard.mjs >/tmp/gate-pkg-$H.log 2>&1 ) || { tail -8 /tmp/gate-pkg-$H.log; fail "packaging guard red — npm pack ships something outside the allowlist" packaging-red; }
+( cd "$W" && bash scripts/boot-smoke.sh >/tmp/gate-boot-$H.log 2>&1 ) || { tail -8 /tmp/gate-boot-$H.log; fail "boot smoke red — the built server did not come up clean" boot-smoke-red; }
+( cd "$W" && bash scripts/pack-smoke.sh >/tmp/gate-pack-$H.log 2>&1 ) || { tail -8 /tmp/gate-pack-$H.log; fail "pack smoke red — the packed tarball does not install and run" pack-smoke-red; }
+echo "  CI leg GREEN on $(uname -s) — lint, build, packaging guard, boot smoke, pack smoke (ONE platform, not three)"
 
 # Load gate: a suite green 8/8 quietly has failed 67% at 4x concurrency.
 # Mandatory for anything touching tests.

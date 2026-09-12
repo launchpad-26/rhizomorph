@@ -93,114 +93,17 @@ jobs:
       # always() would report both green having verified nothing built.
       - name: Packaging guard — npm pack ships only the allowlist
         if: "!cancelled() && steps.build.outcome == 'success'"
-        run: |
-          set -e
-          node <<'NODE_EOF'
-          const { execSync } = require('node:child_process')
-          const out = execSync('npm pack --dry-run --json').toString()
-          const [pkg] = JSON.parse(out)
-          const allowed = [
-            /^package\.json$/,
-            /^README\.md$/,
-            /^LICENSE$/,
-            /^packages\/server\/dist\//,
-            /^packages\/server\/bin\//,
-            /^packages\/web\/dist\//,
-          ]
-          const files = pkg.files.map((f) => f.path)
-          const unexpected = files.filter((f) => !allowed.some((re) => re.test(f)))
-          if (unexpected.length > 0) {
-            console.error('Packaging guard failed — unexpected files in npm pack output:')
-            for (const f of unexpected) console.error(`  ${f}`)
-            process.exit(1)
-          }
-          console.log(`Packaging guard passed — ${files.length} files, all allowlisted.`)
-          NODE_EOF
+        # The check itself lives in `scripts/packaging-guard.mjs`, not inline
+        # here, so it survives this workflow and can be run on a developer's
+        # machine (`scripts/ci-local.sh`). Behaviour is unchanged by the move.
+        run: node scripts/packaging-guard.mjs
 
       - name: Boot smoke — start server, hit /api/meta and /, shut down
         if: "!cancelled() && steps.build.outcome == 'success'"
-        run: |
-          set -e
-
-          npm start -- --port 0 > server.log 2>&1 &
-          SERVER_PID=$!
-          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
-
-          URL=""
-          for _ in $(seq 1 30); do
-            if grep -q "rhizomorph running at" server.log; then
-              URL=$(grep -o 'http://[^ ]*' server.log | head -n1)
-              break
-            fi
-            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-              echo "server exited before printing a listening URL:"
-              cat server.log
-              exit 1
-            fi
-            sleep 1
-          done
-
-          if [ -z "$URL" ]; then
-            echo "server did not print a listening URL within 30s:"
-            cat server.log
-            exit 1
-          fi
-          echo "server listening at $URL"
-
-          # /api/meta is a gated-read (prd-29 ruling 7, #59) — a bare curl now
-          # 401s. Scrape the capability token off the served shell first, the
-          # same way `rhizomorph rotate`/`rhizomorph env` do (`cli/rotate.ts`'s
-          # `readCapabilityTokenFromHtml`: same attribute, same meta name),
-          # then carry it as the header the gate requires
-          # (`api/security.ts`'s `CAPABILITY_TOKEN_HEADER`).
-          TOKEN=""
-          for _ in $(seq 1 30); do
-            SHELL_HTML=$(curl -sf "$URL/" || true)
-            TOKEN=$(printf '%s' "$SHELL_HTML" | grep -o '<meta[^>]*name="rhizomorph-capability"[^>]*>' | grep -o 'content="[^"]*"' | sed -E 's/^content="(.*)"$/\1/')
-            if [ -n "$TOKEN" ]; then
-              break
-            fi
-            sleep 1
-          done
-
-          if [ -z "$TOKEN" ]; then
-            echo "the page served at $URL/ never carried a rhizomorph-capability token within 30s:"
-            cat server.log
-            exit 1
-          fi
-          echo "scraped the capability token off the served shell"
-
-          META_OK=""
-          for _ in $(seq 1 30); do
-            if curl -sf -H "x-rhizomorph-capability: $TOKEN" "$URL/api/meta" -o meta.json; then
-              META_OK=1
-              break
-            fi
-            sleep 1
-          done
-
-          if [ -z "$META_OK" ]; then
-            echo "/api/meta never answered within 30s (with the capability token attached):"
-            cat server.log
-            exit 1
-          fi
-          echo "/api/meta responded 200"
-
-          ROOT_CONTENT_TYPE=$(curl -sI "$URL/" | grep -i '^content-type:' | tr -d '\r\n')
-          echo "/ responded with: $ROOT_CONTENT_TYPE"
-          case "$ROOT_CONTENT_TYPE" in
-            *text/html*) ;;
-            *)
-              echo "expected / to return HTML, got: $ROOT_CONTENT_TYPE"
-              cat server.log
-              exit 1
-              ;;
-          esac
-
-          kill -TERM "$SERVER_PID"
-          wait "$SERVER_PID" 2>/dev/null || true
-          trap - EXIT
-          echo "server shut down cleanly"
+        # Extracted to `scripts/boot-smoke.sh` for the same reason. NOTE for
+        # anyone grepping: the `rhizomorph running at` marker this smoke keys
+        # on now lives in that script, and `boot-line.test.ts` follows it there.
+        run: bash scripts/boot-smoke.sh
 
   # Delivery maturity, tested rather than assumed (2026-08-06 external
   # audit): packs the repo the way a release would, installs the tarball
