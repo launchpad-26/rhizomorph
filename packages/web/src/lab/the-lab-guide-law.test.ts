@@ -655,9 +655,16 @@ const CLAIMS: Readonly<Record<string, Claim>> = {
     },
   },
   'fork-exec-ceiling': {
-    says: /bounded at 5 s\*\*[\s\S]*FORK_EXEC_TIMEOUT_MS[\s\S]*still unowned/,
+    says: /bounded, by a ceiling sized to[\s\S]*what it waits for\*\*[\s\S]*FORK_EXEC_TIMEOUT_MS[\s\S]*FORK_LAUNCH_TIMEOUT_MS[\s\S]*still unowned/,
     check: () => {
+      // Both ceilings, and both NUMBERS, because the sentence states both. The
+      // previous shape greped only the 5 s constant, which never moved — so when
+      // #408 gave `workmux add` its own 120 s ceiling the paragraph above went
+      // FALSE and this claim stayed green. A claim that holds while its prose
+      // lies is the one failure this law exists to prevent; grep what the
+      // sentence actually says.
       expect(server.fork(), 'grep').toContain('export const FORK_EXEC_TIMEOUT_MS = 5000')
+      expect(server.fork(), 'grep').toContain('export const FORK_LAUNCH_TIMEOUT_MS = 120_000')
     },
   },
   'law-itself': {
