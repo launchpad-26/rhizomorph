@@ -460,6 +460,17 @@ native Windows suite; a landing gate runs on whichever machine the operator is
 sitting at. A green gate is now evidence about that platform and silence about
 the other two — say so when reporting it, and do not write "CI passed".
 
+**Before the landing, the verdict is a PR's only signal.** All four workflows
+are disabled on this repo, so a PR carries no check runs — and the red rollup
+still sitting on the older ones is the billing failure, not the change. A
+reviewer who wants the leg run before merge runs `scripts/ci-local.sh --pr <n>`,
+which posts two marks through `scripts/pr-verdict.sh`: the `Passed local CI`
+label, which is repo-level and pinned to no commit, and a `local-ci
+(<platform>)` commit status on the head sha, which is. Read the status. The
+label alone survives a push that invalidates it, which is exactly the shape
+this file warns about everywhere else — a green mark whose evidence has moved.
+`CONTRIBUTING.md`'s gate standard carries the rest.
+
 Exactly one step in that sequence is deliberately non-fatal: **the final push**.
 Every earlier check exits non-zero on failure — but *what* a failure holds moves
 with the merge. A check that fails **before** the merge holds the merge: nothing

@@ -61,8 +61,8 @@ in watch mode individually, if you're working on one side.
 ## The gate standard
 
 A change is done when `npm run build`, `npm test`, `npm run typecheck` and
-`npm run lint` are green — that's the bar CI (`.github/workflows/ci.yml`) checks
-on every push and pull request, and `Build` runs *ahead* of `Test` on every leg
+`npm run lint` are green — that's the bar `.github/workflows/ci.yml` used to
+check on every push and pull request, and `Build` runs *ahead* of `Test` on every leg
 (the `Build` step precedes `Test`), so a bundle that no longer builds fails in front of the suite
 rather than behind it. CI checks two more things the local four do not: a
 packaging guard (the `Packaging guard` step, `scripts/packaging-guard.mjs`) that fails if `npm pack` would ship anything
@@ -90,6 +90,46 @@ them. A test that only survives a quiet machine is a latent flake sitting
 in the suite waiting for a bad day. If you're touching test-heavy code and
 can run a few suites concurrently before you call it done, do — that's the
 condition the gate actually checks, not the friendlier one.
+
+### Where that bar is checked now
+
+**GitHub Actions is off on this repo.** All four workflows are disabled — the
+bill reached 45,209 minutes over eleven days — so a pull request gets no check
+runs at all, and the red rollup still sitting on the older ones is the billing
+failure, not your change. Do not read either as a verdict.
+
+The same leg runs on an operator's machine instead. `scripts/ci-local.sh` is
+`ci.yml` composed as a script: the same steps, the same order, the same gating
+(`Typecheck` and `Lint` still run after a red suite; the packaging guard and
+the boot smoke are still held behind a green `Build`, because both report green
+over an empty `dist/`). `scripts/gate.sh` runs the same five checks before it
+merges, so nothing lands without them.
+
+`scripts/ci-local.sh --pr <n>` publishes what it found back onto the pull
+request, as two marks that are not interchangeable:
+
+- **the `Passed local CI` label.** Visible in the PR list and in search, and
+  pinned to *nothing* — push one commit after a green run and the label goes on
+  claiming a result for a tree nobody tested.
+- **a `local-ci (<platform>)` commit status on the head sha.** Per-sha by
+  construction, so it appears in the check box and goes quiet the moment the
+  label starts lying. This is the mark to trust, and it is the one that says
+  which platform.
+
+That last part is permanent, not a transitional caveat. `ci.yml` ran ubuntu and
+macOS at two Node versions and `windows-suite.yml` ran a native Windows suite;
+one operator machine is one of those. A green `local-ci (Darwin)` with no Linux
+or Windows row beside it is evidence about macOS and **silence** about the other
+two — `packages/web/src/disclosure/case-collision-law.test.ts` exists because a macOS
+leg caught sixteen failures Linux cannot see. Write which platform. Never write
+"CI passed".
+
+`scripts/pr-verdict.sh` is what does the posting, and it refuses rather than
+marking something it cannot stand behind: a PR that is not open, a `HEAD` that
+is not the PR's head sha, or a dirty working tree. It refuses **before** the
+leg runs, so finding out costs a second instead of a suite. `--pr` also refuses
+`--no-install` and `--no-pack-smoke` — a label that says the full leg passed
+when two of its steps were skipped is a claim wider than its evidence.
 
 ## Laws live in tests
 
