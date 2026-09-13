@@ -931,19 +931,11 @@ describe('GET /api/doctor', () => {
   })
 
   /**
-   * #387's end-to-end half, and the one thing it deliberately does NOT assert.
-   *
-   * `registerDoctorRoute` passes no `dataRoot` (`ServerContext` carries none),
-   * so through `buildApp` the shipper check reads the *process default* data
-   * root — the machine's real `~/.local/share/rhizomorph`, exactly as
-   * `checkSessionBoundary` one line above it already does. A contributor who
-   * has actually run `rhizomorph connect team` would therefore see a
-   * machine-dependent status here: green on CI, red on their laptop, for no
-   * defect at all. So this case asserts only what holds on every machine —
-   * that the check is present in the payload, and that ADR-0034 clause 2's
-   * never-value law holds on the raw bytes Fastify puts on the wire.
-   * Behaviour is asserted against `runServerDoctor` above, where `dataRoot`
-   * is injectable and nothing is ever planted outside a temp directory.
+   * #387's end-to-end half. `makeApp()` here plants nothing under any data
+   * root, so this only proves the check is present on the wire and the
+   * never-value law holds over raw bytes — it is deliberately agnostic to
+   * which data root gets read. The case that pins WHICH root is read, with a
+   * real planted state, is below (#435).
    */
   it('carries the shipper check, and never a credential, on the wire (ADR-0034 clause 2, #387)', async () => {
     await setup()
@@ -960,6 +952,80 @@ describe('GET /api/doctor', () => {
       expect(response.payload).toContain('"shipper"')
       expect(response.payload).not.toContain('rzk_')
     } finally {
+      await teardown()
+    }
+  })
+
+  /**
+   * #435 — the fix for the gap the comment above used to describe.
+   *
+   * `dataRootFor(ctx)` (`server/context.ts`) recovers the data root from
+   * `ctx.sessionDir`; `registerDoctorRoute` now passes it, so a `buildApp`
+   * server built over a `sessionDir` that actually sits under a real data
+   * root reads facts planted at THAT root — not this test process's
+   * `~/.local/share/rhizomorph`, and not silently nothing either.
+   *
+   * `session-boundary` and `shipper` are planted and asserted in the SAME
+   * test on purpose (the issue's own DoD): they share one defect
+   * (`registerDoctorRoute` never threading `dataRoot` through) and one fix,
+   * so a case that only covered one would leave the other's witness removed
+   * — exactly the failure mode #425's PR body warned against.
+   *
+   * **What mutation would this test survive?** Reverting either
+   * `dataRoot: dataRootFor(ctx)` literal in `registerDoctorRoute` back to
+   * omitting the option redirects both checks to `defaultDataRoot()` — a
+   * root with no session file and no shipper config for this test's freshly
+   * minted `repoPath` — so `session-boundary` reverts to "no rhizomorph
+   * session recorded yet" (first-run) and `shipper` reverts to "shipper:
+   * off". Every assertion below fails against that state.
+   */
+  it('reads session-boundary and shipper from the data root this server was actually given, not the process default (#435)', async () => {
+    await setup()
+    const dataRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-api-doctor-route-dataroot-'))
+    try {
+      const plantedSessionDir = sessionDirFor(repoPath, dataRoot)
+
+      // Old enough to be unambiguously stale (never "writer-alive", never
+      // "closed") — real state that exists ONLY under `dataRoot`, so it is
+      // visible only if the check actually reads the root it was given.
+      await new SessionLogWriter(sessionFilePath(plantedSessionDir, '1000')).append(
+        createEvent('session.started', { sessionId: '1000', repoPath, repoName: 'repo' }, { id: 'evt-1', ts: 1000 }),
+      )
+
+      const SHIPPER_KEY = 'rzk_ROUTEDOCTORFIXTUREVALUE0123456789'
+      await enableShipper(plantedSessionDir, {
+        url: 'https://team.example',
+        project: 'acme-widgets',
+        key: SHIPPER_KEY,
+        now: () => 1,
+      })
+
+      // A recorder id distinct from the planted '1000' session, and never
+      // `.record()`-ed, so it writes nothing that could shadow the planted
+      // fixture when `session-boundary` lists this same directory.
+      const recorder = new SessionRecorder('9999', sessionFilePath(plantedSessionDir, '9999'))
+      const app = buildApp({ repoPath, repoName: 'repo', sessionDir: plantedSessionDir, recorder })
+      const response = await app.inject({ method: 'GET', url: '/api/doctor', headers: capabilityHeaders(app) })
+      const body = response.json()
+
+      const boundary = checkFor(body, 'session-boundary')
+      expect(boundary.message).toContain('stale')
+      expect(boundary.message).not.toContain('no rhizomorph session recorded yet')
+
+      const shipper = checkFor(body, 'shipper')
+      expect(shipper.status).toBe('ok')
+      expect(shipper.message).toContain('shipper: on')
+      expect(shipper.message).toContain('https://team.example')
+      expect(shipper.message).toContain('acme-widgets')
+      expect(shipper.message).toContain('credential present')
+
+      // The never-value law still holds once the status is real, not merely
+      // present (ADR-0034 clause 2) — raw wire bytes, not the re-serialised object.
+      expect(response.payload).toContain('"shipper"')
+      expect(response.payload).not.toContain(SHIPPER_KEY)
+      expect(response.payload).not.toContain(SHIPPER_KEY.slice(0, 12))
+    } finally {
+      await rm(dataRoot, { recursive: true, force: true })
       await teardown()
     }
   })
@@ -1067,6 +1133,110 @@ describe('GET /api/doctor', () => {
         expect(b.statusCode).toBe(200)
         expect(a.json()).toEqual(b.json())
       } finally {
+        await teardown()
+      }
+    })
+
+    /**
+     * #435's second call site. `registerDoctorRoute` sets `dataRoot:
+     * dataRootFor(ctx)` at TWO option literals: the initial registration
+     * above, and this rebuild, taken only when a retarget changes
+     * `ctx.repoPath` (the hook this describe block is named for). The other
+     * #435 test (`'reads session-boundary and shipper from the data root
+     * this server was actually given...'`, above this describe block) only
+     * ever exercises the FIRST literal — a fresh `buildApp` never retargets,
+     * so the rebuild branch never runs for it. This case exists only to give
+     * the SECOND literal its own witness.
+     *
+     * A real retarget re-points `repoPath`, `repoName` AND `sessionDir`
+     * together (`server/context.ts`'s RE-POINTABLE note) — never `repoPath`
+     * alone — so this plants two fully independent, distinguishable fixtures
+     * under the SAME `dataRoot` (same as production: one box, one data root,
+     * many repos) and retargets across them, the same mutate-in-place
+     * mechanism the sibling test above this one already uses.
+     *
+     * **What mutation would this test survive?** Commenting out `dataRoot:
+     * dataRootFor(ctx)` on ONLY the rebuild literal below leaves the initial
+     * literal (and the first #435 test) untouched and green, but redirects
+     * the REBUILT probe to `defaultDataRoot()` — a root with neither fixture
+     * — so after the retarget both checks revert to their no-state defaults
+     * and every assertion after `// -- retarget --` fails.
+     */
+    it('rebuilds the retargeted probe with the data root this server is now running against, not the process default (#435)', async () => {
+      await setup()
+      const dataRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-api-doctor-route-retarget-dataroot-'))
+      const repoPathB = await mkdtemp(path.join(tmpdir(), 'rhizomorph-api-doctor-route-retarget-repo-b-'))
+      try {
+        const plantedSessionDirA = sessionDirFor(repoPath, dataRoot)
+        await new SessionLogWriter(sessionFilePath(plantedSessionDirA, '1000')).append(
+          createEvent('session.started', { sessionId: '1000', repoPath, repoName: 'repo' }, { id: 'evt-1', ts: 1000 }),
+        )
+        const SHIPPER_KEY_A = 'rzk_RETARGETFIXTUREAAAAAAAAAAAAAAAAA'
+        await enableShipper(plantedSessionDirA, {
+          url: 'https://team-a.example',
+          project: 'team-a-widgets',
+          key: SHIPPER_KEY_A,
+          now: () => 1,
+        })
+
+        const recorder = new SessionRecorder('9999', sessionFilePath(plantedSessionDirA, '9999'))
+        const ctx = { repoPath, repoName: 'repo', sessionDir: plantedSessionDirA, recorder }
+        const app = buildApp(ctx)
+
+        const before = (await app.inject({ method: 'GET', url: '/api/doctor', headers: capabilityHeaders(app) })).json()
+        expect(checkFor(before, 'session-boundary').message).toContain('stale')
+        expect(checkFor(before, 'shipper').message).toContain('team-a-widgets')
+
+        // -- retarget -- mutate repoPath AND sessionDir together, in place on
+        // the same ctx object `buildApp` never copies (`build-app.ts`'s own
+        // doc) — the exact mechanism the sibling test above uses for
+        // repoPath alone. A second, independent fixture under the SAME
+        // dataRoot, so a correct rebuild reads B and a broken one reads
+        // neither A nor B (the process default has no fixture at all).
+        const plantedSessionDirB = sessionDirFor(repoPathB, dataRoot)
+        await new SessionLogWriter(sessionFilePath(plantedSessionDirB, '2000')).append(
+          createEvent('session.started', { sessionId: '2000', repoPath: repoPathB, repoName: 'repo-b' }, { id: 'evt-2', ts: 2000 }),
+        )
+        const SHIPPER_KEY_B = 'rzk_RETARGETFIXTUREBBBBBBBBBBBBBBBBB'
+        await enableShipper(plantedSessionDirB, {
+          url: 'https://team-b.example',
+          project: 'team-b-widgets',
+          key: SHIPPER_KEY_B,
+          now: () => 1,
+        })
+        ctx.repoPath = repoPathB
+        ctx.sessionDir = plantedSessionDirB
+
+        const afterResponse = await app.inject({ method: 'GET', url: '/api/doctor', headers: capabilityHeaders(app) })
+        const after = afterResponse.json()
+
+        const boundary = checkFor(after, 'session-boundary')
+        expect(boundary.message).toContain('stale')
+        expect(boundary.message).not.toContain('no rhizomorph session recorded yet')
+
+        const shipper = checkFor(after, 'shipper')
+        expect(shipper.status).toBe('ok')
+        expect(shipper.message).toContain('shipper: on')
+        expect(shipper.message).toContain('https://team-b.example')
+        expect(shipper.message).toContain('team-b-widgets')
+        // Proves the rebuilt probe reads B's fixture, not a stale A answer
+        // left over from before the retarget (the invalidation hook's own
+        // concern).
+        expect(shipper.message).not.toContain('team-a-widgets')
+        expect(shipper.message).not.toContain('https://team-a.example')
+        // The never-value law, on THIS test's own wire bytes (ADR-0034 clause
+        // 2) — not inherited from the #387 cases or the other #435 test,
+        // which never retarget and so never exercise the rebuilt probe this
+        // test exists to cover. Checked against the raw payload, not the
+        // re-serialised `after` object, and paired with the "check actually
+        // ran" assertion above (`shipper.status`/`.message`) so a build where
+        // the rebuilt probe silently never ran cannot pass this vacuously.
+        expect(afterResponse.payload).toContain('"shipper"')
+        expect(afterResponse.payload).not.toContain(SHIPPER_KEY_B)
+        expect(afterResponse.payload).not.toContain(SHIPPER_KEY_B.slice(0, 12))
+      } finally {
+        await rm(dataRoot, { recursive: true, force: true })
+        await rm(repoPathB, { recursive: true, force: true })
         await teardown()
       }
     })

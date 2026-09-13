@@ -191,6 +191,13 @@ const SHIPPER_DIRECTORY_TODAY: readonly string[] = [
   'cursor.ts',
   'hand-law.test.ts',
   'index.ts',
+  // Declared in the same commit that adds it, as the note above this list
+  // instructs. A TEST file only: `SHIPPER_SOURCES_TODAY` above is unchanged, so
+  // the fifth hand still has the same seven sources and ADR-0034's importer
+  // clause is untouched. It lives under `shipper/` because it reads `key.ts`'s
+  // own exported constants, and clause 3 makes `cli/connect-team.ts` the sole
+  // importer of this directory from outside it (review of #454).
+  'key-mint-law.test.ts',
   'key.test.ts',
   'key.ts',
   'loop.test.ts',

@@ -1,11 +1,12 @@
 import { mkdir, mkdtemp, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { createEventFactory, fixtureTraceSpans, type RhizomorphEvent } from '@rhizomorph/core'
+import { createEventFactory, fixtureTraceSpans, reduceAll, type RhizomorphEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   buildLaneIndex,
   findLaneInIndex,
+  laneHandlesOf,
   ParsedSessionLogCache,
   parsedSessionLogCache,
   readLaneIndex,
@@ -637,5 +638,57 @@ describe('readLaneIndex — the parsed-session cache end-to-end (prd-44 ruling 1
     expect(lane?.sessions[1]?.recordingPresent).toBe(false)
     expect(lane?.sessions[1]?.gap).toContain(SESSION_B)
     expect(lane?.partialVoice).toContain(SESSION_B)
+  })
+})
+
+// ── laneHandlesOf, now public (prd-51 ruling 11, #432) ─────────────────────
+
+/**
+ * `laneHandlesOf` was private until #432. `log/archive.ts`'s tombstone writer
+ * now derives its lane set from it, so the union it computes is a contract
+ * between two modules rather than an internal detail of this one — and the git
+ * half of that union is the whole reason the widening happened. A lane git
+ * alone knows about is invisible to `allAttributedLanes`, so an
+ * attribution-only tombstone left it to vanish from this index the moment its
+ * log was pruned (the archive spike's verdict 5).
+ */
+describe('laneHandlesOf — telemetry handles ∪ non-main worktree branches (#432)', () => {
+  it('unions both halves, sorted, and takes each lane only once', () => {
+    const f = createEventFactory({ startTs: 1000, stepMs: 10, idPrefix: 'h' })
+    const events: RhizomorphEvent[] = [
+      f.worktreeDiscovered({ path: '/repo', branch: 'main', head: 'sha-main', isMain: true }),
+      f.worktreeDiscovered({ path: '/repo-wt/ghost-lane', branch: 'ghost-lane', head: 'sha-g', isMain: false }),
+      f.worktreeDiscovered({ path: '/repo-wt/556-run-view', branch: LANE, head: 'sha-1', isMain: false }),
+      f.llmUsage({ lane: LANE, branch: LANE, sessionId: 'claude-a', worktreePath: WORKTREE }),
+    ]
+
+    // 'main' is absent: it is the MAIN worktree's branch, deliberately skipped.
+    // 'ghost-lane' is present from git alone — drop the worktree half of the
+    // union and it disappears, which is exactly what #432 exists to fix.
+    expect(laneHandlesOf(reduceAll(events))).toEqual(['556-run-view', 'ghost-lane'])
+  })
+
+  it('excludes a worktree with no branch — there is no handle to name it by', () => {
+    const f = createEventFactory({ startTs: 1000, stepMs: 10, idPrefix: 'd' })
+    const events: RhizomorphEvent[] = [
+      f.worktreeDiscovered({ path: '/repo-wt/detached', branch: null, head: 'sha-d', isMain: false }),
+      f.llmUsage({ lane: LANE, branch: LANE, sessionId: 'claude-a', worktreePath: WORKTREE }),
+    ]
+
+    expect(laneHandlesOf(reduceAll(events))).toEqual([LANE])
+  })
+
+  it('is telemetry alone when git saw nothing, and git alone when telemetry saw nothing', () => {
+    const f = createEventFactory({ startTs: 1000, stepMs: 10, idPrefix: 't' })
+    expect(laneHandlesOf(reduceAll([f.llmUsage({ lane: LANE, branch: LANE, sessionId: 'c', worktreePath: WORKTREE })]))).toEqual([
+      LANE,
+    ])
+
+    const g = createEventFactory({ startTs: 1000, stepMs: 10, idPrefix: 'g' })
+    expect(
+      laneHandlesOf(
+        reduceAll([g.worktreeDiscovered({ path: '/repo-wt/only-git', branch: 'only-git', head: 'sha', isMain: false })]),
+      ),
+    ).toEqual(['only-git'])
   })
 })

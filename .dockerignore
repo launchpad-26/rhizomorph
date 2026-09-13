@@ -1,0 +1,26 @@
+# What never enters a Docker build context from this repo.
+#
+# THE SECRETS ARE THE REASON THIS FILE EXISTS (review of #454).
+#
+# `packages/team/Dockerfile`'s runtime stage does
+# `COPY packages/team/deploy packages/team/deploy`, and the runbook's own order
+# is `./init.sh` THEN `docker compose build` — so by the time the context is
+# assembled, `init.sh` has already written `deploy/.env` holding
+# POSTGRES_PASSWORD, RZ_TEAM_DATABASE_URL and RZ_TEAM_INGEST_KEY. With no
+# `.dockerignore` anywhere in the tree that file was copied into an image layer,
+# where it outlives the rotation recipe in `docs/team-server-runbook.md`
+# ("Rotating the ingest key" re-runs init.sh and RESTARTS the app — a restart
+# does not rebuild, so the image keeps the old secrets).
+#
+# This is the sibling of the `.gitignore` finding verify pass 1 caught on #433:
+# the atomic write's temp file got an ignore rule and the build context did not.
+# Same file, same 348 bytes, one boundary out.
+packages/team/deploy/.env
+packages/team/deploy/.env.tmp.*
+
+# Nothing below is a secret — it is context the daemon never needs. No stage of
+# any Dockerfile here copies either: `packages/team/Dockerfile` installs its own
+# `node_modules` with `npm ci` in the deps stage, and nothing reads `.git`.
+node_modules
+**/node_modules
+.git

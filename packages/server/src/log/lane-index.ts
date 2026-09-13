@@ -350,8 +350,16 @@ function missingSlice(
  * non-main worktree git saw. The second half matters — a lane whose agent was
  * never instrumented still has a worktree, commits and a branch, and a run view
  * that could not open it would be reporting emptiness for work that happened.
+ *
+ * **Exported since #432** (prd-51 ruling 11) so `log/archive.ts`'s tombstone
+ * writer derives its lane set from the SAME union this index carries. That
+ * closes the archive spike's verdict 5: `allAttributedLanes` alone names only
+ * telemetry-attributed lanes, so a lane git alone knows about got no tombstone
+ * entry and vanished from this index the moment its log was pruned — the very
+ * dishonesty the tombstone exists to prevent, one line below its fixed sibling.
+ * Behaviour is unchanged; only the visibility moved.
  */
-function laneHandlesOf(state: SessionState): string[] {
+export function laneHandlesOf(state: SessionState): string[] {
   const handles = new Set(Object.keys(state.telemetry.lanes))
   for (const worktree of Object.values(state.worktrees)) {
     if (worktree.isMain || worktree.branch === null) continue
