@@ -475,11 +475,15 @@ never its fold. <!-- claim: canvas-one-per-run -->
   restore path looks for a tool-call boundary. **Unowned**, open since the
   fork spike of 2026-08-04; the failure is stated here so nobody discovers it
   as a surprise. <!-- claim: mid-tool-call-unowned -->
-- **Every subprocess the fork module spawns is bounded at 5 s**
-  (`FORK_EXEC_TIMEOUT_MS`, `packages/server/src/lab/fork.ts`) except the
-  install, which carries its own longer ceiling; whether that number should
-  be configurable, and whether the restore's `install` should default to off,
-  are prd-41's *"No owner"* pair, **still unowned**. <!-- claim: fork-exec-ceiling -->
+- **Every subprocess the fork module spawns is bounded, by a ceiling sized to
+  what it waits for** (`packages/server/src/lab/fork.ts`): the git plumbing and
+  `workmux path` get 5 s (`FORK_EXEC_TIMEOUT_MS`), because five seconds of a
+  plumbing call means wedged; `workmux add` gets 120 s
+  (`FORK_LAUNCH_TIMEOUT_MS`), because it runs the new worktree's own configured
+  setup — an `npm ci` in this repo — and a five-second ceiling killed every
+  launch mid-install; the restore keeps its own longer one. Whether those
+  numbers should be configurable, and whether the restore's `install` should
+  default to off, are prd-41's *"No owner"* pair, **still unowned**. <!-- claim: fork-exec-ceiling -->
 
 See [`docs/prds/prd-14-experiment-console.md`](../prds/prd-14-experiment-console.md)
 for the order the console's first waves landed in, and

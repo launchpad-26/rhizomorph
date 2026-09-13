@@ -155,6 +155,17 @@ control that invokes it.* The R&D hand's cost is booked as spend with its basis,
 > `llm.cost`, because `packages/core/src/events/telemetry.ts`'s `TELEMETRY_SOURCES` still names
 > only `sessionlog` and `otel`, neither true of a CLI this instrument spawns itself (#430).
 
+> **Dated note (wave 8, 2026-09-12).** Now booked, and the note above is superseded on its one
+> open point. `llm.cost` admits `lab` as a source — hand-built beside the lab's own events, on the
+> reasoning those already carry: a cost the lab **booked** is the same kind of fact as a checkpoint
+> it **captured**, and neither is a reading a collector polled, so `'lab'` stays out of
+> `eventSourceSchema` and out of `TELEMETRY_SOURCES` — the lab books spend and still cannot sign a
+> reading. The engine books one `llm.cost` per run carrying the CLI's own `total_cost_usd`
+> unmodified, as `auxiliary` (the instrument's research money is not a lane's agent doing that
+> lane's work), and books nothing at all when the result reports no cost. The fold needed no new
+> arm; one consumer deliberately refuses it, `selectConnection`, because a cost the lab booked
+> proves nothing about an external link being wired (#430).
+
 ## Ruling 2 — the corpus is local first, and the tracker is a second declared act
 
 The corpus the hand reads is what the record already holds: the recordings' `fork.measured`
