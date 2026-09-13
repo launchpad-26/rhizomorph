@@ -19,7 +19,12 @@ fi
 postgres_user="rhizomorph"
 postgres_db="rhizomorph"
 postgres_password="$(openssl rand -hex 32)"
-ingest_key="$(openssl rand -hex 32)"
+# The "rzk_" prefix is not decoration: packages/server/src/shipper/key.ts
+# REFUSES any value without it, so a bare hex string is a key no shipper in this
+# tree can be configured with (review of #454). Minted here so the value the
+# runbook tells the operator to save is the value `rhizomorph connect team`
+# accepts. `shipper/key-mint-law.test.ts` holds the two sides together.
+ingest_key="rzk_$(openssl rand -hex 32)"
 database_url="postgres://${postgres_user}:${postgres_password}@postgres:5432/${postgres_db}"
 
 tmp_file="$ENV_FILE.tmp.$$"

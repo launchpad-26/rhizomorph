@@ -43,7 +43,7 @@ describe('init.sh', () => {
     const { stdout } = runInit(dir)
 
     expect(stdout).toContain('ingest key')
-    const hexMatch = /ingest key \(save this now — it will not be printed again\): ([0-9a-f]{64})/.exec(stdout)
+    const hexMatch = /ingest key \(save this now — it will not be printed again\): (rzk_[0-9a-f]{64})/.exec(stdout)
     expect(hexMatch).not.toBeNull()
 
     const envPath = path.join(dir, '.env')
@@ -53,13 +53,13 @@ describe('init.sh', () => {
     const content = readFileSync(envPath, 'utf8')
     expect(content).toContain('POSTGRES_PASSWORD=')
     expect(content).toContain('RZ_TEAM_DATABASE_URL=postgres://')
-    expect(content).toContain('RZ_TEAM_INGEST_KEY=')
+    expect(content).toContain('RZ_TEAM_INGEST_KEY=rzk_')
   })
 
   it("the DoD's actual claim (second run): the key is never re-printed, and the file is byte-identical", () => {
     const dir = freshDir()
     const first = runInit(dir)
-    const firstKeyMatch = /ingest key \(save this now — it will not be printed again\): ([0-9a-f]{64})/.exec(first.stdout)
+    const firstKeyMatch = /ingest key \(save this now — it will not be printed again\): (rzk_[0-9a-f]{64})/.exec(first.stdout)
     expect(firstKeyMatch).not.toBeNull()
     const firstKey = firstKeyMatch?.[1] as string
 
