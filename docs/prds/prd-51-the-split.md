@@ -722,7 +722,7 @@ shipper's commit, where the fence already allows it, not here.
 
 The other two citations were checked and still hold:
 `docs/adr/0033-the-record-travels-by-protocol.md` puts record-format Law 2 in wave 1, which the
-renumbering did not move, and `docs/prds/prd-52-the-world-composes.md` gives the doc sweep to
+renumbering did not move, and `docs/prds/done/prd-52-the-world-composes.md` gives the doc sweep to
 wave 5, which stays the floor of the 5+ set.
 
 ## Amendment — two wedges, two rulings: 15 (the hand) and 16 (the fold) (operator, 2026-09-10)

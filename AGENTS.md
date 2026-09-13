@@ -339,7 +339,7 @@ independent-looking layers all reported the range verified — each reading one 
 status the same session had just written. A guard whose evidence the guarded party can
 author is not a guard. The honest move is to write the gap into the PR body, where a
 reviewer sees it, rather than to record it away.
-`docs/prds/prd-43-the-claim-is-a-test.md` carries the measurement in full.
+`docs/prds/done/prd-43-the-claim-is-a-test.md` carries the measurement in full.
 
 **This paragraph is not the enforcement, and must not be relied on as it.** The rule
 was written down — here and elsewhere — and three PRs were opened against it in one

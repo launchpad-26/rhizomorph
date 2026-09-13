@@ -73,7 +73,7 @@ an open hand: hover it, focus it, and it explains itself the same way everywhere
   shipped code now, and prd-21 landed with the same merge), and ~85 native `title=` sites in 25
   files (heaviest: `drawer/Vitals.tsx` 13, `panels/burn` 9, `panels/fleet` 9).
 - **The vocabulary is ruled but unbuilt.** prd-27 ruling 5
-  (`docs/prds/prd-27-the-declared-voice.md:112`): three strings per condition — label, why (with
+  (`docs/prds/done/prd-27-the-declared-voice.md`): three strings per condition — label, why (with
   evidence and elapsed), remedy — assembled once so every surface says a condition identically;
   unknown fails the build (`_never`). "`remedy` has no hits across `packages/web/src`" (:36).
 - **Nothing here waits on the server.** prd-27 stands at 8 open / 0 closed, **#326** (its
