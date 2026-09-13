@@ -1200,3 +1200,11 @@ not exist yet.
   Every piece deferred above lands on it at once: the callback route, the mint surface, the three
   questions' pages and the team server's doctor. That is a single restructuring with four callers,
   and it should be groomed as one issue rather than four lanes discovering each other in it.
+- **`http.ts` carries a ruling-12 debt into wave 7, ruled rather than overlooked.** Lines 33–36 of
+  that file say key-value verification is *"wave 4's and is loudly unimplemented"*. #462 made that
+  false and did **not** fix it: the fix is a four-line comment edit touching no code, ruling 12
+  wants it in the same commit, and the fence forbids the file. The operator declined the widening
+  on 2026-09-14 — wave 6's shape is refusing this collision, and spending that property on four
+  lines of prose buys nothing a rewrite does not hand over for free. The correction lands with the
+  router, in the header of the file being replaced, where it cannot be missed. Recorded on #462,
+  and named as a widening **considered and declined** on the wave-6 bundle PR.
