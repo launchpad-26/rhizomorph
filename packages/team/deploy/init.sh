@@ -25,6 +25,19 @@ postgres_password="$(openssl rand -hex 32)"
 # runbook tells the operator to save is the value `rhizomorph connect team`
 # accepts. `shipper/key-mint-law.test.ts` holds the two sides together.
 ingest_key="rzk_$(openssl rand -hex 32)"
+# STORED ONLY AS SHA-256 (prd-51 ruling 8). The plaintext above exists for the
+# length of this script and reaches exactly one place: the line printed at the
+# end. What goes into .env, and from there into the app's environment and the
+# ingest_keys table, is the digest -- so a stolen .env, a leaked image layer or
+# a `docker inspect` yields nothing that can ship a batch.
+#
+# `printf '%s'`, never `echo`: echo appends a newline, the digest would then be
+# of a different string than packages/team/src/keys/hash.ts computes, and the
+# deployment's own key would be refused as unknown with nothing saying why.
+# packages/team/deploy/init.test.ts runs this script and asserts the two agree.
+ingest_key_sha256="$(printf '%s' "$ingest_key" | openssl dgst -sha256 | awk '{ print $NF }')"
+# The one project this key may ship for (ruling 8: "scoped to one project").
+project="${RZ_TEAM_PROJECT:-default}"
 database_url="postgres://${postgres_user}:${postgres_password}@postgres:5432/${postgres_db}"
 
 tmp_file="$ENV_FILE.tmp.$$"
@@ -34,10 +47,12 @@ POSTGRES_USER=${postgres_user}
 POSTGRES_PASSWORD=${postgres_password}
 POSTGRES_DB=${postgres_db}
 RZ_TEAM_DATABASE_URL=${database_url}
-RZ_TEAM_INGEST_KEY=${ingest_key}
+RZ_TEAM_PROJECT=${project}
+RZ_TEAM_INGEST_KEY_SHA256=${ingest_key_sha256}
 EOF
 chmod 600 "$tmp_file"
 mv "$tmp_file" "$ENV_FILE"
 
 echo "first boot. Postgres and app secrets generated and written to $ENV_FILE (mode 600)."
-echo "ingest key (save this now — it will not be printed again): ${ingest_key}"
+echo "ingest key for project ${project} (save this now — it will not be printed again): ${ingest_key}"
+echo "only its SHA-256 was stored. There is no way to recover this value from the host — if it is lost, rotate (see docs/team-server-runbook.md)."

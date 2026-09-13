@@ -5,6 +5,14 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type Journal, openJournal } from '../journal/journal.js'
 import { readJournal } from '../journal/read.js'
+import { hashIngestKey } from '../keys/hash.js'
+import { mintIngestKey } from '../keys/mint.js'
+import {
+  type IngestKeyRefusal,
+  type IngestKeyVerdict,
+  ingestKeyRefusal,
+  statusForIngestKeyRefusal,
+} from '../keys/verify.js'
 import type { IngestFaults } from './faults.js'
 import { INGEST_KEY_HEADER, handleIngest } from './handle.js'
 
@@ -39,7 +47,12 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-const KEY = 'rzk_whatever'
+/** A key of exactly the shape `deploy/init.sh` mints: the prefix and 32 random bytes in hex. */
+const MINTED = mintIngestKey({ projectId: 'acme-widgets', nowMs: 1785739192632 })
+const KEY = MINTED.takePlaintext()
+
+/** The verdict a live key for this batch's project produces. */
+const LIVE: IngestKeyVerdict = { ok: true, projectId: 'acme-widgets' }
 
 function body(overrides: Record<string, unknown> = {}): unknown {
   return {
@@ -59,13 +72,16 @@ interface Harness {
   readonly journalPath: string
   readonly tape: string[]
   readonly notified: number[]
+  /** Every verdict `checkKey` handed back, in order. Its LENGTH is the once-per-batch claim. */
+  readonly checks: IngestKeyVerdict[]
   readonly deps: Parameters<typeof handleIngest>[0]
 }
 
-function harness(faults?: IngestFaults): Harness {
+function harness(faults?: IngestFaults, verdict: IngestKeyVerdict = LIVE): Harness {
   const journalPath = path.join(dir, 'ingest.journal')
   const tape: string[] = []
   const notified: number[] = []
+  const checks: IngestKeyVerdict[] = []
   const opened = openJournal({ path: journalPath, hooks: faults, trace: (step) => tape.push(step) })
   if (!opened.ok) throw new Error(opened.error)
   return {
@@ -73,9 +89,14 @@ function harness(faults?: IngestFaults): Harness {
     journalPath,
     tape,
     notified,
+    checks,
     deps: {
       journal: opened.journal,
       notify: (seq: number) => notified.push(seq),
+      checkKey: () => {
+        checks.push(verdict)
+        return verdict
+      },
       faults,
       trace: (step: string) => tape.push(step),
       now: () => 1785739192632,
@@ -160,7 +181,7 @@ describe('F1 — a 4xx never touches the journal', () => {
     expect(h.tape).toEqual(['validate'])
   })
 
-  it('a missing or empty ingest key is 401, naming the header — and the value is NOT verified', () => {
+  it('a missing or empty ingest key is 401, naming the header — and the check is never even reached', () => {
     for (const key of [undefined, '', '   ']) {
       const h = harness()
       const response = handleIngest(h.deps, body(), key)
@@ -168,14 +189,164 @@ describe('F1 — a 4xx never touches the journal', () => {
       expect(response.status).toBe(401)
       expect(JSON.stringify(response.body)).toContain(INGEST_KEY_HEADER)
       expect(records(h.journalPath)).toBe(0)
+      // No header is a different refusal from a bad key, and it costs no check.
+      expect(h.checks).toEqual([])
+      rmSync(h.journalPath, { force: true })
+    }
+  })
+
+  /**
+   * THE GAP, CLOSED (prd-51 ruling 8).
+   *
+   * This assertion used to read `.toBe(202)`, under a comment calling the gap
+   * loud rather than latent: an arbitrary non-empty key was accepted, because
+   * key issuance had not been built. It is built, and the assertion inverts.
+   */
+  it('an arbitrary non-key is REFUSED, and the refusal names the prefix rather than the value', () => {
+    const h = harness(undefined, { ok: false, reason: 'malformed' })
+    const response = handleIngest(h.deps, body(), 'not-a-real-key-at-all')
+    h.journal.close()
+
+    expect(response.status).toBe(401)
+    const text = JSON.stringify(response.body)
+    expect(text).toContain('rzk_')
+    expect(text).not.toContain('not-a-real-key-at-all')
+    expect(records(h.journalPath)).toBe(0)
+    expect(h.notified).toEqual([])
+    expect(h.tape).toEqual(['validate'])
+  })
+})
+
+/**
+ * RULING 8'S REFUSALS — four reasons, four statuses, four strings, and the
+ * journal untouched by every one of them.
+ *
+ * *"Refusal text names the key prefix and the exact reason."* The four are not
+ * interchangeable: an unknown key and a revoked key send a shipper to two
+ * different remedies, and collapsing them into one string is the failure this
+ * suite exists to catch.
+ */
+describe('a refused key never reaches the journal, and says exactly why', () => {
+  const REFUSALS: { reason: IngestKeyRefusal; status: 401 | 403 }[] = [
+    { reason: 'malformed', status: 401 },
+    { reason: 'unknown', status: 401 },
+    { reason: 'revoked', status: 403 },
+    { reason: 'wrong-project', status: 403 },
+  ]
+
+  it.each(REFUSALS)('$reason is $status, the tape ends at validate, and nothing is journalled', ({ reason, status }) => {
+    // `wrong-project` is reached through a LIVE key scoped elsewhere, which is
+    // the only way it can arise: scope is a fact about the key and the body.
+    const verdict: IngestKeyVerdict =
+      reason === 'wrong-project' ? { ok: true, projectId: 'some-other-project' } : { ok: false, reason }
+    const h = harness(undefined, verdict)
+
+    const response = handleIngest(h.deps, body(), KEY)
+    h.journal.close()
+
+    expect(response.status).toBe(status)
+    expect(statusForIngestKeyRefusal(reason)).toBe(status)
+    // The error FIELD, not the serialized body: two of the four refusals carry
+    // double quotes, which `JSON.stringify` escapes and a substring match then misses.
+    expect((response.body as { error: string }).error).toBe(ingestKeyRefusal(reason, 'acme-widgets'))
+    expect(records(h.journalPath)).toBe(0)
+    expect(h.notified).toEqual([])
+    expect(h.tape).toEqual(['validate'])
+    // The one call, even on the path that refuses.
+    expect(h.checks.length).toBe(1)
+  })
+
+  it('the four reasons are four DIFFERENT strings, and each names the prefix', () => {
+    const texts = REFUSALS.map((r) => ingestKeyRefusal(r.reason, 'acme-widgets'))
+    expect(new Set(texts).size).toBe(4)
+    for (const text of texts) expect(text).toContain('rzk_')
+    // Each names its own reason in words, not only in its status code.
+    expect(ingestKeyRefusal('unknown')).toContain('unknown key')
+    expect(ingestKeyRefusal('revoked')).toContain('revoked key')
+    expect(ingestKeyRefusal('wrong-project', 'acme-widgets')).toContain('acme-widgets')
+    expect(ingestKeyRefusal('malformed')).toContain('shape alone')
+  })
+
+  /**
+   * `packages/server/src/shipper/no-key-in-output-law.test.ts` runs a failing
+   * server to prove the SHIPPER never launders a key out of a response body into
+   * a log line. This is the same standard one step earlier: the server must not
+   * put one there in the first place.
+   *
+   * The 8-character windows are the load-bearing half. Asserting only that the
+   * whole value is absent passes against a refusal that echoes a "helpful"
+   * prefix of it, and a prefix of a secret is still a piece of one.
+   */
+  it('NO refusal, and no response body on any path, ever carries the key', () => {
+    const windows: string[] = []
+    for (let at = 0; at + 8 <= KEY.length; at += 1) windows.push(KEY.slice(at, at + 8))
+
+    const bodies: string[] = REFUSALS.map((r) => ingestKeyRefusal(r.reason, 'acme-widgets'))
+    for (const verdict of [
+      { ok: false, reason: 'malformed' } as const,
+      { ok: false, reason: 'unknown' } as const,
+      { ok: false, reason: 'revoked' } as const,
+      { ok: true, projectId: 'some-other-project' } as const,
+    ]) {
+      const h = harness(undefined, verdict)
+      bodies.push(JSON.stringify(handleIngest(h.deps, body(), KEY).body))
+      h.journal.close()
       rmSync(h.journalPath, { force: true })
     }
 
-    // The gap, asserted so it is loud rather than latent: ANY non-empty key is
-    // accepted today. Key issuance and membership are prd-51 wave 4's.
+    for (const text of bodies) {
+      expect(text).not.toContain(KEY)
+      for (const window of windows) expect(text).not.toContain(window)
+    }
+    // Not vacuous: the windows really are windows ONTO this key.
+    expect(windows.length).toBeGreaterThan(8)
+    expect(KEY).toContain(windows[0] as string)
+  })
+
+  it('the key the harness uses is the shape init.sh mints, and only its digest is a stable value', () => {
+    expect(KEY).toMatch(/^rzk_[0-9a-f]{64}$/)
+    expect(MINTED.row.keyHash).toBe(hashIngestKey(KEY))
+    expect(JSON.stringify(MINTED.row)).not.toContain(KEY)
+  })
+})
+
+/**
+ * ONCE PER BATCH (ruling 8) — *"which bounds revocation lag to one batch
+ * interval"*.
+ *
+ * Both directions, because one assertion cannot falsify both failures: a check
+ * run per EVENT and a verdict CACHED across batches both produce correct
+ * responses and a different number of reads.
+ */
+describe('the key check runs exactly once per batch', () => {
+  it('a three-event batch checks the key ONCE, not three times', () => {
     const h = harness()
-    expect(handleIngest(h.deps, body(), 'not-a-real-key-at-all').status).toBe(202)
+    const response = handleIngest(
+      h.deps,
+      body({
+        batch: [
+          { n: 1, line: '{"a":1}' },
+          { n: 2, line: '{"a":2}' },
+          { n: 3, line: '{"a":3}' },
+        ],
+      }),
+      KEY,
+    )
     h.journal.close()
+
+    expect(response.status).toBe(202)
+    expect(response.body).toEqual({ accepted: 3, journalSeq: 1 })
+    expect(h.checks.length).toBe(1)
+  })
+
+  it('two batches check TWICE — the verdict is not carried from one to the next', () => {
+    const h = harness()
+    handleIngest(h.deps, body(), KEY)
+    handleIngest(h.deps, body({ batch: [{ n: 3, line: '{"a":1}' }] }), KEY)
+    h.journal.close()
+
+    expect(h.checks.length).toBe(2)
+    expect(records(h.journalPath)).toBe(2)
   })
 })
 

@@ -15,9 +15,18 @@ import { INGEST_KEY_PREFIX, IngestKey, MIN_INGEST_KEY_BODY } from './key.js'
  * `openssl rand -hex 32`, and `rhizomorph connect team` would have answered
  * *"that is not an ingest key"* to the value the runbook says to keep.
  *
- * The server not verifying key VALUES yet (`docs/team-server-runbook.md`, "What
- * is not wired up yet") is why nobody hit it: the shape is checked long before
- * the value would be, on the shipper's side, by the one command that stores it.
+ * Nobody hit it because the shape is checked long before the value is, on the
+ * shipper's side, by the one command that stores it. The server's side has since
+ * caught up: prd-51 ruling 8 landed, the team server now verifies the VALUE of
+ * the header against a stored SHA-256, and `docs/team-server-runbook.md`'s "What
+ * is not wired up yet" no longer carries the bullet this paragraph used to cite.
+ *
+ * So the two sides can now disagree in a SECOND way, and this law does not cover
+ * it: `init.sh` also writes the key's digest, and a digest computed over
+ * different bytes than `packages/team/src/keys/hash.ts` computes — one trailing
+ * newline is enough — makes the deployment's own key unknown to its own server.
+ * That agreement is executed end to end in `packages/team/deploy/init.test.ts`,
+ * which can RUN the script; this file only reads it, and stays a shape law.
  *
  * This law reads the script's own text and this module's own constants — it
  * retypes neither — and the bite test below proves it fails on the form that

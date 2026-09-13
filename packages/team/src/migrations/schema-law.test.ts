@@ -103,6 +103,45 @@ function eventsColumns(): { name: string; declaration: string }[] {
     })
 }
 
+/**
+ * The column list of any `CREATE TABLE IF NOT EXISTS <name> ( … );` declaration,
+ * as `[name, rest]` pairs. The general form of {@link eventsColumns}, which
+ * cannot be reused because the events table ends `) PARTITION BY RANGE (ts);`
+ * rather than `);`.
+ */
+export function tableColumns(sql: string, table: string): { name: string; declaration: string }[] {
+  const match = new RegExp(`CREATE TABLE IF NOT EXISTS ${table} \\(([\\s\\S]*?)\\);`).exec(sql)
+  if (!match) throw new Error(`the ${table} table declaration was not found`)
+  return (match[1] as string)
+    .split('\n')
+    .map((line) => line.trim().replace(/,$/, ''))
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const [name = '', ...rest] = line.split(/\s+/)
+      return { name, declaration: rest.join(' ') }
+    })
+}
+
+/**
+ * Every column name in every `CREATE TABLE` in the text, paired with its table.
+ *
+ * Deliberately not scoped to one table: the claim case 31 makes is about the
+ * WHOLE schema, and a plaintext key column smuggled into `events` or into a
+ * projection would satisfy a law that only read `ingest_keys`.
+ */
+export function allColumnNames(sql: string): { table: string; column: string }[] {
+  const found: { table: string; column: string }[] = []
+  for (const match of sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?(\w+)\s*\(([\s\S]*?)\)\s*(?:PARTITION BY|;)/gi)) {
+    const table = match[1] as string
+    for (const line of (match[2] as string).split('\n')) {
+      const name = line.trim().replace(/,$/, '').split(/\s+/)[0] ?? ''
+      if (name === '') continue
+      found.push({ table, column: name })
+    }
+  }
+  return found
+}
+
 interface IndexDeclaration {
   readonly name: string
   readonly table: string
@@ -179,12 +218,13 @@ export function grants(sql: string): { privileges: string[]; tables: string[]; r
 }
 
 describe('case 26 — the walk really reads the tracked migrations', () => {
-  it('finds exactly the four that ship with this package', () => {
+  it('finds exactly the five that ship with this package', () => {
     expect(migrations().map((m) => m.id)).toEqual([
       '0001_events',
       '0002_projections',
       '0003_roles_rls',
       '0004_events_dedup',
+      '0005_ingest_keys',
     ])
   })
 
@@ -268,8 +308,35 @@ describe('case 20 — exactly four indexes on the PARENT, and the unique key on 
     )
   })
 
-  it('and the whole schema declares no index on any other table', () => {
-    expect(indexDeclarations(allStripped()).every((i) => i.table === 'events')).toBe(true)
+  /**
+   * RESTATED, NOT WEAKENED (#462, prd-51 ruling 8).
+   *
+   * This used to read `indexDeclarations(allStripped()).every((i) => i.table === 'events')`,
+   * and `0005_ingest_keys.sql` makes that false: the keys table carries an index
+   * on `project_id`, because revoking a project's keys is the only access path a
+   * primary key on the digest cannot serve.
+   *
+   * The law's INTENT was that nothing indexes the wrong thing — not that `events`
+   * is the only table this schema may ever hold. `CONTRIBUTING.md` allows a law
+   * to be restated at equal or greater strength and never weakened, so the
+   * replacement is an exact per-table pin rather than a loosened predicate: it
+   * fails on a wrong table exactly as the old one did, AND on a wrong body, AND
+   * in the retiring direction, none of which `.every(...)` could see.
+   */
+  it('and every index in the whole schema is accounted for, by table and by body', () => {
+    const byTable = new Map<string, string[]>()
+    for (const index of indexDeclarations(allStripped())) {
+      byTable.set(index.table, [...(byTable.get(index.table) ?? []), index.body].sort())
+    }
+    expect(Object.fromEntries([...byTable.entries()].sort())).toEqual({
+      events: [
+        '(lane, ts)',
+        '(project_id, lane)',
+        '(type, ts)',
+        'USING brin (ts) WITH (pages_per_range = 32)',
+      ].sort(),
+      ingest_keys: ['(project_id)'],
+    })
   })
 
   it('the extractor bites — it finds a planted fifth index and reads its target', () => {
@@ -508,5 +575,107 @@ describe('case 25 — no CONCURRENTLY, because applyMigration runs inside a tran
 
   it('the detector would see it — the extractor flags a planted CONCURRENTLY', () => {
     expect(indexDeclarations('CREATE INDEX CONCURRENTLY x ON events (n);')[0]?.concurrently).toBe(true)
+  })
+})
+
+/**
+ * CASE 31 — THE KEYS TABLE STORES A DIGEST AND NEVER A KEY (prd-51 ruling 8).
+ *
+ * Ruling 8: *"32 random bytes, **stored only as SHA-256**, shown once at mint"*.
+ * That clause is the one an implementation loses quietly — a second column added
+ * "for support" costs nothing at the time and makes the whole sentence false —
+ * so it is asserted from both ends: the column list of this table exactly, and
+ * a rule over the WHOLE schema that no column anywhere may name a key without
+ * being a digest of one.
+ *
+ * MUTATION, executed before this was committed: add `plaintext text` to
+ * `0005_ingest_keys.sql` and the exact column list goes red; rename it
+ * `ingest_key text` and both that clause and the whole-schema rule go red;
+ * plant `GRANT SELECT ON ingest_keys TO rz_viewer` and the grant clause goes red.
+ */
+describe('case 31 — ingest_keys holds a digest, a project and two timestamps', () => {
+  it('0005 creates exactly one table, and it is the keys table', () => {
+    expect(createdTables(sqlOf('0005_ingest_keys'))).toEqual(['ingest_keys'])
+  })
+
+  it('declares exactly four columns — an extra one fails, which is the point', () => {
+    expect(tableColumns(sqlOf('0005_ingest_keys'), 'ingest_keys').map((c) => c.name).sort()).toEqual([
+      'created_at',
+      'key_hash',
+      'project_id',
+      'revoked_at',
+    ])
+  })
+
+  it('the digest is the primary key, and the revocation flag is the one nullable column', () => {
+    const byName = new Map(tableColumns(sqlOf('0005_ingest_keys'), 'ingest_keys').map((c) => [c.name, c.declaration]))
+    expect(byName.get('key_hash')).toMatch(/^text\s+PRIMARY KEY$/)
+    expect(byName.get('project_id')).toMatch(/^text\s+NOT NULL$/)
+    expect(byName.get('created_at')).toMatch(/^timestamptz\s+NOT NULL$/)
+    // Nullable, and that IS the flag: `revoked_at IS NULL` means live.
+    expect(byName.get('revoked_at')).toBe('timestamptz')
+  })
+
+  it('the column parser bites — it reads a rigged five-column declaration as five', () => {
+    const rigged = 'CREATE TABLE IF NOT EXISTS ingest_keys (\n  key_hash text PRIMARY KEY,\n  plaintext text\n);'
+    expect(tableColumns(rigged, 'ingest_keys').map((c) => c.name)).toEqual(['key_hash', 'plaintext'])
+  })
+
+  /**
+   * THE WHOLE-SCHEMA RULE, not the instance.
+   *
+   * Asserting only `ingest_keys`' column list would pin one table. This pins the
+   * claim: a column that names a key anywhere in this schema is a digest of one.
+   * A `plaintext` column added beside `key_hash` is caught by the clause above;
+   * an `ingest_key` column added to `events` is caught only by this one.
+   */
+  it('no column in the whole schema names a key without being a digest of one', () => {
+    const offenders = allColumnNames(allStripped())
+      .filter(({ column }) => /key/i.test(column))
+      .filter(({ column }) => !column.endsWith('_hash'))
+    expect(offenders).toEqual([])
+    // Not vacuous: the sweep really found the one column that IS allowed.
+    expect(allColumnNames(allStripped()).filter(({ column }) => column === 'key_hash')).toEqual([
+      { table: 'ingest_keys', column: 'key_hash' },
+    ])
+  })
+
+  it('the whole-schema sweep bites — a planted plaintext column is found and named', () => {
+    const rigged = 'CREATE TABLE IF NOT EXISTS ingest_keys (\n  key_hash text,\n  ingest_key text\n);'
+    expect(allColumnNames(rigged).filter(({ column }) => /key/i.test(column) && !column.endsWith('_hash'))).toEqual([
+      { table: 'ingest_keys', column: 'ingest_key' },
+    ])
+    // …and it reaches inside a table that is not the keys table at all.
+    const elsewhere = 'CREATE TABLE IF NOT EXISTS events (\n  n bigint,\n  ingest_key text\n) PARTITION BY RANGE (ts);'
+    expect(allColumnNames(elsewhere).map((c) => c.column)).toEqual(['n', 'ingest_key'])
+  })
+
+  /**
+   * RLS is ENABLED and deliberately NOT FORCEd, which is the opposite of what
+   * `0003` does to the four fact tables. The migration's own header carries the
+   * reason — the app reads this table as the database OWNER, and `0003`'s
+   * measured table says a plain owner under FORCE sees nothing — so a FORCE here
+   * with no policy would deny the server its own key check.
+   */
+  it('enables row level security, does not FORCE it, and says why in the file', () => {
+    const sql = sqlOf('0005_ingest_keys')
+    expect(sql).toContain('ALTER TABLE ingest_keys ENABLE ROW LEVEL SECURITY')
+    expect(sql).not.toContain('FORCE ROW LEVEL SECURITY')
+    expect(rawOf('0005_ingest_keys')).toContain('NOT FORCE')
+  })
+
+  /**
+   * The grant lives in THIS migration rather than in an edit to `0003`: applied
+   * migrations are checksummed and `0001`'s header records that the one legal
+   * retroactive edit has been spent.
+   */
+  it('grants rz_ingest SELECT and grants no viewer role anything at all', () => {
+    const granted = grants(sqlOf('0005_ingest_keys')).filter((g) => g.tables.includes('ingest_keys'))
+    expect(granted).toEqual([{ privileges: ['SELECT'], tables: ['ingest_keys'], roles: ['rz_ingest'] }])
+    // The whole schema, not just this file: no other migration may open it either.
+    const readers = grants(allStripped())
+      .filter((g) => g.tables.includes('ingest_keys'))
+      .flatMap((g) => g.roles)
+    expect([...new Set(readers)].sort()).toEqual(['rz_ingest'])
   })
 })
