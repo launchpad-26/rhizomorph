@@ -1,5 +1,7 @@
 # The Rhizomorph
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/launchpad-26/rhizomorph)
+
 An instrument you point at a repo full of git worktrees: it shows what a
 swarm of coding agents is doing, live, and can replay the session
 afterward. Watching is read-only, absolutely; there are separate, opt-in
@@ -503,6 +505,28 @@ line this build could not fold and therefore did not send.
 there is no destination and no credential, and the hand cannot run. Your
 session logs and recordings are untouched — they were always local and they
 stay local.
+
+## The generated wiki
+
+[deepwiki.com/launchpad-26/rhizomorph](https://deepwiki.com/launchpad-26/rhizomorph)
+is an AI-generated, queryable wiki over this repository, and the badge at the top
+links to it. It is also reachable over MCP at `https://mcp.deepwiki.com/mcp` —
+free, remote and unauthenticated, because this repo is public — which is what
+`.mcp.json` declares so an agent working here can query it without setup.
+
+**It carries no authority, and nothing here can make it true.** It is written by
+a model from this tree and refreshed on its vendor's schedule; no test in this
+repository can turn red when it says something wrong. Use it to find your way in.
+When a claim has to hold, read the document, and find the law that holds it —
+[docs/README.md](docs/README.md) is the map, and the laws live in tests beside the
+code they hold ([CONTRIBUTING.md](CONTRIBUTING.md#laws-live-in-tests)).
+
+What *is* held: the badge and the endpoint above both name this repository and
+not another, pinned by `packages/server/src/deepwiki-law.test.ts`. That is the
+part that lives in this tree, so it is the part a law can reach.
+[ADR-0050](docs/adr/0050-the-generated-wiki.md) records why a third party
+publishes a document about this project at all, what it costs, and the bound that
+makes it free — it is free and uncredentialed only while this repo is public.
 
 ## Support matrix
 
