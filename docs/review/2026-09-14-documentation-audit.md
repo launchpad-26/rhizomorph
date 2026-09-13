@@ -1,6 +1,9 @@
 # Documentation audit — 2026-09-14
 
 **Tree:** `main` at `f4b7b57437bd066c0d6d08b0729189a871c405b8`
+**Platform:** the figures below were measured on **native Windows**. Two of them
+are platform-dependent and do not reproduce elsewhere; each gives the Linux
+reading beside it. Nothing here was measured on macOS.
 
 > A full sweep of this repository's documentation, commissioned by the operator
 > 2026-09-14 alongside the decision to publish a generated wiki. **Findings only:
@@ -38,10 +41,11 @@ $ gh run list -R launchpad-26/rhizomorph --limit 50 \
 0
 
 $ gh run list -R launchpad-26/rhizomorph --limit 3 \
+    --json createdAt,workflowName,event,conclusion \
     --jq '.[]|"\(.createdAt) \(.workflowName) \(.event) \(.conclusion)"'
 2026-09-12T00:29:16Z Windows suite pull_request failure
-2026-09-12T00:29:16Z CI          pull_request failure
-2026-09-11T23:40:27Z CI          push         failure
+2026-09-12T00:29:16Z CI pull_request failure
+2026-09-11T23:40:27Z CI push failure
 ```
 
 Four commits landed on 2026-09-13 and 2026-09-14 and triggered nothing. The last
@@ -75,10 +79,12 @@ still held — and named it *reporting a check without honouring it*. This is th
 same shape one level out: **checking a document against an artefact rather than
 against the world.**
 
-The single failure in that suite on this platform is a known one:
-`windows-latest runs on pack-smoke and ONLY pack-smoke`, listed in
-`.windows-known-failures` under cause class `line-endings`, whose stated evidence
-matches the failure observed.
+On **Windows**, the platform this audit ran on, that suite has one failure and it
+is a known one: `windows-latest runs on pack-smoke and ONLY pack-smoke`, listed
+in `.windows-known-failures` under cause class `line-endings`, whose stated
+evidence matches the failure observed. **On Linux the file is 95/95 green.** A
+reader reproducing F2 elsewhere should expect no failure at all — the green test
+named above is green on every platform, which is the whole finding.
 
 **F3 — CONTRIBUTING and AGENTS were updated for the retirement; the README was
 not. EXECUTED.**
@@ -114,10 +120,17 @@ archived document and unsound for a live PRD.
 Measured by emptying `EXCLUDED_DIRS` in a scratch copy, running the law, and
 restoring the file (verified clean by `git status`):
 
-| run | violations reported |
-|---|---|
-| unmodified tree | 15 |
-| `EXCLUDED_DIRS` emptied | 60 |
+| run | Windows (this audit) | Linux |
+|---|---|---|
+| unmodified tree | 15 | 0 |
+| `EXCLUDED_DIRS` emptied | 60 | 45 |
+
+**The columns agree on the finding and disagree on the arithmetic.** The
+paragraph below is why: the 15 are a Windows-only leak, so Windows reaches 45 by
+subtraction while Linux reads it off directly. Getting `0` and `45` when
+reproducing this on Linux is the law working, not a contradiction — and the two
+routes to 45 are independent, which is the strongest thing that can be said
+about the figure.
 
 **All 15 on the unmodified tree are the law's own negative-test fixtures** —
 strings like `packages/this-directory-does-not-exist/nothing.ts` that exist to
@@ -167,10 +180,31 @@ There are also **two** research trees — `docs/research/` (37 files) and a
 root-level `research/` (6) — and nothing names both, so the second is
 undiscoverable from the first.
 
-**F7 — 28 of 55 PRDs carry no Status line, including 5 of the 12 live ones.
-EXECUTED.** The PRD standard says the Status line "exists so a PRD is no longer
-silent about its own fate". Nothing tests for it. The live five:
-`prd-14`, `prd-17`, `prd-20`, `prd-30`, `prd-34`.
+**F7 — 28 of 55 PRDs carry no Status line in the standard's own form, including
+5 of the 12 live ones. EXECUTED.** Counted as `docs/prds/README.md` specifies the
+field — a `> **Status:**` blockquote at the head of the document — because that is
+the form the standard sets, and the only one a future law could read without
+guessing:
+
+```
+$ for f in $(git ls-files docs/prds/ | grep -E 'prd-[0-9]+.*\.md$'); do
+    grep -qE '^> \*\*Status' "$f" || echo "$f"
+  done | wc -l
+28
+```
+
+The PRD standard says the Status line "exists so a PRD is no longer silent about
+its own fate". Nothing tests for it. The live five: `prd-14`, `prd-17`, `prd-20`,
+`prd-30`, `prd-34`.
+
+**Those five are not one defect, and the criterion above is why they had to be
+stated rather than assumed.** `prd-20` and `prd-34` carry no Status anywhere.
+`prd-17` and `prd-30` open with an `> **Outcome:**` blockquote that says what
+happened but is not the field. `prd-14` **does** carry one —
+`**Status:** BLESSED 2026-08-06`, unquoted and in the body rather than at the
+head. It is counted because a Status line a reader has to hunt for is not the
+affordance the standard describes; it is named separately because a fix that
+treats it like the other four would be writing a second one.
 
 What *is* enforced is the weaker external fact — shelf location against milestone
 state, by `prd-location-law`. A PRD can therefore sit on the correct shelf and
