@@ -246,6 +246,23 @@ export interface UnknownEventLine {
   type: string
   /** Its envelope timestamp — always present, since a line without one is malformed, not unknown. */
   ts: number
+  /** The envelope's `id`. Validated by the envelope probe and, until prd-51 ruling 16, discarded. */
+  id: string
+  /** The envelope's `source`. Validated by the same probe, and discarded the same way. */
+  source: string
+  /**
+   * The payload as it arrived, UNVALIDATED — JSON `null` when the line carried none.
+   *
+   * Unlike `id` and `source` beside it, this field is NOT proved by the envelope probe: that
+   * schema is `{ id, ts, source, type }` and never touches `payload`. Carrying it is still
+   * right — `line` beside it is already the whole unvalidated line verbatim — but nothing may
+   * DERIVE a value from it. prd-51 ruling 16's `unfoldable` marker on `EventRow` exists to
+   * enforce that at the only place a consumer reads it.
+   *
+   * `null` rather than `undefined` because the consumer that persists it stores it in a
+   * `jsonb NOT NULL` column, and `JSON.stringify(undefined)` binds as SQL NULL.
+   */
+  payload: unknown
   reason: UnknownEventReason
   /** What the union objected to, for a human reading a verifier's output. */
   detail: string
@@ -261,6 +278,20 @@ export interface UnknownEventLine {
  * (no envelope, no usable timestamp): calling that "a newer era" would be a
  * lie, and the loud failure is the right answer.
  */
+/**
+ * The `payload` property of an already-decoded value, or JSON `null`.
+ *
+ * Deliberately NOT a second parse of the line. `packages/team/src/fold/row.ts` and
+ * `packages/core/src/wire/reserialize.ts` both refuse one in the same words — *a second parser
+ * is a second allowlist, and two allowlists is how a dropped field finds its way back* — and
+ * this reads a value the caller already decoded rather than decoding it again.
+ */
+function payloadOf(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null) return null
+  const payload = (value as Record<string, unknown>).payload
+  return payload === undefined ? null : payload
+}
+
 export type LenientEventParse =
   | { kind: 'event'; event: RhizomorphEvent }
   | { kind: 'unknown'; unknown: UnknownEventLine }
@@ -313,6 +344,9 @@ export function parseEventLenient(
       line: options.line ?? safeStringify(value),
       type: envelope.data.type,
       ts: envelope.data.ts,
+      id: envelope.data.id,
+      source: envelope.data.source,
+      payload: payloadOf(value),
       reason: isKnownEventType(envelope.data.type) ? 'unknown-shape' : 'unknown-type',
       detail: strict.error,
       lineNumber,

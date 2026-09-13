@@ -1,3 +1,5 @@
+import type { UnknownEventReason } from '@rhizomorph/core/src/events/index.js'
+
 /**
  * THE STORAGE PORT (prd-51 ruling 5).
  *
@@ -82,6 +84,19 @@ export interface EventRow {
    * ruling 5 rests the whole re-export-and-re-verify claim on these bytes.
    */
   readonly line: string
+  /**
+   * Which verdict made this row unfoldable, or absent when the build folded it (ruling 16).
+   *
+   * A FOLD-TIME FACT, NOT A COLUMN. The adapter neither writes nor reads it: a `fold_status`
+   * column is rejected by ruling 16, because it would spend the wave's single migration and
+   * persist a fact about THIS BUILD's vocabulary as though it were a fact about the event. A row
+   * read back through {@link TeamStorage.readEvents} therefore has it absent, always — `line` is
+   * the durable record, and a later build that can fold the type re-derives everything from it.
+   *
+   * Optional rather than `| null` for that reason: absent is the honest shape for a field that
+   * does not round-trip through storage.
+   */
+  readonly unfoldable?: UnknownEventReason
 }
 
 /**

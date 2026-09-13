@@ -74,20 +74,35 @@ export function projectionsFor(rows: readonly EventRow[]): ProjectionDelta {
   const supplied = new Map<string, { state: number; worktree: number }>()
 
   for (const row of rows) {
+    // RULING 16: NO PROJECTION MAY DERIVE A VALUE FROM AN UNVALIDATED PAYLOAD.
+    //
+    // This gates the three values THIS MODULE derives itself — `costUsdOf`, `agentStateOf` and
+    // `dirtyFiles`. The other two derived values, `row.lane` and `row.worktree`, are nulled
+    // upstream in `row.ts`, because by the time they arrive here they are columns and a marker
+    // cannot see a derivation that already happened.
+    //
+    // `spend.events` is deliberately NOT gated: an unfoldable row is an event, it reached
+    // storage, and a count that silently omitted some would be the dishonest answer. Ruling 16
+    // makes those two verdicts explicitly different.
+    const unfoldable = row.unfoldable !== undefined
+
     const day = utcDay(row.tsMs)
     const spendKey = `${row.projectId} ${day}`
     const currentSpend = spend.get(spendKey)
     spend.set(spendKey, {
       projectId: row.projectId,
       day,
-      costUsd: (currentSpend?.costUsd ?? 0) + costUsdOf(row),
+      costUsd: (currentSpend?.costUsd ?? 0) + (unfoldable ? 0 : costUsdOf(row)),
       events: (currentSpend?.events ?? 0) + 1,
     })
 
     if (row.lane !== null) {
       const laneKey = `${row.projectId} ${row.lane}`
       const current = lanes.get(laneKey)
-      const state = agentStateOf(row)
+      // Gated even though `row.lane === null` already makes this unreachable for an unfoldable
+      // row: the ruling names `agentStateOf` as one of the three, and the unreachability is a
+      // property of `row.ts` that a later change there could remove without a sound here.
+      const state = unfoldable ? null : agentStateOf(row)
       // BOTH HALVES OF THIS ARE LOAD-BEARING, AND THEY ARE PER FIELD.
       //
       // Newer wins: an older row must never overwrite a newer row's value, or
@@ -127,7 +142,11 @@ export function projectionsFor(rows: readonly EventRow[]): ProjectionDelta {
       })
     }
 
-    const dirty = dirtyFiles(row)
+    // Covered by the MARKER, not by `dirtyFiles`' own `row.type` gate. That gate protects the
+    // unknown-TYPE arm and nothing else — an `unknown-shape` `worktree.dirty` has a known type
+    // and walks straight through it. EXECUTED in the review of #417: with the marker removed and
+    // the type gate standing, one such line puts a path and a lane into `collisions`.
+    const dirty = unfoldable ? null : dirtyFiles(row)
     if (dirty !== null && dirty.branch !== null) {
       for (const filePath of dirty.paths) {
         const key = `${row.projectId} ${filePath}`

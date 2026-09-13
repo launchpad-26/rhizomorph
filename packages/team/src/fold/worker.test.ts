@@ -90,9 +90,9 @@ describe('the happy path, and the whole ordering as one array', () => {
     const result = await runOnce(deps(storage, undefined, tape))
 
     expect(tape).toEqual(['fold.read', 'fold.begin', 'fold.insert', 'fold.commit', 'cursor.write', 'cursor.rename'])
-    expect(result).toEqual({ ok: true, records: 1, rows: 3, inserted: 3, cursor: 1 })
+    expect(result).toEqual({ ok: true, records: 1, rows: 3, inserted: 3, cursor: 1, refused: [] })
     expect(storage.events.map((e) => e.n)).toEqual([1, 2, 3])
-    expect(readCursor(cursorPath())).toBe(1)
+    expect(readCursor(cursorPath()).seq).toBe(1)
     expect(storage.spend.get('acme-widgets 2026-08-03')).toEqual({
       projectId: 'acme-widgets',
       day: '2026-08-03',
@@ -108,7 +108,7 @@ describe('the happy path, and the whole ordering as one array', () => {
     const tape: string[] = []
     const second = await runOnce(deps(storage, undefined, tape))
 
-    expect(second).toEqual({ ok: true, records: 0, rows: 0, inserted: 0, cursor: 1 })
+    expect(second).toEqual({ ok: true, records: 0, rows: 0, inserted: 0, cursor: 1, refused: [] })
     expect(tape).toEqual(['fold.read'])
     expect(storage.events.length).toBe(2)
   })
@@ -155,7 +155,7 @@ describe('F6–F9 — a fault at each point of the ordering', () => {
     expect(result.ok).toBe(false)
     expect(tape).toEqual(['fold.read'])
     expect(storage.events).toEqual([])
-    expect(readCursor(cursorPath())).toBe(0)
+    expect(readCursor(cursorPath()).seq).toBe(0)
 
     // …and the replay after it yields exactly the batch, once.
     const after = await runOnce(deps(storage))
@@ -182,7 +182,7 @@ describe('F6–F9 — a fault at each point of the ordering', () => {
     expect(recorder.log).not.toContain('COMMIT')
     expect(tape).toEqual(['fold.read', 'fold.begin', 'fold.insert'])
     expect(existsSync(cursorPath())).toBe(false)
-    expect(readCursor(cursorPath())).toBe(0)
+    expect(readCursor(cursorPath()).seq).toBe(0)
 
     // The restart, against a storage that survives it: the rows are present.
     const storage = new FakeTeamStorage()
@@ -202,7 +202,7 @@ describe('F6–F9 — a fault at each point of the ordering', () => {
     expect(tape).toEqual(['fold.read', 'fold.begin', 'fold.insert', 'fold.commit'])
     // The rows ARE committed; only the cursor is behind. That is the legal state.
     expect(storage.events.length).toBe(3)
-    expect(readCursor(cursorPath())).toBe(0)
+    expect(readCursor(cursorPath()).seq).toBe(0)
     const costAfterFirst = storage.spend.get('acme-widgets 2026-08-03')?.costUsd
 
     const replay = await runOnce(deps(storage))
@@ -211,7 +211,7 @@ describe('F6–F9 — a fault at each point of the ordering', () => {
     expect(storage.events.length).toBe(3)
     expect(storage.spend.get('acme-widgets 2026-08-03')?.costUsd).toBe(costAfterFirst)
     expect(storage.spend.get('acme-widgets 2026-08-03')?.costUsd).toBe(3)
-    expect(readCursor(cursorPath())).toBe(1)
+    expect(readCursor(cursorPath()).seq).toBe(1)
   })
 
   it('F9 — a death between the cursor write and the rename leaves the OLD cursor; the tmp file is not the cursor', async () => {
@@ -227,7 +227,7 @@ describe('F6–F9 — a fault at each point of the ordering', () => {
     expect(result.ok).toBe(false)
     expect(tape).toEqual(['fold.read', 'fold.begin', 'fold.insert', 'fold.commit', 'cursor.write'])
     expect(readFileSync(cursorPath(), 'utf8').trim()).toBe('1')
-    expect(readCursor(cursorPath())).toBe(1)
+    expect(readCursor(cursorPath()).seq).toBe(1)
     expect(existsSync(`${cursorPath()}.tmp`)).toBe(false)
 
     // The replay: record 2 goes round again and dedups.
@@ -235,7 +235,7 @@ describe('F6–F9 — a fault at each point of the ordering', () => {
     expect(replay.ok && replay.records).toBe(1)
     expect(replay.ok && replay.inserted).toBe(0)
     expect(storage.events.map((e) => e.n)).toEqual([3, 4])
-    expect(readCursor(cursorPath())).toBe(2)
+    expect(readCursor(cursorPath()).seq).toBe(2)
   })
 
   it('every F-test above asserts something the happy path makes false', async () => {
@@ -244,12 +244,12 @@ describe('F6–F9 — a fault at each point of the ordering', () => {
     const storage = new FakeTeamStorage()
     const result = await runOnce(deps(storage))
     expect(result.ok && result.inserted).toBe(3)
-    expect(readCursor(cursorPath())).toBe(1)
+    expect(readCursor(cursorPath()).seq).toBe(1)
   })
 })
 
-describe('an unfoldable line aborts the run rather than creating a gap in n', () => {
-  it('nothing is inserted, the cursor does not move, and the error names the position', async () => {
+describe('a MALFORMED line stops its own group rather than creating a gap in n (ruling 16)', () => {
+  it('nothing is inserted, the cursor does not move, and `refused` names the position', async () => {
     const opened = openJournal({ path: journalPath() })
     if (!opened.ok) throw new Error(opened.error)
     opened.journal.append({
@@ -267,12 +267,20 @@ describe('an unfoldable line aborts the run rather than creating a gap in n', ()
     const storage = new FakeTeamStorage()
     const result = await runOnce(deps(storage))
 
-    expect(result.ok).toBe(false)
-    expect(result.ok ? '' : result.error).toContain('n=2')
-    // Not "insert 1 and 3 and skip 2": that IS the gap ruling 3 forbids.
+    // Ruling 16 changed the SHAPE of the refusal, not the refusal. `ok: false` is now reserved
+    // for a journal-level failure; an actor that cannot fold reports itself in `refused`, which
+    // is per actor and therefore the only form that survives the fold being per actor at all.
+    // A single-actor journal returning `ok: false` and a two-actor one returning `ok: true` for
+    // the identical actor-level fact would be the coupling this ruling exists to remove.
+    expect(result.ok).toBe(true)
+    expect(result.ok && result.refused).toEqual([
+      { actorInstance: 'lane-7', n: 2, error: expect.stringContaining('n=2') },
+    ])
+    // Not "insert 1 and 3 and skip 2": that IS the gap ruling 3 forbids. n=1 shares a record
+    // with n=2, so it goes back with it.
     expect(storage.events).toEqual([])
     expect(storage.calls).not.toContain('appendEvents')
-    expect(readCursor(cursorPath())).toBe(0)
+    expect(readCursor(cursorPath()).seq).toBe(0)
   })
 
   it('a corrupt journal refuses the run rather than folding the readable prefix', async () => {
@@ -316,21 +324,30 @@ describe('the cursor cold-starts on garbage rather than refusing to run', () => 
   it('64 bytes of garbage read as 0, and the fold self-repairs the file', async () => {
     writeBatch(2)
     writeFileSync(cursorPath(), Buffer.alloc(64, 0x5a))
-    expect(readCursor(cursorPath())).toBe(0)
+    expect(readCursor(cursorPath()).seq).toBe(0)
 
     const storage = new FakeTeamStorage()
     const result = await runOnce(deps(storage))
 
     expect(result.ok && result.inserted).toBe(2)
-    expect(readCursor(cursorPath())).toBe(1)
-    expect(readFileSync(cursorPath(), 'utf8').trim()).toBe('1')
+    expect(readCursor(cursorPath()).seq).toBe(1)
+    // The repaired file is the v1 shape, not a bare number — the fold rewrote it. `actors` is
+    // EMPTY on a clean pass: every actor reached the head of what was read, so every per-actor
+    // mark equals `seq` and says nothing `seq` does not. `readCursor`'s own `?? cursor.seq`
+    // fallback reconstructs each one unchanged — asserted directly in the next case, so this is
+    // a claim about redundancy rather than about loss.
+    expect(JSON.parse(readFileSync(cursorPath(), 'utf8'))).toEqual({
+      version: 1,
+      seq: 1,
+      actors: {},
+    })
   })
 
   it.each([['', 0], ['   ', 0], ['-1', 0], ['abc', 0], ['12', 12], ['12\n', 12]] as const)(
     'a cursor file holding %j reads as %i',
     (text, expected) => {
       writeFileSync(cursorPath(), text)
-      expect(readCursor(cursorPath())).toBe(expected)
+      expect(readCursor(cursorPath()).seq).toBe(expected)
     },
   )
 })
@@ -436,5 +453,265 @@ describe('the fold uses only the grants rz_ingest actually holds', () => {
     expect(toParent('events_2026_08')).toBe('events')
     expect(toParent('events')).toBe('events')
     expect(toParent('spend_by_project_day')).toBe('spend_by_project_day')
+  })
+})
+
+/**
+ * #410's REPRODUCTION, INVERTED (ruling 16).
+ *
+ * The bug: `runOnce` assembled every row from every record past the cursor BEFORE opening the
+ * transaction and returned on the first refusal, so one line a newer sender shipped discarded
+ * the records before it as well as after. Three identical passes, cursor 0, four good lines
+ * landing nowhere, and the only operator escape was editing the journal by hand.
+ */
+const FUTURE_LINE = (n: number) =>
+  JSON.stringify({
+    id: `evt_${n}`,
+    ts: TS,
+    source: 'system',
+    type: 'agent.telepathy',
+    payload: { lane: 'prd51-w3', worktreePath: '/repo-wt/prd51-w3', costUsd: 42.5 },
+  })
+
+function writeRecord(project: string, actorInstance: string, batch: { n: number; line: string }[]): void {
+  const opened = openJournal({ path: journalPath() })
+  if (!opened.ok) throw new Error(opened.error)
+  opened.journal.append({ project, actorInstance, receivedAtMs: TS, batch })
+  opened.journal.close()
+}
+
+describe('an unfoldable line no longer discards the records around it', () => {
+  it('[good, unfoldable, good] across three records: ALL FIVE rows land', async () => {
+    // The DoD says "the four good lines land". It was written before ruling 16 settled answer
+    // (2) — under the ruling the unfoldable line lands too, as a row carrying its verdict, so
+    // the honest assertion is five and not four. Nothing is skipped, so there is no gap in `n`.
+    writeRecord('acme-widgets', 'lane-7', [
+      { n: 1, line: COST_LINE(1, 1, TS) },
+      { n: 2, line: COST_LINE(2, 1, TS) },
+    ])
+    writeRecord('acme-widgets', 'lane-7', [{ n: 3, line: FUTURE_LINE(3) }])
+    writeRecord('acme-widgets', 'lane-7', [
+      { n: 4, line: COST_LINE(4, 1, TS) },
+      { n: 5, line: COST_LINE(5, 1, TS) },
+    ])
+
+    const storage = new FakeTeamStorage()
+    const result = await runOnce(deps(storage))
+
+    expect(result.ok).toBe(true)
+    expect(result.ok && result.refused).toEqual([])
+    expect(storage.events.map((e) => e.n)).toEqual([1, 2, 3, 4, 5])
+    expect(storage.events.find((e) => e.n === 3)?.unfoldable).toBe('unknown-type')
+    // The money from the unvalidated payload does not reach the projection; the count does.
+    expect(storage.spend.get('acme-widgets 2026-08-03')).toEqual({
+      projectId: 'acme-widgets',
+      day: '2026-08-03',
+      costUsd: 4,
+      events: 5,
+    })
+    expect(readCursor(cursorPath()).seq).toBe(3)
+  })
+
+  it('THE REPRODUCTION: three consecutive folds make progress instead of failing identically', async () => {
+    writeRecord('acme-widgets', 'lane-7', [{ n: 1, line: COST_LINE(1, 1, TS) }])
+    writeRecord('acme-widgets', 'lane-7', [{ n: 2, line: FUTURE_LINE(2) }])
+    const storage = new FakeTeamStorage()
+
+    const first = await runOnce(deps(storage))
+    const second = await runOnce(deps(storage))
+    const third = await runOnce(deps(storage))
+
+    expect(first.ok && first.inserted).toBe(2)
+    // Runs 2 and 3 insert nothing because there is nothing new — not because they failed.
+    expect(second.ok && second.inserted).toBe(0)
+    expect(third.ok && third.inserted).toBe(0)
+    expect(second.ok && second.records).toBe(0)
+    expect(storage.events.map((e) => e.n)).toEqual([1, 2])
+    // Before this commit: cursor 0 after all three, and `cursorFile=false`.
+    expect(existsSync(cursorPath())).toBe(true)
+    expect(readCursor(cursorPath()).seq).toBe(2)
+  })
+})
+
+describe("one actor's skew does not stop another's (ruling 16, answer 3)", () => {
+  it('B lands in full while A stops at its malformed record, and `refused` names A', async () => {
+    writeRecord('acme-widgets', 'lane-a', [{ n: 1, line: COST_LINE(1, 1, TS) }]) // seq 1
+    writeRecord('acme-widgets', 'lane-b', [{ n: 1, line: COST_LINE(1, 1, TS) }]) // seq 2
+    writeRecord('acme-widgets', 'lane-a', [{ n: 2, line: 'not an event line at all' }]) // seq 3
+    writeRecord('acme-widgets', 'lane-b', [{ n: 2, line: COST_LINE(2, 1, TS) }]) // seq 4
+
+    const storage = new FakeTeamStorage()
+    const result = await runOnce(deps(storage))
+
+    expect(result.ok).toBe(true)
+    const landed = storage.events.map((e) => `${e.actorInstance}:${e.n}`).sort()
+    // A's first record lands — the positions BEFORE a refusal are not a gap. A's second does
+    // not. B is untouched by any of it, which is the whole of answer 3.
+    expect(landed).toEqual(['lane-a:1', 'lane-b:1', 'lane-b:2'])
+    expect(result.ok && result.refused).toEqual([
+      { actorInstance: 'lane-a', n: 2, error: expect.stringContaining('journal seq 3') },
+    ])
+  })
+
+  it('the journal cursor is the MINIMUM, so the stuck actor is re-read and the healthy one dedups', async () => {
+    writeRecord('acme-widgets', 'lane-a', [{ n: 1, line: COST_LINE(1, 1, TS) }]) // seq 1
+    writeRecord('acme-widgets', 'lane-b', [{ n: 1, line: COST_LINE(1, 1, TS) }]) // seq 2
+    writeRecord('acme-widgets', 'lane-a', [{ n: 2, line: 'not an event line at all' }]) // seq 3
+    writeRecord('acme-widgets', 'lane-b', [{ n: 2, line: COST_LINE(2, 1, TS) }]) // seq 4
+
+    const storage = new FakeTeamStorage()
+    await runOnce(deps(storage))
+
+    // A is stuck at 1 and B reached 4, so the journal cursor is 1 — the point EVERY actor has
+    // committed through. A maximum here would advance past A's unread records forever.
+    const cursor = readCursor(cursorPath())
+    expect(cursor.seq).toBe(1)
+    // Only lane-b is carried. lane-a's mark IS the low-water mark, so writing it down would
+    // repeat `seq`; what has to survive is lane-b's 4, which is what stops its span being
+    // re-derived on the re-read below.
+    expect(cursor.actors).toEqual({ 'acme-widgets lane-b': 4 })
+    // And the omission is lossless, through the reader the fold actually uses.
+    expect(cursor.actors['acme-widgets lane-a'] ?? cursor.seq).toBe(1)
+
+    // The second pass re-reads B's span because of that minimum, and inserts nothing: the
+    // per-actor marks skip the records before a row is ever built.
+    const second = await runOnce(deps(storage))
+    expect(second.ok && second.inserted).toBe(0)
+    expect(storage.events.length).toBe(3)
+    expect(readCursor(cursorPath()).seq).toBe(1)
+  })
+})
+
+/**
+ * THE REVIEW-OF-#417 FINDING, END TO END.
+ *
+ * `projections.test.ts` asserts an unfoldable row adds no lane — but it hand-builds the row with
+ * `lane: null`, so it bypasses `row.ts` and CANNOT fail if the upstream nulling is removed.
+ * Measured: with `laneOf`/`worktreeOf` restored on the unfoldable arm, that suite stayed green
+ * and only the two `row.test.ts` cases went red. This case closes the half the ruling's own
+ * amendment exists to correct — it folds a real journal, so the nulling is on the path.
+ */
+describe('an unfoldable payload reaches no projection, through the whole fold', () => {
+  it('lane_state gets nothing from a line whose payload plainly carries a lane', async () => {
+    // FUTURE_LINE's payload carries `lane: 'prd51-w3'`, `worktreePath` and `costUsd: 42.5` —
+    // all three readable, so every assertion below is a decision rather than an empty fixture.
+    writeRecord('acme-widgets', 'lane-7', [{ n: 1, line: FUTURE_LINE(1) }])
+
+    const storage = new FakeTeamStorage()
+    const result = await runOnce(deps(storage))
+
+    expect(result.ok && result.inserted).toBe(1)
+    expect(storage.events[0]?.unfoldable).toBe('unknown-type')
+    // The three the ruling names, all measured against a payload that carries each one.
+    expect([...storage.lanes.values()]).toEqual([])
+    expect([...storage.collisions.values()]).toEqual([])
+    expect(storage.spend.get('acme-widgets 2026-08-03')).toEqual({
+      projectId: 'acme-widgets',
+      day: '2026-08-03',
+      costUsd: 0,
+      events: 1,
+    })
+    // And the row itself carries no derived column, which is where the nulling happened.
+    expect(storage.events[0]?.lane).toBeNull()
+    expect(storage.events[0]?.worktree).toBeNull()
+  })
+
+  it('the control: a FOLDABLE line with the same lane does populate lane_state', async () => {
+    writeRecord('acme-widgets', 'lane-7', [{ n: 1, line: COST_LINE(1, 1, TS) }])
+    const storage = new FakeTeamStorage()
+    await runOnce(deps(storage))
+    expect([...storage.lanes.values()].map((l) => l.lane)).toEqual(['prd51-w3'])
+  })
+})
+
+/**
+ * A RETIRED ACTOR IS NOT A STUCK ONE (review of #446).
+ *
+ * The skew tests above cover an actor that REFUSES. This is the other way an actor stops
+ * appearing, and it is the ordinary one: the session ended. `actorInstance` is the session id
+ * (`packages/server/src/shipper/cursor.ts` says so of its own `actors` map), so a deployment
+ * accumulates one per session forever — and while every carried-forward actor was seeded at its
+ * old mark, `lowWaterMark`'s minimum sat at the final seq of the FIRST session to go quiet, on a
+ * journal `journal.ts` records as growing without bound. Nothing refused, every row landed, and
+ * the fold re-read the whole journal on every tick with the cursor frozen.
+ *
+ * The distinction the fix turns on: a group that folded everything it had is committed through
+ * the head of what was read, whether or not it ever appears again. Only a group that STOPPED may
+ * sit below it.
+ */
+describe('a session that ended does not hold the journal back', () => {
+  it('twelve sessions later the cursor is at the head, and the read is one record, not thirteen', async () => {
+    const storage = new FakeTeamStorage()
+
+    writeRecord('acme-widgets', 'session-1', [{ n: 1, line: COST_LINE(1, 1, TS) }]) // seq 1
+    const first = await runOnce(deps(storage))
+    expect(first.ok && first.refused).toEqual([])
+    expect(readCursor(cursorPath()).seq).toBe(1)
+
+    // session-1's process is gone for good. Every later session is a new actorInstance.
+    for (let s = 2; s <= 13; s += 1) {
+      writeRecord('acme-widgets', `session-${s}`, [{ n: 1, line: COST_LINE(s, 1, TS) }])
+      const pass = await runOnce(deps(storage))
+      expect(pass.ok && pass.refused).toEqual([])
+      expect(pass.ok && pass.inserted).toBe(1)
+    }
+
+    const cursor = readCursor(cursorPath())
+    expect(cursor.seq).toBe(13)
+    // Nothing is behind, so nothing needs a per-actor entry — the file does not carry one row
+    // per session this deployment has ever run.
+    expect(cursor.actors).toEqual({})
+
+    // THE MEASUREMENT THE BUG WAS: a fourteenth session reads ONE record. Before the fix this
+    // read 14, and would have read every record ever journalled, on every tick, forever.
+    writeRecord('acme-widgets', 'session-14', [{ n: 1, line: COST_LINE(14, 1, TS) }])
+    const last = await runOnce(deps(storage))
+    expect(last.ok && last.records).toBe(1)
+    expect(storage.events.length).toBe(14)
+  })
+
+  it('ONE PASS, TWO ACTORS, NOTHING STUCK: the cursor reaches the head rather than the earlier one', async () => {
+    // The case the sessions above cannot reach, because they arrive one per pass. When two
+    // actors are interleaved in ONE read and neither stops, a minimum over "the seq each last
+    // appeared at" sits on lane-a's 1 and re-reads lane-b's span next tick, for no reason: both
+    // folded everything they were shown.
+    writeRecord('acme-widgets', 'lane-a', [{ n: 1, line: COST_LINE(1, 1, TS) }]) // seq 1
+    writeRecord('acme-widgets', 'lane-b', [{ n: 1, line: COST_LINE(2, 1, TS) }]) // seq 2
+    writeRecord('acme-widgets', 'lane-b', [{ n: 2, line: COST_LINE(3, 1, TS) }]) // seq 3
+
+    const storage = new FakeTeamStorage()
+    const first = await runOnce(deps(storage))
+    expect(first.ok && first.refused).toEqual([])
+    expect(first.ok && first.inserted).toBe(3)
+
+    const cursor = readCursor(cursorPath())
+    expect(cursor.seq).toBe(3)
+    expect(cursor.actors).toEqual({})
+
+    // Nothing left behind to re-read. A minimum taken over last-appearance would have read two.
+    const second = await runOnce(deps(storage))
+    expect(second.ok && second.records).toBe(0)
+  })
+
+  it('THE CONTROL: a genuinely stuck actor still pins it, and still re-reads the healthy span', async () => {
+    // Same shape as above — one actor goes quiet after seq 1 — except the reason is a refusal.
+    // Without this pair, "the cursor reached the head" could be a fold that stopped holding
+    // anything back at all, which is the money-losing direction.
+    writeRecord('acme-widgets', 'lane-a', [{ n: 1, line: COST_LINE(1, 1, TS) }]) // seq 1
+    writeRecord('acme-widgets', 'lane-a', [{ n: 2, line: 'not an event line at all' }]) // seq 2
+    writeRecord('acme-widgets', 'lane-b', [{ n: 1, line: COST_LINE(2, 1, TS) }]) // seq 3
+
+    const storage = new FakeTeamStorage()
+    const result = await runOnce(deps(storage))
+
+    expect(result.ok && result.refused.map((entry) => entry.actorInstance)).toEqual(['lane-a'])
+    const cursor = readCursor(cursorPath())
+    expect(cursor.seq).toBe(1)
+    expect(cursor.actors).toEqual({ 'acme-widgets lane-b': 3 })
+
+    const second = await runOnce(deps(storage))
+    expect(second.ok && second.records).toBe(2)
+    expect(second.ok && second.inserted).toBe(0)
+    expect(readCursor(cursorPath()).seq).toBe(1)
   })
 })

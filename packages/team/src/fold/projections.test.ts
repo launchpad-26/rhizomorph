@@ -332,3 +332,75 @@ describe('the function is a fold over its input, not an accumulator', () => {
     expect(projectionsFor([])).toEqual({ spend: [], lanes: [], collisions: [] })
   })
 })
+
+/**
+ * RULING 16 — NO PROJECTION DERIVES A VALUE FROM AN UNVALIDATED PAYLOAD.
+ *
+ * Every payload below is a REAL one — a live `costUsd`, a real `files` array, a real `status`.
+ * That is deliberate and it is the whole test: the first draft of this remedy passed against
+ * fixtures that happened to carry nothing, which is why the ruling records that its own
+ * `costUsd: 0` evidence row "was the fixture, not a guard".
+ *
+ * `events` is NOT gated and must not be. An unfoldable row is an event and it reached storage;
+ * a count that silently omitted some would be the dishonest answer. The two verdicts differ.
+ */
+describe('ruling 16 — an unfoldable row feeds no derived value, but is still counted', () => {
+  const MONEY = { lane: 'lane-a', worktreePath: '/repo-wt/lane-a', costUsd: 42.5 }
+
+  it.each(['unknown-shape', 'unknown-type'] as const)(
+    '%s: the money is refused and the event is still counted',
+    (reason) => {
+      const delta = projectionsFor([row({ payload: MONEY, unfoldable: reason, lane: null })])
+      expect(delta.spend).toEqual([
+        { projectId: 'acme-widgets', day: '2026-08-03', costUsd: 0, events: 1 },
+      ])
+    },
+  )
+
+  it('the control: the identical payload on a FOLDABLE row does pay out', () => {
+    // Without this, `costUsd: 0` above could mean the fixture carried no money.
+    const delta = projectionsFor([row({ payload: MONEY })])
+    expect(delta.spend).toEqual([
+      { projectId: 'acme-widgets', day: '2026-08-03', costUsd: 42.5, events: 1 },
+    ])
+  })
+
+  it('unknown-shape worktree.dirty adds no collision, though its type IS known', () => {
+    // THE SIBLING. `dirtyFiles` gates on `row.type`, which protects the unknown-TYPE arm and
+    // nothing else: an unknown-shape row has a known type and walks straight through it. The
+    // marker is what covers this, not the type gate.
+    const dirty = {
+      branch: 'lane-a',
+      files: [{ path: 'src/a.ts' }, { path: 'src/b.ts' }],
+    }
+    const delta = projectionsFor([
+      row({ type: 'worktree.dirty', payload: dirty, unfoldable: 'unknown-shape' }),
+    ])
+    expect(delta.collisions).toEqual([])
+
+    // The control, same payload, no marker.
+    const foldable = projectionsFor([row({ type: 'worktree.dirty', payload: dirty })])
+    expect(foldable.collisions.map((c) => c.path)).toEqual(['src/a.ts', 'src/b.ts'])
+  })
+
+  it('an unfoldable agent.status adds no lane row — its lane is null upstream', () => {
+    // `row.ts` nulls `lane` at source, so this row cannot reach the lane branch at all. Asserted
+    // here as well as there because it is the OUTCOME the review of #417 measured: `lane_state`
+    // receiving a lane from a payload the build refused to validate.
+    const delta = projectionsFor([
+      row({ type: 'agent.status', payload: { handle: 'lane-a', status: 'working' }, lane: null, unfoldable: 'unknown-shape' }),
+    ])
+    expect(delta.lanes).toEqual([])
+  })
+
+  it('a mixed batch counts every event and pays only the foldable one', () => {
+    const delta = projectionsFor([
+      row({ n: 1, payload: { costUsd: 1 } }),
+      row({ n: 2, payload: MONEY, unfoldable: 'unknown-type' }),
+      row({ n: 3, payload: { costUsd: 2 } }),
+    ])
+    expect(delta.spend).toEqual([
+      { projectId: 'acme-widgets', day: '2026-08-03', costUsd: 3, events: 3 },
+    ])
+  })
+})

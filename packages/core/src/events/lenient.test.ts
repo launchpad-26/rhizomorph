@@ -233,3 +233,52 @@ describe('voiceUnknownEvents — the honest gap, in one sentence', () => {
     )
   })
 })
+
+/**
+ * RULING 16's WIDENING — `id`, `source` and `payload` on an unknown.
+ *
+ * `EventRow` in `packages/team` requires all three, non-nullable, and the fold may not
+ * re-`JSON.parse` the line to recover them: a second parser is a second allowlist. So they are
+ * carried here, where the envelope probe already stood.
+ *
+ * The asymmetry is the point of the third: the probe is `{ id, ts, source, type }` and proves
+ * `id` and `source`. It never touches `payload`, so that field is unvalidated by construction
+ * and `EventRow.unfoldable` is what stops anything deriving a value from it.
+ */
+describe('ruling 16 — an unknown carries its envelope id, source and payload', () => {
+  it('carries all three off a line this era cannot fold', () => {
+    const line = JSON.stringify({
+      id: 'evt-000042',
+      ts: 1_785_930_000_000,
+      source: 'system',
+      type: 'attention.paged',
+      payload: { lane: 'a', kind: 'awaiting-reply', raisedAt: 1_785_930_000_000 },
+    })
+    const unknown = unknownFrom(line)
+    expect(unknown.id).toBe('evt-000042')
+    expect(unknown.source).toBe('system')
+    expect(unknown.payload).toEqual({ lane: 'a', kind: 'awaiting-reply', raisedAt: 1_785_930_000_000 })
+  })
+
+  it('a line with no payload carries JSON null, never undefined', () => {
+    // The consumer stores this in a `jsonb NOT NULL` column and binds `JSON.stringify(payload)`,
+    // which is the JS value `undefined` for `undefined` — a NULL bind, and a constraint
+    // violation. `null` is a JSON value; `undefined` is the absence of one.
+    const unknown = unknownFrom('{"id":"e","ts":5,"source":"system","type":"from.the.future"}')
+    expect(unknown.payload).toBeNull()
+    expect('payload' in unknown).toBe(true)
+  })
+
+  it('a malformed line is still malformed — the widening did not move that boundary', () => {
+    const parsed = parseEventLenient(JSON.parse('{"hello":"world"}'))
+    expect(parsed.kind).toBe('malformed')
+  })
+
+  it('the same line parsed three times yields three deep-equal unknowns', () => {
+    // Repetition: no accumulation, and no shared mutable payload reference escaping the parse.
+    const [a, b, c] = [unknownFrom(FUTURE_LINE), unknownFrom(FUTURE_LINE), unknownFrom(FUTURE_LINE)]
+    expect(a).toEqual(b)
+    expect(b).toEqual(c)
+    expect(a.payload).not.toBe(b.payload)
+  })
+})
