@@ -88,4 +88,39 @@ describe('shell bounds law: the document does not scroll, a panel does', () => {
     expect(className, 'the quiet region must be the first thing to give way').not.toMatch(/\bshrink-0\b/)
     expect(className, 'it still clips rather than wrapping the docked strip taller').toContain('overflow-hidden')
   })
+
+  /**
+   * #464 — the `+N` marker must not live INSIDE the element that clips.
+   *
+   * It used to be the clipping row's last child, which made it the first thing
+   * an overflowing row pushed out: the one element whose entire job is to say
+   * that something is hidden. Measured in Chromium on fixture 3 before the fix,
+   * at 1440x900, the row had 563px for 1522px of chips and the marker sat at
+   * x=2381 — 941px past the right edge of the viewport.
+   *
+   * Asserted on the source for the reason this whole file exists, stated in its
+   * header: jsdom has no layout engine, so no render assertion in this repo can
+   * see a clipped box. This proves the DECLARATION — that the marker is a
+   * sibling of the clipping element and not its descendant. **The browser pass
+   * is still the arbiter**, and #464's PR records one at 1440x900 and at the
+   * 1100px WINDOW_MIN_WIDTH floor.
+   */
+  it('the attention strip\'s +N marker is a SIBLING of the clipping row, never inside it', () => {
+    const strip = read(STRIP)
+    const marker = 'data-testid="chip-overflow"'
+    const clip = strip.indexOf('overflow-hidden">')
+    const at = strip.indexOf(marker)
+    expect(clip, 'the chip row no longer declares overflow-hidden').toBeGreaterThan(-1)
+    expect(at, 'the +N marker is gone entirely').toBeGreaterThan(-1)
+    expect(at).toBeGreaterThan(clip)
+
+    // The clipping element must CLOSE before the marker opens. If the marker
+    // were still a child there would be no `</div>` between the two, which is
+    // exactly the shape that shipped the defect.
+    const between = strip.slice(clip, at)
+    expect(
+      between,
+      `no closing tag between the clipping row and the marker — the marker is inside it again. Between was: ${between}`,
+    ).toContain('</div>')
+  })
 })
