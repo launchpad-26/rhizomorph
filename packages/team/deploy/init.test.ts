@@ -100,3 +100,79 @@ describe('init.sh', () => {
     expect(() => statSync(path.join(dir, '.env'))).toThrow()
   })
 })
+
+/**
+ * BOTH BOUNDARIES, NOT JUST GIT'S (review of #454).
+ *
+ * `init.sh` writes two secret-bearing files — `.env`, and the `$ENV_FILE.tmp.$$`
+ * the atomic write goes through — and each one leaves this directory by a
+ * different door. `.gitignore` closes git's. **Docker's was open**:
+ * `packages/team/Dockerfile`'s runtime stage does
+ * `COPY packages/team/deploy packages/team/deploy`, the runbook's order is
+ * `./init.sh` then `docker compose build`, and the repo carried no
+ * `.dockerignore` at all — so the generated `.env` was copied into an image
+ * layer, where it outlives even the runbook's own key-rotation recipe (which
+ * restarts the app rather than rebuilding it).
+ *
+ * That is the same finding verify pass 1 caught on #433, one boundary out: the
+ * temp file got an ignore rule and the build context did not. So this law is
+ * written over BOTH ignore files at once, and derives the artefacts from the
+ * script rather than naming them — a third secret-bearing path added to
+ * `init.sh` has to be ignored in both places before this goes green.
+ */
+const REPO_ROOT = path.join(HERE, '..', '..', '..')
+
+/**
+ * The basenames `init.sh` writes secrets to, as ignore-file patterns. `$$` is
+ * the shell's pid, so the temp file is a family and its pattern is a glob —
+ * that translation is the one thing here not taken verbatim from the script,
+ * and it is why the tmp case gets its own assertion below rather than riding
+ * on `.env`'s.
+ */
+export function secretArtefactPatterns(script: string): string[] {
+  const envFile = /^ENV_FILE="\$TARGET_DIR\/([^"]+)"$/m.exec(script)
+  if (envFile === null) throw new Error('init.sh has no ENV_FILE assignment for this law to read')
+  const envName = envFile[1] as string
+
+  const tmpFile = /^tmp_file="\$ENV_FILE((?:\.[^"$]+|\.\$\$)+)"$/m.exec(script)
+  if (tmpFile === null) throw new Error('init.sh has no tmp_file assignment for this law to read')
+  const tmpSuffix = (tmpFile[1] as string).replace(/\$\$/g, '*')
+
+  return [envName, `${envName}${tmpSuffix}`]
+}
+
+/** Whether an ignore file's text carries a rule for `packages/team/deploy/<pattern>`. */
+export function ignores(ignoreText: string, pattern: string): boolean {
+  const wanted = `packages/team/deploy/${pattern}`
+  return ignoreText
+    .split('\n')
+    .map((line) => line.trim())
+    .some((line) => line === wanted || line === `/${wanted}`)
+}
+
+describe("init.sh's secrets are ignored by git AND by docker", () => {
+  const patterns = secretArtefactPatterns(readFileSync(INIT_SH, 'utf8'))
+
+  it('derives both artefacts from the script, not from a list kept here', () => {
+    expect(patterns).toEqual(['.env', '.env.tmp.*'])
+  })
+
+  it.each(['.gitignore', '.dockerignore'])('%s covers every secret-bearing path init.sh writes', (ignoreFile) => {
+    const text = readFileSync(path.join(REPO_ROOT, ignoreFile), 'utf8')
+    for (const pattern of patterns) {
+      expect({ ignoreFile, pattern, covered: ignores(text, pattern) }).toEqual({
+        ignoreFile,
+        pattern,
+        covered: true,
+      })
+    }
+  })
+
+  it('THE LAW BITES — the tree as it actually shipped fails it', () => {
+    // No .dockerignore at all was the shipped state; a .dockerignore that
+    // remembers only .env is the near miss that closes half of it.
+    expect(ignores('', '.env')).toBe(false)
+    expect(ignores('packages/team/deploy/.env\n', '.env')).toBe(true)
+    expect(ignores('packages/team/deploy/.env\n', '.env.tmp.*')).toBe(false)
+  })
+})
