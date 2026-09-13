@@ -618,18 +618,31 @@ does not share — the load probe runs it four times at once, so a test file tha
 burns two minutes of CPU burns eight of them on the operator's own machine while
 they wait for it. That is an argument for keeping an expensive benchmark in the
 timing set (a `// @gate-timing` marker, or a `*.bench.test.ts` name), never for
-trimming what CI covers. Since #211 (prd-25 wave 2) `pack-smoke` runs a `windows-latest` leg at
-both node legs, so a built clone's boot on native Windows is witnessed on every
-push — the `pathToFileURL` fix in `packages/server/bin/rhizomorph.mjs` had no
-CI witness before it. `build-test-boot` still has no Windows leg. The suite's
-known native failures live in `.windows-known-failures`, which
-`.github/workflows/windows-suite.yml` enforces per file on every push (#212,
-prd-25 wave 3): a failure outside the list is red, a listed file that passes
-is a removal candidate, and every entry names its cause class. Promotion onto
+trimming what CI covers. Since #211 (prd-25 wave 2) `pack-smoke` declares a `windows-latest` leg at
+both node legs, so a built clone's boot on native Windows has a job that
+witnesses it — the `pathToFileURL` fix in `packages/server/bin/rhizomorph.mjs`
+had no witness at all before it. `build-test-boot` still has no Windows leg.
+The suite's known native failures live in `.windows-known-failures`, which
+`.github/workflows/windows-suite.yml` compares per file (#212, prd-25 wave 3):
+a failure outside the list is red, a listed file that passes is a removal
+candidate, and every entry names its cause class. Promotion onto
 `build-test-boot` is a separate decision made with both Windows jobs' measured
 cost. The only other Windows runner in `.github/workflows/` is the
 installer-packaging leg in `desktop.yml`, which packages the shell and runs no
 suite.
+
+**None of those jobs run on a push any more (corrected 2026-09-14).** Both
+sentences above said "on every push", and that was true when it was written and
+is not now: GitHub Actions was retired for cost, and no workflow has run on
+this repository since 2026-09-12 — through every commit since. The workflow
+files are still in the tree and nothing triggers them, so read them as the
+declaration of what a leg *would* do, not as evidence anything ran. What you
+actually owe a PR is the local leg, `scripts/ci-local.sh`, and on native
+Windows the per-file comparison above is what `scripts/windows-triage.sh` does
+when you run it yourself. **Attribute a red by failing TEST NAME against a
+clean `main`, not by file:** `.windows-known-failures` names files, so a new
+failure inside an already-listed file is invisible to a per-file check, which
+is how a real break once reached CI while every local gate called it expected.
 
 ---
 
