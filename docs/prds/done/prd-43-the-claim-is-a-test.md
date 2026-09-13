@@ -474,6 +474,13 @@ no longer separates anything.
 **Wave 5 is therefore closed as a wave**, its declaration above kept as the record of why
 `#235` waited. `#235` is now wave 8.
 
+> **SUPERSEDED — not a second declaration.** This paragraph restates wave 5's closure; it does
+> not declare a new wave 5. `scripts/dev/prd-reconcile.sh`'s declaration pattern is unanchored,
+> so the bold "Wave 5" two lines above reads as a second push all the same, and the reconciler
+> reported it DOUBLE-DECLARED (:276 :474) while regrooming prd-43 for #448. Marked here rather
+> than reworded, because the corpus is append-only and the sentence above must keep resolving
+> as written.
+
 **Wave 8 — two issues, `#275` and `#235`** — *every row in the outbound-call table
 states its real expected count*. It was filed carrying `w8` while this Sequencing declared waves
 0–7, so `fence-lint` and the board both accepted an issue whose wave existed nowhere. Wave 8 is
@@ -593,6 +600,46 @@ the claim was written.
 pre-rename `launchpad-26/rhizomorph.tmp`, working only through GitHub's redirect. That is local git
 config, not a tracked file, so it has no issue — but it belongs in the operator's own checklist
 beside ruling 3.
+
+**Wave 11 — declared 2026-09-14, one issue, and it is the header's own turn to be swept.**
+`prd43 w11: a PRD's declared open issues are reconciled against the tracker` (`#448`). Filed
+not-ready pending three rulings — which text counts as a status claim, whether `docs/prds/`
+leaves the citation law's `EXCLUDED_DIRS` (ruling 8, above), and what a correct-but-stale claim
+costs — after prd-30's header read four shipped tooltips as live, with a green suite throughout,
+for however long it took a human to notice (found reconciling prd-30, PR #431). All three are
+ruled, in the issue's own comment thread, dated 2026-09-14: a status claim is a bold-label field
+in a PRD's head blockquote, not the whole header — a sweep of all 12 live PRDs carrying `#NNN` in
+that header found three false positives (a dead prior-tracker range in this document's own wave 7,
+a provenance link, a PR reference) before the field was scoped this narrowly; `EXCLUDED_DIRS` is
+untouched, because this check reads only its own declared field and never consults that list at
+all; and the guard is a fourth check in `scripts/dev/prd-reconcile.sh`, reported beside
+DOUBLE-DECLARED, VACANT and UNDECLARED WAVE, and never build-failing — both a `gh`-backed suite
+check and a git-log-derived one were measured and rejected, for the same clock-coupling reason
+wave 7's citation law already gives for staying `gh`-free.
+
+**Amended 2026-09-14, round 6 of #448's verify — two sentences above are corrected, not
+reworded.** The paragraph above states the ruling as first read and measured, and both of its
+factual claims later proved wrong on a wider measurement; kept in place, append-only, with the
+correction here rather than edited into it.
+
+*"a status claim is a bold-label field in a PRD's head blockquote, not the whole header"* — wrong.
+The ruling settled on round 6 is a DEDICATED declared field, `**Open:**`, default NON-claim:
+`**Status:**` and `**Outcome:**` are prose and are never read as claims, whatever they contain.
+"A bold-label field" is the sweep-of-the-status-paragraph reading that produced the drift this
+correction exists to name.
+
+*"a sweep of all 12 live PRDs carrying `#NNN` in that header found three false positives"* — wrong,
+and the figure is too small. Measured across all 53 live PRDs against the live tracker (operator,
+round 6): 17 STALE STATUS firings, roughly 12 false to 5 true. prd-39's head says the milestone
+"**closed** with issues #1, #2 and #27" in the same sentence, and the bold-label reading reported
+`#1` as a stale open claim over it. prd-20's own `#216` — the worked bite this document's own
+commit history cites for five straight rounds — was not evidence the design worked; it was the
+drift itself, since `#216` sits in `**Outcome:**` prose, outside any declared field.
+
+Accepted, deliberate consequence: no PRD in this corpus declares `**Open:**` today, so
+`scripts/dev/prd-reconcile.sh` currently catches nothing on the real corpus, including prd-20's
+own `#216` — a genuine stale claim now sitting outside what the check reads. prd-20 adopting the
+field is prd-20's own call, not this document's, and not backfilled by this correction.
 
 ## Open questions — all three RULED 2026-09-07
 
