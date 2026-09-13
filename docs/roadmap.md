@@ -227,14 +227,15 @@
   `MarkHoverCard` was never re-seated but ruled out of scope (ADR-0044: a menu of seek targets
   is not card chrome, and it keeps its open delay for that reason), and the loupe read-out is
   not a disclosure at all, opening on zoom level with no hover or focus handler. **A fifth wave
-  was filed 2026-09-14**, both defects in surfaces this PRD built and both found while staging
-  the acceptance: the card's why line doubles or invents an elapsed on four of the five
-  conditions, and the attention strip pushes three pathologies — plus the `+N` marker that
-  announces them — off a 1440 px viewport. Neither could have gone red, for reasons the PRD's
-  2026-09-14 amendment records along with both issue numbers, which are above this corpus's
-  citation ceiling and so are not repeated here. The first-glance acceptance is outstanding
-  too; it is an operator act with a real lay viewer, carrying prd-33 ruling 14's Check 3 list
-  (`docs/design/glance-2026-09-02.md`).
+  shipped 2026-09-14**, both defects in surfaces this PRD built and both found while staging the
+  acceptance: the card's why line **had been** doubling or inventing an elapsed on four of the
+  five conditions, and the attention strip **had been** pushing three pathologies — plus the
+  `+N` marker that announces them — off a 1440 px viewport. Both are fixed; a card now states
+  its age once and the strip names what fits and counts the rest. Neither could have gone red,
+  for reasons the PRD's 2026-09-14 amendment records. The first-glance acceptance is the one
+  item still outstanding; it is an operator act with a real lay viewer, carrying prd-33 ruling
+  14's Check 3 list (`docs/design/glance-2026-09-02.md`), and wave 5 changed what its Check 2
+  asks.
 - **prd31 — the bracketed voice** (`docs/prds/done/prd-31-the-bracketed-voice.md`, shipped):
   one kind grammar, structural conversation bracketing, trace density, and one typed search over
   conversation, feed and trace all ship; filtered surfaces state what they hide.
