@@ -31,9 +31,28 @@ export const DEFAULT_DATABASE_URL = 'postgres://localhost:5432/rhizomorph'
 export const ENV_DATABASE_URL = 'RZ_TEAM_DATABASE_URL'
 export const ENV_MIGRATIONS_DIR = 'RZ_TEAM_MIGRATIONS_DIR'
 
+/**
+ * The GitHub App's identity (ruling 9, ruling 8 as amended 2026-09-08 — "the
+ * human plane is a GitHub App"). All six default to the empty string: absent
+ * credentials are a valid configuration, not a boot failure — the real
+ * deployment has none of this set today.
+ */
+export const ENV_GITHUB_ORG = 'RZ_TEAM_GITHUB_ORG'
+export const ENV_GITHUB_APP_ID = 'RZ_TEAM_GITHUB_APP_ID'
+export const ENV_GITHUB_INSTALLATION_ID = 'RZ_TEAM_GITHUB_INSTALLATION_ID'
+export const ENV_GITHUB_APP_PRIVATE_KEY = 'RZ_TEAM_GITHUB_APP_PRIVATE_KEY'
+export const ENV_GITHUB_CLIENT_ID = 'RZ_TEAM_GITHUB_CLIENT_ID'
+export const ENV_GITHUB_CLIENT_SECRET = 'RZ_TEAM_GITHUB_CLIENT_SECRET'
+
 export interface TeamConfig {
   readonly databaseUrl: EffectiveValue<string>
   readonly migrationsDir: EffectiveValue<string>
+  readonly githubOrgLogin: EffectiveValue<string>
+  readonly githubAppId: EffectiveValue<string>
+  readonly githubInstallationId: EffectiveValue<string>
+  readonly githubAppPrivateKey: EffectiveValue<string>
+  readonly githubClientId: EffectiveValue<string>
+  readonly githubClientSecret: EffectiveValue<string>
 }
 
 /**
@@ -58,6 +77,25 @@ export function redactDatabaseUrl(raw: string): string {
   }
 }
 
+/**
+ * A secret's display value: never the secret, and distinguishable from unset.
+ * Unlike `redactDatabaseUrl` there is no shape to partially preserve — a
+ * private key or a client secret is opaque end to end, so redaction is total.
+ */
+function redactSecret(value: string): string {
+  return value === '' ? '<unset>' : '<redacted>'
+}
+
+/**
+ * Identity fields (org login, app id, installation id, client id) are not
+ * secrets and display their real value — but `display` may never be empty
+ * (`names-its-setter-law.test.ts` holds that structurally), so an unset one
+ * says so rather than printing nothing.
+ */
+function displayIdentity(value: string): string {
+  return value === '' ? '<unset>' : value
+}
+
 function stringValue(
   name: string,
   envName: string,
@@ -75,5 +113,11 @@ export function resolveTeamConfig(env: Readonly<Record<string, string | undefine
   return {
     databaseUrl: stringValue('databaseUrl', ENV_DATABASE_URL, DEFAULT_DATABASE_URL, env, redactDatabaseUrl),
     migrationsDir: stringValue('migrationsDir', ENV_MIGRATIONS_DIR, MIGRATIONS_DIR, env),
+    githubOrgLogin: stringValue('githubOrgLogin', ENV_GITHUB_ORG, '', env, displayIdentity),
+    githubAppId: stringValue('githubAppId', ENV_GITHUB_APP_ID, '', env, displayIdentity),
+    githubInstallationId: stringValue('githubInstallationId', ENV_GITHUB_INSTALLATION_ID, '', env, displayIdentity),
+    githubAppPrivateKey: stringValue('githubAppPrivateKey', ENV_GITHUB_APP_PRIVATE_KEY, '', env, redactSecret),
+    githubClientId: stringValue('githubClientId', ENV_GITHUB_CLIENT_ID, '', env, displayIdentity),
+    githubClientSecret: stringValue('githubClientSecret', ENV_GITHUB_CLIENT_SECRET, '', env, redactSecret),
   }
 }
