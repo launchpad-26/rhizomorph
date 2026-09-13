@@ -1195,7 +1195,11 @@ not exist yet.
 - **#436**, wave 5's straggler, is unblocked and unstarted.
 - **#171 still carries its prd-48 body** — it fences
   `docs/research/2026-08-29-shared-record-s8-vps.md`, which does not exist, and declares blockers
-  from a wave structure this PRD replaced. It is re-groomed when wave 7 comes up, not before.
+  from a wave structure this PRD replaced. It is re-groomed when wave 7 comes up, not before. Its
+  **title and board row still read `prd51 w6`**, so a `prd51 w6 in:title` search returns four issues
+  where the map above names three, and `scripts/dev/issues.sh list` shows the fourth in Backlog.
+  Which wave it belongs to is settled at that regrooming and not here; recorded so the next reader
+  meets the disagreement as a known one rather than finding it.
 - **`packages/team/src/api/http.ts` is now owed a router**, and wave 7 is where that debt is paid.
   Every piece deferred above lands on it at once: the callback route, the mint surface, the three
   questions' pages and the team server's doctor. That is a single restructuring with four callers,
