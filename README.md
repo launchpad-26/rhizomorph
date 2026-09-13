@@ -517,6 +517,13 @@ free, remote and unauthenticated, because this repo is public — which is what
 **It carries no authority, and nothing here can make it true.** It is written by
 a model from this tree and refreshed on its vendor's schedule; no test in this
 repository can turn red when it says something wrong. Use it to find your way in.
+
+**How stale it may be is not a documented number.** Cognition states one thing
+about refreshing — *"We auto-refresh DeepWikis if their repo has a badge"* — which
+is why the badge is here, and says nothing about cadence. Figures circulating
+elsewhere ("weekly", "a five-day lag without a badge") trace to no primary source
+we could find, so do not plan against them. Treat the page's age as unknown, and
+the tree as the thing that is current.
 When a claim has to hold, read the document, and find the law that holds it —
 [docs/README.md](docs/README.md) is the map, and the laws live in tests beside the
 code they hold ([CONTRIBUTING.md](CONTRIBUTING.md#laws-live-in-tests)).
