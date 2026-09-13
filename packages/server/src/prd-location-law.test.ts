@@ -58,37 +58,77 @@ import { describe, expect, it } from 'vitest'
  * recurrence interval would still read green while the exact drift this law exists
  * to catch was reaccumulating.
  *
- * ## Ruling 2 is not implemented here, on purpose
+ * ## Ruling 2 — the declared-exemption form (wave 2, #428)
  *
- * "A PRD may stay unarchived when its own text declares why" is ruling 2, and its
- * form does not exist yet — wave 2 (#428) designs and builds it. Until it does, every
- * PRD reads as having no declared exemption, which is the correct answer today (none
- * of the five this wave moved had one) and is NOT an error condition — ruling 1 is
- * explicit that the law must read the form's absence as "no exemption claimed" and
- * carry on. {@link declaredExemptionReason} is a deliberate stub for exactly that:
- * wave 2 replaces its body, not the shape callers here depend on.
+ * "A PRD may stay unarchived when its own text declares why" is ruling 2.
+ * {@link declaredExemptionReason} reads it: a PRD's text carrying a genuine DECLARATION of
+ * the marker `**Shelf exemption:**` (a line starting with it, outside any comment or code
+ * block — see that function's own doc comment for the full grammar) followed by prose that
+ * clears a substance threshold is exempt from this law; a PRD with no such declaration, or
+ * one with nothing but a placeholder behind it, is not, and reads exactly as it did before
+ * this wave — "no exemption claimed", not an error. The reason may continue across further
+ * blockquote lines (each starting with `>`) after the marker's own line, the same
+ * `> **Label:** wrapped prose` shape this file's own PRDs already use elsewhere (see this
+ * PRD's own `**Outcome:**` blocks); a blank quoted line (`>` alone) ends the paragraph, so a
+ * later, unrelated quoted paragraph is never swept into the reason.
  *
- * ## The mirror case now HAS an instance — prd-56's open question is stale
+ * **Keyed on the declaration, never on the document.** The rejected alternative is a list
+ * of allowed filenames (or a check for `prd-17` by name): it passes today and is a fitted
+ * instrument, because the next PRD with a real reason to stay would not be on the list, the
+ * law would convict it, and the fix would be adding a second name rather than writing a
+ * reason. `declaredExemptionReason` never inspects a file's name, only its text — proven
+ * below by a synthetic file carrying the marker under a name this repo has never used.
+ *
+ * The second rejected alternative is a flag that suppresses the whole law rather than one
+ * file's violation. Proven below: a synthetic closed-milestone, no-reason entry is convicted
+ * in the SAME `violationsIn` call that clears the real prd-17 entry, so the form cannot be
+ * "never fire".
+ *
+ * **A third rejected alternative, added at verify (2026-09-14, `c8709751`).** The first
+ * version matched the first OCCURRENCE of the marker via a bare `text.indexOf`, not the
+ * first DECLARATION — concealable behind an HTML comment or a fenced code block, confusable
+ * with a mid-sentence mention of the marker itself, and unpinned as to WHICH occurrence
+ * governs when a file (every one of the four this wave exempts) contains it twice. Two
+ * independent review seats plus the orchestrator found this, all EXECUTED: an HTML-comment
+ * concealment and a `lastIndexOf` mutation both left the suite 21/21 green. The rejected fix
+ * was a word blacklist ("TBD", "n/a", "-", …) for the sibling defect — placeholder reasons
+ * ("`> **Shelf exemption:** -`" and five others) also passed — for the same reason the
+ * filename list was rejected above: the next placeholder is never on the list. Both are
+ * fixed structurally instead — see {@link declaredExemptionReason}'s own doc comment.
+ *
+ * **Four subjects carry a declared reason; one is archived instead**, and the two are not
+ * interchangeable (prd-56, operator-ruled 2026-09-13, recorded on #428): `prd-17`
+ * (`docs/follow-up-292.md` holds an open item against ruling 3), `prd-53` (`prd-55`'s waves
+ * build live on its rulings), `prd-14` and `prd-20` (`prd-55` and `prd-34`, respectively,
+ * each cite a still-live PRD's rulings from a document that is itself unfinished) each
+ * declare one. `prd-48` had no such argument found for it and moved to `docs/prds/done/`
+ * instead, taking ruling 1's ordinary path — reaching for the exemption to paper over an
+ * archival candidate is exactly what would turn the form into a way to switch the law off.
+ * Adding the two late subjects (`prd-14`, `prd-20`, discovered only once the manifest was
+ * actually regenerated) required editing no code in this file — only their own PRD text —
+ * which is itself evidence the form is keyed on the declaration and not on which PRD asks.
+ *
+ * ## The mirror case still has its instance — prd-56's open question is stale, and now ruled
  *
  * prd-56's Open Questions ask whether the law should also fail an ARCHIVED PRD whose
- * milestone is still OPEN, and leave it **open, not ruled**, on the stated ground that
- * "no instance exists today". That ground is no longer true, and this wave is what made
- * it untrue: `prd43`'s milestone REOPENED (1 open issue, no `closed_at`) after this wave
- * moved `prd-43-the-claim-is-a-test.md` into `done/` on the strength of its then-closed
- * milestone, and after the manifest recorded `43 closed 2026-09-07T22:46:05Z`.
+ * milestone is still OPEN, and left it **open, not ruled**, on the stated ground that "no
+ * instance exists today". That ground stopped being true when wave 1 moved
+ * `prd-43-the-claim-is-a-test.md` into `done/` on the strength of its then-closed milestone
+ * and the milestone then REOPENED (1 open issue, no `closed_at`). #459 is the ruling: the law
+ * stays one-way, deliberately, because a closed-milestone PRD on the live shelf misleads a
+ * reader into treating a shipped ruling as open, while an archived PRD with a reopened
+ * milestone only reads as stale — nobody is misled into treating it as settled.
  *
  * Nothing here goes red, and that is by design rather than by oversight: {@link liveShelfEntries}
- * reads only `docs/prds/`, never `docs/prds/done/`, so an archived PRD is outside this
- * law's sweep whatever its milestone says. The row is left as the generator wrote it.
+ * reads only `docs/prds/`, never `docs/prds/done/`, so an archived PRD is outside this law's
+ * sweep whatever its milestone says. The row is left as the generator wrote it. #459 owns
+ * writing the ruling into prd-56's own document; this file only needed its citation updated
+ * once #459 gives it a number to cite, which is #459's job, not this wave's.
  *
- * It is recorded here rather than fixed here because fixing it is not this wave's call
- * and does not stay local: moving the file back to the live shelf requires the manifest
- * to say `43 open`, which requires regenerating it, which also flips `prd48` and `prd53`
- * to closed — and both of those files are on the live shelf, so the law then fails naming
- * them. Measured: exit 1, `expected [ 'prd-48-the-shared-record.md', 'prd-53-the-lab.md' ]
- * to deeply equal []`. The mirror case and those two archival candidates are one decision,
- * they belong to whoever rules prd-56's open question, and ruling 2's exemption form
- * (wave 2) is what either of them would need.
+ * What IS resolved, by this wave regenerating the manifest: `prd14`, `prd17`, `prd20`, `prd48`
+ * and `prd53` all flipping to closed no longer fails the law, because four now carry ruling
+ * 2's form and the fifth (`prd48`) moved to `done/` in this same commit. Measured before this
+ * wave's changes: regenerating exited 1 naming all five `docs/prds/*.md` files by name.
  *
  * ## The glob hazard (verified against the real tree before this law was written)
  *
@@ -173,14 +213,123 @@ function liveManifest(): Manifest {
   return parseManifest(readFileSync(MANIFEST_PATH, 'utf8'))
 }
 
+/** The exact marker {@link declaredExemptionReason} looks for — see the Ruling 2 doc comment above for the form's rationale and its two rejected alternatives. */
+const EXEMPTION_MARKER = '**Shelf exemption:**'
+
 /**
- * Ruling 2's declared-exemption reader — a STUB. See the doc comment above: the
- * form does not exist yet, so every PRD reads as having none, which is correct
- * today and is exactly what "read the absence as no exemption claimed, not an
- * error" requires. Returns the reason string once wave 2 gives it a shape; `undefined`
- * means "no exemption claimed."
+ * A declared reason must contain at least this many "words" — runs of 2+ letters — to
+ * count as substance rather than a placeholder. A THRESHOLD, not a blacklist of rejected
+ * strings ("TBD", "n/a", "-", "x", "**", a bare zero-width space all score 0 or 1): a
+ * blacklist is the same fitted instrument this issue already rejects for the exemption
+ * itself — the next placeholder is never on the list, and the fix becomes adding a fourth
+ * string rather than asking whether ANY placeholder should pass. A single letter, a bare
+ * punctuation mark, and an invisible character all score zero because `[A-Za-z]{2,}`
+ * requires two-plus letters in a row; a real reason is a sentence, which structurally
+ * requires several such runs. See the "declaredExemptionReason" describe block below for
+ * every scored form, each checked directly.
  */
-function declaredExemptionReason(_text: string): string | undefined {
+const MIN_REASON_WORDS = 3
+
+/**
+ * Strips zero or more levels of a CommonMark blockquote prefix (up to 3 leading spaces,
+ * `>`, then any run of spaces/tabs) from the START of one line. Deliberately consumes ALL
+ * whitespace after the `>`, not just CommonMark's own one optional space: this file has no
+ * indented code living inside a blockquote, so the simpler rule is the one that does not
+ * misread `>   **Shelf exemption:**` (extra padding) as an indented-code line.
+ */
+function stripBlockquotePrefix(line: string): string {
+  let rest = line
+  for (;;) {
+    const m = /^ {0,3}>[ \t]*/.exec(rest)
+    if (!m) return rest
+    rest = rest.slice(m[0].length)
+  }
+}
+
+/** A fence delimiter line (3+ of the same backtick or tilde), read after stripping any blockquote prefix. */
+const FENCE_OPEN_RE = /^(`{3,}|~{3,})/
+
+/**
+ * Ruling 2's declared-exemption reader. Keyed on the DECLARATION, never on the document:
+ * any text carrying a genuine declaration is exempt, regardless of which file it lives
+ * in — this function never sees a filename, only `text`.
+ *
+ * **Verify review found the first version matched the first OCCURRENCE of
+ * {@link EXEMPTION_MARKER}, not the first DECLARATION** (2026-09-14, `c8709751`,
+ * two independent seats plus the orchestrator, all EXECUTED): a bare `text.indexOf` sees
+ * a marker sitting inside an HTML comment, a fenced or indented code block, or a
+ * mid-sentence MENTION (this very file's own "keyed on the `**Shelf exemption:**` marker"
+ * sentences, added deliberately to each PRD as a human-readable cross-reference) exactly
+ * as readily as a real declaration — concealing a real one behind an HTML comment left the
+ * suite green, and mutating `indexOf` to `lastIndexOf` did too, because every one of the
+ * four PRDs this wave exempts contains the marker TWICE and no test pinned WHICH occurrence
+ * governs.
+ *
+ * The fix: a declaration is a LINE whose content — after {@link stripBlockquotePrefix} —
+ * starts with the marker, is not inside a fenced or indented code block, and is not inside
+ * an HTML comment (blanked out globally before the line scan, since a comment can wrap
+ * several `>`-quoted lines). The scan returns the FIRST such line; a mid-sentence mention
+ * never qualifies, because the marker there is not at the start of its line's content.
+ *
+ * The reason may continue across further blockquote lines the same way it always did,
+ * ending at the first blank quoted line or non-quoted line. It must then clear
+ * {@link MIN_REASON_WORDS} or the declaration is a hard stop — a placeholder reason
+ * convicts the file rather than leaving the scan to hunt for a better one further down,
+ * matching ruling 2's "an empty or placeholder reason is not an exemption" exactly.
+ *
+ * Returns the trimmed, whitespace-collapsed reason, or `undefined` for no declaration, a
+ * below-threshold one, or one that never emerges from a comment/fence/indented block.
+ */
+function declaredExemptionReason(text: string): string | undefined {
+  // HTML comments are blanked over the WHOLE text first, not line by line: a comment can
+  // wrap several `>`-quoted lines, and replacing only non-newline characters keeps every
+  // later line index identical to what it would be without the comment there.
+  const withoutComments = text.replace(/<!--[\s\S]*?-->/g, (m) => m.replace(/[^\n]/g, ' '))
+  const lines = withoutComments.split('\n')
+
+  let inFence = false
+  let fenceChar = ''
+  let fenceLen = 0
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i]!
+    const stripped = stripBlockquotePrefix(raw)
+
+    if (inFence) {
+      const close = /^(`+|~+)\s*$/.exec(stripped)
+      if (close && close[1]![0] === fenceChar && close[1]!.length >= fenceLen) inFence = false
+      continue // every line strictly between open and close, and the close line itself, is code
+    }
+    const open = FENCE_OPEN_RE.exec(stripped)
+    if (open) {
+      inFence = true
+      fenceChar = open[1]![0]!
+      fenceLen = open[1]!.length
+      continue
+    }
+    if (/^( {4,}|\t)/.test(stripped)) continue // an indented code line, not prose
+
+    if (!stripped.startsWith(EXEMPTION_MARKER)) continue
+
+    // A declaration line. Collect its paragraph exactly as ruling 2 always did: the rest
+    // of this line, then further `>`-prefixed lines, stopping at the first blank quoted
+    // line or non-quoted line. `\r` on a CONTINUATION line must be stripped before the
+    // regex runs — `.` excludes line terminators, so an untouched trailing `\r` blocks
+    // `(.*)$` from ever reaching the end of the string and the line reads as "not a
+    // continuation" (measured: a CRLF second line then drops out of the paragraph
+    // entirely). The marker's OWN line needs no such strip: `\s+` normalisation below
+    // already folds a trailing `\r` into the join, and removing it here changes nothing —
+    // verified by running both versions over the same CRLF fixture.
+    const paragraph: string[] = [stripped.slice(EXEMPTION_MARKER.length)]
+    for (let j = i + 1; j < lines.length; j++) {
+      const cont = /^\s*>\s?(.*)$/.exec(lines[j]!.replace(/\r$/, ''))
+      if (!cont || cont[1]!.trim().length === 0) break
+      paragraph.push(cont[1]!)
+    }
+    const reason = paragraph.join(' ').replace(/\s+/g, ' ').trim()
+    const words = reason.match(/[A-Za-z]{2,}/g) ?? []
+    return words.length >= MIN_REASON_WORDS ? reason : undefined
+  }
   return undefined
 }
 
@@ -244,6 +393,118 @@ describe('a PRD whose milestone is closed lives under docs/prds/done/ (prd56 rul
 
   it('no PRD on the live shelf has a closed milestone with no declared exemption', () => {
     expect(violationsIn(liveShelfEntries(), liveManifest())).toEqual([])
+  })
+
+  it('ruling 2: prd-17, prd-53, prd-14 and prd-20 each carry a declared reason despite a closed milestone', () => {
+    // `toBeDefined()` alone survived BOTH the HTML-comment-conceal mutant and the
+    // `indexOf` -> `lastIndexOf` mutant (verify, 2026-09-14): every one of these four files
+    // contains the marker TWICE — the declaration, then a self-reference in the trailing
+    // "read by ... for the marker" sentence each one carries — so the wrong occurrence
+    // still returns SOME defined string. Pinning the exact CONTENT is what reddens on the
+    // wrong occurrence, not just on no occurrence.
+    const EXPECTED_REASON: Record<string, string> = {
+      'prd-17-complete-record.md':
+        "it stays in `docs/prds/` rather than moving to `docs/prds/done/`, and that is a separate operator decision rather than a consequence of shipping — `docs/follow-up-292.md` reads this file's location as the difference between a LIVE ruling and an archival one, and holds an open, uncorrected item against ruling 3's law 1 — whose wording it calls the origin of a claim that is still false in `docs/architecture.md`. Archiving this PRD would demote that ruling while the item is open, and that document reserves the amendment decision for whoever owns the ruling. The move is a follow-up.",
+      'prd-53-the-lab.md':
+        "`prd-53`'s milestone closed 2026-09-11, but this stays on the live shelf rather than moving to `docs/prds/done/` — `prd-55`, *the lab, stage two*, is live with waves 6 and 7 building directly on this PRD's rulings, and archiving prd-53 mid-build would demote the rulings stage two is building on.",
+      'prd-14-experiment-console.md':
+        'stays on the live shelf rather than moving to `docs/prds/done/` — `docs/prds/prd-55-the-lab-stage-two.md` is live, with a wave in flight, and reasons from this PRD\'s rulings in the present tense: its Non-goals bind the R&D surface to naming no winner by citing "prd-14 ruling 3", and ruling 4 says a proposal\'s launch "applies unchanged (prd-14 ruling 4)". Archiving this PRD would demote rulings prd-55 is building on.',
+      'prd-20-the-concierge.md':
+        'stays on the live shelf rather than moving to `docs/prds/done/` — `docs/prds/prd-34-the-doorstep.md` is live (unmilestoned, still being built) and reasons from this PRD in the present tense: prd-34\'s own ruling 4 says *"prd-20 remains the authority on what the concierge may do (launch or relaunch a conductor, clone by URL; no OAuth, no accounts, no stored credentials)."* Archiving this PRD would demote a ruling prd-34 is deferring to.',
+    }
+    const shelf = liveShelfEntries()
+    const manifest = liveManifest()
+    for (const [file, expectedReason] of Object.entries(EXPECTED_REASON)) {
+      const entry = shelf.find((e) => e.file === file)
+      expect(entry, `${file} must still be on the live shelf`).toBeDefined()
+      expect(manifest.entries.get(entry!.number)?.state, `${file}'s milestone must be closed for this test to mean anything`).toBe('closed')
+      expect(entry!.text.split(EXEMPTION_MARKER).length - 1, `${file} must carry the marker at least twice for this test to be meaningful`).toBeGreaterThanOrEqual(2)
+      expect(declaredExemptionReason(entry!.text), `${file}'s declared reason`).toBe(expectedReason)
+    }
+  })
+
+  it('the exemption is keyed on the DECLARATION, not on which document made it — a synthetic file under an unrelated name is exempt just the same', () => {
+    const manifest = liveManifest()
+    const closedNumber = [...manifest.entries.entries()].find(([, e]) => e.state === 'closed')?.[0]
+    expect(closedNumber).toBeDefined()
+    const declaredElsewhere: ShelfEntry = {
+      number: closedNumber!,
+      file: 'prd-9999-a-file-this-repo-has-never-used.md',
+      text: '> **Shelf exemption:** a synthetic reason, not any real PRD\'s.\n',
+    }
+    expect(violationsIn([declaredElsewhere], manifest)).toEqual([])
+  })
+
+  it('the exemption is per-file, not a switch for the whole law — a synthetic no-reason PRD is convicted in the SAME run that clears the real prd-17', () => {
+    const shelf = liveShelfEntries()
+    const prd17 = shelf.find((e) => e.file === 'prd-17-complete-record.md')
+    expect(prd17).toBeDefined()
+    const manifest = liveManifest()
+    const noReasonClosed: ShelfEntry = { number: prd17!.number, file: 'prd-9998-no-reason-declared.md', text: 'nothing declared here' }
+    // Same manifest, same call: prd17 (real, with a reason) clears; the synthetic sibling
+    // sharing its milestone number, with no reason, does not. Proves the form cannot be
+    // implemented as "never fire" — the obvious miss this issue names.
+    expect(violationsIn([prd17!, noReasonClosed], manifest)).toEqual([noReasonClosed.file])
+  })
+
+  it('a declaration concealed behind an HTML comment is convicted, not exempted', () => {
+    // Verify, 2026-09-14: replacing a real declared-reason block with a single HTML
+    // comment carrying the marker left the first version 21/21 green — a reader sees a
+    // finished PRD with no stated reason, and the law agreed with the file.
+    const manifest = liveManifest()
+    const closedNumber = [...manifest.entries.entries()].find(([, e]) => e.state === 'closed')?.[0]
+    expect(closedNumber).toBeDefined()
+    const concealed: ShelfEntry = {
+      number: closedNumber!,
+      file: 'prd-9997-concealed-in-a-comment.md',
+      text: '<!-- **Shelf exemption:** still needed, see #428 -->\n\nNo visible reason anywhere in this document.',
+    }
+    expect(violationsIn([concealed], manifest)).toEqual([concealed.file])
+  })
+
+  it('a marker sitting only in a fenced code block documenting the form is convicted, not exempted', () => {
+    // Verify, 2026-09-14 (Opus seat): a PRD whose only marker sits inside a fence that
+    // documents the mechanism, with the body itself saying nothing is declared, read as
+    // exempt — the fence was never excluded from the scan.
+    const manifest = liveManifest()
+    const closedNumber = [...manifest.entries.entries()].find(([, e]) => e.state === 'closed')?.[0]
+    expect(closedNumber).toBeDefined()
+    const fenced: ShelfEntry = {
+      number: closedNumber!,
+      file: 'prd-9996-marker-only-in-a-fence.md',
+      text: "Ruling 2's form looks like this:\n\n```md\n> **Shelf exemption:** <reason>\n```\n\nNothing is declared in this PRD.",
+    }
+    expect(violationsIn([fenced], manifest)).toEqual([fenced.file])
+  })
+
+  it('mutation: emptying or removing prd-17\'s declared reason convicts it — the marker alone is not an exemption', () => {
+    const shelf = liveShelfEntries()
+    const prd17 = shelf.find((e) => e.file === 'prd-17-complete-record.md')
+    expect(prd17).toBeDefined()
+    const manifest = liveManifest()
+    expect(manifest.entries.get(prd17!.number)?.state).toBe('closed')
+    expect(violationsIn([prd17!], manifest), 'sanity: prd-17 passes today').toEqual([])
+
+    // The real reason continues across several further blockquote lines (this file's own
+    // `> **Label:** wrapped prose` convention), so a mutation that only touches the
+    // marker's own line leaves the rest of the paragraph intact and understates nothing —
+    // measured failing exactly that way on the first version of this test. Strip through
+    // the whole quoted run instead: the first line break not followed by another `>` line.
+    const markerIdx = prd17!.text.indexOf(EXEMPTION_MARKER)
+    expect(markerIdx).toBeGreaterThanOrEqual(0)
+    const afterMarker = markerIdx + EXEMPTION_MARKER.length
+    const quoteBreak = /\n(?!\s*>)/.exec(prd17!.text.slice(afterMarker))
+    const blockEnd = quoteBreak ? afterMarker + quoteBreak.index : prd17!.text.length
+    expect(blockEnd, 'the marker must be followed by at least one more blockquote line to strip').toBeGreaterThan(afterMarker)
+
+    const emptied = prd17!.text.slice(0, afterMarker) + prd17!.text.slice(blockEnd)
+    expect(emptied, 'the reason must actually have been stripped').not.toBe(prd17!.text)
+    expect(declaredExemptionReason(emptied)).toBeUndefined()
+    expect(violationsIn([{ ...prd17!, text: emptied }], manifest)).toEqual([prd17!.file])
+
+    const removed = prd17!.text.slice(0, markerIdx) + prd17!.text.slice(blockEnd)
+    expect(declaredExemptionReason(removed)).toBeUndefined()
+    expect(violationsIn([{ ...prd17!, text: removed }], manifest)).toEqual([prd17!.file])
   })
 
   it('a PRD with no milestone is not a violation — prd-34-the-doorstep is that one PRD today', () => {
@@ -374,5 +635,122 @@ describe('a PRD whose milestone is closed lives under docs/prds/done/ (prd56 rul
     expect(isManifestStale('not-a-date', now)).toBe(true)
     // A future timestamp is stale, not fresh — a negative age is never > the bound.
     expect(isManifestStale('2026-09-12T00:00:00Z', now)).toBe(true)
+  })
+})
+
+describe('declaredExemptionReason — ruling 2\'s marker reader, tested directly and independent of the real tree', () => {
+  it('no marker present -> no exemption claimed', () => {
+    expect(declaredExemptionReason('nothing relevant here')).toBeUndefined()
+  })
+
+  it('marker with prose on its own line -> the reason', () => {
+    expect(declaredExemptionReason('> **Shelf exemption:** prd-55 depends on this ruling directly.')).toBe('prd-55 depends on this ruling directly.')
+  })
+
+  it('marker at true line start with no blockquote at all -> still the reason', () => {
+    expect(declaredExemptionReason('**Shelf exemption:** prd-55 depends on this ruling directly.')).toBe('prd-55 depends on this ruling directly.')
+  })
+
+  it('marker after a nested blockquote, or one with extra internal padding -> still the reason', () => {
+    expect(declaredExemptionReason('>> **Shelf exemption:** prd-55 depends on this ruling directly.')).toBe('prd-55 depends on this ruling directly.')
+    expect(declaredExemptionReason('>   **Shelf exemption:** prd-55 depends on this ruling directly.')).toBe('prd-55 depends on this ruling directly.')
+  })
+
+  it('a reason continuing across further blockquote lines is joined and whitespace-collapsed', () => {
+    const text = '> **Shelf exemption:** first line\n> continues   here\n> and here.\n\n## Next section'
+    expect(declaredExemptionReason(text)).toBe('first line continues here and here.')
+  })
+
+  it('a blank blockquote line ends the paragraph — a later, unrelated paragraph is not swept in', () => {
+    const text = '> **Shelf exemption:** the real reason stated here.\n>\n> Unrelated prose in a new paragraph.'
+    expect(declaredExemptionReason(text)).toBe('the real reason stated here.')
+  })
+
+  it('a non-quoted line also ends the paragraph', () => {
+    const text = '> **Shelf exemption:** the real reason stated here.\nplain text with no > prefix'
+    expect(declaredExemptionReason(text)).toBe('the real reason stated here.')
+  })
+
+  it('CRLF line endings around the marker and its continuation are tolerated', () => {
+    expect(declaredExemptionReason('> **Shelf exemption:** first line here\r\n> continues here\r\n')).toBe('first line here continues here')
+  })
+
+  // Verify, 2026-09-14: `> **Shelf exemption:** -` and five siblings all passed the first
+  // version, which implemented only `reason.length > 0`. This test's TITLE already claimed
+  // "placeholder", but only its EMPTY-string assertions backed that claim — a test whose
+  // title claims more than it checks is this repo's own recorded defect shape. Each string
+  // below is now actually asserted, not merely named.
+  it('a placeholder reason is not an exemption, whatever shape the placeholder takes', () => {
+    for (const placeholder of ['-', 'TBD', 'n/a', '.', 'x', '**', '​']) {
+      expect(declaredExemptionReason(`> **Shelf exemption:** ${placeholder}`), `placeholder ${JSON.stringify(placeholder)} must not be an exemption`).toBeUndefined()
+    }
+  })
+
+  it('an empty declaration is not an exemption — the marker alone convicts', () => {
+    expect(declaredExemptionReason('> **Shelf exemption:**\n')).toBeUndefined()
+    expect(declaredExemptionReason('> **Shelf exemption:**   \n')).toBeUndefined()
+    expect(declaredExemptionReason('> **Shelf exemption:**\n>\n> more text after a paragraph break')).toBeUndefined()
+  })
+
+  it('a reason at or just above the substance threshold is an exemption; one word short is not', () => {
+    // Pins MIN_REASON_WORDS as a real boundary, the same way the manifest's 14-day bound
+    // is pinned with literal dates rather than derived from the constant it tests.
+    expect(declaredExemptionReason('> **Shelf exemption:** two words')).toBeUndefined()
+    expect(declaredExemptionReason('> **Shelf exemption:** exactly three words')).toBe('exactly three words')
+  })
+
+  // The three findings verify raised all collapse into one class: the reader must find the
+  // first DECLARATION, not the first OCCURRENCE. Every case below is a form the marker can
+  // appear in WITHOUT being a declaration, or a case where more than one occurrence exists
+  // and only one may govern.
+
+  it('a marker sitting inside an HTML comment is not a declaration — single-line and multi-line', () => {
+    expect(declaredExemptionReason('<!-- **Shelf exemption:** still needed, see #428 -->')).toBeUndefined()
+    expect(declaredExemptionReason('> <!-- **Shelf exemption:** still needed,\n> see #428 -->')).toBeUndefined()
+  })
+
+  it('a marker sitting inside a fenced code block is not a declaration — backtick and tilde fences', () => {
+    expect(declaredExemptionReason('```md\n> **Shelf exemption:** <reason>\n```\n\nNothing is declared here.')).toBeUndefined()
+    expect(declaredExemptionReason('~~~\n**Shelf exemption:** example only\n~~~')).toBeUndefined()
+  })
+
+  it('a marker sitting inside an indented code block (4 spaces or a tab) is not a declaration', () => {
+    expect(declaredExemptionReason('    **Shelf exemption:** this is example code, not a declaration')).toBeUndefined()
+  })
+
+  it('a marker preceded by other prose on the same line is a MENTION, not a declaration, and is skipped', () => {
+    expect(declaredExemptionReason('> The form is called **Shelf exemption:** and every PRD should have one.')).toBeUndefined()
+    // The mention sitting in a code span, this file's own PRDs' self-reference shape:
+    const mentionOnly = "> Declared for #428: the paragraph above is what the law reads, keyed on the\n> `**Shelf exemption:**` marker rather than on this file's name."
+    expect(declaredExemptionReason(mentionOnly)).toBeUndefined()
+  })
+
+  it('a real declaration is found even when a MENTION of the marker precedes it in the same document', () => {
+    const text = '> The form is **Shelf exemption:** described here.\n>\n> **Shelf exemption:** prd-55 depends on this ruling directly.'
+    expect(declaredExemptionReason(text)).toBe('prd-55 depends on this ruling directly.')
+  })
+
+  it('two genuine declaration lines in one document — the FIRST governs, not the last', () => {
+    // Distinct from the mention cases above: both lines here independently satisfy
+    // "starts with the marker, has substance". First-match is a deliberate choice, not
+    // an accident of scanning order, and this is what would redden a first-vs-last mutant
+    // in a document that (unlike today's four real PRDs) actually contains two.
+    const text = '> **Shelf exemption:** the first real reason stated here.\n\n> **Shelf exemption:** a different second reason stated here.'
+    expect(declaredExemptionReason(text)).toBe('the first real reason stated here.')
+  })
+
+  it('mutation: indexOf vs lastIndexOf is pinned by CONTENT — a real declaration followed by a self-reference mention returns the DECLARATION, not the mention', () => {
+    // This is the exact shape all four exempted PRDs carry: the declaration, then a later
+    // sentence quoting the marker (in a code span) to tell a human reader where the law
+    // looks. Verify measured the first version 21/21 green under `indexOf` -> `lastIndexOf`
+    // because nothing asserted WHICH occurrence's text came back.
+    const text = "> **Shelf exemption:** prd-55 depends on this ruling directly.\n>\n> Declared for #428, read via the\n> `**Shelf exemption:**` marker."
+    expect(declaredExemptionReason(text)).toBe('prd-55 depends on this ruling directly.')
+  })
+
+  it('the reader never inspects a filename — only violationsIn does, and only via the manifest number', () => {
+    // Pinned so a future refactor cannot quietly add a filename parameter and start
+    // keying the exemption on identity, the exact failure mode this issue names.
+    expect(declaredExemptionReason.length).toBe(1)
   })
 })

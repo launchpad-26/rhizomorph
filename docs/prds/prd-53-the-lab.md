@@ -13,6 +13,14 @@
 > blessed"*, 2026-08-12) as it stands, succeeded by a design-spec artifact of this PRD's own,
 > drawn between waves 2 and 3. Stage 2 — the R&D agent — is out, and says why.
 
+> **Shelf exemption:** `prd-53`'s milestone closed 2026-09-11, but this stays on the live shelf
+> rather than moving to `docs/prds/done/` — `prd-55`, *the lab, stage two*, is live with waves 6
+> and 7 building directly on this PRD's rulings, and archiving prd-53 mid-build would demote the
+> rulings stage two is building on.
+>
+> Operator-ruled 2026-09-13, recorded on #428, per prd56 ruling 2; read by
+> `packages/server/src/prd-location-law.test.ts` for the `**Shelf exemption:**` marker.
+
 ## Problem
 
 The lab reads as done, and it is not. That reading has a mechanism, and the mechanism is a loss
