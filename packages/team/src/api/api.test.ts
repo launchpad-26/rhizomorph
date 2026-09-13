@@ -54,7 +54,10 @@ function body(overrides: Record<string, unknown> = {}) {
   }
 }
 
-async function start(port = 0): Promise<{ server: TeamServer; storage: FakeTeamStorage; journalPath: string }> {
+async function start(
+  port = 0,
+  extra: { onError?: (message: string) => void } = {},
+): Promise<{ server: TeamServer; storage: FakeTeamStorage; journalPath: string }> {
   const storage = new FakeTeamStorage({ settings: { synchronous_commit: 'on' } })
   const journalPath = path.join(dir, 'ingest.journal')
   const result = await startTeamServer({
@@ -63,6 +66,7 @@ async function start(port = 0): Promise<{ server: TeamServer; storage: FakeTeamS
     journalPath,
     port,
     now: () => Date.UTC(2026, 10, 20),
+    ...extra,
   })
   if (!result.ok) throw new Error(result.error)
   running = result.server
@@ -402,5 +406,33 @@ describe('the ingest key is checked, once per batch, against the storage port', 
       body: JSON.stringify(body()),
     })
     expect(retry.status).toBe(202)
+  })
+
+  /**
+   * The storage's own sentence is the OPERATOR's, not the caller's. A 503 here
+   * answers a caller whose key has not been verified — anyone who can reach the
+   * socket with a well-formed `rzk_` value — and a database error names a host,
+   * a port, a role or a relation. So the wire carries the fact and the remedy,
+   * and the cause reaches `onError` (which `deploy/serve.ts` wires to stderr).
+   * Mutation: put the cause back on the wire and the first assertion reddens;
+   * drop the `onError` call and the second does.
+   */
+  it('the 503 names the fact and the remedy on the wire, and the cause only to the operator', async () => {
+    const reported: string[] = []
+    const { server, storage } = await start(0, { onError: (message) => reported.push(message) })
+    storage.failFindIngestKey = true
+
+    const response = await fetch(url(server), {
+      method: 'POST',
+      headers: { [INGEST_KEY_HEADER]: KEY },
+      body: JSON.stringify(body()),
+    })
+
+    expect(response.status).toBe(503)
+    const wire = JSON.stringify(await response.json())
+    expect(wire).toContain('refused rather than accepted')
+    expect(wire).not.toContain('the fake storage was told to fail the ingest key read')
+    expect(reported).toHaveLength(1)
+    expect(reported[0]).toContain('the fake storage was told to fail the ingest key read')
   })
 })

@@ -74,6 +74,9 @@ async function main(): Promise<void> {
     journalPath: path.join(JOURNAL_DIR, 'ingest.log'),
     host: HOST,
     port: PORT,
+    // A server-side failure the wire must not carry (the key check's storage
+    // read throwing) lands here, beside the boot report, for the operator.
+    onError: (message) => console.error(message),
   })
 
   if (!result.ok) {
