@@ -1,4 +1,9 @@
 import { parseIngestRequest } from '@rhizomorph/core/src/wire/index.js'
+import {
+  type IngestKeyVerdict,
+  ingestKeyRefusal,
+  statusForIngestKeyRefusal,
+} from '../keys/verify.js'
 import type { Journal } from '../journal/journal.js'
 import type { IngestFaults } from './faults.js'
 
@@ -28,13 +33,35 @@ import type { IngestFaults } from './faults.js'
  * changed error string rather than as a silent fork.
  */
 
-/** The header the shipper authenticates with. Its VALUE is not verified here — see {@link handleIngest}. */
+/** The header the shipper authenticates with. Its value IS verified — see {@link handleIngest}. */
 export const INGEST_KEY_HEADER = 'x-rz-ingest-key'
 
 export interface IngestDeps {
   readonly journal: Journal
   /** Wakes the fold worker. Called AFTER the fsync and BEFORE the 202, and exactly once per accepted batch. */
   readonly notify: (seq: number) => void
+  /**
+   * RULING 8'S ROW FLAG, READ ONCE PER BATCH.
+   *
+   * *"revoked by a row flag checked **once per batch** — which bounds revocation
+   * lag to one batch interval"*. This thunk is that check, and it is called
+   * exactly once by {@link handleIngest}, inside `validate`, before a byte
+   * reaches the journal.
+   *
+   * **It is resolved by the caller, not here.** {@link
+   * import('../storage/contract.js').TeamStorage} is asynchronous and this
+   * function is not: `../api/http.ts` calls it with no `await`, and turning that
+   * ~50-line adapter into something that could is wave 7's single restructuring
+   * of it. So `../api/main.ts` does the one row read per request and closes over
+   * its result; `../keys/verify.ts`'s `resolveIngestKeyCheck` is the seam.
+   *
+   * Once per batch is the whole claim. Once per event would be waste; a verdict
+   * memoised across batches would unbound the revocation lag the ruling bounds.
+   *
+   * **REQUIRED, not optional.** A build that can construct these deps without a
+   * verifier is the gap this closes, one missing field away.
+   */
+  readonly checkKey: () => IngestKeyVerdict
   readonly faults?: IngestFaults | undefined
   readonly trace?: ((step: string) => void) | undefined
   readonly now?: (() => number) | undefined
@@ -49,10 +76,23 @@ export interface IngestResponse {
  * One ingest request, as a status and a body.
  *
  * `ingestKey` is the request's `x-rz-ingest-key` header. A missing or empty one
- * is a 401 naming the header. **The value is deliberately not verified**: key
- * issuance and membership are wave 4's, and a build that pretended to check
- * would be worse than one that says it does not. The gap is loud — a test
- * asserts that an arbitrary non-empty key is accepted — rather than latent.
+ * is a 401 naming the header; the value is then **verified** against ruling 8's
+ * keys table, through {@link IngestDeps.checkKey}.
+ *
+ * ## The order of the four refusals, and why the scope check is last
+ *
+ * Key verification is part of **validate** — a refused key never touches the
+ * journal, and the tape for any refusal below ends at `validate`:
+ *
+ * 1. no header at all -> 401, naming the header.
+ * 2. `checkKey()` -> `malformed` 401, `unknown` 401, `revoked` 403. The ONE call.
+ * 3. `parseIngestRequest` -> 400, carrying core's own message verbatim.
+ * 4. the key's project against the request's -> `wrong-project` 403.
+ *
+ * Three of the four run BEFORE the body is decoded, because they do not need it
+ * and an unknown key should not buy a decode. The fourth cannot: a key is scoped
+ * to one project, and which project a batch is for is only knowable once the
+ * envelope has been parsed.
  */
 export function handleIngest(deps: IngestDeps, body: unknown, ingestKey: string | undefined): IngestResponse {
   deps.trace?.('validate')
@@ -61,14 +101,30 @@ export function handleIngest(deps: IngestDeps, body: unknown, ingestKey: string 
     return {
       status: 401,
       body: {
-        error: `no ${INGEST_KEY_HEADER} header on the request; a shipper authenticates every batch with one. The key's VALUE is not verified by this build — membership and key issuance arrive in prd-51 wave 4.`,
+        error: `no ${INGEST_KEY_HEADER} header on the request; a shipper authenticates every batch with one, and its value is checked against the keys this server holds.`,
       },
+    }
+  }
+
+  // THE ONE CALL (ruling 8). Once per batch, never once per event.
+  const verdict = deps.checkKey()
+  if (!verdict.ok) {
+    return {
+      status: statusForIngestKeyRefusal(verdict.reason),
+      body: { error: ingestKeyRefusal(verdict.reason) },
     }
   }
 
   const parsed = parseIngestRequest(body)
   if (!parsed.ok) {
     return { status: 400, body: { error: parsed.error } }
+  }
+
+  if (verdict.projectId !== parsed.request.project) {
+    return {
+      status: statusForIngestKeyRefusal('wrong-project'),
+      body: { error: ingestKeyRefusal('wrong-project', parsed.request.project) },
+    }
   }
 
   try {

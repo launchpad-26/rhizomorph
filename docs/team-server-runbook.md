@@ -20,18 +20,29 @@ runs `init.sh` before any container exists does not need Node installed.
 
 ```
 cd packages/team/deploy
-./init.sh                 # generates secrets, prints the ingest key ONCE — save it now
+RZ_TEAM_PROJECT=<project-id> ./init.sh   # generates secrets, prints the ingest key ONCE — save it now
 docker compose build
 docker compose up -d
-docker compose ps         # wait for all three services healthy
+docker compose ps                        # wait for all three services healthy
 ```
+
+`RZ_TEAM_PROJECT` names the project the first ingest key is scoped to — a key is valid
+for exactly one project (prd-51 ruling 8), and a batch shipped to any other is refused
+with *"wrong project"*. It defaults to `default`, which is a real project id and not a
+placeholder: whatever is set here is the value `rhizomorph connect team --project` must
+be given.
 
 `init.sh` is idempotent by the presence of the deploy directory's `.env` file (generated,
 gitignored, never tracked): running it again on a host that already has one prints a
 one-line confirmation and touches nothing. The
 ingest key is generated once and printed once, to standard output, on the run that
-creates `.env`. If it is lost, see "Rotating the ingest key" below — there is no way to
-recover the original value, only to mint a new one.
+creates `.env`.
+
+**Only the key's SHA-256 is stored — never the key.** The plaintext exists on your
+terminal and nowhere else: `.env` carries `RZ_TEAM_INGEST_KEY_SHA256`, the app is given
+that digest, and the `ingest_keys` table has no column that could hold a key. So there is
+nothing to recover from the host, from a backup, or from an image layer. If the value is
+lost, "Rotating the ingest key" below mints a new one and revokes the old.
 
 ## Second boot / redeploy says so
 
@@ -41,7 +52,7 @@ than looking identical to one that silently did nothing — `docker compose logs
 any `up` after the first shows a line in this shape (`packages/team/deploy/report.ts`):
 
 ```
-migrations: 0 applied, 4 already applied (0001_events, 0002_projections, 0003_roles_rls, 0004_events_dedup) — nothing to do
+migrations: 0 applied, 5 already applied (0001_events, 0002_projections, 0003_roles_rls, 0004_events_dedup, 0005_ingest_keys) — nothing to do
 ```
 
 A boot that actually applied something shows the count and the names in the `applied`
@@ -120,29 +131,46 @@ machine.
 
 ## What is not wired up yet
 
-Bringing the image up is not the same as the ingest pipeline being end-to-end. Three
+Bringing the image up is not the same as the ingest pipeline being end-to-end. Two
 things are deliberately unbuilt:
 
 - **The fold worker is not started.** The ingest route durably accepts and journals
   batches, but nothing folds them into Postgres's `events` table or the projections yet
   — the journal grows and nothing reads it.
-- **Ingest key values are not verified.** `init.sh` generates a random bearer secret for
-  a future shipper to use and prints it once, but the server accepts any non-empty
-  `x-rz-ingest-key` header today — the value is not checked against anything. Real key
-  issuance and verification is membership work — an `auth` module under the team
-  package's source, not yet merged.
 - **There is no `doctor` for the team server yet.** Nothing in this deployment should be
   read as implying one exists.
+
+Minting a key **from the team viewer** is also not here, because the viewer is not: the
+one key this deployment holds is the one `init.sh` seeds. That is a narrowing of ruling
+8's *"a member mints a key in the viewer"*, not a gap in the verification below.
 
 ## Rotating the ingest key
 
 ```
-rm packages/team/deploy/.env
-./init.sh
-docker compose restart app
+cd packages/team/deploy
+rm .env
+RZ_TEAM_PROJECT=<project-id> ./init.sh   # mints a new key, prints it once, stores only its digest
+docker compose up -d                     # NOT `restart` — see below
 ```
 
-This invalidates the old key only in the sense that nobody is told it anymore — the
-server does not check the value regardless (see "What is not wired up yet" above), so
-rotation is not enforced against a shipper still configured with the old key. Treat it as
-housekeeping, not as revocation, until key verification exists.
+**This is revocation, and it is enforced.** The boot that follows seeds the new digest
+and revokes every other key the project held, by setting a row flag. A shipper still
+configured with the old value is refused from its next batch with a 403 naming the reason
+— *"revoked key"* — rather than silently continuing to be accepted.
+
+Three things worth knowing before you run it:
+
+- **`docker compose up -d`, not `docker compose restart app`.** `restart` re-runs the
+  container with the environment it was created with; it does not re-read `.env`. A
+  rotation followed by a `restart` leaves the server seeded with the OLD digest, so the
+  key you just wrote down is refused and the one you meant to retire still works.
+- **The revocation lag is one batch interval.** The row flag is read once per batch
+  (ruling 8), so a batch already in flight when the boot happens completes; every batch
+  after it is refused.
+- **Pass the same `RZ_TEAM_PROJECT`.** A key is scoped to one project. Rotating under a
+  different project id mints a key for that other project and leaves the original
+  project's key live, which is not what "rotate" means.
+
+To revoke without minting a replacement — a key you believe is compromised, with no
+shipper to re-key yet — there is no command for that today: it is a row update against
+`ingest_keys`, and a mint-and-revoke path from the viewer is wave 7's.
