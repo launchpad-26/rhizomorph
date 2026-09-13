@@ -2,7 +2,7 @@ import { generateKeyPairSync } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { resolveTeamConfig } from '../config/config.js'
 import { checkOrgMembership } from './membership.js'
-import type { Fetch } from './github-app.js'
+import { type Fetch, mintInstallationToken } from './github-app.js'
 
 /** Generated fresh at test run — synthetic, never a real app key. */
 const { privateKey: TEST_PRIVATE_KEY } = generateKeyPairSync('rsa', {
@@ -146,5 +146,29 @@ describe('case 43 — absent credentials are unconfigured, and a mint failure is
 
     expect(result.status).toBe('error')
     expect('error' in result && result.error.length > 0).toBe(true)
+  })
+
+  /**
+   * The minter's own sentence reaches the caller INTACT — asserted against the
+   * minter, so this test owns no string. `membership.ts` passes `mint.error`
+   * through; replacing it with a paraphrase left every test green (the PR's own
+   * gap 3), because `github-app.test.ts` exercises the minter alone and the
+   * assertion above reads only the length. A 500 from the mint POST produces a
+   * deterministic message (no JWT bytes in it), which is why that status is the
+   * one used here.
+   */
+  it("the error is the minter's own sentence, not a paraphrase of it", async () => {
+    const config = resolveTeamConfig(CONFIGURED_ENV)
+    const mintResponse = { status: 500, json: async () => ({}) }
+    const fetchImpl = fakeFetch([], { status: 204 }, mintResponse)
+
+    const minted = await mintInstallationToken(
+      { appId: CONFIGURED_ENV.RZ_TEAM_GITHUB_APP_ID, installationId: CONFIGURED_ENV.RZ_TEAM_GITHUB_INSTALLATION_ID, privateKeyPem: TEST_PRIVATE_KEY },
+      fetchImpl,
+    )
+    expect(minted.ok).toBe(false)
+
+    const result = await checkOrgMembership(config, 'someone', { fetch: fetchImpl })
+    expect(result).toEqual({ status: 'error', error: minted.ok ? '' : minted.error })
   })
 })
