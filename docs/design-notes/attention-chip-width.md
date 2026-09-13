@@ -62,5 +62,5 @@ citation. `docs/prds/` is excluded from that law; `docs/design-notes/` is not.
 ## If you change a cap
 
 `max-w-[9rem]` and `max-w-[18rem]` and this constant are one fact written twice. Change either
-cap and this moves with it — `chipCapacity`'s boundary tests (539px names one, 538px names none)
+cap and this moves with it — `chipCapacity`'s boundary tests (520px names one, 519px names none)
 fail if it does not, which is the point of pinning a boundary rather than a band.
