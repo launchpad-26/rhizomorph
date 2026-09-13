@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { disclosureLines, type DisclosureContent } from '../../disclosure/index.js'
-import type { Gap, Lane } from '../../fleet/index.js'
+import { formatSpan, type Gap, type Lane } from '../../fleet/index.js'
+import * as format from './format.js'
 import {
   ageActiveCellDisclosure,
   ageCellDisclosure,
@@ -81,8 +82,11 @@ describe('a reading with no age still discloses honestly', () => {
     expect(card).toContain('no event has been recorded for this lane yet')
     expect(card).not.toContain('NaN')
     // The absence was observed on this fold, so it reads as just-now rather
-    // than as an invented span.
-    expect(card).toContain('0s ago')
+    // than as an invented span. Until #465 this comment and the assertion
+    // below it disagreed: the prose said just-now and the assertion pinned
+    // `0s ago`. The assertion now matches the sentence that was always here.
+    expect(card).toContain('just now')
+    expect(card).not.toContain('0s ago')
   })
 
   it('the AGE / ACTIVE cell keeps AGE when OTel reported no active time (law 12)', () => {
@@ -135,7 +139,10 @@ describe('a reading with no age still discloses honestly', () => {
     const card = render(gitStatusIncidentDisclosure(lane({ dirtyStatusFailedForMs: null })))
 
     expect(card).toContain('has failed repeatedly')
-    expect(card).toContain('0s ago')
+    // Same correction as above: this test's own NAME says "reads as just-now",
+    // and until #465 it asserted `0s ago`. The name was right.
+    expect(card).toContain('just now')
+    expect(card).not.toContain('0s ago')
     expect(card).not.toContain('NaN')
     // The remedy carries the command apart from the prose, so a surface that
     // can offer a copy affordance has something to copy (prd-27 ruling 5).
@@ -204,4 +211,97 @@ describe('the output cell', () => {
   it('survives a lane with no age at all', () => {
     expect(render(outputCellDisclosure(lane({ ageMs: null })))).not.toContain('NaN')
   })
+})
+
+/**
+ * #465 — the age is stated ONCE, and never invented.
+ *
+ * A property over every disclosure this module produces, not a literal per
+ * card. The old tests were green while four of the five shipped conditions
+ * rendered a defective sentence, because each pinned one condition's string
+ * and the defect lived in what the composition did to all of them.
+ *
+ * Three of this file's own sentences already said what the render should be —
+ * the header docblock's "confirmed just now", and two test names/comments
+ * below that say "reads as just-now" while asserting `0s ago`. The assertions
+ * now match the prose that was always here.
+ */
+describe('every card states its age once, and never invents one (#465)', () => {
+  const NOW = 1_800_000_000_000
+
+  /**
+   * A bare zero duration. The boundary matters: "1m30s ago" ends in "0s ago"
+   * as a substring, so a plain `toContain` reports six correct cards as
+   * defective. `\b` finds no boundary between "3" and "0", and does find one
+   * after a space — which is exactly the difference between a real span and
+   * the invented zero this issue is about.
+   */
+  const ZERO_DURATION = /\b0s ago/
+
+  /** Every producer, with arguments. Held to the module's real exports below. */
+  const PRODUCERS: Record<string, () => DisclosureContent> = {
+    laneIdentityDisclosure: () => laneIdentityDisclosure(lane()),
+    laneBranchDisclosure: () => laneBranchDisclosure(lane({ branch: null })),
+    inferredDisclosure: () => inferredDisclosure(lane()),
+    terminalDoneDisclosure: () => terminalDoneDisclosure(lane({ ageMs: null })),
+    // `declared: null` explicitly — the shared `lane()` helper omits the field
+    // and its `as Lane` cast hides that, so the condition selector reads
+    // `undefined.at` and throws. Nothing to do with this issue; it is what the
+    // helper's cast costs the first caller to reach this arm.
+    stateDisclosure: () =>
+      format.stateDisclosure(
+        lane({
+          declared: null,
+          lastEventTs: NOW - 90_000,
+          lastWorkTs: NOW - 90_000,
+          workAgeMs: 90_000,
+          agentStatusTs: null,
+          agentStatusWitness: null,
+        } as Partial<Lane>),
+        NOW,
+      ),
+    gitStatusIncidentDisclosure: () => gitStatusIncidentDisclosure(lane({ dirtyStatusFailedForMs: null })),
+    outputCellDisclosure: () => outputCellDisclosure(lane()),
+    costCellDisclosure: () => costCellDisclosure(lane(), [] as Gap[]),
+    ageCellDisclosure: () => ageCellDisclosure(lane({ ageMs: null })),
+    ageActiveCellDisclosure: () => ageActiveCellDisclosure(lane()),
+    threadsCellDisclosure: () => threadsCellDisclosure(lane()),
+  }
+
+  /**
+   * The property is only as exhaustive as this map, so the map is held to the
+   * module. A twelfth producer added later fails HERE rather than being
+   * silently uncovered — which is the failure shape #465 was filed for.
+   */
+  it('covers every *Disclosure this module exports', () => {
+    const exported = Object.keys(format)
+      .filter((key) => key.endsWith('Disclosure'))
+      .sort()
+    expect(Object.keys(PRODUCERS).sort()).toEqual(exported)
+  })
+
+  for (const [name, build] of Object.entries(PRODUCERS)) {
+    it(`${name}: states its elapsed at most once, and never as a zero duration`, () => {
+      const disclosure = build()
+      const lines = disclosureLines(disclosure)
+      const span = formatSpan(disclosure.why.evidence.elapsedMs)
+
+      const occurrences = lines.why.split(span).length - 1
+      expect(occurrences, `why said "${span}" ${occurrences} times: ${lines.why}`).toBeLessThanOrEqual(1)
+
+      // A WORD BOUNDARY, not a substring. `toContain('0s ago')` matches inside
+      // "1m30s ago" and fails six honest cards — the first version of this
+      // test did exactly that. The defect is a BARE zero duration.
+      expect(lines.why, lines.why).not.toMatch(ZERO_DURATION)
+      expect(lines.why, lines.why).not.toContain('just now ago')
+      expect(lines.why).not.toContain('NaN')
+
+      // The sibling case: the teach layer composes the same way.
+      for (const line of lines.derivation) {
+        expect(line, line).not.toMatch(ZERO_DURATION)
+        expect(line, line).not.toContain('just now ago')
+        expect(line).not.toContain('NaN')
+      }
+    })
+  }
 })
