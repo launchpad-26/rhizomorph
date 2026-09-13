@@ -26,7 +26,7 @@ what exists and when to reach for it.
 
 | Document | What it is, and when you want it |
 |---|---|
-| [design-notes/](design-notes/) | The reasoning behind one value, formula or visual form — why a constant is what it is. Cited directly from the code comment that needs it. 27 notes. |
+| [design-notes/](design-notes/) | The reasoning behind one value, formula or visual form — why a constant is what it is. Cited directly from the code comment that needs it. 28 notes. |
 | [design/](design/) | The charter and the UI-era design record, plus dated glance artefacts. Broader than a design note and narrower than a PRD. |
 | [research/](research/) | Dated spikes and measurements, 37 of them. **Read them for findings, not as current state** — each records a tree at the moment it was written. Note there is a second, smaller research tree at [../research/](../research/) holding the spikes that shipped with their own throwaway rigs. |
 | [review/](review/README.md) | Multi-strategy code reviews and audits, one directory per review seat, with a consolidated work list in its own README. Dated artefacts, same reading rule as `research/`. |
