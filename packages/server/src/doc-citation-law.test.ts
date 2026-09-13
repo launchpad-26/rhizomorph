@@ -2306,8 +2306,36 @@ describe('citation ceiling law: a #NNN citation above the live maximum cannot en
  * A pickaxe arm would turn four of this repo's own cautionary comments into violations.
  * Matching declaration shape on ADDED lines rejects all four. The regexes are applied to
  * raw diff lines, comments included — they are precise not because comments are stripped
- * (they are not; a diff has no reliable comment structure) but because a comment almost
- * never takes a declaration's shape. The four above are the evidence that this holds.
+ * (they are not; a diff has no reliable comment structure) but because a comment RARELY
+ * takes a declaration's shape.
+ *
+ * "Rarely", not "almost never", and that correction is the review of `de2e618b`'s. The
+ * method row below admitted the generator star as a modifier with whitespace allowed after
+ * it, so every JSDoc continuation line shaped `* Word (…)` parsed as a declaration of its
+ * first word. Verbatim from this repo's own history pass:
+ *
+ *     + * Measured (theme/oklch.ts): H ≈ 335–341 in both worlds; ≥ 33° from broken,
+ *     + * Opens (or creates) a journal for appending.
+ *
+ * MEASURED at that review: 389 names entered the ever-declared set through that row and no
+ * other, 20 of them symbol-shaped AND absent from source today. A document citing one of
+ * the 20 was told "this repo declared it once and no longer has it" and instructed to
+ * record it in `[renamed-away]` — filing a word that was never ours into the section whose
+ * own header calls its entries debt to be removed. That is the same wrong diagnosis with a
+ * harmful remedy the pathspec CONTROL test below pins, one scope dimension over, and it was
+ * latent for the same reason: none of the 20 is cited anywhere today. Closed here before it
+ * stopped being latent, on the standard the `export default` gap above was closed on.
+ *
+ * The star must now be ADJACENT to the name (`*gen()`, which is how a method generator is
+ * written); a JSDoc continuation always has the space, so the two separate cleanly.
+ *
+ * What this does NOT close is the other half, and the input table carries it as a declared
+ * limitation: a CALL expression at the start of a line. `setPanning` sits in
+ * `[renamed-away]` on the strength of `setPanning(event.sourceEvent.type !== 'wheel')`,
+ * which is a call — the verdict is right only by luck, since it was a destructured state
+ * setter and so genuinely ours. A regex cannot separate the two on one diff line, because
+ * `foo(` is both. The row stays regardless: `conductorSubagentAt(): number | null {` is a
+ * real method declaration that no other row in the list can see.
  *
  * ## Arm 2's last two rows are load-bearing
  *
@@ -2369,6 +2397,8 @@ describe('citation ceiling law: a #NNN citation above the live maximum cannot en
  * | `//` inside a STRING literal in a SOURCE file (`` const u = 'https://x/y' ``) | DECLARED LIMITATION, raised at the review of #369 — `stripCommentsFromSource` has no string-awareness, so it reads that `//` as starting a comment and drops the REST OF THAT LINE from arm 1's token set. The harm is the mirror of the path law's row above and strictly worse in kind: a symbol declared after such a literal goes missing from the source set, so a citation of it elsewhere reads absent and reddens as a violation that is not one. Same verdict for the same reason — closing it needs a string-literal-aware tokenizer, categorically bigger than the regex extractor this file deliberately is. No live instance (the corpus is green), pinned by a CONTROL test below so it cannot silently change |
  * | in a SHELL source comment (`scripts/*.sh`) | HANDLED as a comment wherever it starts on the line — `#` to end-of-line, not merely a whole-line `#`. Found by the independent review of `62a1f561`: with whole-line-only stripping, `true # DeadName` in any script silenced a real violation, because arm 1 read the dead name as still present. A CONTROL test below pins the A/B |
  * | `#` inside a SHELL STRING (`echo "a#b"`)  | DECLARED LIMITATION — no string-awareness, so the rest of that line leaves arm 1's token set. The direction of harm is SPLIT, and saying only half of it is how this row read until the delta review of `373365bc`: in the SWEEP a dropped token makes a symbol read absent, which REDDENS; in the three baseline honesty tests absence is the PASSING condition, so there it is the quiet direction and a stale `[renamed-away]` row can survive. Kept, because the gap it closes silenced a real citation while this costs at most a stale row — and the JS half has carried the same property, declared, since it was written. MEASURED at `373365bc`: 16 tokens drop from the sweep today, 4 of them symbol-shaped (`Fence`, `Ff`, `Field`, `Option`), and not one is cited in `docs/` or `packages/` |
+ * | a JSDoc continuation line (`* Word (…)`) | NOT A DECLARATION, closed at the review of `de2e618b` — the star must now be adjacent to the name, so `*gen()` is a method generator and `* Measured (…)` is a sentence. 389 names reached arm 2 through this shape and no other; 20 were symbol-shaped and absent from source, i.e. one citation away from a false `renamed-away`. CONTROL test below |
+ * | a CALL expression at the start of a line (`setPanning(x)`) | DECLARED LIMITATION, raised at the same review — `foo(` is a call and a method declaration written identically, and one diff line carries nothing that separates them. A name only ever CALLED at line start therefore reads as ever-declared, so a citation of it that is absent from source reads `renamed-away` rather than `not-ours`: the wrong-diagnosis direction, same as the row above. Not closable by a regex over `git log -p`; closing it needs a parser, which is categorically bigger than this extractor deliberately is. `setPanning` is the live instance and its verdict happens to be correct |
  * | inside a fenced code block              | SKIPPED — inherited from `stripFencedCodeBlocks`, same reasoning as the path law |
  * | in `.ts` CODE rather than a comment     | SKIPPED — inherited from `extractComments`; ruling 1's scope is comments |
  * | `.tsx` / `.mjs` comments                | OUT OF SCOPE as CITING files — inherited from the path law's #186 item 9 ruling, unchanged. Note the deliberate asymmetry: `.tsx` and `.mjs` ARE read as SOURCES for arm 1, because a symbol declared in a `.tsx` file is no less present for it |
@@ -2571,7 +2601,7 @@ const DECLARATION_RES: readonly RegExp[] = [
   /^\s*(?:export\s+)?enum\s+([A-Za-z_$][\w$]*)/,
   /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)/,
   /^\s*(?:readonly\s+)?([A-Za-z_$][\w$]*)\s*[?!]?\s*:/,
-  /^\s*(?:public|private|protected|static|async|\*)?\s*([A-Za-z_$][\w$]*)\s*\(/,
+  /^\s*(?:(?:public|private|protected|static|async)\s+)*\*?([A-Za-z_$][\w$]*)\s*\(/,
 ]
 
 function declaredNamesIn(text: string, linePrefix: '' | '+'): Set<string> {
@@ -3015,6 +3045,39 @@ describe('doc symbol law: a symbol cited from a document or a comment still exis
     for (const name of ['setClip', 'summaryAndExit']) {
       expect(sourceTokens().has(name), `arm 1 reads this path, so ${name} is present today`).toBe(true)
       expect(everDeclaredTokens().has(name), `arm 2 must read every path arm 1 does, or ${name} reads as never-ours`).toBe(true)
+    }
+  })
+
+  it('CONTROL: a JSDoc continuation line is not a declaration — arm 2 read `* Word (…)` as one and told a prose word it used to be ours (review of `de2e618b`)', () => {
+    // Verbatim from this repo's own history pass. Under the previous spelling — the
+    // generator star admitted as a modifier with `\s*` after it — every one of these
+    // declared its first word. That put 389 names into arm 2's set through this shape and
+    // no other, 20 of them symbol-shaped AND absent from source, so a document citing one
+    // was told to record a word that was never ours in [renamed-away].
+    const jsdoc = [
+      '+ * Measured (theme/oklch.ts): H in both worlds, far from the broken hue,',
+      '+ * Opens (or creates) a journal for appending.',
+      '+ * Completeness (every tracked screenshot has exactly one entry, and no',
+      '+ * States (ruling 7): live (markers on the track), empty (no checkpoints',
+    ].join('\n')
+    const fromJsdoc = declaredNamesIn(jsdoc, '+')
+    for (const prose of ['Measured', 'Opens', 'Completeness', 'States']) {
+      expect(fromJsdoc.has(prose), `${prose} opens an English sentence — it is not a declaration`).toBe(false)
+    }
+
+    // The forms the row exists FOR still parse, or this would have fixed a different bug.
+    const real = declaredNamesIn(
+      ['+  conductorSubagentAt(): number | null {', '+  *genLike() {', '+  async loadLike(p: string) {'].join('\n'),
+      '+',
+    )
+    for (const name of ['conductorSubagentAt', 'genLike', 'loadLike']) {
+      expect(real.has(name), `${name} is a method declaration and arm 2 must still see it`).toBe(true)
+    }
+
+    // And the consequence at the corpus: the verdict these four now get is the true one.
+    // `renamed-away` here would be a false claim whose instructed remedy is harmful.
+    for (const prose of ['Measured', 'Opens', 'Completeness', 'States']) {
+      expect(symbolVerdict(prose), `${prose} was never declared here, so it cannot have been renamed away`).toBe('not-ours')
     }
   })
 
