@@ -1,10 +1,10 @@
 # The rim's ragged edge: relax reach and drift band (#102, #117)
 
-`packages/web/src/scene/geometry.ts` — `RELAX_REACH_MIN_PX`/`MAX_PX`, `RETIRE_RELAX_PX`.
+`packages/web/src/scene/geometry.ts` — `RELAX_REACH_MIN_PX`/`RELAX_REACH_MAX_PX` (declared in `packages/web/src/scene/geometry/scale.ts`, re-exported through that public seam). `RETIRE_RELAX_PX` is NOT on that seam: it is a module-private `const` in `packages/web/src/scene/geometry/layout.ts` and is exported nowhere.
 
 ## Relax reach — why a length, not a fraction (#102)
 
-`RELAX_REACH_MIN_PX`/`MAX_PX` used to size the length of the *remnant* a cut
+`RELAX_REACH_MIN_PX`/`RELAX_REACH_MAX_PX` used to size the length of the *remnant* a cut
 left at the rim, before ruling 13 took the cut away (see `retire.ts`'s own
 decision record, `retire-transformation-not-deletion.md`, for that lineage).
 What survives is the half of the number that was always about the picture:
