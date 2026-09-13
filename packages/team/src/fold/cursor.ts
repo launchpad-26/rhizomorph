@@ -43,7 +43,18 @@ export const FOLD_CURSOR_VERSION = 1
 export interface FoldCursor {
   /** The journal seq EVERY known actor has committed through — where `readJournal` starts. */
   readonly seq: number
-  /** Per actor instance, the last journal seq whose rows for that actor are committed. */
+  /**
+   * Per actor instance, the last journal seq whose rows for that actor are committed — carried
+   * ONLY for actors ahead of {@link seq}.
+   *
+   * An actor whose mark equals `seq` is omitted, because `worker.ts` reads it as
+   * `actors[key] ?? seq` and so reconstructs it unchanged: the entry would repeat `seq` and
+   * nothing more. That omission is what bounds this record. `actorInstance` is the session id
+   * (`packages/server/src/shipper/cursor.ts` says so of its own `actors` map), so writing every
+   * actor down would grow the file by one permanent entry per session the deployment has ever
+   * run. A clean pass leaves this EMPTY; entries appear only while some actor is behind the
+   * rest, and go again when it catches up.
+   */
   readonly actors: Readonly<Record<string, number>>
 }
 

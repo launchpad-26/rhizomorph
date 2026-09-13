@@ -109,7 +109,39 @@ export async function runOnce(deps: FoldDeps): Promise<FoldResult> {
 
   const rows: EventRow[] = []
   const refused: { actorInstance: string; n: number; error: string }[] = []
-  const marks: Record<string, number> = { ...cursor.actors }
+
+  /**
+   * The last seq this read covers. `readJournal` returns a CONTIGUOUS span from `cursor.seq`
+   * (`read.ts`'s chain rule is `seq = previous + 1` from byte 0), so an actor with no record in
+   * that span has no record in it — everything of its own is at or below `cursor.seq` and was
+   * folded on an earlier pass.
+   */
+  const head = journal.records[journal.records.length - 1]?.seq ?? cursor.seq
+
+  /**
+   * EVERY ACTOR IS COMMITTED THROUGH `head` UNTIL ONE PROVES OTHERWISE.
+   *
+   * `lowWaterMark` is a minimum, and seeding it with the seq each actor last HAPPENED TO APPEAR
+   * at makes the journal wait on actors that are not waiting for anything. Two costs, and they
+   * differ in kind:
+   *
+   * - **Permanent, before the pruning below.** `actorInstance` is the session id
+   *   (`packages/server/src/shipper/cursor.ts` says so of its own `actors` map), so a deployment
+   *   accumulates one per session forever. A session that simply ENDED kept its final seq in
+   *   `actors`, and the minimum sat there for good: nothing stuck, nothing refused, every row
+   *   landing, and the fold re-reading the whole journal on every tick — which `journal.ts`
+   *   records as growing without bound (ADR-0046).
+   * - **Per pass, and this is what `head` is for.** Even with retired actors dropped, the
+   *   minimum over the actors in ONE read is the earliest of their last appearances, so a clean
+   *   pass over interleaved actors leaves the cursor mid-span and re-reads the rest next tick.
+   *
+   * A group that folded everything it had is committed through the whole span it was shown.
+   * Only a group that STOPPED may sit below `head`, which is what the minimum was always meant
+   * to mean: the point every actor has committed through, not the point the least recently
+   * active one reached.
+   */
+  const marks: Record<string, number> = {}
+  for (const key of Object.keys(cursor.actors)) marks[key] = head
 
   for (const [key, group] of groups) {
     // The mark is this actor's own committed point, not the journal's. A record at or below it
@@ -145,10 +177,23 @@ export async function runOnce(deps: FoldDeps): Promise<FoldResult> {
       furthest = record.seq
     }
 
-    marks[key] = furthest
+    // `head`, not `furthest`, when nothing stopped this group: it folded everything it had in
+    // this span, so it is committed through the whole of it. `furthest` is only the seq it last
+    // APPEARED at, and an actor that never appears again would hold that position for good.
+    marks[key] = stopped ? furthest : head
   }
 
   const target = lowWaterMark(marks)
+
+  /**
+   * Everything at or below `target` is folded for every actor, so an entry equal to it says
+   * exactly what `seq` already says — `readCursor`'s `actors[key] ?? cursor.seq` fallback
+   * reconstructs it unchanged. Dropping those is lossless, and it is what keeps `actors` bounded
+   * by the actors currently BEHIND the rest rather than growing one permanent entry per session
+   * this deployment has ever seen. A clean pass leaves it empty.
+   */
+  const actors: Record<string, number> = {}
+  for (const [key, mark] of Object.entries(marks)) if (mark > target) actors[key] = mark
 
   if (rows.length === 0) {
     // Nothing to insert — every group either refused at its first new record or had nothing new.
@@ -157,7 +202,7 @@ export async function runOnce(deps: FoldDeps): Promise<FoldResult> {
     // The cursor still moves if a group caught up without producing rows (an empty batch).
     if (target !== cursor.seq) {
       deps.trace?.('cursor.write')
-      writeCursor(deps.cursorPath, { seq: target, actors: marks }, deps.faults)
+      writeCursor(deps.cursorPath, { seq: target, actors }, deps.faults)
       deps.trace?.('cursor.rename')
     }
     return {
@@ -187,7 +232,7 @@ export async function runOnce(deps: FoldDeps): Promise<FoldResult> {
     deps.faults?.afterCommitBeforeCursor?.()
 
     deps.trace?.('cursor.write')
-    writeCursor(deps.cursorPath, { seq: target, actors: marks }, deps.faults)
+    writeCursor(deps.cursorPath, { seq: target, actors }, deps.faults)
     deps.trace?.('cursor.rename')
 
     return {
