@@ -1103,3 +1103,112 @@ spike outputs that were never written — and both declare blockers (#165 throug
 a wave structure this PRD replaced. They are re-groomed into build issues when waves 6 and 7 come
 up, not before. #354 is different: its body is current, and it names its own absorption into the
 doc sweep as the outcome to prefer.
+
+## Amendment — wave 5 is merged, and wave 6 is groomed into three lanes (operator, 2026-09-14)
+
+Wave 5 landed as PR #454, merged `2784204e`: #432, #433, #434 and #435, four lanes, four commits,
+cherry-picked with no conflict. **#436 is not in it.** It left the wave before dispatch and sits in
+Backlog behind #427, which held `docs/architecture.md` — the ADR citation it exists to fix is in a
+file another lane owned. #427 has since merged, so #436 is now unblocked and is the one piece of
+wave 5 still owed.
+
+Wave 6 is the membership-and-keys wave the map below has promised since 2026-09-11, unblocked by
+#410 landing in PR #446. Three lanes, and the shape they took is not the shape the map predicted.
+
+### The map, superseded again
+
+| wave | what | state |
+|---|---|---|
+| 0 | operator acts | recorded in the 2026-09-08 amendment |
+| 1 | the Keystone | **merged** (#257, #258, #259) |
+| 2 | `packages/team`: the storage port, ruling 5's schema, the migration runner | **merged** (#355) |
+| 3 | the shipper outbound · the ingest journals before it acks | **merged** (#386) |
+| 4 | the two wedges and the doctor route | **merged** (#425, `a3c5b305`; #410 in #446) |
+| 5 | ruling 11's local archive command · ruling 13's image and `init.sh` · two of the three wave-4 deferrals | **merged** (#454, `2784204e`) — except **#436**, unblocked now that #427 has landed |
+| 6 | membership is the boundary · a key is a hash · the ADR ruling 8 never got | **groomed and dispatched** — #169, #462, #463 |
+| 7+ | the three questions and the read-only role, and the router `api/http.ts` becomes · retention under a named ceiling (rulings 9, 10) · the team server's doctor and `/connect`'s row (ruling 12's second half) · #171's timed drill · the doc sweep (absorbs or fences #354) | not groomed |
+
+### Wave 6 refuses the `api/http.ts` collision rather than paying it
+
+The 2026-09-11 amendment predicted the remaining team-package pieces would collide on
+`packages/team/src/api/http.ts` — *"a 126-line hand-rolled listener"* — and on the
+one-migration-per-wave rule. Grooming confirmed the first and avoided it. That file is still one
+route wearing a conditional (`if (path !== INGEST_PATH)` … 404), and **both** halves of ruling 8
+want to add to it: the human plane wants `/auth/github/callback`, the machine plane wants the keys
+dependency to reach `handleIngest`.
+
+Only the second of those is free. `IngestDeps` is constructed in `packages/team/src/api/main.ts`
+and handed to `createIngestListener`, so a keys port riding on `TeamStorage` reaches the handler
+without the listener learning a second route. The first is not free, and **two narrowings follow.
+Both are rulings, not omissions:**
+
+- **The membership lane builds the check, not the route.** `packages/team/src/auth/` ships an
+  injected-transport module — the installation-token JWT, `GET /orgs/{org}/members/{user}`, 204 is
+  a member and everything else is not — wired to no socket. The callback route arrives in wave 7
+  alongside the viewer it would exist to serve, when one lane turns that listener into a router
+  once. This is the shape the package already has: `handleIngest` is *"pure of transport"* by its
+  own comment, and #258 shipped the fifth hand's law before the hand had any code.
+- **Ruling 8's "a member mints a key in the viewer" defers to wave 7 with the viewer.** There is no
+  viewer in wave 6 to mint from. What ships is the hash at rest, the revoke flag, the once-per-batch
+  check, the refusal text, and `packages/team/deploy/init.sh` seeding the first project's key by
+  storing only its hash. The clause is not amended — it is unbuilt until the surface it names
+  exists.
+
+### What the three lanes are
+
+`scripts/fence-lint.sh 169 462 463` **PASSED**: no overlaps, and the three coupling points the wave
+can reach are owned rather than orphaned — `docs/adr/README.md` by #463, `bootstrap.test.ts` and
+`api/api.test.ts` by #462. Re-linted against the live lanes (`169 462 463 427 436`), the only
+overlap in the wider run is the already-recorded #427/#436 one on `docs/architecture.md`.
+
+- **#169** — ruling 8's human plane, and **its prd-48 body is now rewritten**. The section above
+  records that #169 and #171 both still carried bodies fencing research notes that were never
+  written; that is now true of **#171 only**. #169 fences `packages/team/src/auth/` and three files
+  under `packages/team/src/config/`, and its blockers are gone.
+- **#462** — ruling 8's machine plane, whole, and the wave's largest lane at 14 fenced paths. It is
+  one issue rather than three because the port, the migration and the ingest refusal are one causal
+  chain; splitting it anywhere makes the second half depend on the first, which is a stack wearing a
+  bundle's clothes. **It spends the wave's single migration** (`0005_ingest_keys.sql`, carrying its
+  own `rz_ingest` grant, since an applied migration cannot be edited retroactively).
+- **#463** — the ADR ruling 8 never got. Rulings 2, 3 and 13 each landed one with the blessing;
+  ruling 8 is the other constitutional ruling in this document, it has been amended once already,
+  and a PRD ruling dies with its PRD. It records the two planes and **two** rejected alternatives
+  already argued in the 2026-09-08 amendment: an OAuth App, which acts *as* whoever signed in, and
+  repository read, which would have handed the server every private repository a member can reach to
+  answer one yes-or-no question.
+
+**No lane adds a dependency** — RS256 signing and SHA-256 are both `node:crypto` — so that
+one-per-wave allowance is unspent. The ADR number allowance is spent by #463.
+
+### Grooming found a coupling nobody had registered
+
+`packages/team/deploy/init.sh` mints the ingest key; `packages/server/src/shipper/key-mint-law.test.ts`
+reads that script's `ingest_key=` line **from another package** and holds it to `INGEST_KEY_PREFIX`.
+The law exists because `init.sh` once shipped a bare `openssl rand -hex 32` that `connect team`
+would have refused — but the seam itself is not in `.swarm/coupling.txt`, so a lane changing how the
+key is minted reddens a different package with no warning. #462 fences both sides and registers the
+entry; the fence-lint WARN could never have found it, because the entry it would have fired on does
+not exist yet.
+
+### Three things this wave does not close, stated so they are not assumed
+
+- **#436**, wave 5's straggler, is unblocked and unstarted.
+- **#171 still carries its prd-48 body** — it fences
+  `docs/research/2026-08-29-shared-record-s8-vps.md`, which does not exist, and declares blockers
+  from a wave structure this PRD replaced. It is re-groomed when wave 7 comes up, not before. Its
+  **title and board row still read `prd51 w6`**, so a `prd51 w6 in:title` search returns four issues
+  where the map above names three, and `scripts/dev/issues.sh list` shows the fourth in Backlog.
+  Which wave it belongs to is settled at that regrooming and not here; recorded so the next reader
+  meets the disagreement as a known one rather than finding it.
+- **`packages/team/src/api/http.ts` is now owed a router**, and wave 7 is where that debt is paid.
+  Every piece deferred above lands on it at once: the callback route, the mint surface, the three
+  questions' pages and the team server's doctor. That is a single restructuring with four callers,
+  and it should be groomed as one issue rather than four lanes discovering each other in it.
+- **`http.ts` carries a ruling-12 debt into wave 7, ruled rather than overlooked.** Lines 33–36 of
+  that file say key-value verification is *"wave 4's and is loudly unimplemented"*. #462 made that
+  false and did **not** fix it: the fix is a four-line comment edit touching no code, ruling 12
+  wants it in the same commit, and the fence forbids the file. The operator declined the widening
+  on 2026-09-14 — wave 6's shape is refusing this collision, and spending that property on four
+  lines of prose buys nothing a rewrite does not hand over for free. The correction lands with the
+  router, in the header of the file being replaced, where it cannot be missed. Recorded on #462,
+  and named as a widening **considered and declined** on the wave-6 bundle PR.
