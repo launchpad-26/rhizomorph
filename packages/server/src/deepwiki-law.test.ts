@@ -70,11 +70,36 @@ function mcpConfig(): McpConfig {
   return JSON.parse(read('.mcp.json')) as McpConfig
 }
 
-/** Every deepwiki.com link target in a document, as `owner/repo` where one is named. */
+/**
+ * Every deepwiki.com link target in a document, as `owner/repo` where one is named.
+ *
+ * TWO path segments are required, which is what keeps the badge asset itself
+ * (`deepwiki.com/badge.svg`, one segment) out of the results. An earlier draft
+ * carried a `startsWith('badge.')` filter for that job as well; the pattern made
+ * it unreachable, and removing it left every test green — so it was not a second
+ * line of defence, it was dead code that read as one (review of #480).
+ */
 function deepwikiRepoLinks(text: string): string[] {
-  return [...text.matchAll(/https:\/\/deepwiki\.com\/([^/\s)]+)\/([^/\s)]+)/g)]
-    .map((m) => `${m[1]}/${m[2]}`)
-    .filter((slug) => !slug.startsWith('badge.'))
+  return [...text.matchAll(/https:\/\/deepwiki\.com\/([^/\s)]+)\/([^/\s)]+)/g)].map((m) => `${m[1]}/${m[2]}`)
+}
+
+/**
+ * Credential smells in a config's text, over the WHOLE file.
+ *
+ * Scoped to the file and not to `mcpServers.deepwiki`: this repo's `.mcp.json`
+ * is created by the change this law ships with, so the next server anyone adds
+ * to it is the live case, and a check reading one key stayed green with a bearer
+ * token sitting one entry below it (review of #480). ADR-0019's argument is
+ * about the tree holding a credential at all, not about which server holds it.
+ *
+ * Matched over the serialized text rather than a list of known key names: a
+ * token can arrive under any spelling, and a law that enumerates spellings
+ * misses the next one (prd-46's whole argument).
+ */
+const CREDENTIAL_SMELLS = ['headers', 'Authorization', 'token', 'apiKey', 'api_key', 'secret', 'env']
+
+function credentialSmells(configText: string): string[] {
+  return CREDENTIAL_SMELLS.filter((smell) => new RegExp(smell, 'i').test(configText))
 }
 
 describe('the generated wiki names this repository, and reaching it holds no credential (#472)', () => {
@@ -90,17 +115,11 @@ describe('the generated wiki names this repository, and reaching it holds no cre
     expect(String(server!.url)).not.toMatch(/\/sse$/)
   })
 
-  it('the MCP server declaration carries no credential — the public endpoint needs none, and that is what makes ADR-0050 cheap', () => {
-    const server = mcpConfig().mcpServers?.deepwiki ?? {}
-    // Asserted over the serialized declaration rather than a list of known key
-    // names: a token can arrive under any spelling, and a law that enumerates
-    // spellings misses the next one (prd-46's whole argument).
-    const serialized = JSON.stringify(server)
-    for (const smell of ['headers', 'Authorization', 'token', 'apiKey', 'api_key', 'secret', 'env']) {
-      expect(serialized, `.mcp.json's deepwiki server declares "${smell}" — a credential here is an ADR, not a config edit`).not.toMatch(
-        new RegExp(smell, 'i'),
-      )
-    }
+  it('.mcp.json carries no credential ANYWHERE in it — the public endpoint needs none, and that is what makes ADR-0050 cheap', () => {
+    expect(
+      credentialSmells(read('.mcp.json')),
+      '.mcp.json names a credential — a credential here is an ADR, not a config edit',
+    ).toEqual([])
   })
 
   it("every deepwiki link in the README names THIS repository, derived from the manifest and not retyped", () => {
@@ -126,7 +145,33 @@ describe('the generated wiki names this repository, and reaching it holds no cre
     expect(deepwikiRepoLinks('[![x](https://deepwiki.com/badge.svg)](https://deepwiki.com/someone-else/other-repo)')[0]).not.toBe(ownerRepo)
 
     // The badge asset alone names no repository, and must not be read as one.
+    // The two-segment requirement is what does that, not a filter — and this
+    // line still bites if the pattern is ever loosened to one segment, which is
+    // the real risk it guards.
     expect(deepwikiRepoLinks('![x](https://deepwiki.com/badge.svg)')).toEqual([])
+
+    // A credential on the deepwiki entry — the case the first draft caught.
+    expect(credentialSmells('{"mcpServers":{"deepwiki":{"url":"u","headers":{"Authorization":"Bearer x"}}}}')).toEqual([
+      'headers',
+      'Authorization',
+    ])
+
+    // A credential in a SECOND server in the same file. Scoped to
+    // mcpServers.deepwiki, the law was green on exactly this.
+    expect(
+      credentialSmells(
+        JSON.stringify({
+          mcpServers: {
+            deepwiki: { type: 'http', url: 'https://mcp.deepwiki.com/mcp' },
+            other: { type: 'http', url: 'https://example.com/mcp', headers: { Authorization: 'Bearer x' } },
+          },
+        }),
+      ),
+    ).toEqual(['headers', 'Authorization'])
+
+    // And the control: the real file is clean, so both lines above are
+    // reporting planted faults rather than a standing one.
+    expect(credentialSmells(read('.mcp.json'))).toEqual([])
 
     // A host that merely CONTAINS github.com is not github.com.
     expect('git+https://mirror.github.com/launchpad-26/rhizomorph.git'.match(/^git\+https:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/i)).toBeNull()
