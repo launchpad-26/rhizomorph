@@ -554,6 +554,25 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **The attention strip names only the chips that fit, and the `+N` marker can no longer be
+  pushed off screen (prd-30 wave 5).** The marker was the clipping row's last child, so
+  an overflowing row pushed out the one element whose job is to say something is hidden:
+  measured in Chromium at 1440x900, the row had 563px for 1522px of chips and the `+1` sat
+  941px past the right edge, announcing one hidden pathology while three were invisible. The
+  marker is now a sibling of the clipping row, and the row measures itself and folds to what
+  it can actually name, so `+N` counts every pathology the reader cannot see. Conservative by
+  construction — it can fold a chip that would have fitted, which costs a name rather than
+  hiding a frozen lane (`docs/design-notes/attention-chip-width.md`).
+- **A disclosure card states its elapsed once, and never invents one (prd-30 wave 5).** The
+  card appended `<elapsed> ago` unconditionally, and four of the five shipped conditions broke
+  the assumption behind that: FROZEN and WAITING carry the span inside their own evidence, so
+  it printed twice — and on WAITING the appended "ago" landed on the last clause of a joined
+  list, asserting that workmux reported *working* 8m17s ago when the evidence says two
+  witnesses disagree. OFF-FENCE and EXPENSIVE have no time anchor at all and were stamped
+  `0s ago`, a duration invented for a trespass path and a token rate. A zero age now reads as
+  "confirmed just now", which is what `selectors/condition.ts` always said it meant, and an
+  age the evidence already states is not repeated. The teach layer composed the same way and
+  is fixed with it.
 - **The prd-27 follow-ups land (#307).** `GET /api/doctor` now reads the running recorder's fold, so it reports the same rung as `rhizomorph doctor` and `/api/meta` — L2 on a beacon-only machine — and prints the same per-lane declared-attention readings, from one shared function. `beacon` is the sixth connection source (`selectConnection`, the connect page and `/api/meta`'s `connection` block agree with the status bar's Beacon pill, which no longer derives its own flow). The beacon capture recipe names the key that actually cycles Claude Code's permission mode under tmux (`BTab`). The session-recorder ceiling law carries a 30 s per-test timeout so an 8 GB machine's full suite is green. The PRD's Outcome header and the architecture decisions log now record what waves 1–4 shipped.
 - **The activity feed names which witness signed an `agent.status` (prd-27 ruling 2 / ADR-0037, #290).** Since #281 two witnesses publish `agent.status` — workmux's declaration and the transcript organ's inference — and the feed rendered both as one bare word, the #133 false summons in a third costume. A lane row now carries the envelope's `source` as its witness and an inferred word wears the instrument's own `~` mark (`~ waiting`, `~ working`), exactly as the attention strip and the STATE hover already render an inference; a workmux row is byte-identical to before. The tag is exhaustive over the witness type, so a third witness fails typecheck rather than rendering as workmux's word.
 - **An event on screen is an event on disk (prd-40 wave 2, #4).** The recorder published

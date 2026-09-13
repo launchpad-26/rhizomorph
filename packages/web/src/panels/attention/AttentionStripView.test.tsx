@@ -1,5 +1,5 @@
 import { createEvent, createIdFactory, reduceAll, type RhizomorphEvent } from '@rhizomorph/core'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { discloseText } from '../../disclosure/testing.js'
 import {
@@ -14,7 +14,7 @@ import {
   type LadderRank,
 } from '../../fleet/index.js'
 import { AGE_INK_MAX_MS, AGE_QUIET_MAX_MS } from './ageBands.js'
-import { AttentionStripView, MAX_CHIPS } from './AttentionStripView.js'
+import { AttentionStripView, chipCapacity, MAX_CHIPS } from './AttentionStripView.js'
 import { MAX_WAITED_CHIPS } from './waitedChips.js'
 
 /**
@@ -554,3 +554,184 @@ function mockReducedMotion(reduced: boolean): () => void {
     window.matchMedia = original
   }
 }
+
+/**
+ * #464 — the marker that announces hidden chips was itself being clipped off
+ * screen. Measured in Chromium on fixture 3, `main` at a893af22: at 1440px the
+ * chip row had 563px for 1522px of chips and the `+1` sat at x=2381; at the
+ * declared 1100px floor (`WindowFloor.tsx`'s WINDOW_MIN_WIDTH) the row had
+ * 223px.
+ *
+ * jsdom reports every width as 0, so the arithmetic is tested directly here and
+ * the WIRING is proved by a browser pass recorded on the PR. Neither half is
+ * sufficient alone and this block does not pretend the first is the second.
+ */
+describe('chipCapacity — how many chips the row can name at a width (#464)', () => {
+  /**
+   * THE NUMBERS BELOW ARE THE MEASURED ROW, NOT THE WRAPPER, and the difference
+   * is what a browser pass caught after every test in this block was green.
+   *
+   * The marker is a sibling of the clipping row, so the flex split removes it
+   * and its gap BEFORE the row is measured: the wrapper is 563px at 1440x900
+   * and the row is 544px. The first version of these tests passed 563 — the
+   * wrapper — and an implementation that then subtracted the marker a second
+   * time. The arithmetic agreed with itself and named zero lanes on screen.
+   *
+   * So: feed this function only widths that `useRowWidth` could actually
+   * report. 544 and 204 are transcribed from Chromium on fixture 3, not chosen.
+   */
+
+  it('answers MAX_CHIPS when the width is not knowable — 0 is "unmeasured", not "no room"', () => {
+    expect(chipCapacity(0)).toBe(MAX_CHIPS)
+  })
+
+  it('treats a negative rect as the same unknown, not as a negative budget', () => {
+    expect(chipCapacity(-5)).toBe(MAX_CHIPS)
+    expect(chipCapacity(Number.NaN)).toBe(MAX_CHIPS)
+  })
+
+  it('names one chip at the measured 1440x900 row width (544px)', () => {
+    expect(chipCapacity(544)).toBe(1)
+  })
+
+  it('names none at the measured 1100px floor row width (204px) — the whole set is counted', () => {
+    expect(chipCapacity(204)).toBe(0)
+  })
+
+  it('never names more than MAX_CHIPS however wide the row gets', () => {
+    expect(chipCapacity(4000)).toBe(MAX_CHIPS)
+    expect(chipCapacity(100_000)).toBe(MAX_CHIPS)
+  })
+
+  /**
+   * The boundary, not the middle of a band. Asserting only 544 and 204 passes
+   * for any CHIP_MAX_WIDTH_PX between about 205 and 544 — these two pin the
+   * constant itself, one pixel apart.
+   */
+  it('folds at exactly one chip-width — 520px names one, 519px names none', () => {
+    expect(chipCapacity(520)).toBe(1)
+    expect(chipCapacity(519)).toBe(0)
+  })
+
+  it('is pure — the same width answered twice is the same answer', () => {
+    expect(chipCapacity(544)).toBe(chipCapacity(544))
+  })
+})
+
+/**
+ * jsdom has no `ResizeObserver`; this one hands the test the callback so a
+ * resize is deterministic rather than timed, and counts constructions so
+ * "subscribes once, not once per render" is observable. Modelled on
+ * `Scrubber.test.tsx`'s stub, which exists for the same reason.
+ */
+function stubResizeObserver(): { resize(): void; instances(): number } {
+  const callbacks = new Set<() => void>()
+  let constructed = 0
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(private readonly callback: () => void) {
+        constructed += 1
+      }
+      observe() {
+        callbacks.add(this.callback)
+      }
+      disconnect() {
+        callbacks.delete(this.callback)
+      }
+      unobserve() {
+        callbacks.delete(this.callback)
+      }
+    },
+  )
+  return {
+    resize() {
+      act(() => {
+        for (const callback of callbacks) callback()
+      })
+    },
+    instances: () => constructed,
+  }
+}
+
+/** The row is the only measured element; every div reports this width. */
+function stubRowWidth(initial: number): (next: number) => void {
+  let width = initial
+  vi.spyOn(HTMLDivElement.prototype, 'getBoundingClientRect').mockImplementation(
+    () =>
+      ({
+        width,
+        height: 36,
+        top: 0,
+        left: 0,
+        right: width,
+        bottom: 36,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect,
+  )
+  return (next) => {
+    width = next
+  }
+}
+
+describe('the attention strip folds to what fits and counts the rest (#464)', () => {
+  const fleet = fleetFor(pathologySpec())
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('preserves today\'s behaviour where nothing can be measured (jsdom, width 0)', () => {
+    render(<AttentionStripView fleet={fleet} selectedId={null} onToggle={vi.fn()} />)
+    expect(chips()).toHaveLength(MAX_CHIPS)
+    expect(screen.getByTestId('chip-overflow')).toHaveTextContent('+1')
+  })
+
+  it('names no chips and still shows the marker when the row cannot fit one', () => {
+    const observer = stubResizeObserver()
+    stubRowWidth(204) // the measured row at the 1100px floor, not the 223px wrapper
+    render(<AttentionStripView fleet={fleet} selectedId={null} onToggle={vi.fn()} />)
+    observer.resize()
+
+    // The case the issue exists for: nothing named, and the reader is still
+    // told there are five. A marker that is absent here is the defect.
+    //
+    // `queryAllByRole`, not the shared `chips()` helper — `getAllByRole`
+    // THROWS on an empty match, so the helper cannot express "no chips" and
+    // would fail this test on the very behaviour it is asserting.
+    expect(screen.queryAllByRole('button')).toHaveLength(0)
+    expect(screen.getByTestId('chip-overflow')).toHaveTextContent('+5')
+  })
+
+  it('counts every pathology the reader cannot see, not just the sliced ones', () => {
+    const observer = stubResizeObserver()
+    stubRowWidth(544) // the measured row at 1440x900, not the 563px wrapper
+    render(<AttentionStripView fleet={fleet} selectedId={null} onToggle={vi.fn()} />)
+    observer.resize()
+
+    const named = chips().length
+    const counted = Number(screen.getByTestId('chip-overflow').textContent?.replace('+', ''))
+    expect(named).toBe(1)
+    expect(named + counted).toBe(5)
+  })
+
+  it('does not drift when the same width is observed repeatedly, and subscribes once', () => {
+    const observer = stubResizeObserver()
+    stubRowWidth(544) // the measured row at 1440x900, not the 563px wrapper
+    render(<AttentionStripView fleet={fleet} selectedId={null} onToggle={vi.fn()} />)
+
+    observer.resize()
+    const first = [chips().length, screen.getByTestId('chip-overflow').textContent]
+    observer.resize()
+    const second = [chips().length, screen.getByTestId('chip-overflow').textContent]
+    observer.resize()
+    const third = [chips().length, screen.getByTestId('chip-overflow').textContent]
+
+    expect(second).toEqual(first)
+    expect(third).toEqual(first)
+    expect(observer.instances()).toBe(1)
+  })
+})

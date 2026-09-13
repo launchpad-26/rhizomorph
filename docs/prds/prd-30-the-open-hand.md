@@ -1,9 +1,10 @@
 # prd-30 — the open hand: every mark explains itself
 
-> **Outcome:** all four waves shipped; **one operator act outstanding** — the first-glance acceptance.
-> Reconciled 2026-09-10, corrected 2026-09-11 when wave 4 reached `main` (see the amendment at the
-> foot of this document, which also declares the waves in the form `scripts/dev/prd-reconcile.sh`
-> reads).
+> **Outcome:** waves 1–4 shipped; **wave 5 open** (two defects in surfaces this PRD built, found
+> while staging the acceptance); **one operator act outstanding** — the first-glance acceptance.
+> Reconciled 2026-09-10, corrected 2026-09-11 when wave 4 reached `main`, and amended 2026-09-14
+> when wave 5 was filed (see the amendments at the foot of this document, which also declare the
+> waves in the form `scripts/dev/prd-reconcile.sh` reads).
 >
 > What landed: the shared disclosure card and the `title=` adoption sweep (#220, `8ee1b498`);
 > the re-seat that let `one-card-law.test.ts` widen to its full sentence with an **empty**
@@ -445,3 +446,47 @@ than the `disabled` it replaced.
 **What remains after wave 4 is the first-glance acceptance, and it is still an operator act.**
 It carries prd-33 ruling 14's Check 3 encoding list and the two 1440 px observations, per the
 2026-09-02 amendment above. Nothing in this PRD dispatches it to a lane.
+
+
+## Amendment — wave 5, and what staging the acceptance found (2026-09-14)
+
+Measured on `main` at `a893af22`, in a real browser at 1440×900 on the one-lane-per-pathology
+fixture, while setting up the first-glance acceptance the paragraph above leaves outstanding.
+Two defects, both in surfaces this PRD built, both filed rather than fixed in place because
+the acceptance is an operator act and its staging is not a lane.
+
+**Wave 5** — the disclosure vocabulary states an elapsed once and never invents one, and the
+attention strip's overflow marker is reachable at every supported width. #465 and #464.
+
+They are one wave and not a stack: their fences are disjoint — `disclosure/` plus
+`panels/fleet/index.test.tsx` against `panels/attention/` plus `app/shell-bounds-law.test.ts` —
+and `scripts/fence-lint.sh 464 465` exits clean. The one path that could have collided is the
+fleet diagnosis module that composes the evidence strings, and #465 rules it out of its own
+scope for that reason: the chip test asserts the frozen lane's evidence text, and that test is
+#464's. The fix for a doubled elapsed belongs in the composition, which is the only place that
+knows whether an elapsed has already been stated.
+
+**What the two have in common is the part worth keeping.** Neither could have gone red. #464's
+own test file says so in as many words — it bounds a count and not a width, jsdom has no
+layout, and the width guarantee is booked to a class-string law *plus a browser pass*. The
+browser pass is what nobody had run, and when it was run the ceiling that file calls *"one
+above every usable viewport"* turned out to be exceeded by a factor of three: 1546 px of chips
+in a 563 px row, with the `+N` marker that announces the hidden ones sitting off the right edge
+of the screen. #465's law is green with four of five conditions rendering a defective sentence,
+because it pins conditions one at a time and the defect is in what the composition does to all
+of them. A per-condition literal cannot see it; only a property over the whole table can.
+
+So the shape is the one AGENTS.md names twice over — a test that cannot fail for the reason it
+claims, and a fix whose sibling cases were never swept. S1's falsifier list already contained
+both outcomes: *"a card whose why has no evidence in it"* covers a `0s ago` stamped on a
+trespass path that has no time at all, and a strip that hides three pathologies behind a marker
+the reader cannot see is the glance failing before the vocabulary is ever consulted.
+
+**Whether the acceptance waits on wave 5 is the operator's call, and it is a real question
+rather than an oversight.** #464 changes what Check 2 measures: run the act first and a lay
+viewer scores the strip's clipping rather than the vocabulary the check was written for; run it
+after and the 2026-09-02 amendment loses one of the two observations it deliberately booked for
+a viewer's reaction — the fifth chip collapsing was put on the list precisely so somebody
+untrained would react to it. This PRD does not rule it. It records that the observation is now
+worse than when it was booked, and that the amendment above describes a strip that no longer
+behaves the way it did when that sentence was written.
