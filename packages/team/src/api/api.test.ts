@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resolveTeamConfig } from '../config/config.js'
 import { INGEST_KEY_HEADER } from '../ingest/handle.js'
 import { readJournal } from '../journal/read.js'
+import { hashIngestKey } from '../keys/hash.js'
+import { mintIngestKey } from '../keys/mint.js'
 import { FakeTeamStorage } from '../storage/fake.js'
 import { INGEST_PATH, MAX_BODY_BYTES } from './http.js'
 import { type TeamServer, monthsToTopUp, startTeamServer } from './main.js'
@@ -31,7 +33,16 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-const KEY = 'rzk_whatever'
+/**
+ * A real minted key, and the digest the server is seeded with. Every 202 below
+ * therefore passes for the right reason: the value on the header is checked.
+ */
+const MINTED = mintIngestKey({ projectId: 'acme-widgets', nowMs: Date.UTC(2026, 10, 20) })
+const KEY = MINTED.takePlaintext()
+
+/** A key minted for somewhere else, live, and never seeded as this project's. */
+const OTHER = mintIngestKey({ projectId: 'other-project', nowMs: Date.UTC(2026, 10, 20) })
+const OTHER_KEY = OTHER.takePlaintext()
 
 function body(overrides: Record<string, unknown> = {}) {
   return {
@@ -55,6 +66,20 @@ async function start(port = 0): Promise<{ server: TeamServer; storage: FakeTeamS
   })
   if (!result.ok) throw new Error(result.error)
   running = result.server
+
+  // The deployment's own seeding, as `deploy/serve.ts` does it: the digest, and
+  // never the key. AFTER the boot rather than before it, so the boot-ordering
+  // assertions above still read the server's own first call — and because the
+  // port is read live on every request, which is the point. `OTHER` is
+  // deliberately NOT seeded: the wrong-project case seeds it for its own.
+  await storage.insertIngestKey({
+    keyHash: MINTED.row.keyHash,
+    projectId: 'acme-widgets',
+    createdAtMs: Date.UTC(2026, 10, 20),
+    revokedAtMs: null,
+  })
+  storage.keyLookups.length = 0
+
   return { server: result.server, storage, journalPath }
 }
 
@@ -68,12 +93,18 @@ describe('boot', () => {
     expect(server.port).toBeGreaterThan(0)
     // The preflight and the migrations ran first…
     expect(storage.calls[0]).toBe('readSetting')
-    expect(storage.committed).toEqual(['0001_events', '0002_projections', '0003_roles_rls', '0004_events_dedup'])
+    expect(storage.committed).toEqual([
+      '0001_events',
+      '0002_projections',
+      '0003_roles_rls',
+      '0004_events_dedup',
+      '0005_ingest_keys',
+    ])
     // …and only then the partitions, which is what "on the bootstrap
     // connection, after bootstrapTeamStorage" means.
     expect(storage.partitions).toEqual(['2026-11', '2026-12'])
     expect(storage.calls.indexOf('ensureMonthlyPartition')).toBeGreaterThan(
-      storage.calls.lastIndexOf('applyMigration:0004_events_dedup'),
+      storage.calls.lastIndexOf('applyMigration:0005_ingest_keys'),
     )
   })
 
@@ -217,5 +248,159 @@ describe('close releases what it took', () => {
       body: JSON.stringify(body()),
     })
     expect(response.status).toBe(202)
+  })
+})
+
+/**
+ * RULING 8 OVER A REAL SOCKET — *"revoked by a row flag checked once per batch,
+ * which bounds revocation lag to one batch interval"*.
+ *
+ * The unit tests in `../keys/` and `../ingest/handle.test.ts` prove the parts.
+ * These prove the thing the parts are for: a real `fetch`, a real journal, and
+ * the storage port read the number of times the ruling says.
+ */
+describe('the ingest key is checked, once per batch, against the storage port', () => {
+  it('REVOKE BETWEEN TWO BATCHES: the first is 202 and the second is 403, naming the reason', async () => {
+    const { server, storage, journalPath } = await start()
+
+    const first = await fetch(url(server), {
+      method: 'POST',
+      headers: { [INGEST_KEY_HEADER]: KEY },
+      body: JSON.stringify(body()),
+    })
+    expect(first.status).toBe(202)
+
+    // …the operator revokes, between the two batches.
+    expect(await storage.revokeIngestKeys({ projectId: 'acme-widgets', atMs: Date.UTC(2026, 10, 21) })).toBe(1)
+
+    const second = await fetch(url(server), {
+      method: 'POST',
+      headers: { [INGEST_KEY_HEADER]: KEY },
+      body: JSON.stringify(body({ batch: [{ n: 2, line: '{"a":1}' }] })),
+    })
+    expect(second.status).toBe(403)
+    const text = JSON.stringify(await second.json())
+    expect(text).toContain('revoked key')
+    expect(text).toContain('rzk_')
+    expect(text).not.toContain(KEY)
+
+    // One record, not two: the revoked batch never reached the journal.
+    const read = readJournal(journalPath)
+    expect(read.ok && read.records.length).toBe(1)
+    // Two batches, two reads — the verdict was not carried across.
+    expect(storage.keyLookups.length).toBe(2)
+  })
+
+  it('ONCE PER BATCH: a three-event batch reads the row once, not three times', async () => {
+    const { server, storage } = await start()
+    const response = await fetch(url(server), {
+      method: 'POST',
+      headers: { [INGEST_KEY_HEADER]: KEY },
+      body: JSON.stringify(
+        body({
+          batch: [
+            { n: 1, line: '{"a":1}' },
+            { n: 2, line: '{"a":2}' },
+            { n: 3, line: '{"a":3}' },
+          ],
+        }),
+      ),
+    })
+    expect(response.status).toBe(202)
+    expect(storage.keyLookups).toEqual([hashIngestKey(KEY)])
+  })
+
+  it('a GET, a 404 and a body over the cap buy no database read at all', async () => {
+    const { server, storage } = await start()
+    await fetch(url(server))
+    await fetch(url(server, '/'))
+    await fetch(url(server, '/v1/rhizomorph/nope'), { method: 'POST', headers: { [INGEST_KEY_HEADER]: KEY } })
+    expect(storage.keyLookups).toEqual([])
+  })
+
+  it('an unknown key is 401 and nothing is journalled', async () => {
+    const { server, storage, journalPath } = await start()
+    const stranger = mintIngestKey({ projectId: 'acme-widgets', nowMs: 0 }).takePlaintext()
+
+    const response = await fetch(url(server), {
+      method: 'POST',
+      headers: { [INGEST_KEY_HEADER]: stranger },
+      body: JSON.stringify(body()),
+    })
+
+    expect(response.status).toBe(401)
+    expect(JSON.stringify(await response.json())).toContain('unknown key')
+    expect(readJournal(journalPath).ok && readJournal(journalPath)).toMatchObject({ records: [] })
+    // It WAS looked up — "unknown" is an answer from the store, not a shape refusal.
+    expect(storage.keyLookups).toEqual([hashIngestKey(stranger)])
+  })
+
+  it('a value that is not a key at all is 401 and is refused WITHOUT a database read', async () => {
+    const { server, storage, journalPath } = await start()
+    const response = await fetch(url(server), {
+      method: 'POST',
+      headers: { [INGEST_KEY_HEADER]: 'not-a-real-key-at-all' },
+      body: JSON.stringify(body()),
+    })
+
+    expect(response.status).toBe(401)
+    const text = JSON.stringify(await response.json())
+    expect(text).toContain('shape alone')
+    expect(text).not.toContain('not-a-real-key-at-all')
+    expect(storage.keyLookups).toEqual([])
+    expect(readJournal(journalPath).ok && readJournal(journalPath)).toMatchObject({ records: [] })
+  })
+
+  it('WRONG PROJECT: a live key minted for another project is 403, naming this one', async () => {
+    const { server, storage, journalPath } = await start()
+    await storage.insertIngestKey({
+      keyHash: OTHER.row.keyHash,
+      projectId: 'other-project',
+      createdAtMs: Date.UTC(2026, 10, 20),
+      revokedAtMs: null,
+    })
+
+    const response = await fetch(url(server), {
+      method: 'POST',
+      headers: { [INGEST_KEY_HEADER]: OTHER_KEY },
+      body: JSON.stringify(body()),
+    })
+
+    expect(response.status).toBe(403)
+    const text = JSON.stringify(await response.json())
+    expect(text).toContain('wrong project')
+    expect(text).toContain('acme-widgets')
+    expect(text).not.toContain(OTHER_KEY)
+    expect(readJournal(journalPath).ok && readJournal(journalPath)).toMatchObject({ records: [] })
+  })
+
+  /**
+   * FAIL CLOSED. A storage that cannot answer *"is this key revoked?"* must
+   * refuse the batch, never accept it — the tempting shape puts one `try` around
+   * the whole listener, which journals the batch and then loses the ack, i.e.
+   * accepts a batch whose key was never checked.
+   */
+  it('a storage that cannot answer is 503, and the batch is refused rather than journalled', async () => {
+    const { server, storage, journalPath } = await start()
+    storage.failFindIngestKey = true
+
+    const response = await fetch(url(server), {
+      method: 'POST',
+      headers: { [INGEST_KEY_HEADER]: KEY },
+      body: JSON.stringify(body()),
+    })
+
+    expect(response.status).toBe(503)
+    expect(JSON.stringify(await response.json())).toContain('refused rather than accepted')
+    expect(readJournal(journalPath).ok && readJournal(journalPath)).toMatchObject({ records: [] })
+
+    // …and the very next request, once the database answers again, is accepted.
+    storage.failFindIngestKey = false
+    const retry = await fetch(url(server), {
+      method: 'POST',
+      headers: { [INGEST_KEY_HEADER]: KEY },
+      body: JSON.stringify(body()),
+    })
+    expect(retry.status).toBe(202)
   })
 })
