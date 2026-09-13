@@ -506,17 +506,40 @@ stay local.
 
 ## Support matrix
 
+**Nothing in this table is verified by CI any more.** GitHub Actions was retired
+from this repository for cost, and no workflow has run since 2026-09-12. The
+files under `.github/workflows/` remain in the tree as the declaration of what
+each leg does — read them as a specification, never as evidence that anything
+ran. What produces a verdict now is `scripts/ci-local.sh`, run by a contributor
+on their own machine, which publishes a `Passed local CI` label and a per-sha
+commit status through `scripts/pr-verdict.sh`.
+[CONTRIBUTING.md](CONTRIBUTING.md#the-gate-standard) carries the standard and
+what it does and does not prove.
+
 | Platform | Status |
 |---|---|
-| Linux | CI-verified on every push (`.github/workflows/ci.yml`) |
+| Linux | **Where the verdict comes from.** `scripts/ci-local.sh` composes locally the same legs `.github/workflows/ci.yml` declares for `ubuntu-latest`, in the same order with the same gating. This is the platform a PR's `Passed local CI` label is almost always earned on. |
 | WSL | The daily development platform — exercised constantly, just not by CI |
-| macOS | CI-verified on every push (`.github/workflows/ci.yml` runs build, suite, typecheck, lint and the boot smoke on `macos-latest`, and the pack-smoke job covers it at both node legs). Nobody daily-drives it, so ergonomic rough edges are likelier here than correctness ones. |
-| Windows (native) | **Partial: installs and boots; the suite runs against a committed expected-fail list.** `.github/workflows/ci.yml` runs a `windows-latest` leg on the `pack-smoke` job at both node legs, on every push: it packs the repo, installs the tarball into a clean project and boots the installed CLI under Git Bash — the first CI witness of the `pathToFileURL` built-clone boot fix. `.github/workflows/windows-suite.yml` runs the full test suite on `windows-latest` at the current node on every push and compares the failing files against `.windows-known-failures`, per file: a failure outside that list is red, a listed file that passes is reported as a removal candidate, and every entry carries its cause class and the evidence for it. `build-test-boot` has no Windows leg; promotion is a separate decision, made with both Windows jobs' measured cost. |
+| macOS | **Declared, not currently witnessed.** `.github/workflows/ci.yml` still declares the `macos-latest` leg that ran build, suite, typecheck, lint and the boot smoke, and the `pack-smoke` job that covered it at both node legs; neither has run since Actions was retired, and nobody has re-run them by hand. Nobody daily-drives macOS either, so ergonomic rough edges are likelier here than correctness ones — and that gap is now wider than it was, not narrower. |
+| Windows (native) | **Partial: installs and boots; the suite runs against a committed expected-fail list.** `.github/workflows/ci.yml` declares a `windows-latest` leg on the `pack-smoke` job at both node legs — packing the repo, installing the tarball into a clean project and booting the installed CLI under Git Bash, which is what first witnessed the `pathToFileURL` built-clone boot fix. `.github/workflows/windows-suite.yml` declares the full-suite run that compares failing files against `.windows-known-failures`, per file: a failure outside that list is red, a listed file that passes is a removal candidate, and every entry carries its cause class and evidence. `build-test-boot` has no Windows leg. **Neither declared job runs today**, and the local leg does not replace them here: `scripts/ci-local.sh` runs the suite raw and consults neither the expected-fail list nor `scripts/windows-triage.sh`, so it cannot go green on a native-Windows machine ([#457](https://github.com/launchpad-26/rhizomorph/issues/457)). A contributor on native Windows triages by hand, with `scripts/windows-triage.sh`. |
 
-**Node >= 22.22.2** — `engines` in `package.json` is the source of truth, and
-CI pins that exact minimum. Older Node warns on install and may not run at all;
-on Node 20 the `web` suite reports green counts with a non-zero exit, which
-[CONTRIBUTING.md](CONTRIBUTING.md#running-it) explains.
+**A local verdict is not a foreign-runner verdict, and the difference is the
+point of the row above.** `scripts/ci-local.sh` runs on one contributor's
+machine, with their Node, their line endings and their filesystem casing. The
+three classes CI existed to catch — a case-only filename collision invisible on
+Linux, a CRLF checkout changing what a fixture says, a machine-specific path —
+are exactly the ones a single-machine verdict is worst at. Treat a green label
+as "this passed somewhere", and attribute any red by failing **test name**
+against a clean `main` rather than by file, because `.windows-known-failures`
+names files and a new failure inside a listed file is invisible to a per-file
+check.
+
+**Node >= 22.22.2** — `engines` in `package.json` is the source of truth. The
+`.github/workflows/ci.yml` matrix declares that exact minimum as its `min` leg,
+and `scripts/ci-local.sh` runs at whatever Node the contributor has, so the
+floor is currently declared rather than exercised. Older Node warns on install
+and may not run at all; on Node 20 the `web` suite reports green counts with a
+non-zero exit, which [CONTRIBUTING.md](CONTRIBUTING.md#running-it) explains.
 
 ## What the observer does not do
 

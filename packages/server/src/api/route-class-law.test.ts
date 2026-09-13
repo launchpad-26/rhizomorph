@@ -805,7 +805,7 @@ describe('every recognised route-count claim is derived from ROUTE_CLASSES, in w
  * name` fails if a fifth row is added without a law to go with it — the
  * sibling that would otherwise reopen this hole the next time the matrix grows.
  */
-describe('the README support matrix agrees with what ci.yml actually proves, in both directions (#23)', () => {
+describe('the README support matrix agrees with what this repo can actually prove, in both directions (#23; ci.yml stopped proving anything, #470)', () => {
   const CI_YML = readFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'ci.yml'), 'utf8')
   const README_MD = readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8')
 
@@ -938,11 +938,60 @@ describe('the README support matrix agrees with what ci.yml actually proves, in 
     expect(row).not.toMatch(/\*\*Unverified/)
   })
 
-  it('build-test-boot and pack-smoke both run ubuntu-latest — the Linux row claims CI, and CI delivers it', () => {
+  it('build-test-boot and pack-smoke both DECLARE ubuntu-latest — the Linux row cites the mechanism that runs, not the one that stopped', () => {
     expect(jobBlock('build-test-boot')).toMatch(/os:\s*\[ubuntu-latest,/)
     expect(jobBlock('pack-smoke')).toMatch(/os:\s*\[ubuntu-latest,/)
-    // The other direction: the row must actually make the claim CI supports.
-    expect(rowFor('Linux')).toMatch(/CI-verified on every push/)
+    // The other direction. This assertion used to read
+    // `expect(rowFor('Linux')).toMatch(/CI-verified on every push/)`, which is
+    // precisely how this law came to certify a false claim — the test below
+    // carries the full account. The row must now name what produces a verdict.
+    expect(rowFor('Linux')).toMatch(/ci-local\.sh/)
+  })
+
+  /**
+   * The gap this law had, and why the assertion above changed (#470).
+   *
+   * GitHub Actions was retired from this repository for cost. No workflow has run
+   * since 2026-09-12 — through every commit since. The workflow files stayed in
+   * the tree, so every assertion in this describe block kept passing: they compare
+   * README prose to `ci.yml`, both artefacts were intact, and what moved was
+   * whether the file is ever executed.
+   *
+   * The measurement, from `docs/review/2026-09-14-documentation-audit.md`: a test
+   * in this file named "the Linux row claims CI, and CI delivers it" was GREEN
+   * while CI delivered nothing — and it was green because it asserted the README
+   * still carried the words `CI-verified on every push`. So the law was not merely
+   * failing to catch the drift; it was PINNING THE FALSE CLAIM IN PLACE, and a
+   * lane correcting the README would have been reddened by this law for telling
+   * the truth.
+   *
+   * That is this repo's own "reporting a check without honouring it" one level
+   * out: checking a document against an ARTEFACT rather than against the world. A
+   * file-versus-file law cannot see a retirement, so what it must assert instead
+   * is the one fact that does stay on disk — which mechanism the repo SAYS
+   * produces its verdict — and refuse any row claiming a different one.
+   *
+   * Deliberately not a check that Actions is off: that needs the network, and a
+   * law that needs a token is a law that gets skipped (the reasoning
+   * `prd-location-law.test.ts` records for reading a committed manifest rather
+   * than calling `gh`). It is a consistency check between two tracked files.
+   */
+  it('no row claims a push-triggered CI verdict while ci-local.sh is what the repo says produces one', () => {
+    const contributing = readFileSync(path.join(REPO_ROOT, 'CONTRIBUTING.md'), 'utf8')
+    expect(/scripts\/ci-local\.sh/.test(contributing), 'CONTRIBUTING.md no longer names ci-local.sh — this law is reasoning from a premise that moved').toBe(true)
+
+    // Scoped to the ROWS, not the whole section: the prose above the table has to
+    // explain the retirement, and explaining it means writing the words down. A
+    // ban across the section would forbid saying what happened.
+    for (const platform of ['Linux', 'WSL', 'macOS', 'Windows (native)']) {
+      const row = rowFor(platform)
+      expect(row, `README support matrix: the ${platform} row claims a push-triggered CI verdict, and nothing runs on a push`).not.toMatch(/CI-verified on every push/i)
+      expect(row, `README support matrix: the ${platform} row claims a run "on every push", and nothing runs on a push`).not.toMatch(/on every push/i)
+    }
+
+    // And the row carrying the verdict must say where it comes from, so the ban
+    // above cannot be satisfied by a table that simply says nothing at all.
+    expect(rowFor('Linux'), 'the Linux row must name the mechanism that actually produces a verdict').toMatch(/ci-local\.sh/)
   })
 
   it('the WSL row does NOT claim CI, because no workflow anywhere runs a WSL leg', () => {
