@@ -1,6 +1,6 @@
 # prd-48 — the shared record: the unknowns are measured before the noticeboard is built
 
-> **Status:** **BLESSED** — Lachlan Kelliher, 2026-08-31, in session. Milestone `prd48`.
+> **Outcome:** shipped 2026-09-03. Blessed by Lachlan Kelliher, 2026-08-31, in session. Milestone `prd48`.
 > Drafted 2026-08-28 by KelliherL from the leads' design conversation of
 > 2026-08-24 and the two research notes that land with this PRD's PR
 > (`docs/research/2026-08-24-shared-record-design-brief.md`,

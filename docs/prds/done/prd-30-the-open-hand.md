@@ -1,10 +1,10 @@
 # prd-30 — the open hand: every mark explains itself
 
-> **Outcome:** waves 1–4 shipped; **wave 5 open** (two defects in surfaces this PRD built, found
-> while staging the acceptance); **one operator act outstanding** — the first-glance acceptance.
-> Reconciled 2026-09-10, corrected 2026-09-11 when wave 4 reached `main`, and amended 2026-09-14
-> when wave 5 was filed (see the amendments at the foot of this document, which also declare the
-> waves in the form `scripts/dev/prd-reconcile.sh` reads).
+> **Outcome:** waves 1–5 shipped — wave 5 (two defects in surfaces this PRD built, found while
+> staging the acceptance) closed as `#464`, `#465`, 2026-09-13; **one operator act outstanding**
+> — the first-glance acceptance. Reconciled 2026-09-10, corrected 2026-09-11 when wave 4 reached
+> `main`, and amended 2026-09-14 when wave 5 was filed (see the amendments at the foot of this
+> document, which also declare the waves in the form `scripts/dev/prd-reconcile.sh` reads).
 >
 > What landed: the shared disclosure card and the `title=` adoption sweep (#220, `8ee1b498`);
 > the re-seat that let `one-card-law.test.ts` widen to its full sentence with an **empty**
