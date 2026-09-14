@@ -302,6 +302,17 @@ export function restartCommand(repoPath: string | null, port: string, extra: rea
 }
 
 /**
+ * The exact remedy `checkShipper` (`cli/doctor.ts`) already gives, verbatim,
+ * on both its FAIL branches — a missing credential and an unreadable enable
+ * record. Restated here as its own constant because {@link broken} requires
+ * `command` as a field the UI can copy on its own, separate from the prose
+ * `reason` it sits beside — this is that fact, not an invented one. If the
+ * remedy text in `cli/doctor.ts` ever changes, this constant moves with it:
+ * the two are one fact written twice, same as the CLI/route pairing itself.
+ */
+export const TEAM_SERVER_ENABLE_COMMAND = 'echo "$RZK_INGEST_KEY" | rhizomorph connect team <url> --project <id>'
+
+/**
  * The whole no-trust path for one session, as a single pasteable line: the env
  * block evaluated in this shell, and the agent resumed from that same shell.
  *
@@ -1030,6 +1041,51 @@ function uninstrumentedConductor(input: ConnectInputs): ChainLink {
 }
 
 /**
+ * **repo ↔ team server** (prd-51 ruling 12, the second half). The one
+ * outbound row: has a batch this repo's shipper produced ever been
+ * acknowledged, and when. Evidence is `'poll'`, like {@link transcriptSlug} —
+ * `GET /api/doctor` probed the cursor on its own interval, whatever fold (or
+ * fixture, or dead stream) is driving the rest of the page.
+ *
+ * **"Connected" never means preconditions passed** (ruling 12's own words,
+ * restated as code): a shipper that is configured, has a valid credential,
+ * and has simply never had anything to ship yet is UNPROVEN, not VERIFIED —
+ * it reads VERIFIED only once `check.lastAckAt` is a real, dated fact. A
+ * shipper that is off reads UNPROVEN as well, never BROKEN (constraint 4) —
+ * `checkShipper`'s own `status: 'ok'` for the off case carries straight
+ * through, because `check.lastAckAt` is `null` there too and this function
+ * never inspects `enabled` directly.
+ */
+function teamServer(input: ConnectInputs): ChainLink {
+  const base = {
+    id: 'team-server',
+    label: 'repo ↔ team server',
+    question: 'has a batch this repo shipped ever been acknowledged by the team server?',
+    evidence: 'poll' as const,
+  }
+  const check = doctorCheck(input.doctor, 'shipper')
+  if (check === null) {
+    return unproven(base, [
+      input.doctor.kind === 'absent'
+        ? '`GET /api/doctor` produced no usable answer — a dead route, an error status, or a non-JSON body all land here; check the server this page came from. Whether the shipper has ever been acknowledged is unavailable from here.'
+        : input.doctor.kind === 'unreadable'
+          ? '`GET /api/doctor` answered, but not one entry of its report was readable by this build — the route is alive; this page and its server likely come from different builds. Reload the page, or rebuild the web bundle. Whether the shipper has ever been acknowledged is unavailable from here.'
+          : '`GET /api/doctor` answered, but carried no `shipper` check — the route is fine; this server is older than the check, or the check did not run',
+    ])
+  }
+
+  if (check.status === 'fail') {
+    return broken(base, check.message, { command: TEAM_SERVER_ENABLE_COMMAND })
+  }
+
+  if (check.lastAckAt !== null) {
+    return verified(base, check.message, provenAt(check.lastAckAt, input.now))
+  }
+
+  return unproven(base, doctorNote(input.doctor, 'shipper'))
+}
+
+/**
  * **A FIXTURE FOLD IS NOT EVIDENCE, PER ROW** (#343).
  *
  * Ruling 6 was already satisfied to the letter by the page-level
@@ -1134,9 +1190,10 @@ function attest(link: ChainLink, input: ConnectInputs): ChainLink {
 /**
  * The chain, in the order ruling 3 lists it: browser↔server · repo↔git ·
  * agents↔tmux/workmux · transcripts↔slug (plumbing, then flow) ·
- * dollars/traces↔OTel — and last, the named case the whole PRD is evidence
- * for. Every row is then held to {@link attest}, in one place, so no row can
- * be added that quietly skips it.
+ * dollars/traces↔OTel · the named case prd-19 is evidence for · and now last,
+ * prd-51 ruling 12's own row: has this repo's shipper ever been acknowledged.
+ * Every row is then held to {@link attest}, in one place, so no row can be
+ * added that quietly skips it.
  */
 export function buildLinks(input: ConnectInputs): ChainLink[] {
   return [
@@ -1147,6 +1204,7 @@ export function buildLinks(input: ConnectInputs): ChainLink[] {
     transcriptFlow(input),
     otelLink(input),
     uninstrumentedConductor(input),
+    teamServer(input),
   ].map((link) => attest(link, input))
 }
 

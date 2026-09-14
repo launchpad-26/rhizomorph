@@ -111,6 +111,8 @@ export interface DoctorFact {
   message: string
   /** `DoctorCheck.assumed` — the route sets it when a finding rests on an assumed input rather than a measured one. */
   assumed: boolean
+  /** `DoctorCheck.lastAckAt` (prd-51 ruling 12) — epoch ms of the shipper's most recently acknowledged batch, or `null` when the wire carried none (absent, non-numeric, or outside {@link isRenderableTs}'s range). */
+  lastAckAt: number | null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -346,7 +348,7 @@ export function parseDoctor(body: unknown): DoctorReading {
     const status = entry.status
     if (id === null || message === null || typeof status !== 'string') continue
     if (!DOCTOR_STATUSES.includes(status as DoctorStatus)) continue
-    checks.push({ id, status: status as DoctorStatus, message, assumed: entry.assumed === true })
+    checks.push({ id, status: status as DoctorStatus, message, assumed: entry.assumed === true, lastAckAt: ts(entry.lastAckAt) })
   }
   if (checks.length === 0 && body.length > 0) return { kind: 'unreadable' }
   return { kind: 'checks', checks }
