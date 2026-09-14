@@ -1550,3 +1550,387 @@ describe('declaredExemptionReason — ruling 2\'s marker reader, tested directly
     expect(declaredExemptionReason(threeColumns)).toBeUndefined()
   })
 })
+
+/**
+ * prd56 wave 4's sibling law (#500) — a PRD can sit on the correct shelf (ruling 1) and its own
+ * status prose can still claim its waves are in flight. Ruling 1 names this failure mode in
+ * terms while ruling on the OTHER field: "a header can be left untouched when a milestone
+ * closes, which is the same drift in a different field." This is that field.
+ *
+ * **Round 1 (landed, then verified) found six instances via two literal spellings —
+ * `**Status:** **BLESSED**` and a bare `**wave N open**`.** `prd-53` and `prd-55` were a
+ * seventh and eighth, fixed by hand in `#498` before this law could land. Both spellings are
+ * corrected in this repo in the SAME commit as round 1 of this law.
+ *
+ * **Round 2 (verify, #500) found the predicate itself was fitted to those two spellings, with
+ * no notion of OWNERSHIP or TENSE.** Two independent review seats, both EXECUTED:
+ *
+ *   1. Round 1's wave-open regex had no notion of *whose* wave — inserting the TRUE sentence "Successor
+ *      prd-45 has wave 1 open." into a corrected head block convicted it, and a head that
+ *      QUOTES the status line it just corrected (recording its own history) convicted the same
+ *      way. `prd-39`'s own real text already sits one wording away from the first shape:
+ *      *"remainder is **prd-45's** … not a reopening of this PRD."*
+ *   2. `docs/prds/done/prd-25-the-third-platform.md` is a SEVENTH real instance the round-1
+ *      predicate could not see at all: `**Status:** blessed by the operator, 2026-08-24 …`,
+ *      no `shipped`/`superseded` anywhere in its head block, stating in the present tense that
+ *      grooming *"into #210, #211 and #212 … [is] the whole of what remains"* — all three
+ *      CLOSED, milestone `prd25` CLOSED 2026-09-07 (EXECUTED against the tracker). The round-1
+ *      doc comment's own claimed census ("eight instances found") was PRODUCED by the two
+ *      regexes, so it could not report what they could not see — the same shape AGENTS.md
+ *      records as a claim the tooling cannot support.
+ *
+ * **The fix is not a ninth regex.** The issue's own "one predicate, not six spellings" applies a
+ * second time, harder: patching in "reopened", "in flight", title-case "Blessed", a colon
+ * outside the bold, and so on is the same losing game the issue named for round 1, and would
+ * still miss whatever spelling comes next. Instead the predicate now asks the two questions its
+ * shape was always supposed to encode:
+ *
+ *   - **Ownership** ({@link selfWaveClaim}) — a wave-liveness word near a `wave N` token counts
+ *     only when nothing in a window around it attributes the wave to a DIFFERENT `prd-NN`. A
+ *     wave cited by this PRD's OWN number still counts as self (round 2's own control).
+ *   - **Tense / status-ness** ({@link selfStatusWithoutOutcome}) — a bare `**Status:**` (or
+ *     `**Status**:`) LABEL, of any value, counts as a live claim UNLESS the same head block also
+ *     states this PRD `shipped` or was `superseded` — the #498 precedent form, and the shape
+ *     `prd-00`/`prd-01`/`prd-02`/`prd-03` already use correctly (a separate `**Outcome:**
+ *     shipped`/`superseded` line beside their own `**Status:** blessed by …`), verified below to
+ *     stay acquitted. This is the SAME shape as `prd-25` with one field present instead of
+ *     absent — the predicate no longer keys on the word "BLESSED" at all, so title case, the
+ *     colon's position, and a `DRAFT`/`IN PROGRESS` value are the same case rather than three
+ *     more regexes.
+ *
+ * Quotation is handled once, structurally, for both checks: {@link flattenAndUnquote} strips
+ * backtick spans and double/curly-quoted spans before either predicate runs, so a head block
+ * that quotes its own prior text (recording a correction, the way this very fix does on `main`
+ * for six files) is read as history, not as a live claim.
+ *
+ * **`prd-25` is left UNFIXED and named explicitly** ({@link DEFERRED_VIOLATIONS}) — fixing its
+ * prose is out of `#500`'s fence (operator ruling on verify). The sweep test below subtracts
+ * exactly that one name, and a separate test proves the predicate genuinely convicts it, so the
+ * exclusion is a recorded decision rather than a silent hole the test's own name would then be
+ * lying about.
+ *
+ * **The trap is still the whole design question.** `prd-30`'s own head says *"one operator act
+ * outstanding — the first-glance acceptance"*, TRUE today, and the predicate must never convict
+ * it — prd-56 ruling 2's *"a law that convicts a correct state is one people learn to
+ * override."* Round 2 keeps this green while fixing the ownership/tense gaps, verified directly
+ * below, not just reasoned.
+ *
+ * **Scoped to the head status block, never the whole document.** {@link headBlockquote} takes
+ * only the run of `>`-prefixed lines that starts IMMEDIATELY after the title (blank lines
+ * allowed in between, 0-3 leading spaces on each quote marker per CommonMark) — round 2's fix to
+ * a bug the round-1 version had: with no floor, a document with NO head blockquote at all had a
+ * LATER one (an `## Amendment`'s aside, say) read as the head and wrongly judged. A PRD with no
+ * quoted paragraph immediately under its title has no head status block to check, full stop.
+ *
+ * **A new, dedicated reader, not a reuse of {@link classifyLines} or {@link
+ * declaredExemptionReason}.** Both exist to answer a different question — which lines of a PRD
+ * are prose vs. code, and whether a specific marker is genuinely declared — over the WHOLE
+ * document. This law only ever looks at the few lines right after the title, and reuses nothing
+ * from that machinery, per the issue's own instruction not to touch it.
+ *
+ * Offline, reading the tree — no `gh` call, and no manifest either, unlike ruling 1's law above:
+ * this law does not need to know whether a milestone is open or closed, only whether an
+ * ALREADY-ARCHIVED PRD's own words agree with sitting there at all.
+ */
+const STATUS_LABEL_RE = /\*\*Status:?\*\*:?/i
+const SHIPPED_OR_SUPERSEDED_RE = /\b(?:shipped|superseded)\b/i
+
+/** `wave 5`, `waves 4-5`, `wave five` — digits (optionally a hyphenated range) or a spelled-out number, one PRD's Sequencing is ever likely to reach. */
+const WAVE_NUM = '(?:\\d+(?:\\s*[-–]\\s*\\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen)'
+const WAVE_TOKEN_RE = new RegExp(`\\bwaves?\\s+${WAVE_NUM}\\b`, 'gi')
+
+/**
+ * Any spelling this corpus (or a reasonable near-miss of it) uses for "still being built",
+ * attached to a wave. `open`/`reopened` are separate alternatives, deliberately, rather than a
+ * single "open"-rooted pattern: `\bopen\b` does NOT match inside "opened" or "reopening" (no
+ * word boundary lands there), which is what keeps "wave 5 opened … closed" — a real, correct
+ * past-tense narration — acquitted rather than convicted by its own substring.
+ */
+const LIVE_WAVE_WORD_RE = /\b(?:open|reopened|in[- ]flight|in[- ]progress|not\s+(?:yet\s+)?closed)\b/i
+
+/** A reference to some `prd-NN`/`prdNN`, used only to test OWNERSHIP of a nearby wave claim — never to identify the document itself. */
+const PRD_NUMBER_RE = /\bprd-?(\d+)\b/gi
+
+/** How close a liveness word must sit after a `wave N` token to count as describing it, and how wide a window either side of the pair is searched for an owning `prd-NN`. Generous enough for "wave 5 remains open" and "Successor prd-45 has wave 1 open.", narrow enough that an unrelated "open" three sentences later in a long head block cannot attach itself to a wave token it was never about. */
+const LIVE_WORD_WINDOW = 50
+const OWNERSHIP_WINDOW = 100
+
+/**
+ * A clause boundary the liveness-word search must not cross. Found on `prd-14-experiment-
+ * console.md`'s real, correct text: *"had been since wave 1 — see Open, not ruled"* — a
+ * cross-reference to an "Open questions" heading, not a claim about wave 1's state, sitting
+ * well inside the raw {@link LIVE_WORD_WINDOW}. The em/en dash is what separates "wave 1" from
+ * an unrelated new clause here; without this cutoff the window alone cannot tell the two apart.
+ */
+const CLAUSE_BREAK_RE = /[.;—–]/
+
+/**
+ * `docs/prds/done/prd-25-the-third-platform.md` is a REAL, verified violation under the
+ * round-2 predicate (see the doc comment above) — found only once the predicate stopped keying
+ * on the literal word "BLESSED". Fixing its prose is OUT OF `#500`'s FENCE (operator ruling on
+ * verify, round 2); recorded here BY NAME, with the test below proving the predicate genuinely
+ * catches it, so the sweep's exclusion is a decision on record rather than a silent gap the
+ * sweep's own name would then misstate. A follow-up issue owns the fix.
+ */
+const DEFERRED_VIOLATIONS: readonly string[] = ['prd-25-the-third-platform.md']
+
+const DONE_DIR = path.join(PRDS_DIR, 'done')
+
+/** Pure: the archived shelf's PRDs, same filename discipline as {@link liveShelfEntries} (see the glob-hazard note above {@link matchPrdFilenames}). */
+function archivedShelfEntries(): ShelfEntry[] {
+  return matchPrdFilenames(readdirSync(DONE_DIR)).map(({ number, file }) => ({
+    number,
+    file,
+    text: readFileSync(path.join(DONE_DIR, file), 'utf8'),
+  }))
+}
+
+/** A CommonMark blockquote marker line: 0-3 leading spaces, then `>` (round 2 — round 1 required column 0 and missed a legally-indented quote). */
+const QUOTE_LINE_RE = /^ {0,3}>/
+
+/**
+ * The head status block: the run of `>`-prefixed lines that starts IMMEDIATELY after the title
+ * (a blank line may sit between them; nothing else may). Round 2's fix to a floor round 1 never
+ * had: without one, a document with no head blockquote at all had whatever LATER blockquote
+ * appeared first — an `## Amendment`'s aside, a quoted example — read as the head and wrongly
+ * judged. Returns `''` (never in-flight) when no block starts there at all.
+ */
+function headBlockquote(text: string): string {
+  const lines = text.split(/\r?\n/)
+  let i = 0
+  if (lines[0]?.startsWith('#')) i = 1
+  while (i < lines.length && lines[i]!.trim() === '') i++
+  if (i >= lines.length || !QUOTE_LINE_RE.test(lines[i]!)) return ''
+  const out: string[] = []
+  for (; i < lines.length && QUOTE_LINE_RE.test(lines[i]!); i++) out.push(lines[i]!)
+  return out.join('\n')
+}
+
+/**
+ * Strips the blockquote markers and joins the head block into one continuous string (a hard line
+ * wrap inside a quoted paragraph is a markdown SOURCE artifact in this ~100-column corpus, never
+ * a sentence boundary — "wave 5" and "open" landing on either side of a wrap must still read as
+ * one claim), then removes anything inside backticks or (straight or curly) double quotes so a
+ * head block that QUOTES its own prior text — recording a correction, exactly as this fix does
+ * for six files — is read as history rather than as a live claim.
+ */
+function flattenAndUnquote(headBlock: string): string {
+  const joined = headBlock
+    .split('\n')
+    .map((line) => line.replace(QUOTE_LINE_RE, ''))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return joined
+    .replace(/`[^`]*`/g, ' ')
+    .replace(/"[^"]*"/g, ' ')
+    .replace(/“[^”]*”/g, ' ')
+}
+
+/** Pure: a `**Status:**`/`**Status**:` label of ANY value, with no `shipped`/`superseded` anywhere in the same (already flattened, unquoted) block. See the doc comment above for why the VALUE never matters. */
+function selfStatusWithoutOutcome(prose: string): boolean {
+  return STATUS_LABEL_RE.test(prose) && !SHIPPED_OR_SUPERSEDED_RE.test(prose)
+}
+
+/** Pure: a `wave N` token with a liveness word nearby, attributed to THIS PRD rather than to a named other `prd-NN` in the surrounding window. See the doc comment above for the two window widths and why "opened … closed" survives. */
+function selfWaveClaim(prose: string, ownNumber: string): boolean {
+  WAVE_TOKEN_RE.lastIndex = 0
+  let m: RegExpExecArray | null = WAVE_TOKEN_RE.exec(prose)
+  while (m !== null) {
+    const start = m.index
+    const end = start + m[0].length
+    const rawNearAfter = prose.slice(end, end + LIVE_WORD_WINDOW)
+    const breakAt = rawNearAfter.search(CLAUSE_BREAK_RE)
+    const nearAfter = breakAt === -1 ? rawNearAfter : rawNearAfter.slice(0, breakAt)
+    if (LIVE_WAVE_WORD_RE.test(nearAfter)) {
+      const window = prose.slice(Math.max(0, start - OWNERSHIP_WINDOW), Math.min(prose.length, end + OWNERSHIP_WINDOW))
+      let hasOtherPrd = false
+      for (const pm of window.matchAll(PRD_NUMBER_RE)) {
+        if (pm[1] !== ownNumber) {
+          hasOtherPrd = true
+          break
+        }
+      }
+      if (!hasOtherPrd) return true
+    }
+    m = WAVE_TOKEN_RE.exec(prose)
+  }
+  return false
+}
+
+/** Pure: does this head status block claim the PRD's OWN WAVES are still being built? `ownNumber` is the PRD's own number, used only to tell a self-citation from a reference to another PRD. See the doc comment above for the two checks and why the value of a `**Status:**` label never matters. */
+function inFlightClaim(headBlock: string, ownNumber: string): boolean {
+  const prose = flattenAndUnquote(headBlock)
+  return selfStatusWithoutOutcome(prose) || selfWaveClaim(prose, ownNumber)
+}
+
+/** Pure: archived-shelf entries whose head status block still claims in-flight work. */
+function statusLineViolations(shelf: readonly ShelfEntry[]): string[] {
+  return shelf.filter((e) => inFlightClaim(headBlockquote(e.text), e.number)).map((e) => e.file)
+}
+
+describe("an archived PRD's status line agrees with the shelf it sits on (prd56 w4, #500)", () => {
+  it('has archived PRDs to check at all — an empty directory would prove nothing', () => {
+    expect(archivedShelfEntries().length).toBeGreaterThan(5)
+  })
+
+  it("no archived PRD's head status block claims its own waves are still being built, except the one deferred, out-of-fence miss named above", () => {
+    expect(statusLineViolations(archivedShelfEntries()).sort()).toEqual([...DEFERRED_VIOLATIONS].sort())
+  })
+
+  it('prd-25 is a REAL violation under this predicate, not a silent gap the sweep above quietly excuses', () => {
+    const entry = archivedShelfEntries().find((e) => e.file === 'prd-25-the-third-platform.md')
+    expect(entry, 'prd-25-the-third-platform.md must still be on the archived shelf').toBeDefined()
+    expect(entry!.text).toContain('the whole of what remains')
+    expect(inFlightClaim(headBlockquote(entry!.text), entry!.number)).toBe(true)
+  })
+
+  it('the six corrected files no longer carry either in-flight form', () => {
+    const CORRECTED_FILES = [
+      'prd-30-the-open-hand.md',
+      'prd-39-the-gate-that-holds.md',
+      'prd-43-the-claim-is-a-test.md',
+      'prd-48-the-shared-record.md',
+      'prd-50-the-fixed-ceiling.md',
+      'prd-52-the-world-composes.md',
+    ]
+    const shelf = archivedShelfEntries()
+    for (const file of CORRECTED_FILES) {
+      const entry = shelf.find((e) => e.file === file)
+      expect(entry, `${file} must still be on the archived shelf`).toBeDefined()
+      expect(inFlightClaim(headBlockquote(entry!.text), entry!.number), `${file}'s head status block`).toBe(false)
+    }
+  })
+
+  it("the pre-existing **Status:** blessed-by forms that already carry their own shipped/superseded outcome (prd-00, prd-01, prd-02, prd-03) stay acquitted", () => {
+    // These four are the same LABEL shape as prd-25 (a `**Status:** blessed by …` line, no
+    // `**BLESSED**` word at all) with one field prd-25 lacks: a shipped/superseded outcome in
+    // the same block. Proves selfStatusWithoutOutcome turns on that field, not on the word
+    // "BLESSED" — the round-1 predicate's literal key.
+    const ACQUITTED_FILES = ['prd-00-the-rhizomorph.md', 'prd-01-money-layer.md', 'prd-02-anyone-anywhere.md', 'prd-03-viz-design-study.md']
+    const shelf = archivedShelfEntries()
+    for (const file of ACQUITTED_FILES) {
+      const entry = shelf.find((e) => e.file === file)
+      expect(entry, `${file} must still be on the archived shelf`).toBeDefined()
+      expect(headBlockquote(entry!.text), `${file}'s head block must actually carry a **Status:** label for this test to mean anything`).toMatch(STATUS_LABEL_RE)
+      expect(inFlightClaim(headBlockquote(entry!.text), entry!.number), `${file}'s head status block`).toBe(false)
+    }
+  })
+
+  it('the pre-existing **Status:** **SHIPPED** forms (prd-29 among nine such files) stay acquitted — "shipped" sits inside the value itself', () => {
+    const entry = archivedShelfEntries().find((e) => e.file === 'prd-29-the-identity-seam.md')
+    expect(entry).toBeDefined()
+    expect(headBlockquote(entry!.text)).toMatch(/\*\*Status:\*\*\s*\*\*SHIPPED\*\*/)
+    expect(inFlightClaim(headBlockquote(entry!.text), entry!.number)).toBe(false)
+  })
+
+  it('the trap: prd-30\'s real "one operator act outstanding" sentence is not a violation', () => {
+    // Not synthetic — prd-30's own, unchanged sentence. A genuinely open, named human act is not
+    // the same fact as an open wave, and only the second is a defect in an archived PRD.
+    const entry = archivedShelfEntries().find((e) => e.file === 'prd-30-the-open-hand.md')
+    expect(entry).toBeDefined()
+    expect(entry!.text).toContain('one operator act outstanding')
+    expect(inFlightClaim(headBlockquote(entry!.text), entry!.number)).toBe(false)
+  })
+
+  it('mutation: reverting any one of the six corrected head blocks to its pre-fix text reddens the sweep', () => {
+    // Verbatim pre-fix head blocks (git history, before #500). Proves the sweep is not merely
+    // "something changed" but can actually tell prd-30's TRUE outstanding sentence apart from a
+    // FALSE wave-open or BLESSED claim sitting right beside it in the same paragraph.
+    const REVERTED_HEAD: Record<string, string> = {
+      'prd-30-the-open-hand.md':
+        '> **Outcome:** waves 1–4 shipped; **wave 5 open** (two defects in surfaces this PRD built, found\n> while staging the acceptance); **one operator act outstanding** — the first-glance acceptance.\n',
+      'prd-39-the-gate-that-holds.md':
+        '> **Status:** **BLESSED** — Ciaran Slow, 2026-08-22, in session. Milestone `prd39`. Drafted the\n> same day from the reconciled audit at `03df141`.\n',
+      'prd-43-the-claim-is-a-test.md':
+        '> **Status:** **BLESSED** — Ciaran Slow, 2026-08-22, in session. Milestone `prd43`. Drafted the same day from the reconciled audit\n',
+      'prd-48-the-shared-record.md':
+        '> **Status:** **BLESSED** — Lachlan Kelliher, 2026-08-31, in session. Milestone `prd48`.\n',
+      'prd-50-the-fixed-ceiling.md':
+        '> **Status:** **BLESSED** — Ciaran Slow, 2026-09-02, in session; rulings 1-3 accepted as written.\n> Milestone `prd50`.\n',
+      'prd-52-the-world-composes.md':
+        '> **Status:** **BLESSED** — Lachlan Kelliher, 2026-09-07, in session. Milestone `prd52`. Drafted\n',
+    }
+    for (const [file, text] of Object.entries(REVERTED_HEAD)) {
+      const synthetic: ShelfEntry = { number: '9999', file, text }
+      expect(statusLineViolations([synthetic]), `${file} reverted to its pre-fix head`).toEqual([file])
+    }
+  })
+
+  it('the marker must sit in the head block — the same phrase in a later amendment is not swept', () => {
+    // "wave" and "open" both occur constantly in ordinary PRD narration (this file's own doc
+    // comments among them). The predicate must be scoped to the head status block, not to the
+    // document as a whole, or every archived PRD that ever discusses a wave being reopened,
+    // filed, or found would falsely convict.
+    const text =
+      '> **Outcome:** shipped 2026-09-01. Blessed by Ciaran Slow, 2026-08-20, in session. Milestone `prd99`.\n\n' +
+      '## Amendment\n\nA later review found wave 3 open questions worth recording, though the wave itself is long since closed.\n'
+    expect(inFlightClaim(headBlockquote(text), '99')).toBe(false)
+  })
+
+  it('headBlockquote has a floor: a document with no head blockquote at all is not judged on a later one', () => {
+    // Round 2's fix: round 1's version skipped forward, unbounded, to the FIRST `>`-prefixed
+    // line anywhere in the document. A PRD with a plain-prose opening and a quoted example or an
+    // amendment's aside further down had that later block read as the head and wrongly judged.
+    const text =
+      '# prd-99 — a document with no head blockquote\n\n' +
+      'Plain prose opens this document; nothing here is quoted.\n\n' +
+      '## Amendment\n\n> **Status:** **BLESSED** — this quoted aside is NOT the head block and must not be read as one.\n'
+    expect(headBlockquote(text)).toBe('')
+    expect(inFlightClaim(headBlockquote(text), '99')).toBe(false)
+  })
+
+  describe('ownership: whose wave it is, not merely that one is named', () => {
+    it('a TRUE sentence about a SUCCESSOR PRD\'s live wave stays green, and an own-wave claim (even self-cited by number) reddens — in the same run', () => {
+      const successor = "> **Outcome:** shipped 2026-08-24. Successor prd-45 has wave 1 open.\n"
+      const selfCitedByNumber = "> **Outcome:** shipped 2026-08-24. prd-39's own wave 1 is open.\n"
+      const ownNumber = '39'
+      expect(inFlightClaim(headBlockquote(successor), ownNumber), 'a named OTHER PRD\'s open wave').toBe(false)
+      expect(inFlightClaim(headBlockquote(selfCitedByNumber), ownNumber), 'THIS PRD\'s own open wave, cited by its own number').toBe(true)
+    })
+
+    it("prd-39's real sentence, rephrased the obvious way, is what BLOCKER 1 named — proven directly", () => {
+      // prd-39's real, unmodified text already reads "remainder is **prd-45's** … not a
+      // reopening of this PRD." One wording away is exactly the successor-wave shape above;
+      // this proves the CURRENT real file does not trip the ownership check either.
+      const entry = archivedShelfEntries().find((e) => e.file === 'prd-39-the-gate-that-holds.md')
+      expect(entry).toBeDefined()
+      expect(entry!.text).toContain("prd-45's")
+      expect(inFlightClaim(headBlockquote(entry!.text), entry!.number)).toBe(false)
+    })
+  })
+
+  it('quotation: a head block recording its OWN prior text as history is not convicted by the quote', () => {
+    const text =
+      '> **Outcome:** shipped 2026-09-15. Corrected 2026-09-15: this block previously read\n' +
+      '> "**wave 5 open**"; that was stale the day this fix landed and is quoted here only as a\n' +
+      '> record of the correction.\n'
+    expect(inFlightClaim(headBlockquote(text), '99')).toBe(false)
+  })
+
+  it('control: "wave 5 opened … closed" is real, correct past-tense narration and must not convict', () => {
+    const text = '> **Outcome:** shipped 2026-09-15. Wave 5 opened 2026-09-01, closed 2026-09-13.\n'
+    expect(inFlightClaim(headBlockquote(text), '99')).toBe(false)
+  })
+
+  it('the productions table — every spelling named at verify, one predicate, no per-spelling regex', () => {
+    const ROWS: { desc: string; text: string; expected: boolean }[] = [
+      { desc: 'title-case **Status:** **Blessed**, no outcome', text: '> **Status:** **Blessed** by the operator, 2026-08-24.\n', expected: true },
+      { desc: 'colon outside the bold: **Status**:', text: '> **Status**: blessed by the operator, 2026-08-24.\n', expected: true },
+      { desc: '**Status:** **DRAFT**, no outcome', text: '> **Status:** **DRAFT** — work has not yet begun.\n', expected: true },
+      { desc: '**Status:** **IN PROGRESS**, no outcome', text: '> **Status:** **IN PROGRESS**.\n', expected: true },
+      { desc: 'a plural range: waves 4-5 open', text: '> **Outcome:** waves 1-3 shipped; waves 4-5 open.\n', expected: true },
+      { desc: '"remains open"', text: '> **Outcome:** shipped 2026-09-01; wave 5 remains open.\n', expected: true },
+      { desc: '"still open"', text: '> **Outcome:** shipped 2026-09-01; wave 5 is still open.\n', expected: true },
+      { desc: '"in flight"', text: '> **Outcome:** shipped 2026-09-01; wave 5 in flight.\n', expected: true },
+      { desc: '"in progress"', text: '> **Outcome:** shipped 2026-09-01; wave 5 in progress.\n', expected: true },
+      { desc: '"reopened"', text: '> **Outcome:** shipped 2026-09-01; wave 5 reopened.\n', expected: true },
+      { desc: 'spelled-out number: "wave five open"', text: '> **Outcome:** shipped 2026-09-01; wave five open.\n', expected: true },
+      { desc: 'hard line-wrap between "wave 5" and "open"', text: '> **Outcome:** shipped 2026-09-01; wave 5\n> open.\n', expected: true },
+      { desc: 'one-space-indented blockquote, live status', text: ' > **Status:** **BLESSED** — no outcome anywhere.\n', expected: true },
+    ]
+    for (const row of ROWS) {
+      expect(inFlightClaim(headBlockquote(row.text), '9999'), row.desc).toBe(row.expected)
+    }
+  })
+})
