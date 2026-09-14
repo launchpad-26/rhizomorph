@@ -127,10 +127,20 @@ someone else's follow-up is how a repo learns to ignore it.
 ## Ruling 4 — the mirror case stays one-way, and the reason is what each direction misleads a reader into
 
 Operator-ruled 2026-09-13, forced by wave 1 itself: `prd43`'s milestone
-reopened (1 open issue against 34 closed, no `closed_at`) after wave 1 moved
-`prd-43-the-claim-is-a-test.md` onto the archival shelf on the strength of its
-then-closed milestone. The open question below asked this before an instance
-existed; wave 1 created one, on `main`, before the question was ever answered.
+reopened — **as it stood on 2026-09-13: 1 open issue against 34 closed, no
+`closed_at`** — after wave 1 moved `prd-43-the-claim-is-a-test.md` onto the
+archival shelf on the strength of its then-closed milestone. The open question
+below asked this before an instance existed; wave 1 created one, on `main`,
+before the question was ever answered.
+
+**That instance has since resolved, and the ruling does not depend on it.**
+The straggler was `#448`, which closed 2026-09-14T05:22Z when its own PR
+landed; the milestone closed behind it at 05:51Z, so `prd43` is now an
+archived PRD with a closed milestone — the ordinary state. The figures above
+are dated for that reason: this PRD is the one about status claims going
+false, and a present-tense count of a tracker is exactly the shape it warns
+about. What forced the ruling is that the mirror case CAN occur and did, not
+that it is occurring as you read this.
 
 **Ruling 1's law keeps sweeping only the live shelf. It does not also convict
 an archived PRD whose milestone has reopened.** The law stays one-way.
@@ -220,7 +230,8 @@ any location rule at all. Neither is booked; both are outside ruling 1.
   preventing it). Wave 1 must choose and say why. **Open, not ruled.**
 - Should the law also fail an ARCHIVED PRD whose milestone is still open — the
   mirror case? **Ruled — see Ruling 4.** The law stays one-way; prd-43 is the
-  instance that forced the question.
+  instance that forced the question — and has since resolved, which ruling 4
+  records rather than leaving its figures to rot.
 
   > **Superseded 2026-09-13 (`#459`).** This bullet originally read: *"No
   > instance exists today, so ruling 1 is written one-way. Open, not ruled."*
