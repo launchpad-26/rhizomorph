@@ -986,7 +986,7 @@ describe('the README support matrix agrees with what this repo can actually prov
     for (const platform of ['Linux', 'WSL', 'macOS', 'Windows (native)']) {
       const row = rowFor(platform)
       expect(row, `README support matrix: the ${platform} row claims a push-triggered CI verdict, and nothing runs on a push`).not.toMatch(/CI-verified on every push/i)
-      expect(row, `README support matrix: the ${platform} row claims a run "on every push", and nothing runs on a push`).not.toMatch(/on every push/i)
+      expect(row, `README support matrix: the ${platform} row claims a run "on every push", and nothing runs on a push`).not.toMatch(/\bon every push\b/i)
     }
 
     // And the row carrying the verdict must say where it comes from, so the ban
