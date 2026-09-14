@@ -1257,8 +1257,10 @@ Three files pin the tracked migration id set, **independently, in three director
 The third is the router's own test file. So **any migration-adding issue must claim the router's
 test file**, and retention (rulings 9, 10) spends this PRD's next migration. The two cannot share
 a wave — not because their code touches, but because the *evidence* for one lives inside the
-other's boundary. `.swarm/coupling.txt` already carried the first two entries; the consequence for
-sequencing is what was not written down.
+other's boundary. `.swarm/coupling.txt` already carried the **second and third** of those pins —
+bootstrap.test.ts at its line 119 and api/api.test.ts at 120, the two the wave-6 amendment
+above names by hand. The runner's own test is in no registry entry at all. The consequence for
+sequencing is what none of them wrote down.
 
 Everything else deferred is deferred for the ordinary reason: the three questions' pages, the
 doctor route and the mint surface each need a route, and the route table is what wave 7 builds.
@@ -1269,9 +1271,11 @@ them parallel. That is a grooming decision for when wave 8 comes up, not a promi
 ### What the two lanes are
 
 `scripts/fence-lint.sh 487 488 436` **PASSED** — no overlaps, five coupling points owned rather
-than orphaned. Re-run against the live In-progress issues alongside it (`487 488 436 481 443
-448`), it passes too, which is the run that matters: the lint only compares the issues it is
-given, so a wave linted alone can be clean while a live lane holds one of its paths.
+than orphaned. Re-run against the live In-progress issues alongside it (`487 488 436 481 443 484
+448`), it passes too, and that is the run that matters: the lint only compares the issues it is
+given, so a wave linted alone can be clean while a live lane holds one of its paths. #484 is in
+that list because it went In-progress *after* the first run — which is the whole hazard in one
+fact, and the reason this re-run is named rather than assumed.
 
 - **#487** — the listener becomes a router and the callback lands on it. One route wearing a
   conditional becomes a dispatch table where adding a route is adding a row, and
