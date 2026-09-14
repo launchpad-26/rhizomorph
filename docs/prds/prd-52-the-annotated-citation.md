@@ -1,9 +1,51 @@
 # prd-52 — the annotated citation: provenance is written, not inferred from a number
 
-> **Status:** proposed — drafted 2026-09-04 against `main` at `fcbe2f1`, from the verify pass on
+> **Status:** SUPERSEDED, 2026-09-15 — never blessed, never numbered into the live
+> sequence, and now answered on `main` by a different route. The number `52` it carries is
+> stale: `docs/prds/done/prd-52-the-world-composes.md` shipped and owns it. This file is
+> kept as provenance for a design that is now load-bearing, NOT as work to pick up. What
+> superseded it is recorded at the end of this header block.
+>
+> **Original status:** proposed — drafted 2026-09-04 against `main` at `fcbe2f1`, from the verify pass on
 > prd-43 wave 7's `#261` (`.git/fix-rereview-w7/`, two independent seats). Takes one question
 > prd-43 measured and did not resolve. Successor to `#261`'s mechanism, not to prd-43: it cites
 > prd-43's own measurement rather than restating it, and prd-43 keeps its territory.
+
+### What superseded it (added 2026-09-15)
+
+This draft's argument was adopted; its mechanism was not. `packages/server/src/doc-citation-law.test.ts`
+now splits one ceiling into two, and its docblock gives the reason in this document's own terms:
+
+> `recordedMaximum()` is the ceiling the committed baseline was MEASURED against, read from
+> `.citation-prior-tracker`'s own `live-maximum=` field. It is frozen by construction, and it has
+> to be: a citation that exceeded the ceiling on the day it was recorded is a prior-tracker
+> citation forever, so re-checking that historical fact against a ceiling that climbs guarantees
+> the baseline rots out from under itself.
+
+`liveMaximum()` still climbs, but it judges only NEW citations. That is precisely the decay this
+document's Evidence section predicted, fixed at the point this document said it had to be.
+
+EXECUTED 2026-09-15 on `main`: the law runs **75 passed**, green. The baseline records
+`measured: 2026-09-04 live-maximum=265`; the derived live maximum that day was **510**. Under the
+single-ceiling mechanism described below, rows citing `#269` and `#270` would be red by a margin
+of 240 and `main` would have been broken for weeks. It is green, so that assertion no longer
+governs the baseline.
+
+The specific failure this document opens with is recorded as a REJECTED approach rather than a
+live defect — `.citation-prior-tracker` quotes `#267 no longer exceeds the live maximum (268)` by
+number, and adds a finding this document did not have: the remedy that failure prescribed was also
+wrong, because `docs/roadmap.md`'s `#267` means the prior tracker while live `#267` is an unrelated
+beacon collector.
+
+The title's claim landed too. `ALLOWLISTED_BROKEN_CITATIONS` and `HISTORICAL_PATH_CITATIONS` carry
+honesty-checked reasons, and `.citation-prior-tracker` has a `[historical]` section — provenance
+written, not inferred from a number.
+
+NOT a full audit. The decaying-baseline defect is verified gone and the annotation mechanism
+verified present. Whether every argument in the 168 lines below is answered was not checked, so a
+residual worth lifting into a PRD of its own is possible. It would need a number from the live
+sequence; `52` is not available and this file must not be renumbered into one without that
+decision being made deliberately.
 
 ## Problem
 
