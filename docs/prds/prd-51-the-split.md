@@ -1212,3 +1212,123 @@ not exist yet.
   lines of prose buys nothing a rewrite does not hand over for free. The correction lands with the
   router, in the header of the file being replaced, where it cannot be missed. Recorded on #462,
   and named as a widening **considered and declined** on the wave-6 bundle PR.
+
+## Amendment — wave 6 is merged, and wave 7 is groomed into two lanes (operator, 2026-09-14)
+
+Wave 6 landed as PR #476, merged `7abfdee2`: #169, #462 and #463, three lanes, three commits,
+cherry-picked with no conflict. Two review commits joined on the branch — the minter's own error
+is now pinned against a paraphrase, and a storage failure on the key check reports to the
+operator rather than putting the database's message on the wire to a caller whose key was never
+verified. Both are the wave's own shape found once more: a refusal string that named something
+it should not.
+
+Wave 7 is the router the 2026-09-14 amendment above promised, and it is **two lanes, not the five
+that amendment's wave-7 row implies**. What cut it down is not scope-trimming; it is a collision
+found at grooming, stated below so the next reader meets it as a ruling rather than rediscovering
+it.
+
+### The map, superseded again
+
+| wave | what | state |
+|---|---|---|
+| 0 | operator acts | recorded in the 2026-09-08 amendment |
+| 1 | the Keystone | **merged** (#257, #258, #259) |
+| 2 | `packages/team`: the storage port, ruling 5's schema, the migration runner | **merged** (#355) |
+| 3 | the shipper outbound · the ingest journals before it acks | **merged** (#386) |
+| 4 | the two wedges and the doctor route | **merged** (#425, `a3c5b305`; #410 in #446) |
+| 5 | ruling 11's local archive command · ruling 13's image and `init.sh` · two wave-4 deferrals | **merged** (#454, `2784204e`) — except #436, re-homed to wave 7 below |
+| 6 | membership is the boundary · a key is a hash · the ADR ruling 8 never got | **merged** (#476, `7abfdee2`) |
+| 7 | the listener becomes a router and the callback lands on it · `/connect` says whether a batch was acknowledged · #436's citation, re-homed | **groomed** — #487, #488, #436 |
+| 8 | retention under a named ceiling (rulings 9, 10) · the three questions and the read-only role · the team server's doctor route · the key-mint surface | not groomed — and it may not be one wave; see below |
+| 9 | #171's timed drill on the real host · the doc sweep (absorbs or fences #354) | not groomed; #171's number is provisional |
+
+### One migration, three pins, and why wave 7 is small
+
+The wave-6 amendment booked four callers onto the router and ruled them one issue. Grooming found
+the constraint that decides which of them can actually travel with it, and it is not about the
+router at all — it is about the **migration**.
+
+Three files pin the tracked migration id set, **independently, in three directories**:
+
+- `packages/team/src/migrations/runner.test.ts`
+- `packages/team/src/bootstrap.test.ts`
+- `packages/team/src/api/api.test.ts`
+
+The third is the router's own test file. So **any migration-adding issue must claim the router's
+test file**, and retention (rulings 9, 10) spends this PRD's next migration. The two cannot share
+a wave — not because their code touches, but because the *evidence* for one lives inside the
+other's boundary. `.swarm/coupling.txt` already carried the first two entries; the consequence for
+sequencing is what was not written down.
+
+Everything else deferred is deferred for the ordinary reason: the three questions' pages, the
+doctor route and the mint surface each need a route, and the route table is what wave 7 builds.
+They are a stack wearing a bundle's clothes, and wave 8 is where they land — **possibly as two
+waves**, because all three want the same file and the router's existence does not by itself make
+them parallel. That is a grooming decision for when wave 8 comes up, not a promise made here.
+
+### What the two lanes are
+
+`scripts/fence-lint.sh 487 488 436` **PASSED** — no overlaps, five coupling points owned rather
+than orphaned. Re-run against the live In-progress issues alongside it (`487 488 436 481 443
+448`), it passes too, which is the run that matters: the lint only compares the issues it is
+given, so a wave linted alone can be clean while a live lane holds one of its paths.
+
+- **#487** — the listener becomes a router and the callback lands on it. One route wearing a
+  conditional becomes a dispatch table where adding a route is adding a row, and
+  `GET /auth/github/callback` is its first new row, built on the transport-pure `auth/` module
+  #169 shipped before it had a socket. It also pays the **ruling-12 comment debt** the wave-6
+  amendment booked: `packages/team/src/api/http.ts`'s header still says key verification is
+  "wave 4's and is loudly unimplemented", which #462 made false, and this is the commit that
+  makes the file's own words true again.
+- **#488** — ruling 12's second half, local side. `/connect` gains its `team server` row:
+  VERIFIED only when a batch was acknowledged, with the fact and its timestamp; BROKEN with the
+  remedy; UNPROVEN until then.
+- **#436** — re-homed from wave 5, and already built.
+
+### The session is a signed cookie, and that is a ruling, not a detail
+
+A callback that establishes a session invites a `sessions` table, and a table is a migration —
+which is precisely what wave 7 may not spend. So it is ruled at grooming rather than left to a
+lane: **v1's session is a signed stateless cookie** over the member login and an expiry, using
+`node:crypto`, which this package already depends on for both planes. No table, no migration, no
+dependency.
+
+If that turns out not to hold, #487's own falsifier says to **stop and report** rather than widen
+— the wave splits differently, and that is a grooming decision. A lane discovering it needs a
+migration and taking one is how the retention collision above arrives a wave early.
+
+### Two housekeeping facts, both closed
+
+- **#436 is re-homed to wave 7.** It left wave 5 before dispatch behind #427 (which has since
+  landed in #458), and wave 5 merged without it, so there was no bundle left for it to join. Its
+  single document is claimed by no other wave-7 lane, so it rides this wave's PR instead of
+  paying the per-PR toll alone for a sixteen-line docs commit. Nothing about the work changed.
+- **#171 is regroomed**, which the wave-6 amendment said would happen when wave 7 came up. It had
+  carried its **prd-48 body** all along: a fence naming a research document that does not exist
+  in this tree, and blockers from a wave structure this PRD replaced. Its title and board row
+  read `prd51 w6` while the wave held three other issues. All three are corrected. Its new number
+  is **provisional and says so in its own body** — it is the last wave, whatever wave 8 turns out
+  to be.
+
+### Grooming found two ways to make `fence-lint.sh` lie, and both were self-inflicted
+
+Worth recording because the first run of the lint **failed on a collision that did not exist**,
+and the second nearly passed one that did.
+
+**A phantom overlap from prose.** The lint reads its claims from the `## Fence` section *and*
+from every line containing the word "fence". #436's re-homing note said, in prose, that its
+boundary was disjoint from the router's — naming the router's directory in backticks on that
+line. The lint read it as a claim and reported #436 overlapping #487 on a directory #436 will
+never touch. A heading containing the word does the same thing one size larger: a
+`## Why the fence is wider than…` section on #488 swallowed twenty-seven paths out of its
+evidence. The tell is not the exit code, it is the **path count** — an issue declaring seven
+boundaries and reporting twenty-seven has not been read correctly, whatever the verdict says.
+
+**A real gap the green run could not see.** Law 6 of the grooming contract already says the
+lint's coupling WARN is unreachable when a claim is a directory, and both wave-7 lanes are
+directory-shaped. Checking by hand found two things a passing lint had not:
+`packages/team/src/api/main.ts` calls `bootstrapTeamStorage` one directory up, so the boot
+sequence #487 restructures reaches the very file that pins the migration set; and on the web side
+`DoctorReading` is declared in `packages/web/src/connect/meta.ts`, which has no shipper facts at
+all today, so #488 claiming only the row's own file would have stranded it at the type boundary.
+Both were widened **at grooming**, which is the only time widening is free.
