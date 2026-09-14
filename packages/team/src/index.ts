@@ -9,7 +9,8 @@
  * What is here is the substrate waves 3 and 4 build on:
  *
  * - `startTeamServer` — ruling 14's entrypoint: bootstrap, top up the partition
- *   window, open the journal, bind the one ingest route.
+ *   window, open the journal, bind the route table (`api/http.ts`: the ingest
+ *   route, and the two halves of a GitHub sign-in).
  * - {@link TeamStorage} — the port. No SQL crosses it.
  * - `createPostgresStorage` / `openSql` — the one adapter and the one driver
  *   seam behind it (ADR-0043).
