@@ -850,6 +850,65 @@ describe('runDoctor', () => {
       expect(shipper.message).toContain('credential present')
       expect(shipper.message).not.toContain(SHIPPER_KEY)
       expect(shipper.message).not.toContain(SHIPPER_KEY.slice(0, 12))
+      // prd-51 ruling 12 — the central assertion: nothing has ever shipped,
+      // so there is no ack fact and no ack sentence, not a zero timestamp.
+      expect(shipper.lastAckAt).toBeUndefined()
+      expect(shipper.message).not.toContain('Last acknowledged')
+    })
+
+    it('reports the ack fact and its exact timestamp once a batch has been acknowledged (prd-51 ruling 12)', async () => {
+      await turnOn()
+      await writeFile(
+        shipperCursorPath(repoPath, dataRoot),
+        JSON.stringify({
+          version: 1,
+          actors: { 'session-one': { offset: 40, n: 4, lastAckAt: 1_700_000_000_000, skippedCount: 0, skipped: [] } },
+        }),
+      )
+
+      const shipper = checkFor((await report()).checks, 'shipper')
+      expect(shipper.status).toBe('ok')
+      expect(shipper.lastAckAt).toBe(1_700_000_000_000)
+      expect(shipper.message).toContain(new Date(1_700_000_000_000).toISOString())
+    })
+
+    it('the most recent acknowledgement wins across sessions, never the first or the alphabetically-last', async () => {
+      await turnOn()
+      await writeFile(
+        shipperCursorPath(repoPath, dataRoot),
+        JSON.stringify({
+          version: 1,
+          actors: {
+            // The maximum sits in the MIDDLE — first, last (alphabetically,
+            // which is also `shipperStatus`'s own sort order) and max are
+            // three different values, so a reduce that quietly returns the
+            // first or the last actor's `lastAckAt` cannot pass this test by
+            // accident the way it could when the max happened to also be
+            // the alphabetical first (verify #488, finding 1).
+            'session-aaa': { offset: 10, n: 1, lastAckAt: 100_000_000_000, skippedCount: 0, skipped: [] },
+            'session-mmm': { offset: 20, n: 2, lastAckAt: 900_000_000_000, skippedCount: 0, skipped: [] },
+            'session-zzz': { offset: 30, n: 3, lastAckAt: 500_000_000_000, skippedCount: 0, skipped: [] },
+          },
+        }),
+      )
+
+      const shipper = checkFor((await report()).checks, 'shipper')
+      expect(shipper.lastAckAt).toBe(900_000_000_000)
+    })
+
+    it('reading the same facts twice yields the same timestamp — no clock is read at the facts layer', async () => {
+      await turnOn()
+      await writeFile(
+        shipperCursorPath(repoPath, dataRoot),
+        JSON.stringify({
+          version: 1,
+          actors: { 'session-one': { offset: 40, n: 4, lastAckAt: 1_700_000_000_000, skippedCount: 0, skipped: [] } },
+        }),
+      )
+
+      const first = checkFor((await report()).checks, 'shipper')
+      const second = checkFor((await report()).checks, 'shipper')
+      expect(first.lastAckAt).toBe(second.lastAckAt)
     })
 
     it('FAILS when the enable record is there and the credential is not, and names the path and the remedy', async () => {
@@ -862,13 +921,22 @@ describe('runDoctor', () => {
       expect(shipper.message).toContain('rhizomorph connect team')
     })
 
-    it.skipIf(process.platform === 'win32')('warns with the chmod when the credential is readable beyond you', async () => {
+    it.skipIf(process.platform === 'win32')('warns with the chmod when the credential is readable beyond you, and still reports the acknowledgement — a wrong-permission credential does not erase shipping history', async () => {
       await turnOn()
+      await writeFile(
+        shipperCursorPath(repoPath, dataRoot),
+        JSON.stringify({
+          version: 1,
+          actors: { 'session-one': { offset: 40, n: 4, lastAckAt: 1_700_000_000_000, skippedCount: 0, skipped: [] } },
+        }),
+      )
       await chmod(shipperKeyPath(repoPath, dataRoot), 0o644)
 
       const shipper = checkFor((await report()).checks, 'shipper')
       expect(shipper.status).toBe('warn')
       expect(shipper.message).toContain(`chmod 600 ${shipperKeyPath(repoPath, dataRoot)}`)
+      expect(shipper.lastAckAt).toBe(1_700_000_000_000)
+      expect(shipper.message).toContain(new Date(1_700_000_000_000).toISOString())
     })
 
     it('warns and says the next pass cold-starts when the cursor could not be trusted', async () => {
@@ -878,6 +946,26 @@ describe('runDoctor', () => {
       const shipper = checkFor((await report()).checks, 'shipper')
       expect(shipper.status).toBe('warn')
       expect(shipper.message).toContain('cold-starts')
+    })
+
+    it('a partially-corrupt cursor still reports the surviving actor\'s acknowledgement — the sibling case', async () => {
+      await turnOn()
+      await writeFile(
+        shipperCursorPath(repoPath, dataRoot),
+        JSON.stringify({
+          version: 1,
+          actors: {
+            'session-good': { offset: 30, n: 3, lastAckAt: 555_000_000_000, skippedCount: 0, skipped: [] },
+            'session-bad': { offset: -1, n: 3, lastAckAt: 0, skippedCount: 0, skipped: [] },
+          },
+        }),
+      )
+
+      const shipper = checkFor((await report()).checks, 'shipper')
+      expect(shipper.status).toBe('warn')
+      expect(shipper.message).toContain('holds an unusable entry')
+      expect(shipper.lastAckAt).toBe(555_000_000_000)
+      expect(shipper.message).toContain(new Date(555_000_000_000).toISOString())
     })
 
     it('FAILS rather than reading a corrupt enable record as "off"', async () => {

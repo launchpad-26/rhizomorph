@@ -2960,3 +2960,19 @@ stale before (#238), and it drifted again since.
   harness's hooks) from L4 (declared by tmux/workmux) and a configured-but-silent
   beacon can no longer read as the PTY rung ADR-0036 warned of; on a level tie
   the rig wins. (issue #218; ADR accepted 2026-09-06)
+- 2026-09-09 — prd-51 ruling 4 /
+  [ADR-0046](adr/0046-the-ingest-journal-is-a-crc-framed-append-log.md): **the team
+  server's ingest journal is a CRC-framed two-line append log, and the 202 follows the
+  durable write.** One frame is an ASCII header — `RZJ1 <seq> <byteLen> <crc32hex>` — then
+  the JSON record on its own line; `writeSync` then `fsyncSync`, and only then the fold
+  queue is notified and the route answers 202
+  (`packages/team/src/journal/format.ts`, `packages/team/src/journal/journal.ts`,
+  `packages/team/src/ingest/handle.ts`). The byte length is what makes ruling 4's two
+  verdicts on an unreadable record decidable rather than guessed: a torn tail is legal
+  only at EOF and reads as never-acked, a parse failure with bytes behind it aborts
+  loudly — under plain JSONL those are the same observation. The repair belongs to the
+  writer: `openJournal` truncates a torn tail away and `fsync`s that truncation before the
+  first append, because the torn record's `seq` would otherwise be reissued at its own
+  offset boundary and turn a state the ruling calls legal into a permanent refusal to
+  boot; the reader reports the tear and changes no byte.
+  (issues #373, #398; ADR proposed 2026-09-09)

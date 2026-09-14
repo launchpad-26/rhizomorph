@@ -38,6 +38,18 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Added
 
+- **`/connect` gains a `repo ↔ team server` row: has a batch this repo shipped
+  ever been acknowledged, and when (prd-51 ruling 12).** The row reads
+  VERIFIED only once the shipper's cursor records a real acknowledgement,
+  stating the fact and its timestamp; UNPROVEN for a shipper that is off, or
+  configured but has never shipped anything yet — "connected" never means
+  preconditions passed; and BROKEN with the exact remedy when the shipper is
+  on and cannot run. The doctor's own `shipper` check (`rhizomorph doctor` and
+  `GET /api/doctor`) now carries that same timestamp as an optional
+  `lastAckAt`, taken as the most recent acknowledgement across every session
+  in the cursor — the local wall clock the cursor already kept never crosses
+  the wire; this only surfaces it to the operator.
+
 - **`rhizomorph archive` — seal, archive, verify, tombstone and prune are one
   local command, in that order, or it does not run (prd-51 ruling 11, #432).**
   One subcommand builds the portable record for every session older than the

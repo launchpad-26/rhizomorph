@@ -1,15 +1,18 @@
 import { parseIngestAccepted } from '@rhizomorph/core/src/wire/index.js'
+import { generateKeyPairSync } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import type { Fetch } from '../auth/github-app.js'
+import { OAUTH_STATE_COOKIE, SESSION_COOKIE, parseCookieHeader } from '../auth/session.js'
 import { resolveTeamConfig } from '../config/config.js'
 import { INGEST_KEY_HEADER } from '../ingest/handle.js'
 import { readJournal } from '../journal/read.js'
 import { hashIngestKey } from '../keys/hash.js'
 import { mintIngestKey } from '../keys/mint.js'
 import { FakeTeamStorage } from '../storage/fake.js'
-import { INGEST_PATH, MAX_BODY_BYTES } from './http.js'
+import { CALLBACK_PATH, INGEST_PATH, MAX_BODY_BYTES, SIGNIN_START_PATH } from './http.js'
 import { type TeamServer, monthsToTopUp, startTeamServer } from './main.js'
 
 /**
@@ -90,6 +93,162 @@ async function start(
 function url(server: TeamServer, at = INGEST_PATH): string {
   return `http://${server.host}:${server.port}${at}`
 }
+
+/**
+ * THE SIGN-IN ROUTES, OVER THE SAME SOCKET (#487).
+ *
+ * A SECOND starter rather than a change to `start()`: every case above is the
+ * evidence that turning one negated conditional into a route table preserved
+ * the ingest route's behaviour, and a case that had to be edited to stay green
+ * would have stopped being that evidence.
+ */
+const { privateKey: TEST_PRIVATE_KEY } = generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+})
+
+const CONFIGURED_ENV = {
+  RZ_TEAM_GITHUB_ORG: 'rhizomorph-team',
+  RZ_TEAM_GITHUB_APP_ID: '123456',
+  RZ_TEAM_GITHUB_INSTALLATION_ID: '789',
+  RZ_TEAM_GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY,
+  RZ_TEAM_GITHUB_CLIENT_ID: 'Iv1.abcdef0123456789',
+  RZ_TEAM_GITHUB_CLIENT_SECRET: 'the-client-secret',
+}
+
+/** Answers every GitHub endpoint the happy path touches, and records nothing the wire needs. */
+function happyGithub(): Fetch {
+  const fn = async (at: string | URL | Request) => {
+    const href = String(at)
+    if (href.includes('login/oauth/access_token')) {
+      return { status: 200, json: async () => ({ access_token: 'gho_user_tok' }) } as unknown as Response
+    }
+    if (href.includes('api.github.com/user')) {
+      return { status: 200, json: async () => ({ login: 'octocat', id: 583231 }) } as unknown as Response
+    }
+    if (href.includes('/access_tokens')) {
+      return { status: 201, json: async () => ({ token: 'ghs_install_tok' }) } as unknown as Response
+    }
+    return { status: 204 } as unknown as Response
+  }
+  return fn as Fetch
+}
+
+async function startConfigured(
+  fetchImpl: Fetch = happyGithub(),
+): Promise<{ server: TeamServer; storage: FakeTeamStorage }> {
+  const storage = new FakeTeamStorage({ settings: { synchronous_commit: 'on' } })
+  const result = await startTeamServer({
+    storage,
+    config: resolveTeamConfig(CONFIGURED_ENV),
+    journalPath: path.join(dir, 'configured.journal'),
+    port: 0,
+    now: () => Date.UTC(2026, 10, 20),
+    fetch: fetchImpl,
+  })
+  if (!result.ok) throw new Error(result.error)
+  running = result.server
+  storage.keyLookups.length = 0
+  return { server: result.server, storage }
+}
+
+/** The `Set-Cookie` values, one per emitted cookie, off a real response. */
+function cookiesOf(response: Response): string[] {
+  return response.headers.getSetCookie()
+}
+
+describe('the sign-in routes are rows in the same table', () => {
+  it('D1 — GET the callback on an UNCONFIGURED server is a 503 with a JSON body, not a 404', async () => {
+    const { server } = await start()
+    const response = await fetch(url(server, CALLBACK_PATH), { redirect: 'manual' })
+    expect(response.status).toBe(503)
+    expect(JSON.stringify(await response.json())).toContain('unconfigured')
+  })
+
+  it('D2 — POST the callback is a 405 allowing GET', async () => {
+    const { server } = await start()
+    const response = await fetch(url(server, CALLBACK_PATH), { method: 'POST' })
+    expect(response.status).toBe(405)
+    expect(response.headers.get('allow')).toBe('GET')
+    expect(JSON.stringify(await response.json())).toContain('GitHub returns a member here by GET')
+  })
+
+  it('D3 — a configured server signs a member in, and the cookie ATTRIBUTES survive the wire', async () => {
+    const { server } = await startConfigured()
+
+    const started = await fetch(url(server, SIGNIN_START_PATH), { redirect: 'manual' })
+    const stateCookie = cookiesOf(started)[0] ?? ''
+    const state = new URL(String(started.headers.get('location'))).searchParams.get('state') ?? ''
+    const cookieHeader = stateCookie.split(';')[0] ?? ''
+
+    const response = await fetch(
+      `${url(server, CALLBACK_PATH)}?code=the-code&state=${encodeURIComponent(state)}`,
+      { redirect: 'manual', headers: { cookie: cookieHeader } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(JSON.stringify(await response.json())).toContain('octocat')
+
+    const session = cookiesOf(response).find((cookie) => cookie.startsWith(`${SESSION_COOKIE}=`) && !cookie.startsWith(`${SESSION_COOKIE}=;`))
+    expect(session).toBeDefined()
+    expect(session).toContain('HttpOnly')
+    expect(session).toContain('Secure')
+    expect(session).toContain('SameSite=Lax')
+    // …and the consumed nonce is cleared in the same response.
+    expect(cookiesOf(response).some((cookie) => cookie.startsWith(`${OAUTH_STATE_COOKIE}=;`))).toBe(true)
+  })
+
+  it('D4 — a callback request buys NO database read: the duplication was absorbed, not widened', async () => {
+    const { server, storage } = await startConfigured()
+    await fetch(url(server, CALLBACK_PATH), { redirect: 'manual' })
+    await fetch(url(server, SIGNIN_START_PATH), { redirect: 'manual' })
+    expect(storage.keyLookups).toEqual([])
+  })
+
+  it('D5 — repetition: the listener is built ONCE and holds nothing between requests', async () => {
+    const { server, storage, journalPath } = await start()
+    for (const n of [1, 2]) {
+      const response = await fetch(url(server), {
+        method: 'POST',
+        headers: { [INGEST_KEY_HEADER]: KEY },
+        body: JSON.stringify(body({ batch: [{ n, line: `{"a":${n}}` }] })),
+      })
+      expect(response.status).toBe(202)
+    }
+    const read = readJournal(journalPath)
+    expect(read.ok && read.records.length).toBe(2)
+    // Two batches, two row reads — nothing was memoised into the listener.
+    expect(storage.keyLookups).toEqual([hashIngestKey(KEY), hashIngestKey(KEY)])
+  })
+
+  it('D6 — the whole flow over the socket: start issues a nonce the callback accepts, and a tampered one it does not', async () => {
+    const { server } = await startConfigured()
+
+    const started = await fetch(url(server, SIGNIN_START_PATH), { redirect: 'manual' })
+    expect(started.status).toBe(302)
+    const location = new URL(String(started.headers.get('location')))
+    expect(location.host).toBe('github.com')
+    const stateCookie = cookiesOf(started)[0] ?? ''
+    expect(parseCookieHeader(stateCookie.split(';')[0])[OAUTH_STATE_COOKIE]).toBeDefined()
+
+    const state = location.searchParams.get('state') ?? ''
+    const cookieHeader = stateCookie.split(';')[0] ?? ''
+
+    const good = await fetch(`${url(server, CALLBACK_PATH)}?code=the-code&state=${encodeURIComponent(state)}`, {
+      redirect: 'manual',
+      headers: { cookie: cookieHeader },
+    })
+    expect(good.status).toBe(200)
+
+    const tampered = await fetch(`${url(server, CALLBACK_PATH)}?code=the-code&state=${encodeURIComponent(`${state}x`)}`, {
+      redirect: 'manual',
+      headers: { cookie: cookieHeader },
+    })
+    expect(tampered.status).toBe(400)
+    expect(JSON.stringify(await tampered.json())).toContain('bad-state')
+  })
+})
 
 describe('boot', () => {
   it('bootstraps the storage, then tops up the current and next month, then listens', async () => {

@@ -397,6 +397,22 @@ export interface ShipperDoctorFacts {
   keyMode: number | null
   /** The furthest `n` any session has shipped through. */
   maxN: number
+  /**
+   * The most recently acknowledged batch's local wall clock, epoch ms, across
+   * every session recorded in the cursor (prd-51 ruling 12's falsifier: the
+   * cursor is per-session, this fact is per-repo, and "most recent wins" is
+   * the same answer `maxN` already gives the identical question). `0` when
+   * no session has ever had a batch acknowledged — the same sentinel `maxN`
+   * and `sessionCount` already use below, never confused with a real
+   * timestamp because `Date.now()` never returns `0`.
+   *
+   * Sourced from `ActorCursor.lastAckAt` (`shipper/cursor.ts`), which is
+   * documented there as "never crosses the wire" — this field is that same
+   * guarantee read back to the OPERATOR (a doctor check, a CLI report, a
+   * `/connect` row), never sent onward to the team server. Nothing in this
+   * lane adds a second write path for it.
+   */
+  lastAckAt: number
   /** How many sessions have a cursor entry at all. */
   sessionCount: number
   skippedCount: number
@@ -414,6 +430,7 @@ export async function shipperDoctorFacts(repoPath: string, dataRoot?: string): P
     keyPresent: false,
     keyMode: null,
     maxN: 0,
+    lastAckAt: 0,
     sessionCount: 0,
     skippedCount: 0,
     cursorReset: null,
@@ -436,6 +453,7 @@ export async function shipperDoctorFacts(repoPath: string, dataRoot?: string): P
     keyPresent: status.keyPresent,
     keyMode: status.keyMode,
     maxN: status.actors.reduce((most, actor) => Math.max(most, actor.n), 0),
+    lastAckAt: status.actors.reduce((most, actor) => Math.max(most, actor.lastAckAt), 0),
     sessionCount: status.actors.length,
     skippedCount: status.actors.reduce((sum, actor) => sum + actor.skippedCount, 0),
     cursorReset: status.cursorReset,

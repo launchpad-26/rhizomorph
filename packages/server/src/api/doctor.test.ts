@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { Dirent } from 'node:fs'
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Exec, ExecResult } from '@rhizomorph/core'
@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from 'vitest'
 // exists to refuse, and `shipper/hand-law.test.ts` convicts a test file for it
 // exactly as it would a source file. A declared importer BOUNDS the walk, so
 // this import adds no edge that law can see.
-import { enableShipper, shipperKeyPath } from '../cli/connect-team.js'
+import { enableShipper, shipperCursorPath, shipperKeyPath } from '../cli/connect-team.js'
 import { checkClaudeProjects, runDoctor, type DoctorCheck } from '../cli/doctor.js'
 import { sessionDirFor } from '../log/paths.js'
 import { readResumedCount, sessionFilePath } from '../log/session-log.js'
@@ -550,6 +550,20 @@ describe('runServerDoctor (prd-19 ruling 5)', () => {
         const routeOn = checkFor(await routeReport(), 'shipper')
         expect(routeOn.status).toBe('ok')
         expect(routeOn).toEqual(await cliShipper())
+
+        // on, a batch acknowledged (prd-51 ruling 12) — the route and the CLI
+        // read the fact through the same shared function, so they cannot
+        // disagree about it either.
+        await writeFile(
+          shipperCursorPath(repoPath, dataRoot),
+          JSON.stringify({
+            version: 1,
+            actors: { 'session-one': { offset: 40, n: 4, lastAckAt: 1_700_000_000_000, skippedCount: 0, skipped: [] } },
+          }),
+        )
+        const routeAcked = checkFor(await routeReport(), 'shipper')
+        expect(routeAcked.lastAckAt).toBe(1_700_000_000_000)
+        expect(routeAcked).toEqual(await cliShipper())
 
         // on, credential gone — the one `fail`
         await rm(shipperKeyPath(repoPath, dataRoot))

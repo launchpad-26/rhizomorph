@@ -1,12 +1,11 @@
 import { createServer } from 'node:http'
 import path from 'node:path'
+import type { Fetch } from '../auth/github-app.js'
 import { bootstrapTeamStorage } from '../bootstrap.js'
 import type { TeamConfig } from '../config/config.js'
-import { INGEST_KEY_HEADER } from '../ingest/handle.js'
 import { type Journal, openJournal } from '../journal/journal.js'
-import { type IngestKeyVerdict, resolveIngestKeyCheck } from '../keys/verify.js'
 import type { TeamStorage } from '../storage/contract.js'
-import { INGEST_PATH, createIngestListener } from './http.js'
+import { createTeamListener } from './http.js'
 
 /**
  * THE TEAM SERVER'S ENTRYPOINT (prd-51 ruling 14).
@@ -27,23 +26,27 @@ import { INGEST_PATH, createIngestListener } from './http.js'
  * long-running server needs a restart before a month it has not created. A row
  * outside the window fails its insert loudly rather than being dropped.
  *
- * ## The ingest key is resolved here, once per batch, and never cached
+ * ## The ingest key is resolved in the route, once per batch, and never cached
  *
  * Ruling 8's key check is *"a row flag checked once per batch"*, and the row
  * lives behind an asynchronous {@link TeamStorage} while `handleIngest` is
- * synchronous — `./http.ts` calls it with no `await`, and turning that adapter
- * into something that could is wave 7's single restructuring of it. So the one
- * row read happens in the wrapper below, per request, and the verdict reaches
- * the pure handler as the synchronous `checkKey` thunk on its deps.
+ * synchronous. `./http.ts` is now a route table whose handlers may `await`, so
+ * the one row read happens **inside the ingest route** and the verdict reaches
+ * the pure handler as the synchronous `checkKey` thunk on its deps. This module
+ * used to carry a copy of the route match so it could do that read itself; the
+ * router absorbed both the wrapper and the duplication, and the listener is
+ * built once here rather than per request.
  *
- * Three properties of that wrapper are load-bearing rather than incidental:
+ * Three properties are load-bearing rather than incidental, and all three now
+ * live beside the route in `./http.ts`:
  *
  * - **Nothing is memoised.** A fresh `resolveIngestKeyCheck` per request is what
  *   bounds revocation lag to one batch interval; a verdict held between requests
  *   would unbound it, and every test would still pass.
- * - **A non-ingest request buys no database read.** The route match is
- *   duplicated from `./http.ts` for exactly that, so a `GET /` cannot spend a
- *   key lookup. Wave 7's router absorbs both this wrapper and the duplication.
+ * - **A non-ingest request buys no database read.** That is now a property of
+ *   the table — only the ingest row's handler reaches the storage — rather than
+ *   of a condition duplicated across two files. `api.test.ts` pins it on both
+ *   the sign-in routes and the 404.
  * - **It fails CLOSED.** A storage that cannot answer *"is this key revoked?"*
  *   gets a 503 and no journal write. The tempting shape — one `try` around the
  *   whole listener — accepts the batch and refuses the ack, which is the wrong
@@ -85,6 +88,11 @@ export interface StartTeamServerOptions {
    */
   readonly onError?: ((message: string) => void) | undefined
   readonly now?: (() => number) | undefined
+  /**
+   * The HTTP client the sign-in routes reach GitHub with. The seam a test
+   * injects a stub on; the deployment never sets it and gets `globalThis.fetch`.
+   */
+  readonly fetch?: Fetch | undefined
 }
 
 export interface TeamServer {
@@ -111,46 +119,17 @@ export async function startTeamServer(options: StartTeamServerOptions): Promise<
   if (!opened.ok) return { ok: false, error: opened.error }
   const journal = opened.journal
 
-  const server = createServer(async (request, response) => {
-    const wantsIngest =
-      request.method === 'POST' && ((request.url ?? '').split('?')[0] ?? '') === INGEST_PATH
-
-    // Refusal is the safe direction for a request that never reaches the route:
-    // `handleIngest` is the only caller and it is only reached on the route.
-    let checkKey: () => IngestKeyVerdict = () => ({ ok: false, reason: 'unknown' })
-
-    if (wantsIngest) {
-      const header = request.headers[INGEST_KEY_HEADER]
-      const presented = Array.isArray(header) ? header[0] : header
-      try {
-        checkKey = await resolveIngestKeyCheck(options.storage, presented)
-      } catch (cause) {
-        // The cause is the operator's, not the caller's: at this point the key
-        // has NOT been verified, so whoever is on the wire is unauthenticated,
-        // and a database error names things (host, port, role, relation) an
-        // unauthenticated caller has no business learning. `onError` carries
-        // it; the wire carries the fact and the remedy only.
-        options.onError?.(
-          `the ingest key could not be checked — the batch was refused with a 503 and nothing was journalled: ${cause instanceof Error ? cause.message : String(cause)}`,
-        )
-        response.writeHead(503, { 'content-type': 'application/json; charset=utf-8' })
-        response.end(
-          JSON.stringify({
-            error:
-              'the ingest key could not be checked, so this batch was refused rather than accepted. Nothing was journalled; retry, and the fold dedups anything that arrives twice.',
-          }),
-        )
-        return
-      }
-    }
-
-    await createIngestListener({
-      journal,
-      notify: options.onBatch ?? (() => undefined),
-      now,
-      checkKey,
-    })(request, response)
+  const listener = createTeamListener({
+    journal,
+    notify: options.onBatch ?? (() => undefined),
+    now,
+    storage: options.storage,
+    config: options.config,
+    fetch: options.fetch ?? globalThis.fetch,
+    onError: options.onError,
   })
+
+  const server = createServer(listener)
 
   const bound = await new Promise<{ ok: true; port: number } | { ok: false; error: string }>((resolve) => {
     server.once('error', (cause) => resolve({ ok: false, error: `could not listen on ${host}:${options.port}: ${cause.message}` }))

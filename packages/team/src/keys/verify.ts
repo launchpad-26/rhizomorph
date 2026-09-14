@@ -11,12 +11,11 @@ import { INGEST_KEY_PREFIX, MIN_INGEST_KEY_BODY, isWellFormedIngestKey } from '.
  *
  * ## Why the check is resolved here and CALLED somewhere else
  *
- * {@link TeamStorage} is asynchronous and `../ingest/handle.ts` is not —
- * `../api/http.ts` calls `handleIngest` with no `await`, and turning that
- * ~50-line adapter into something that could is wave 7's single restructuring of
- * it. So the split is: {@link resolveIngestKeyCheck} does the one asynchronous
- * row read, per request, before the pure handler runs, and hands back a
- * SYNCHRONOUS thunk that the handler calls exactly once inside `validate`.
+ * {@link TeamStorage} is asynchronous and `../ingest/handle.ts` is not. So the
+ * split is: {@link resolveIngestKeyCheck} does the one asynchronous row read,
+ * per request, before the pure handler runs, and hands back a SYNCHRONOUS thunk
+ * that the handler calls exactly once inside `validate`. `../api/http.ts`'s
+ * ingest route is where that `await` happens, one row of its route table.
  *
  * That split is what makes "once per batch" literal rather than aspirational.
  * The thunk closes over one row read; it holds no cache, and nothing holds the

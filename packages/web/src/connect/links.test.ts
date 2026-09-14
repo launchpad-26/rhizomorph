@@ -10,6 +10,7 @@ import {
   resumeCommand,
   SAME_PROCESS_WARNING,
   tally,
+  TEAM_SERVER_ENABLE_COMMAND,
   type ChainLink,
   type ConnectInputs,
 } from './links.js'
@@ -92,6 +93,7 @@ describe('buildLinks — the chain ruling 3 names', () => {
       'transcripts-flow',
       'otel',
       'uninstrumented-conductor',
+      'team-server',
     ])
   })
 
@@ -171,8 +173,8 @@ describe('buildLinks — the chain ruling 3 names', () => {
         })),
       },
     )
-    const slugOk: DoctorFact = { id: 'session-logs', status: 'ok', message: 'session logs found at /home/x/.claude/projects', assumed: false }
-    const slugMissing: DoctorFact = { id: 'session-logs', status: 'warn', message: 'no session logs — point elsewhere with --extra-sessions', assumed: false }
+    const slugOk: DoctorFact = { id: 'session-logs', status: 'ok', message: 'session logs found at /home/x/.claude/projects', assumed: false, lastAckAt: null }
+    const slugMissing: DoctorFact = { id: 'session-logs', status: 'warn', message: 'no session logs — point elsewhere with --extra-sessions', assumed: false, lastAckAt: null }
 
     return [
       build(reduceAll([])),
@@ -198,7 +200,7 @@ describe('buildLinks — the chain ruling 3 names', () => {
    */
   it('dates a live proof as of render time, and a stored proof by its own event', () => {
     const state = reduceAll([f.worktreeDiscovered({ path: '/repo', branch: 'main', head: 'sha-0', isMain: true }, { ts: 1_000 })])
-    const links = build(state, { doctor: checksOf({ id: 'session-logs', status: 'ok', message: 'found', assumed: false }) })
+    const links = build(state, { doctor: checksOf({ id: 'session-logs', status: 'ok', message: 'found', assumed: false, lastAckAt: null }) })
 
     expect(row(links, 'browser-server').tsKind).toBe('render')
     expect(row(links, 'browser-server').ts).toBe(NOW)
@@ -213,14 +215,16 @@ describe('buildLinks — the chain ruling 3 names', () => {
   })
 
   it('names --extra-sessions for a slug directory that does not resolve', () => {
-    const doctor = checksOf({ id: 'session-logs', status: 'warn', message: 'no session logs at /home/x/.claude/projects', assumed: false })
+    const doctor = checksOf({ id: 'session-logs', status: 'warn', message: 'no session logs at /home/x/.claude/projects', assumed: false, lastAckAt: null })
     expect(row(build(reduceAll([]), { doctor, meta: metaWith() }), 'transcripts-slug').command).toBe(
       'npm start -- /home/x/repo --port 4317 --extra-sessions <session-log-dir>',
     )
   })
 
   it('counts the three states without ranking them', () => {
-    expect(tally(build(reduceAll([])))).toEqual({ verified: 1, broken: 0, unproven: 6 })
+    // 8 rows since #488 added `team-server`: unchanged 6 unproven from before,
+    // plus the new row itself (ABSENT doctor by default, so UNPROVEN too).
+    expect(tally(build(reduceAll([])))).toEqual({ verified: 1, broken: 0, unproven: 7 })
   })
 })
 
@@ -678,8 +682,8 @@ describe('the machine links — flow, never preconditions', () => {
 })
 
 describe('the two GETs the fold cannot replace', () => {
-  const slugOk: DoctorFact = { id: 'session-logs', status: 'ok', message: 'Claude Code session logs found at /home/x/.claude/projects', assumed: false }
-  const slugMissing: DoctorFact = { id: 'session-logs', status: 'warn', message: 'no Claude Code session logs at /home/x/.claude/projects — per-agent history stays empty', assumed: false }
+  const slugOk: DoctorFact = { id: 'session-logs', status: 'ok', message: 'Claude Code session logs found at /home/x/.claude/projects', assumed: false, lastAckAt: null }
+  const slugMissing: DoctorFact = { id: 'session-logs', status: 'warn', message: 'no Claude Code session logs at /home/x/.claude/projects — per-agent history stays empty', assumed: false, lastAckAt: null }
 
   it('reads the slug directory from doctor, and says so when no readable answer arrived', () => {
     expect(row(build(reduceAll([]), { doctor: checksOf(slugOk) }), 'transcripts-slug').state).toBe('verified')
@@ -700,7 +704,7 @@ describe('the two GETs the fold cannot replace', () => {
    */
   it('distinguishes a doctor route that gave no readable answer from one that answered without the session-logs check', () => {
     const unread = row(build(reduceAll([])), 'transcripts-slug')
-    const answered = row(build(reduceAll([]), { doctor: checksOf({ id: 'node', status: 'ok', message: 'Node v22.22.2', assumed: false }) }), 'transcripts-slug')
+    const answered = row(build(reduceAll([]), { doctor: checksOf({ id: 'node', status: 'ok', message: 'Node v22.22.2', assumed: false, lastAckAt: null }) }), 'transcripts-slug')
 
     expect(unread.state).toBe('unproven')
     expect(answered.state).toBe('unproven')
@@ -874,8 +878,8 @@ describe('the two GETs the fold cannot replace', () => {
 
   it('carries version drift and the lane manifest through as notes, in doctor\'s own words', () => {
     const doctor: DoctorFact[] = [
-      { id: 'cli-version-drift', status: 'warn', message: 'claude 2.1.300 does not match the pinned trace fixture version 2.1.220', assumed: false },
-      { id: 'lane-manifest', status: 'ok', message: 'lane manifest present and valid at /repo/.swarm/lanes.json — 3 lanes', assumed: true },
+      { id: 'cli-version-drift', status: 'warn', message: 'claude 2.1.300 does not match the pinned trace fixture version 2.1.220', assumed: false, lastAckAt: null },
+      { id: 'lane-manifest', status: 'ok', message: 'lane manifest present and valid at /repo/.swarm/lanes.json — 3 lanes', assumed: true, lastAckAt: null },
     ]
     const links = build(reduceAll([]), { doctor: checksOf(...doctor) })
 
@@ -925,7 +929,64 @@ function provingLog() {
   ])
 }
 
-const SLUG_OK: DoctorFact = { id: 'session-logs', status: 'ok', message: 'session logs found at /home/x/.claude/projects', assumed: false }
+const SLUG_OK: DoctorFact = { id: 'session-logs', status: 'ok', message: 'session logs found at /home/x/.claude/projects', assumed: false, lastAckAt: null }
+
+/** The team server row's four doctor readings (prd-51 ruling 12) — shared between the evidence-tag corpus below and the row's own describe block. */
+const SHIPPER_OFF: DoctorFact = {
+  id: 'shipper',
+  status: 'ok',
+  message: 'shipper: off — nothing leaves this machine. Turn it on per repo with: echo "$RZK_INGEST_KEY" | rhizomorph connect team <url> --project <id>',
+  assumed: false,
+  lastAckAt: null,
+}
+const SHIPPER_NEVER_ACKED: DoctorFact = {
+  id: 'shipper',
+  status: 'ok',
+  message: 'shipper: on — https://team.example, project acme-widgets, credential present (its value is never shown or logged). nothing shipped yet.',
+  assumed: false,
+  lastAckAt: null,
+}
+const SHIPPER_ACKED: DoctorFact = {
+  id: 'shipper',
+  status: 'ok',
+  message:
+    'shipper: on — https://team.example, project acme-widgets, credential present (its value is never shown or logged). shipped through n=3 across 1 session. Last acknowledged batch 2026-09-01T00:00:00.000Z.',
+  assumed: false,
+  lastAckAt: Date.UTC(2026, 8, 1),
+}
+const SHIPPER_BROKEN: DoctorFact = {
+  id: 'shipper',
+  status: 'fail',
+  message: 'shipper: on for https://team.example (project acme-widgets) but its credential is missing at /x/key — re-run: echo "$RZK_INGEST_KEY" | rhizomorph connect team <url> --project <id>',
+  assumed: false,
+  lastAckAt: null,
+}
+/**
+ * `status: 'warn'` (a laxer key mode, or a cold-started cursor) is not
+ * `'fail'` — `checkShipper`'s own `chmod 600` / `cold-starts` remedies are
+ * one-line fixes, not the hand being unable to run at all. The concrete
+ * failure a mutant `check.status !== 'ok'` produces: a `0644` credential that
+ * HAS been acknowledged reads BROKEN and hands the operator
+ * `TEAM_SERVER_ENABLE_COMMAND` — re-enter the key — when the real remedy is
+ * `chmod 600` and the ack already happened. VERIFIED is still earned by the
+ * fact, not by the status word.
+ */
+const SHIPPER_WARN_ACKED: DoctorFact = {
+  id: 'shipper',
+  status: 'warn',
+  message:
+    'shipper: on — https://team.example, project acme-widgets, credential present but readable beyond you (mode 0644): chmod 600 /x/key Last acknowledged batch 2026-09-01T00:00:00.000Z.',
+  assumed: false,
+  lastAckAt: Date.UTC(2026, 8, 1),
+}
+/** The same `warn` status with nothing ever acknowledged — still not BROKEN. */
+const SHIPPER_WARN_NEVER: DoctorFact = {
+  id: 'shipper',
+  status: 'warn',
+  message: 'shipper: on — https://team.example, project acme-widgets, credential present but readable beyond you (mode 0644): chmod 600 /x/key',
+  assumed: false,
+  lastAckAt: null,
+}
 
 describe('a fixture fold is not evidence — #343', () => {
   /**
@@ -957,7 +1018,9 @@ describe('a fixture fold is not evidence — #343', () => {
     const fixture = build(provingLog(), { doctor: checksOf(SLUG_OK), meta: metaWith(), stream: FIXTURE })
 
     for (const link of fixture) {
-      if (link.id === 'transcripts-slug') continue
+      // Both are `evidence: 'poll'` — `attest` never demotes a poll row for a
+      // fixture fold, so each keeps whatever `GET /api/doctor` alone gave it.
+      if (link.id === 'transcripts-slug' || link.id === 'team-server') continue
       expect(link.state, link.id).toBe('unproven')
       expect(link.notes.join(' '), `${link.id} does not say why it is silent`).toContain('20-lane synthetic fleet')
       // A fabricated fact is not a fact worth keeping beside an honest word.
@@ -1025,9 +1088,9 @@ describe('a dead stream is not evidence either — #345', () => {
   })
 
   /**
-   * **THE SUBSTANCE OF THE RULING: not all seven rows come from the fold.**
+   * **THE SUBSTANCE OF THE RULING: not all eight rows come from the fold.**
    * `/api/doctor` has its own freshness and its own failure mode, and a dead
-   * SSE says nothing about whether the last poll succeeded. Treating all seven
+   * SSE says nothing about whether the last poll succeeded. Treating all eight
    * identically is what makes this look like a hard problem.
    */
   it('leaves the poll-derived slug row VERIFIED while every fold row goes unproven', () => {
@@ -1104,12 +1167,12 @@ describe('a dead stream is not evidence either — #345', () => {
 /**
  * **THE `evidence` TAG IS A CLAIM, AND THIS IS WHERE IT IS CHECKED.**
  *
- * `ChainLink.evidence` is a hand-written literal in each of the seven row
+ * `ChainLink.evidence` is a hand-written literal in each of the eight row
  * builders, and nothing in the type system connects it to what the row
  * actually reads. `attest` then acts on it with the bluntest instrument this
  * module has: a `'fold'` row's state is wiped whenever the fold's carrier is
- * dead or synthetic, and a `'poll'` row's is not. Six of the seven say
- * `'fold'`, so an eighth row copy-pasted from a neighbour inherits the
+ * dead or synthetic, and a `'poll'` row's is not. Six of the eight say
+ * `'fold'`, so a ninth row copy-pasted from a neighbour inherits the
  * majority — and if that row is actually driven by `GET /api/doctor`, its
  * VERIFIED is silently withdrawn every time the SSE drops, on a page whose
  * whole subject is what has been proven. Nothing in the suite would have said
@@ -1120,12 +1183,16 @@ describe('a dead stream is not evidence either — #345', () => {
  * is written instead is the law the tag is supposed to satisfy, in both
  * directions, so a wrong tag is a red build rather than a quiet wipe.
  *
- * The corpus is deliberately one where all seven rows read VERIFIED, so every
+ * The corpus is deliberately one where all eight rows read VERIFIED, so every
  * demotion below is about the withdrawal and not about a row that had nothing
  * to say in the first place.
  */
 describe('every row\'s evidence tag, against the inputs it actually responds to', () => {
-  const PROVING: Partial<ConnectInputs> = { doctor: checksOf(SLUG_OK), meta: metaWith() }
+  // SHIPPER_ACKED joins SLUG_OK so the corpus proves all eight rows, `team-server` included —
+  // otherwise the row that reads VERIFIED only on a real acknowledgement (prd-51 ruling 12) would
+  // never enter this "starts fully proven" corpus at all, and the withdrawal laws below would be
+  // asserting over seven rows while the module has eight.
+  const PROVING: Partial<ConnectInputs> = { doctor: checksOf(SLUG_OK, SHIPPER_ACKED), meta: metaWith() }
 
   function tagged(links: ChainLink[], evidence: ChainLink['evidence']): string[] {
     return links.filter((link) => link.evidence === evidence).map((link) => link.id)
@@ -1153,7 +1220,7 @@ describe('every row\'s evidence tag, against the inputs it actually responds to'
    */
   it('loses VERIFIED on exactly the fold-tagged rows when the fold stops being evidence', () => {
     const live = build(provingLog(), PROVING)
-    expect(live.every((link) => link.state === 'verified'), 'the corpus no longer proves all seven rows').toBe(true)
+    expect(live.every((link) => link.state === 'verified'), 'the corpus no longer proves all eight rows').toBe(true)
 
     for (const [why, stream] of [['a dead stream', DEAD], ['a fixture fold', FIXTURE]] as const) {
       const gone = withdrawn(live, build(provingLog(), { ...PROVING, stream }))
@@ -1220,5 +1287,69 @@ describe('the command builders', () => {
     expect(resumeCommand('rhizomorph env <lane> --port 4317', "sess a'b")).toBe(
       `eval "$(rhizomorph env <lane> --port 4317)" && claude --resume 'sess a'\\''b'`,
     )
+  })
+})
+
+describe('the team server row — prd-51 ruling 12', () => {
+  it('is unproven when the doctor route carries no shipper check at all', () => {
+    const links = build(reduceAll([]), { doctor: checksOf({ id: 'node', status: 'ok', message: 'Node v22.22.2', assumed: false, lastAckAt: null }) })
+    const teamServer = row(links, 'team-server')
+    expect(teamServer.state).toBe('unproven')
+    expect(teamServer.notes.join(' ')).toContain('`shipper` check')
+  })
+
+  it('is unproven, and off is not broken', () => {
+    const teamServer = row(build(reduceAll([]), { doctor: checksOf(SHIPPER_OFF) }), 'team-server')
+    expect(teamServer.state).toBe('unproven')
+    expect(teamServer.state).not.toBe('broken')
+  })
+
+  it('never reads VERIFIED for a shipper that has never had a batch acknowledged — the assertion this row exists for', () => {
+    const teamServer = row(build(reduceAll([]), { doctor: checksOf(SHIPPER_NEVER_ACKED) }), 'team-server')
+    expect(teamServer.state).toBe('unproven')
+  })
+
+  it('is verified with the fact and the exact ack timestamp once a batch has been acknowledged', () => {
+    const teamServer = row(build(reduceAll([]), { doctor: checksOf(SHIPPER_ACKED) }), 'team-server')
+    expect(teamServer.state).toBe('verified')
+    expect(teamServer.fact).toBe(SHIPPER_ACKED.message)
+    expect(teamServer.ts).toBe(SHIPPER_ACKED.lastAckAt)
+    expect(teamServer.tsKind).toBe('event')
+  })
+
+  it('is broken with the doctor\'s own remedy, and the standalone enable command, when the shipper check fails', () => {
+    const teamServer = row(build(reduceAll([]), { doctor: checksOf(SHIPPER_BROKEN) }), 'team-server')
+    expect(teamServer.state).toBe('broken')
+    expect(teamServer.reason).toBe(SHIPPER_BROKEN.message)
+    expect(teamServer.command).toBe(TEAM_SERVER_ENABLE_COMMAND)
+  })
+
+  /**
+   * `status: 'warn'` is not `status: 'fail'` — the row must not treat a laxer
+   * key mode as a reason to hand out the enable command. The ack already
+   * happened; VERIFIED is earned by `lastAckAt`, not withheld by the status
+   * word beside it (verify #488, finding 3).
+   */
+  it('is verified on the fact and timestamp even when the shipper check itself only warns (a laxer key mode does not erase a real acknowledgement)', () => {
+    const teamServer = row(build(reduceAll([]), { doctor: checksOf(SHIPPER_WARN_ACKED) }), 'team-server')
+    expect(teamServer.state).toBe('verified')
+    expect(teamServer.fact).toBe(SHIPPER_WARN_ACKED.message)
+    expect(teamServer.ts).toBe(SHIPPER_WARN_ACKED.lastAckAt)
+    expect(teamServer.command).toBeNull()
+  })
+
+  it('is unproven, never broken, when the shipper check only warns and nothing has ever been acknowledged', () => {
+    const teamServer = row(build(reduceAll([]), { doctor: checksOf(SHIPPER_WARN_NEVER) }), 'team-server')
+    expect(teamServer.state).toBe('unproven')
+    expect(teamServer.state).not.toBe('broken')
+  })
+
+  it('reading the same doctor check twice yields the same row and the same timestamp — no clock is read at render time', () => {
+    const first = row(build(reduceAll([]), { doctor: checksOf(SHIPPER_ACKED), now: NOW }), 'team-server')
+    const second = row(build(reduceAll([]), { doctor: checksOf(SHIPPER_ACKED), now: NOW + 10_000_000 }), 'team-server')
+
+    expect(first.ts).toBe(SHIPPER_ACKED.lastAckAt)
+    expect(second.ts).toBe(SHIPPER_ACKED.lastAckAt)
+    expect(first).toEqual(second)
   })
 })
