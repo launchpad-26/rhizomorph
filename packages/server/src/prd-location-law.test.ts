@@ -717,9 +717,9 @@ describe('a PRD whose milestone is closed lives under docs/prds/done/ (prd56 rul
     expect(violationsIn(liveShelfEntries(), liveManifest())).toEqual([])
   })
 
-  it('ruling 2: prd-17, prd-53, prd-14 and prd-20 each carry a declared reason despite a closed milestone', () => {
+  it('ruling 2: prd-17 and prd-20 each carry a declared reason despite a closed milestone', () => {
     // `toBeDefined()` alone survived BOTH the HTML-comment-conceal mutant and the
-    // `indexOf` -> `lastIndexOf` mutant (verify, 2026-09-14): every one of these four files
+    // `indexOf` -> `lastIndexOf` mutant (verify, 2026-09-14): every one of these files
     // contains the marker TWICE — the declaration, then a self-reference in the trailing
     // "read by ... for the marker" sentence each one carries — so the wrong occurrence
     // still returns SOME defined string. Pinning the exact CONTENT is what reddens on the

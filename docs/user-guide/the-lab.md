@@ -538,9 +538,9 @@ never its fold. <!-- claim: canvas-one-per-run -->
   numbers should be configurable, and whether the restore's `install` should
   default to off, are prd-41's *"No owner"* pair, **still unowned**. <!-- claim: fork-exec-ceiling -->
 
-See [`docs/prds/done/prd-14-experiment-console.md`](../prds/prd-14-experiment-console.md)
+See [`docs/prds/done/prd-14-experiment-console.md`](../prds/done/prd-14-experiment-console.md)
 for the order the console's first waves landed in, and
-[`docs/prds/done/prd-53-the-lab.md`](../prds/prd-53-the-lab.md) for the rulings that
+[`docs/prds/done/prd-53-the-lab.md`](../prds/done/prd-53-the-lab.md) for the rulings that
 made the comparison real. **#205, the fold-order divergence, is ruled — append
 order is the truth** (prd17's amendment of 2026-08-24), and the lab assumes
 exactly that resolution and no other.
