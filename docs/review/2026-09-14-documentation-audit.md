@@ -108,6 +108,11 @@ push". Same fact as F1, different file. It matters more here than in an ordinary
 document because AGENTS.md is auto-loaded as the runbook by every agent working
 in this repo.
 
+```
+$ git show f4b7b574:AGENTS.md | grep -n -iE 'every push'
+626:`.github/workflows/windows-suite.yml` enforces per file on every push (#212,
+```
+
 ## The citation exclusion is hiding 45 dead paths
 
 **F5 — EXECUTED, with the law's own extractor.**
@@ -119,6 +124,15 @@ archived document and unsound for a live PRD.
 
 Measured by emptying `EXCLUDED_DIRS` in a scratch copy, running the law, and
 restoring the file (verified clean by `git status`):
+
+```
+$ cp packages/server/src/doc-citation-law.test.ts /tmp/dcl-backup.ts
+$ sed -i "493s|.*|const EXCLUDED_DIRS: string[] = []|"     packages/server/src/doc-citation-law.test.ts
+$ npx vitest run packages/server/src/doc-citation-law.test.ts     -t "every in-scope citation exists"
+$ cp /tmp/dcl-backup.ts packages/server/src/doc-citation-law.test.ts
+$ git status --short packages/server/src/doc-citation-law.test.ts
+                       # empty output — the scratch edit is gone
+```
 
 | run | Windows (this audit) | Linux |
 |---|---|---|
@@ -236,6 +250,15 @@ milestones have landed since"*. The live shelf now runs to prd-56 — roughly 39
 PRDs later. The banner names the ADR log as the register of record, which is an
 honest redirection rather than a silent lie.
 
+```
+$ git show f4b7b574:docs/architecture.md | grep -n 'run prd0'
+7:> sections below run prd0 -> prd17 and stop there; several milestones have
+$ git show f4b7b574:docs/architecture.md | wc -l
+2962
+$ git log -1 --format='%ad %h %s' --date=short f4b7b574 -- docs/architecture.md
+2026-09-11 ff704df1 fix(prds): five closed-milestone PRDs move to done/, citers updated with them (#427)
+```
+
 Its last touch was 2026-09-11, by `#427`'s mechanical citation update.
 **REASONED, and it is the trap in this whole audit: last-modified date is not
 evidence of currency.** This document reads fresh by every mechanical signal and
@@ -266,7 +289,13 @@ the tree are the deliberate maintainer fields in `packages/app/package.json` and
 
 **F11 — `docs/vision.md` is the oldest live non-dated document. EXECUTED.**
 Untouched since 2026-08-03, and then only by `f5af1fcb`, the
-observatory→rhizomorph rename. 40 lines. It opens *"The dreaming doc, solo this
+observatory→rhizomorph rename. 40 lines.
+
+```
+$ git log -1 --format='%ad %h %s' --date=short f4b7b574 -- docs/vision.md
+2026-08-03 f5af1fcb rename(#119): observatory -> rhizomorph
+```
+ It opens *"The dreaming doc, solo this
 time. Nothing here is a commitment."* **Open, not ruled** — see below.
 
 ## What this audit did not check
