@@ -1,5 +1,7 @@
 # The Rhizomorph
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/launchpad-26/rhizomorph)
+
 An instrument you point at a repo full of git worktrees: it shows what a
 swarm of coding agents is doing, live, and can replay the session
 afterward. Watching is read-only, absolutely; there are separate, opt-in
@@ -503,6 +505,46 @@ line this build could not fold and therefore did not send.
 there is no destination and no credential, and the hand cannot run. Your
 session logs and recordings are untouched — they were always local and they
 stay local.
+
+## The generated wiki
+
+[deepwiki.com/launchpad-26/rhizomorph](https://deepwiki.com/launchpad-26/rhizomorph)
+is where an AI-generated, queryable wiki over this repository appears once the
+repo is indexed, and the badge at the top links there. **Indexing is an explicit
+operator act and may not have happened yet** — until it does, that page offers to
+index rather than answer, and the MCP tools below report the repository as not
+found. Nothing in this tree can tell you which state it is in; the page and the
+MCP server both can.
+
+It is reachable over MCP at `https://mcp.deepwiki.com/mcp` — free, remote and
+unauthenticated, because this repo is public — which is what `.mcp.json`
+declares, so an agent working here can query it without setup. **That file is
+tracked, so every agent session opening this repo is offered that server**, and
+each query it makes goes to the vendor. Nothing is sent unless a query is made,
+and no credential is involved; but the offer is repo-wide and it is worth knowing
+it is there.
+
+**It carries no authority, and nothing here can make it true.** It is written by
+a model from this tree and refreshed on its vendor's schedule; no test in this
+repository can turn red when it says something wrong. Use it to find your way in.
+
+**How stale it may be is not a documented number.** Cognition states one thing
+about refreshing — *"We auto-refresh DeepWikis if their repo has a badge"* — which
+is why the badge is here, and says nothing about cadence. Figures circulating
+elsewhere ("weekly", "a five-day lag without a badge") trace to no primary source
+we could find, so do not plan against them. Treat the page's age as unknown, and
+the tree as the thing that is current.
+
+When a claim has to hold, read the document, and find the law that holds it —
+[docs/README.md](docs/README.md) is the map, and the laws live in tests beside the
+code they hold ([CONTRIBUTING.md](CONTRIBUTING.md#laws-live-in-tests)).
+
+What *is* held: the badge and the endpoint above both name this repository and
+not another, pinned by `packages/server/src/deepwiki-law.test.ts`. That is the
+part that lives in this tree, so it is the part a law can reach.
+[ADR-0051](docs/adr/0051-the-generated-wiki.md) records why a third party
+publishes a document about this project at all, what it costs, and the bound that
+makes it free — it is free and uncredentialed only while this repo is public.
 
 ## Support matrix
 
