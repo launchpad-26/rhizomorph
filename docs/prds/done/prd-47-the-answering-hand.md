@@ -199,7 +199,7 @@ whether the camera is the instrument's claim or the operator's hand.
   (`74007f3`): 0.74 % of animation-frame time at shipped scale, 0 of 764 frames over budget, and
   ruling 4's own falsifier not met (worst/median rose, 1.25x → 1.66x). The pooling was never
   built. The answer is conditional on the scale the instrument renders, and that condition is now
-  **prd-49** (`docs/prds/prd-49-potential-change.md`) with issue #190 — a tripwire in the backlog
+  **prd-49** (`docs/prds/done/prd-49-potential-change.md`) with issue #190 — a tripwire in the backlog
   rather than a paragraph in a closed PRD.
 - **Does `mergeProps`-style context selection (ruling 3's deferred refactor) come here or its own
   PRD?** 25 call sites is a fence question before it is a code question. Open, not ruled.

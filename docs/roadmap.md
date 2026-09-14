@@ -344,7 +344,7 @@
   the display list's free-list, and that conditional verdict moved out to prd49.
 - **prd48 — the shared record** (`docs/prds/done/prd-48-the-shared-record.md`, blessed 2026-08-31):
   the unknowns are measured before the noticeboard is built.
-- **prd49 — potential change** (`docs/prds/prd-49-potential-change.md`, blessed 2026-09-01): not a
+- **prd49 — potential change** (`docs/prds/done/prd-49-potential-change.md`, blessed 2026-09-01): not a
   programme of work — a conditional verdict given a place to live, so the condition is watched
   rather than remembered.
 - **prd50 — the fixed ceiling** (`docs/prds/done/prd-50-the-fixed-ceiling.md`, blessed 2026-09-02): a
