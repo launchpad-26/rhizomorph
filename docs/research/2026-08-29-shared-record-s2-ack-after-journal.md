@@ -451,7 +451,7 @@ can validate the *ordering* claim (never ack before durable) but not the *host-c
 - **The already-known `mergeRecords`/event-id dedup defect was not encountered, by construction.**
   This spike targets `events_n` (keyed on `(project, actor_instance, n)`), never the briefed
   `events`/event-id-keyed table `mergeRecords` uses — so it could not have tripped that defect
-  either way. See `docs/prds/prd-48-the-shared-record.md`'s "Unfiled work implied" note for the
+  either way. See `docs/prds/done/prd-48-the-shared-record.md`'s "Unfiled work implied" note for the
   already-tracked issue; not investigated further here, per this issue's own fence.
 
 ## Reproduction

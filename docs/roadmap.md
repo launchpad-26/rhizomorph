@@ -341,7 +341,7 @@
 - **prd47 — the answering hand** (`docs/prds/done/prd-47-the-answering-hand.md`, shipped
   2026-09-02): the picture answers the hand, not the model. Its fourth ruling answered NO-GO on
   the display list's free-list, and that conditional verdict moved out to prd49.
-- **prd48 — the shared record** (`docs/prds/prd-48-the-shared-record.md`, blessed 2026-08-31):
+- **prd48 — the shared record** (`docs/prds/done/prd-48-the-shared-record.md`, blessed 2026-08-31):
   the unknowns are measured before the noticeboard is built.
 - **prd49 — potential change** (`docs/prds/prd-49-potential-change.md`, blessed 2026-09-01): not a
   programme of work — a conditional verdict given a place to live, so the condition is watched
