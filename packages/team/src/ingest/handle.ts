@@ -23,9 +23,10 @@ import type { IngestFaults } from './faults.js'
  * batch per process death.
  *
  * This function is pure of transport. It takes a decoded body and returns a
- * status and a body; `../api/http.ts` is the ~50 lines that turn that into an
- * HTTP response. That split is what lets the fault-point harness assert "no 202
- * was produced" without standing up a socket.
+ * status and a body; `../api/http.ts` is the adapter that turns that into an
+ * HTTP response, and this is the handler behind one row of its route table.
+ * That split is what lets the fault-point harness assert "no 202 was produced"
+ * without standing up a socket.
  *
  * **Protocol v1 is consumed, not re-declared.** `parseIngestRequest` lives in
  * `packages/core/src/wire/protocol.ts` and its refusal messages are returned
@@ -50,10 +51,9 @@ export interface IngestDeps {
    *
    * **It is resolved by the caller, not here.** {@link
    * import('../storage/contract.js').TeamStorage} is asynchronous and this
-   * function is not: `../api/http.ts` calls it with no `await`, and turning that
-   * ~50-line adapter into something that could is wave 7's single restructuring
-   * of it. So `../api/main.ts` does the one row read per request and closes over
-   * its result; `../keys/verify.ts`'s `resolveIngestKeyCheck` is the seam.
+   * function is not. `../api/http.ts`'s ingest route does the one row read per
+   * request, `await`ing it before calling this, and closes over its result;
+   * `../keys/verify.ts`'s `resolveIngestKeyCheck` is the seam.
    *
    * Once per batch is the whole claim. Once per event would be waste; a verdict
    * memoised across batches would unbound the revocation lag the ruling bounds.
