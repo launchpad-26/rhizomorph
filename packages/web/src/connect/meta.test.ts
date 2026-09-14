@@ -250,8 +250,8 @@ describe('parseDoctor', () => {
     expect(checks).toEqual({
       kind: 'checks',
       checks: [
-        { id: 'node', status: 'ok', message: 'Node v22.22.2 satisfies the required >=22.22.2', assumed: false },
-        { id: 'ladder', status: 'ok', message: 'L1', assumed: true },
+        { id: 'node', status: 'ok', message: 'Node v22.22.2 satisfies the required >=22.22.2', assumed: false, lastAckAt: null },
+        { id: 'ladder', status: 'ok', message: 'L1', assumed: true, lastAckAt: null },
       ],
     })
   })
@@ -264,7 +264,22 @@ describe('parseDoctor', () => {
         { status: 'ok', message: 'no id' },
         { id: 'x', status: 'maybe', message: 'm' },
       ]),
-    ).toEqual({ kind: 'checks', checks: [{ id: 'tmux', status: 'warn', message: 'tmux not found on PATH', assumed: false }] })
+    ).toEqual({ kind: 'checks', checks: [{ id: 'tmux', status: 'warn', message: 'tmux not found on PATH', assumed: false, lastAckAt: null }] })
+  })
+
+  /** prd-51 ruling 12: the shipper's ack timestamp parses through unchanged, or refuses to null on anything not a renderable instant — the same discipline {@link isRenderableTs} already proves for `firstEventTs`/`lastEventTs`. */
+  it('parses `lastAckAt` through unchanged when renderable, and to null on anything else', () => {
+    expect(
+      parseDoctor([{ id: 'shipper', status: 'ok', message: 'shipper: on', lastAckAt: 1_700_000_000_000 }]),
+    ).toEqual({ kind: 'checks', checks: [{ id: 'shipper', status: 'ok', message: 'shipper: on', assumed: false, lastAckAt: 1_700_000_000_000 }] })
+
+    for (const value of [undefined, 'nope', -1, Number.POSITIVE_INFINITY]) {
+      const checks = parseDoctor([{ id: 'shipper', status: 'ok', message: 'shipper: on', lastAckAt: value }])
+      expect(checks, `lastAckAt ${String(value)}`).toEqual({
+        kind: 'checks',
+        checks: [{ id: 'shipper', status: 'ok', message: 'shipper: on', assumed: false, lastAckAt: null }],
+      })
+    }
   })
 
   /**
@@ -355,7 +370,7 @@ describe('the two reads', () => {
     const readable = stubFetch({ [DOCTOR_URL]: { body: [{ id: 'node', status: 'ok', message: 'Node v22.22.2' }] } })
     expect(await fetchDoctor(readable.impl)).toEqual({
       kind: 'checks',
-      checks: [{ id: 'node', status: 'ok', message: 'Node v22.22.2', assumed: false }],
+      checks: [{ id: 'node', status: 'ok', message: 'Node v22.22.2', assumed: false, lastAckAt: null }],
     })
 
     const unreadable = stubFetch({ [DOCTOR_URL]: { body: [{ id: 'node', status: 'ok' }, 42] } })

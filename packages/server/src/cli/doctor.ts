@@ -69,6 +69,17 @@ export interface DoctorCheck {
    * before.
    */
   assumed?: boolean
+  /**
+   * The shipper check's own fact (prd-51 ruling 12): epoch ms of the most
+   * recently acknowledged batch across every session recorded in its cursor.
+   * Present ONLY on the `shipper` check, and ONLY once at least one batch has
+   * actually been acknowledged. Absent — never `0` — on every other check,
+   * and absent on `shipper` itself before its first acknowledgement: the
+   * same absent-not-false convention {@link assumed} uses one field up, for
+   * the same reason — a shipper that has never acknowledged anything has no
+   * timestamp to report, not a zero one.
+   */
+  lastAckAt?: number
 }
 
 export interface DoctorReport {
@@ -978,13 +989,17 @@ export async function checkShipper(repoPath: string, dataRoot: string | undefine
       : `shipped through n=${facts.maxN} across ${facts.sessionCount} session${facts.sessionCount === 1 ? '' : 's'}` +
         (facts.skippedCount > 0 ? `, ${facts.skippedCount} line(s) this build could not fold` : '')
 
+  const ackSuffix = facts.lastAckAt > 0 ? ` Last acknowledged batch ${new Date(facts.lastAckAt).toISOString()}.` : ''
+  const ackField: { lastAckAt: number } | Record<string, never> = facts.lastAckAt > 0 ? { lastAckAt: facts.lastAckAt } : {}
+
   if (facts.keyMode !== null && facts.keyMode !== 0o600) {
     return {
       id: 'shipper',
       status: 'warn',
       message:
         `shipper: on — ${facts.url}, project ${facts.project}, credential present but readable beyond you ` +
-        `(mode ${facts.keyMode.toString(8).padStart(4, '0')}): chmod 600 ${keyPath}`,
+        `(mode ${facts.keyMode.toString(8).padStart(4, '0')}): chmod 600 ${keyPath}${ackSuffix}`,
+      ...ackField,
     }
   }
 
@@ -994,7 +1009,8 @@ export async function checkShipper(repoPath: string, dataRoot: string | undefine
       status: 'warn',
       message:
         `shipper: on — ${facts.url}, project ${facts.project}, credential present (its value is never shown or logged). ` +
-        `${facts.cursorReset} — the next pass cold-starts, which the ingest key dedups.`,
+        `${facts.cursorReset} — the next pass cold-starts, which the ingest key dedups.${ackSuffix}`,
+      ...ackField,
     }
   }
 
@@ -1003,7 +1019,8 @@ export async function checkShipper(repoPath: string, dataRoot: string | undefine
     status: 'ok',
     message:
       `shipper: on — ${facts.url}, project ${facts.project}, credential present ` +
-      `(its value is never shown or logged). ${reach}.`,
+      `(its value is never shown or logged). ${reach}.${ackSuffix}`,
+    ...ackField,
   }
 }
 
