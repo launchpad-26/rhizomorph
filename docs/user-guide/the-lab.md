@@ -22,6 +22,59 @@ invocation and is permitted* — what the ruling confines is the lab's
 and [replay.md](replay.md) runs the moment the server starts; the lab does not
 run unless you ask it to. <!-- claim: explicit-hand -->
 
+## Your first experiment, end to end
+
+Three commands, in this order: `rhizomorph lab checkpoint` captures a lane as it
+stands, `rhizomorph lab fork` restores several arms from that capture, and
+`rhizomorph lab compare` tables what the arms did. They are **three separate
+explicit acts**. Nothing chains them for you, nothing schedules the next one, and
+the namespace has no entry point but the one you type — which is why the lab can
+be opt-in at all, and why every step below is something you did rather than
+something that happened. <!-- claim: walkthrough-three-acts -->
+
+### 1. Capture a checkpoint
+
+```sh
+rhizomorph lab checkpoint <lane> --path <worktree>
+```
+
+It prints the checkpoint id, the lane, the snapshot ref and sha, and the byte the
+session transcript was cut at — the coordinates every later step is expressed in.
+Take one when the lane is at a point you would want to return to; you cannot fork
+from a moment you never captured.
+
+### 2. Fork arms from it
+
+```sh
+rhizomorph lab fork <lane> --arms 3 --runs 1 --path <worktree>
+```
+
+Each arm is a restored worktree with a synthesized session, and the arm count and
+run count are the defaults described under [Forking arms](#forking-arms) below. A
+bare `fork` dispatches nothing: it writes only inside the lab's own namespaces,
+prints in full why no tmux window was opened and no branch was created, and names
+`--launch` as the flag that would authorise otherwise. That flag is **off by
+default**, and it is off because turning it on is the one thing here that writes
+outside the confinement. <!-- claim: walkthrough-no-launch-default -->
+
+### 3. Compare the arms
+
+```sh
+rhizomorph lab compare <fork-id> --path <worktree>
+```
+
+**You never have to find a fork id.** The fork you just ran ends by printing the
+exact compare invocation for it — the subcommand, the id it minted and the
+`--path` you gave it — so step 3 is a line you copy rather than one you assemble.
+Run `compare` against an id that was never forked and it does not merely say no:
+it names `rhizomorph lab fork <lane>` as the step to run first, or tells you to
+check the id. Each end of the walkthrough points at the other.
+<!-- claim: walkthrough-next-step -->
+
+Then open `/lab` in the browser for the same experiment as a workspace — the
+arms, their traces, their spend and the comparison surface, described from
+["The `/lab` web tab"](#the-lab-web-tab) onward.
+
 ## What it's allowed to write
 
 Refs under `refs/rhizomorph/`, the git objects those refs require, and

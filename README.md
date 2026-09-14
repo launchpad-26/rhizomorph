@@ -1,5 +1,7 @@
 # The Rhizomorph
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/launchpad-26/rhizomorph)
+
 An instrument you point at a repo full of git worktrees: it shows what a
 swarm of coding agents is doing, live, and can replay the session
 afterward. Watching is read-only, absolutely; there are separate, opt-in
@@ -504,19 +506,82 @@ there is no destination and no credential, and the hand cannot run. Your
 session logs and recordings are untouched — they were always local and they
 stay local.
 
+## The generated wiki
+
+[deepwiki.com/launchpad-26/rhizomorph](https://deepwiki.com/launchpad-26/rhizomorph)
+is where an AI-generated, queryable wiki over this repository appears once the
+repo is indexed, and the badge at the top links there. **Indexing is an explicit
+operator act and may not have happened yet** — until it does, that page offers to
+index rather than answer, and the MCP tools below report the repository as not
+found. Nothing in this tree can tell you which state it is in; the page and the
+MCP server both can.
+
+It is reachable over MCP at `https://mcp.deepwiki.com/mcp` — free, remote and
+unauthenticated, because this repo is public — which is what `.mcp.json`
+declares, so an agent working here can query it without setup. **That file is
+tracked, so every agent session opening this repo is offered that server**, and
+each query it makes goes to the vendor. Nothing is sent unless a query is made,
+and no credential is involved; but the offer is repo-wide and it is worth knowing
+it is there.
+
+**It carries no authority, and nothing here can make it true.** It is written by
+a model from this tree and refreshed on its vendor's schedule; no test in this
+repository can turn red when it says something wrong. Use it to find your way in.
+
+**How stale it may be is not a documented number.** Cognition states one thing
+about refreshing — *"We auto-refresh DeepWikis if their repo has a badge"* — which
+is why the badge is here, and says nothing about cadence. Figures circulating
+elsewhere ("weekly", "a five-day lag without a badge") trace to no primary source
+we could find, so do not plan against them. Treat the page's age as unknown, and
+the tree as the thing that is current.
+
+When a claim has to hold, read the document, and find the law that holds it —
+[docs/README.md](docs/README.md) is the map, and the laws live in tests beside the
+code they hold ([CONTRIBUTING.md](CONTRIBUTING.md#laws-live-in-tests)).
+
+What *is* held: the badge and the endpoint above both name this repository and
+not another, pinned by `packages/server/src/deepwiki-law.test.ts`. That is the
+part that lives in this tree, so it is the part a law can reach.
+[ADR-0051](docs/adr/0051-the-generated-wiki.md) records why a third party
+publishes a document about this project at all, what it costs, and the bound that
+makes it free — it is free and uncredentialed only while this repo is public.
+
 ## Support matrix
+
+**Nothing in this table is verified by CI any more.** GitHub Actions was retired
+from this repository for cost, and no workflow has run since 2026-09-12. The
+files under `.github/workflows/` remain in the tree as the declaration of what
+each leg does — read them as a specification, never as evidence that anything
+ran. What produces a verdict now is `scripts/ci-local.sh`, run by a contributor
+on their own machine, which publishes a `Passed local CI` label and a per-sha
+commit status through `scripts/pr-verdict.sh`.
+[CONTRIBUTING.md](CONTRIBUTING.md#the-gate-standard) carries the standard and
+what it does and does not prove.
 
 | Platform | Status |
 |---|---|
-| Linux | CI-verified on every push (`.github/workflows/ci.yml`) |
+| Linux | **Where the verdict comes from.** `scripts/ci-local.sh` composes locally the same legs `.github/workflows/ci.yml` declares for `ubuntu-latest`, in the same order with the same gating. This is the platform a PR's `Passed local CI` label is almost always earned on. |
 | WSL | The daily development platform — exercised constantly, just not by CI |
-| macOS | CI-verified on every push (`.github/workflows/ci.yml` runs build, suite, typecheck, lint and the boot smoke on `macos-latest`, and the pack-smoke job covers it at both node legs). Nobody daily-drives it, so ergonomic rough edges are likelier here than correctness ones. |
-| Windows (native) | **Partial: installs and boots; the suite runs against a committed expected-fail list.** `.github/workflows/ci.yml` runs a `windows-latest` leg on the `pack-smoke` job at both node legs, on every push: it packs the repo, installs the tarball into a clean project and boots the installed CLI under Git Bash — the first CI witness of the `pathToFileURL` built-clone boot fix. `.github/workflows/windows-suite.yml` runs the full test suite on `windows-latest` at the current node on every push and compares the failing files against `.windows-known-failures`, per file: a failure outside that list is red, a listed file that passes is reported as a removal candidate, and every entry carries its cause class and the evidence for it. `build-test-boot` has no Windows leg; promotion is a separate decision, made with both Windows jobs' measured cost. |
+| macOS | **Declared, not currently witnessed.** `.github/workflows/ci.yml` still declares the `macos-latest` leg that ran build, suite, typecheck, lint and the boot smoke, and the `pack-smoke` job that covered it at both node legs; neither has run since Actions was retired, and nobody has re-run them by hand. Nobody daily-drives macOS either, so ergonomic rough edges are likelier here than correctness ones — and that gap is now wider than it was, not narrower. |
+| Windows (native) | **Partial: installs and boots; the suite runs against a committed expected-fail list.** `.github/workflows/ci.yml` declares a `windows-latest` leg on the `pack-smoke` job at both node legs — packing the repo, installing the tarball into a clean project and booting the installed CLI under Git Bash, which is what first witnessed the `pathToFileURL` built-clone boot fix. `.github/workflows/windows-suite.yml` declares the full-suite run that compares failing files against `.windows-known-failures`, per file: a failure outside that list is red, a listed file that passes is a removal candidate, and every entry carries its cause class and evidence. `build-test-boot` has no Windows leg. **Neither declared job runs today**, and the local leg does not replace them here: `scripts/ci-local.sh` runs the suite raw and consults neither the expected-fail list nor `scripts/windows-triage.sh`, so it cannot go green on a native-Windows machine ([#457](https://github.com/launchpad-26/rhizomorph/issues/457)). A contributor on native Windows triages by hand, with `scripts/windows-triage.sh`. |
 
-**Node >= 22.22.2** — `engines` in `package.json` is the source of truth, and
-CI pins that exact minimum. Older Node warns on install and may not run at all;
-on Node 20 the `web` suite reports green counts with a non-zero exit, which
-[CONTRIBUTING.md](CONTRIBUTING.md#running-it) explains.
+**A local verdict is not a foreign-runner verdict, and the difference is the
+point of the row above.** `scripts/ci-local.sh` runs on one contributor's
+machine, with their Node, their line endings and their filesystem casing. The
+three classes CI existed to catch — a case-only filename collision invisible on
+Linux, a CRLF checkout changing what a fixture says, a machine-specific path —
+are exactly the ones a single-machine verdict is worst at. Treat a green label
+as "this passed somewhere", and attribute any red by failing **test name**
+against a clean `main` rather than by file, because `.windows-known-failures`
+names files and a new failure inside a listed file is invisible to a per-file
+check.
+
+**Node >= 22.22.2** — `engines` in `package.json` is the source of truth. The
+`.github/workflows/ci.yml` matrix declares that exact minimum as its `min` leg,
+and `scripts/ci-local.sh` runs at whatever Node the contributor has, so the
+floor is currently declared rather than exercised. Older Node warns on install
+and may not run at all; on Node 20 the `web` suite reports green counts with a
+non-zero exit, which [CONTRIBUTING.md](CONTRIBUTING.md#running-it) explains.
 
 ## What the observer does not do
 

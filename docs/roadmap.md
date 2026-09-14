@@ -409,7 +409,17 @@ project rather than this week's work:
 **Parallel product thread, ongoing:** user-interview script (collisions
 question included; cohort first; JV's LinkedIn amplification offer standing);
 open-sourcing prep — including scrubbing guidance for `user.email` in OTel
-captures before the repo goes public.
+captures before the repo goes public. *Both halves are spent (2026-09-14, the
+docs-audit sweep). The repo is **public** — `gh repo view` answers
+`"visibility":"PUBLIC"`, MIT — so "before it goes public" no longer names a
+future. And the scrubbing half was discharged mechanically rather than by
+guidance: `packages/server/src/collectors/otel/fixture-hygiene-law.test.ts`
+refuses a live-looking `user.email`, `user.account_*` or `organization.id` in
+any captured fixture, accepting only obviously synthetic placeholders, so a
+leak fails the build instead of depending on a human catching it at capture
+time. A real-leak sweep over the tree at `f4b7b57` found none. What this bullet
+asked for exists; it is recorded here rather than deleted because the request
+was right and the answer is the law, not a checklist.*
 
 ## Decisions appended post-prd2 (operator, 2026-07-31)
 
@@ -438,4 +448,14 @@ captures before the repo goes public.
   reason is the one this decision could not have predicted — a case-only filename
   collision (#201's class) is invisible on Linux and silent on macOS's default
   case-insensitive checkout. #74 stands as the citation for the softened claim
-  this replaced.*
+  this replaced.* **Reversed again, and the other way (2026-09-14).** GitHub
+  Actions was retired for cost: no workflow has run on this repository since
+  2026-09-12, through every commit since. The workflow files remain in the tree
+  and nothing executes them, so "macOS is CI-verified on every push" — true
+  when it was written — is not true now. What replaced it is a local leg,
+  `scripts/ci-local.sh`, run by a contributor and published onto the PR by
+  `scripts/pr-verdict.sh`; `CONTRIBUTING.md` carries the standard. **The
+  premise this bullet opened with is the one that changed twice:** it reasoned
+  from a private repo, and the repo is public — so the original 10x-billing
+  objection now stands on the opposite footing to the one it was written on,
+  and the leg was retired for the cost anyway.
