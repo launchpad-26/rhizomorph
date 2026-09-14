@@ -509,10 +509,20 @@ stay local.
 ## The generated wiki
 
 [deepwiki.com/launchpad-26/rhizomorph](https://deepwiki.com/launchpad-26/rhizomorph)
-is an AI-generated, queryable wiki over this repository, and the badge at the top
-links to it. It is also reachable over MCP at `https://mcp.deepwiki.com/mcp` —
-free, remote and unauthenticated, because this repo is public — which is what
-`.mcp.json` declares so an agent working here can query it without setup.
+is where an AI-generated, queryable wiki over this repository appears once the
+repo is indexed, and the badge at the top links there. **Indexing is an explicit
+operator act and may not have happened yet** — until it does, that page offers to
+index rather than answer, and the MCP tools below report the repository as not
+found. Nothing in this tree can tell you which state it is in; the page and the
+MCP server both can.
+
+It is reachable over MCP at `https://mcp.deepwiki.com/mcp` — free, remote and
+unauthenticated, because this repo is public — which is what `.mcp.json`
+declares, so an agent working here can query it without setup. **That file is
+tracked, so every agent session opening this repo is offered that server**, and
+each query it makes goes to the vendor. Nothing is sent unless a query is made,
+and no credential is involved; but the offer is repo-wide and it is worth knowing
+it is there.
 
 **It carries no authority, and nothing here can make it true.** It is written by
 a model from this tree and refreshed on its vendor's schedule; no test in this
