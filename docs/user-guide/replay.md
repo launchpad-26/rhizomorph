@@ -94,9 +94,17 @@ silently producing a conversation-less recording. See
   exporting a record never touches the watched repo, and replaying one never
   executes anything — no collector runs, nothing is written back into the
   record file itself.
-- **Nothing auto-transmits.** No push, no server-to-server exchange, no
-  background sync — a record only ever moves because you handed the file to
-  someone (`rhizomorph export-record`, see [`docs/record-format.md`](../record-format.md)).
+- **Nothing auto-transmits, unless you turned on the one hand that does.** By
+  default a record only ever moves because you handed the file to someone
+  (`rhizomorph export-record`). There is exactly one other route, and it is off
+  until you enable it per repo with an explicit command: the **shipper**, the
+  fifth hand, posts that session's lines outbound to the one team server your
+  project is connected to, on a batch timer, re-serialized through the current
+  event schema rather than as raw log bytes. **Nothing leaves the machine of a
+  member who never ran that command**, and there is still no server-to-server
+  exchange and no inbound port. What travels, under whose act, and by what key
+  is binding in [`docs/record-format.md`](../record-format.md) — Law 2 and its
+  2026-09-08 amendment — not here.
 - **No field the current event schema no longer declares — and nothing else
   is taken out.** Because a record's body is re-serialized from parsed
   events, a key the schema has dropped can't ride an old log line into a new
