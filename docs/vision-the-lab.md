@@ -1,7 +1,7 @@
 > **Recovered history — read the note before the document.** This file was written 2026-08-12 and
 > revised 2026-08-13 (commit `19adcda8` in the repository's pre-deletion history). It was lost in
 > the 2026-08-19 deletion and 2026-08-21 re-upload, together with prd-28 "the standing axis" and its
-> nine issues, and restored on 2026-09-07 beside `docs/prds/prd-53-the-lab.md` — verbatim save one edit: the glob
+> nine issues, and restored on 2026-09-07 beside `docs/prds/done/prd-53-the-lab.md` — verbatim save one edit: the glob
 > packages/*/src in "What has to be added besides the UI" is de-backticked so the repository's
 > citation law does not read it as a path — which
 > re-verified its claims and carries the rulings. **Nothing here is a commitment** — it never was —

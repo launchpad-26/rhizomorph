@@ -1,6 +1,6 @@
 # prd-55 — the lab, stage two: the R&D hand is the operator's own, and the workspace becomes one
 
-> **Status:** **BLESSED** — Lachlan Kelliher, 2026-09-10, in session (*"you make the calls and we can
+> **Outcome:** shipped 2026-09-14. Blessed by Lachlan Kelliher, 2026-09-10, in session (*"you make the calls and we can
 > actually start building the lab out, including beautifully rendered graphics consistent with or
 > surpassing the quality of the observatory"*), with the design calls delegated to the implementer and
 > recorded under *Design calls* below. Milestone `prd55`. Drafted 2026-09-08 from a live walkthrough of

@@ -1859,15 +1859,15 @@ replay bar's body, never a panel.
 
 ## prd14 — the experiment console, prd53 — the lab it stopped lying about, and prd55 — the R&D hand and the workspace
 
-prd14 (`docs/prds/prd-14-experiment-console.md`) gave the laboratory a browser: the `/lab` tab
+prd14 (`docs/prds/done/prd-14-experiment-console.md`) gave the laboratory a browser: the `/lab` tab
 (`packages/web/src/lab/LabPage.tsx`, a lazy route), read-and-launch routes in
 `packages/server/src/api/lab.ts`, and the branching picture (`packages/web/src/lab/branching/`).
 This section did not exist until 2026-09-08 — the walkthrough ran prd13 → prd15 — and the reason
 is instructive: the console shipped mounted, but its comparison never rendered against the real
 server, because the engine dispatched one `fork.dispatched` per arm with no run dimension and no
 outcome ever reached the wire. The user guide said so; the status lines did not. prd53
-(`docs/prds/prd-53-the-lab.md`, *Kind: specifying*) is the paper that closed that gap. prd55
-(`docs/prds/prd-55-the-lab-stage-two.md`, *Kind: specifying*) is Stage 2: an R&D hand that reads
+(`docs/prds/done/prd-53-the-lab.md`, *Kind: specifying*) is the paper that closed that gap. prd55
+(`docs/prds/done/prd-55-the-lab-stage-two.md`, *Kind: specifying*) is Stage 2: an R&D hand that reads
 the record and proposes experiments, and a workspace rearranged around the surfaces Stage 1
 already proved out. What follows describes the lab as it stands under all three.
 

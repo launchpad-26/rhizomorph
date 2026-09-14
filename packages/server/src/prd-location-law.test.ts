@@ -717,9 +717,9 @@ describe('a PRD whose milestone is closed lives under docs/prds/done/ (prd56 rul
     expect(violationsIn(liveShelfEntries(), liveManifest())).toEqual([])
   })
 
-  it('ruling 2: prd-17, prd-53, prd-14 and prd-20 each carry a declared reason despite a closed milestone', () => {
+  it('ruling 2: prd-17 and prd-20 each carry a declared reason despite a closed milestone', () => {
     // `toBeDefined()` alone survived BOTH the HTML-comment-conceal mutant and the
-    // `indexOf` -> `lastIndexOf` mutant (verify, 2026-09-14): every one of these four files
+    // `indexOf` -> `lastIndexOf` mutant (verify, 2026-09-14): every one of these files
     // contains the marker TWICE — the declaration, then a self-reference in the trailing
     // "read by ... for the marker" sentence each one carries — so the wrong occurrence
     // still returns SOME defined string. Pinning the exact CONTENT is what reddens on the
@@ -727,10 +727,6 @@ describe('a PRD whose milestone is closed lives under docs/prds/done/ (prd56 rul
     const EXPECTED_REASON: Record<string, string> = {
       'prd-17-complete-record.md':
         "it stays in `docs/prds/` rather than moving to `docs/prds/done/`, and that is a separate operator decision rather than a consequence of shipping — `docs/follow-up-292.md` reads this file's location as the difference between a LIVE ruling and an archival one, and holds an open, uncorrected item against ruling 3's law 1 — whose wording it calls the origin of a claim that is still false in `docs/architecture.md`. Archiving this PRD would demote that ruling while the item is open, and that document reserves the amendment decision for whoever owns the ruling. The move is a follow-up.",
-      'prd-53-the-lab.md':
-        "`prd-53`'s milestone closed 2026-09-11, but this stays on the live shelf rather than moving to `docs/prds/done/` — `prd-55`, *the lab, stage two*, is live with waves 6 and 7 building directly on this PRD's rulings, and archiving prd-53 mid-build would demote the rulings stage two is building on.",
-      'prd-14-experiment-console.md':
-        'stays on the live shelf rather than moving to `docs/prds/done/` — `docs/prds/prd-55-the-lab-stage-two.md` is live, with a wave in flight, and reasons from this PRD\'s rulings in the present tense: its Non-goals bind the R&D surface to naming no winner by citing "prd-14 ruling 3", and its ruling 4 says the estimate and its one confirmation "apply unchanged (prd-14 ruling 4)". Archiving this PRD would demote rulings prd-55 is building on.',
       'prd-20-the-concierge.md':
         'stays on the live shelf rather than moving to `docs/prds/done/` — `docs/prds/prd-34-the-doorstep.md` is live (unmilestoned, still being built) and reasons from this PRD in the present tense: prd-34\'s own ruling 4 says *"prd-20 remains the authority on what the concierge may do (launch or relaunch a conductor, clone by URL; no OAuth, no accounts, no stored credentials)."* Archiving this PRD would demote a ruling prd-34 is deferring to.',
     }

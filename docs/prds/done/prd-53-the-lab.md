@@ -1,6 +1,6 @@
 # prd-53 — the lab: the experiment is one fork, and the console stops lying about it
 
-> **Status:** **BLESSED** — Lachlan Kelliher, 2026-09-07, in session. Milestone `prd53`. **Kind:
+> **Outcome:** shipped 2026-09-11. Blessed by Lachlan Kelliher, 2026-09-07, in session. Milestone `prd53`. **Kind:
 > specifying.** Drafted the same session.
 > Completes prd-12 (the engine, shipped) and prd-14 (the console, ruled 2026-08-24, two issues
 > open), and **resurrects prd-28 "the standing axis"**, whose paper — eight proposed rulings, nine
@@ -12,14 +12,6 @@
 > (`https://claude.ai/code/artifact/0d519088-3709-4262-896a-379cd6be5ab1`, *"proposed, nothing
 > blessed"*, 2026-08-12) as it stands, succeeded by a design-spec artifact of this PRD's own,
 > drawn between waves 2 and 3. Stage 2 — the R&D agent — is out, and says why.
-
-> **Shelf exemption:** `prd-53`'s milestone closed 2026-09-11, but this stays on the live shelf
-> rather than moving to `docs/prds/done/` — `prd-55`, *the lab, stage two*, is live with waves 6
-> and 7 building directly on this PRD's rulings, and archiving prd-53 mid-build would demote the
-> rulings stage two is building on.
->
-> Operator-ruled 2026-09-13, recorded on #428, per prd56 ruling 2; read by
-> `packages/server/src/prd-location-law.test.ts` for the `**Shelf exemption:**` marker.
 
 ## Problem
 

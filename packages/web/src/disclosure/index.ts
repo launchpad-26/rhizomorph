@@ -16,7 +16,7 @@
  *
  * The wave numbers this docstring used are PRIOR-TRACKER numbers, like the
  * `#554` above — they are not this repo's prd30 w1/w2, which is why they are
- * gone rather than corrected. `docs/prds/prd-30-the-open-hand.md`'s 2026-09-10
+ * gone rather than corrected. `docs/prds/done/prd-30-the-open-hand.md`'s 2026-09-10
  * amendment declares the waves as executed; read that, not a number here.
  *
  * Import the affordance ({@link Disclosure}) rather than the card when you
