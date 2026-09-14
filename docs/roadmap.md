@@ -443,7 +443,7 @@ was right and the answer is the law, not a checklist.*
   case-insensitive checkout. #74 stands as the citation for the softened claim
   this replaced.* **Reversed again, and the other way (2026-09-14).** GitHub
   Actions was retired for cost: no workflow has run on this repository since
-  2026-09-12, through four commits since. The workflow files remain in the tree
+  2026-09-12, through every commit since. The workflow files remain in the tree
   and nothing executes them, so "macOS is CI-verified on every push" — true
   when it was written — is not true now. What replaced it is a local leg,
   `scripts/ci-local.sh`, run by a contributor and published onto the PR by
