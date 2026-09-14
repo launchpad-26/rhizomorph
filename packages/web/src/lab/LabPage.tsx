@@ -404,7 +404,7 @@ export function LabPage({ fetchImpl, launchFetchImpl, measureFetchImpl, rdFetchI
           {/* THE TOP NEVER SCROLLS AWAY (ruling 8): the axis every surface
               positions on, and the frame's five ways of looking at the seated
               moment, stay put while the reading below them moves. */}
-          <div data-testid="lab-stage-pinned" className="sticky top-0 z-10 flex flex-col gap-3 border-(--line-hair) border-b bg-(--surface-floor) px-4 pt-3 pb-2">
+          <div data-testid="lab-stage-pinned" className="sticky top-0 z-(--z-sticky) flex flex-col gap-3 border-(--line-hair) border-b bg-(--surface-floor) px-4 pt-3 pb-2">
             {checkpoints.status === 'error' ? (
               <p role="status" data-testid="lab-axis-error" className="text-broken">
                 the lab cannot see its checkpoints — {checkpoints.message}
