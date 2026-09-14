@@ -54,6 +54,7 @@ const server = {
   restore: () => read('packages/server/src/lab/restore.ts'),
   cli: () => read('packages/server/src/cli/index.ts'),
   labFork: () => read('packages/server/src/cli/lab-fork.ts'),
+  cliArgs: () => read('packages/server/src/cli/args.ts'),
   coreEvents: () => read('packages/core/src/events/lab.ts'),
   rd: () => read('packages/server/src/lab/rd.ts'),
 }
@@ -141,6 +142,65 @@ const CLAIMS: Readonly<Record<string, Claim>> = {
       expect(api, 'grep: the route reaches the CLI in-process').toMatch(/runCli\(/)
       expect(api, 'grep: and never imports a lab module directly').not.toMatch(/from '\.\.\/lab\/(?:fork|compare|checkpoint|restore)\.js'/)
       expect(api, 'grep: launch is a registered route').toContain("app.post('/api/lab/launch'")
+    },
+  },
+  /**
+   * The walkthrough's spine (#477). The guide was 493 lines of reference with no
+   * ordered path through it: a reader wanting to run one experiment had to
+   * assemble the sequence out of six sections, and nothing said the three
+   * commands were three steps of one workflow.
+   *
+   * What this claim holds is the sentence that makes the walkthrough safe to
+   * follow — that the steps are three separate acts. A walkthrough is exactly
+   * where a reader would otherwise assume the tool chains them, and the lab's
+   * whole constitutional position is that it does not.
+   */
+  'walkthrough-three-acts': {
+    says: /three separate[\s\S]*explicit acts[\s\S]*no entry point but the one you type/,
+    check: () => {
+      const args = server.cliArgs()
+      expect(args, "grep: the usage table lists the three build steps in the walkthrough's order").toMatch(
+        /rhizomorph lab checkpoint <lane>[\s\S]*rhizomorph lab fork <lane>[\s\S]*rhizomorph lab compare <fork-id>/,
+      )
+      // "No entry point but the one you type" is a claim about the namespace, not
+      // about the table: the CLI reaches the lab through exactly one branch, and
+      // `lab/namespace-law.test.ts` is what keeps any other caller out.
+      expect(server.cli(), 'grep: one branch into the namespace').toContain("argv[0] === 'lab'")
+      expect(server.cli(), 'grep: and it dispatches to the lab command').toContain('runLabCommand(')
+    },
+  },
+  /**
+   * Step 2's claim. Deliberately overlaps `writes-confined` and
+   * `no-launch-quote` in what it ASSERTS while differing in what it says: those
+   * two hold the confinement as constitutional text, this one holds it as the
+   * thing a reader following step 2 will actually see happen.
+   */
+  'walkthrough-no-launch-default': {
+    says: /bare .?fork.? dispatches nothing[\s\S]*off by[\s\S]*default/,
+    check: () => {
+      expect(server.labFork(), 'grep: --launch is off by default').toMatch(/--launch\s+Also run 'workmux add'[^\n]*OFF by default/)
+      const cli = server.cli()
+      expect(cli, 'grep: a bare fork says what it did not do').toContain('No tmux window was opened and no branch was created')
+      expect(cli, 'grep: and names the flag that would authorise it').toContain('Pass --launch to authorise that yourself.')
+    },
+  },
+  /**
+   * Step 3's claim, and the reason the walkthrough is shorter than the reference
+   * it replaces: the CLI already hands the operator the next command at both
+   * ends, and nothing said so. A fork id is minted by the fork, so a walkthrough
+   * that told the reader to "find your fork id" would be inventing work the tool
+   * does not require.
+   */
+  'walkthrough-next-step': {
+    says: /never have to find a fork id[\s\S]*exact compare invocation[\s\S]*as the step to run first/,
+    check: () => {
+      expect(server.cli(), 'grep: fork ends by printing the whole compare invocation').toContain('Compare them with: rhizomorph lab compare ')
+      // Matched in two quote-free halves: the source writes this message with
+      // escaped single quotes inside a single-quoted literal, so the sentence as
+      // a reader sees it does not appear contiguously in the source text.
+      const compare = server.compare()
+      expect(compare, 'grep: the refusal names the fork subcommand').toContain('rhizomorph lab fork <lane>')
+      expect(compare, 'grep: and offers the other possibility').toContain('first, or check the fork id')
     },
   },
   'writes-confined': {
