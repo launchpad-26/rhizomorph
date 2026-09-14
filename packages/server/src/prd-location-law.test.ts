@@ -190,6 +190,7 @@ import { describe, expect, it } from 'vitest'
  * | 34 | space, tab, space (`> \t `) | marker's space (col 1 -> 2); tab from col 2 -> col 4 (2 credit); trailing space (col 4 -> 5, 1 more credit) | 3 | no | yes | same regression, one column under the threshold — the trailing space cannot push it over on its own. |
  * | 35 | two spaces, tab, space (`>  \t `) | marker's space (col 1 -> 2); space (col 2 -> 3); tab (col 3 -> 4); space (col 4 -> 5) | 3 | no | yes | same regression as row 34, reached by a different route — pins that the arithmetic is genuinely columnar, not "which literal characters appear". |
  * | 36 | space then two tabs (`> \t\t`) | marker's space (col 1 -> 2); tab 1 (col 2 -> its own next stop, col 4: 2 credit); tab 2 starts exactly on a stop (col 4 -> 8: 4 more credit) | 6 | yes | no | **control: proves the fix is not "any tab now exempts".** Enough tab-driven credit still convicts once a space has already spent the marker's one-column allowance — only the four prefixes in rows 32-35 (whose total genuinely stays under 4) read as paragraphs. |
+ * | 37 | tab IMMEDIATELY after `>`, then 2+ spaces (`>\t  `, `>\t   `) | this reader: marker consumes the tab whole to col 4, then 2-3 spaces | 2-3 | no | yes | **KNOWN DIVERGENCE FROM COMMONMARK, recorded at the review of #493 rather than fixed.** CommonMark takes ONE COLUMN of that tab and leaves two behind (spec "Tabs", example 6), so its credit is 4-5 and the line is indented CODE — hidden from a reader, read as a declaration here. Fails OPEN. Unreachable in this corpus: no PRD on either shelf contains a tab (EXECUTED). Closing it means partial-tab consumption in {@link stripBlockquoteMarkers}, a structural change rather than a cell — same bucket as the container tracking and lazy continuation this wave books out. |
  *
  * Unreachable today, and why: rows 4, 8, 9, 10, 12, 17, 18, 26, 27 and 30-36 all require a syntactic
  * shape — an indented fence, a comment wrapping only part of a line, quoted code following a
@@ -236,7 +237,8 @@ import { describe, expect, it } from 'vitest'
  * **Two claims from round 1 were false and are corrected here, not merely narrowed:** round 1's
  * blockquote-stripping function's doc comment claimed CommonMark-faithful behavior "rather than a
  * rule invented to make one test pass" — true of the SPACE case, false of the TAB case, which this
- * round's {@link stripBlockquoteMarkers} now actually is faithful to; and table row 14's "a tab
+ * round's {@link stripBlockquoteMarkers} brings much closer without reaching (row 37 is the
+ * remaining gap, recorded at the review of #493); and table row 14's "a tab
  * counts the same as 4 spaces" was true only for a bare leading tab with nothing ahead of it, never
  * stated as scoped that way.
  *
@@ -371,12 +373,25 @@ function nextTabStop(col: number): number {
  * column-width is not fixed. The fix is not "count differently for a tab"; it is to stop counting
  * characters at all and track the column a real CommonMark implementation tracks. Consuming the tab
  * character WHOLE, and crediting the marker with wherever that lands (its own next tab stop, not a
- * flat +1), turns out to be the entire rule: `>` + one tab alone lands the baseline at column 4 (the
- * tab starts at column 1, its own next stop) with nothing left over — a bare `>\t` is a paragraph,
- * not code, and always was; `>` + a literal space + a tab lands the baseline at column 2 (the SPACE
- * is what satisfies the marker, landing on column 2 exactly, same as any other literal space), and
- * the tab is now ordinary CONTENT indentation measured by {@link measureIndent} from that baseline —
- * table rows 30-36 work every case in this class by hand.
+ * flat +1), is what shipped: `>` + one tab alone lands the baseline at column 4 (the tab starts at
+ * column 1, its own next stop) with nothing left over — a bare `>\t` is a paragraph, not code, and
+ * always was; `>` + a literal space + a tab lands the baseline at column 2 (the SPACE is what
+ * satisfies the marker, landing on column 2 exactly, same as any other literal space), and the tab
+ * is now ordinary CONTENT indentation measured by {@link measureIndent} from that baseline — table
+ * rows 30-36 work every case in this class by hand.
+ *
+ * **It is NOT the entire CommonMark rule, and row 37 is where the two part company.** CommonMark
+ * consumes ONE COLUMN of a following tab, not the whole of it, leaving the remainder as ordinary
+ * content indentation — spec "Tabs", example 6: `>\t\tfoo` renders as indented code carrying TWO
+ * leading spaces, which is only arithmetic if the marker took one column of the first tab and left
+ * two behind. Consuming the tab whole hands those columns to the marker instead, so a tab
+ * IMMEDIATELY after `>` followed by two or more spaces reads as a paragraph here and as indented
+ * code in a renderer. Measured through this reader at the review of #493, and see row 37. The claim
+ * narrowed rather than the code changed, deliberately: the divergence is unreachable in this corpus
+ * (no PRD on either shelf contains a tab at all, EXECUTED), it fails OPEN in a wave whose other
+ * three fail-open gaps are now closed, and partial-tab consumption is a structural change to this
+ * instrument rather than a sentence — it belongs with the container tracking and lazy continuation
+ * already booked out of this wave, not stapled to it.
  */
 function stripBlockquoteMarkers(line: string): { index: number; column: number; quoted: boolean } {
   let index = 0
