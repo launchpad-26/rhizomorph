@@ -1,7 +1,7 @@
 {
   "name": "rhizomorph",
   "version": "0.1.0",
-  "description": "A live, replayable localhost dashboard for a git-worktree agent swarm — watches worktrees, branches, tmux panes, and workmux state, read-only.",
+  "description": "A live, replayable dashboard for a swarm of coding agents working in git worktrees. Watching is read-only; every power beyond it is a named, opt-in hand.",
   "keywords": [
     "claude-code",
     "git-worktree",
