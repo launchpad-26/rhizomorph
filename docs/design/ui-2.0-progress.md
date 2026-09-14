@@ -24,7 +24,7 @@ and, after that, dispatch. Both have since happened.
 - [x] `docs/prds/done/prd-32-the-readable-instrument.md` — +5 rulings, +5 spec sections
 - [x] `docs/prds/done/prd-35-the-operators-hand.md` — NEW (settings, and the
       never-configurable list)
-- [x] `docs/prds/prd-30-the-open-hand.md` — +1 ruling, +2 spec sections
+- [x] `docs/prds/done/prd-30-the-open-hand.md` — +1 ruling, +2 spec sections
 - [x] `docs/prds/done/prd-31-the-bracketed-voice.md` — ruling 1 rewritten, +4 rulings,
       +4 spec sections
 - [x] `docs/prds/done/prd-36-the-fleet-surface.md` — NEW (organism ⇄ list)

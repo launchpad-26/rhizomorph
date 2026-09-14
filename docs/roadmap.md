@@ -101,7 +101,7 @@
   rounds of affordances still read as noise to the one person using it —
   prd3 ruling 25's "every failing mark gets an affordance or is CUT"
   protocol in its clearest live example.
-- **prd14 — the experiment console** (`docs/prds/prd-14-experiment-console.md`, BLESSED
+- **prd14 — the experiment console** (`docs/prds/done/prd-14-experiment-console.md`, BLESSED
   2026-08-06, ruled 2026-08-24): checkpoint, fork, branching, free arm configuration,
   spend estimates and honest comparison are live. Ruling 5 settles the persistence seam:
   comparisons save through prd16's recording machinery, list in the library as their own
@@ -218,7 +218,7 @@
   `gated-read` rows today against exactly one `read` — `GET /*`, the named bootstrap, tokenless
   forever. prd43 #23 unblocked. The closeout records what the plan got wrong, including the
   route arithmetic that went stale between drafting and grooming with no law able to notice.
-- **prd30 — the open hand** (`docs/prds/prd-30-the-open-hand.md`, BLESSED 2026-08-08,
+- **prd30 — the open hand** (`docs/prds/done/prd-30-the-open-hand.md`, BLESSED 2026-08-08,
   **all four waves landed 2026-09-11**): the shared card, condition selector and teach layer ship, and the
   `title=` sweep is finished in both halves — #220's fifty and #389's last twelve, with
   `NOT_YET_SWEPT` deleted rather than emptied. This entry named all three of
@@ -354,13 +354,13 @@
   up, and nothing leaves the team.
 - **prd52 — the world composes** (`docs/prds/done/prd-52-the-world-composes.md`, blessed 2026-09-07):
   the scene holds several colonies, and the size it holds is a law.
-- **prd53 — the lab** (`docs/prds/prd-53-the-lab.md`, blessed 2026-09-07, *Kind: specifying*):
+- **prd53 — the lab** (`docs/prds/done/prd-53-the-lab.md`, blessed 2026-09-07, *Kind: specifying*):
   the experiment is one fork, and the console stops lying about it. The completion paper for a
   lab whose own completion paper, prd-28, died in the 2026-08-19 deletion — its vision restored
   as `docs/vision-the-lab.md`, its design specified in a companion artifact, its user guide
   turned into a law (`packages/web/src/lab/the-lab-guide-law.test.ts`). Per-milestone counts are
   deliberately not restated here; the board is the source.
-- **prd55 — the lab, stage two** (`docs/prds/prd-55-the-lab-stage-two.md`, blessed 2026-09-10,
+- **prd55 — the lab, stage two** (`docs/prds/done/prd-55-the-lab-stage-two.md`, blessed 2026-09-10,
   *Kind: specifying*): the R&D hand is the operator's own agent, spawned as an explicit act
   through `rhizomorph lab rd` and the console's own *read and propose* button, never a credential
   the instrument holds itself ([ADR-0048](adr/0048-the-instrument-spawns-the-operators-own-tools-as-an-explicit-act.md));

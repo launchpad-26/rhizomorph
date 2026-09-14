@@ -39,7 +39,7 @@ should have been left as a record.
   nine PRDs moved to `done/` in one batch. Three weeks later there are five.
 - **A move breaks citations if done alone.** `AGENTS.md`,
   `docs/architecture.md`, `docs/roadmap.md`,
-  `docs/prds/prd-30-the-open-hand.md` and `docs/prds/prd-51-the-split.md` cite
+  `docs/prds/done/prd-30-the-open-hand.md` and `docs/prds/prd-51-the-split.md` cite
   the five paths. prd-17's own attempted move reddened the citation law for
   exactly this reason.
 

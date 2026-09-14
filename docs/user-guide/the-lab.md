@@ -258,8 +258,8 @@ the constitutional limit: *"forked realities only — checkpoints you captured,
 and experiments forked from them. Never live fleet state."* <!-- claim: nav-and-header -->
 
 Two regions, not six sections stacked in one column (prd-55 ruling 8; Stage 1's
-own specification is `docs/prds/prd-53-the-lab.md`, the rearrangement's is
-`docs/prds/prd-55-the-lab-stage-two.md`, both with their companion artifacts): a
+own specification is `docs/prds/done/prd-53-the-lab.md`, the rearrangement's is
+`docs/prds/done/prd-55-the-lab-stage-two.md`, both with their companion artifacts): a
 **rail** and a **stage**. <!-- claim: workspace-regions -->
 
 **The rail** lists every checkpoint and every experiment this repo has
@@ -538,9 +538,9 @@ never its fold. <!-- claim: canvas-one-per-run -->
   numbers should be configurable, and whether the restore's `install` should
   default to off, are prd-41's *"No owner"* pair, **still unowned**. <!-- claim: fork-exec-ceiling -->
 
-See [`docs/prds/prd-14-experiment-console.md`](../prds/prd-14-experiment-console.md)
+See [`docs/prds/done/prd-14-experiment-console.md`](../prds/prd-14-experiment-console.md)
 for the order the console's first waves landed in, and
-[`docs/prds/prd-53-the-lab.md`](../prds/prd-53-the-lab.md) for the rulings that
+[`docs/prds/done/prd-53-the-lab.md`](../prds/prd-53-the-lab.md) for the rulings that
 made the comparison real. **#205, the fold-order divergence, is ruled — append
 order is the truth** (prd17's amendment of 2026-08-24), and the lab assumes
 exactly that resolution and no other.

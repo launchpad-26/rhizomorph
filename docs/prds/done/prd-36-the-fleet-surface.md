@@ -238,7 +238,7 @@ prd-32 wave 1's tokens and therefore follows it.
 
 > **Note (2026-09-08, prd-53 wave 5):** prd-28's paper died in the 2026-08-19 deletion and its
 > number is retired, never reused. The fence stands; the territory's owner is prd-53
-> (`docs/prds/prd-53-the-lab.md`). The sentence above is kept as written — a number is an identity.
+> (`docs/prds/done/prd-53-the-lab.md`). The sentence above is kept as written — a number is an identity.
 
 1. **Keystone:** the two-representation component (S3) and the fleet surface's frame — the
    organism and the existing table mounted inside it, sharing selection, with the toggle and its
