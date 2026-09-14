@@ -130,6 +130,122 @@ import { describe, expect, it } from 'vitest'
  * 2's form and the fifth (`prd48`) moved to `done/` in this same commit. Measured before this
  * wave's changes: regenerating exited 1 naming all five `docs/prds/*.md` files by name.
  *
+ * ## Wave 3 — one predicate, tabulated (prd56 w3, #484)
+ *
+ * Wave 2's own fix re-review found four places where {@link declaredExemptionReason} disagreed
+ * with what a person reading the RENDERED document sees. All four are one question — "is this
+ * line prose or code?" — asked twice (once by the declaration scan, once by the continuation
+ * loop) with two different answers depending on where the question was asked. {@link
+ * classifyLines} is now the single predicate both scans call; this table is its truth table,
+ * enumerated BEFORE any of the four gaps was patched, per the issue's own First Instruction.
+ *
+ * `code?` is `classifyLines`'s per-line verdict — a code line can never start or continue a
+ * declaration. Gaps are cited by #484's own numbering; every gap row has an "unlisted spelling"
+ * sibling proving the repair is not just the reported string.
+ *
+ * | # | form (one representative line) | code? | declared / continues? | note |
+ * |---|---|---|---|---|
+ * | 1 | `**Shelf exemption:** reason` — column 0, no quote | no | yes | baseline |
+ * | 2 | `> **Shelf exemption:** reason` — one quote level | no | yes | baseline |
+ * | 3 | `>   **Shelf exemption:** reason` — quote + 1-3 residual spaces | no | yes | CommonMark allows up to 3 spaces of container-relative indent before a paragraph still counts as unindented |
+ * | 4 | `>     **Shelf exemption:** reason` — quote + 4+ residual spaces | **yes**, indented code | no | **gap 2** — the base blockquote-stripping function consumed ALL post-`>` whitespace, so this could never be classified as code |
+ * | 5 | `>> **Shelf exemption:** reason` — nested quote | no | yes | each `>` gives up at most one optional space, same rule applied twice |
+ * | 6 | `prose **Shelf exemption:** reason` — marker mid-line | no | no | a MENTION, not a declaration — the marker must start the line's content |
+ * | 7 | ` ``` ` fence at column 0, marker inside | yes | no | baseline fence |
+ * | 8 | `  ``` ` fence indented 1-3 columns, no quote, marker inside | **yes** | no | **gap 1** — CommonMark allows an indented fence opener; anchoring `FENCE_OPEN_RE` at column 0 missed it |
+ * | 9 | `    ``` ` — backtick run indented 4+ columns, no quote, marker on the UNINDENTED line right after | **yes, but only that ONE line** | **the marker is DECLARED** | **corrected 2026-09-14 (round 2, finding 1, #484).** The base table claimed this "hides its interior" the way row 8 does; it does not, and the CODE was already right — only the TABLE was wrong. A 4+-column-indented backtick run is CommonMark indented code, never a fence opener (nothing "opens"), so only that one physical line is code; the very next, unindented line is an ordinary, visible paragraph — read exactly as row 1 would read it. Control: a genuine column-0 fence (row 7) still hides its interior. |
+ * | 10 | same shape, `~~~` tilde fence | **yes, but only that ONE line** | **declared**, same as row 9 | the fence CHARACTER was never what mattered; the INDENT was always the (mis-)documented part — same correction as row 9. |
+ * | 11 | `` > ``` `` fence inside one quote level | yes | no | fence-open is checked AFTER blockquote-marker consumption, with `credit` already under 4 |
+ * | 12 | `` >    ``` `` — quote + 1-3 residual columns + fence | yes | no | same allowance as row 3, applied to a fence instead of the marker |
+ * | 13 | `    marker` — 4-column indented code, no quote | yes | no | baseline indented code — **contrast with row 9**: here the MARKER's own line is indented, so it is rightly hidden; row 9 indents a FENCE-LOOKING line instead, whose only casualty is itself. Opposite consequences for whatever comes after — they were never the same case, which is exactly what round 2's finding 1 corrected. |
+ * | 14 | `\tmarker` — a BARE leading tab, no quote, no preceding whitespace at all | yes | no | a tab starting at column 0 advances to column 4 — the full indented-code threshold in one character. **This is true only because nothing has already moved the starting column** (round 2, finding 2, #484) — see rows 30-36 for what happens once a blockquote's own marker has moved it, which is the case the base table's "a tab counts the same as 4 spaces" wrongly generalized from this one row. |
+ * | 15 | `<!-- marker -->` — comment, single line | blanked, no | no | baseline comment |
+ * | 16 | multi-line `<!--` … `-->` wrapping a marker line | blanked, no | no | comment blanking is index-preserving across lines |
+ * | 17 | `<!--` with no matching `-->` anywhere in the document | blanked to EOF, no | no | **gap 4a, fail open** — the old regex required a closing `-->` to match at all, so an unterminated comment blanked NOTHING and a declaration below it wrongly counted |
+ * | 18 | `` `<!-- looks like a comment -->` `` — comment syntax inside an inline code span | **not blanked**, whatever it says | as written | **gap 4b, fail closed** — the old code blanked this too, deleting real, visible prose and convicting a correct declaration |
+ * | 19 | `` `**Shelf exemption:**` `` — the marker itself inside a code span, at column 0 | no | no | never needs special-casing — a code span always opens with a backtick, so `startsWith(MARKER)` is already false |
+ * | 20 | two genuine declaration lines in one document | no / no | the first wins | pinned by content, not merely "is defined" |
+ * | 21 | a declaration, then a later MENTION of the marker (this file's own cross-reference convention) | no / no | the declaration, never the mention | a mention never starts its own line |
+ * | 22 | continuation: further `>`-quoted prose lines | no | swept into the reason, whitespace-collapsed | baseline |
+ * | 23 | continuation: a blank quoted line (`>` alone) | n/a (blank) | paragraph ends | baseline |
+ * | 24 | continuation: a non-quoted line | no | paragraph ends | baseline |
+ * | 25 | continuation: end of document | n/a | paragraph ends | baseline |
+ * | 26 | continuation: a quoted FENCED block | **yes** | paragraph ends before it | **gap 3, fence variant** — the old continuation loop had no fence check at all, so quoted code text cleared the substance threshold |
+ * | 27 | continuation: a quoted INDENTED-code line | **yes** | paragraph ends before it | **gap 3, indent variant** — same defect; the unlisted-spelling sibling proving it is not only the fence spelling |
+ * | 28 | placeholder reason (`-`, `TBD`, `n/a`, `.`, `x`, `**`, a bare zero-width space) | no | below {@link MIN_REASON_WORDS}, not declared | baseline |
+ * | 29 | CRLF line endings anywhere in the above | normalized first | unaffected | `\r\n?` is collapsed to `\n` before any of the above runs |
+ *
+ * **Rows 30-36 — round 2's space/tab-prefix class (finding 2, #484), a column-arithmetic verdict per
+ * row, written down BEFORE the arithmetic was fixed, per the same First Instruction wave 3 opened
+ * with.** `col` tracks the ABSOLUTE column ({@link nextTabStop}: a tab advances to the next multiple
+ * of 4 from wherever it starts, never a flat +4); `credit` is `col` minus the column right after the
+ * blockquote marker's own one-column allowance — CommonMark's indented-code test is `credit >= 4`.
+ *
+ * | # | prefix after `>` | arithmetic | credit | code? | declared? | note |
+ * |---|---|---|---|---|---|---|
+ * | 30 | one tab, nothing else (`>\t`) | tab at col 1 -> its own next stop, col 4; FULLY consumes the marker's allowance | 0 | no | yes | a bare `>` + tab is a paragraph, and always was — **correction to the record**: an earlier round wrongly called this a fail-open exemption. |
+ * | 31 | two tabs (`>\t\t`) | tab 1: col 1 -> 4 (marker's allowance); tab 2 starts EXACTLY on a stop (col 4) -> col 8 | 4 | yes | no | at the threshold exactly — the control proving two tabs alone still convicts. |
+ * | 32 | space then tab (`> \t`) | the LITERAL space satisfies the marker (col 1 -> 2); the tab is now ordinary content-indentation, starting at col 2 -> its own next stop, col 4 | 2 | no | yes | **the regression, now fixed.** The base implementation counted the tab as a flat +4 regardless of where it started, reading this as indented code. |
+ * | 33 | two spaces then tab (`>  \t`) | one space satisfies the marker (col 1 -> 2); the second space is ordinary content-indentation (col 2 -> 3), then the tab (col 3 -> its own next stop, col 4) | 2 | no | yes | same regression as row 32, one more literal space ahead of the tab. |
+ * | 34 | space, tab, space (`> \t `) | marker's space (col 1 -> 2); tab from col 2 -> col 4 (2 credit); trailing space (col 4 -> 5, 1 more credit) | 3 | no | yes | same regression, one column under the threshold — the trailing space cannot push it over on its own. |
+ * | 35 | two spaces, tab, space (`>  \t `) | marker's space (col 1 -> 2); space (col 2 -> 3); tab (col 3 -> 4); space (col 4 -> 5) | 3 | no | yes | same regression as row 34, reached by a different route — pins that the arithmetic is genuinely columnar, not "which literal characters appear". |
+ * | 36 | space then two tabs (`> \t\t`) | marker's space (col 1 -> 2); tab 1 (col 2 -> its own next stop, col 4: 2 credit); tab 2 starts exactly on a stop (col 4 -> 8: 4 more credit) | 6 | yes | no | **control: proves the fix is not "any tab now exempts".** Enough tab-driven credit still convicts once a space has already spent the marker's one-column allowance — only the four prefixes in rows 32-35 (whose total genuinely stays under 4) read as paragraphs. |
+ *
+ * Unreachable today, and why: rows 4, 8, 9, 10, 12, 17, 18, 26, 27 and 30-36 all require a syntactic
+ * shape — an indented fence, a comment wrapping only part of a line, quoted code following a
+ * placeholder, a tab anywhere at all — that no live-shelf PRD's text currently contains, verified by
+ * reading the four declarations these rows would otherwise misjudge (`prd-17`, `prd-53`, `prd-14`,
+ * `prd-20`) and finding none of them use any of these forms. That is why this is a repair to the
+ * READER's grammar, not a repair to any PRD's text — see "EXPLICITLY OUT of scope" on #484.
+ *
+ * ## Wave 3, round 2 — the table was wrong, and the tab arithmetic was missing (#484)
+ *
+ * A fix re-review of wave 3 found two NEW defects — a different axis from the four gaps above,
+ * which were about which LINES are code. These are about the TABLE stating a verdict the code does
+ * not produce, and about tab COLUMN arithmetic, never present at all.
+ *
+ * **Finding 1 — rows 9 and 10 were simply wrong, and the code was already right.** The base table
+ * claimed a 4+-column-indented fence-looking line "hides its interior" the same way row 8's validly
+ * recognized 1-3-column-indented fence does. It does not: CommonMark never treats an indented opener
+ * as a fence at all, so a 4+-indented ``` `` ``` is ordinary indented code for that ONE line only,
+ * and the very next (unindented) line is a plainly visible paragraph. Restoring the base ordering
+ * (fence-open checked before the indent guard) leaves the whole suite green, because
+ * {@link FENCE_OPEN_RE} never matches a 4+-indented run either way (trimming caps at 3 columns) — the
+ * code was never in question, only the sentence describing it. Fixed in the rows themselves and in
+ * row 13's note, which now says explicitly why the two rows are not the same case.
+ *
+ * **Finding 2 — a fail-closed regression on a SPACE-then-TAB blockquote prefix
+ * (`> \t`, `>  \t`, `> \t `, `>  \t `).** Round 1's blockquote-stripping function (since replaced by
+ * {@link stripBlockquoteMarkers}) consumed one WHITESPACE CHARACTER per blockquote level, which is
+ * correct
+ * for a literal space and wrong for a tab, whose column-width depends on where it starts — the old
+ * code treated a tab anywhere as an automatic flat +4, so a tab that in fact only closed a 2-column
+ * gap (because a literal space had already consumed the marker's own one-column allowance) still
+ * read as a full 4-column indent, convicting four prefixes that CommonMark reads as ordinary,
+ * visible paragraphs. **The root cause was the instrument, not a cell to patch**: nothing anywhere
+ * expanded a tab to the column it actually reaches. {@link nextTabStop}, {@link stripBlockquoteMarkers}
+ * and {@link measureIndent} replace the character-counting approach with real column arithmetic —
+ * fixed ONCE, in {@link classifyLines}, so both the declaration scan and the continuation loop (which
+ * had the identical blind spot — a continuation line of `>   \t` swept CommonMark indented code into
+ * the reason, gap 3's own failure mode in a spelling round 1 never tested) inherit the same fix
+ * rather than four prefixes being special-cased at either call site. Table rows 30-36 carry the
+ * worked arithmetic for every prefix in this class, including two CONTROLS (rows 31 and 36) proving
+ * the fix still convicts once enough columns are actually spent — this is a corrected instrument, not
+ * a new "tabs are always fine" exemption.
+ *
+ * **Two claims from round 1 were false and are corrected here, not merely narrowed:** round 1's
+ * blockquote-stripping function's doc comment claimed CommonMark-faithful behavior "rather than a
+ * rule invented to make one test pass" — true of the SPACE case, false of the TAB case, which this
+ * round's {@link stripBlockquoteMarkers} now actually is faithful to; and table row 14's "a tab
+ * counts the same as 4 spaces" was true only for a bare leading tab with nothing ahead of it, never
+ * stated as scoped that way.
+ *
+ * Explicitly out of scope for this round, same as wave 3's own scope note: no PRD text, no
+ * dispositions; comments whose span crosses a fence delimiter (a TERMINATED one does this too, not
+ * only an unterminated one — that whole class is #459's, already widened to cover it); and container
+ * tracking for list items or lazy continuation (`- **Shelf exemption:**` convicting a visible
+ * declaration is real and pre-existing, and is outside this wave's four gaps).
+ *
  * ## The glob hazard (verified against the real tree before this law was written)
  *
  * Three non-PRD markdown files live in `docs/prds/`: `README.md`,
@@ -231,23 +347,227 @@ const EXEMPTION_MARKER = '**Shelf exemption:**'
 const MIN_REASON_WORDS = 3
 
 /**
- * Strips zero or more levels of a CommonMark blockquote prefix (up to 3 leading spaces,
- * `>`, then any run of spaces/tabs) from the START of one line. Deliberately consumes ALL
- * whitespace after the `>`, not just CommonMark's own one optional space: this file has no
- * indented code living inside a blockquote, so the simpler rule is the one that does not
- * misread `>   **Shelf exemption:**` (extra padding) as an indented-code line.
+ * The next CommonMark tab stop at or after `col` — tabs advance to the next multiple of 4, never
+ * by a flat +4. **Missing entirely was round 2's finding 2 (#484):** the base implementation
+ * counted CHARACTERS ("a tab is one guard-firing character, same as 4 spaces"), not COLUMNS, so
+ * `> \t` — a literal space, then a tab — read the tab as an automatic 4-column indent regardless of
+ * where it actually started. It does not: a tab's width depends on the column it starts from. See
+ * {@link stripBlockquoteMarkers} and {@link measureIndent}, the two places this now feeds, and table
+ * rows 30-36 for the worked arithmetic.
  */
-function stripBlockquotePrefix(line: string): string {
-  let rest = line
+function nextTabStop(col: number): number {
+  return col + (4 - (col % 4))
+}
+
+/**
+ * Consumes zero or more levels of a CommonMark blockquote marker (up to 3 leading spaces, `>`,
+ * then AT MOST one following whitespace CHARACTER — space or tab, consumed WHOLE) from the START of
+ * `line`, tracking the ABSOLUTE column reached (tab-stop correct, via {@link nextTabStop}) rather
+ * than a character count. Returns the index and column right after the last level consumed, and
+ * whether at least one level was found at all.
+ *
+ * **Round 2 correction (finding 2, #484):** wave 3 first fixed this to consume only one WHITESPACE
+ * CHARACTER per level rather than a whole run — correct for a literal space, wrong for a tab, whose
+ * column-width is not fixed. The fix is not "count differently for a tab"; it is to stop counting
+ * characters at all and track the column a real CommonMark implementation tracks. Consuming the tab
+ * character WHOLE, and crediting the marker with wherever that lands (its own next tab stop, not a
+ * flat +1), turns out to be the entire rule: `>` + one tab alone lands the baseline at column 4 (the
+ * tab starts at column 1, its own next stop) with nothing left over — a bare `>\t` is a paragraph,
+ * not code, and always was; `>` + a literal space + a tab lands the baseline at column 2 (the SPACE
+ * is what satisfies the marker, landing on column 2 exactly, same as any other literal space), and
+ * the tab is now ordinary CONTENT indentation measured by {@link measureIndent} from that baseline —
+ * table rows 30-36 work every case in this class by hand.
+ */
+function stripBlockquoteMarkers(line: string): { index: number; column: number; quoted: boolean } {
+  let index = 0
+  let column = 0
+  let quoted = false
   for (;;) {
-    const m = /^ {0,3}>[ \t]*/.exec(rest)
-    if (!m) return rest
-    rest = rest.slice(m[0].length)
+    let i = index
+    let col = column
+    let spaces = 0
+    while (spaces < 3 && line[i] === ' ') {
+      i++
+      col++
+      spaces++
+    }
+    if (line[i] !== '>') return { index, column, quoted }
+    i++
+    col++
+    if (line[i] === ' ') {
+      i++
+      col++
+    } else if (line[i] === '\t') {
+      i++
+      col = nextTabStop(col)
+    }
+    index = i
+    column = col
+    quoted = true
   }
 }
 
-/** A fence delimiter line (3+ of the same backtick or tilde), read after stripping any blockquote prefix. */
+/**
+ * Walks past any further leading spaces/tabs from `index`/`column`, continuing the SAME absolute
+ * column arithmetic {@link stripBlockquoteMarkers} started, and reports `credit` — the number of
+ * COLUMNS gained, which is what CommonMark's "4 or more" indented-code rule actually measures, never
+ * a character count. A space always contributes exactly 1; a tab contributes however far it is to
+ * its own next stop from wherever it happens to start, which is the entire fix for round 2's finding
+ * 2 (#484) — see {@link stripBlockquoteMarkers}'s doc comment and table rows 30-36.
+ */
+function measureIndent(line: string, index: number, column: number): { index: number; column: number; credit: number } {
+  let i = index
+  let col = column
+  for (;;) {
+    if (line[i] === ' ') {
+      i++
+      col++
+      continue
+    }
+    if (line[i] === '\t') {
+      i++
+      col = nextTabStop(col)
+      continue
+    }
+    break
+  }
+  return { index: i, column: col, credit: col - column }
+}
+
+/**
+ * A fence delimiter line (3+ of the same backtick or tilde). Read after
+ * {@link stripBlockquoteMarkers} and {@link measureIndent} have already established that `credit`
+ * is under 4 — CommonMark allows a fence opener indented by 0-3 columns relative to its container,
+ * the same allowance a paragraph gets, so this regex only ever runs against content that already
+ * clears that check. **Applying this regex directly to un-trimmed content was gap 1 (#484): a fence
+ * indented 1-3 columns, with no blockquote at all, never matched, so a marker sitting inside it read
+ * as a bare top-level declaration.**
+ *
+ * **A 4-or-more-column-indented run of backticks is NEVER tested against this regex at all (round 2,
+ * finding 1, #484) — table rows 9-10.** Once `credit >= 4`, {@link classifyLines} has already
+ * classified the WHOLE line as indented code and moved on; CommonMark never treats an indented
+ * opener as a fence in the first place; nothing "opens", so there is no fence for a later line to be
+ * "inside" — the line right after an indented ``` ``` ``` is an ORDINARY, visible paragraph, read
+ * exactly as if the indented line were not there. The base implementation's table said otherwise
+ * ("consistent with row 13, not a separate case") — that sentence was wrong, not the code: row 13
+ * indents the MARKER (hiding it, correctly); row 9 indents a FENCE-LOOKING line (hiding only ITSELF,
+ * with no effect on anything after it). They were never the same case.
+ */
 const FENCE_OPEN_RE = /^(`{3,}|~{3,})/
+
+/**
+ * Replaces the content of every CommonMark inline code span (`` `...` ``, or a longer run of
+ * backticks, on a SINGLE line — this file's spans never cross a line break) with a copy that has
+ * every `<` neutralized. Used only to decide where a REAL HTML comment can open; the caller must
+ * blank matched comments in the ORIGINAL text, never in this masked copy, so a genuine declaration's
+ * visible content is never altered by this function itself.
+ *
+ * **Why:** gap 4b (#484) — a comment-blanking pass with no notion of code spans treats `` `<!--
+ * documented here -->` `` (literal comment syntax someone is discussing, not a real comment) exactly
+ * like a real one, deletes it, and can convict a real declaration for having "no reason" when the
+ * reason was sitting in that span the whole time.
+ */
+function maskInlineCodeSpans(line: string): string {
+  return line.replace(/(`+)([\s\S]*?)\1/g, (_m, ticks: string, inner: string) => ticks + inner.replace(/</g, '\u0000') + ticks)
+}
+
+/**
+ * Blanks every REAL HTML comment in `text` — non-newline characters inside `<!--...-->` become
+ * spaces, so every later line index is unchanged, matching the wave-2 design this replaces. Two
+ * fixes layered on that design, both gap 4 (#484):
+ *
+ * 1. **Code-span aware (fail closed, gap 4b).** Comment boundaries are located in a copy where
+ *    {@link maskInlineCodeSpans} has neutralized every `<` inside an inline code span first, so a
+ *    span merely discussing comment syntax is never mistaken for a real comment. The blanking
+ *    itself is still applied to the ORIGINAL text at the same indices — the mask is scratch, never
+ *    output.
+ * 2. **Unterminated comments reach end of document (fail open, gap 4a).** The old pattern required
+ *    a matching `-->`, so an opener with no closer anywhere in the document matched nothing and
+ *    blanked nothing — exactly backwards, since an unclosed HTML comment swallows everything after
+ *    it until EOF wherever it is actually rendered. `(?:-->|$)` matches the first closer if one
+ *    exists, and the end of the text otherwise, so an unterminated opener now blanks through EOF
+ *    instead of leaving every later line visible.
+ */
+function blankRealHtmlComments(text: string): string {
+  const masked = text.split('\n').map(maskInlineCodeSpans).join('\n')
+  const re = /<!--[\s\S]*?(?:-->|$)/g
+  let result = ''
+  let cursor = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(masked))) {
+    result += text.slice(cursor, m.index)
+    result += m[0].replace(/[^\n]/g, ' ')
+    cursor = m.index + m[0].length
+  }
+  return result + text.slice(cursor)
+}
+
+interface ClassifiedLine {
+  /**
+   * The line's content once every container is peeled off: blockquote markers consumed via
+   * {@link stripBlockquoteMarkers}, then any further leading indentation measured via
+   * {@link measureIndent} and dropped, provided its `credit` stayed under 4 columns (CommonMark's
+   * "still counts as unindented" allowance, measured in COLUMNS — round 2, finding 2, #484 — never
+   * in characters). Meaningless (empty) whenever `isCode` is true.
+   */
+  content: string
+  /** True for a fence delimiter, fenced interior, indented-code line, or a line fully inside an HTML comment — a line a declaration can never start OR continue on. */
+  isCode: boolean
+  /** True when this line carried at least one level of `>` before any stripping — continuation lines must be quoted; the first declaration line itself need not be (table row 1). */
+  quoted: boolean
+}
+
+/**
+ * The single predicate wave 3 exists to build (#484): classifies every line of `text` ONCE, and
+ * both the declaration scan and the continuation loop in {@link declaredExemptionReason} read this
+ * same array rather than running their own, disagreeing checks. **Gap 3 was exactly that
+ * disagreement** — the continuation loop applied no fence or indent check at all, only the
+ * declaration line did, so quoted code text after a placeholder reason could clear the substance
+ * threshold. There is now nowhere left for the two scans to diverge, because there is only one scan.
+ *
+ * Indentation is measured in COLUMNS (via {@link stripBlockquoteMarkers} and
+ * {@link measureIndent}), not characters — round 2's finding 2 (#484): a bare character count reads
+ * a tab as an automatic 4-column indent no matter where it starts, which is only true when nothing
+ * has already moved the starting column. Fixing this here, once, is what makes both scans inherit
+ * it; a fix that special-cased the four regressed prefixes at either call site would have left the
+ * other scan (or the next unlisted prefix) wrong in exactly the way gap 3 already was.
+ *
+ * See the grammar table above this file's Ruling 2 doc comment for every input row this function is
+ * answerable to.
+ */
+function classifyLines(text: string): ClassifiedLine[] {
+  const withoutComments = blankRealHtmlComments(text)
+  const out: ClassifiedLine[] = []
+  let inFence = false
+  let fenceChar = ''
+  let fenceLen = 0
+  for (const raw of withoutComments.split('\n')) {
+    const bq = stripBlockquoteMarkers(raw)
+    const indent = measureIndent(raw, bq.index, bq.column)
+    const content = raw.slice(indent.index)
+
+    if (inFence) {
+      const close = indent.credit <= 3 ? /^(`+|~+)\s*$/.exec(content) : null
+      if (close && close[1]![0] === fenceChar && close[1]!.length >= fenceLen) inFence = false
+      out.push({ content: '', isCode: true, quoted: bq.quoted })
+      continue
+    }
+    if (indent.credit >= 4) {
+      out.push({ content: '', isCode: true, quoted: bq.quoted }) // indented code — gap 2 lives here
+      continue
+    }
+    const open = FENCE_OPEN_RE.exec(content)
+    if (open) {
+      inFence = true
+      fenceChar = open[1]![0]!
+      fenceLen = open[1]!.length
+      out.push({ content: '', isCode: true, quoted: bq.quoted }) // fence open — gap 1 lives here
+      continue
+    }
+    out.push({ content, isCode: false, quoted: bq.quoted })
+  }
+  return out
+}
 
 /**
  * Ruling 2's declared-exemption reader. Keyed on the DECLARATION, never on the document:
@@ -265,66 +585,53 @@ const FENCE_OPEN_RE = /^(`{3,}|~{3,})/
  * four PRDs this wave exempts contains the marker TWICE and no test pinned WHICH occurrence
  * governs.
  *
- * The fix: a declaration is a LINE whose content — after {@link stripBlockquotePrefix} —
- * starts with the marker, is not inside a fenced or indented code block, and is not inside
- * an HTML comment (blanked out globally before the line scan, since a comment can wrap
- * several `>`-quoted lines). The scan returns the FIRST such line; a mid-sentence mention
- * never qualifies, because the marker there is not at the start of its line's content.
+ * The fix: a declaration is a LINE whose content — read from {@link classifyLines} — starts
+ * with the marker and is not code. The scan returns the FIRST such line; a mid-sentence
+ * mention never qualifies, because the marker there is not at the start of its line's content.
  *
- * The reason may continue across further blockquote lines the same way it always did,
- * ending at the first blank quoted line or non-quoted line. It must then clear
- * {@link MIN_REASON_WORDS} or the declaration is a hard stop — a placeholder reason
- * convicts the file rather than leaving the scan to hunt for a better one further down,
- * matching ruling 2's "an empty or placeholder reason is not an exemption" exactly.
+ * The reason may continue across further blockquote lines the same way it always did, ending
+ * at the first blank quoted line, non-quoted line, or **CODE** line (prd56 wave 3, gap 3,
+ * #484 — the continuation walk used to run its own quoted-line regex with no fence or indent
+ * check at all, so a quoted fenced or indented block after a placeholder reason could clear
+ * {@link MIN_REASON_WORDS} on code text alone; it now reads the exact same `ClassifiedLine`
+ * array the declaration scan does, so a code line ends the paragraph here too). The collected
+ * reason must then clear {@link MIN_REASON_WORDS} or the declaration is a hard stop — a
+ * placeholder reason convicts the file rather than leaving the scan to hunt for a better one
+ * further down, matching ruling 2's "an empty or placeholder reason is not an exemption"
+ * exactly.
+ *
+ * **Round 2 note (#484): the explicit `if (cont.isCode) break` below is defence-in-depth over
+ * an invariant that already holds — every code `ClassifiedLine` carries empty `content`, so the
+ * very next check (`cont.content.trim().length === 0`) already ends the paragraph on its own,
+ * which is why deleting the `isCode` check leaves this file green — it documents the real reason
+ * a code line can never contribute to a reason, rather than being the mechanism that enforces it.
+ *
+ * CRLF line endings are normalized to `\n` up front (`\r\n?` -> `\n`) rather than stripped
+ * line-by-line: this text is scanned by {@link classifyLines} at several different points
+ * (fence state, indent state, comment state), and normalizing once, before any of them run,
+ * means none of them need their own `\r` case.
  *
  * Returns the trimmed, whitespace-collapsed reason, or `undefined` for no declaration, a
  * below-threshold one, or one that never emerges from a comment/fence/indented block.
  */
 function declaredExemptionReason(text: string): string | undefined {
-  // HTML comments are blanked over the WHOLE text first, not line by line: a comment can
-  // wrap several `>`-quoted lines, and replacing only non-newline characters keeps every
-  // later line index identical to what it would be without the comment there.
-  const withoutComments = text.replace(/<!--[\s\S]*?-->/g, (m) => m.replace(/[^\n]/g, ' '))
-  const lines = withoutComments.split('\n')
-
-  let inFence = false
-  let fenceChar = ''
-  let fenceLen = 0
+  const lines = classifyLines(text.replace(/\r\n?/g, '\n'))
 
   for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i]!
-    const stripped = stripBlockquotePrefix(raw)
+    const line = lines[i]!
+    if (line.isCode) continue
+    if (!line.content.startsWith(EXEMPTION_MARKER)) continue
 
-    if (inFence) {
-      const close = /^(`+|~+)\s*$/.exec(stripped)
-      if (close && close[1]![0] === fenceChar && close[1]!.length >= fenceLen) inFence = false
-      continue // every line strictly between open and close, and the close line itself, is code
-    }
-    const open = FENCE_OPEN_RE.exec(stripped)
-    if (open) {
-      inFence = true
-      fenceChar = open[1]![0]!
-      fenceLen = open[1]!.length
-      continue
-    }
-    if (/^( {4,}|\t)/.test(stripped)) continue // an indented code line, not prose
-
-    if (!stripped.startsWith(EXEMPTION_MARKER)) continue
-
-    // A declaration line. Collect its paragraph exactly as ruling 2 always did: the rest
-    // of this line, then further `>`-prefixed lines, stopping at the first blank quoted
-    // line or non-quoted line. `\r` on a CONTINUATION line must be stripped before the
-    // regex runs — `.` excludes line terminators, so an untouched trailing `\r` blocks
-    // `(.*)$` from ever reaching the end of the string and the line reads as "not a
-    // continuation" (measured: a CRLF second line then drops out of the paragraph
-    // entirely). The marker's OWN line needs no such strip: `\s+` normalisation below
-    // already folds a trailing `\r` into the join, and removing it here changes nothing —
-    // verified by running both versions over the same CRLF fixture.
-    const paragraph: string[] = [stripped.slice(EXEMPTION_MARKER.length)]
+    // A declaration line. Collect its paragraph: the rest of this line, then further quoted
+    // lines, stopping at the first blank quoted line, non-quoted line, or code line — all
+    // three read off the SAME classified array the declaration line itself came from.
+    const paragraph: string[] = [line.content.slice(EXEMPTION_MARKER.length)]
     for (let j = i + 1; j < lines.length; j++) {
-      const cont = /^\s*>\s?(.*)$/.exec(lines[j]!.replace(/\r$/, ''))
-      if (!cont || cont[1]!.trim().length === 0) break
-      paragraph.push(cont[1]!)
+      const cont = lines[j]!
+      if (cont.isCode) break // gap 3: quoted code ends the paragraph exactly like a blank line does
+      if (!cont.quoted) break
+      if (cont.content.trim().length === 0) break
+      paragraph.push(cont.content)
     }
     const reason = paragraph.join(' ').replace(/\s+/g, ' ').trim()
     const words = reason.match(/[A-Za-z]{2,}/g) ?? []
@@ -621,6 +928,45 @@ describe('a PRD whose milestone is closed lives under docs/prds/done/ (prd56 rul
     expect(violationsIn([stillLive], manifest)).toEqual([])
   })
 
+  it('prd56 wave 3 (#484): the three fail-open gap shapes are convicted, and the fail-closed one is cleared, all in the SAME violationsIn call that clears the real prd-17', () => {
+    // The control from the four-real-PRD requirement above, run again here so this test does
+    // not just prove the predicate convicts everything: prd-17 (a genuine declaration) clears
+    // in the identical call that convicts the three fail-open synthetics and clears the
+    // fail-closed one — a predicate hard-coded to "convict everything" would redden prd-17
+    // here; one hard-coded to "never fire" would clear all four gap shapes.
+    const shelf = liveShelfEntries()
+    const prd17 = shelf.find((e) => e.file === 'prd-17-complete-record.md')
+    expect(prd17).toBeDefined()
+    const manifest = liveManifest()
+    const closedNumber = prd17!.number
+    expect(manifest.entries.get(closedNumber)?.state).toBe('closed')
+
+    const gap1FenceIndent: ShelfEntry = {
+      number: closedNumber,
+      file: 'prd-9995-gap1-indented-fence.md',
+      text: '  ~~~\n**Shelf exemption:** only an indented-fence example, never declared for real\n  ~~~\n\nNo real declaration anywhere in this file.',
+    }
+    const gap2BlockquoteIndent: ShelfEntry = {
+      number: closedNumber,
+      file: 'prd-9994-gap2-blockquote-indent.md',
+      text: '>     **Shelf exemption:** demonstration text inside an indented block, not declared for real.\n\nNo real declaration anywhere in this file.',
+    }
+    const gap3ContinuationCode: ShelfEntry = {
+      number: closedNumber,
+      file: 'prd-9993-gap3-continuation-code.md',
+      text: '> **Shelf exemption:** -\n> ```\n> quoted code that must never clear the substance threshold\n> ```',
+    }
+    const gap4CodeSpanComment: ShelfEntry = {
+      number: closedNumber,
+      file: 'prd-9992-gap4-code-span-comment.md',
+      text: '> **Shelf exemption:** `<!-- looks like a comment, is actually the whole reason -->`',
+    }
+
+    expect(
+      violationsIn([prd17!, gap1FenceIndent, gap2BlockquoteIndent, gap3ContinuationCode, gap4CodeSpanComment], manifest),
+    ).toEqual([gap1FenceIndent.file, gap2BlockquoteIndent.file, gap3ContinuationCode.file])
+  })
+
   it('mutation: the bound is exactly 14 days — LITERAL dates, so this reddens at 13 and at 15', () => {
     // These dates are written out, NOT derived from MAX_MANIFEST_AGE_DAYS or DAY_MS.
     // The earlier version computed them as (B-1) and (B+1) days, which asserts
@@ -760,5 +1106,139 @@ describe('declaredExemptionReason — ruling 2\'s marker reader, tested directly
     // Pinned so a future refactor cannot quietly add a filename parameter and start
     // keying the exemption on identity, the exact failure mode this issue names.
     expect(declaredExemptionReason.length).toBe(1)
+  })
+
+  // prd56 wave 3 (#484) — the four gaps wave 2's fix re-review found. Each test below
+  // reddens on the tree this wave started from and passes once `classifyLines` is the
+  // single predicate both the declaration scan and the continuation loop read. Each also
+  // carries a second assertion using a spelling this issue's own table never named, so a
+  // fix that only special-cased the reported string cannot pass either one.
+
+  it('gap 1 (#484, fail open): a fence indented 1-3 columns, with no blockquote, still hides its interior', () => {
+    const indentedFence = '  ~~~\n**Shelf exemption:** worked example only, not a real declaration\n  ~~~\n\nNo real declaration exists anywhere in this document.'
+    expect(declaredExemptionReason(indentedFence)).toBeUndefined()
+
+    // Unlisted spelling: 1-column indent (the opposite boundary from the primary case's 2),
+    // backtick fence instead of tilde, still with no blockquote at all.
+    const oneColumn = ' ```\n**Shelf exemption:** also just an example, still inside the fence\n ```\n\nNo real declaration exists anywhere in this document.'
+    expect(declaredExemptionReason(oneColumn)).toBeUndefined()
+
+    // Control: the same 1-3 column allowance must not swallow a REAL declaration sitting
+    // outside any fence.
+    const real = '  ~~~\nexample fence content, unrelated\n  ~~~\n\n> **Shelf exemption:** the real reason, stated in the open.'
+    expect(declaredExemptionReason(real)).toBe('the real reason, stated in the open.')
+  })
+
+  it('gap 2 (#484, fail open): an indented-code line inside a blockquote is code once the blockquote\'s own one-space allowance is accounted for', () => {
+    const indented = '>     **Shelf exemption:** demonstration text living in an indented block, not declared for real.\n\nNo real declaration exists anywhere in this document.'
+    expect(declaredExemptionReason(indented)).toBeUndefined()
+
+    // Unlisted spelling: a tab-indented residual instead of five spaces.
+    const tabbed = '>\t\t**Shelf exemption:** filler behind a tab-indented line, never actually declared.\n\nNo real declaration exists anywhere in this document.'
+    expect(declaredExemptionReason(tabbed)).toBeUndefined()
+
+    // Control: 3 residual spaces — one short of the indented-code boundary — must still declare.
+    const stillProse = '>   **Shelf exemption:** exactly at the padding boundary, still a real declaration.'
+    expect(declaredExemptionReason(stillProse)).toBe('exactly at the padding boundary, still a real declaration.')
+  })
+
+  it('gap 3 (#484, fail open): the continuation loop applies the SAME fence/indent check as the declaration line, so quoted code never counts toward the reason', () => {
+    // Fence variant, the issue's own shape, reworded.
+    const fenced = '> **Shelf exemption:** -\n> ```\n> this quoted fence text must never count toward the reason\n> ```'
+    expect(declaredExemptionReason(fenced)).toBeUndefined()
+
+    // Unlisted-spelling sibling: an INDENTED continuation line, not a fence at all — proves
+    // the fix is the general predicate, not a fence-shaped patch one level down.
+    const indentedContinuation = '> **Shelf exemption:** x\n>     this indented continuation line must never count toward the reason either'
+    expect(declaredExemptionReason(indentedContinuation)).toBeUndefined()
+
+    // Control: a genuine multi-line PROSE continuation must still be swept in.
+    const realContinuation = '> **Shelf exemption:** the reason starts here\n> and genuinely continues here, in plain quoted prose.'
+    expect(declaredExemptionReason(realContinuation)).toBe('the reason starts here and genuinely continues here, in plain quoted prose.')
+  })
+
+  it('gap 4a (#484, fail open): an HTML comment with no closing "-->" anywhere swallows everything after it, including a real declaration', () => {
+    const text = '<!-- a note that never actually gets closed\n\n> **Shelf exemption:** looks real but sits inside the still-open comment above'
+    expect(declaredExemptionReason(text)).toBeUndefined()
+
+    // Control: the identical declaration, with the stray unterminated opener removed, must
+    // still be found — this is not a general refusal to read anything near "<!--".
+    const withoutStrayOpener = '\n\n> **Shelf exemption:** looks real but sits inside the still-open comment above'
+    expect(declaredExemptionReason(withoutStrayOpener)).toBe('looks real but sits inside the still-open comment above')
+  })
+
+  it('gap 4b (#484, fail closed): comment syntax written INSIDE an inline code span is not a real comment, and must not blank a real declaration around it', () => {
+    const text = '> **Shelf exemption:** `<!-- this reads like a comment but is actually the whole visible reason -->`'
+    expect(declaredExemptionReason(text)).toBe('`<!-- this reads like a comment but is actually the whole visible reason -->`')
+
+    // Unlisted spelling: the fake tag sits on its OWN continuation line, not the marker's line.
+    const continuationVariant = '> **Shelf exemption:** documented as\n> `<!-- an example only, never a real comment -->` in the style guide.'
+    expect(declaredExemptionReason(continuationVariant)).toBe('documented as `<!-- an example only, never a real comment -->` in the style guide.')
+  })
+
+  // Round 2 (#484): a fix re-review of wave 3 found the table stating a verdict the code did not
+  // produce (finding 1, table rows 9-10) and a genuine tab-arithmetic regression (finding 2, table
+  // rows 30-36). Neither is a fifth spelling of the four gaps above — see the "Wave 3, round 2" doc
+  // comment section for the full analysis.
+
+  it('round 2 finding 1 (#484): a fence-looking line indented 4+ columns is ordinary indented code for that ONE line only — it opens no fence, and the line right after it is a plain, visible paragraph', () => {
+    // Table row 9: the base table wrongly claimed this "hides its interior" like a real (0-3
+    // column) indented fence does. It does not — CommonMark never treats a 4+-indented backtick
+    // run as a fence opener at all.
+    const backtick = '    ```\n**Shelf exemption:** the marker right after an over-indented fence-looking line, still visible\n    ```'
+    expect(declaredExemptionReason(backtick)).toBe('the marker right after an over-indented fence-looking line, still visible')
+
+    // Unlisted spelling: tilde instead of backtick, and a different indent depth (5, not 4).
+    const tilde = '     ~~~~\n**Shelf exemption:** same shape, a wider indent and a different fence character\n     ~~~~'
+    expect(declaredExemptionReason(tilde)).toBe('same shape, a wider indent and a different fence character')
+
+    // Control: a GENUINE column-0 fence must still hide its interior — this is not "fences never
+    // hide anything now".
+    const genuineFence = '```\n**Shelf exemption:** inside a real fence, never visible\n```\n\nNo real declaration exists anywhere in this document.'
+    expect(declaredExemptionReason(genuineFence)).toBeUndefined()
+  })
+
+  it('round 2 finding 2 (#484, fail closed, fixed): a blockquote prefix combining a literal space with a tab must be measured in COLUMNS, not characters', () => {
+    // The four regressed prefixes named by the finding, each as its own declaration (no
+    // continuation needed to exercise the declaration-scan side of the bug).
+    const spaceThenTab = '> \t**Shelf exemption:** exactly two columns of credit, still a visible paragraph'
+    expect(declaredExemptionReason(spaceThenTab)).toBe('exactly two columns of credit, still a visible paragraph')
+
+    const twoSpacesThenTab = '>  \t**Shelf exemption:** two literal spaces then a tab, still under the threshold'
+    expect(declaredExemptionReason(twoSpacesThenTab)).toBe('two literal spaces then a tab, still under the threshold')
+
+    const spaceTabSpace = '> \t **Shelf exemption:** three columns of credit, one short of the boundary'
+    expect(declaredExemptionReason(spaceTabSpace)).toBe('three columns of credit, one short of the boundary')
+
+    const twoSpacesTabSpace = '>  \t **Shelf exemption:** the same three-column boundary, reached a different way'
+    expect(declaredExemptionReason(twoSpacesTabSpace)).toBe('the same three-column boundary, reached a different way')
+
+    // Correction to the record: a BARE tab right after `>`, with no preceding space, was already
+    // correct before this round (it fully satisfies the marker's one-column allowance and leaves
+    // no residual credit) — pinned here so it is never mistaken for a fifth regressed prefix.
+    const bareTab = '>\t**Shelf exemption:** a bare tab consumes the marker whole, no residual indent at all'
+    expect(declaredExemptionReason(bareTab)).toBe('a bare tab consumes the marker whole, no residual indent at all')
+
+    // Controls: the arithmetic must still convict once enough columns are genuinely spent — this
+    // is a corrected instrument, not a new "any prefix with a tab is exempt" rule.
+    const twoBareTabs = '>\t\t**Shelf exemption:** two bare tabs reach the 4-column threshold exactly'
+    expect(declaredExemptionReason(twoBareTabs)).toBeUndefined()
+
+    const spaceThenTwoTabs = '> \t\t**Shelf exemption:** a space then two tabs clears the threshold with room to spare'
+    expect(declaredExemptionReason(spaceThenTwoTabs)).toBeUndefined()
+  })
+
+  it('round 2 finding 2 (#484): the SAME tab-column arithmetic applies to the continuation loop, not only the declaration line', () => {
+    // The finding's own illustration of this half of the blind spot uses `>   \t` (3 spaces then a
+    // tab); this pins it with a different spelling (4 spaces) reaching the same >=4 credit, so the
+    // fix is not "recognize that one continuation prefix" but the general arithmetic.
+    const sweptCode = '> **Shelf exemption:** x\n>    \tthis continuation is genuinely indented code and must not count'
+    expect(declaredExemptionReason(sweptCode)).toBeUndefined()
+
+    // Control: a continuation whose tab-driven credit stays under 4 must still be swept into the
+    // reason as ordinary prose — this is a corrected instrument, not "no continuation with a tab
+    // ever counts again".
+    const genuineContinuation = '> **Shelf exemption:** the reason begins here\n>  \tand genuinely continues here, under the threshold'
+    expect(declaredExemptionReason(genuineContinuation)).toBe('the reason begins here and genuinely continues here, under the threshold')
   })
 })
