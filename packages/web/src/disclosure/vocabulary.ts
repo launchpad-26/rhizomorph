@@ -217,11 +217,6 @@ function requireText(value: string, field: string, hint: string): string {
 }
 
 /**
- * An age, or the refusal. Shared by the why's evidence and by every derivation
- * line, because the teach layer relaxing a law the card enforces is precisely
- * how the beginner's depth becomes the dishonest one.
- */
-/**
  * The evidence clause, with its age stated exactly ONCE.
  *
  * Two facts about the callers decide this, both read rather than assumed:
@@ -244,8 +239,8 @@ function requireText(value: string, field: string, hint: string): string {
  * The substring check is deliberate and its failure mode is benign: a fact that
  * coincidentally contains the span renders one age instead of two, which is what
  * this function wants anyway. It is the only signal available without changing
- * the caller contract, and changing that contract would move `diagnose.ts` — a
- * file #464 holds a test against in this same wave.
+ * the caller contract, and changing that contract would move `diagnose.ts`,
+ * whose frozen-lane evidence string `AttentionStripView.test.tsx` asserts.
  *
  * `agoSeparator` exists because the teach layer introduces its age clause with
  * ` — ` and the why line with a space. "just now" always attaches with a comma:
@@ -258,6 +253,11 @@ export function evidenceClause(fact: string, elapsedMs: number, agoSeparator = '
   return `${fact}${agoSeparator}${span} ago`
 }
 
+/**
+ * An age, or the refusal. Shared by the why's evidence and by every derivation
+ * line, because the teach layer relaxing a law the card enforces is precisely
+ * how the beginner's depth becomes the dishonest one.
+ */
 function requireAge(elapsedMs: number, field: string): number {
   if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
     throw new DisclosureError(

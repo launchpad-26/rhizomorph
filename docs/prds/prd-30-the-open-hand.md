@@ -447,7 +447,6 @@ than the `disabled` it replaced.
 It carries prd-33 ruling 14's Check 3 encoding list and the two 1440 px observations, per the
 2026-09-02 amendment above. Nothing in this PRD dispatches it to a lane.
 
-
 ## Amendment — wave 5, and what staging the acceptance found (2026-09-14)
 
 Measured on `main` at `a893af22`, in a real browser at 1440×900 on the one-lane-per-pathology
@@ -459,8 +458,13 @@ the acceptance is an operator act and its staging is not a lane.
 attention strip's overflow marker is reachable at every supported width. #465 and #464.
 
 They are one wave and not a stack: their fences are disjoint — `disclosure/` plus
-`panels/fleet/index.test.tsx` against `panels/attention/` plus `app/shell-bounds-law.test.ts` —
-and `scripts/fence-lint.sh 464 465` exits clean. The one path that could have collided is the
+`panels/fleet/` against `panels/attention/` plus `app/shell-bounds-law.test.ts` — and
+`scripts/fence-lint.sh 464 465` exits clean. **Two widenings happened at build time and are
+recorded here because this paragraph would otherwise misdescribe what shipped:** #465's fence
+named `panels/fleet/index.test.tsx`, but the composed why strings and all eleven disclosure
+producers live in `panels/fleet/format.test.ts`, which is what actually moved; and both commits
+edited `CHANGELOG.md`, which no fence named and which conflicted on assembly exactly as a shared
+append point does. The one path that could have collided is the
 fleet diagnosis module that composes the evidence strings, and #465 rules it out of its own
 scope for that reason: the chip test asserts the frozen lane's evidence text, and that test is
 #464's. The fix for a doubled elapsed belongs in the composition, which is the only place that
@@ -482,11 +486,24 @@ both outcomes: *"a card whose why has no evidence in it"* covers a `0s ago` stam
 trespass path that has no time at all, and a strip that hides three pathologies behind a marker
 the reader cannot see is the glance failing before the vocabulary is ever consulted.
 
-**Whether the acceptance waits on wave 5 is the operator's call, and it is a real question
-rather than an oversight.** #464 changes what Check 2 measures: run the act first and a lay
-viewer scores the strip's clipping rather than the vocabulary the check was written for; run it
-after and the 2026-09-02 amendment loses one of the two observations it deliberately booked for
-a viewer's reaction — the fifth chip collapsing was put on the list precisely so somebody
-untrained would react to it. This PRD does not rule it. It records that the observation is now
-worse than when it was booked, and that the amendment above describes a strip that no longer
-behaves the way it did when that sentence was written.
+**The acceptance now waits on nothing, and what it asks has changed.** #464 changes what Check 2
+measures, so the 2026-09-02 amendment's first booked observation no longer describes the
+instrument. When it was booked the strip rendered four chips and a `+1`, and the point was to
+see whether a viewer found the fifth pathology. What that sentence did not know is that the
+`+1` was itself 941 px off the right-hand edge at 1440 px: three pathologies were hidden and
+nothing on screen said so. The strip now names as many chips as fit and counts the rest — one
+chip and `+4` at 1440 px, none and `+5` at the 1100 px floor.
+
+Ruling 14's question survives the change and is improved by it: *does a viewer notice what the
+strip is not showing them?* is now a fair question rather than a trick one, because the count
+is visible and honest. `docs/design/first-glance-acceptance.md` carries the reworded
+observation, and answers given to the old shape and the new one are not comparable — which is
+why the old one was never run rather than being run and discarded.
+
+**This paragraph replaced one written before the fix landed.** The original said the observation
+was "now worse than when it was booked" and that the strip "no longer behaves the way it did" —
+both true when drafted, both false the moment this PRD's own wave-5 PR merged, because the fix
+shipped in that same PR. That is precisely the failure the 2026-09-11 correction at the head of
+this document names: *a status line authored inside the PR that lands the thing it calls
+outstanding is stale at merge by construction.* It was reproduced here, two paragraphs after
+being quoted, and is left recorded rather than silently overwritten.

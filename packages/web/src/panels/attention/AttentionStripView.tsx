@@ -64,9 +64,10 @@ const CHIP_MAX_WIDTH_PX = 520
  * Conservative by construction: it assumes every chip is `CHIP_MAX_WIDTH_PX`
  * wide, so it can fold a chip that would in fact have fitted. That direction is
  * the safe one — over-folding names one fewer lane and COUNTS it in `+N`, while
- * under-folding puts a chip off screen and makes `+N` a lie. #464 was the
- * second failure: at 1440px the row had 563px for 1522px of chips, and the `+1`
- * marker that announces the hidden ones sat 941px past the right edge.
+ * under-folding puts a chip off screen and makes `+N` a lie. That was the shape
+ * of the defect this replaced: at 1440px the row had 563px for 1522px of chips,
+ * and the `+1` marker that announces the hidden ones sat 941px past the right
+ * edge, so it read as "one more" while three were invisible.
  *
  * `rowWidth <= 0` means "not knowable yet" — before the first measurement, and
  * under jsdom — not "no room". The answer there is today's behaviour.
