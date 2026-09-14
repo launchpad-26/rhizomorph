@@ -1,6 +1,6 @@
 # prd-49 — potential change
 
-> **Status:** **BLESSED** — ciaran-slow, 2026-09-01, in session. Milestone `prd49`. Holds one
+> **Outcome:** shipped 2026-09-14. Blessed by ciaran-slow, 2026-09-01, in session. Milestone `prd49`. Holds one
 > issue, moved out of `prd47` at its closeout: [#190][i190]. This is not a programme of work.
 > It is a conditional verdict given a place to live, so that the condition is watched rather
 > than remembered.
