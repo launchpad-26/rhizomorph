@@ -192,12 +192,53 @@ import { describe, expect, it } from 'vitest'
  * | 36 | space then two tabs (`> \t\t`) | marker's space (col 1 -> 2); tab 1 (col 2 -> its own next stop, col 4: 2 credit); tab 2 starts exactly on a stop (col 4 -> 8: 4 more credit) | 6 | yes | no | **control: proves the fix is not "any tab now exempts".** Enough tab-driven credit still convicts once a space has already spent the marker's one-column allowance — only the four prefixes in rows 32-35 (whose total genuinely stays under 4) read as paragraphs. |
  * | 37 | tab IMMEDIATELY after `>`, then 2+ spaces (`>\t  `, `>\t   `) | this reader: marker consumes the tab whole to col 4, then 2-3 spaces | 2-3 | no | yes | **KNOWN DIVERGENCE FROM COMMONMARK, recorded at the review of #493 rather than fixed.** CommonMark takes ONE COLUMN of that tab and leaves two behind (spec "Tabs", example 6), so its credit is 4-5 and the line is indented CODE — hidden from a reader, read as a declaration here. Fails OPEN. Unreachable in this corpus: no PRD on either shelf contains a tab (EXECUTED). Closing it means partial-tab consumption in {@link stripBlockquoteMarkers}, a structural change rather than a cell — same bucket as the container tracking and lazy continuation this wave books out. |
  *
- * Unreachable today, and why: rows 4, 8, 9, 10, 12, 17, 18, 26, 27 and 30-36 all require a syntactic
- * shape — an indented fence, a comment wrapping only part of a line, quoted code following a
- * placeholder, a tab anywhere at all — that no live-shelf PRD's text currently contains, verified by
- * reading the four declarations these rows would otherwise misjudge (`prd-17`, `prd-53`, `prd-14`,
- * `prd-20`) and finding none of them use any of these forms. That is why this is a repair to the
- * READER's grammar, not a repair to any PRD's text — see "EXPLICITLY OUT of scope" on #484.
+ * **Rows 38-41 — the fence/comment interleaving (#459), the class booked out at row 246 below and
+ * closed by wave 4.** `code?`/`declared?` here read exactly as the base table's columns do; each row's
+ * test lives beside a control proving the fix is scoped, not a blanket change to comment or fence
+ * handling.
+ *
+ * | # | form (one representative line) | code? | declared / continues? | note |
+ * |---|---|---|---|---|
+ * | 38 | an unterminated `<!--` that OPENS INSIDE a fence's interior, with no `-->` anywhere in the document, declaration after the fence closes | yes (fence interior); declaration line after: no | **declared** | **fixed (#459, fail closed).** The whole-text blanking pass this replaces did not know the `<!--` sat inside a fence, so it read it as a real opener and blanked to EOF — the fence's own closing delimiter and the real declaration after it, gone with it. This reader never even looks for a comment while `inFence`, so the line is fence interior, nothing more, and the fence closes normally. |
+ * | 39 | same shape, tilde fence, 2-column indent, no blockquote | yes; declaration: no | declared | unlisted-spelling sibling of row 38 — different fence character and indent, same mechanism. |
+ * | 40 | a `<!--` that OPENS INSIDE a fence's interior, and a `-->` DOES appear later, past the fence's own closing delimiter, in unrelated prose | yes; declaration after: no | declared | **fixed (#459, fail closed).** The prior design's matched span (opener to that later closer) crossed the fence's own closing backticks and blanked them too, so the per-line fence tracker never saw the fence close and read everything after as fence interior forever. Here the `<!--` never opened a comment in the first place (row 38's rule), so there is no span to cross — whether a `-->` shows up later, anywhere, is irrelevant. |
+ * | 41 | same shape, tilde fence, different filler prose | yes; declaration: no | declared | unlisted-spelling sibling of row 40. |
+ * | 42 | the mirror direction (sibling case): a fence- or indented-code-LOOKING line sitting INSIDE a genuine, still-open HTML comment | **yes** (comment interior) | not declared while inside; a real declaration right after the comment truly closes IS declared | **guarded, not reintroduced.** The abandoned two-pass attempt (`57b69fd3`) computed a code-line mask over RAW text, blind to comment state, and that mask read this line as real code — ending the comment's span there and exposing whatever it was hiding. This reader checks `inComment` before any fence/indent logic runs at all, so a fence- or indent-looking line inside an open comment can never be read as a delimiter; the comment closes only on its own `-->`. |
+ *
+ * **Rows 43-45 — round 2 (review of `ed8d57f4`): indented code cannot interrupt a paragraph.** The
+ * rows above fixed the fence-vs-comment interleaving; this is a THIRD grammar (paragraph vs. indented
+ * code) the same `credit >= 4` early return was blind to. `inParagraph` tracks whether the immediately
+ * PRECEDING line was open, visible, non-blank content (reset by a blank line, a fence, indented code,
+ * or comment interior — see the doc comment above {@link classifyLines}), consulted BEFORE the code
+ * classification, exactly as rows 38-42 consult `inFence`/`inComment` before deciding.
+ *
+ * | # | form (one representative line) | code? | declared / continues? | note |
+ * |---|---|---|---|---|
+ * | 43 | a 4+-indented `<!--` immediately CONTINUING an open paragraph (no blank line before it), marker on its own UNindented line, closer also 4+-indented | **no** (paragraph continuation); the whole span through `-->` is a real, concealing comment | not declared | **fixed (#459 round 2, fail OPEN).** `credit >= 4` fired unconditionally, so the OPENER line was misread as indented code before this fix, `inComment` never triggered, and the un-indented marker line in between was then read as a bare, visible declaration — EXEMPT, verified against `ed8d57f4` and against commonmark.js 0.31.2 (an unindented paragraph followed, with no blank line, by a 4-indented `<!--...-->` renders as one paragraph with a REAL inline HTML comment inside it, hidden from a reader). The marker is deliberately left un-indented in the test so visibility depends on the OPENER's own classification, not the marker's — an all-indented fixture cannot tell "hidden because comment" from "hidden because miscoded as indented code" apart. |
+ * | 44 | same shape, inside a blockquote (residual indent past the marker's own one-column allowance), different prose | no; declared: no | not declared | unlisted-spelling sibling of row 43. |
+ * | 45 | the SAME 4+-indented `<!--`, but preceded by a genuine BLANK line — indented code CAN start there | **yes**, genuine indented code | n/a (no marker in this block); a real declaration elsewhere is unaffected | **control.** Proves the fix is "paragraph interruption", not "indented `<!--` is never code again" — verified against commonmark.js 0.31.2, which renders this shape as a real `<pre><code>` block with the comment syntax escaped as literal text. |
+ *
+ * Two existing fixtures needed correcting, not the code (round 2's own review pattern, same as rows
+ * 9-10 above): rows 27's `>     this indented continuation...` and the twin fixture in round 2
+ * finding 2's continuation test lacked a blank quoted line before their indented residual, so — per
+ * this SAME rule, verified against commonmark.js 0.31.2 — they were never actually testing detached
+ * indented code at all; they were one continuing quoted paragraph, and only read as "code, excluded"
+ * by the OLD (paragraph-blind) implementation. A blank `>` line was added to each, restoring the
+ * genuine `<pre><code>` shape the tests always meant to exercise; their assertions are unchanged.
+ *
+ * Unreachable today, and why: rows 4, 8, 9, 10, 12, 17, 18, 26, 27, 30-36, 38-42 and 43-45 all require
+ * a syntactic shape — an indented fence, a comment wrapping only part of a line, quoted code following
+ * a placeholder, a tab anywhere at all, an HTML comment at all — that no live-shelf PRD's text
+ * currently contains, verified by reading the four declarations these rows would otherwise misjudge
+ * (`prd-17`, `prd-53`, `prd-14`, `prd-20`) and finding none of them use any of these forms. That is why
+ * this is a repair to the READER's grammar, not a repair to any PRD's text — see "EXPLICITLY OUT of
+ * scope" on #484 and its resolution at #459 below.
+ *
+ * **Known, not fixed (review of `ed8d57f4`, not this issue's to close):** `<!-->` and `<!--->` are
+ * COMPLETE comments per the CommonMark spec, but this reader's opener/closer search (`<!--` then the
+ * first `-->`) treats both as unterminated openers, hiding a visible declaration that follows. Checked
+ * byte-identical on `main` before #459 touched this file — pre-existing, not a regression from this
+ * wave, and left alone per the review's own instruction; it wants its own issue.
  *
  * ## Wave 3, round 2 — the table was wrong, and the tab arithmetic was missing (#484)
  *
@@ -244,9 +285,60 @@ import { describe, expect, it } from 'vitest'
  *
  * Explicitly out of scope for this round, same as wave 3's own scope note: no PRD text, no
  * dispositions; comments whose span crosses a fence delimiter (a TERMINATED one does this too, not
- * only an unterminated one — that whole class is #459's, already widened to cover it); and container
+ * only an unterminated one — that whole class was #459's, **closed by wave 4 below**); and container
  * tracking for list items or lazy continuation (`- **Shelf exemption:**` convicting a visible
  * declaration is real and pre-existing, and is outside this wave's four gaps).
+ *
+ * ## Wave 4 (#459) — a comment cannot cross a fence delimiter
+ *
+ * The class booked out just above: comment blanking ran over the WHOLE text before any fence was
+ * known, so a fence's own delimiters were exactly as blankable as ordinary prose (table rows 38-40).
+ * Fixed by giving {@link classifyLines} a THIRD state — `normal` / `in-fence` / `in-html-comment` — in
+ * one left-to-right pass, rather than by patching the two shapes: a fence may open only when not
+ * already inside a comment, and a comment may open only when not already inside a fence, exactly the
+ * way CommonMark itself resolves the same interleaving.
+ *
+ * **A previous attempt at this was abandoned rather than repaired (`57b69fd3`, branch
+ * `459-mirror-case`).** It fixed the two shapes above with two INDEPENDENT passes instead — a
+ * code-line mask computed over raw text, consumed by a comment segmenter. Both review seats and the
+ * orchestrator independently found this introduces the mirror image of the bug it closes: a
+ * fence- or indent-looking line INSIDE a real, still-open HTML comment is read as code by a mask that
+ * knows nothing about comment state, which ends the comment's span right there — a commented-out
+ * declaration then counts as a real one (table row 42; four spaces of indent was enough, no fence
+ * needed). That is worse than the bug being fixed, because it reopens the concealment hole wave 2 was
+ * built to close. The lesson taken from it: whenever one grammar's state is computed before the
+ * other's, the fix has failed in one direction to succeed in the other — see {@link classifyLines}'s
+ * own doc comment for the single pass that replaces both.
+ *
+ * Out of scope, unchanged from wave 3/round 2's own notes: no PRD text, no dispositions; container
+ * tracking and lazy continuation; row 37's partial-tab consumption.
+ *
+ * ## Wave 4, round 2 (#459) — indented code cannot interrupt a paragraph
+ *
+ * A fix re-review of `ed8d57f4` found a THIRD grammar the `credit >= 4` early return was blind to —
+ * paragraph vs. indented code, not fence vs. comment. CommonMark's own rule: an indented code block
+ * cannot start immediately after open, visible content with no intervening blank line; that line is a
+ * lazy CONTINUATION of the paragraph instead, and CommonMark's inline grammar still runs over it. So a
+ * 4+-indented `<!--` that continues a paragraph is a REAL comment opener, exactly like an unindented
+ * one — verified against commonmark.js 0.31.2 (table rows 43-45) — and the early return, by treating
+ * `credit >= 4` as code unconditionally, skipped the comment scan for that line and let whatever the
+ * comment should have hidden read as a bare, visible declaration instead. Fail OPEN, same direction as
+ * rows 38 and 40.
+ *
+ * Fixed the same way as wave 4's first half: not by special-casing `<!--` inside the indent branch,
+ * but by asking the general question first. `inParagraph` tracks whether the line just processed was
+ * open, visible content — reset by a blank line, a fence, indented code, or comment interior, the same
+ * four resets {@link classifyLines}'s other state variables already use. A 4+-indented line only
+ * becomes CODE when `!inParagraph`; when it IS a continuation, it falls through to the exact same
+ * comment scan an unindented line reaches (never to the fence-open check, which stays gated on
+ * `credit < 4` regardless of paragraph state — a fence can never open at 4+ columns, paragraph or not).
+ *
+ * Two existing fixtures (row 27's indented-continuation test and its tab-arithmetic twin in round 2
+ * finding 2) turned out never to have been testing genuine indented code at all — verified against
+ * commonmark.js 0.31.2, both render as ONE continuing quoted paragraph without the blank line CommonMark
+ * requires to detach indented code from an open paragraph. Corrected by adding that blank line, restoring
+ * the shape the tests always meant to exercise; their assertions did not change. This is the same
+ * pattern as round 2's finding 1 for rows 9-10 above: the FIXTURE was wrong, not the surrounding code.
  *
  * ## The glob hazard (verified against the real tree before this law was written)
  *
@@ -486,37 +578,6 @@ function maskInlineCodeSpans(line: string): string {
   return line.replace(/(`+)([\s\S]*?)\1/g, (_m, ticks: string, inner: string) => ticks + inner.replace(/</g, '\u0000') + ticks)
 }
 
-/**
- * Blanks every REAL HTML comment in `text` — non-newline characters inside `<!--...-->` become
- * spaces, so every later line index is unchanged, matching the wave-2 design this replaces. Two
- * fixes layered on that design, both gap 4 (#484):
- *
- * 1. **Code-span aware (fail closed, gap 4b).** Comment boundaries are located in a copy where
- *    {@link maskInlineCodeSpans} has neutralized every `<` inside an inline code span first, so a
- *    span merely discussing comment syntax is never mistaken for a real comment. The blanking
- *    itself is still applied to the ORIGINAL text at the same indices — the mask is scratch, never
- *    output.
- * 2. **Unterminated comments reach end of document (fail open, gap 4a).** The old pattern required
- *    a matching `-->`, so an opener with no closer anywhere in the document matched nothing and
- *    blanked nothing — exactly backwards, since an unclosed HTML comment swallows everything after
- *    it until EOF wherever it is actually rendered. `(?:-->|$)` matches the first closer if one
- *    exists, and the end of the text otherwise, so an unterminated opener now blanks through EOF
- *    instead of leaving every later line visible.
- */
-function blankRealHtmlComments(text: string): string {
-  const masked = text.split('\n').map(maskInlineCodeSpans).join('\n')
-  const re = /<!--[\s\S]*?(?:-->|$)/g
-  let result = ''
-  let cursor = 0
-  let m: RegExpExecArray | null
-  while ((m = re.exec(masked))) {
-    result += text.slice(cursor, m.index)
-    result += m[0].replace(/[^\n]/g, ' ')
-    cursor = m.index + m[0].length
-  }
-  return result + text.slice(cursor)
-}
-
 interface ClassifiedLine {
   /**
    * The line's content once every container is peeled off: blockquote markers consumed via
@@ -547,39 +608,137 @@ interface ClassifiedLine {
  * it; a fix that special-cased the four regressed prefixes at either call site would have left the
  * other scan (or the next unlisted prefix) wrong in exactly the way gap 3 already was.
  *
+ * **Wave 4 (#459) — the fence grammar and the comment grammar interleave in ONE pass, not two.**
+ * Wave 2 through round 2 blanked every real HTML comment in a pass over the WHOLE text, before this
+ * loop knew anything about fences (table rows 15-18). That fails in both directions at once, because
+ * a fence's own delimiters are exactly as blankable as ordinary prose to a pass that has not yet
+ * decided where the fences are:
+ *
+ * - **Fail closed (table rows 38-40).** A `<!--` that a reader sees INSIDE a fenced code block is
+ *   literal fence interior, never a comment opener — the fence takes precedence. The whole-text pass
+ *   did not know that, so it opened a "comment" there, and either blanked to EOF (row 38, no closer
+ *   anywhere) or found its closer on some later, unrelated line and blanked everything between —
+ *   INCLUDING the fence's own closing delimiter (row 40) — leaving the per-line fence tracker with no
+ *   closing delimiter to see, so it read every following line as fence interior forever.
+ * - **The mirror, guarded against rather than reintroduced.** A previous attempt (`57b69fd3`,
+ *   abandoned) fixed the rows above with two independent passes — a code-line mask computed over RAW
+ *   text, consumed by a comment segmenter. Both review seats and the orchestrator found this opens the
+ *   OTHER direction: a fence- or indent-looking line INSIDE a genuine multi-line comment is real
+ *   comment prose, but a mask computed blind to comment state reads it as code and cuts the comment's
+ *   span there, exposing whatever the comment was hiding (the sibling-case tests below cover both
+ *   directions).
+ *
+ * CommonMark resolves exactly this interleaving with one left-to-right scan carrying a THIRD state —
+ * `normal` / `in-fence` / `in-html-comment` — where a fence may open only when not already inside a
+ * comment, and a comment may open only when not already inside a fence, each closing on its own
+ * condition. That is what this loop does: `inComment` is checked FIRST, before any fence or indent
+ * logic runs, so nothing inside an open comment is ever read as a fence delimiter (protects the
+ * mirror direction); and comment-opener detection is reached only AFTER the fence branches have
+ * already returned for the line, so nothing inside an open fence is ever read as a comment opener
+ * (fixes rows 38-40). Neither grammar is ever resolved blind to the other's current state.
+ *
  * See the grammar table above this file's Ruling 2 doc comment for every input row this function is
  * answerable to.
  */
 function classifyLines(text: string): ClassifiedLine[] {
-  const withoutComments = blankRealHtmlComments(text)
   const out: ClassifiedLine[] = []
   let inFence = false
   let fenceChar = ''
   let fenceLen = 0
-  for (const raw of withoutComments.split('\n')) {
-    const bq = stripBlockquoteMarkers(raw)
-    const indent = measureIndent(raw, bq.index, bq.column)
-    const content = raw.slice(indent.index)
+  let inComment = false
+  // Round 2 (#459, review of `ed8d57f4`): true when the PREVIOUS line was open, visible,
+  // non-blank content — i.e. an indented-code start would be interrupting it. Reset to false by
+  // a blank line, a fence, indented code itself, or comment interior; never by a code-scan alone.
+  let inParagraph = false
+
+  for (const raw of text.split('\n')) {
+    let line = raw
+
+    if (inComment) {
+      // A real HTML comment opened on an earlier line and has not closed yet. Its content is
+      // invisible, and — the mirror of the fence rule below — nothing in it can open a fence: a
+      // fence- or indent-looking line fully inside a genuine comment stays comment prose, never a
+      // delimiter (#459's sibling case). Checked before any bq/fence/indent logic runs at all.
+      const closeAt = line.indexOf('-->')
+      if (closeAt === -1) {
+        out.push({ content: '', isCode: true, quoted: false })
+        inParagraph = false
+        continue
+      }
+      inComment = false
+      // Blank through the closer; the remainder of the line (if any) re-enters the pipeline below
+      // exactly like a fresh line, so a fence or a further comment can still open in it.
+      line = ' '.repeat(closeAt + 3) + line.slice(closeAt + 3)
+    }
+
+    const bq = stripBlockquoteMarkers(line)
+    const indent = measureIndent(line, bq.index, bq.column)
+    const content = line.slice(indent.index)
 
     if (inFence) {
+      // Fence interior is always literal text — a `<!--` in here can never open a comment
+      // (#459, table rows 38-40): the branch below that would look for one is never reached.
       const close = indent.credit <= 3 ? /^(`+|~+)\s*$/.exec(content) : null
       if (close && close[1]![0] === fenceChar && close[1]!.length >= fenceLen) inFence = false
       out.push({ content: '', isCode: true, quoted: bq.quoted })
+      inParagraph = false
       continue
     }
-    if (indent.credit >= 4) {
+
+    // Indented code CANNOT INTERRUPT A PARAGRAPH (#459, review of `ed8d57f4`) — a 4+-column
+    // indent right after open, visible content is a LAZY CONTINUATION of that content, not a new
+    // code block, and CommonMark's own inline grammar still scans it (verified against
+    // commonmark.js 0.31.2: an unindented paragraph followed, with no blank line, by a 4-indented
+    // `<!--...-->` renders the comment as a real inline HTML comment INSIDE that paragraph, hidden
+    // from a reader — not as literal code). A fence can never open at this indent regardless
+    // (CommonMark requires <4 columns for a fence opener unconditionally), so that check stays
+    // guarded by `indent.credit < 4` either way; only the CODE classification is conditioned on
+    // `inParagraph`, and only the comment scan below is what such a line falls through to.
+    if (indent.credit >= 4 && !inParagraph) {
       out.push({ content: '', isCode: true, quoted: bq.quoted }) // indented code — gap 2 lives here
+      inParagraph = false
       continue
     }
-    const open = FENCE_OPEN_RE.exec(content)
-    if (open) {
-      inFence = true
-      fenceChar = open[1]![0]!
-      fenceLen = open[1]!.length
-      out.push({ content: '', isCode: true, quoted: bq.quoted }) // fence open — gap 1 lives here
-      continue
+    if (indent.credit < 4) {
+      const open = FENCE_OPEN_RE.exec(content)
+      if (open) {
+        inFence = true
+        fenceChar = open[1]![0]!
+        fenceLen = open[1]!.length
+        out.push({ content: '', isCode: true, quoted: bq.quoted }) // fence open — gap 1 lives here
+        inParagraph = false
+        continue
+      }
     }
-    out.push({ content, isCode: false, quoted: bq.quoted })
+
+    // Not fenced, not indented code: a real HTML comment may open here, code-span aware (gap 4b)
+    // and reaching to EOF when unterminated (gap 4a) — one line at a time, so an opener that
+    // outlives this line is picked up by the `inComment` branch above on the next iteration. A
+    // paragraph-continuation line whose OWN indent is 4+ columns falls through to here too (the
+    // paragraph-interruption fix above), never through the fence-open branch — see that branch's
+    // `indent.credit < 4` guard.
+    const masked = maskInlineCodeSpans(content)
+    let visible = ''
+    let cursor = 0
+    for (;;) {
+      const openAt = masked.indexOf('<!--', cursor)
+      if (openAt === -1) {
+        visible += content.slice(cursor)
+        break
+      }
+      visible += content.slice(cursor, openAt)
+      const closeAt = masked.indexOf('-->', openAt + 4)
+      if (closeAt === -1) {
+        visible += ' '.repeat(content.length - openAt)
+        inComment = true
+        cursor = content.length
+        break
+      }
+      visible += ' '.repeat(closeAt + 3 - openAt)
+      cursor = closeAt + 3
+    }
+    out.push({ content: visible, isCode: false, quoted: bq.quoted })
+    inParagraph = visible.trim().length > 0
   }
   return out
 }
@@ -1160,7 +1319,13 @@ describe('declaredExemptionReason — ruling 2\'s marker reader, tested directly
 
     // Unlisted-spelling sibling: an INDENTED continuation line, not a fence at all — proves
     // the fix is the general predicate, not a fence-shaped patch one level down.
-    const indentedContinuation = '> **Shelf exemption:** x\n>     this indented continuation line must never count toward the reason either'
+    //
+    // The blank quoted line (`>` alone) before the indent is load-bearing, not decoration
+    // (#459, review of `ed8d57f4`): indented code cannot INTERRUPT a paragraph, so without it
+    // this is one continuing paragraph — verified against commonmark.js 0.31.2, which renders
+    // the un-blanked version as a single `<p>` with no `<pre><code>` at all. The blank line is
+    // what actually detaches the indented line into a real code block.
+    const indentedContinuation = '> **Shelf exemption:** x\n>\n>     this indented continuation line must never count toward the reason either'
     expect(declaredExemptionReason(indentedContinuation)).toBeUndefined()
 
     // Control: a genuine multi-line PROSE continuation must still be swept in.
@@ -1243,7 +1408,10 @@ describe('declaredExemptionReason — ruling 2\'s marker reader, tested directly
     // The finding's own illustration of this half of the blind spot uses `>   \t` (3 spaces then a
     // tab); this pins it with a different spelling (4 spaces) reaching the same >=4 credit, so the
     // fix is not "recognize that one continuation prefix" but the general arithmetic.
-    const sweptCode = '> **Shelf exemption:** x\n>    \tthis continuation is genuinely indented code and must not count'
+    //
+    // The blank quoted line is load-bearing here too (#459, review of `ed8d57f4`) — see the gap-3
+    // test above for why: without it, this is one continuing paragraph per CommonMark, not code.
+    const sweptCode = '> **Shelf exemption:** x\n>\n>    \tthis continuation is genuinely indented code and must not count'
     expect(declaredExemptionReason(sweptCode)).toBeUndefined()
 
     // Control: a continuation whose tab-driven credit stays under 4 must still be swept into the
@@ -1251,5 +1419,103 @@ describe('declaredExemptionReason — ruling 2\'s marker reader, tested directly
     // ever counts again".
     const genuineContinuation = '> **Shelf exemption:** the reason begins here\n>  \tand genuinely continues here, under the threshold'
     expect(declaredExemptionReason(genuineContinuation)).toBe('the reason begins here and genuinely continues here, under the threshold')
+  })
+
+  // Wave 4 (#459) — the comment grammar and the fence grammar interleave, so neither can be
+  // resolved before the other. Table rows 38-41, added below the tab-arithmetic table. A
+  // previous attempt (abandoned `57b69fd3`) tried two independent passes — a code-line mask
+  // computed over raw text, consumed by a comment segmenter — and both review seats plus the
+  // orchestrator found it introduces the mirror image of the bug it closes: a code-looking line
+  // INSIDE a real comment truncated that comment's own span. The fix here is one left-to-right
+  // scan carrying a THIRD state (normal / in-fence / in-html-comment) so a fence can open only
+  // outside a comment and a comment can open only outside a fence — see {@link classifyLines}'s
+  // own doc comment.
+
+  it('#459, table row 38 (fail open, fixed): an unterminated <!-- that opens INSIDE a fence is fence interior, never a comment opener — a declaration after the fence is exempt', () => {
+    const backtickFence =
+      '```\n<!-- looks like it opens a comment, but this line is fence interior\n```\n\n> **Shelf exemption:** the real reason, visible once the fence actually closes'
+    expect(declaredExemptionReason(backtickFence)).toBe('the real reason, visible once the fence actually closes')
+
+    // Table row 39 — unlisted spelling: tilde fence, indented two columns, no blockquote.
+    const tildeFence = '  ~~~~\n<!-- also just fence content, never a real opener\n  ~~~~\n\n**Shelf exemption:** a second real reason, stated in the open'
+    expect(declaredExemptionReason(tildeFence)).toBe('a second real reason, stated in the open')
+
+    // Control: an unterminated <!-- OUTSIDE any fence must still swallow everything after it —
+    // this fix is scoped to fence interiors, not a blanket "unterminated comments are harmless"
+    // change.
+    const stillConvicts = '<!-- a genuinely unterminated comment, outside any fence at all\n\n**Shelf exemption:** looks real but sits inside the still-open comment above'
+    expect(declaredExemptionReason(stillConvicts)).toBeUndefined()
+  })
+
+  it('#459, table row 40 (fail open, fixed): a comment whose matched closer lands past a fence\'s own closing delimiter never actually opened — the fence interior took precedence, so the declaration after is exempt', () => {
+    const text =
+      '```\n<!-- fence interior, not a real opener\n```\nsome prose that happens to contain a stray closer -->\n\n> **Shelf exemption:** the real reason after the stray closer'
+    expect(declaredExemptionReason(text)).toBe('the real reason after the stray closer')
+
+    // Table row 41 — unlisted spelling: tilde fence, different filler prose and indent.
+    const tildeVariant =
+      ' ~~~\nstill fence interior, not a comment opener despite the look of it\n ~~~\nunrelated prose ending in something that looks like a closer -->\n\n**Shelf exemption:** a second real reason after the stray closer'
+    expect(declaredExemptionReason(tildeVariant)).toBe('a second real reason after the stray closer')
+
+    // Control: a genuine comment (opened AND closed entirely outside any fence) must still
+    // conceal a declaration sitting inside it — the fix does not make every comment harmless.
+    const stillConceals = '<!-- **Shelf exemption:** still hidden, never near a fence -->\n\nNo real declaration exists anywhere in this document.'
+    expect(declaredExemptionReason(stillConceals)).toBeUndefined()
+  })
+
+  it('#459 sibling case — the mirror direction: a fence-looking or indented-code-looking line INSIDE a real HTML comment does not end the comment early, so the marker stays concealed', () => {
+    // This is the shape that broke the rejected two-pass attempt (57b69fd3): a code mask
+    // computed over raw text, blind to comments, read the fence-looking line below as real
+    // code and cut the comment's span there — exposing the marker as if it were live text.
+    const fenceLooking =
+      '<!--\n```\nlooks like a fence, but this is comment prose\n```\n**Shelf exemption:** still concealed, inside the same real comment\n-->\n\nNo real declaration exists anywhere in this document.'
+    expect(declaredExemptionReason(fenceLooking)).toBeUndefined()
+
+    // Unlisted spelling: indented-code-looking content (4+ spaces) instead of a fence — the
+    // exact shape #459's dispatch names ("four spaces between opener and marker was enough").
+    const indentLooking =
+      '<!--\n    four spaces of indent, which is what broke the rejected two-pass design\n**Shelf exemption:** still concealed, same comment\n-->\n\nNo real declaration exists anywhere in this document.'
+    expect(declaredExemptionReason(indentLooking)).toBeUndefined()
+
+    // Control: once the comment genuinely closes, a real declaration right after it must
+    // still be found — concealment is not turning into "nothing after a comment is ever read".
+    const afterClose =
+      '<!--\n```\nlooks like a fence, but this is comment prose\n```\n-->\n\n> **Shelf exemption:** the real reason, stated after the comment truly closes'
+    expect(declaredExemptionReason(afterClose)).toBe('the real reason, stated after the comment truly closes')
+  })
+
+  // Round 2 (#459, review of `ed8d57f4`): the `indent.credit >= 4` early return fired
+  // unconditionally, including right after open, visible prose — but indented code cannot
+  // INTERRUPT A PARAGRAPH (verified against commonmark.js 0.31.2, see the doc comment above
+  // classifyLines), so a 4+-indented `<!--` there is a REAL comment opener, not literal code, and
+  // everything to its `-->` is concealed exactly like an unindented one. The first version of this
+  // fix returned that concealed text as an EXEMPT declaration — fail OPEN — because the early
+  // return skipped the comment scan for every 4+-indented line regardless of what came before it.
+
+  it('#459 round 2: a 4+-indented <!-- that CONTINUES an open paragraph is a real comment opener, not code — the declaration inside stays concealed', () => {
+    // The MARKER line itself is deliberately left UN-indented (only the opener and closer carry
+    // the 4+-column indent): this is what makes the test fail for the reason it claims. If the
+    // marker line were indented too, "credit >= 4 unconditionally means code" (the pre-round-2
+    // bug) would ALSO hide it — for the wrong reason — and this test could not tell the two
+    // mechanisms apart. Pinning the marker at column 0 means visibility depends entirely on
+    // whether the OPENER correctly starts a real, ongoing comment that swallows the next line
+    // regardless of ITS indent — verified this discriminates by mutation below.
+    const topLevel =
+      'The retention note for this entry follows immediately.\n    <!--\n**Shelf exemption:** carried over from an earlier draft, never removed\n-->\n\nNo visible reason anywhere in this document.'
+    expect(declaredExemptionReason(topLevel)).toBeUndefined()
+
+    // Unlisted spelling: inside a blockquote (the opener/closer carry a six-column RESIDUAL
+    // indent past the marker's own one-column blockquote allowance; the marker line sits at
+    // ordinary quote depth, same reasoning as above), different prose, different reason text.
+    const quoted =
+      '> A note about this ruling follows below.\n>       <!--\n> **Shelf exemption:** documented here for the retrospective only\n> -->\n\nNo visible reason anywhere in this document.'
+    expect(declaredExemptionReason(quoted)).toBeUndefined()
+
+    // Control: the SAME shape, but with a genuine blank line before the indented block, so
+    // indented code genuinely CAN start there — the comment syntax is then literal code text,
+    // never a real comment, and a real declaration elsewhere in the document is unaffected.
+    const detached =
+      'An unrelated line of prose starts this document.\n\n    <!--\n    this is genuinely indented code, not a comment\n    -->\n\n> **Shelf exemption:** the real reason, entirely unaffected by the code block above'
+    expect(declaredExemptionReason(detached)).toBe('the real reason, entirely unaffected by the code block above')
   })
 })
