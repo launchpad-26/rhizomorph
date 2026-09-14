@@ -204,6 +204,17 @@ out=$(source "$SCRIPT"; gh_retry api rate_limit 2>/dev/null); rc=$?
 is  "a genuine failure still exits non-zero"                1 "$rc"
 has "...and any partial stdout it wrote is still replayed" "partial-output" "$out"
 
+# The ordering check above (`out-then-err`) exercises the SUCCESS replay pair
+# at the top of gh_retry. The failure path has its own, separate pair at the
+# bottom of the function, and it was unpinned: swapping just those two lines
+# left all 51 checks green. Found in review of #508 by mutation.
+fresh partial-order; export GH_MODE=fail-with-partial-stdout
+out=$("$SCRIPT" api rate_limit 2>&1)
+case "$out" in
+  *partial-output*"Bad credentials"*) ok "...and stdout precedes stderr on the FAILURE replay too, not just the success one" ;;
+  *)                                  bad "...and stdout precedes stderr on the FAILURE replay too, not just the success one" "got: $out" ;;
+esac
+
 unset GH_MODE
 
 # ── no dangling RETURN trap across calls ────────────────────────────────────
