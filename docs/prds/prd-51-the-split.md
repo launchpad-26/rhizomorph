@@ -1242,24 +1242,26 @@ it.
 | 8 | retention under a named ceiling (rulings 9, 10) · the three questions and the read-only role · the team server's doctor route · the key-mint surface | not groomed — and it may not be one wave; see below |
 | 9 | #171's timed drill on the real host · the doc sweep (absorbs or fences #354) | not groomed; #171's number is provisional |
 
-### One migration, three pins, and why wave 7 is small
+### One migration, four pins, and why wave 7 is small
 
 The wave-6 amendment booked four callers onto the router and ruled them one issue. Grooming found
 the constraint that decides which of them can actually travel with it, and it is not about the
 router at all — it is about the **migration**.
 
-Three files pin the tracked migration id set, **independently, in three directories**:
+Four files pin the tracked migration id set, **independently, in three directories**:
 
 - `packages/team/src/migrations/runner.test.ts`
+- `packages/team/src/migrations/schema-law.test.ts`
 - `packages/team/src/bootstrap.test.ts`
 - `packages/team/src/api/api.test.ts`
 
-The third is the router's own test file. So **any migration-adding issue must claim the router's
+The last is the router's own test file. So **any migration-adding issue must claim the router's
 test file**, and retention (rulings 9, 10) spends this PRD's next migration. The two cannot share
 a wave — not because their code touches, but because the *evidence* for one lives inside the
-other's boundary. `.swarm/coupling.txt` already carried the **second and third** of those pins —
+other's boundary. `.swarm/coupling.txt` already carried the **two outside `migrations/`** —
 bootstrap.test.ts at its line 119 and api/api.test.ts at 120, the two the wave-6 amendment
-above names by hand. The runner's own test is in no registry entry at all. The consequence for
+above names by hand. The two inside `migrations/` — the runner's own test and the schema law's
+case 26 — are in no registry entry at all. The consequence for
 sequencing is what none of them wrote down.
 
 Everything else deferred is deferred for the ordinary reason: the three questions' pages, the
