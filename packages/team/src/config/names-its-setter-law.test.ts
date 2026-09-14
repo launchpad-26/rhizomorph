@@ -10,7 +10,7 @@ import { ENV_DATABASE_URL, resolveTeamConfig } from './config.js'
  * Ruling 9: every value the server will later report as effective names who set
  * it and where, **even where the only setter today is a default**.
  *
- * The walk below is **structural**, not a hand-written roster of the three
+ * The walk below is **structural**, not a hand-written roster of the eight
  * fields that exist today. That is the whole design of this law: a roster is
  * satisfied by the fields someone remembered to add to it, so the field added
  * next year without provenance would ship green. Walking every own enumerable
@@ -33,13 +33,16 @@ describe('case 32 — every field carries its provenance, structurally', () => {
     const entries = Object.entries(config)
 
     // Not vacuous: a walk over an empty object would pass every assertion below.
-    // The floor is the config's current field count, and it moved from 3 to 2 in
-    // the review of #355 when the `requireDurableCommit` override was removed —
+    // The floor is the config's current field count. It moved 3 → 2 in the
+    // review of #355 when the `requireDurableCommit` override was removed —
     // prd-51 ruling 4 states its refusal with no exception clause, so the field
-    // should never have existed. Re-derive this number when a field is added or
-    // removed; do not raise it speculatively, and do not delete it, because a
-    // walk over an empty object is exactly what it exists to catch.
-    expect(entries.length).toBeGreaterThanOrEqual(2)
+    // should never have existed — and 2 → 8 in #169, which added the six
+    // GitHub App identity fields ruling 9 requires (org login, app id,
+    // installation id, private key, client id, client secret). Re-derive this
+    // number when a field is added or removed; do not raise it speculatively,
+    // and do not delete it, because a walk over an empty object is exactly
+    // what it exists to catch.
+    expect(entries.length).toBeGreaterThanOrEqual(8)
 
     for (const [key, value] of entries) {
       expect(isEffectiveValue(value), `${key} is a bare value, not an EffectiveValue`).toBe(true)

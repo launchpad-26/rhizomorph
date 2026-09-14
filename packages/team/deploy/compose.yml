@@ -29,6 +29,12 @@ services:
       dockerfile: packages/team/Dockerfile
     environment:
       RZ_TEAM_DATABASE_URL: ${RZ_TEAM_DATABASE_URL}
+      # The project the first ingest key is scoped to, and that key's SHA-256 —
+      # never the key itself (prd-51 ruling 8). `init.sh` writes both into .env;
+      # `deploy/serve.ts` seeds the digest at boot and revokes every other key
+      # the project held, which is what makes rotation actual revocation.
+      RZ_TEAM_PROJECT: ${RZ_TEAM_PROJECT}
+      RZ_TEAM_INGEST_KEY_SHA256: ${RZ_TEAM_INGEST_KEY_SHA256}
       PORT: "8787"
       HOST: "0.0.0.0"
     volumes:

@@ -7,6 +7,16 @@
 > below); the other is #216 — the wizard invoking the route prd-42 hardened. One issue is the
 > whole of what is left. Reconciled 2026-08-22 at `03df141`; regroomed at `26c48c7`.
 
+> **Shelf exemption:** stays on the live shelf rather than moving to `docs/prds/done/` —
+> `docs/prds/prd-34-the-doorstep.md` is live (unmilestoned, still being built) and reasons from
+> this PRD in the present tense: prd-34's own ruling 4 says *"prd-20 remains the authority on
+> what the concierge may do (launch or relaunch a conductor, clone by URL; no OAuth, no
+> accounts, no stored credentials)."* Archiving this PRD would demote a ruling prd-34 is
+> deferring to.
+>
+> Recorded on #428, per prd56 ruling 2; read by
+> `packages/server/src/prd-location-law.test.ts` for the `**Shelf exemption:**` marker.
+
 ## Problem
 
 Getting from a fresh machine to "an instrumented conductor watching my repo"

@@ -39,12 +39,16 @@
 > **Nothing enforces any of this.** Every figure here was re-derived by hand and will rot
 > again; a law that pins them is the only version where a fifth round does not exist.
 >
-> **It stays in `docs/prds/` rather than moving to `docs/prds/done/`, and that is a separate
-> operator decision rather than a consequence of shipping:** `docs/follow-up-292.md` reads this file's location as the difference between a LIVE
+> **Shelf exemption:** it stays in `docs/prds/` rather than moving to `docs/prds/done/`, and
+> that is a separate operator decision rather than a consequence of shipping — `docs/follow-up-292.md` reads this file's location as the difference between a LIVE
 > ruling and an archival one, and holds an open, uncorrected item against ruling 3's law 1 —
 > whose wording it calls the origin of a claim that is still false in `docs/architecture.md`.
 > Archiving this PRD would demote that ruling while the item is open, and that document
 > reserves the amendment decision for whoever owns the ruling. The move is a follow-up.
+>
+> Declared for prd56 ruling 2 (#428): the paragraph above is what
+> `packages/server/src/prd-location-law.test.ts` reads as the declared reason, keyed on the
+> `**Shelf exemption:**` marker rather than on this file's name.
 >
 > **What "shipped" does NOT claim is worth reading before the table below**, because two of
 > ruling 1's nine families still

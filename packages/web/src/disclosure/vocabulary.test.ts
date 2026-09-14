@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DisclosureError,
   disclosureLines,
+  evidenceClause,
   unknownDisclosure,
   type Derivation,
   type DisclosureContent,
@@ -35,7 +36,16 @@ describe('the triple, assembled once (prd-27 ruling 5)', () => {
   })
 
   it('accepts a fact observed this instant — zero is measured, not missing', () => {
-    expect(disclosureLines(elapsed(0)).why).toContain('0s ago')
+    // RESTATED, not weakened (#465). The claim is unchanged: zero is a measured
+    // observation and must render as one rather than be rejected or blanked.
+    // What moved is the wording — `condition.ts`'s own ConditionEvidence
+    // docblock says a condition with no "since" date reports 0 meaning
+    // "confirmed just now", and rendering that as a DURATION stamped `0s ago`
+    // on a trespass path and a token rate. This is stronger than the old
+    // assertion because it also forbids the form that shipped the defect.
+    expect(disclosureLines(elapsed(0)).why).toContain(', just now')
+    expect(disclosureLines(elapsed(0)).why).not.toContain('0s ago')
+    expect(disclosureLines(elapsed(0)).why).not.toContain('just now ago')
   })
 
   it('keeps the command apart from the prose, for a surface that can copy it', () => {
@@ -283,3 +293,96 @@ describe('the shape itself forbids an evidence-free card (typecheck door)', () =
 function elapsed(elapsedMs: number): DisclosureContent {
   return { ...known(), why: { reason: 'no data', evidence: { fact: 'the collector last answered', elapsedMs } } }
 }
+
+/**
+ * #465 — the rules, one test each, at the boundary rather than in the middle.
+ *
+ * The old suite was green while four of the five shipped conditions rendered a
+ * defective sentence, because every assertion pinned one condition's whole
+ * string and the defect was in what the composition did to all of them. These
+ * test the rule; `panels/fleet/format.test.ts` sweeps every producer for the
+ * property.
+ */
+describe('evidenceClause — the age is stated once, and only when there is one', () => {
+  it('leaves a fact that already states the span exactly as it found it', () => {
+    // The FROZEN shape. Identity, not `toContain`: appending anything at all
+    // is the defect, so a containment assertion would pass on the bug.
+    const fact = 'no events for 16m37s'
+    expect(evidenceClause(fact, 16 * 60_000 + 37_000)).toBe(fact)
+  })
+
+  it('leaves a multi-clause fact alone rather than dating its LAST clause', () => {
+    // The WAITING shape, and the one that was not merely untidy: the fact is a
+    // `·`-joined list whose FIRST clause carries the "ago", so an appended one
+    // landed on the last and asserted that workmux reported *working* 8m17s
+    // ago. What the evidence says is that two witnesses disagree.
+    const fact = 'beacon (claude-hook) declares waiting 8m17s ago · workmux reports working'
+    expect(evidenceClause(fact, 8 * 60_000 + 17_000)).toBe(fact)
+  })
+
+  it('states a zero age in words — "confirmed just now", never as a duration', () => {
+    const clause = evidenceClause('55.4× fleet median', 0)
+    expect(clause).toBe('55.4× fleet median, just now')
+    expect(clause).not.toMatch(/\b0s ago/)
+    expect(clause).not.toContain('just now ago')
+  })
+
+  it('appends an ordinary measured age — the one shape that must NOT move', () => {
+    // LOOPING renders correctly today and is the regression guard for the fix.
+    expect(evidenceClause('Bash→Read→Edit ×21, no commit', 4 * 60_000)).toBe(
+      'Bash→Read→Edit ×21, no commit 4m00s ago',
+    )
+  })
+
+  it('appends the measured span even when the fact quotes a different one', () => {
+    // A fact mentioning some OTHER duration is not a fact that has been dated.
+    const clause = evidenceClause('waited 3m00s for the lock', 45_000)
+    expect(clause).toBe('waited 3m00s for the lock 45s ago')
+  })
+
+  it('introduces the teach layer\'s age with its own separator', () => {
+    expect(evidenceClause('tool call ×3', 45_000, ' — ')).toBe('tool call ×3 — 45s ago')
+  })
+
+  it('is pure — the same input twice is the same string, with nothing accumulated', () => {
+    const once = evidenceClause('a fact', 45_000)
+    const twice = evidenceClause('a fact', 45_000)
+    expect(twice).toBe(once)
+    expect(evidenceClause(once, 45_000)).toBe(once)
+  })
+})
+
+/**
+ * The sibling case, tested where it can actually fail.
+ *
+ * `panels/fleet/format.test.ts`'s sweep asserts the same property over
+ * `lines.derivation`, and that half of it is VACUOUS: none of the eleven
+ * producers in that module supplies `derivedFrom`, so the loop never iterates.
+ * Found by reverting the teach-line fix and watching the whole suite stay green
+ * — 84 passed with the defect restored. The property is kept there for the
+ * twelfth producer that does supply one; THESE are the tests that fail today if
+ * the teach layer regresses.
+ */
+describe('the teach layer composes the same way, and has the same defect to avoid (#465)', () => {
+  function withDerivation(derivedFrom: readonly Derivation[]): DisclosureContent {
+    return { ...known(), why: { ...known().why, derivedFrom } }
+  }
+
+  it('does not repeat a span the derivation fact already states', () => {
+    const lines = disclosureLines(
+      withDerivation([{ fact: 'no events for 16m37s', elapsedMs: 16 * 60_000 + 37_000 }]),
+    )
+    expect(lines.derivation).toEqual(['no events for 16m37s'])
+  })
+
+  it('states a zero-aged derivation in words, not as a zero duration', () => {
+    const lines = disclosureLines(withDerivation([{ fact: 'fence check ran', elapsedMs: 0 }]))
+    expect(lines.derivation[0]).toBe('fence check ran, just now')
+    expect(lines.derivation[0]).not.toMatch(/\b0s ago/)
+  })
+
+  it('keeps the ordinary teach shape — fact, count, then the age', () => {
+    const lines = disclosureLines(withDerivation([{ fact: 'tool call', count: 3, elapsedMs: 45_000 }]))
+    expect(lines.derivation[0]).toBe('tool call ×3 — 45s ago')
+  })
+})

@@ -53,7 +53,7 @@
 #   A member that becomes ours, or becomes renamed-away, reddens.
 #     <symbol>  <a file that cites it>
 #
-# measured: 2026-09-13 tree=aaf9a50c candidates=2187 renamed-away=40 historical=1 not-ours=72
+# measured: 2026-09-13 tree=aaf9a50c candidates=2187 renamed-away=40 historical=1 not-ours=71
 #   Re-derived at the review of #369, on the tree this actually lands on. The
 #   previous stamp read `a3c5b305`, a tree two rebases old — a stale provenance
 #   claim inside the artefact built to catch stale claims.
@@ -172,7 +172,6 @@ requireDurableCommit          packages/team/src/config/config.test.ts
 selectX                       packages/core/src/selectors/spend-cursor.ts
 LAB_UNRELATED_LABEL           packages/server/src/api/lab-ceiling-law.test.ts
 buildResources                packages/app/src/host/icon-law.test.ts
-MigrationResult               packages/contract/src/instrument.contract.test.ts
 # --- named in prose about a design that was never built under this spelling ---
 TurnExtraction                docs/adr/0017-one-turngrammar-seams-shape-and-extraction.md
 TranscriptDialect             docs/adr/0017-one-turngrammar-seams-shape-and-extraction.md

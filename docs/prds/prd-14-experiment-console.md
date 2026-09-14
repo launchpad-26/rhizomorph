@@ -18,6 +18,16 @@
 > and a format version, which is worth knowing about "one bounded slice" as an
 > estimate. Reconciled 2026-08-22 at `03df141`; see `docs/roadmap.md`.
 
+> **Shelf exemption:** stays on the live shelf rather than moving to `docs/prds/done/` —
+> `docs/prds/prd-55-the-lab-stage-two.md` is live, with a wave in flight, and reasons from
+> this PRD's rulings in the present tense: its Non-goals bind the R&D surface to naming no
+> winner by citing "prd-14 ruling 3", and its ruling 4 says the estimate and its one
+> confirmation "apply unchanged (prd-14 ruling 4)". Archiving this PRD would demote
+> rulings prd-55 is building on.
+>
+> Recorded on #428, per prd56 ruling 2; read by
+> `packages/server/src/prd-location-law.test.ts` for the `**Shelf exemption:**` marker.
+
 **Status:** BLESSED 2026-08-06 (four rulings below).
 **Predecessor:** prd12 (the laboratory — engine, constitution, checkpoints).
 

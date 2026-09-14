@@ -5,12 +5,12 @@
 # before landing anything that opens or closes a prdNN milestone, and commit
 # the result in the same change.
 #
-# generated-at: 2026-09-11T02:48:35Z
+# generated-at: 2026-09-13T21:24:27Z
 #
 # <PRD number>	<open|closed>	<closed_at, or - if still open>
-14	open	-
-17	open	-
-20	open	-
+14	closed	2026-09-13T06:20:33Z
+17	closed	2026-09-13T06:20:33Z
+20	closed	2026-09-13T06:20:34Z
 25	closed	2026-09-07T05:10:31Z
 27	closed	2026-09-07T05:09:20Z
 29	closed	2026-09-02T02:10:10Z
@@ -19,17 +19,17 @@
 40	closed	2026-09-02T02:10:11Z
 41	closed	2026-09-02T02:10:12Z
 42	closed	2026-09-02T02:10:12Z
-43	closed	2026-09-07T22:46:05Z
+43	open	-
 44	closed	2026-09-02T02:10:13Z
 45	closed	2026-09-02T02:10:14Z
 46	closed	2026-09-02T02:10:15Z
 47	closed	2026-09-02T02:10:15Z
-48	open	-
+48	closed	2026-09-11T04:24:26Z
 49	open	-
 50	closed	2026-09-08T23:04:14Z
 51	open	-
 52	closed	2026-09-08T00:00:15Z
-53	open	-
+53	closed	2026-09-11T04:24:29Z
 54	open	-
 55	open	-
 56	open	-
