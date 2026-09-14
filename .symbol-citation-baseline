@@ -53,7 +53,7 @@
 #   A member that becomes ours, or becomes renamed-away, reddens.
 #     <symbol>  <a file that cites it>
 #
-# measured: 2026-09-13 tree=aaf9a50c candidates=2187 renamed-away=40 historical=1 not-ours=71
+# measured: 2026-09-13 tree=aaf9a50c candidates=2187 renamed-away=40 historical=1 not-ours=70
 #   Re-derived at the review of #369, on the tree this actually lands on. The
 #   previous stamp read `a3c5b305`, a tree two rebases old — a stale provenance
 #   claim inside the artefact built to catch stale claims.
@@ -165,7 +165,6 @@ canonicalizeUnderRoot         packages/server/src/paths/containment.test.ts
 pathIsContained               packages/server/src/paths/containment.test.ts
 humanizeTime                  packages/server/src/judge/symbols.ts
 RAW_COLLECTORS                packages/server/src/server/collector-wrap-boundary.test.ts
-manifestReadOverride          packages/server/src/server/poll-loop.test.ts
 readLive                      packages/web/src/lab/no-live-fleet-law.test.ts
 autoClose                     packages/server/src/server/static.test.ts
 requireDurableCommit          packages/team/src/config/config.test.ts
@@ -177,8 +176,12 @@ TurnExtraction                docs/adr/0017-one-turngrammar-seams-shape-and-extr
 TranscriptDialect             docs/adr/0017-one-turngrammar-seams-shape-and-extraction.md
 FocusPanel                    docs/vision-the-lab.md
 BTab                          docs/design-notes/beacon-lapse-interval.md
-MAX_PX                        docs/design-notes/geometry-relax-reach.md
 groundLum                     packages/web/src/scene/palette.ts
+# --- a deliberate shorthand for a real get/set pair, both halves declared in
+#     the same file as the citation — not a spelling error and not a design
+#     that changed, the bare shorthand itself was simply never its own
+#     declaration ---
+manifestReadOverride          packages/server/src/server/poll-loop.test.ts
 # --- ordinary words that happen to take an identifier casing ---
 Makefile                      packages/web/src/lab/trace/steps.ts
 Teach                         packages/web/src/disclosure/index.ts
