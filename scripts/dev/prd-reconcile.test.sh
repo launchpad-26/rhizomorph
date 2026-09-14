@@ -811,7 +811,18 @@ echo "── prd-reconcile.sh: THE CORPUS LAW — the real docs/prds/ heads, liv
 # programme legitimately adopts `**Open:**` this law does not go red for the right
 # change; it goes red only if the classifier finds a claim in a PRD that still has no
 # declared field, which is precisely the round-6 regression (a reversion to sweeping
-# **Status:**/**Outcome:** prose) it exists to catch. No round before this one tested
+# **Status:**/**Outcome:** prose) it exists to catch.
+#
+# THE PRESENCE CHECK IS SCOPED TO THE HEAD, and that is load-bearing rather than tidy
+# (review of #499, EXECUTED). It read the WHOLE file until then, so any PRD that so much
+# as MENTIONS `**Open:**` in its body bought itself an exemption from this law — and
+# this issue's own `docs/prds/done/prd-43-the-claim-is-a-test.md` is exactly that file,
+# because the wave-11 paragraphs it adds quote the marker twice while its head declares
+# no field at all. Measured: plant `#99999` in prd-43's head `**Status:**` prose, revert
+# the extractor to the rounds-1-5 sweep, and the whole-file grep reported six other
+# files and stayed silent about prd-43. `sed` to the first `## ` heading is deliberately
+# a DIFFERENT tool and a different boundary rule from the extractor's awk, so the check
+# stays independent of the thing it is checking. No round before this one tested
 # against a real PRD file, and that absence is how a twelve-false-positive reading
 # survived five rounds.
 extract_between() {  # extract_between <start-literal> <end-literal> <file>
@@ -840,7 +851,7 @@ corpus_regressions=0
 while IFS= read -r f; do
   corpus_total=$((corpus_total + 1))
   has_open=0
-  grep -q '\*\*Open:\*\*' "$f" && has_open=1
+  sed -n '1,/^## /p' "$f" | grep -q '\*\*Open:\*\*' && has_open=1
   field=$(awk -f "$tmp/prod-extract.awk" "$f")
   if [ "$has_open" = 0 ] && [ -n "$field" ]; then
     corpus_regressions=$((corpus_regressions + 1))
