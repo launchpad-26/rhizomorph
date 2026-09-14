@@ -1,6 +1,7 @@
 import { Disclosure, type DisclosureContent } from '../../disclosure/index.js'
 import type { SpanDecision } from '@rhizomorph/core'
-import type { MouseEvent, ReactElement, ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
+import type { MouseEvent, ReactElement, ReactNode, RefObject } from 'react'
 import {
   formatSpan,
   INFERRED_MARK,
@@ -34,6 +35,93 @@ import { selectWaitedChips, type WaitedChip } from './waitedChips.js'
  * than its docked height (ruling 7's density law reaches the top bar too).
  */
 export const MAX_CHIPS = 4
+
+/** `gap-1.5` on the chip row = 0.375rem at the 16px root. */
+const CHIP_GAP_PX = 6
+
+/**
+ * The widest a chip can be: the glyph, `max-w-[9rem]` label, `max-w-[18rem]`
+ * evidence, the age, three `gap-1.5`s, `px-1.5` either side and a 1px border
+ * each side — 144 + 288 + ~14 + ~40 + 18 + 12 + 2, rounded up.
+ *
+ * DERIVED from those two caps, not observed. The widest chip on fixture 3 is
+ * 462px, and a constant tuned to the fixture would under-fold on a real lane
+ * whose name or evidence runs longer. If either `max-w-` below changes, this
+ * changes with it — `chipCapacity`'s tests pin the arithmetic so the three
+ * cannot drift apart silently. Rationale in
+ * `docs/design-notes/attention-chip-width.md`.
+ */
+const CHIP_MAX_WIDTH_PX = 520
+
+/**
+ * How many chips the row can NAME at this width.
+ *
+ * Pure on purpose: jsdom reports every width as 0 and can never exercise the
+ * real thing, so the arithmetic is tested directly and the wiring is proved by
+ * a browser pass — the same split `shell-bounds-law.test.ts` sets out at
+ * length, and for the same reason.
+ *
+ * Conservative by construction: it assumes every chip is `CHIP_MAX_WIDTH_PX`
+ * wide, so it can fold a chip that would in fact have fitted. That direction is
+ * the safe one — over-folding names one fewer lane and COUNTS it in `+N`, while
+ * under-folding puts a chip off screen and makes `+N` a lie. That was the shape
+ * of the defect this replaced: at 1440px the row had 563px for 1522px of chips,
+ * and the `+1` marker that announces the hidden ones sat 941px past the right
+ * edge, so it read as "one more" while three were invisible.
+ *
+ * `rowWidth <= 0` means "not knowable yet" — before the first measurement, and
+ * under jsdom — not "no room". The answer there is today's behaviour.
+ *
+ * **The marker's width is NOT subtracted here, and that is the whole of what a
+ * browser had to tell us.** The marker is a sibling of this row, not a child of
+ * it, so the flex split has already taken the marker and its gap out before the
+ * row is measured: at 1440x900 the wrapper is 563px and the measured row is
+ * **544px**. An earlier version reserved the marker a second time inside this
+ * function, which dropped the budget below one chip-width and named ZERO lanes
+ * at the primary target viewport. Every unit test passed, because they fed this
+ * function the wrapper width — a number that does not exist at runtime.
+ *
+ * So the measured row IS the budget. When no chip is folded the marker is
+ * absent and the row is 19px wider, which can only ever let one more chip in;
+ * erring the other way is the direction that hides a frozen lane.
+ */
+export function chipCapacity(rowWidth: number): number {
+  if (!Number.isFinite(rowWidth) || rowWidth <= 0) return MAX_CHIPS
+  const fit = Math.floor((rowWidth + CHIP_GAP_PX) / (CHIP_MAX_WIDTH_PX + CHIP_GAP_PX))
+  return Math.max(0, Math.min(MAX_CHIPS, fit))
+}
+
+/**
+ * The chip row's own rendered width in whole pixels — `0` until it is knowable.
+ * Same shape as `Scrubber`'s `useTrackWidth` and `TideDock`'s `useElementWidth`,
+ * deliberately: measure once, then follow a `ResizeObserver` where the platform
+ * has one.
+ *
+ * A layout effect rather than a plain one so the first painted frame is already
+ * folded, instead of showing one frame of the unmeasured fallback. That last
+ * sentence is NOT held by anything in this file's tests: swapping it for
+ * `useEffect` leaves the suite green, because RTL flushes passive effects inside
+ * `act()` and jsdom never paints. `Scrubber.tsx` records the same gap. It is a
+ * limit of the harness, not permission.
+ */
+function useRowWidth(): [RefObject<HTMLDivElement | null>, number] {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const [width, setWidth] = useState(0)
+
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (el === null) return
+
+    const measure = () => setWidth(Math.max(0, Math.floor(el.getBoundingClientRect().width)))
+    measure()
+
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null
+    observer?.observe(el)
+    return () => observer?.disconnect()
+  }, [])
+
+  return [ref, width]
+}
 
 const NON_PATHOLOGY_GLYPH: Record<'collision' | 'collector', string> = {
   collision: '⇄',
@@ -118,7 +206,8 @@ function AttentionRow({
   onToggle,
   reducedMotion,
 }: AttentionRowProps): ReactElement {
-  const shown = items.slice(0, MAX_CHIPS)
+  const [rowRef, rowWidth] = useRowWidth()
+  const shown = items.slice(0, chipCapacity(rowWidth))
   const overflow = items.length - shown.length
 
   return (
@@ -126,16 +215,25 @@ function AttentionRow({
       <Pill rank={rank}>
         <span className="figures">{items.length}</span> NEED ATTENTION
       </Pill>
-      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-        {shown.map((item) => (
-          <Chip
-            key={item.id}
-            item={item}
-            selected={item.laneId !== null && item.laneId === selectedId}
-            onToggle={onToggle}
-            reducedMotion={reducedMotion}
-          />
-        ))}
+      {/*
+        The marker is a SIBLING of the clipping row, not its last child (#464).
+        As a child it was the first thing an overflowing row pushed out — the one
+        element whose entire job is to say that something is hidden. The inner
+        row clips; the marker is `shrink-0` beside it and cannot be reached by
+        the clip. `shell-bounds-law.test.ts` holds this structurally.
+      */}
+      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        <div ref={rowRef} className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+          {shown.map((item) => (
+            <Chip
+              key={item.id}
+              item={item}
+              selected={item.laneId !== null && item.laneId === selectedId}
+              onToggle={onToggle}
+              reducedMotion={reducedMotion}
+            />
+          ))}
+        </div>
         {overflow > 0 ? (
           <span className="figures shrink-0 text-(--ink-dim)" data-testid="chip-overflow">
             +{overflow}

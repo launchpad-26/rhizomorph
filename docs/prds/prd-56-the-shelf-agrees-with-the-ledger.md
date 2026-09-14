@@ -144,6 +144,28 @@ reason, and the law reads it`. Ruling 2's form, and prd-17 as its first
 subject once `#416` has landed. Separate from wave 1 because wave 1's five
 have no reason to declare — they are simply on the wrong shelf.
 
+**Wave 3 — the reader tells prose from code.** `prd56 w3: the exemption reader
+tells prose from code in every Markdown context`. Added 2026-09-14, after wave 2
+shipped; this section is amended rather than rewritten, and waves 1 and 2 stand
+as written. Wave 2's fix re-review found four edges where ruling 2's reader
+disagrees with what a person reading the rendered document sees — a fence
+indented one to three spaces, an indented-code line inside a blockquote, a
+continuation line carrying quoted code toward the substance threshold, and a
+comment opener that is itself inside a code span. Three fail open and one fails
+closed. None is reachable by any file in the tree today, which is why wave 2 was
+not held for them.
+
+It is a wave rather than an unfiled residual because ruling 2 already governs it:
+the reader is required to read a reason a human can find, and these are the cases
+where it does not. It is separate from wave 2 because wave 2's own review is what
+discovered them — they could not have been known when it was groomed.
+
+**They are one repair, not four.** Each is a cell of one table: which lines of a
+PRD are prose, and which are code. The wave is done when a single predicate
+answers that, applied to declaration and continuation lines alike — not when four
+spellings are patched. A cell-by-cell fix is what this wave exists to avoid, and
+the review that found them says so in terms.
+
 **Unfiled work implied, described not numbered:** whether `docs/prds/parked/`
 needs the same agreement, and whether `docs/design/` and `docs/review/` want
 any location rule at all. Neither is booked; both are outside ruling 1.

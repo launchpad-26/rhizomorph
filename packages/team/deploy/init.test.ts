@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
+import { hashIngestKey, isIngestKeyHash } from '../src/keys/hash.js'
+import { isWellFormedIngestKey } from '../src/keys/shape.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const INIT_SH = path.join(HERE, 'init.sh')
@@ -16,12 +18,32 @@ function freshDir(): string {
   return dir
 }
 
-function runInit(dir: string): { stdout: string } {
+function runInit(dir: string, env: Record<string, string> = {}): { stdout: string } {
+  // `RZ_TEAM_PROJECT` is deleted rather than merely not set: it is a real
+  // variable an operator may have exported, and a default asserted against an
+  // inherited value is a test that passes for the wrong reason on one machine.
+  const inherited = { ...process.env }
+  delete inherited.RZ_TEAM_PROJECT
   const stdout = execFileSync('bash', [INIT_SH], {
-    env: { ...process.env, RZ_TEAM_DEPLOY_DIR: dir },
+    env: { ...inherited, RZ_TEAM_DEPLOY_DIR: dir, ...env },
     encoding: 'utf8',
   })
   return { stdout }
+}
+
+/** The plaintext `init.sh` printed, from the one line that carries it. */
+const PRINTED_KEY_RE = /ingest key for project \S+ \(save this now — it will not be printed again\): (rzk_[0-9a-f]{64})/
+
+function printedKey(stdout: string): string {
+  const match = PRINTED_KEY_RE.exec(stdout)
+  expect(match).not.toBeNull()
+  return match?.[1] as string
+}
+
+/** One `KEY=value` line out of a `.env`. */
+function envValue(content: string, name: string): string | null {
+  const match = new RegExp(`^${name}=(.*)$`, 'm').exec(content)
+  return match === null ? null : (match[1] as string)
 }
 
 afterEach(() => {
@@ -43,8 +65,7 @@ describe('init.sh', () => {
     const { stdout } = runInit(dir)
 
     expect(stdout).toContain('ingest key')
-    const hexMatch = /ingest key \(save this now — it will not be printed again\): (rzk_[0-9a-f]{64})/.exec(stdout)
-    expect(hexMatch).not.toBeNull()
+    expect(printedKey(stdout)).toMatch(/^rzk_[0-9a-f]{64}$/)
 
     const envPath = path.join(dir, '.env')
     const mode = statSync(envPath).mode & 0o777
@@ -53,15 +74,71 @@ describe('init.sh', () => {
     const content = readFileSync(envPath, 'utf8')
     expect(content).toContain('POSTGRES_PASSWORD=')
     expect(content).toContain('RZ_TEAM_DATABASE_URL=postgres://')
-    expect(content).toContain('RZ_TEAM_INGEST_KEY=rzk_')
+    expect(envValue(content, 'RZ_TEAM_PROJECT')).toBe('default')
+    expect(isIngestKeyHash(envValue(content, 'RZ_TEAM_INGEST_KEY_SHA256') ?? '')).toBe(true)
+  })
+
+  /**
+   * STORED ONLY AS SHA-256 (prd-51 ruling 8), asserted against the bytes the
+   * script actually wrote rather than against the line it was meant to write.
+   *
+   * The near miss this closes: a `.env` that gained the digest and kept the
+   * plaintext beside it would satisfy every assertion above, and would leave the
+   * credential in an image layer, a `docker inspect` and any backup of the host.
+   */
+  it('the plaintext reaches stdout and NOTHING else — .env carries the digest and no key', () => {
+    const dir = freshDir()
+    const key = printedKey(runInit(dir).stdout)
+    const content = readFileSync(path.join(dir, '.env'), 'utf8')
+
+    expect(content).not.toContain(key)
+    // Not even a piece of one: a prefix of a secret is still a piece of one.
+    expect(content).not.toContain(key.slice(0, 20))
+    // …and no variable carries a key-shaped value at all.
+    expect(content).not.toMatch(/=rzk_/)
+  })
+
+  /**
+   * THE AGREEMENT, EXECUTED END TO END.
+   *
+   * `openssl dgst -sha256` in shell and `createHash('sha256')` in Node must
+   * produce the same 64 characters for the same key, or the deployment's own key
+   * is refused as unknown with nothing anywhere saying why. The failure is a
+   * single trailing newline — `echo` instead of `printf` — and it is invisible to
+   * any test that hashes with only one of the two tools. This runs the real
+   * script and hashes the real printed key.
+   */
+  it('the digest in .env is what packages/team/src/keys/hash.ts computes for the printed key', () => {
+    const dir = freshDir()
+    const key = printedKey(runInit(dir).stdout)
+    const content = readFileSync(path.join(dir, '.env'), 'utf8')
+
+    expect(envValue(content, 'RZ_TEAM_INGEST_KEY_SHA256')).toBe(hashIngestKey(key))
+    // The bite: the `echo` form this comment warns about does NOT agree.
+    expect(hashIngestKey(`${key}\n`)).toBe(hashIngestKey(key))
+    expect(hashIngestKey(`${key} x`)).not.toBe(hashIngestKey(key))
+  })
+
+  it('the minted value is one the server will accept as well-formed', () => {
+    const dir = freshDir()
+    expect(isWellFormedIngestKey(printedKey(runInit(dir).stdout))).toBe(true)
+  })
+
+  it('RZ_TEAM_PROJECT names the project the key is scoped to, and defaults to `default`', () => {
+    const named = freshDir()
+    const { stdout } = runInit(named, { RZ_TEAM_PROJECT: 'acme-widgets' })
+    expect(stdout).toContain('ingest key for project acme-widgets')
+    expect(envValue(readFileSync(path.join(named, '.env'), 'utf8'), 'RZ_TEAM_PROJECT')).toBe('acme-widgets')
+
+    const unnamed = freshDir()
+    runInit(unnamed)
+    expect(envValue(readFileSync(path.join(unnamed, '.env'), 'utf8'), 'RZ_TEAM_PROJECT')).toBe('default')
   })
 
   it("the DoD's actual claim (second run): the key is never re-printed, and the file is byte-identical", () => {
     const dir = freshDir()
     const first = runInit(dir)
-    const firstKeyMatch = /ingest key \(save this now — it will not be printed again\): (rzk_[0-9a-f]{64})/.exec(first.stdout)
-    expect(firstKeyMatch).not.toBeNull()
-    const firstKey = firstKeyMatch?.[1] as string
+    const firstKey = printedKey(first.stdout)
 
     const envPath = path.join(dir, '.env')
     const contentBefore = readFileSync(envPath)

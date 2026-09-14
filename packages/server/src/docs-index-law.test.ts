@@ -6,7 +6,9 @@ import { describe, expect, it } from 'vitest'
 /**
  * #469's law — the documentation tree has one way in, and it stays complete.
  *
- * This repository tracks 260 markdown files. Before this law, three of the nine
+ * This repository tracked 260 markdown files when this law was written, and the
+ * figure moves with every merge — it is scene-setting here, not a claim this file
+ * holds. Before this law, three of the nine
  * `docs/` subdirectories carried an index — `adr/`, `prds/` and `review/` — and
  * the tree as a whole carried none. There was no document a newcomer could open
  * to find out what else there was.
@@ -148,7 +150,10 @@ function deadLinks(text: string): string[] {
     .filter((target) => {
       const clean = target.split('#')[0]!
       if (clean === '') return false
-      const resolved = clean.startsWith('../') ? path.join(DOCS_DIR, clean) : path.join(DOCS_DIR, clean)
+      // `path.join` walks a leading `../` out of `docs/` on its own, so a link up
+      // to the repo root needs no separate arm. An earlier draft branched on it and
+      // both arms were the same expression.
+      const resolved = path.join(DOCS_DIR, clean)
       return !existsSync(resolved)
     })
 }

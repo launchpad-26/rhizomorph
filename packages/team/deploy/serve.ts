@@ -7,6 +7,7 @@ import {
   resolveTeamConfig,
   startTeamServer,
 } from '../src/index.js'
+import { ENV_INGEST_KEY_SHA256, ENV_PROJECT, seedProjectIngestKey } from '../src/keys/seed.js'
 import { formatBootReport } from './report.js'
 
 const JOURNAL_DIR = process.env.RZ_TEAM_JOURNAL_DIR ?? '/data/journal'
@@ -35,6 +36,36 @@ async function main(): Promise<void> {
   }
   console.log(formatBootReport(bootstrapped))
 
+  // THE DEPLOYMENT'S KEY (prd-51 ruling 8). `init.sh` printed the plaintext once
+  // and wrote only its digest; this stores that digest and revokes every OTHER
+  // key the project held, which is what turns the runbook's rotation procedure
+  // into revocation rather than housekeeping.
+  //
+  // Read from `process.env` here rather than through `resolveTeamConfig`,
+  // alongside the three variables this file already reads that way. A digest is
+  // not a secret, but it is also not a value a boot report should print, so the
+  // log line below names the project and the counts and never the digest.
+  const seeded = await seedProjectIngestKey(storage, {
+    projectId: process.env[ENV_PROJECT] ?? '',
+    keyHash: process.env[ENV_INGEST_KEY_SHA256] ?? '',
+    nowMs: Date.now(),
+  })
+
+  if (!seeded.ok) {
+    // Loud, and NOT a refusal to boot. A server with no live key is a
+    // fail-closed state rather than a lie about durability — every batch is
+    // refused as an unknown key — and it is the same state a fully revoked
+    // project is in, which must not prevent the server from running.
+    console.error(
+      `${seeded.error} Until then this server holds no live ingest key for any project and will refuse every batch.`,
+    )
+  } else {
+    console.log(
+      `ingest key: ${seeded.inserted ? 'seeded' : 'already held'} for project ${process.env[ENV_PROJECT]}` +
+        `${seeded.revoked > 0 ? `, and ${seeded.revoked} older key(s) revoked` : ''}.`,
+    )
+  }
+
   mkdirSync(JOURNAL_DIR, { recursive: true })
 
   const result = await startTeamServer({
@@ -43,6 +74,9 @@ async function main(): Promise<void> {
     journalPath: path.join(JOURNAL_DIR, 'ingest.log'),
     host: HOST,
     port: PORT,
+    // A server-side failure the wire must not carry (the key check's storage
+    // read throwing) lands here, beside the boot report, for the operator.
+    onError: (message) => console.error(message),
   })
 
   if (!result.ok) {

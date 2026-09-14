@@ -112,7 +112,7 @@ function clientRecognisedKinds(source: string): string[] {
   return [...new Set([...spawn.matchAll(/kind === '([a-z-]+)'/g)].map((match) => match[1] as string))].sort()
 }
 
-/** The migration words the server's `MigrationResult` can send. */
+/** The migration words the server's `MigrationOutcome` can send. */
 function serverMigrationKinds(source: string): string[] {
   const declaration = /export type MigrationOutcome =([\s\S]*?)\n\n/.exec(source)?.[1] ?? ''
   return [...new Set([...declaration.matchAll(/kind: '([a-z-]+)'/g)].map((match) => match[1] as string))].sort()

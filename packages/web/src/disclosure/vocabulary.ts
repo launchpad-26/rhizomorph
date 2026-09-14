@@ -217,6 +217,43 @@ function requireText(value: string, field: string, hint: string): string {
 }
 
 /**
+ * The evidence clause, with its age stated exactly ONCE.
+ *
+ * Two facts about the callers decide this, both read rather than assumed:
+ *
+ *  - a detector's fact may ALREADY contain the span. `diagnose.ts` writes
+ *    `no events for 16m37s` for a frozen lane and
+ *    `beacon (…) declares waiting 8m17s ago · …` for a waiting one, so the old
+ *    unconditional suffix printed the duration twice. On the waiting card it did
+ *    worse than repeat: its fact is a `·`-joined list whose FIRST clause carries
+ *    the "ago", so the appended one landed on the LAST clause and the sentence
+ *    asserted that workmux reported *working* 8m17s ago. What the evidence says
+ *    is that two witnesses disagree, which is the thing the card exists to show.
+ *
+ *  - `elapsedMs: 0` is a documented claim, not a missing anchor — see
+ *    `condition.ts`'s ConditionEvidence docblock: a condition with no "since"
+ *    date reports 0 meaning "confirmed just now". Rendering that as `0s ago`
+ *    stamped a duration on a trespass path and a token rate, which is S1's own
+ *    falsifier ("a card whose why has no evidence in it") wearing a valid number.
+ *
+ * The substring check is deliberate and its failure mode is benign: a fact that
+ * coincidentally contains the span renders one age instead of two, which is what
+ * this function wants anyway. It is the only signal available without changing
+ * the caller contract, and changing that contract would move `diagnose.ts`,
+ * whose frozen-lane evidence string `AttentionStripView.test.tsx` asserts.
+ *
+ * `agoSeparator` exists because the teach layer introduces its age clause with
+ * ` — ` and the why line with a space. "just now" always attaches with a comma:
+ * it is a phrase, not a duration, and reads the same in both.
+ */
+export function evidenceClause(fact: string, elapsedMs: number, agoSeparator = ' '): string {
+  const span = formatSpan(elapsedMs)
+  if (fact.includes(span)) return fact
+  if (elapsedMs === 0) return `${fact}, just now`
+  return `${fact}${agoSeparator}${span} ago`
+}
+
+/**
  * An age, or the refusal. Shared by the why's evidence and by every derivation
  * line, because the teach layer relaxing a law the card enforces is precisely
  * how the beginner's depth becomes the dishonest one.
@@ -257,7 +294,9 @@ function derivationLines(derivedFrom: readonly Derivation[] | undefined): string
       )
     }
 
-    return `${fact}${count === undefined ? '' : ` ×${count}`} — ${formatSpan(elapsedMs)} ago`
+    // The same defect lives here by construction — a derivation whose fact
+    // carries its own span doubled it exactly as the why line did.
+    return evidenceClause(`${fact}${count === undefined ? '' : ` ×${count}`}`, elapsedMs, ' — ')
   })
 }
 
@@ -287,7 +326,7 @@ export function disclosureLines(disclosure: DisclosureContent): DisclosureLines 
 
   const elapsedMs = requireAge(evidence.elapsedMs, 'why.evidence.elapsedMs')
 
-  const why = `${reason} — ${fact} ${formatSpan(elapsedMs)} ago`
+  const why = `${reason} — ${evidenceClause(fact, elapsedMs)}`
   const derivation = derivationLines(disclosure.why.derivedFrom)
 
   switch (disclosure.remedy.kind) {
