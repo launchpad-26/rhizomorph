@@ -131,6 +131,65 @@ leg runs, so finding out costs a second instead of a suite. `--pr` also refuses
 `--no-install` and `--no-pack-smoke` — a label that says the full leg passed
 when two of its steps were skipped is a claim wider than its evidence.
 
+## `gh` calls in this repo's own scripts retry a transient network fault
+
+`scripts/dev/gh-retry.sh` wraps a single `gh` invocation and retries it once,
+immediately, when it failed before ever reaching the network — see that
+file's header for the measurement: on at least one contributor
+machine, a DNS proxy returns malformed response packets that Go's resolver
+(and so `gh`) treats as `no such host` on roughly half of every call, while
+glibc tools on the same host (`curl`, `git`, `dig`-on-retry) are unaffected.
+The failure alternates rather than clustering, so one immediate retry
+recovers it; retrying the *script* around several `gh` calls does not, since
+a compound of n calls still succeeds at p^n regardless of how many times the
+whole thing is retried. `scripts/dev/issues.sh` sources it and calls
+`gh_retry` in place of `gh` throughout.
+
+**Three error messages are the same fault, reported three different ways,**
+because `gh` itself makes internal API calls to decide what to tell you:
+
+| what you see | why |
+|---|---|
+| `error connecting to api.github.com` | the direct connection failure |
+| `unknown owner type` | `gh` needed a network call to learn whether an owner is a user or an org, and that call is what failed |
+| `API rate limit already exceeded` with quota actually remaining | `gh`'s own rate-limit bookkeeping call failed the same way and it misreports the cause |
+
+**The one-command check that tells them apart from a real failure:**
+
+```sh
+curl -sS https://api.github.com/rate_limit
+```
+
+No auth needed — this only has to prove `curl` reaches `api.github.com`,
+which the unauthenticated endpoint answers just as well (and `-sS`, not
+`-s`, so a genuine `curl` failure still prints its own error instead of an
+empty screen). An earlier draft here authenticated with
+`-H "Authorization: token $(gh auth token)"`, which works but puts the token
+in `curl`'s argv — visible to anyone on the same machine via `ps`, in a doc
+a public repo hands every contributor. Not needed for what this check is for.
+
+`curl` uses glibc's resolver and is unaffected by this fault. If it succeeds
+while a `gh` call in the same window fails or reports one of the three
+messages above, the fault is this one — the network is fine, `gh`'s own
+attempt to reach it wasn't. If `curl` also fails, the problem is real and no
+retry (in `gh-retry.sh` or anywhere else) should paper over it.
+
+`gh_retry` retries the first two messages, and deliberately still not the
+third. `unknown owner type` is genuinely ambiguous — measured (EXECUTED,
+repeated, this worktree): a real nonexistent owner and this fault produce
+byte-*identical* plain stderr, so no text-based check can tell them apart —
+but it is cheap and bounded to retry anyway: one extra `gh` call, and a
+genuine bad owner still fails identically on the second attempt, reaching
+the caller with the same honest message just one call later. That call site
+(`fetch_board`'s `gh project item-list --owner`) sits under nearly every
+write in `scripts/dev/issues.sh`, so leaving it unretried left board
+operations "effectively unusable" — the issue's own words — even after every
+other call site was fixed. A real rate limit is a different calculus: unlike
+a bad owner, retrying it is *guaranteed* to fail again and spends real quota
+doing it, working against the caller rather than costing one wasted round
+trip — so it still needs the `curl` check above, run by a human, rather than
+a blind retry.
+
 ## Laws live in tests
 
 Behavior this app depends on — a color that means exactly one thing
