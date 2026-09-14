@@ -78,7 +78,7 @@ import { describe, expect, it } from 'vitest'
  * | `//` inside a STRING literal, ahead of a real citation on the same line (`` const u = 'https://x/`packages/foo.ts`' ``) | SKIPPED, declared (review of #186 item 2) — `extractComments`'s line-comment regex has no string-awareness, so a `//` inside a string is read as starting a real comment, and a citation-shaped backtick span later on the same line is swept as if it were commentary. Closing it needs a string-literal-aware tokenizer — quote tracking with escapes, template-literal nesting, and the classic regex-literal-vs-division ambiguity — categorically bigger than the regex-based extractor this file deliberately is, the same "needs a real parser" line the CODE-vs-comment row above already draws. No live instance; pinned by a CONTROL test below so the behaviour cannot silently change |
  * | a path under a BUILD-ARTEFACT directory (`packages/*\/dist/…`) | HANDLED as always-valid — `dist/`, `dist-desktop/` and `dist-vendor/` are gitignored (`.gitignore`) build artefacts that exist only after `npm run build` or packaging; a doc describing where the bundle lands is not making a claim about the tracked tree. Scoped to exactly those three directory NAMES, not "anything git ignores" (review of #186 item 4) — `docs/audit/`, `coverage/`, `node_modules/` and any rule added later are gitignored too but are not build artefacts, and a citation into one of them is a real claim that can be wrong; the earlier, blanket form exempted every ignored path, so a dead citation into `docs/audit/` silently passed |
  * | a CITING document whose head declares `` **Tree:** `<ref>` at `<sha>` `` | EXCLUDED as a citing source, when the sha LANDED (`git merge-base --is-ancestor <sha> <LANDING_REF>`, not merely `git cat-file -e <sha>^{commit}` — #288: the object store holds shas that were fetched, cherry-picked or created locally and never reached `LANDING_REF`) — a dated run record pinned to one commit is a record of that tree, not a live claim (#228; the same reasoning as the three excluded directories, keyed on what the file IS rather than where it sits). The marker is exactly that form, read from the first 12 non-fenced lines: prose mentioning a tree, a pin with no `at`, or a pin buried in the body do not exempt. A pin whose sha does NOT resolve exempts nothing and is reported by `badPins()`, naming which of the two reasons |
- * | `.tsx` and `.mjs` source comments | OUT OF SCOPE, ruling (#186 item 9) — ruling 1 says `packages/**\/*.ts`, and `trackedFiles('packages/*.ts')` matches that exactly: 137 `.tsx` and 5 `.mjs` files go unswept. Verified this is the right call, not an oversight: the last of the 5 `.mjs` files the sweep would reach (`git ls-files 'packages/*.mjs'`, alphabetical — review round 2 corrected "first" to "last"; the substance is unaffected), `packages/web/src/scene/parity/capture.mjs`, cites a deleted `packages/web/src/scene/paint.ts` deliberately — in a comment AND a code constant — and resolves it out of git history, because `8686f24` (#578) replaced the 2D painter and the parity harness intentionally diffs against the pre-deletion file. Widening the sweep as written would false-positive on that live, working, documented citation. Before widening, the law needs a way to say "cited from history, on purpose" so a comment like that one can opt out — that mechanism does not exist yet, so the scope stays exactly ruling 1's, not narrower and not wider |
+ * | `.tsx` and `.mjs` source comments | OUT OF SCOPE, ruling (#186 item 9) — ruling 1 says `packages/**\/*.ts`, and `trackedFiles('packages/*.ts')` matches that exactly: 158 `.tsx` and 6 `.mjs` files go unswept (re-derived 2026-09-14 with the command this row cites; the previous 137/5 had gone stale and nothing pins these, so re-derive rather than trust them). Verified this is the right call, not an oversight: the last of the 6 `.mjs` files the sweep would reach (`git ls-files 'packages/*.mjs'`, alphabetical — review round 2 corrected "first" to "last"; the substance is unaffected), `packages/web/src/scene/parity/capture.mjs`, cites a deleted `packages/web/src/scene/paint.ts` deliberately — in a comment AND a code constant — and resolves it out of git history, because `8686f24` (#578) replaced the 2D painter and the parity harness intentionally diffs against the pre-deletion file. Widening the sweep as written would false-positive on that live, working, documented citation. Before widening, the law needed a way to say "cited from history, on purpose" so a comment like that one can opt out — **that mechanism now exists** (`HISTORICAL_PATH_CITATIONS`, #461), and `capture.mjs`'s own citation is recorded there and honesty-checked both ways. Whether to then widen the sweep to `.mjs` is still a separate ruling, with its own measurement of what a never-swept corpus costs (#461 draws that line on purpose) — so the scope stays exactly ruling 1's, not narrower and not wider, until that ruling is made |
  *
  * ## The `git ls-files` glob gotcha this law's own tests pin down
  *
@@ -180,6 +180,7 @@ function sweepFiles(pattern: string): string[] {
  * | the exclusion-honesty scan | `trackedFiles` — the git INDEX | **WAS THE DEFECT** — guarded now; this is #203 |
  * | `cleanUpOrphanedFixtures` | `readdirSync(docsDir)` — a live directory listing | NOT NEEDED — the entry exists because the listing just named it, and it is wrapped in its own `try`/`catch` besides |
  * | the allowlist-still-fails check | `ALLOWLISTED_BROKEN_CITATIONS[].file`, a literal list | NOT NEEDED — `existsSync` is asserted on the line above, with a message telling you to remove the entry |
+ * | the historical-list-still-holds check | `HISTORICAL_PATH_CITATIONS[].file`, a literal list | NOT NEEDED — same reasoning as the row above; `existsSync` is asserted on the line above it too (#461) |
  * | the own-identity control | `OWN_FILE`, a constant naming this file | NOT NEEDED — if this file were gone, nothing here would be running |
  * | the sibling-violation control | a hardcoded `packages/core/src/placeholder.ts` | NOT NEEDED — a fixed path, not a listing; deleting it is a deliberate act that SHOULD break this control loudly |
  * | the `.mjs` scope control | a hardcoded `capture.mjs` path | NOT NEEDED — same reasoning as the row above |
@@ -958,6 +959,63 @@ const ALLOWLISTED_BROKEN_CITATIONS: ReadonlyArray<{ file: string; cite: string; 
   },
 ]
 
+/**
+ * Path citations recorded as CITED FROM HISTORY, ON PURPOSE (#461) — the mechanism the
+ * input table's `.tsx`/`.mjs` row declared missing before widening the sweep to `.mjs`
+ * could even be considered (#186 item 9). #440 built the equivalent for the SYMBOL law
+ * next door, as a third section (`[historical]`) in `.symbol-citation-baseline`. This
+ * law does not inherit the reason that one had to leave this file — but NOT the reason the
+ * operator ruling first gave, which was wrong about the neighbouring code and is corrected
+ * here rather than repeated. That ruling said a TS const would have enrolled its own
+ * contents into the symbol law's token set and certified itself. It would not:
+ * `buildSourceTokens` carves `OWN_FILE` out to `declaredNamesIn` only — so what this file
+ * DECLARES still enters `sourceTokens()` (the const's own name does), while a name that
+ * merely sits in one of its string literals or comments does NOT, which is the case that
+ * would have mattered. (That distinction was itself got wrong on the first correction of
+ * this passage, which claimed tokens written here "never enter" the set; `buildSourceTokens`'s
+ * own comment says the opposite in terms.) And `git log --diff-filter=A` shows
+ * `.symbol-citation-baseline` and that carve-out landed in the same commit (`de2e618b`,
+ * #369), so the baseline was never a self-certifying const that had to be rescued. The
+ * ruling's CONCLUSION stands on the simpler ground: #440's data file buys this law
+ * nothing, because this law extracts citations from COMMENTS only
+ * (`extractComments`), and excludes `OWN_FILE` outright as a citing file, so a path
+ * sitting in a TS string literal — `capture.mjs` cites `paint.ts` in exactly that shape
+ * too, at `:48`, and it is never swept either way, by this list or the live sweep — cannot
+ * reach this const and certify it. Operator-ruled on #461, before dispatch: this stays a
+ * TS const here, not a second data file — #440's shape is cited for its ruling and its
+ * prose about why the category is distinct from debt, not copied for its storage
+ * mechanism, because the constraint that forced that choice does not apply here.
+ *
+ * Distinct from `ALLOWLISTED_BROKEN_CITATIONS` on purpose, and not a `kind` field added to
+ * it: that list is DEBT — its own header says removing entries as each doc is corrected is
+ * the destination, and "when this list is empty, the law is unconditional." An entry here
+ * means the opposite: the target is gone BECAUSE it was deliberately deleted, the citing
+ * comment means to point at history rather than the live tree, and there is nothing to
+ * correct. Filing one in the debt list would tell the next reader to go "fix" a working,
+ * intentional reference; filing debt here would silence a real regression as a ruling that
+ * was never made. The disjointness test below holds the two apart mechanically.
+ *
+ * Currently unreachable from the live sweep: `.mjs` stays OUT of scope as a citing file
+ * (the input table row above, unchanged by this list — widening it is a separate ruling
+ * with its own measurement, and #461 is explicit that the two are a stack, not a bundle).
+ * This list IS consulted by the violations check below: its pairs join
+ * `ALLOWLISTED_BROKEN_CITATIONS`'s in the exempt set, the same way the symbol law's
+ * `[historical]` joins `[renamed-away]` in its own. An earlier draft of this paragraph said
+ * the opposite, and said it for one commit during which the wiring genuinely was missing —
+ * a reviewer caught that the list was inert, the wiring landed, and this sentence did not
+ * move with it. **Adding a row here therefore EXEMPTS a citation**, and is not the inert
+ * bookkeeping the old wording promised. It is exempt in addition to being honesty-checked
+ * against the named file, the same way the CONTROL test for `capture.mjs` reads it by hand.
+ */
+const HISTORICAL_PATH_CITATIONS: ReadonlyArray<{ file: string; cite: string; reason: string }> = [
+  {
+    file: 'packages/web/src/scene/parity/capture.mjs',
+    cite: 'packages/web/src/scene/paint.ts',
+    reason:
+      '8686f24d replaced the 2D painter with a WebGL2 one; the parity harness deliberately diffs against the pre-deletion file, resolving it out of git history on purpose',
+  },
+]
+
 describe('doc citation law: a path cited from a document or a comment must exist (prd43 ruling 1)', () => {
   it('the sweep is non-empty — the checks below would pass vacuously otherwise', () => {
     expect(allCitations().length).toBeGreaterThan(200)
@@ -1386,7 +1444,7 @@ describe('doc citation law: a path cited from a document or a comment must exist
         'packages/web/src/lib/format.ts -> docs/prd2.md',
       ].sort(),
     )
-    for (const { reason } of ALLOWLISTED_BROKEN_CITATIONS) expect(reason.length).toBeGreaterThan(0)
+    for (const { reason } of ALLOWLISTED_BROKEN_CITATIONS) expect(reason.trim().length).toBeGreaterThan(0)
   })
 
   it('every allowlisted entry is still cited by its file, and actually fails today — a stale entry would silently widen the law', () => {
@@ -1400,6 +1458,41 @@ describe('doc citation law: a path cited from a document or a comment must exist
       expect(swept, `${file} no longer cites ${cite} — this allowlist entry is stale`).toContain(cite)
 
       expect(citationExists(cite), `${cite} now resolves — remove this allowlist entry, ${file} is fixed`).toBe(false)
+    }
+  })
+
+  it('the historical list is pinned — a silent addition here is exactly how a real regression gets waved through as "on purpose" (#461)', () => {
+    expect(HISTORICAL_PATH_CITATIONS.map(({ file, cite }) => `${file} -> ${cite}`)).toEqual([
+      'packages/web/src/scene/parity/capture.mjs -> packages/web/src/scene/paint.ts',
+    ])
+    for (const { reason } of HISTORICAL_PATH_CITATIONS) expect(reason.trim().length).toBeGreaterThan(0)
+  })
+
+  it('every historical entry is still cited by its file, and its target is still absent — either coming back means the ruling no longer applies (#461)', () => {
+    expect.assertions(HISTORICAL_PATH_CITATIONS.length * 3)
+    for (const { file, cite } of HISTORICAL_PATH_CITATIONS) {
+      const filePath = path.join(REPO_ROOT, file)
+      expect(existsSync(filePath), `${file} no longer exists — remove its historical entry`).toBe(true)
+
+      const isDoc = file.endsWith('.md')
+      const raw = readFileSync(filePath, 'utf8')
+      const swept = isDoc ? extractCitations(stripFencedCodeBlocks(raw)) : extractCitations(extractComments(raw))
+      expect(swept, `${file} no longer cites ${cite} — this historical entry is stale`).toContain(cite)
+
+      expect(
+        citationExists(cite),
+        `${cite} exists again — ${file} is no longer citing something removed, so this is not historical any more`,
+      ).toBe(false)
+    }
+  })
+
+  it('the debt list and the historical list cannot record the same (file, cite) pair — they mean opposite things about it (#461)', () => {
+    const debtPairs = new Set(ALLOWLISTED_BROKEN_CITATIONS.map(({ file, cite }) => `${file}\t${cite}`))
+    for (const { file, cite } of HISTORICAL_PATH_CITATIONS) {
+      expect(
+        debtPairs.has(`${file}\t${cite}`),
+        `${file} cites ${cite} in BOTH the debt list and the historical list — pick one`,
+      ).toBe(false)
     }
   })
 
@@ -1654,12 +1747,33 @@ describe('doc citation law: a path cited from a document or a comment must exist
     // citations" rather than "never swept at all".
     expect(trackedFiles('packages/*.ts')).not.toContain(mjsFile)
     expect(allCitations().some(({ file }) => file === mjsFile)).toBe(false)
+
+    // This is the exact case #461 built HISTORICAL_PATH_CITATIONS for — it must
+    // actually be recorded there, not just described in this test's own prose.
+    expect(
+      HISTORICAL_PATH_CITATIONS.some(
+        ({ file, cite }) => file === mjsFile && cite === 'packages/web/src/scene/paint.ts',
+      ),
+      'the ruling this control pins is not recorded in HISTORICAL_PATH_CITATIONS',
+    ).toBe(true)
   })
 
-  it('every in-scope citation exists, unless it is honesty-checked on the allowlist above', () => {
-    const allowlisted = new Set(ALLOWLISTED_BROKEN_CITATIONS.map(({ file, cite }) => `${file} -> ${cite}`))
+  it('every in-scope citation exists, unless it is honesty-checked on the allowlist above or ruled historical', () => {
+    // BOTH lists, and that is the whole point of the second one. A historical entry
+    // that the violations check does not consult is inert: it can never exempt an
+    // in-scope citation, so the only way to record such a citation would be to ALSO
+    // put it on the debt list — which the disjointness test one screen up forbids.
+    // The category would contradict itself for every file this law actually sweeps.
+    // The symbol law's equivalent has always done this (`[...renamedAway, ...historical]`
+    // in its own violations check); this is the path law's half, and it is a no-op on
+    // today's tree only because the sole historical entry names an unswept `.mjs` file.
+    const exempt = new Set(
+      [...ALLOWLISTED_BROKEN_CITATIONS, ...HISTORICAL_PATH_CITATIONS].map(
+        ({ file, cite }) => `${file} -> ${cite}`,
+      ),
+    )
     const violations = allCitations()
-      .filter(({ file, cite }) => !allowlisted.has(`${file} -> ${cite}`))
+      .filter(({ file, cite }) => !exempt.has(`${file} -> ${cite}`))
       .filter(({ cite }) => !citationExists(cite))
       .map(({ file, cite }) => `${file} -> ${cite}`)
     expect(violations).toEqual([])
