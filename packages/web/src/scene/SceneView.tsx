@@ -426,7 +426,7 @@ function CameraControls({ lost, reducedMotion, onFit, onHome, onIn, onOut }: Cam
         data-testid="scene-recenter"
         aria-hidden={!lost}
         tabIndex={lost ? 0 : -1}
-        className={`pointer-events-auto rounded-none border border-(--line-strong) bg-(--surface-raised)/90 px-2 py-1 text-inst-dense uppercase tracking-wide text-(--ink-primary) backdrop-blur-sm transition-[opacity,transform] duration-200 ease-out hover:border-(--ink-dim) focus:outline-none focus-visible:ring-2 focus-visible:ring-(--focus-ring) active:scale-[0.97] ${
+        className={`pointer-events-auto rounded-none border border-(--line-strong) bg-(--surface-raised)/90 px-2 py-1 text-inst-dense uppercase tracking-wide text-(--ink-primary) backdrop-blur-sm transition-[opacity,transform] duration-(--duration-reveal) ease-out hover:border-(--ink-dim) focus:outline-none focus-visible:ring-2 focus-visible:ring-(--focus-ring) active:scale-[0.97] ${
           lost
             ? 'scale-100 opacity-100'
             : `pointer-events-none opacity-0 ${reducedMotion ? '' : 'scale-95'}`

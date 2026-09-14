@@ -760,12 +760,12 @@ describe('stacking, speed and shadow come from the theme', () => {
     // z-(--z-sticky) 10 · z-(--z-header) 20 · z-(--z-focus) 30 ·
     // z-(--z-peek) 40 · z-(--z-card) 50 · z-(--z-plate) 60. An eleventh-hour
     // `z-[9999]` is a fight, not a rung.
-    const offenders = appSources().filter((file) => /z-(\d|\[)/.test(withoutComments(file.text)))
+    const offenders = appSources().filter((file) => /\bz-(\d|\[)/.test(withoutComments(file.text)))
     expect(offenders.map((file) => file.name), 'a raw z-index utility — use the z ladder').toEqual([])
   })
 
   it('no raw transition-duration utility — the table above is the durations', () => {
-    const offenders = appSources().filter((file) => /duration-(\d|\[)/.test(withoutComments(file.text)))
+    const offenders = appSources().filter((file) => /\bduration-(\d|\[)/.test(withoutComments(file.text)))
     expect(offenders.map((file) => file.name), 'a raw duration utility — use --duration-touch/-reveal').toEqual([])
   })
 
@@ -773,7 +773,7 @@ describe('stacking, speed and shadow come from the theme', () => {
     // The drawer carried `rgba(0,0,0,0.9)` into the light theme for two PRDs:
     // a black smear on warm paper. `--elev-*` exists so a shadow is declared
     // once per theme, in the register's own material.
-    const offenders = appSources().filter((file) => /shadow-\[/.test(withoutComments(file.text)))
+    const offenders = appSources().filter((file) => /\bshadow-\[/.test(withoutComments(file.text)))
     expect(offenders.map((file) => file.name), 'a literal box-shadow — use --elev-raised/-overlay/-sheet').toEqual([])
   })
 })
