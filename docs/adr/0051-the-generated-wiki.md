@@ -1,4 +1,4 @@
-# 0050. A third party generates a public wiki over this repo; the repo's own index is what it is generated from
+# 0051. A third party generates a public wiki over this repo; the repo's own index is what it is generated from
 
 - **Status:** accepted (operator ruling, 2026-09-14)
 - **Date:** 2026-09-14

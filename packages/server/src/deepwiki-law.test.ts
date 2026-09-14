@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
  * #472's law — the generated wiki points at THIS repository, and reaching it
  * costs no credential.
  *
- * ADR-0050 accepted a third party generating a public wiki over this repo, and
+ * ADR-0051 accepted a third party generating a public wiki over this repo, and
  * was explicit that the generated page itself is beyond any law here: it is
  * written by a model, refreshed on a vendor's schedule, and nothing in this tree
  * can redden when it is wrong. What this law holds is the half that IS in the
@@ -23,7 +23,7 @@ import { describe, expect, it } from 'vitest'
  *     owner/repo from the package manifest rather than accepting a second
  *     hand-typed copy of it.
  *   * **A credential arriving quietly.** The public endpoint needs none, which is
- *     the entire basis on which ADR-0050 was acceptable — ADR-0019 rejected a
+ *     the entire basis on which ADR-0051 was acceptable — ADR-0019 rejected a
  *     hand holding a credential because "a hand that holds a credential has
  *     something worth stealing", and ADR-0034 granted one only after a public
  *     argument and a law per clause. A documentation convenience does not earn
@@ -115,7 +115,7 @@ describe('the generated wiki names this repository, and reaching it holds no cre
     expect(String(server!.url)).not.toMatch(/\/sse$/)
   })
 
-  it('.mcp.json carries no credential ANYWHERE in it — the public endpoint needs none, and that is what makes ADR-0050 cheap', () => {
+  it('.mcp.json carries no credential ANYWHERE in it — the public endpoint needs none, and that is what makes ADR-0051 cheap', () => {
     expect(
       credentialSmells(read('.mcp.json')),
       '.mcp.json names a credential — a credential here is an ADR, not a config edit',

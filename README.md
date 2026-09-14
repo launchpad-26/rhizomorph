@@ -532,7 +532,7 @@ code they hold ([CONTRIBUTING.md](CONTRIBUTING.md#laws-live-in-tests)).
 What *is* held: the badge and the endpoint above both name this repository and
 not another, pinned by `packages/server/src/deepwiki-law.test.ts`. That is the
 part that lives in this tree, so it is the part a law can reach.
-[ADR-0050](docs/adr/0050-the-generated-wiki.md) records why a third party
+[ADR-0051](docs/adr/0051-the-generated-wiki.md) records why a third party
 publishes a document about this project at all, what it costs, and the bound that
 makes it free — it is free and uncredentialed only while this repo is public.
 
