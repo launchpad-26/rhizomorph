@@ -707,6 +707,14 @@ describe('declaredExemptionReason — ruling 2\'s marker reader, tested directly
   it('a marker sitting inside an HTML comment is not a declaration — single-line and multi-line', () => {
     expect(declaredExemptionReason('<!-- **Shelf exemption:** still needed, see #428 -->')).toBeUndefined()
     expect(declaredExemptionReason('> <!-- **Shelf exemption:** still needed,\n> see #428 -->')).toBeUndefined()
+
+    // The two cases above pass WITHOUT the comment blanking too: their opener sits on the
+    // marker's own line, so the line-start rule alone rejects them (measured at review —
+    // deleting the `withoutComments` step left this test green). The blanking is
+    // load-bearing only when the comment WRAPS a line that begins with the marker; these two
+    // are that shape, and they are what reddens if the blanking is ever dropped.
+    expect(declaredExemptionReason('<!--\n**Shelf exemption:** a hidden reason with several words\n-->')).toBeUndefined()
+    expect(declaredExemptionReason('> <!--\n> **Shelf exemption:** a hidden reason with several words\n> -->')).toBeUndefined()
   })
 
   it('a marker sitting inside a fenced code block is not a declaration — backtick and tilde fences', () => {
