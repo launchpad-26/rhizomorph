@@ -1518,4 +1518,35 @@ describe('declaredExemptionReason — ruling 2\'s marker reader, tested directly
       'An unrelated line of prose starts this document.\n\n    <!--\n    this is genuinely indented code, not a comment\n    -->\n\n> **Shelf exemption:** the real reason, entirely unaffected by the code block above'
     expect(declaredExemptionReason(detached)).toBe('the real reason, entirely unaffected by the code block above')
   })
+
+  // Round 2's paragraph fix is what makes this reachable: before it, a 4+-indented line returned
+  // early as code and never saw the fence-open check at all, so `indent.credit < 4` on that check
+  // was unreachable belt-and-braces. Now a paragraph-continuing line at 4+ columns FALLS THROUGH
+  // to it, and the guard is the only thing stopping such a line from opening a fence — which
+  // CommonMark forbids unconditionally (a fence opener may be indented at most 3 columns; at 4+
+  // after open prose the run is lazy paragraph text, verified against commonmark.js 0.31.2).
+  //
+  // Added by review of #510: the guard shipped with no assertion — mutating `indent.credit < 4`
+  // to `true` left the suite 49/49 green while flipping every shape below from EXEMPT to CONVICT.
+  it('#459 round 2, review of #510: a 4+-indented fence opener CONTINUING a paragraph is lazy text, not a fence — a declaration after it is still read', () => {
+    // Backtick spelling. Without the `indent.credit < 4` guard the indented ``` opens a fence,
+    // the declaration below becomes fence interior, and a plainly visible reason is convicted.
+    const backtick = 'Some open prose that this indented run continues.\n    ```\n**Shelf exemption:** the reason stays visible, since no fence ever opened'
+    expect(declaredExemptionReason(backtick)).toBe('the reason stays visible, since no fence ever opened')
+
+    // Unlisted spelling: tilde, inside a blockquote, different indent width and prose.
+    const tilde = '> A quoted note that the next line continues.\n>      ~~~~\n> **Shelf exemption:** a second visible reason, no fence opened here either'
+    expect(declaredExemptionReason(tilde)).toBe('a second visible reason, no fence opened here either')
+
+    // Control: the SAME opener detached by a blank line, so it is genuinely indented code rather
+    // than a paragraph continuation — still not a fence, and the declaration after is still read.
+    // This proves the assertion above turns on the GUARD, not on "an indented fence never opens".
+    const detachedFence = 'An unrelated opening line of prose.\n\n    ```\n    still just indented code text\n\n**Shelf exemption:** the real reason, unaffected by the indented block above'
+    expect(declaredExemptionReason(detachedFence)).toBe('the real reason, unaffected by the indented block above')
+
+    // Control: a fence opener at 3 columns after the same prose DOES open a fence, so the
+    // declaration inside it is correctly hidden — the guard is a threshold, not a blanket.
+    const threeColumns = 'Some open prose that this indented run continues.\n   ```\n**Shelf exemption:** concealed, because a 3-column fence opener is real'
+    expect(declaredExemptionReason(threeColumns)).toBeUndefined()
+  })
 })
