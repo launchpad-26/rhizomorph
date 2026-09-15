@@ -74,10 +74,20 @@ Recorded in `docs/design-notes/collector-tick-budget.md`. The Windows leg spends
 
 ## Ruling 10's condition, assessed
 
-| leg | capture | verification pass | merges? |
-|---|---|---|---|
-| Linux / WSL2 | fabricated procfs + live WSL2 run | this record | yes |
-| Windows native | `windows-cim.json`, live run above | this record | yes |
-| macOS | **none** | **none** | **no — ships null-only and says so** |
+| leg | capture | verification pass |
+|---|---|---|
+| Linux / WSL2 | fabricated procfs + live WSL2 run | this record |
+| Windows native | `windows-cim.json`, live run above | this record |
+| macOS | **none** | **none** |
 
-Ruling 10 permits a leg with no witness to ship null-only for that platform provided it says so. macOS does. So this wave can merge with two legs witnessed and one declared absent — which is the ruling's own provision, not an exception to it.
+**Two of three. This wave does not merge on this record.** The operator set the
+condition in session on 2026-09-15, in these words: *"Wave 2 does not merge until
+each platform leg has a capture under a `CAPTURE.md` and a verification pass
+citing its artifact."* macOS has neither, so the wave stays held on macOS alone —
+every other condition it was held for is now met.
+
+Nothing here should be read as arguing the wave past that. Ruling 10 can be read
+as permitting a witnessed-where-built landing with the unbuilt platform declaring
+itself, and the leg does declare itself; but which reading governs is the
+operator's call and not this record's, and the condition as actually stated is
+the stricter one. This document's job is to say what was witnessed.
