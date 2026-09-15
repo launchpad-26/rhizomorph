@@ -17,7 +17,12 @@
 set -uo pipefail
 
 root=$(git rev-parse --show-toplevel) || exit 2
-SCRIPT="$root/scripts/dev/issues.sh"
+# ISSUES_SH_OVERRIDE lets a caller point this suite at a mutated copy of the
+# script instead of the tracked one — the proof mechanism for #548's own
+# lane-precommit --prove step, which needs a command that MUST fail to show
+# the sha-ancestry assertions actually distinguish a real check from one
+# fitted to always complain.
+SCRIPT="${ISSUES_SH_OVERRIDE:-$root/scripts/dev/issues.sh}"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 export PATH="$tmp/bin:$PATH"
 mkdir -p "$tmp/bin"
@@ -345,6 +350,108 @@ EOF
 out=$("$SCRIPT" batch < "$tmp/in.toomany" 2>&1); rc=$?
 is  "an over-long line is refused"    1 "$rc"
 is  "an over-long line writes nothing" 0 "$(count "$MUTATION")"
+
+echo ""
+echo "── issues.sh: close warns on a sha that isn't on origin/main (#548) ──"
+
+# A throwaway repo, isolated from the real one on purpose: the check must
+# work from whatever shas this test controls, not from whatever happens to be
+# reachable, dangling, or already gc'd in whichever checkout runs the suite.
+shatest_repo="$tmp/shatest"
+git init -q -b main "$shatest_repo"
+git -C "$shatest_repo" config user.email test@example.com
+git -C "$shatest_repo" config user.name test
+git -C "$shatest_repo" commit -q --allow-empty -m root
+landed_sha=$(git -C "$shatest_repo" rev-parse HEAD)
+# No real remote is configured — `origin/main` here is a plain ref pointing
+# at the same commit, which is all `git merge-base --is-ancestor` ever reads.
+git -C "$shatest_repo" update-ref refs/remotes/origin/main "$landed_sha"
+git -C "$shatest_repo" checkout -q -b sidebranch
+git -C "$shatest_repo" commit -q --allow-empty -m "unmerged work"
+unmerged_sha=$(git -C "$shatest_repo" rev-parse sidebranch)
+
+# The control this issue's own "what mutation" section names: a LANDED sha
+# must pass silently. Asserting only the unlanded case below would still pass
+# against a check fitted to warn at everything.
+fresh close_landed
+out=$(cd "$shatest_repo" && "$SCRIPT" close 1 "fixed via $landed_sha" 2>&1); rc=$?
+is  "close: an ancestor-of-origin/main sha still closes"    0 "$rc"
+case "$out" in
+  *"warning:"*) bad "close: an ancestor-of-origin/main sha passes silently" "got: $out" ;;
+  *)            ok  "close: an ancestor-of-origin/main sha passes silently" ;;
+esac
+
+fresh close_unlanded
+out=$(cd "$shatest_repo" && "$SCRIPT" close 1 "fixed via $unmerged_sha" 2>&1); rc=$?
+is  "close: a sha not on origin/main still closes (warns, never refuses)" 0 "$rc"
+has "close: warns that the cited sha isn't on origin/main" "is not an ancestor of origin/main" "$out"
+has "close: names the cited sha in the warning"            "$unmerged_sha" "$out"
+has "close: the close itself still went through"           "issue close 1" "$(cat "$GH_LOG")"
+
+# Two spellings git resolves that the first cut of the detector missed, found by
+# the review. Both name the SAME unlanded commit as the case above, so a check
+# that warns on the lowercase-40 spelling and not on these is not "strict about
+# shas" — it is reading one spelling and calling it the class. Uppercase is what
+# a paste out of a UI gives you; a 6-char abbreviation is what `--short` gives
+# you on a small repo. `git rev-parse` resolves both (EXECUTED).
+fresh close_upper
+out=$(cd "$shatest_repo" && "$SCRIPT" close 1 "fixed via $(printf '%s' "$unmerged_sha" | tr 'a-f' 'A-F')" 2>&1); rc=$?
+is  "close: an UPPERCASE unlanded sha still closes"            0 "$rc"
+has "close: warns on an UPPERCASE unlanded sha"                "is not an ancestor of origin/main" "$out"
+
+fresh close_sixchar
+# The abbreviation must be long enough to CONTAIN an a-f letter, or the letter
+# requirement in extract_shas correctly ignores it and this assertion fails for a
+# reason that has nothing to do with length. A random sha whose first six chars
+# are all decimal (e.g. 949667) reddened this ~1 in 12 runs before it was pinned.
+short_abbrev=$unmerged_sha
+for _n in 6 7 8 9 10 11 12; do
+  cand=${unmerged_sha:0:$_n}
+  case "$cand" in *[a-f]*) short_abbrev=$cand; break ;; esac
+done
+out=$(cd "$shatest_repo" && "$SCRIPT" close 1 "fixed via $short_abbrev" 2>&1); rc=$?
+is  "close: a short unlanded abbreviation still closes"       0 "$rc"
+has "close: warns on a short unlanded abbreviation"           "is not an ancestor of origin/main" "$out"
+
+# A resolvable REF is not a cited object id. `rev-parse ^{commit}` peels tags and
+# branches as happily as object ids, so a tag whose NAME is hex-ish turns ordinary
+# prose into a warning — found by a review seat with a tag called `decade` and the
+# reason "fixed last decade". The guard requires the resolved commit to BEGIN with
+# the cited token, which is true of an abbreviation and false of every ref name.
+git -C "$shatest_repo" tag -a decade -m "hex-named tag" "$unmerged_sha" >/dev/null 2>&1
+fresh close_hexword_tag
+out=$(cd "$shatest_repo" && "$SCRIPT" close 1 "fixed last decade" 2>&1); rc=$?
+is  "close: prose naming a hex-word tag still closes"          0 "$rc"
+case "$out" in
+  *"warning:"*) bad "close: a hex-word that resolves only as a REF is not warned on" "got: $out" ;;
+  *)            ok  "close: a hex-word that resolves only as a REF is not warned on" ;;
+esac
+
+# Control for the guard, and the assertion that fails if it is written too
+# strictly: a real abbreviation of that same commit must STILL warn.
+fresh close_after_tag
+out=$(cd "$shatest_repo" && "$SCRIPT" close 1 "fixed via ${unmerged_sha:0:8}" 2>&1); rc=$?
+has "close: a real abbreviation still warns once a hex-named tag exists" "is not an ancestor of origin/main" "$out"
+
+# A sha this repo's git cannot resolve at all (never fetched here, or a typo)
+# is offline-unverifiable, not evidence of anything — flagging it would just
+# be noise over any non-sha hex-looking word.
+fresh close_unresolvable
+out=$(cd "$shatest_repo" && "$SCRIPT" close 1 "fixed via deadbeefcafe" 2>&1); rc=$?
+is  "close: a sha this git can't resolve locally still closes" 0 "$rc"
+case "$out" in
+  *"warning:"*) bad "close: an unresolvable sha is skipped, not flagged" "got: $out" ;;
+  *)            ok  "close: an unresolvable sha is skipped, not flagged" ;;
+esac
+
+# This issue adds no requirement to cite a sha at all.
+fresh close_nosha
+out=$(cd "$shatest_repo" && "$SCRIPT" close 1 "superseded by #550" 2>&1); rc=$?
+is  "close: a reason naming no sha still closes" 0 "$rc"
+case "$out" in
+  *"warning:"*) bad "close: a reason naming no sha is unaffected" "got: $out" ;;
+  *)            ok  "close: a reason naming no sha stays quiet" ;;
+esac
 
 echo ""
 echo "──"
