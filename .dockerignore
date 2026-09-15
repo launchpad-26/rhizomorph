@@ -18,6 +18,27 @@
 packages/team/deploy/.env
 packages/team/deploy/.env.tmp.*
 
+# Key material — the same exposure, one boundary further out (#544). The build context is the
+# REPOSITORY ROOT (packages/team/deploy/compose.yml's `context: ../../..`) and the runtime stage
+# does `COPY packages/team/deploy packages/team/deploy`, so a key left anywhere in the checkout
+# reaches an image layer, where it outlives every rotation recipe in the runbook.
+#
+# BOTH SPELLINGS PER EXTENSION, AND THAT IS NOT REDUNDANCY. A .dockerignore pattern is matched
+# against the path relative to the context root with Go filepath.Match semantics, whose `*` does
+# not cross a separator — so a bare `*.pem` excludes a key at the context root and does NOT
+# exclude packages/team/deploy/scratch.pem. Only the `**/` form reaches depth. This is the one
+# place where this file and .gitignore must NOT carry the same lines, and it is why
+# packages/server/src/secret-file-guard-law.test.ts asserts the two mechanisms separately. The
+# node_modules / **/node_modules pair below is the same shape, already in this file.
+*.pem
+**/*.pem
+*.key
+**/*.key
+*.p12
+**/*.p12
+*.pfx
+**/*.pfx
+
 # Nothing below is a secret — it is context the daemon never needs. No stage of
 # any Dockerfile here copies either: `packages/team/Dockerfile` installs its own
 # `node_modules` with `npm ci` in the deps stage, and nothing reads `.git`.

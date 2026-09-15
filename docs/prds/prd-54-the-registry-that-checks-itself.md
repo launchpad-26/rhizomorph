@@ -3,7 +3,9 @@
 > **Status:** **BLESSED** — ciaran-slow, 2026-09-08, in session. Milestone `prd54`. Written out of the review of
 > [#353][i353], which registered one coupling point and found in passing that the registry it
 > writes into is unverified prose, and that the script written to verify it is wired to nothing.
-> Two waves, and the first is a correction rather than a feature.
+> Three waves and a correction that has already had to run twice: the first pass
+> (#366) made the registry true on 2026-09-10, and eleven claims were false again by
+> 2026-09-15. The second pass is this PRD's own thesis measured against itself.
 
 ## Problem
 
@@ -62,6 +64,21 @@ was the figure from the lane that adds the twenty-first entry. Re-derive it; do 
 - **What `coupling.test.sh` checks is presence, not truth** (`:52-67`): the file exists, is
   tracked, N entries parse, each leading path exists, each reason does not merely repeat its own
   path. Nothing opens the cited file.
+- **The correction rots at the speed of the tree, which is the argument for the law and
+  not against the correction.** Measured on `main` at `1c6f3852` (2026-09-15), five days
+  after wave 1 landed as `22a42739`: **47** entries, up from 21. Of the **12** assertion
+  spans Ruling 7 selects, **5** no longer occur verbatim in their cited file — the
+  route-class pins moved from 30 to 34 on 2026-09-11 (#412), the very entry wave 1 had
+  just re-derived; the contract-coverage law's gated-read count moved from 16 to 19 and
+  its exclusion list from three routes to one on 2026-09-10 (#214); and the team API
+  entry quotes a `toEqual` array the source writes across seven lines. Of the **58**
+  path citations Ruling 8's clauses admit (54 by clause 4a, 3 by 4b, 1 by 4c), **50**
+  resolve in a fresh checkout and 8 do not: the two declared-generated occurrences of
+  `.swarm/timing-count`, and six correct claims the selector was never shown — see
+  Ruling 9. `scripts/dev/coupling.test.sh` itself stands at 10 of 11: the `docs/adr/`
+  entry (added 2026-09-11, #414) names its own path inside a command, and the script's
+  "no reason" heuristic is *contains*, not *equals* — see Ruling 10. Every one of those
+  eleven claims was committed through a green suite, a green typecheck and a green lint.
 
 ## Success
 
@@ -436,6 +453,16 @@ ruling, not to relax the law quietly into normalising whitespace. Normalising is
 the move that would let `.toBe( 25 )` satisfy a claim about `.toBe(25)`, and the
 whole value of the span reading is that it is literal.
 
+*Amendment note, 2026-09-15.* The multi-line case arrived and the falsifier did **not**
+fire. The `packages/team/src/api/api.test.ts` entry quotes
+`` `expect(storage.committed).toEqual(['0001_events', '0002_projections', '0003_roles_rls', '0004_events_dedup'])` ``
+on one line; the source writes that assertion across seven, so the span can never match.
+The shorter form the Extent prescribes — `` `expect(storage.committed).toEqual([` `` — occurs
+exactly once in the file and is unambiguous, so the remedy is to shorten the span and
+name the five migration ids in prose, and the rule stands as written. Recorded because it
+is the first time the case has been met, and so that the next reader knows it was
+checked rather than assumed.
+
 **Consequence: this unblocks #367**, which is the last wave-0 act it waits on.
 Wave 1 (#366) is unaffected — correcting the route-class entry does not settle
 this edge, because line 180's decoy makes the token reading pass regardless of
@@ -612,103 +639,205 @@ but widen it in this ruling, and re-measure, because three defensible scopes gav
 three different answers when this was last counted and that is precisely why the
 scope is now written down.
 
+*Amendment note, 2026-09-15 — the falsifier fired, twice, and Ruling 9 answers it.*
+Measured on `main` at `1c6f3852`, 47 entries: the four clauses admit **58** citations
+(54 by clause 4a, 3 by 4b, 1 by 4c — the `` `.gitignore` `` case), of which **50** resolve
+in a fresh checkout. Of the 8 that do not, two are the declared `.swarm/timing-count`.
+The other six are correct claims of a shape this ruling was never shown:
+
+| entry | span | what it actually is |
+|---|---|---|
+| `packages/core/src/eras/` | `` `session-state.snapshot.json` `` (4b) | a **family** — one file per era directory |
+| `packages/server/src/shipper/key-mint-law.test.ts` | `` `init.sh` `` (4b) | a second mention of a file the entry earlier cites in full, from another package |
+| `.swarm/prd-milestones.txt` | `` `done/` `` twice (4a) | once a shorthand for the archive directory, once a **grep target** with zero hits |
+| `scripts/dev/prd-milestones.sh` | `` `done/` `` (4a) | a grep target with zero hits |
+| `scripts/dev/prd-milestones.sh` | `` `prd-reconcile.sh` `` (4b) | a bare filename in an entry with no package root |
+
+The selector is right about all six — each is path-shaped — and the resolution rule is
+right too; what was missing is a rule for what an author may **put** in backticks. That
+is Ruling 9. The clauses, the scope and the `-e` predicate are unchanged. The section
+comment on line 24 carries a bare `` `.toBe()` ``; it is outside the stated scope and
+stays so.
+
+## Ruling 9 — a backticked span cites one thing that exists; a search string, a family, or a second-hand shorthand is written another way (settles Ruling 8's first falsifier)
+
+**Verdict.** Every span Ruling 8's clauses admit is a citation and is checked; nothing
+admitted is exempt, and no marker exempts it. What changes is the author's side. Four
+rules, one per shape the measurement found:
+
+1. **A grep target is prose.** A string quoted for what it does *not* find — *"grep it
+   for `done/`: zero hits"* — is Ruling 6's refused construction one surface over, and
+   gets Ruling 6's remedy: say it without backticks. A backticked span in this file is
+   always something a reader can open or find.
+2. **A family is a glob or one member.** Files that exist once per directory —
+   `session-state.snapshot.json` under each era — are cited as
+   `` `eras/*/session-state.snapshot.json` `` (package-relative, since the entry sits in
+   `packages/core/src/`) or by one member's full path. Clause 1 rejects a glob, so a
+   family citation is **deliberately unchecked**; that is the honest reading of a claim
+   about several files at once, and it is why the glob exclusion exists.
+3. **A second mention is spelled like the first.** An entry that cites
+   `packages/team/deploy/init.sh` in full and then says `` `init.sh` `` has written the
+   same fact twice in two spellings, which is #649's one-edit rule. Under Ruling 5 the
+   short form resolves only inside its own package root, and this entry's root is
+   another package; so the second mention is the full path, or prose. Likewise
+   `` `prd-reconcile.sh` `` in an entry with no package root is `scripts/dev/prd-reconcile.sh`.
+4. **A moving literal stays quoted whole, and the registry becomes a coupling point for
+   it.** The route-class and contract-coverage entries quote counts that move with every
+   route. Quoting only the stable prefix — `` `expect(routes.length).toBe(` `` — would pass
+   Ruling 7 forever while the number beside it in prose rotted unchecked, which is
+   Success 2 inverted and the defect this PRD was written about. So the whole span stays,
+   and the consequence is accepted and **declared**: once wave 2's law exists, a lane
+   that moves a pin quoted in this file reddens `packages/server/` from a directory it
+   never entered — exactly the shape every entry in this file describes. Wave 2 therefore
+   adds the registry's **own** entry to the registry, naming the law, so that fence-lint
+   warns the lane that moves a quoted pin. That lane fences `.swarm/coupling.txt` and
+   reconciles the entry in the same commit that moves the pin.
+
+**Why rule 4 is not the cheaper prefix.** Measured: two entries moved within 48 hours
+of wave 1 re-deriving them (30→34 on 2026-09-11, 16→19 on 2026-09-10). Under the prefix
+rule both would have stayed green with wrong numbers in prose beside them; under this
+rule both redden, and the lane that moved the count is the lane told to fix the
+sentence. The cost is one more file in a fence that already had to include the two laws
+the entry describes.
+
+**Extent.** Rules 1–3 are house style the law enforces only indirectly — a grep target in
+backticks fails as an unresolved citation, which is the right verdict with the wrong
+message; the law's failure text should therefore point here. Rule 4 is enforced by
+Ruling 7 unchanged. Nothing here changes Ruling 8's clauses, scope or predicate. Prose
+numbers remain Open question 1.
+
+**Falsifier.** A file that genuinely must be cited as a search string a reader would
+paste — not a claim of absence — would need a marker this ruling refuses. None exists in
+47 entries. If one arrives, amend here, not in the law.
+
+## Ruling 10 — a reason may name its own path; the presence check is equality, and a generated declaration names its generator as a path (settles Ruling 3's self-reference edge)
+
+**Verdict.** The ported presence check is: the reason, trimmed, is **non-empty and not
+equal to** the entry's leading path. *Contains* is not the test. An entry may name its
+own path in its reason — `docs/adr/` legitimately says *"`git ls-tree origin/main
+docs/adr/`"* — and `scripts/dev/coupling.test.sh`'s `*"$path"*` heuristic, which reads
+that as "no reason given", is tightened to equality in this same wave, so the operator's
+fast path and the law agree from the day the law lands.
+
+**A generated declaration has one form.** Under Ruling 3 an entry declaring a path
+generated writes, somewhere in its reason, exactly:
+
+    `<generated-path>` is GENERATED by `<generator-path>`
+
+The law reads that triple; the generated path is exempt from resolution, the generator
+path must resolve under Ruling 5's two attempts, and the generator file's text must
+contain the generated path. **The generator may be the entry's own leading path** —
+`scripts/gate.sh` generates `.swarm/timing-count` and says so by name. Wave 1's wording,
+*"its generator is THIS ENTRY'S OWN FILE"*, was written around the shell heuristic this
+ruling retires, and is rewritten to the form above in this wave.
+
+**Why equality.** The heuristic exists to catch an entry whose "reason" is the path
+restated. Containment catches that and also every honest self-reference, and the
+registry now has one; a guard that fails a true entry teaches its readers to expect red,
+which is the header's own warning about warnings. Equality catches the case the guard was
+written for and nothing else.
+
+**Extent.** One form, no synonyms: the law matches the literal ` is GENERATED by ` between
+two backticked spans and nothing looser, so that a declaration is as greppable as a
+citation. Ruling 3's per-path, asserted, never-a-pattern rule stands. The shell script's
+tightening is in this wave's fence, not wave 2's, because the ADR entry trips it today.
+
 ## Sequencing (waves, each gated as ever)
 
-*Groomed 2026-09-09, operator sign-off in session; written to what was groomed rather than to the
-draft it replaced. Three deviations from that draft, each deliberate: the `.swarm/timing-count`
-declaration moved from wave 2 into wave 1; wave 2 became one issue rather than three parallel
-items; and the law also ports the shell script's presence checks. Reasons below.*
+*Groomed 2026-09-09, operator sign-off in session; regroomed 2026-09-15 after the
+registry was measured false again. The 09-09 groom's three deviations from its draft
+stand (the `.swarm/timing-count` declaration in wave 1; wave 2 as one issue; the law
+porting the shell script's presence checks). The 09-15 regroom adds three more, each
+recorded where it bites: wave 1 runs a second pass; wave 2 widens to the registry itself;
+and a wave 3 that the tracker already carried is declared here.*
 
-`.swarm/coupling.txt` is also [#353][i353]'s and [#358][i358]'s fence. Both have landed on `main` —
-[#353][i353] as `4299adec`, [#358][i358] as `b5d6630c` — and wave 1 followed them, as `22a42739`.
-All three edit that one file, so they were sequential by construction rather than parallel. No wave enters
-scripts/fence-lint.sh (Non-goals), and none enters `doc-citation-law.test.ts`, which is prd-17
-territory.
+`.swarm/coupling.txt` was [#353][i353]'s and [#358][i358]'s fence, then wave 1's. All
+landed on `main` — `4299adec`, `b5d6630c`, `22a42739` — and seventeen further commits
+have edited the file since, none of them this PRD's. Every wave here edits that one file,
+so the waves are sequential by construction. No wave enters `scripts/fence-lint.sh`
+(Non-goals), and none enters `doc-citation-law.test.ts`, which is prd-17 territory.
 
-**Wave 0 — operator acts, booked and not dispatchable. COMPLETE 2026-09-10.** Four items, all
-answered, and no issue minted for any of them:
+**Wave 0 — operator acts, booked and not dispatchable.** Six items, all answered, no
+issue minted for any of them. The first four were complete on 2026-09-10 and are
+recorded as they were:
 
 - Ruling 3's resolution edge — **answered**, as Ruling 5.
 - Ruling 2's absence edge — **answered**, as Ruling 6.
-- Ruling 2's *unit* edge — **answered**, as Ruling 7. Raised by Ruling 2's amendment note 2, from
-  the independent review of `fa64a7a7`, after the other two were decided, and settled last: the
-  span reading reddens all three false claims in the registry while the token reading reddens one,
-  so the token reading would have passed two of the three claims this PRD exists to catch —
-  Success 4's own route-class example among them.
+- Ruling 2's *unit* edge — **answered**, as Ruling 7. The span reading reddens all three
+  false claims in the registry while the token reading reddens one.
+- Ruling 5's own *selector* — **answered**, as Ruling 8, on 2026-09-10. A law written to
+  its Extent sentence would have reddened the file on its first run.
 
-- Ruling 5's own *selector* — **answered**, as Ruling 8, on 2026-09-10. Found while building wave 1:
-  the Extent sentence that named the selector was satisfied by every backticked identifier in the
-  registry, so a law written to it would have reddened the file on its first run and needed an
-  allowlist of that size on day one. Ruling 8 replaces it with four mechanical clauses and, because
-  three defensible counting scopes had given three different answers, states the scope too — and,
-  after review, the resolution predicate those clauses feed.
+Three of those four were found by auditing an entry against a ruling; the fourth by
+trying to implement one. Neither method dominates and wave 2 wants both — see the
+2026-09-10 note that used to close this list, kept in the file's history at `d046fc30`.
 
-**Three** of the four edges were found the same way — by auditing an entry against a ruling rather
-than by writing code to it — and **three of the four**, which are not the same three, by a reader
-other than the ruling's author. That is the argument for the audit step wave 2's law replaces, and
-the reason wave 2 should not start until someone has audited the remaining entries against Rulings
-5, 6 and 7 as well.
+The two added 2026-09-15 were found by a third method, which is the one the PRD argues
+for: **running the rulings as code over the live registry** — not the law, a measurement
+script — five days after wave 1:
 
-The fourth was found the other way round, and it argues for the **law** rather than for the audit
-step: ruling 5's selector came through three audits untouched and failed on the very first attempt
-to *implement* it. Auditing an entry against a rule does not exercise the rule; running it does.
-Ruling 8's own third clause-4 branch, added on review, was then found the first way again — by a
-reader sweeping the rejected set. Its **resolution predicate** then went the other way again:
-a second review pass reimplemented the clauses and could not reproduce the published table until
-it guessed the convention, which is how `-e` came to be written into the Extent. One edge each,
-from the two methods, on the same ruling — so neither method dominates and wave 2 wants both.
+- Ruling 8's falsifier fired on six correct claims of shapes it had not been shown —
+  **answered**, as Ruling 9.
+- Ruling 3's self-reference edge, first noted on [#367][i367] from building wave 1 —
+  **answered**, as Ruling 10, together with the presence-check heuristic that made it an
+  edge.
 
-**That count said "all four", and it was one too many.** Before Ruling 8 was booked as the fourth
-edge the paragraph read *"two of the three by a reader other than the ruling's author"*, so adding
-one edge found by another reader takes it to three of four, not four of four. The strengthening
-arrived unrecorded, in the same commit that corrected the clause beside it — which is this PRD's
-own subject, one paragraph deep in the ruling written to stop it. If all four *are* another
-reader's, then one of the original three has been reclassified, and the reclassification is the
-fact to name; the count follows from it rather than standing on its own.
+Both land with wave 1's second pass rather than in a PR of their own, at the operator's
+request; the reasoning is at the head of the amendment that added them.
 
-**Wave 1 — the Keystone: the registry's own claims are true.** [#366][i366]. Claimed by nobody
-downstream but the law that checks it. One file, `.swarm/coupling.txt`:
+**Wave 1 — the Keystone: the registry's own claims are true.** Two passes.
 
-- the `tokens.test.ts` entry — `.toBe(225)` becomes the `RAW_PIXEL_SIZES` symbol, today 0, with
-  the both-directions framing re-stated honestly at zero;
-- the `route-class-law.test.ts` entry — its two `.toBe(25)` spans re-derived from the file, which
-  pins 30. Note that this entry is the one Ruling 2's unit edge turns on, and correcting it does
-  not settle that edge: `api/route-class-law.test.ts:180` carries an unrelated `.toBe(25)` that
-  makes the token reading pass a stale claim regardless of what this wave writes;
-- the `.swarm/timing-count` generated declaration, with `scripts/gate.sh` asserted as its
-  generator. **Moved here from wave 2**, because the law arrives red without it: as drafted they
-  were siblings in one wave, which is an intra-wave dependency and a stack wearing a bundle's
-  clothes;
-- the **three** citations Ruling 5 forbids, all of them in the `README.md` entry, expanded to
-  repo-relative: the two cross-package shorthands `api/index.ts` and `cli/index.ts`, and the bare
-  filename `manifest-law.test.ts`, which is `packages/app/src/host/manifest-law.test.ts` and
-  resolves under neither of Ruling 5's attempts. All three sit inside this wave's one file, which
-  is what makes Ruling 5 affordable. **The third was added after [#366][i366] was written**: the
-  ruling's first draft counted nine path citations and this was the tenth, found in the review of
-  the PR that landed the ruling. [#366][i366]'s Definition of done named two and said "Nothing
-  else is expanded"; it has been corrected, and the law arrives red on this entry if it is not.
+*First pass, [#366][i366], landed 2026-09-10 as `22a42739`.* Corrected the tokens entry to
+its symbol, re-derived the route-class pins, declared `.swarm/timing-count` generated, and
+expanded the three `README.md` citations Ruling 5 forbids. Its Definition of done named two
+expansions and then three; the third was found in review, and the miscount is recorded on
+Ruling 5.
 
-**Wave 2 — one issue, not a parallel set.** [#367][i367]. The law asserting Rulings 2, 3, 5, 6
-and 7 over every entry, in a new file under `packages/server/src/`, **and** the pointer added to
-`scripts/dev/coupling.test.sh` so the two cannot silently diverge. One issue rather than two lanes
-because the pointer names the law's own filename, so they cannot be built at once. The law also
-**ports the shell script's presence checks** — each entry's leading path exists, each reason is
-present and not a repeat of its own path — so they run in CI rather than only by hand; that reads
-Ruling 1's extent as covering registry checks while leaving its fence-lint behavioural cases in
-shell, and Success 1 is not met while those checks run only when someone remembers them.
-**Ruling 7 is the substantive half of that**, not a footnote to Ruling 2: it fixes the unit as the
-whole backticked span and widens the selector, and the measurement in its own section is that the
-span reading catches three of the registry's false claims where the token reading catches one. A
-law built to Ruling 2 alone would pass two of the three defects this PRD was written about. This
-sentence named four rulings until the review of the PR that added the fifth — Ruling 7 was
-appended one commit after the sentence was written, and the sentence was not revisited.
-**Blocked on wave 1 only, now that wave 0 is complete.**
+*Second pass, [#546][i546], regroomed 2026-09-15.* Eleven claims false on `main` at
+`1c6f3852`, listed on the issue with the commit that moved each. Three commits, one per
+kind of change, so each is reviewable alone: the PRD amendment carrying Rulings 9 and 10
+and this section; the registry corrections written to them; and the shell script's
+heuristic tightened to equality (Ruling 10). Ruling 4's extent holds — claims are
+corrected and nothing else is added — with one named exception: the generated
+declaration is rewritten to Ruling 10's form, which is a correction of shape, not a new
+entry. The registry's own entry is **not** added here; it cites a file that does not
+exist until wave 2, and Ruling 3 would redden it.
 
-**Unfiled work implied, described not numbered:** whether an entry's reason should be generated
-from the law it describes rather than written beside it; a sweep of the other entries'
-un-backticked prose claims, which no ruling here makes checkable; and a position on which file is
-"the cited file" when a reason quotes a form belonging to another file it names — Ruling 2's
-amendment note 2 records that no entry does this today.
+**Wave 2 — one issue, not a parallel set.** [#367][i367]. The law asserting Rulings 2, 3,
+5, 6, 7, 8, 9 and 10 over every entry, in a new file under `packages/server/src/`; the
+pointer added to `scripts/dev/coupling.test.sh` so the two cannot silently diverge; and —
+widened at the 2026-09-15 regroom — the registry's **own entry** in `.swarm/coupling.txt`,
+under Ruling 9 rule 4, naming the law so that fence-lint warns a lane that moves a quoted
+pin. The law also ports the shell script's presence checks, as Ruling 10 states them.
+**Ruling 7 is the substantive half of Ruling 2**, not a footnote to it, and **Ruling 8 is
+the whole of the path selector** — a law built to Ruling 5's Extent sentence reddens the
+file on its first run. Expected results on first run are re-derived from the tree it
+lands on, never copied from a table here: the 2026-09-15 measurement is 47 entries, 12
+assertion spans, 58 path citations, and the only unresolved citations after wave 1's
+second pass should be the two declared occurrences of `.swarm/timing-count`. Any other
+red is a finding, not an allowlist entry. **Blocked on wave 1's second pass only.**
+
+**Wave 3 — the shell tests run without anyone remembering them.** [#394][i394], filed
+2026-09-10 and homed here 2026-09-15; until then the tracker carried a wave this
+document did not declare, which `prd-reconcile.sh` reports as drift. A law under
+`packages/server/src/` discovers every `scripts/dev/*.test.sh` and executes it, so that
+`coupling.test.sh` — and `lane-guard.test.sh`, which was red 2 of 18 on any clean checkout
+with no mechanism by which anyone would learn it — run in the suite. Blocked on wave 2:
+no shared path, but wave 2 edits one of the files this law executes, and the waves here
+are sequential by construction. Its own body records what is out of scope; the
+`.windows-known-failures` clause in its fence is conditional and is the only thing it
+may touch outside the new file. **This is the wave the PRD's opening line did not
+count.** Ruling 1 put the registry's checks in vitest because the suite is what runs; wave
+3 is the same ruling applied to the shell tests the suite does not reach, and it is this
+PRD's because #367's fence is the file that proved the point.
+
+**Unfiled work implied, described not numbered:** whether an entry's reason should be
+generated from the law it describes rather than written beside it; a sweep of the other
+entries' un-backticked prose claims, which no ruling here makes checkable — and which
+Ruling 9 rule 4 makes *more* numerous, since every as-of count beside a quoted pin is
+one; and a position on which file is "the cited file" when a reason quotes a form
+belonging to another file it names — Ruling 2's amendment note 2 records that no entry
+does this today, and the 2026-09-15 measurement confirms it still holds at 47 entries.
 
 ## Open questions
 
@@ -723,3 +852,5 @@ amendment note 2 records that no entry does this today.
 [i358]: https://github.com/launchpad-26/rhizomorph/issues/358
 [i366]: https://github.com/launchpad-26/rhizomorph/issues/366
 [i367]: https://github.com/launchpad-26/rhizomorph/issues/367
+[i394]: https://github.com/launchpad-26/rhizomorph/issues/394
+[i546]: https://github.com/launchpad-26/rhizomorph/issues/546

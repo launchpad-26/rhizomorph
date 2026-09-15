@@ -38,6 +38,23 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Added
 
+- **A team server deployment can now be configured for GitHub sign-in (prd-51
+  ruling 9, #538).** Six `RZ_TEAM_GITHUB_*` values — org, app id, installation
+  id, client id, client secret, and the private key's path — configure the app
+  container. The private key itself is never passed as an environment value:
+  it is read from a file mounted **read-only** at the path named by
+  `RZ_TEAM_GITHUB_APP_PRIVATE_KEY_PATH`, because a compose `.env` truncates a
+  multi-line PEM at its first newline. The boot report now names all six
+  effective values, each saying who set it and where, with both secrets shown
+  redacted rather than in the clear. An unconfigured deployment still boots
+  and `/auth/github/start` / `/auth/github/callback` still answer 503 — a
+  deliberate refusal (#169), not a defect, so upgrading with no credentials in
+  hand changes nothing about whether the server comes up. This makes sign-in
+  configurable, not visible: there is still no browser view behind it, and
+  reading what a session recorded still means a direct database read. The
+  operator recipe is in
+  [`docs/team-server-runbook.md`](docs/team-server-runbook.md).
+
 - **`/connect` gains a `repo ↔ team server` row: has a batch this repo shipped
   ever been acknowledged, and when (prd-51 ruling 12).** The row reads
   VERIFIED only once the shipper's cursor records a real acknowledgement,

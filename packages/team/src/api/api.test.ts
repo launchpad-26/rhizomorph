@@ -595,3 +595,177 @@ describe('the ingest key is checked, once per batch, against the storage port', 
     expect(reported[0]).toContain('the fake storage was told to fail the ingest key read')
   })
 })
+
+/**
+ * THE SEAM THE TWO HALVES WERE EACH TESTED ON SEPARATELY (#550).
+ *
+ * `../ingest/handle.ts` documents four refusals and runs the first three before
+ * it decodes anything, and its own tests prove that — with already-parsed
+ * values. `./http.ts` tested its decode failure and its key refusals, never
+ * their interaction. So the adapter read and decoded the body BEFORE calling the
+ * handler, and a request with no key and a body that is not JSON answered 400
+ * with the key refusal never running. Measured against a live host on
+ * 2026-09-15 (host redacted): no key + valid JSON was 401, no key + invalid JSON
+ * was 400, a bogus `rzk_` key + invalid JSON was 400.
+ *
+ * Every case below is one cell of {no key, unknown key, revoked key,
+ * malformed-shape key, whitespace-only header} × {valid JSON, invalid JSON}. The
+ * good-key column is two EXISTING cases, deliberately unmodified: 'refuses a
+ * body that is not JSON with a 400 rather than a 500' (a verified caller still
+ * gets the decode failure, so the gate does not swallow it) and 'returns 202 and
+ * the batch is on disk before the response is read'.
+ */
+describe('a key is refused before the body is parsed', () => {
+  /** A well-formed key this server was never seeded with — the same shape the unknown-key case uses. */
+  const STRANGER = mintIngestKey({ projectId: 'acme-widgets', nowMs: 0 }).takePlaintext()
+
+  it('M-a — no header + valid JSON is 401 naming the header, and buys no row read', async () => {
+    const { server, storage } = await start()
+    const response = await fetch(url(server), { method: 'POST', body: JSON.stringify(body()) })
+
+    expect(response.status).toBe(401)
+    expect(JSON.stringify(await response.json())).toContain(INGEST_KEY_HEADER)
+    expect(storage.keyLookups).toEqual([])
+  })
+
+  it('M-b — no header + a body that is NOT JSON is still 401, not the decode failure', async () => {
+    const { server, storage, journalPath } = await start()
+    const response = await fetch(url(server), { method: 'POST', body: 'not json' })
+
+    expect(response.status).toBe(401)
+    const text = JSON.stringify(await response.json())
+    expect(text).toContain(INGEST_KEY_HEADER)
+    // The decode never ran: its message would be here if it had.
+    expect(text).not.toContain('not JSON')
+    expect(storage.keyLookups).toEqual([])
+    expect(readJournal(journalPath).ok && readJournal(journalPath)).toMatchObject({ records: [] })
+  })
+
+  it('M-c — an unknown key + valid JSON is 401, after exactly one row read', async () => {
+    const { server, storage } = await start()
+    const response = await fetch(url(server), {
+      method: 'POST',
+      headers: { [INGEST_KEY_HEADER]: STRANGER },
+      body: JSON.stringify(body()),
+    })
+
+    expect(response.status).toBe(401)
+    expect(JSON.stringify(await response.json())).toContain('unknown key')
+    expect(storage.keyLookups).toEqual([hashIngestKey(STRANGER)])
+  })
+
+  it('M-d — an unknown key + a body that is NOT JSON is 401 about the key, not 400 about the body', async () => {
+    const { server, storage, journalPath } = await start()
+    const response = await fetch(url(server), {
+      method: 'POST',
+      headers: { [INGEST_KEY_HEADER]: STRANGER },
+      body: 'not json',
+    })
+
+    expect(response.status).toBe(401)
+    const text = JSON.stringify(await response.json())
+    expect(text).toContain('unknown key')
+    expect(text).not.toContain('not JSON')
+    expect(storage.keyLookups).toEqual([hashIngestKey(STRANGER)])
+    expect(readJournal(journalPath).ok && readJournal(journalPath)).toMatchObject({ records: [] })
+  })
+
+  /**
+   * THE 403 SIBLING. An ordering fix that moved only the 401s past the decode
+   * would leave a revoked key with an unparseable body answering 400 — the shape
+   * of defect this repo keeps finding, one arm fixed and its twin missed.
+   */
+  it('M-e — a REVOKED key + a body that is NOT JSON is 403 about the key', async () => {
+    const { server, storage, journalPath } = await start()
+    expect(await storage.revokeIngestKeys({ projectId: 'acme-widgets', atMs: Date.UTC(2026, 10, 21) })).toBe(1)
+
+    const response = await fetch(url(server), {
+      method: 'POST',
+      headers: { [INGEST_KEY_HEADER]: KEY },
+      body: 'not json',
+    })
+
+    expect(response.status).toBe(403)
+    const text = JSON.stringify(await response.json())
+    expect(text).toContain('revoked key')
+    expect(text).not.toContain('not JSON')
+    expect(text).not.toContain(KEY)
+    expect(readJournal(journalPath).ok && readJournal(journalPath)).toMatchObject({ records: [] })
+  })
+
+  it('M-f — a value that is not a key at all + a body that is NOT JSON is 401 on shape, with no row read', async () => {
+    const { server, storage } = await start()
+    const response = await fetch(url(server), {
+      method: 'POST',
+      headers: { [INGEST_KEY_HEADER]: 'not-a-real-key-at-all' },
+      body: 'not json',
+    })
+
+    expect(response.status).toBe(401)
+    const text = JSON.stringify(await response.json())
+    expect(text).toContain('shape alone')
+    expect(text).not.toContain('not JSON')
+    expect(text).not.toContain('not-a-real-key-at-all')
+    expect(storage.keyLookups).toEqual([])
+  })
+
+  it('M-g — a whitespace-only header value + a body that is NOT JSON is 401 naming the header', async () => {
+    const { server, storage } = await start()
+    const response = await fetch(url(server), {
+      method: 'POST',
+      headers: { [INGEST_KEY_HEADER]: '   ' },
+      body: 'not json',
+    })
+
+    expect(response.status).toBe(401)
+    expect(JSON.stringify(await response.json())).toContain(INGEST_KEY_HEADER)
+    expect(storage.keyLookups).toEqual([])
+  })
+
+  it('M-h — REPETITION: three headerless unparseable bodies are three 401s, no reads and no records', async () => {
+    const { server, storage, journalPath } = await start()
+    for (const _ of [1, 2, 3]) {
+      const response = await fetch(url(server), { method: 'POST', body: 'not json' })
+      expect(response.status).toBe(401)
+      expect(JSON.stringify(await response.json())).toContain(INGEST_KEY_HEADER)
+    }
+    expect(storage.keyLookups).toEqual([])
+    const read = readJournal(journalPath)
+    expect(read.ok && read.records.length).toBe(0)
+  })
+
+  /**
+   * RULING 1, AS AN ASSERTION. The cap keeps its place in the code and becomes
+   * unreachable for an unverified caller — so this caller gets **a delivered
+   * 401** rather than the cap's treatment: the socket is never read to the cap,
+   * because the key was refused first. No `try`/`catch` and no "either way it was
+   * refused" escape hatch, which is what makes this the only cell in the matrix
+   * that can tell gate-before-read from gate-after-read.
+   *
+   * What the cap's treatment actually is, stated here because the record around
+   * it is easy to get wrong: `readBody` calls `request.destroy()` before it
+   * resolves, so the 413 the adapter writes afterwards **never reaches the
+   * wire** — a client sees a socket error (undici's UND_ERR_SOCKET) having read
+   * zero bytes back, or an ECONNRESET on a raw `node:http` client, and no status
+   * line at all. The existing case 'a body
+   * over the cap is 413' one describe above reads as a delivered 413 only
+   * because its `catch` substitutes that status for the transport error. That
+   * undeliverability is pre-existing, out of this issue's scope and deliberately
+   * untouched; it is owed a follow-up. It is also why this case asserts the
+   * status directly — the early response was measured safe on this platform
+   * before it was ruled, so a flake here is evidence about the ruling, not a
+   * test to soften.
+   */
+  it('M-i — no header + a body over the cap is a delivered 401, not the cap treatment', async () => {
+    const { server, storage, journalPath } = await start()
+    const huge = JSON.stringify(body({ batch: [{ n: 1, line: `{"pad":"${'x'.repeat(MAX_BODY_BYTES + 1024)}"}` }] }))
+    expect(huge.length).toBeGreaterThan(MAX_BODY_BYTES)
+
+    const response = await fetch(url(server), { method: 'POST', body: huge })
+
+    expect(response.status).toBe(401)
+    expect(JSON.stringify(await response.json())).toContain(INGEST_KEY_HEADER)
+    expect(storage.keyLookups).toEqual([])
+    expect(readJournal(journalPath).ok && readJournal(journalPath)).toMatchObject({ records: [] })
+  })
+})

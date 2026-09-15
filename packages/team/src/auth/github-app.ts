@@ -48,6 +48,14 @@ function signJwt(credentials: GithubAppCredentials, nowSeconds: number): string 
  * non-201 response, a response with no `token` field — comes back as
  * `{ ok: false, error }` naming the installation token, never as a thrown
  * exception the caller must also guard against.
+ *
+ * The catch branch names the knob a DOCKER operator can set, because that is the
+ * only deployment this server has (ruling 13). compose derives the file variable
+ * from a host-path variable and never forwards the inline one, so the line it used
+ * to print sent an operator to a knob with no effect. The wording follows
+ * `packages/team/deploy/report.ts`, which fixed the same sentence for the boot
+ * line, rather than inventing a second voice. This error reaches the operator's
+ * stderr only, never the wire — `signin.ts` routes it to operatorNote.
  */
 export async function mintInstallationToken(
   credentials: GithubAppCredentials,
@@ -81,7 +89,13 @@ export async function mintInstallationToken(
     const message = cause instanceof Error ? cause.message : String(cause)
     return {
       ok: false,
-      error: `the GitHub App installation token could not be minted — check RZ_TEAM_GITHUB_APP_PRIVATE_KEY and RZ_TEAM_GITHUB_INSTALLATION_ID: ${message}`,
+      error:
+        `the GitHub App installation token could not be minted (${message}) — check ` +
+        'RZ_TEAM_GITHUB_INSTALLATION_ID and the private key. Under docker the key is set by ' +
+        'RZ_TEAM_GITHUB_APP_PRIVATE_KEY_PATH in deploy/.env — the HOST path of a readable PEM — ' +
+        'then `docker compose up -d`; compose never passes RZ_TEAM_GITHUB_APP_PRIVATE_KEY to this ' +
+        'container. Outside docker, set RZ_TEAM_GITHUB_APP_PRIVATE_KEY_FILE or ' +
+        'RZ_TEAM_GITHUB_APP_PRIVATE_KEY directly.',
     }
   }
 }

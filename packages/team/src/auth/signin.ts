@@ -57,6 +57,24 @@ import {
  * installation token, or a thrown message. That is held by a loop in
  * `signin.test.ts` over every case at once, not by care taken at each one.
  *
+ * ## The configuration refusals name a knob this deployment actually has
+ *
+ * Ruling 13 fixes the deployment: the team server is always a container, one
+ * image plus Postgres plus Caddy in `packages/team/deploy/compose.yml`. So both
+ * configuration refusals name what an operator edits there — the .env variables
+ * `packages/team/deploy/init.sh` writes — and each carries one clause saying what
+ * to set outside docker instead.
+ *
+ * Both say to RECREATE the container, never to restart it: a restart reuses the
+ * environment the container was created with and does not re-read .env, the trap
+ * `docs/team-server-runbook.md` already records for the ingest key.
+ *
+ * The private key was the name that had gone wrong. compose derives the key-file
+ * variable from a host-path variable and never forwards the inline one, so naming
+ * the inline variable as the remedy sent an operator to a knob with no effect.
+ * `packages/team/deploy/report.ts` fixed the same sentence for the boot line; this
+ * matches its voice rather than inventing a second one.
+ *
  * ## The callback never redirects
  *
  * Success is `200 + Set-Cookie`. There is no viewer to redirect to yet, and it
@@ -119,7 +137,10 @@ export function statusForSignInRefusal(reason: SignInRefusal): number {
 
 const SENTENCES: Readonly<Record<SignInRefusal, string>> = {
   unconfigured:
-    'this team server has no GitHub sign-in configured, so nobody can sign in to it yet. Set RZ_TEAM_GITHUB_CLIENT_ID and RZ_TEAM_GITHUB_CLIENT_SECRET from the GitHub App and restart.',
+    'this team server has no GitHub sign-in configured, so nobody can sign in to it yet. Set ' +
+    'RZ_TEAM_GITHUB_CLIENT_ID and RZ_TEAM_GITHUB_CLIENT_SECRET from the GitHub App in deploy/.env, ' +
+    'then `docker compose up -d` — a restart reuses the environment the container was created with ' +
+    'and does not re-read .env.',
   'no-code':
     'that callback carried no authorization code. Start again at /auth/github/start rather than opening the callback directly.',
   'bad-state':
@@ -131,7 +152,12 @@ const SENTENCES: Readonly<Record<SignInRefusal, string>> = {
   'not-a-member':
     'that GitHub account is not a member of this team server organisation. Membership of the organisation is the whole access boundary — ask an organisation owner for an invitation, and accept it before signing in again.',
   'membership-unconfigured':
-    'this team server cannot check organisation membership, so it cannot admit anyone. Set RZ_TEAM_GITHUB_ORG, RZ_TEAM_GITHUB_APP_ID, RZ_TEAM_GITHUB_INSTALLATION_ID and RZ_TEAM_GITHUB_APP_PRIVATE_KEY from the GitHub App and restart.',
+    'this team server cannot check organisation membership, so it cannot admit anyone. Set ' +
+    'RZ_TEAM_GITHUB_ORG, RZ_TEAM_GITHUB_APP_ID, RZ_TEAM_GITHUB_INSTALLATION_ID and ' +
+    'RZ_TEAM_GITHUB_APP_PRIVATE_KEY_PATH — the HOST path of the App private key PEM — in ' +
+    'deploy/.env, then `docker compose up -d`; a restart does not re-read .env, and compose never ' +
+    'passes RZ_TEAM_GITHUB_APP_PRIVATE_KEY to this container. Outside docker, set ' +
+    'RZ_TEAM_GITHUB_APP_PRIVATE_KEY_FILE or RZ_TEAM_GITHUB_APP_PRIVATE_KEY directly.',
   'membership-error':
     'this team server could not check organisation membership, so it refused rather than guessing. This is a server-side fault and not something the person signing in can fix; the operator has the detail.',
 }
