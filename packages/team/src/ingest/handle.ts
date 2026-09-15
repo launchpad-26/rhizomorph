@@ -53,7 +53,11 @@ export interface IngestDeps {
    * import('../storage/contract.js').TeamStorage} is asynchronous and this
    * function is not. `../api/http.ts`'s ingest route does the one row read per
    * request, `await`ing it before calling this, and closes over its result;
-   * `../keys/verify.ts`'s `resolveIngestKeyCheck` is the seam.
+   * `../keys/verify.ts`'s `resolveIngestKeyCheck` is the seam. Since #550 that
+   * route also calls the thunk once itself, before the body is read, so the key
+   * refusals precede the decode on the wire as well as in this list. One row
+   * read either way — the thunk is pure over it — and this function still calls
+   * it exactly once.
    *
    * Once per batch is the whole claim. Once per event would be waste; a verdict
    * memoised across batches would unbound the revocation lag the ruling bounds.
@@ -93,6 +97,14 @@ export interface IngestResponse {
  * and an unknown key should not buy a decode. The fourth cannot: a key is scoped
  * to one project, and which project a batch is for is only knowable once the
  * envelope has been parsed.
+ *
+ * That sentence was true of this function and false of the ROUTE until #550.
+ * `../api/http.ts` read and decoded the body before calling here, so a body that
+ * is not JSON answered 400 and none of the three ran — the documented order held
+ * for every caller except the one an attacker controls most easily. The adapter
+ * now asks for the key refusals first, on an unread request. **Nothing in this
+ * function changed**: the list above described its behaviour correctly before
+ * that fix and describes it correctly after it.
  */
 export function handleIngest(deps: IngestDeps, body: unknown, ingestKey: string | undefined): IngestResponse {
   deps.trace?.('validate')

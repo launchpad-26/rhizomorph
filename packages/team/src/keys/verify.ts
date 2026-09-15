@@ -15,7 +15,10 @@ import { INGEST_KEY_PREFIX, MIN_INGEST_KEY_BODY, isWellFormedIngestKey } from '.
  * split is: {@link resolveIngestKeyCheck} does the one asynchronous row read,
  * per request, before the pure handler runs, and hands back a SYNCHRONOUS thunk
  * that the handler calls exactly once inside `validate`. `../api/http.ts`'s
- * ingest route is where that `await` happens, one row of its route table.
+ * ingest route is where that `await` happens, one row of its route table — and
+ * since #550 that route calls the thunk once itself as well, ahead of the body,
+ * so a key refusal precedes `readBody` and the decode. The **read** is still
+ * one: the extra call is a call, not a lookup.
  *
  * That split is what makes "once per batch" literal rather than aspirational.
  * The thunk closes over one row read; it holds no cache, and nothing holds the
@@ -114,7 +117,10 @@ export function ingestKeyRefusal(reason: IngestKeyRefusal, project?: string): st
  *
  * The returned thunk is pure over that one read. Calling it twice cannot change
  * its answer and cannot reach storage again, which is what stops "once per
- * batch" degrading into "once per event" by accident.
+ * batch" degrading into "once per event" by accident — and since #550 the
+ * route's own key gate is what depends on that property: it calls the thunk
+ * before the body is read and `../ingest/handle.ts` calls it again, two calls
+ * over one read.
  */
 export async function resolveIngestKeyCheck(
   storage: Pick<TeamStorage, 'findIngestKey'>,
@@ -122,9 +128,12 @@ export async function resolveIngestKeyCheck(
 ): Promise<() => IngestKeyVerdict> {
   const value = (presented ?? '').trim()
 
-  // Unreachable through the route — `handleIngest` refuses a missing header
-  // first, naming it — but a thunk has to answer something, and the safe
-  // direction to be wrong in is refusal.
+  // REACHED through the route since #550, and its answer discarded. The route
+  // calls this thunk before it reads the body, so a headerless request evaluates
+  // this branch — but the refusal the caller sees is still `handleIngest`'s
+  // missing-header 401, which names the header, because that is the handler's
+  // first branch. A thunk has to answer something, and the safe direction to be
+  // wrong in is refusal, which is exactly what lets the route lean on it.
   if (value === '') return () => ({ ok: false, reason: 'unknown' })
 
   if (!isWellFormedIngestKey(value)) return () => ({ ok: false, reason: 'malformed' })
