@@ -65,3 +65,21 @@ docs/audit/
 # not just the destination (found in review, #433).
 packages/team/deploy/.env
 packages/team/deploy/.env.tmp.*
+
+# Key material — never committed, at any depth (#544). `docs/team-server-runbook.md` now tells
+# an operator to create a GitHub App private key and put it on the host, and until this block
+# nothing mechanical stopped them putting it in the repository instead.
+#
+# The patterns are deliberately BARE. A gitignore pattern containing no slash is matched
+# against the basename at every depth, which is the guarantee this needs: a key is refused
+# wherever it lands, not only beside the compose file.
+#
+# There is no exception list here and there must not be one. A legitimate tracked file matching
+# one of these is a conversation about whether it should exist at all, not a `!` line — see
+# this issue's falsifier. packages/server/src/secret-file-guard-law.test.ts plants a scratch
+# file and reads git's own verdict rather than grepping for these strings, so a negation added
+# below reddens the suite instead of quietly reopening the hole while the strings stay put.
+*.pem
+*.key
+*.p12
+*.pfx
