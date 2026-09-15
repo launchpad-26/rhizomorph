@@ -80,9 +80,26 @@ const FORBIDDEN: ReadonlyArray<{ readonly pattern: RegExp; readonly why: string 
   { pattern: /\benviron\b/, why: "reads another process's environment — never an event field, never read at all" },
 ]
 
+/**
+ * Comments stripped before the sweep — the shape
+ * `concierge/harness/harness-law.test.ts:33` already uses for its own
+ * source law, and for the same reason.
+ *
+ * A law nobody can DESCRIBE inside the file it governs is a trap: the first
+ * writer to document the ban trips it, and the second works around the law
+ * instead. `read-table.ts`'s doc comment is the live case — it explains what
+ * may not be read, by naming it. A comment cannot reach a process, so the
+ * narrowing costs nothing real, and the fixture below proves it does not hide
+ * an idiom that merely shares a line with one.
+ */
+function codeOf(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+}
+
 /** Pure, and exercised on rigged input below, so the sweep is never the only thing holding this. */
 export function forbiddenIdiomsIn(source: string): string[] {
-  return FORBIDDEN.filter(({ pattern }) => pattern.test(source)).map(({ pattern }) => String(pattern))
+  const code = codeOf(source)
+  return FORBIDDEN.filter(({ pattern }) => pattern.test(code)).map(({ pattern }) => String(pattern))
 }
 
 /** Non-test TypeScript in this directory. Empty today; wave 2 is what fills it. */
@@ -123,6 +140,16 @@ describe('the process collector may look at the table and may not reach the proc
     for (const source of admitted) {
       expect(forbiddenIdiomsIn(source), `"${source}" is admitted by ruling 2 and must not be caught`).toEqual([])
     }
+  })
+
+  it('prose about the ban is not the ban — but an idiom SHARING A LINE with a comment still is', () => {
+    // Both halves matter. The first is why `codeOf` exists at all; the second
+    // is the hole a careless stripper would open, and it is the one worth
+    // pinning, because `// harmless` at the end of a real call is exactly how
+    // someone would smuggle one past a line-based filter.
+    expect(forbiddenIdiomsIn('// never call process.kill(pid, 0) here')).toEqual([])
+    expect(forbiddenIdiomsIn('/** SIGTERM is refused, see ADR-0052 */')).toEqual([])
+    expect(forbiddenIdiomsIn('process.kill(pid, 0) // harmless, honest')).toContain('/\\.kill\\(/')
   })
 
   it('a subprocess is NOT banned here, and that is deliberate — the probe bans one in its own file only', () => {
