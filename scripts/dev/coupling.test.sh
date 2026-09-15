@@ -47,16 +47,83 @@ fi
 entries=0; missing=0; unexplained=0
 while read -r line; do
   case "$line" in ''|\#*) continue;; esac
-  path=$(echo "${line%%#*}" | xargs)
+  raw=${line%%#*}
+  path=$(echo "$raw" | xargs)
   why=${line#*#}
   [ -z "$path" ] && continue
   entries=$((entries + 1))
   [ -e "$path" ] || { missing=$((missing + 1)); printf '        no such path: %s\n' "$path"; }
   # `${line#*#}` returns the WHOLE line when there is no `#` at all, so an
-  # unexplained entry is the one whose reason still contains its own path.
-  case "$why" in
-    *"$path"*|'') unexplained=$((unexplained + 1)); printf '        no reason given: %s\n' "$path" ;;
-  esac
+  # unexplained entry is the one whose reason, trimmed, IS its own leading path.
+  #
+  # EQUALITY, not containment (prd-54 ruling 10). An entry may legitimately name
+  # its own path inside a reason — the `docs/adr/` entry tells a lane to run
+  # `git ls-tree origin/main docs/adr/` — and the containment reading convicted
+  # it, so this check stood at 10 of 11 on a registry where nothing was wrong.
+  # A guard that fails a true entry teaches its readers to expect red, which is
+  # this file's own header warning about warnings one level down.
+  #
+  # THE PATH HAS TWO SPELLINGS AND BOTH ARE COMPARED. `$path` has been through
+  # `xargs`, which strips quotes, unescapes backslashes and collapses internal
+  # whitespace; the reason is trimmed by parameter expansion, which does none of
+  # those. So whenever `xargs` rewrites the leading field the two strings CANNOT
+  # compare equal, and the first version of this check let nine shapes through
+  # that the containment reading it replaced had caught — `'p'` and `"p"` with no
+  # `#` at all, `p  # 'p'`, `p  # "p"`, and the whole "reason is the field exactly
+  # as typed" family for a quoted, backslash-escaped or multiply-spaced field.
+  # `$rawtrim` is therefore the leading field AS TYPED, whitespace-trimmed only,
+  # and one layer of matched surrounding quotes is stripped off the reason before
+  # comparing. A match against any of those pairings is "no reason given".
+  #
+  # Unreachable on today's registry — no path in it is quoted or carries odd
+  # whitespace — which is exactly why it is written down here rather than left
+  # for the entry that first needs a quoted path to discover.
+  #
+  # THE DELIMITER SET, and the rule is about the SET rather than about whichever
+  # member the repair happened to be built around. It is, in full:
+  #
+  #     `   backtick        — THIS FILE'S OWN citation convention, on 44 lines
+  #     '   single quote    — shell quoting, and the apostrophe in ordinary prose
+  #     "   double quote    — shell quoting, and quoted prose
+  #
+  # AT MOST ONE matched layer of ANY member is stripped before comparing, and the
+  # loop below `break`s on the first member that matches. Order inside it does not
+  # matter: a string starts with exactly one character, so at most one member can
+  # match the opening delimiter at all.
+  #
+  # Backtick is in the set because it is the spelling an author of THIS file would
+  # actually produce — the first version of this rule closed `'p'` and `"p"`, which
+  # nobody writes here, and left `` `p` `` open. Note that backtick is NOT a shell
+  # quote: `xargs` does not strip it, so a backticked LEADING FIELD reaches the
+  # comparison intact and is caught by the `$rawtrim` arm rather than by this one.
+  # That asymmetry is why the set is named here rather than inferred from `$path`.
+  #
+  # Two shapes are deliberately NOT caught, and both exclusions apply to EVERY
+  # member of the set: two layers of the SAME delimiter (`` ``p`` ``, `''p''`,
+  # `""p""`), and a MISMATCHED pair — either order, any two members. A layer of one
+  # member nested inside another is the same case: one is stripped, the remainder
+  # is not the path, and it reads as a reason. Neither is a spelling of the path
+  # anybody types, and stripping delimiters until a match appears is the unbounded
+  # version of this rule.
+  #
+  # The reason does NOT go through `xargs`: reasons carry quotes, parentheses and
+  # `$`, which xargs parses rather than passes, and an unbalanced quote in one
+  # would make the trim itself fail.
+  rawtrim=${raw#"${raw%%[![:space:]]*}"}
+  rawtrim=${rawtrim%"${rawtrim##*[![:space:]]}"}
+  trimmed=${why#"${why%%[![:space:]]*}"}
+  trimmed=${trimmed%"${trimmed##*[![:space:]]}"}
+  bare=$trimmed
+  for d in '`' "'" '"'; do
+    case "$bare" in
+      "$d"*"$d") bare=${bare#"$d"}; bare=${bare%"$d"}; break ;;
+    esac
+  done
+  if [ -z "$trimmed" ] \
+     || [ "$trimmed" = "$path" ] || [ "$trimmed" = "$rawtrim" ] \
+     || [ "$bare" = "$path" ]    || [ "$bare" = "$rawtrim" ]; then
+    unexplained=$((unexplained + 1)); printf '        no reason given: %s\n' "$path"
+  fi
 done < "$COUPLING"
 
 if [ "$entries" -gt 0 ]; then ok "$entries entries parsed"

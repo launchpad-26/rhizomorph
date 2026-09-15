@@ -67,12 +67,22 @@ const FORBIDDEN: ReadonlyArray<{ readonly pattern: RegExp; readonly why: string 
   // ADR-0001's constitution, unchanged by ADR-0052: the observer writes
   // nothing. A collector that cached to disk would be a write outside every
   // hand's grant.
-  { pattern: /\bwriteFile\b/, why: 'writes to disk — no hand grants this collector a write' },
-  { pattern: /\bappendFile\b/, why: 'writes to disk' },
+  //
+  // `(?:Sync)?` on each, found by the review of #553. A trailing `\b` after
+  // `writeFile` lets `writeFileSync` straight through, and that is not academic:
+  // `packages/server/src/log/installation-id.ts` — landed in this same wave —
+  // uses `mkdirSync` and `writeFileSync`, so the sync spelling is the idiom a
+  // collector author working in this repo would reach for first. The rigged
+  // cases below exercise both spellings, so the closure is asserted rather than
+  // assumed. `collectors/sessionlog/process-probe.test.ts` shares the hole and
+  // is a separate file with its own law; it wants its own issue, not a
+  // widening from here.
+  { pattern: /\bwriteFile(?:Sync)?\b/, why: 'writes to disk — no hand grants this collector a write' },
+  { pattern: /\bappendFile(?:Sync)?\b/, why: 'writes to disk' },
   { pattern: /\bcreateWriteStream\b/, why: 'writes to disk' },
-  { pattern: /\bmkdir\b/, why: 'creates a directory — creating your own input is one step from writing into it' },
-  { pattern: /\bunlink\b/, why: 'deletes' },
-  { pattern: /\brmdir\b/, why: 'deletes' },
+  { pattern: /\bmkdir(?:Sync)?\b/, why: 'creates a directory — creating your own input is one step from writing into it' },
+  { pattern: /\bunlink(?:Sync)?\b/, why: 'deletes' },
+  { pattern: /\brmdir(?:Sync)?\b/, why: 'deletes' },
   // prd-57's non-goals: never any environment variable of any process. A
   // command line can carry a prompt; an environment can carry a key.
   // `process.env` is this process's own and is not what this bans — reading
@@ -115,9 +125,17 @@ describe('the process collector may look at the table and may not reach the proc
       ['process.kill(pid, 0)', '/\\.kill\\(/'],
       ['await exec("kill -0 " + pid)', '/\\bkill\\s+-0\\b/'],
       ['process.kill(pid, "SIGSTOP")', '/\\bSIGSTOP\\b/'],
-      ['await writeFile(cachePath, json)', '/\\bwriteFile\\b/'],
-      ['await mkdir(dir, { recursive: true })', '/\\bmkdir\\b/'],
+      ['await writeFile(cachePath, json)', '/\\bwriteFile(?:Sync)?\\b/'],
+      ['await mkdir(dir, { recursive: true })', '/\\bmkdir(?:Sync)?\\b/'],
       ['readFile(`/proc/${pid}/environ`)', '/\\benviron\\b/'],
+      // The SYNC spellings. Every one of these passed the detector until the
+      // review of #553, and `installation-id.ts` in this same wave uses two of
+      // them — so this is the spelling a collector author here reaches for.
+      ['writeFileSync(cachePath, json)', '/\\bwriteFile(?:Sync)?\\b/'],
+      ['mkdirSync(dir, { recursive: true })', '/\\bmkdir(?:Sync)?\\b/'],
+      ['appendFileSync(logPath, line)', '/\\bappendFile(?:Sync)?\\b/'],
+      ['unlinkSync(stalePath)', '/\\bunlink(?:Sync)?\\b/'],
+      ['rmdirSync(dir)', '/\\brmdir(?:Sync)?\\b/'],
     ]
     for (const [source, expected] of cases) {
       expect(forbiddenIdiomsIn(source), `"${source}" should have been caught`).toContain(expected)
@@ -161,12 +179,18 @@ describe('the process collector may look at the table and may not reach the proc
     expect(forbiddenIdiomsIn("import { spawn } from 'node:child_process'")).toEqual([])
   })
 
-  it('every source file in this directory is clean — stating the count, so an empty sweep is visible rather than silent', () => {
+  it('every source file in this directory is clean, however many there are', () => {
     const sources = collectorSources()
     // Deliberately NOT `toBeGreaterThan(0)`. The directory is empty until wave
     // 2, and a guard that demanded sources would fail this law on the very
-    // commit that lands it. The count is asserted into the message instead, so
-    // a reader of a green run can see whether anything was swept.
+    // commit that lands it.
+    //
+    // This test was named "stating the count, so an empty sweep is visible
+    // rather than silent" and it did not do that — vitest prints an assertion
+    // message only when the assertion FAILS, so on the green run the name was
+    // describing, the count is printed nowhere (review of #553). The reasoning
+    // for dropping the guard is unchanged and right; the name overclaimed what
+    // replaced it, so the name went rather than the reasoning.
     const offenders = sources
       .map(({ name, text }) => ({ name, hits: forbiddenIdiomsIn(text) }))
       .filter(({ hits }) => hits.length > 0)

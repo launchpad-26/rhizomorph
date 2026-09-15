@@ -1,7 +1,7 @@
 # prd-50 — the fixed ceiling: a refusal an operator may not soften
 
-> **Status:** **BLESSED** — Ciaran Slow, 2026-09-02, in session; rulings 1-3 accepted as written.
-> Milestone `prd50`. Drafted the same day against `main` at `07a8f9d`, from prd-41's orphaned
+> **Outcome:** shipped 2026-09-08. Blessed by Ciaran Slow, 2026-09-02, in session; rulings 1-3
+> accepted as written. Milestone `prd50`. Drafted the same day against `main` at `07a8f9d`, from prd-41's orphaned
 > residual *"whether the lock ceiling is configurable"*. That residual named prd-35's settings
 > surface as its owner; prd-35 is shipped, and the surface it built cannot hold this. Successor to
 > neither prd-41 nor prd-35 — it takes one question both left, and cites their rulings rather than

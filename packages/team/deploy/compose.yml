@@ -35,10 +35,40 @@ services:
       # the project held, which is what makes rotation actual revocation.
       RZ_TEAM_PROJECT: ${RZ_TEAM_PROJECT}
       RZ_TEAM_INGEST_KEY_SHA256: ${RZ_TEAM_INGEST_KEY_SHA256}
+      # THE GITHUB APP — the human sign-in plane (prd-51 ruling 8 as amended
+      # 2026-09-08, docs/adr/0050-two-identity-planes.md). All six come from
+      # .env, which init.sh writes with these names present and EMPTY; no
+      # credential is committed. Empty is a valid deployment, not a fault:
+      # /auth/github/start and /auth/github/callback answer 503 and say which
+      # variables are missing (#169).
+      #
+      # `:-` rather than a bare ${VAR}: init.sh refuses to regenerate an
+      # existing .env, so a deployment that predates this change has none of
+      # these names and a bare reference would warn on every compose command.
+      RZ_TEAM_GITHUB_ORG: ${RZ_TEAM_GITHUB_ORG:-}
+      RZ_TEAM_GITHUB_APP_ID: ${RZ_TEAM_GITHUB_APP_ID:-}
+      RZ_TEAM_GITHUB_INSTALLATION_ID: ${RZ_TEAM_GITHUB_INSTALLATION_ID:-}
+      RZ_TEAM_GITHUB_CLIENT_ID: ${RZ_TEAM_GITHUB_CLIENT_ID:-}
+      RZ_TEAM_GITHUB_CLIENT_SECRET: ${RZ_TEAM_GITHUB_CLIENT_SECRET:-}
+      # THE PRIVATE KEY IS A FILE, NOT A VALUE. A compose .env truncates a
+      # multi-line value at its first newline, and the damage surfaces much
+      # later as an unreadable JWT rather than as a config error. So .env holds
+      # the HOST path, the file is bind-mounted read-only below, and the app is
+      # told the CONTAINER path — and only when a host path was actually given
+      # (`:+`), so an unconfigured deployment reports `<unset>` rather than a
+      # fault against a file nobody meant to configure.
+      RZ_TEAM_GITHUB_APP_PRIVATE_KEY_FILE: ${RZ_TEAM_GITHUB_APP_PRIVATE_KEY_PATH:+/run/secrets/github-app-private-key.pem}
       PORT: "8787"
       HOST: "0.0.0.0"
     volumes:
       - team_journal:/data/journal
+      # Read-only, and /dev/null when no key is configured. A bind mount whose
+      # source does not exist makes Docker create an empty DIRECTORY there, and
+      # a directory where a PEM should be is a worse failure than no key: the
+      # read fails with EISDIR against a path the operator never set. /dev/null
+      # always exists on the Linux host this deployment targets, and the app is
+      # not told to read it anyway (see the `:+` above).
+      - ${RZ_TEAM_GITHUB_APP_PRIVATE_KEY_PATH:-/dev/null}:/run/secrets/github-app-private-key.pem:ro
     depends_on:
       postgres:
         condition: service_healthy

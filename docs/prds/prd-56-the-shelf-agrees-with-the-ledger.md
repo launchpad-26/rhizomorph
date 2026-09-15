@@ -6,6 +6,29 @@
 > to the operator and decided before blessing. Sequenced after `#416` lands,
 > because two of the files a move must update are in its fence.
 
+> **Shelf exemption:** stays on the live shelf rather than moving to `docs/prds/done/`
+> — this PRD's ruling 2 is the standing authority for every declared exemption now in
+> force, and both PRDs that hold one rest on it by name:
+> `docs/prds/prd-17-complete-record.md` and `docs/prds/prd-20-the-concierge.md` each
+> cite "prd56 ruling 2" as what licenses them to be where they are — together they are
+> the complete set of live declared exemptions, not a sample of it.
+> (`prd-14-experiment-console` and `prd-53-the-lab` held exemptions on this same
+> authority until `3bfabe98` retired them on archival; spent, so not counted here.)
+> Archiving the document that grants a rule, while two documents are
+> exercising it, demotes the rule to a record — which is the reading
+> `docs/follow-up-292.md` warns about and the one ruling 2 was written to prevent.
+> `docs/prds/prd-17-complete-record.md` also reasons from this PRD in the present
+> tense: *"Classifying is a read; moving is an act, and prd-56 is where the act gets
+> its rule."*
+>
+> The distinction being drawn is deliberate and narrow. Being **cited** by a live PRD
+> is not a reason to stay — nearly every shipped PRD is cited, and if that sufficed the
+> archival shelf would never fill. Being the **live source of a rule other documents
+> are currently applying** is different, and it is the only claim made here.
+>
+> Operator-ruled 2026-09-15, per this PRD's own ruling 2; read by
+> `packages/server/src/prd-location-law.test.ts` for the `**Shelf exemption:**` marker.
+
 ## Problem
 
 Where a PRD file sits is read as a claim about whether its rulings are live.
@@ -218,6 +241,25 @@ the review that found them says so in terms.
 **Unfiled work implied, described not numbered:** whether `docs/prds/parked/`
 needs the same agreement, and whether `docs/design/` and `docs/review/` want
 any location rule at all. Neither is booked; both are outside ruling 1.
+
+**Wave 4 — the same disagreement, one field in.** `prd56 w4: an archived PRD's
+status line agrees with the shelf it sits on` (`#500`). Added 2026-09-15, after
+wave 3 shipped; this section is amended rather than rewritten, and waves 1–3
+stand as written. Ruling 1 names this failure mode while ruling on the shelf
+field — *"a header can be left untouched when a milestone closes, which is the
+same drift in a different field"* — and this wave is that other field: a PRD
+can sit correctly on the archival shelf and its own status prose can still
+claim its waves are in flight. Six files carried the drift (`prd-30`, `prd-39`,
+`prd-43`, `prd-48`, `prd-50`, `prd-52`); `#498` fixed two more of the same kind
+by hand (`prd-53`, `prd-55`) on the way to landing wave 1. It is a STACK in one
+issue, for wave 1's own reason: the sibling law would convict all six the day
+it landed, so the fix and the law are one issue, landed in commit order —
+**first** the six status-line corrections, **then** the law that can now be
+green. The predicate is narrow, and the trap is the whole design question: an
+archived PRD may still name something truly outstanding — `prd-30`'s own
+"one operator act outstanding" stays, unchanged, because it is true — so the
+law asks only whether the status line claims the PRD's *own waves* are still
+being built, never whether it mentions anything unfinished at all.
 
 ## Open questions
 

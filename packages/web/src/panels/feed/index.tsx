@@ -226,11 +226,22 @@ function LandingRow({ entry }: { entry: LandingFeedEntry }): ReactElement {
  * here at typecheck rather than render as an empty tag. prd-57 ruling 5 widened
  * this from three words to seven, and this record is where the build said so.
  *
- * The labels are the words themselves, because the tag's job is to report what
- * was said rather than to interpret it. Declared-versus-inferred is carried by
- * the witness mark beside it and never by the wording — prd-57 ruling 3's
- * rendering law, which is the rule `evidenceLine` and the attention strip
- * already follow.
+ * **Five of the seven labels are the word itself. Two are not, and that is an
+ * exception rather than an oversight** — review of #553, where an earlier
+ * version of this paragraph claimed all seven while `tool call` and `needs you`
+ * sat directly underneath it.
+ *
+ * The rule is that the tag reports what was said rather than interpreting it,
+ * and it holds for every word a reader would recognise on sight. The two
+ * exceptions are schema spellings nobody says out loud: `tool-running` reads as
+ * machine vocabulary in a row of plain words, and `waiting-permission` is the
+ * one status that is an ASK rather than a state — `needs you` borrows the
+ * ladder's rank vocabulary deliberately, because this is the word a glance must
+ * not miss.
+ *
+ * Declared-versus-inferred is carried by the witness mark beside it and never
+ * by the wording — prd-57 ruling 3's rendering law, which is the rule
+ * `evidenceLine` and the attention strip already follow.
  */
 const AGENT_STATUS_LABEL: Record<AgentStatus, string> = {
   working: 'working',

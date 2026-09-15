@@ -1,7 +1,8 @@
 # prd-52 — the world composes: the scene holds several colonies, and the size it holds is a law
 
-> **Status:** **BLESSED** — Lachlan Kelliher, 2026-09-07, in session. Milestone `prd52`. Drafted
-> the same session from an audit of `scene/**` against prd-33 ruling 7's composition claim.
+> **Outcome:** shipped 2026-09-07. Blessed by Lachlan Kelliher, 2026-09-07, in session. Milestone
+> `prd52`. Drafted the same session from an audit of `scene/**` against prd-33 ruling 7's
+> composition claim.
 > Blessed with prd-49's tripwire amendment landing first, in the same branch, because prd-52
 > changes what that trigger refers to and the ruling belonged before the change.
 > Consumes prd-51 (the split) and prd-37 (parked) as **neither dependency nor product**:

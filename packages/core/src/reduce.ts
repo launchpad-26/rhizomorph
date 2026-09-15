@@ -390,6 +390,14 @@ function processGone(state: SessionState, event: EventOf<'process.gone'>): Sessi
   // `crashed` from a `gone` that follows a `seen` with no session end between,
   // and a fold that dropped the row would destroy the first half of that pair —
   // the raiser would have nothing to edge-trigger against.
+  //
+  // The asymmetry on the next line is deliberate, and was the one line in this
+  // fold with no comment (review of #553). `goneAt` is FIRST-write-wins: the
+  // instant an actor went is a fact that cannot improve, and letting a second
+  // `gone` push it later would keep resetting the age a raiser measures
+  // against. `goneReason` is LAST-write-wins for the opposite reason — it is a
+  // classification rather than an instant, so a later one is a better one, and
+  // an `absent` resolving into `recycled` on the following tick is exactly that.
   return {
     ...state,
     processes: { ...state.processes, [key]: { ...existing, goneAt: existing.goneAt ?? event.ts, goneReason: reason } },
