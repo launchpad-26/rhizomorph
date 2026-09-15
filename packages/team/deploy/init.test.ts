@@ -178,6 +178,71 @@ describe('init.sh', () => {
   })
 })
 
+const GITHUB_ENV_NAMES = [
+  'RZ_TEAM_GITHUB_ORG',
+  'RZ_TEAM_GITHUB_APP_ID',
+  'RZ_TEAM_GITHUB_INSTALLATION_ID',
+  'RZ_TEAM_GITHUB_CLIENT_ID',
+  'RZ_TEAM_GITHUB_CLIENT_SECRET',
+  'RZ_TEAM_GITHUB_APP_PRIVATE_KEY_PATH',
+]
+
+describe("init.sh's .env names the GitHub App's six values, empty", () => {
+  it('all six names are present and empty', () => {
+    const dir = freshDir()
+    runInit(dir)
+    const content = readFileSync(path.join(dir, '.env'), 'utf8')
+    for (const name of GITHUB_ENV_NAMES) {
+      expect(envValue(content, name)).toBe('')
+    }
+  })
+
+  it('each carries a comment saying where it comes from', () => {
+    const dir = freshDir()
+    runInit(dir)
+    const content = readFileSync(path.join(dir, '.env'), 'utf8')
+    const lines = content.split('\n')
+    for (const name of GITHUB_ENV_NAMES) {
+      const idx = lines.findIndex((line) => line.startsWith(`${name}=`))
+      expect(idx).toBeGreaterThan(0)
+      const comment = lines[idx - 1] as string
+      expect(comment.startsWith('#')).toBe(true)
+      expect(comment.length).toBeGreaterThan(1)
+    }
+  })
+
+  it('no credential is written, and none is generated', () => {
+    const dir = freshDir()
+    runInit(dir)
+    const content = readFileSync(path.join(dir, '.env'), 'utf8')
+    expect(content).not.toMatch(/BEGIN [A-Z ]*PRIVATE KEY/)
+    for (const name of GITHUB_ENV_NAMES) {
+      expect(envValue(content, name)).toBe('')
+    }
+
+    const script = readFileSync(INIT_SH, 'utf8')
+    const githubLines = script.split('\n').filter((line) => line.includes('GITHUB'))
+    expect(githubLines.some((line) => line.includes('openssl'))).toBe(false)
+  })
+
+  it('the inline variable is documented but commented out', () => {
+    const dir = freshDir()
+    runInit(dir)
+    const content = readFileSync(path.join(dir, '.env'), 'utf8')
+    expect(content).toContain('#RZ_TEAM_GITHUB_APP_PRIVATE_KEY=')
+    expect(envValue(content, 'RZ_TEAM_GITHUB_APP_PRIVATE_KEY')).toBeNull()
+  })
+
+  it('the existing behaviour is untouched', () => {
+    const dir = freshDir()
+    const { stdout } = runInit(dir)
+    const content = readFileSync(path.join(dir, '.env'), 'utf8')
+    expect(envValue(content, 'RZ_TEAM_PROJECT')).toBe('default')
+    expect(isIngestKeyHash(envValue(content, 'RZ_TEAM_INGEST_KEY_SHA256') ?? '')).toBe(true)
+    expect(printedKey(stdout)).toMatch(/^rzk_[0-9a-f]{64}$/)
+  })
+})
+
 /**
  * BOTH BOUNDARIES, NOT JUST GIT'S (review of #454).
  *

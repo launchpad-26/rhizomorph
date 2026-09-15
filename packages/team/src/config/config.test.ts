@@ -4,10 +4,13 @@ import {
   ENV_DATABASE_URL,
   ENV_GITHUB_APP_ID,
   ENV_GITHUB_APP_PRIVATE_KEY,
+  ENV_GITHUB_APP_PRIVATE_KEY_FILE,
   ENV_GITHUB_CLIENT_SECRET,
   ENV_GITHUB_ORG,
   ENV_MIGRATIONS_DIR,
+  keyFileFault,
   redactDatabaseUrl,
+  type ReadTextFileSync,
   resolveTeamConfig,
 } from './config.js'
 
@@ -196,5 +199,171 @@ describe('case 37 — secrets redact in display, identity does not', () => {
     })
     expect(config.githubOrgLogin.display).toBe('rhizomorph-team')
     expect(config.githubAppId.display).toBe('123456')
+  })
+})
+
+describe('case 38 — the private key is a file, and a bad file is a named fault', () => {
+  const FAKE_KEY_FILE_PEM = '-----BEGIN RSA PRIVATE KEY-----\nFAKE-FROM-FILE\n-----END RSA PRIVATE KEY-----\n'
+  const FAKE_INLINE_PEM = '-----BEGIN RSA PRIVATE KEY-----\nFAKE-INLINE\n-----END RSA PRIVATE KEY-----'
+  const KEY_PATH = '/run/secrets/github-app-private-key.pem'
+
+  function countingReader(result: string | (() => never)): { read: ReadTextFileSync; paths: string[] } {
+    const paths: string[] = []
+    const read: ReadTextFileSync = (filePath) => {
+      paths.push(filePath)
+      if (typeof result === 'string') return result
+      return result()
+    }
+    return { read, paths }
+  }
+
+  it('the file wins when both are set', () => {
+    const { read, paths } = countingReader(FAKE_KEY_FILE_PEM)
+    const config = resolveTeamConfig(
+      { [ENV_GITHUB_APP_PRIVATE_KEY_FILE]: KEY_PATH, [ENV_GITHUB_APP_PRIVATE_KEY]: FAKE_INLINE_PEM },
+      read,
+    )
+    expect(config.githubAppPrivateKey.value).toBe(FAKE_KEY_FILE_PEM)
+    expect(config.githubAppPrivateKey.value).not.toBe(FAKE_INLINE_PEM)
+    expect(config.githubAppPrivateKey.setBy).toBe('environment')
+    expect(config.githubAppPrivateKey.source).toBe(ENV_GITHUB_APP_PRIVATE_KEY_FILE)
+    expect(config.githubAppPrivateKey.display).toBe('<redacted>')
+    expect(paths).toEqual([KEY_PATH])
+  })
+
+  it('the inline variable is used, unchanged, when only it is set', () => {
+    const { read, paths } = countingReader(FAKE_KEY_FILE_PEM)
+    const config = resolveTeamConfig({ [ENV_GITHUB_APP_PRIVATE_KEY]: FAKE_INLINE_PEM }, read)
+    expect(config.githubAppPrivateKey.value).toBe(FAKE_INLINE_PEM)
+    expect(config.githubAppPrivateKey.source).toBe(ENV_GITHUB_APP_PRIVATE_KEY)
+    expect(paths).toEqual([])
+  })
+
+  /**
+   * THE COMPOSE SHAPE, NOT JUST THE ABSENT-VARIABLE SHAPE (found in review).
+   *
+   * `docker compose config` on an unconfigured deployment resolves
+   * `RZ_TEAM_GITHUB_APP_PRIVATE_KEY_FILE` to `''` — an EMPTY STRING, never an
+   * absent key — because `compose.yml` writes
+   * `${RZ_TEAM_GITHUB_APP_PRIVATE_KEY_PATH:+/run/secrets/...}` and an unset
+   * `_PATH` makes `:+` substitute nothing. Every other case in this describe
+   * block resolves `{}`, which never exercises that branch of
+   * `privateKeyValue`'s guard (`filePath === undefined || filePath === ''`).
+   * Without this, deleting the `|| filePath === ''` half of that guard leaves
+   * the whole suite green while a real unconfigured deployment reports
+   * `<key file unreadable: : ENOENT …>` against a path nobody set — the exact
+   * undiagnosable refusal this issue exists to prevent.
+   *
+   * MUTATION: in `config.ts`, change
+   * `if (filePath === undefined || filePath === '')` to
+   * `if (filePath === undefined)` — red on both assertions below.
+   */
+  it('an empty-string `_FILE` is treated the same as an absent one — compose\'s actual unconfigured shape', () => {
+    const { read, paths } = countingReader(FAKE_KEY_FILE_PEM)
+    const config = resolveTeamConfig({ [ENV_GITHUB_APP_PRIVATE_KEY_FILE]: '' }, read)
+    expect(config.githubAppPrivateKey.display).toBe('<unset>')
+    expect(config.githubAppPrivateKey.value).toBe('')
+    expect(config.githubAppPrivateKey.setBy).toBe('default')
+    expect(keyFileFault(config.githubAppPrivateKey)).toBeNull()
+    expect(paths).toEqual([])
+
+    const withInline = resolveTeamConfig(
+      { [ENV_GITHUB_APP_PRIVATE_KEY_FILE]: '', [ENV_GITHUB_APP_PRIVATE_KEY]: FAKE_INLINE_PEM },
+      read,
+    )
+    expect(withInline.githubAppPrivateKey.value).toBe(FAKE_INLINE_PEM)
+    expect(withInline.githubAppPrivateKey.source).toBe(ENV_GITHUB_APP_PRIVATE_KEY)
+  })
+
+  it('neither set is `<unset>`, `default`, and this file as the source', () => {
+    const config = resolveTeamConfig({})
+    expect(config.githubAppPrivateKey.value).toBe('')
+    expect(config.githubAppPrivateKey.setBy).toBe('default')
+    expect(config.githubAppPrivateKey.source).toBe('packages/team/src/config/config.ts')
+    expect(config.githubAppPrivateKey.display).toBe('<unset>')
+    expect(keyFileFault(config.githubAppPrivateKey)).toBeNull()
+  })
+
+  it('an absent file is a NAMED fault, and not the same observation as unset', () => {
+    const read: ReadTextFileSync = () => {
+      throw Object.assign(new Error(`ENOENT: no such file or directory, open '${KEY_PATH}'`), { code: 'ENOENT' })
+    }
+    const config = resolveTeamConfig({ [ENV_GITHUB_APP_PRIVATE_KEY_FILE]: KEY_PATH }, read)
+    expect(config.githubAppPrivateKey.value).toBe('')
+    expect(config.githubAppPrivateKey.display).not.toBe('<unset>')
+    expect(config.githubAppPrivateKey.display).toContain('unreadable')
+    expect(config.githubAppPrivateKey.display).toContain(KEY_PATH)
+    expect(config.githubAppPrivateKey.display).toContain('ENOENT')
+    expect(keyFileFault(config.githubAppPrivateKey)).not.toBeNull()
+    expect(config.githubAppPrivateKey.source).toBe(ENV_GITHUB_APP_PRIVATE_KEY_FILE)
+  })
+
+  it('an unreadable file is a different fault from an absent one only in its reason, and both are distinguishable from empty', () => {
+    const read: ReadTextFileSync = () => {
+      throw Object.assign(new Error(`EACCES: permission denied, open '${KEY_PATH}'`), { code: 'EACCES' })
+    }
+    const config = resolveTeamConfig({ [ENV_GITHUB_APP_PRIVATE_KEY_FILE]: KEY_PATH }, read)
+    expect(config.githubAppPrivateKey.display).toContain('EACCES')
+
+    const enoent = resolveTeamConfig({ [ENV_GITHUB_APP_PRIVATE_KEY_FILE]: KEY_PATH }, () => {
+      throw Object.assign(new Error(`ENOENT: no such file or directory, open '${KEY_PATH}'`), { code: 'ENOENT' })
+    })
+    expect(config.githubAppPrivateKey.display).not.toBe(enoent.githubAppPrivateKey.display)
+  })
+
+  it('an empty file is its own fault', () => {
+    const read: ReadTextFileSync = () => '   \n'
+    const config = resolveTeamConfig({ [ENV_GITHUB_APP_PRIVATE_KEY_FILE]: KEY_PATH }, read)
+    expect(config.githubAppPrivateKey.display).toContain('empty')
+    expect(config.githubAppPrivateKey.display).toContain(KEY_PATH)
+    expect(config.githubAppPrivateKey.display).not.toBe('<unset>')
+    expect(config.githubAppPrivateKey.display).not.toBe('<redacted>')
+    expect(config.githubAppPrivateKey.value).toBe('')
+  })
+
+  it('a non-Error throw still produces a fault, not a crash', () => {
+    const read: ReadTextFileSync = () => {
+      throw 'boom'
+    }
+    const config = resolveTeamConfig({ [ENV_GITHUB_APP_PRIVATE_KEY_FILE]: KEY_PATH }, read)
+    expect(keyFileFault(config.githubAppPrivateKey)).not.toBeNull()
+    expect(config.githubAppPrivateKey.display).toContain('boom')
+  })
+
+  it('the inline path is untouched by all of this', () => {
+    expect(resolveTeamConfig({ [ENV_GITHUB_APP_PRIVATE_KEY]: FAKE_INLINE_PEM }).githubAppPrivateKey.display).toBe(
+      '<redacted>',
+    )
+  })
+
+  it("the fault display never carries the key's bytes", () => {
+    const read: ReadTextFileSync = () => FAKE_KEY_FILE_PEM
+    const config = resolveTeamConfig({ [ENV_GITHUB_APP_PRIVATE_KEY_FILE]: KEY_PATH }, read)
+    expect(config.githubAppPrivateKey.display).not.toContain(FAKE_KEY_FILE_PEM)
+    expect(config.githubAppPrivateKey.display).not.toContain(FAKE_KEY_FILE_PEM.slice(0, 40))
+  })
+
+  it('`keyFileFault` is not vacuous', () => {
+    expect(keyFileFault(resolveTeamConfig({}).githubAppPrivateKey)).toBeNull()
+    expect(
+      keyFileFault(resolveTeamConfig({ [ENV_GITHUB_APP_PRIVATE_KEY]: FAKE_INLINE_PEM }).githubAppPrivateKey),
+    ).toBeNull()
+
+    const unreadable = resolveTeamConfig({ [ENV_GITHUB_APP_PRIVATE_KEY_FILE]: KEY_PATH }, () => {
+      throw new Error('boom')
+    })
+    expect(keyFileFault(unreadable.githubAppPrivateKey)).not.toBeNull()
+
+    const empty = resolveTeamConfig({ [ENV_GITHUB_APP_PRIVATE_KEY_FILE]: KEY_PATH }, () => '   ')
+    expect(keyFileFault(empty.githubAppPrivateKey)).not.toBeNull()
+  })
+
+  it('repetition — one read per resolve, not a cache and not a double read', () => {
+    const { read, paths } = countingReader(FAKE_KEY_FILE_PEM)
+    const first = resolveTeamConfig({ [ENV_GITHUB_APP_PRIVATE_KEY_FILE]: KEY_PATH }, read)
+    expect(paths.length).toBe(1)
+    const second = resolveTeamConfig({ [ENV_GITHUB_APP_PRIVATE_KEY_FILE]: KEY_PATH }, read)
+    expect(paths.length).toBe(2)
+    expect(second).toEqual(first)
   })
 })

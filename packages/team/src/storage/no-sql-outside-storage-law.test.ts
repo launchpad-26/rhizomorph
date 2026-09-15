@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest'
  * `packages/team/src/` — and not by what it is called. A guard scoped by a
  * naming convention misses the files that predate it.
  *
- * ## Four clauses, and why fewer would not do
+ * ## Five clauses, and why fewer would not do
  *
  * A tagged-template driver makes a SQL fragment a first-class *value*. So SQL
  * can in principle leave the storage module as an object even when no string
@@ -29,18 +29,60 @@ import { describe, expect, it } from 'vitest'
  * construction: `contract.ts` returns only plain data and never an `SqlLike`,
  * and clause 1 means nothing outside `driver.ts` can even name the driver.
  *
+ * ## What #509 changed, and why it is stronger rather than weaker
+ *
+ * Before #509 there was ONE module that could carry SQL — `storage/postgres.ts`
+ * — and the law named it by exact path in six places. #509 split that adapter
+ * into one SQL module per port, so the exemption had to move; the path pin is
+ * the one thing about this file that could not survive the split, and it is the
+ * only existing test file that commit changed.
+ *
+ * | clause | exempt before | exempt after |
+ * |---|---|---|
+ * | 1 — driver import | `storage/driver.ts` | unchanged |
+ * | 2 — tagged template | `storage/postgres.ts` | any `storage/ports/<port>/sql.ts` |
+ * | 3 — `.unsafe(` | `storage/postgres.ts` | **`storage/ddl.ts` only** |
+ * | 4 — SQL literal | `storage/postgres.ts` | any `storage/ports/<port>/sql.ts` |
+ * | 5 — import of a `sql.js` | *(did not exist)* | **`storage/postgres.ts` only** |
+ *
+ * Clause 3 is strictly narrower than it was: a port's SQL module may no longer
+ * reach the escape hatch, only `ddl.ts` may, and clause 4 still applies to
+ * `ddl.ts` in full because it is a mechanism and carries no statement of its
+ * own. Clause 5 is new and had nothing to guard before: with one SQL module
+ * there was nothing to leak *between*. And the exemption is proved **per file**
+ * rather than per directory, so a port's `port.ts` or `fake.ts` is convicted for
+ * SQL that its `sql.ts` sibling may legitimately carry.
+ *
  * ## The mutation this law exists to catch
  *
  * Planted and observed red before this file was committed: move `appendEvents`'
- * insert template out of `postgres.ts` into `migrations/runner.ts`. Clauses 2
- * and 4 both fire, naming the file.
+ * insert template out of the events adapter into `migrations/runner.ts`. Clauses
+ * 2 and 4 both fire, naming the file.
  */
 
 const SRC_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 
-/** The two modules that may touch SQL and the driver. Everything else may not. */
-const SQL_MODULE = path.join('storage', 'postgres.ts')
+/** The driver seam. The one module that may name the `postgres` package. */
 const DRIVER_MODULE = path.join('storage', 'driver.ts')
+
+/** The one module that may reach the driver's un-parameterised escape hatch (ADR-0043). */
+const DDL_MODULE = path.join('storage', 'ddl.ts')
+
+/** The composition root. The one module that may IMPORT a port's SQL module (clause 5). */
+const COMPOSITION_ROOT = path.join('storage', 'postgres.ts')
+
+/** Where the ports live. Every entry is a directory holding one capability. */
+const PORTS_DIR = path.join('storage', 'ports')
+
+/**
+ * A port's SQL module — `storage/ports/<port>/sql.ts`, and nothing else in the
+ * package.
+ *
+ * `[\\/]` rather than `/`: `sources()` builds its paths from
+ * `readdirSync(…, { recursive: true })`, which separates with `\` on the Windows
+ * leg. A law written with `/` alone would go green there having swept nothing.
+ */
+const SQL_MODULE_RE = /^storage[\\/]ports[\\/][^\\/]+[\\/]sql\.ts$/
 
 /** Every non-test `.ts` under `src/`, as repo-package-relative paths. */
 function sources(): { file: string; text: string }[] {
@@ -48,6 +90,14 @@ function sources(): { file: string; text: string }[] {
     .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
     .sort()
     .map((f) => ({ file: f, text: readFileSync(path.join(SRC_DIR, f), 'utf8') }))
+}
+
+/** The port directories, read from disk rather than listed here. */
+function portDirectories(): string[] {
+  return readdirSync(path.join(SRC_DIR, PORTS_DIR), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
 }
 
 /**
@@ -93,6 +143,15 @@ export const UNSAFE_CALL_RE = /\.unsafe\s*\(/
 export const SQL_LITERAL_RE =
   /\b(SELECT\s|INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|CREATE\s+(?:TABLE|INDEX|ROLE|POLICY)|ALTER\s+TABLE|DROP\s+(?:TABLE|INDEX)|GRANT\s|REVOKE\s|ON\s+CONFLICT)/i
 
+/**
+ * Clause 5 — SQL capability, reached by import.
+ *
+ * A port's `sql.ts` is exempt from clauses 2 and 4, so importing one is a way to
+ * bring a database-shaped object anywhere in the package without tripping any
+ * other clause. Exactly one module may: the composition root.
+ */
+export const SQL_MODULE_IMPORT_RE = /(?:from|import)\s*\(?\s*['"][^'"]*\/sql\.js['"]/
+
 interface Violation {
   readonly file: string
   readonly clause: string
@@ -108,13 +167,19 @@ function violations(): Violation[] {
       const hit = DRIVER_IMPORT_RE.exec(stripped)
       if (hit) found.push({ file, clause: 'driver import', hit: hit[0] })
     }
-    if (file !== SQL_MODULE) {
+    if (!SQL_MODULE_RE.test(file)) {
       const tagged = TAGGED_TEMPLATE_RE.exec(stripped)
       if (tagged) found.push({ file, clause: 'tagged template', hit: tagged[0] })
-      const unsafe = UNSAFE_CALL_RE.exec(stripped)
-      if (unsafe) found.push({ file, clause: 'unsafe call', hit: unsafe[0] })
       const literal = SQL_LITERAL_RE.exec(stripped)
       if (literal) found.push({ file, clause: 'SQL literal', hit: literal[0] })
+    }
+    if (file !== DDL_MODULE) {
+      const unsafe = UNSAFE_CALL_RE.exec(stripped)
+      if (unsafe) found.push({ file, clause: 'unsafe call', hit: unsafe[0] })
+    }
+    if (file !== COMPOSITION_ROOT) {
+      const leak = SQL_MODULE_IMPORT_RE.exec(stripped)
+      if (leak) found.push({ file, clause: 'sql module import', hit: leak[0] })
     }
   }
   return found
@@ -131,7 +196,12 @@ describe('the no-SQL-outside-storage law (#355, prd-51 ruling 5)', () => {
       path.join('storage', 'contract.ts'),
       path.join('storage', 'fake.ts'),
       path.join('storage', 'recording-sql.ts'),
-      SQL_MODULE,
+      path.join('storage', 'coerce.ts'),
+      path.join(PORTS_DIR, 'events', 'port.ts'),
+      path.join(PORTS_DIR, 'events', 'fake.ts'),
+      path.join(PORTS_DIR, 'events', 'sql.ts'),
+      COMPOSITION_ROOT,
+      DDL_MODULE,
       DRIVER_MODULE,
     ]) {
       expect(files).toContain(known)
@@ -146,21 +216,74 @@ describe('the no-SQL-outside-storage law (#355, prd-51 ruling 5)', () => {
     expect(violations()).toEqual([])
   })
 
-  it('the exempt modules are exactly two, and they really do carry what the others may not', () => {
+  it('the exempt set is exactly one SQL module per port directory, and it is not empty', () => {
+    const exempt = sources()
+      .map((s) => s.file)
+      .filter((f) => SQL_MODULE_RE.test(f))
+      .sort()
+    const expected = portDirectories()
+      .map((d) => path.join(PORTS_DIR, d, 'sql.ts'))
+      .sort()
+    expect(exempt).toEqual(expected)
+    // A port that shipped without its SQL module, or a `sql.ts` sitting under a
+    // path no port owns, breaks the equality rather than quietly widening the
+    // exemption.
+    expect(exempt.length).toBeGreaterThanOrEqual(5)
+  })
+
+  it('every exempt module earns its exemption', () => {
     const byFile = new Map(sources().map((s) => [s.file, stripTsComments(s.text)]))
     // If these ever stop being true the exemptions have become dead weight and
     // the law would be passing over nothing.
     expect(DRIVER_IMPORT_RE.test(byFile.get(DRIVER_MODULE) ?? '')).toBe(true)
-    expect(TAGGED_TEMPLATE_RE.test(byFile.get(SQL_MODULE) ?? '')).toBe(true)
-    expect(UNSAFE_CALL_RE.test(byFile.get(SQL_MODULE) ?? '')).toBe(true)
-    expect(SQL_LITERAL_RE.test(byFile.get(SQL_MODULE) ?? '')).toBe(true)
+    expect(UNSAFE_CALL_RE.test(byFile.get(DDL_MODULE) ?? '')).toBe(true)
+    // Deliberately NOT "carries a SQL literal": `lifecycle/sql.ts` calls
+    // `sql.end()` and legitimately carries none. What every SQL module must do
+    // is touch the driver slice — one that does not is dead weight holding an
+    // exemption.
+    for (const file of [...byFile.keys()].filter((f) => SQL_MODULE_RE.test(f))) {
+      expect(byFile.get(file), `${file} holds a SQL exemption`).toContain('SqlLike')
+    }
   })
 
-  it('there is exactly ONE un-parameterised call site in the whole package (ADR-0043)', () => {
+  it('the union of exempt modules still carries both capabilities the law exists to see', () => {
+    const exempt = sources()
+      .filter((s) => SQL_MODULE_RE.test(s.file))
+      .map((s) => stripTsComments(s.text))
+    expect(exempt.some((text) => TAGGED_TEMPLATE_RE.test(text))).toBe(true)
+    expect(exempt.some((text) => SQL_LITERAL_RE.test(text))).toBe(true)
+  })
+
+  it('there is exactly ONE un-parameterised call site in the whole package, and it is ddl.ts (ADR-0043)', () => {
     const occurrences = sources()
       .map(({ file, text }) => ({ file, count: [...stripTsComments(text).matchAll(/\.unsafe\s*\(/g)].length }))
       .filter(({ count }) => count > 0)
-    expect(occurrences).toEqual([{ file: SQL_MODULE, count: 1 }])
+    expect(occurrences).toEqual([{ file: DDL_MODULE, count: 1 }])
+  })
+
+  it('SQL capability cannot leak by import — only the composition root may name a port sql module', () => {
+    const importers = sources()
+      .filter(({ text }) => SQL_MODULE_IMPORT_RE.test(stripTsComments(text)))
+      .map(({ file }) => file)
+      .sort()
+    expect(importers).toEqual([COMPOSITION_ROOT])
+  })
+
+  it('the exemption is per file and not per directory — a port interface and fake are NOT exempt', () => {
+    // The one way this restatement could have been a weakening: exempting a port
+    // DIRECTORY would let SQL sit in its `port.ts` or `fake.ts`. Mutate a real
+    // port interface in memory and show the detector fires on it, that its path
+    // holds no exemption, and that the unmutated file is clean — so the
+    // assertion is not vacuous.
+    const target = path.join(PORTS_DIR, 'ingest-keys', 'port.ts')
+    const real = sources().find((s) => s.file === target)
+    expect(real, `${target} is the fixture this case mutates`).toBeDefined()
+    const mutated = stripTsComments(`${real?.text ?? ''}\nconst q = 'SELECT key_hash FROM ingest_keys'\n`)
+    expect(SQL_LITERAL_RE.test(mutated)).toBe(true)
+    expect(SQL_MODULE_RE.test(target)).toBe(false)
+    expect(SQL_LITERAL_RE.test(stripTsComments(real?.text ?? ''))).toBe(false)
+    // …and its sibling `sql.ts`, one directory entry over, IS exempt.
+    expect(SQL_MODULE_RE.test(path.join(PORTS_DIR, 'ingest-keys', 'sql.ts'))).toBe(true)
   })
 
   it('the detectors bite', () => {
@@ -174,6 +297,8 @@ describe('the no-SQL-outside-storage law (#355, prd-51 ruling 5)', () => {
     expect(UNSAFE_CALL_RE.test("sql.unsafe('DROP TABLE events')")).toBe(true)
     expect(DRIVER_IMPORT_RE.test("import postgres from 'postgres'")).toBe(true)
     expect(DRIVER_IMPORT_RE.test("const postgres = require('postgres')")).toBe(true)
+    expect(SQL_MODULE_IMPORT_RE.test("import { createEventsSql } from './ports/events/sql.js'")).toBe(true)
+    expect(SQL_MODULE_IMPORT_RE.test("const m = await import('../../storage/ports/events/sql.js')")).toBe(true)
   })
 
   it('and do not over-bite on the prose and the identifiers this package legitimately carries', () => {
@@ -189,6 +314,10 @@ describe('the no-SQL-outside-storage law (#355, prd-51 ruling 5)', () => {
     expect(TAGGED_TEMPLATE_RE.test('const mysql`')).toBe(false)
     expect(UNSAFE_CALL_RE.test('unsafe(text: string) {')).toBe(false)
     expect(DRIVER_IMPORT_RE.test("import { createPostgresStorage } from './postgres.js'")).toBe(false)
+    // Clause 5 is about a port's SQL MODULE, not about anything whose name ends
+    // in `sql`: the driver seam and the driver double are neither.
+    expect(SQL_MODULE_IMPORT_RE.test("import type { SqlLike } from './driver.js'")).toBe(false)
+    expect(SQL_MODULE_IMPORT_RE.test("import { createRecordingSql } from './recording-sql.js'")).toBe(false)
   })
 
   it('the comment stripper keeps a URL scheme and drops a real comment', () => {

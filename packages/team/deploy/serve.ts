@@ -7,8 +7,9 @@ import {
   resolveTeamConfig,
   startTeamServer,
 } from '../src/index.js'
+import { keyFileFault } from '../src/config/config.js'
 import { ENV_INGEST_KEY_SHA256, ENV_PROJECT, seedProjectIngestKey } from '../src/keys/seed.js'
-import { formatBootReport } from './report.js'
+import { formatBootReport, formatConfigReport, formatKeyFaultAdvice } from './report.js'
 
 const JOURNAL_DIR = process.env.RZ_TEAM_JOURNAL_DIR ?? '/data/journal'
 const PORT = Number(process.env.PORT ?? 8787)
@@ -16,10 +17,16 @@ const HOST = process.env.HOST ?? '0.0.0.0'
 
 async function main(): Promise<void> {
   const config = resolveTeamConfig(process.env)
-  console.log(
-    `config: databaseUrl=${config.databaseUrl.display} (set by ${config.databaseUrl.setBy}, ${config.databaseUrl.source}); ` +
-      `migrationsDir=${config.migrationsDir.value} (set by ${config.migrationsDir.setBy}, ${config.migrationsDir.source})`,
-  )
+  console.log(formatConfigReport(config))
+
+  // LOUD, AND NOT A REFUSAL TO BOOT. An unconfigured app is a valid state
+  // (#169) and so is a misconfigured one: sign-in answers 503 and says so,
+  // while the ingest plane — which never touches GitHub (ADR-0050) — is
+  // unaffected. What must not happen is the operator not being told.
+  const keyFault = keyFileFault(config.githubAppPrivateKey)
+  if (keyFault !== null) {
+    console.error(formatKeyFaultAdvice(keyFault))
+  }
 
   const sql = openSql(config.databaseUrl.value)
   const storage = createPostgresStorage(sql)
