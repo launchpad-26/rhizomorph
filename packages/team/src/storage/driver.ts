@@ -55,6 +55,40 @@ export interface SqlLike {
 }
 
 /**
+ * THE NOTICE FILTER (#551).
+ *
+ * postgres.js's own default handler is console.log(parseError(x)) — the raw wire
+ * fields as one object — for every NOTICE the server sends, unconditionally. The
+ * migrations this package runs on every boot legitimately raise about a dozen of
+ * these (a DROP POLICY IF EXISTS in the roles/RLS migration, a CREATE TABLE IF
+ * NOT EXISTS in the partition top-up), and each one costs eight lines by
+ * default — enough to bury the boot report's own lines under a hundred lines of
+ * expected noise (measured on a real first boot, #551).
+ *
+ * The two severities Postgres's NoticeResponse can carry that matter here split
+ * on one field: severity — never severity_local, which the server may localize
+ * (a French server sends AVIS, not NOTICE, for the same condition) and so cannot
+ * be gated on without breaking on a non-English host.
+ *
+ * A NOTICE condenses to one line; nothing above it is touched. This is
+ * deliberately NOT keyed on the notice's code — Postgres's generic
+ * "successful completion" code is the one both DDL shapes above carry, and it is
+ * also the code plenty of other, not-necessarily-expected NOTICEs carry. A
+ * driver that cannot tell those apart must not drop either — so this never drops
+ * a message, it only ever shortens one. Anything that is not a plain NOTICE — a
+ * WARNING, or a notice with no severity field at all — is shown in full, exactly
+ * as the default handler would have, because an unclassifiable notice is the
+ * case this filter must fail open on, not closed.
+ */
+export function reportNotice(notice: postgres.Notice): void {
+  if (notice.severity === 'NOTICE') {
+    console.log(`notice: ${notice.message ?? '(no message)'}`)
+    return
+  }
+  console.warn(notice)
+}
+
+/**
  * Opens a real connection. The one call site of `postgres()` in the package.
  *
  * The cast is the seam: postgres.js's `Sql` is structurally wider than
@@ -63,5 +97,5 @@ export interface SqlLike {
  * here, once, in the module whose whole job is to touch the driver.
  */
 export function openSql(databaseUrl: string): SqlLike {
-  return postgres(databaseUrl) as unknown as SqlLike
+  return postgres(databaseUrl, { onnotice: reportNotice }) as unknown as SqlLike
 }
