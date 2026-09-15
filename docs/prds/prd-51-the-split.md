@@ -1473,23 +1473,41 @@ sibling #561 is fenced **file by file and never on the docs directory**, so it c
 drill's dated capture. The team-server runbook stays #171's to re-claim at dispatch, with #514's
 capture as its baseline.
 
-### The wave-citation sweep, re-run — and one citation has now rotted twice
+### The wave-citation sweep, re-run — and two citations have rotted, one of them twice
 
 The 2026-09-09 amendment swept the corpus for `prd-51 wave <N>` citations and found five, three of
 them invalidated. **That sweep is re-run here rather than assumed**, and by hand, for a reason the
 next section gives.
 
-Eight such citations exist outside this document today. Seven hold:
-`packages/team/src/storage/composition-law.test.ts` (wave 8, correct as of this amendment),
+**Corrected at review (#563).** This section first reported eight citations and then named a ninth
+that did not hold, which does not add up, and its list was short by three. The re-run below is the
+reviewer's, and its command is stated so the next reader re-derives rather than trusts:
+`grep -rniE "prd[- ]?51[^a-z0-9]{0,3}wave"`, with this document excluded. Case matters — one of the
+three missed hits spells it `WAVE` — and the count is the tell here exactly as it is for the lint
+below.
+
+Thirteen such hits exist outside this document today, across eleven files. Nine hold:
+`packages/team/src/storage/composition-law.test.ts` (wave 8, correct as of this amendment, and the
+one file carrying two of the thirteen — a doc comment and the `describe` beneath it),
 `packages/team/src/storage/driver.ts` (wave 3, the ingest build that forced the widening),
 `docs/adr/0033-the-record-travels-by-protocol.md` (wave 1),
 `docs/adr/0043-the-team-server-speaks-postgres-through-one-tagged-template-driver.md` and the two
-matching rows in `docs/adr/README.md` (waves 2 and 3), and
-`docs/adr/0046-the-ingest-journal-is-a-crc-framed-append-log.md` (wave 3). The eighth,
-`packages/server/src/shipper/veil.test.ts`, names wave 2 inside a QUOTE of what the law file once
-declared — reported speech, correct as a quote, and deliberately not "fixed".
+matching rows in `docs/adr/README.md` (waves 2 and 3),
+`docs/adr/0046-the-ingest-journal-is-a-crc-framed-append-log.md` (wave 3), and
+`packages/server/src/shipper/hand-law.test.ts`, whose *"DEFERRED to prd-51 WAVE 5+"* is open-ended
+and survives this renumbering as it survived the last — the doctor row is wave 11 now, and 11 is
+still 5 or more. That one was swept and corrected by the 2026-09-09 amendment and then dropped out
+of this one's count, which is its own small lesson: a sweep that does not re-derive its own prior
+list loses entries silently.
 
-**The one that does not hold is `docs/adr/0035-the-watcher-is-never-a-container.md`**, whose
+Two more are correct without being live claims, and are recorded rather than edited so the
+exemption is stated rather than assumed. `packages/server/src/shipper/veil.test.ts` names wave 2
+inside a QUOTE of what the law file once declared — reported speech, correct as a quote.
+`docs/prds/done/prd-52-the-world-composes.md` names wave 5 as the owner of the doc sweep, and is a
+dated artefact under `docs/prds/`, which is the exemption the next section describes this document
+claiming for itself.
+
+**Two do not hold. The first is `docs/adr/0035-the-watcher-is-never-a-container.md`**, whose
 *"one meaning and one timed drill (prd-51 wave 4)"* points at #171. The 2026-09-09 amendment already
 recorded it as wrong — wave 4 as written, wave 5+ as built — and left it standing. It has now moved
 again, to **wave 13**. So it is not merely stale: it is a citation that has rotted TWICE under two
@@ -1502,6 +1520,22 @@ no ADR. The correction belongs to #171 — the issue the citation points at, and
 the issue before any change and the instruction stated as *do not update the digit*: cite the issue,
 which does not move when the waves do. Changing `wave 4` to `wave 13` would be the third value that
 sentence has carried and the third to go stale.
+
+**The second is `docs/roadmap.md`**, found at review and not by the sweep above. Its Langfuse
+bullet says of `docs/telemetry.md` that *"the prd-51 wave-5 doc sweep owns that file and this
+bullet does not pretend otherwise"*. The doc sweep is #561 and it is **wave 13**; wave 5 is
+recorded **merged** in the map at the top of this amendment. So the bullet tells a reader the sweep
+has already shipped and that file was either corrected or consciously dropped, and neither
+happened. It is the ADR-0035 failure in a second file, with the same mechanism and one extra turn
+of the screw: the wave it names has since been marked done, so the citation reads as discharged
+rather than as pending.
+
+**Who fixes it is left open here rather than ruled.** #561 holds `docs/telemetry.md` — the file the
+bullet is about — but claims no other path under `docs/`, by its own recorded reasoning, and
+`docs/roadmap.md` sits in no boundary in waves 11, 12 or 13. Widening #561 by one file, so the
+bullet travels with the sentence it describes, is the cheaper reading; a separate issue is the
+safer one. This amendment does not choose, because a boundary widening is recorded on the issue
+before the change and this lane has no authority to write one for a lane it is not.
 
 ### The law that would catch a dead path here does not read this file, by design
 
@@ -1518,9 +1552,19 @@ live: an ADR or a source comment citing a file under `docs/prds/` still claims t
 ### The lint record
 
 `scripts/fence-lint.sh` run per wave, and read by **extracted path count** rather than by exit code:
-11 and 6 for wave 11, 10 and 3 for wave 12, 1 and 4 for wave 13 — each equal to what the issue
+11 and 6 for wave 11, 10 and 3 for wave 12, 2 and 4 for wave 13 — each equal to what the issue
 declares, no overlaps. Re-run against all thirteen live In-progress lanes, every overlap reported is
-either cross-wave or against #550 — and #550 closed with PR #556 during that grooming session, so even those are now moot.
+either cross-wave or against #550 — and #550 closed with PR #556 during that grooming session, so
+even those are now moot.
+
+**Wave 13's first figure read `1 and 4`, and was corrected at review (#563).** #171 was widened from
+one path to two minutes after this section was first written, to take the ADR-0035 correction
+recorded above — the widening is on the issue, dated, and before any change, which is the only order
+in which widening is free. The number here is the post-widening one, re-run rather than remembered.
+The claim it supports is unchanged either way: 2 extracted against 2 declared, and the lint still
+passes with no overlaps. What moved is the record, and a record that lags the thing it records by
+four minutes is the same defect as the wave-8 row this amendment opens by correcting — smaller, and
+the same shape.
 
 The first wave-13 run **failed on a collision that did not exist**, for the third recorded time in
 this PRD and by the same mechanism: an explanatory sentence inside a Fence section named the docs
