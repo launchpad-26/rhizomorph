@@ -727,7 +727,15 @@ function classifyLines(text: string): ClassifiedLine[] {
         break
       }
       visible += content.slice(cursor, openAt)
-      const closeAt = masked.indexOf('-->', openAt + 4)
+      // `+ 2`, not `+ 4` (#540). CommonMark's HTML block type 2 ends on the line containing
+      // `-->`, and that end condition MAY OVERLAP the start condition: `<!-->` and `<!--->` are
+      // both complete comments, closing on their own line. Skipping the whole 4-character opener
+      // hid the overlap and blanked the rest of the document, concealing a declaration a reader
+      // could plainly see. Searching from `openAt + 2` cannot false-close — the opener occupies
+      // `openAt..openAt+3`, so a match there requires `openAt + 4` to be `>`, which IS `<!-->`.
+      // The sibling scan for continuation lines of an already-open comment searches from 0 and is
+      // correct as it stands: no opener sits on those lines, so nothing can overlap.
+      const closeAt = masked.indexOf('-->', openAt + 2)
       if (closeAt === -1) {
         visible += ' '.repeat(content.length - openAt)
         inComment = true
@@ -1430,6 +1438,26 @@ describe('declaredExemptionReason — ruling 2\'s marker reader, tested directly
   // scan carrying a THIRD state (normal / in-fence / in-html-comment) so a fence can open only
   // outside a comment and a comment can open only outside a fence — see {@link classifyLines}'s
   // own doc comment.
+
+  it('#540 (fail closed, fixed): `<!-->` is a COMPLETE comment — it closes on its own line, so a declaration below it is read', () => {
+    // CommonMark's end condition may OVERLAP the start condition. The control in the same call is
+    // the genuinely unterminated opener: it must still conceal, or the fix has simply stopped the
+    // reader concealing anything at all.
+    expect(declaredExemptionReason('<!-->\n> **Shelf exemption:** prd-55 builds on this ruling\n')).toBe('prd-55 builds on this ruling')
+    expect(declaredExemptionReason('<!-- never closed\n> **Shelf exemption:** prd-55 builds on this ruling\n')).toBeUndefined()
+  })
+
+  it('#540: `<!--->` closes on its own line too — the rule is the overlap, not the two spellings', () => {
+    expect(declaredExemptionReason('<!--->\n> **Shelf exemption:** prd-55 builds on this ruling\n')).toBe('prd-55 builds on this ruling')
+    // A spelling named nowhere in #540: the overlapping closer inside a blockquote, with trailing
+    // prose after it on the same line. Keying on the two literals rather than the offset misses it.
+    expect(declaredExemptionReason('> <!--> and the block ends here\n> **Shelf exemption:** prd-55 builds on this ruling\n')).toBe('prd-55 builds on this ruling')
+  })
+
+  it('#540 control: a real comment still conceals, and `<!---->` is unchanged', () => {
+    expect(declaredExemptionReason('<!-- **Shelf exemption:** hidden reason here -->\n')).toBeUndefined()
+    expect(declaredExemptionReason('<!---->\n> **Shelf exemption:** prd-55 builds on this ruling\n')).toBe('prd-55 builds on this ruling')
+  })
 
   it('#459, table row 38 (fail open, fixed): an unterminated <!-- that opens INSIDE a fence is fence interior, never a comment opener — a declaration after the fence is exempt', () => {
     const backtickFence =
