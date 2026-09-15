@@ -32,6 +32,52 @@ import { type RouteDeclaration, matchRoute, methodNotAllowedBody, notFoundBody }
  * buys no database read — that is now a property of the table rather than of a
  * condition duplicated into `./main.ts`, and `api.test.ts` pins it.
  *
+ * ## …and it is verified BEFORE the body is read (#550)
+ *
+ * `serveIngest` asks the thunk for its verdict and, when it refuses, hands the
+ * **unread** request to `handleIngest`. The refusal therefore precedes both
+ * `readBody` and the decode. Until #550 it did not: this adapter read and
+ * decoded first, so the key refusal never ran for a body that would not parse.
+ * Measured against a live host on 2026-09-15 (host redacted): no key + valid
+ * JSON was 401, no key + invalid JSON was 400, and a bogus `rzk_` key + invalid
+ * JSON was 400. The handler's documented order was right; this file inverted it.
+ *
+ * **Ruling 1 of #550 — the cap keeps its position and becomes unreachable for an
+ * unverified caller.** `readBody` still sits immediately above the decode, and a
+ * verified caller that exceeds `MAX_BODY_BYTES` has its **socket destroyed at the
+ * cap**: `readBody` calls `request.destroy()` before it resolves, so the 413 the
+ * adapter then writes never reaches the wire. EXECUTED 2026-09-15 on this
+ * platform — `fetch` throws a socket error (undici's UND_ERR_SOCKET, "other side
+ * closed") having read zero bytes back, and a raw `node:http` client sees an
+ * ECONNRESET and no status line at all. The existing
+ * `api.test.ts` case 'a body over the cap is 413' records that reset as a refusal
+ * through its `catch`, which is why the suite reads as though a 413 is delivered.
+ * That undeliverability is pre-existing and untouched here; whether the cap
+ * should write-then-close instead is its own ruling and its own issue.
+ *
+ * What changed is that nobody unverified reaches the cap at all: no buffering, no
+ * 16 MiB string, no parse for a caller this server is about to refuse on a
+ * header. And the cap's refusal is the less useful answer to a caller whose key
+ * is the problem — shrinking the body would not help, where 401/403 names the
+ * fault and is actionable, and unlike the cap's refusal it is actually delivered.
+ * The alternative, gating between `readBody` and the decode, was considered and
+ * rejected: it keeps the 16 MiB read for an anonymous caller for no benefit, and
+ * what that caller then gets is not a 413 but nothing — measured under mutation
+ * M-2 on this commit, 16,778,610 bytes written and zero read back. The choice is
+ * a delivered 401 against a silent reset, not one status against another.
+ *
+ * **The refusal words and the status stay `handleIngest`'s.** No 401 or 403
+ * literal is written here and neither refusal helper is imported: a second copy
+ * of ruling 8's strings in this file would be exactly the fork the
+ * handler/adapter split exists to prevent. This adapter chooses only *when* the
+ * handler is asked, never *what* it answers.
+ *
+ * **The thunk is called twice, the row is read once.** `checkKey` runs here and
+ * again inside `handleIngest`; `../keys/verify.ts` states it is pure over one
+ * read and cannot reach storage again, so ruling 8's bound is on the read and
+ * the bound is unchanged. `api.test.ts`'s `keyLookups` assertions are the pin,
+ * and no memo cell is added here for the same reason ruling 8 forbids one.
+ *
  * ## The two identity planes never meet (ruling 8)
  *
  * No GitHub token is ever accepted on the ingest route, no `rzk_` key is ever
@@ -169,6 +215,25 @@ async function serveIngest(deps: TeamListenerDeps, request: IncomingMessage, res
     return
   }
 
+  const ingestDeps = { journal: deps.journal, notify: deps.notify, now: deps.now, checkKey }
+
+  // THE KEY GATE, ASKED BEFORE A BYTE OF BODY IS READ (#550).
+  //
+  // `handleIngest` refuses a missing header, then a refused key, then a body
+  // that will not parse — in that order, and it always has. This adapter used
+  // to decode first, so a request with no key and a body that is not JSON
+  // answered 400 and the key refusal never ran.
+  //
+  // The refusal is still the handler's own: `checkKey` has already answered
+  // not-ok here, so the call below returns from one of its first two branches
+  // and `parseIngestRequest` is provably not reached — the unread body it is
+  // handed is never looked at, and the journal is unreachable from this call.
+  if (!checkKey().ok) {
+    const refused = handleIngest(ingestDeps, undefined, presented)
+    send(response, refused.status, refused.body)
+    return
+  }
+
   const body = await readBody(request)
   if (!body.ok) {
     send(response, 413, { error: body.error })
@@ -185,7 +250,7 @@ async function serveIngest(deps: TeamListenerDeps, request: IncomingMessage, res
     return
   }
 
-  const result = handleIngest({ journal: deps.journal, notify: deps.notify, now: deps.now, checkKey }, value, presented)
+  const result = handleIngest(ingestDeps, value, presented)
   send(response, result.status, result.body)
 }
 
