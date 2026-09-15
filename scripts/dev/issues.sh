@@ -58,6 +58,14 @@ need() { command -v "$1" >/dev/null 2>&1 || die "$1 not found on PATH"; }
 need gh
 need python3
 
+# #508: on at least one contributor machine, roughly half of every `gh` call
+# fails on a transient DNS fault that never reaches the network — see
+# gh-retry.sh for the measurement and the discriminator. Every `gh`
+# invocation below goes through `gh_retry` rather than calling `gh` directly.
+GH_RETRY_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/gh-retry.sh"
+# shellcheck source=./gh-retry.sh
+source "$GH_RETRY_SH"
+
 # ── memoised reads (#581) ───────────────────────────────────────────────────
 # Every write used to re-read everything it needed from scratch. `set_select`
 # alone cost FOUR API calls — `field_id`, `field_kind` and `option_id` each ran
@@ -83,12 +91,22 @@ ORG_FIELDS_JSON="" # org-level issue fields (Priority)
 
 # "<field>\t<field-id>\t<kind>\t<option>\t<option-id>" per option.
 # kind is SINGLE or MULTI — the mutation shape differs between them.
+#
+# Captured, not piped — same reason as fetch_board below: a failing `gh_retry`
+# handed python an empty stdin, which raised JSONDecodeError and buried the
+# real error (a 401, say) under a 19-line traceback instead of `ensure_fields`'s
+# own honest `|| die`. Found in review of #508: this was the one call site
+# among fetch_fields/fetch_board/cmd_orphans/cmd_show that still piped straight
+# through, despite fetch_board's own comment naming the exact defect one
+# function below.
 fetch_fields() {
-  gh api graphql -f query="{node(id:\"$PROJECT_ID\"){... on ProjectV2{fields(first:50){nodes{
+  local raw
+  raw="$(gh_retry api graphql -f query="{node(id:\"$PROJECT_ID\"){... on ProjectV2{fields(first:50){nodes{
       __typename
       ... on ProjectV2SingleSelectField{id name options{id name}}
       ... on ProjectV2MultiSelectField{id name multiSelectOptions{id name}}
-    }}}}}" \
+    }}}}}")" || return 1
+  printf '%s' "$raw" \
     | python3 -c '
 import sys, json
 for n in json.load(sys.stdin)["data"]["node"]["fields"]["nodes"]:
@@ -132,7 +150,7 @@ fetch_board() {
   # real exit status replaced by the parser's. Executed during review with a
   # mock `gh` exiting 7.
   local raw
-  raw="$(gh project item-list "$PROJECT" --owner "$OWNER" --limit "$BOARD_LIMIT" --format json)" \
+  raw="$(gh_retry project item-list "$PROJECT" --owner "$OWNER" --limit "$BOARD_LIMIT" --format json)" \
     || die "could not read the board (gh project item-list failed)"
   printf '%s' "$raw" \
     | python3 -c '
@@ -187,7 +205,8 @@ set_select() { # set_select <issue> <Field> <Option>
     value="{singleSelectOptionId:\"$oid\"}"
   fi
 
-  gh api graphql -f query="mutation{updateProjectV2ItemFieldValue(input:{projectId:\"$PROJECT_ID\",itemId:\"$item\",fieldId:\"$fid\",value:$value}){projectV2Item{id}}}" >/dev/null
+  gh_retry api graphql -f query="mutation{updateProjectV2ItemFieldValue(input:{projectId:\"$PROJECT_ID\",itemId:\"$item\",fieldId:\"$fid\",value:$value}){projectV2Item{id}}}" >/dev/null \
+    || die "could not set #$issue $field -> $opt (gh api graphql mutation failed — see the error above)"
   echo "#$issue  $field -> $opt"
 }
 
@@ -210,11 +229,15 @@ set_select() { # set_select <issue> <Field> <Option>
 # output reconciles what it rendered against the repo's own open-issue list,
 # saying so when they differ rather than printing a table that looks complete.
 cmd_list() {
-  PROJECT_ID="$PROJECT_ID" REPO="$REPO" BOARD_LIMIT="$BOARD_LIMIT" python3 -c '
+  PROJECT_ID="$PROJECT_ID" REPO="$REPO" BOARD_LIMIT="$BOARD_LIMIT" GH_RETRY_SH="$GH_RETRY_SH" python3 -c '
 import json, os, subprocess, sys
 
 PROJECT_ID = os.environ["PROJECT_ID"]
 REPO = os.environ["REPO"]
+# #508: each `gh` call goes through gh-retry.sh rather than `gh` directly —
+# see that file for why (a transient DNS fault that a per-invocation retry
+# recovers and retrying the whole operation does not).
+GH = os.environ["GH_RETRY_SH"]
 
 QUERY = """
 query($id: ID!, $after: String) {
@@ -236,13 +259,25 @@ query($id: ID!, $after: String) {
 
 def run(cmd):
     p = subprocess.run(cmd, capture_output=True, text=True)
-    if p.returncode != 0:
+    # Forwarded whenever non-empty, not only on a non-zero returncode: a
+    # retried-then-recovered call exits 0 but still wrote gh-retry.sh its own
+    # "retrying once" notice to that stderr. Gating on returncode alone
+    # (found in review of #508, via a mock retried 2 calls -> 4 with zero
+    # bytes of stderr) makes this the one call site the retry is completely
+    # silent at -- cmd_list is the most-used read, and criterion 1 requires
+    # saying which failure was retried, not only one that was not recovered.
+    #
+    # NOTE: no apostrophes in this comment on purpose. This whole block is
+    # embedded inside a bash SINGLE-quoted string one function up -- a literal
+    # apostrophe here closes that string early and breaks the script.
+    if p.stderr:
         sys.stderr.write(p.stderr)
+    if p.returncode != 0:
         sys.exit(p.returncode)
     return json.loads(p.stdout)
 
 def page(after):
-    cmd = ["gh", "api", "graphql", "-f", "query=" + QUERY, "-f", "id=" + PROJECT_ID]
+    cmd = [GH, "api", "graphql", "-f", "query=" + QUERY, "-f", "id=" + PROJECT_ID]
     if after:
         cmd += ["-f", "after=" + after]
     return run(cmd)["data"]["node"]["items"]
@@ -300,7 +335,7 @@ shown = {r[4] for r in rows}
 # reported #501 missing — the exact two-commands-disagree symptom this fix
 # exists to end, reappearing inside the fix.
 ISSUE_LIMIT = int(os.environ["BOARD_LIMIT"])
-open_issues = run(["gh", "issue", "list", "--repo", REPO, "--state", "open",
+open_issues = run([GH, "issue", "list", "--repo", REPO, "--state", "open",
                    "--limit", str(ISSUE_LIMIT), "--json", "number"])
 if len(open_issues) >= ISSUE_LIMIT:
     sys.stderr.write("error: gh issue list returned %d issues, at or above the --limit of %d; "
@@ -321,14 +356,15 @@ if missing:
 # set through updateIssue, not `gh issue edit`.
 ensure_org_types() {
   [ -n "$ORG_TYPES_JSON" ] && return 0
-  ORG_TYPES_JSON="$(gh api graphql -f query="{organization(login:\"$OWNER\"){issueTypes(first:20){nodes{id name}}}}")" \
+  ORG_TYPES_JSON="$(gh_retry api graphql -f query="{organization(login:\"$OWNER\"){issueTypes(first:20){nodes{id name}}}}")" \
     || die "could not read the org's issue types"
 }
 
 cmd_type() { # cmd_type <issue> <Bug|Feature|Task>
   local n="$1" want="$2" iid tid
   ensure_org_types
-  iid="$(gh issue view "$n" --repo "$REPO" --json id -q .id)"
+  iid="$(gh_retry issue view "$n" --repo "$REPO" --json id -q .id)" \
+    || die "could not read #$n (gh issue view failed — see the error above)"
   [ -n "$iid" ] || die "#$n not found"
   tid="$(printf '%s' "$ORG_TYPES_JSON" \
     | python3 -c '
@@ -339,7 +375,8 @@ for t in json.load(sys.stdin)["data"]["organization"]["issueTypes"]["nodes"]:
         print(t["id"]); break
 ' "$want")"
   [ -n "$tid" ] || die "no issue type named '$want' (have: Bug, Feature, Task)"
-  gh api graphql -f query="mutation{updateIssue(input:{id:\"$iid\",issueTypeId:\"$tid\"}){issue{number issueType{name}}}}" >/dev/null
+  gh_retry api graphql -f query="mutation{updateIssue(input:{id:\"$iid\",issueTypeId:\"$tid\"}){issue{number issueType{name}}}}" >/dev/null \
+    || die "could not set #$n type -> $want (gh api graphql mutation failed — see the error above)"
   echo "#$n  type -> $want"
 }
 
@@ -349,14 +386,15 @@ for t in json.load(sys.stdin)["data"]["organization"]["issueTypes"]["nodes"]:
 # with "Only custom fields can be updated". It goes through setIssueFieldValue.
 ensure_org_fields() {
   [ -n "$ORG_FIELDS_JSON" ] && return 0
-  ORG_FIELDS_JSON="$(gh api graphql -f query="{organization(login:\"$OWNER\"){issueFields(first:20){nodes{... on IssueFieldSingleSelect{id name options{id name}}}}}}")" \
+  ORG_FIELDS_JSON="$(gh_retry api graphql -f query="{organization(login:\"$OWNER\"){issueFields(first:20){nodes{... on IssueFieldSingleSelect{id name options{id name}}}}}}")" \
     || die "could not read the org's issue fields"
 }
 
 cmd_priority() { # cmd_priority <issue> <urgent|high|medium|low>
   local n="$1" want="$2" iid pf po
   ensure_org_fields
-  iid="$(gh api graphql -f query="{repository(owner:\"$OWNER\",name:\"rhizomorph\"){issue(number:$n){id}}}" --jq .data.repository.issue.id)"
+  iid="$(gh_retry api graphql -f query="{repository(owner:\"$OWNER\",name:\"rhizomorph\"){issue(number:$n){id}}}" --jq .data.repository.issue.id)" \
+    || die "could not read #$n (gh api graphql failed — see the error above)"
   [ -n "$iid" ] || die "#$n not found"
   read -r pf po <<<"$(printf '%s' "$ORG_FIELDS_JSON" \
     | python3 -c '
@@ -369,7 +407,8 @@ for f in json.load(sys.stdin)["data"]["organization"]["issueFields"]["nodes"]:
                 print(f["id"], o["id"])
 ' "$want")"
   [ -n "${po:-}" ] || die "no priority named '$want' (have: Urgent, High, Medium, Low)"
-  gh api graphql -f query="mutation{setIssueFieldValue(input:{issueId:\"$iid\",issueFields:[{fieldId:\"$pf\",singleSelectOptionId:\"$po\"}]}){clientMutationId}}" >/dev/null
+  gh_retry api graphql -f query="mutation{setIssueFieldValue(input:{issueId:\"$iid\",issueFields:[{fieldId:\"$pf\",singleSelectOptionId:\"$po\"}]}){clientMutationId}}" >/dev/null \
+    || die "could not set #$n priority -> $want (gh api graphql mutation failed — see the error above)"
   echo "#$n  priority -> $want"
 }
 
@@ -397,7 +436,7 @@ cmd_orphans() {
   # is how many times this script reads a remote, so adding a call would have
   # been the wrong fix even for a right check.
   local open_raw
-  open_raw="$(gh issue list --repo "$REPO" --state open --limit "$BOARD_LIMIT" --json number,title,milestone)" \
+  open_raw="$(gh_retry issue list --repo "$REPO" --state open --limit "$BOARD_LIMIT" --json number,title,milestone)" \
     || die "could not read open issues (gh issue list failed)"
   printf '%s' "$open_raw" \
     | python3 -c '
@@ -461,7 +500,7 @@ cmd_show() {
   # builds the query from only what is requested, same as line ~270's
   # `--json id` a few functions up, so it never mentions Projects classic.
   local raw
-  raw="$(gh issue view "$1" --repo "$REPO" \
+  raw="$(gh_retry issue view "$1" --repo "$REPO" \
     --json number,title,state,url,labels,body,comments)" \
     || die "could not read issue #$1 (gh issue view failed)"
   printf '%s' "$raw" | python3 -c '
@@ -497,7 +536,8 @@ if comments:
 cmd_close() {
   local n="$1"; shift
   [ $# -gt 0 ] || die "close needs a reason — an issue closed without one is a fact nobody can recover"
-  gh issue close "$n" --repo "$REPO" --comment "$*"
+  gh_retry issue close "$n" --repo "$REPO" --comment "$*" \
+    || die "could not close #$n (gh issue close failed — see the error above)"
 }
 
 # ── multi-issue writes ──────────────────────────────────────────────────────
