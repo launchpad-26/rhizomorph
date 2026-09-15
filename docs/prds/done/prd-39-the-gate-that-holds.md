@@ -7,7 +7,7 @@
 > remainder is **prd-45's** ("the earned verdict", blessed 2026-08-24), not a reopening of this
 > PRD. The `shellcheck` pass described-not-numbered below is prd-45's too.
 >
-> **Status:** **BLESSED** — Ciaran Slow, 2026-08-22, in session. Milestone `prd39`. Drafted the
+> **Blessed by** Ciaran Slow, 2026-08-22, in session. Milestone `prd39`. Drafted the
 > same day from the reconciled audit at `03df141` (findings 1 and 45, both re-verified there —
 > untracked artefact, `.gitignore`d; the sha is the anchor, and the Evidence below restates what
 > it found rather than deferring to it). Wave 1 is the only work in this repo that should land

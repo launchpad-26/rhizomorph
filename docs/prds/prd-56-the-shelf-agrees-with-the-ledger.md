@@ -219,6 +219,25 @@ the review that found them says so in terms.
 needs the same agreement, and whether `docs/design/` and `docs/review/` want
 any location rule at all. Neither is booked; both are outside ruling 1.
 
+**Wave 4 — the same disagreement, one field in.** `prd56 w4: an archived PRD's
+status line agrees with the shelf it sits on` (`#500`). Added 2026-09-15, after
+wave 3 shipped; this section is amended rather than rewritten, and waves 1–3
+stand as written. Ruling 1 names this failure mode while ruling on the shelf
+field — *"a header can be left untouched when a milestone closes, which is the
+same drift in a different field"* — and this wave is that other field: a PRD
+can sit correctly on the archival shelf and its own status prose can still
+claim its waves are in flight. Six files carried the drift (`prd-30`, `prd-39`,
+`prd-43`, `prd-48`, `prd-50`, `prd-52`); `#498` fixed two more of the same kind
+by hand (`prd-53`, `prd-55`) on the way to landing wave 1. It is a STACK in one
+issue, for wave 1's own reason: the sibling law would convict all six the day
+it landed, so the fix and the law are one issue, landed in commit order —
+**first** the six status-line corrections, **then** the law that can now be
+green. The predicate is narrow, and the trap is the whole design question: an
+archived PRD may still name something truly outstanding — `prd-30`'s own
+"one operator act outstanding" stays, unchanged, because it is true — so the
+law asks only whether the status line claims the PRD's *own waves* are still
+being built, never whether it mentions anything unfinished at all.
+
 ## Open questions
 
 - **What stops the manifest itself drifting?** Ruling 1 moves the trust from a
