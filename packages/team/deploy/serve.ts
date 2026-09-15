@@ -7,13 +7,9 @@ import {
   resolveTeamConfig,
   startTeamServer,
 } from '../src/index.js'
-import {
-  ENV_GITHUB_APP_PRIVATE_KEY,
-  ENV_GITHUB_APP_PRIVATE_KEY_FILE,
-  keyFileFault,
-} from '../src/config/config.js'
+import { keyFileFault } from '../src/config/config.js'
 import { ENV_INGEST_KEY_SHA256, ENV_PROJECT, seedProjectIngestKey } from '../src/keys/seed.js'
-import { formatBootReport, formatConfigReport } from './report.js'
+import { formatBootReport, formatConfigReport, formatKeyFaultAdvice } from './report.js'
 
 const JOURNAL_DIR = process.env.RZ_TEAM_JOURNAL_DIR ?? '/data/journal'
 const PORT = Number(process.env.PORT ?? 8787)
@@ -29,11 +25,7 @@ async function main(): Promise<void> {
   // unaffected. What must not happen is the operator not being told.
   const keyFault = keyFileFault(config.githubAppPrivateKey)
   if (keyFault !== null) {
-    console.error(
-      `GitHub App private key: ${keyFault} — point ${ENV_GITHUB_APP_PRIVATE_KEY_FILE} at a readable PEM, ` +
-        `or unset it to fall back to ${ENV_GITHUB_APP_PRIVATE_KEY}. Sign-in stays refused with 503 until then; ` +
-        'ingest is unaffected.',
-    )
+    console.error(formatKeyFaultAdvice(keyFault))
   }
 
   const sql = openSql(config.databaseUrl.value)

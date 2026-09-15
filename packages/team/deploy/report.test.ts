@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   ENV_DATABASE_URL,
@@ -8,7 +11,12 @@ import {
   ENV_GITHUB_ORG,
   resolveTeamConfig,
 } from '../src/config/config.js'
-import { formatBootReport, formatConfigReport } from './report.js'
+import {
+  ENV_GITHUB_APP_PRIVATE_KEY_PATH,
+  formatBootReport,
+  formatConfigReport,
+  formatKeyFaultAdvice,
+} from './report.js'
 
 describe('formatBootReport', () => {
   it('happy path (first boot): names what applied, and never claims nothing to do', () => {
@@ -117,5 +125,50 @@ describe('formatConfigReport', () => {
   it('repetition', () => {
     const config = resolveTeamConfig({})
     expect(formatConfigReport(config)).toBe(formatConfigReport(config))
+  })
+})
+
+/**
+ * THE ADVICE IS CHECKED AGAINST compose.yml, NOT AGAINST MEMORY (review of #538).
+ *
+ * The boot line this covers used to name `RZ_TEAM_GITHUB_APP_PRIVATE_KEY_FILE`
+ * and the inline `RZ_TEAM_GITHUB_APP_PRIVATE_KEY`, and under compose an
+ * operator can set neither: the first is derived from `_PATH` by `${...:+}` and
+ * resolves to `""` when set in `.env`, and the second is never passed to the
+ * app service at all. Both facts live in `compose.yml`, so both are read from
+ * it here — if compose ever starts forwarding the inline variable, the second
+ * test reddens and the advice may be relaxed rather than silently rotting.
+ */
+describe('formatKeyFaultAdvice', () => {
+  const COMPOSE = readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), 'compose.yml'),
+    'utf8',
+  )
+  const APP_SERVICE = COMPOSE.slice(COMPOSE.indexOf('\n  app:'), COMPOSE.indexOf('\n  caddy:'))
+
+  it('the app service block really is what was sliced out', () => {
+    expect(APP_SERVICE).toContain('RZ_TEAM_GITHUB_APP_PRIVATE_KEY_FILE:')
+    expect(APP_SERVICE).not.toContain('caddy')
+  })
+
+  it('carries the fault verbatim, and names the knob compose reads', () => {
+    const fault = '<key file unreadable: /run/secrets/github-app-private-key.pem: EACCES>'
+    const advice = formatKeyFaultAdvice(fault)
+    expect(advice).toContain(fault)
+    expect(advice).toContain(ENV_GITHUB_APP_PRIVATE_KEY_PATH)
+    expect(APP_SERVICE).toContain(`\${${ENV_GITHUB_APP_PRIVATE_KEY_PATH}`)
+  })
+
+  it('does not offer the inline variable as a docker remedy, because compose does not forward it', () => {
+    expect(APP_SERVICE).not.toMatch(/^\s+RZ_TEAM_GITHUB_APP_PRIVATE_KEY:/m)
+    const advice = formatKeyFaultAdvice('<key file empty: /run/secrets/github-app-private-key.pem>')
+    expect(advice).toContain('does NOT fall back')
+  })
+
+  it('every variable it names is one the operator can act on', () => {
+    const advice = formatKeyFaultAdvice('<key file empty: /x>')
+    const named = [...advice.matchAll(/RZ_TEAM_[A-Z_]+/g)].map((m) => m[0])
+    expect(named).toContain(ENV_GITHUB_APP_PRIVATE_KEY_PATH)
+    expect(named.indexOf(ENV_GITHUB_APP_PRIVATE_KEY_PATH)).toBe(0)
   })
 })
