@@ -139,6 +139,12 @@ option_id()  { printf '%s\n' "$FIELDS_TSV" | awk -F'\t' -v f="$1" -v o="$2" 'tol
 # with "#N is not on project", which is false, and sends the reader to
 # `orphans`, which would then agree because it truncated identically. That is
 # the same silent-cap defect #420 fixed in `cmd_list`, one function over.
+#
+# This cap is also the real cost lever for `fetch_board` below (NOT for
+# `cmd_list`'s own board read, which is a different, hardcoded query) — see
+# `docs/design-notes/board-archive-cadence.md` for the measured cost of each
+# and why they are not one knob, plus the cadence that keeps this board from
+# needing a higher cap in the first place.
 BOARD_LIMIT=1000
 
 # Every item on the board, as JSON. Dies loudly rather than returning a short
