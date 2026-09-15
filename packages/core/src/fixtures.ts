@@ -51,6 +51,9 @@ export interface EventFactory {
   /** prd16 ruling 2 / prd17 ruling 1: the last line of a rotated-away log. */
   sessionClosed(payload?: Partial<PayloadOf<'session.closed'>>, init?: Init<'session.closed'>): EventOf<'session.closed'>
   beaconReceived(payload?: Partial<PayloadOf<'beacon.received'>>, init?: Init<'beacon.received'>): EventOf<'beacon.received'>
+  processSeen(payload?: Partial<PayloadOf<'process.seen'>>, init?: Init<'process.seen'>): EventOf<'process.seen'>
+  processActivity(payload?: Partial<PayloadOf<'process.activity'>>, init?: Init<'process.activity'>): EventOf<'process.activity'>
+  processGone(payload?: Partial<PayloadOf<'process.gone'>>, init?: Init<'process.gone'>): EventOf<'process.gone'>
   collectorError(payload?: Partial<PayloadOf<'collector.error'>>, init?: Init<'collector.error'>): EventOf<'collector.error'>
   collectorDisabled(payload?: Partial<PayloadOf<'collector.disabled'>>, init?: Init<'collector.disabled'>): EventOf<'collector.disabled'>
   collectorDegraded(payload?: Partial<PayloadOf<'collector.degraded'>>, init?: Init<'collector.degraded'>): EventOf<'collector.degraded'>
@@ -492,6 +495,28 @@ const defaults = {
     subject: '219',
     text: 'Looks correct; landing.',
   },
+  // prd-57 ruling 1: the process witness. A worktree-rooted conductor, so the
+  // sugar exercises the ordinary case rather than an edge one — `unrooted` and
+  // `unknown` placements are asserted where they matter, in process.test.ts.
+  'process.seen': {
+    pid: 4321,
+    dialect: 'claude',
+    startedAt: 1788591360000,
+    worktreePath: '/repo-wt/2-core',
+    placement: 'rooted',
+    parentPid: null,
+  },
+  'process.activity': {
+    pid: 4321,
+    startedAt: 1788591360000,
+    cpuMsDelta: 1200,
+    rssBytes: 480_000_000,
+  },
+  'process.gone': {
+    pid: 4321,
+    startedAt: 1788591360000,
+    reason: 'absent',
+  },
 } as const satisfies { [T in EventType]: PayloadOf<T> }
 
 export function createEventFactory(options: EventFactoryOptions = {}): EventFactory {
@@ -546,6 +571,9 @@ export function createEventFactory(options: EventFactoryOptions = {}): EventFact
     sessionStarted: sugar('session.started'),
     sessionClosed: sugar('session.closed'),
     beaconReceived: sugar('beacon.received'),
+    processSeen: sugar('process.seen'),
+    processActivity: sugar('process.activity'),
+    processGone: sugar('process.gone'),
     collectorError: sugar('collector.error'),
     collectorDisabled: sugar('collector.disabled'),
     collectorDegraded: sugar('collector.degraded'),

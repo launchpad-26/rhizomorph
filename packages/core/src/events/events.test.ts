@@ -165,6 +165,33 @@ describe('agent.status names its witness (ADR-0037)', () => {
     expect(parseEvent(statusEvent('otel')).ok).toBe(false)
   })
 
+  it('still has exactly two witnesses — the third arrives with the hook that can speak it (prd-57 ruling 5, as amended)', () => {
+    // Stated so the wave that widens this finds a test rather than an absence.
+    // `hook` is NOT accepted yet, and that is deliberate: a third source
+    // literal with no emitter is a literal whose precedence arm no test can
+    // exercise. prd-57's 2026-09-15 amendment moves the union and the
+    // precedence to the wave where a hook runner exists.
+    expect(parseEvent(statusEvent('hook')).ok).toBe(false)
+  })
+
+  it('carries seven words, and the four new ones parse under both existing witnesses', () => {
+    const withStatus = (status: string, source: string) => ({ ...statusEvent(source), payload: { handle: 'h', status } })
+    for (const status of ['working', 'waiting', 'done', 'tool-running', 'waiting-permission', 'stopped', 'crashed']) {
+      expect(parseEvent(withStatus(status, 'workmux')).ok, `workmux could not say ${status}`).toBe(true)
+      expect(parseEvent(withStatus(status, 'sessionlog')).ok, `sessionlog could not say ${status}`).toBe(true)
+    }
+    expect(parseEvent(withStatus('a-word-from-a-later-era', 'workmux')).ok).toBe(false)
+  })
+
+  it('an event written before the widening parses exactly as it always did (ADR-0011)', () => {
+    // The whole additive claim, as one assertion: a three-word-era line is not
+    // upcast, not defaulted, and not decorated — it folds to itself.
+    const era = { id: 'evt-000042', ts: 1788591365000, source: 'workmux', type: 'agent.status', payload: { handle: '2-core', status: 'waiting' } }
+    const parsed = parseEvent(era)
+    expect(parsed.ok).toBe(true)
+    expect(parsed.ok && parsed.event.payload).toEqual({ handle: '2-core', status: 'waiting' })
+  })
+
   it('defaults to workmux, its primary, when createEvent is given no source', () => {
     const event = createEvent('agent.status', { handle: 'h', status: 'working' }, { id: 'e', ts: 1 })
     expect(event.source).toBe('workmux')
@@ -494,6 +521,14 @@ function oneOfEach() {
   let n = 0
   const id = () => `evt-${(n += 1)}`
   return [
+    // prd-57 ruling 1: the process witness's three families.
+    createEvent(
+      'process.seen',
+      { pid: 4321, dialect: 'claude', startedAt: 10, worktreePath: '/repo-wt/2-core', placement: 'rooted', parentPid: null },
+      { id: id(), ts: 10 },
+    ),
+    createEvent('process.activity', { pid: 4321, startedAt: 10, cpuMsDelta: 5, rssBytes: 1024 }, { id: id(), ts: 11 }),
+    createEvent('process.gone', { pid: 4321, startedAt: 10, reason: 'absent' }, { id: id(), ts: 12 }),
     createEvent('session.started', {
       sessionId: 's1',
       repoPath: '/repo',

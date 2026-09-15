@@ -149,6 +149,14 @@ describe('the golden era corpus', () => {
     // join the `fork.*` clause above for the same reason: they come only from
     // the server's R&D engine (wave 5's second issue), which no collector
     // reaches and which post-dates both captures regardless.
+    //
+    // `process.seen`/`.activity`/`.gone` (prd-57 ruling 1, wave 1) are the
+    // simplest absence on this list: the collector that emits them does not
+    // exist yet. Wave 1 lands the family, the fold and the laws; wave 2 lands
+    // the collector that reads the process table. So these three cannot have
+    // fired during either window for the strongest possible reason, and they
+    // will still be here after wave 2 — both captures predate it, and this
+    // corpus is a record of what happened rather than a target to hit.
     expect(EVENT_TYPES.filter((type) => !covered.has(type)).sort()).toEqual([
       'agent.removed',
       'beacon.received',
@@ -160,6 +168,9 @@ describe('the golden era corpus', () => {
       'fork.dispatched',
       'fork.measured',
       'gate.verdict',
+      'process.activity',
+      'process.gone',
+      'process.seen',
       'rd.override',
       'rd.patterns',
       'rd.proposal',

@@ -356,10 +356,36 @@ export function dominantRole(roles: readonly AgentRole[]): AgentRole {
  * reading as a wall of flatlines.
  */
 export function activityOf(lane: Lane): LaneActivity {
-  if (lane.agentStatus === 'done' || !lane.present) return 'done'
-  if (lane.agentStatus === 'waiting' || lane.pathologies.some((p) => p.kind === 'waiting')) {
+  // `stopped` joins `done` because both are a declared end. They differ in what
+  // they claim — `done` is about the work, `stopped` is about the session — and
+  // that difference stays on the event, where a reader can still see it. The
+  // fleet's question here is the narrower one: is this lane still going?
+  if (lane.agentStatus === 'done' || lane.agentStatus === 'stopped' || !lane.present) return 'done'
+  // `waiting-permission` is the DECLARED form of the same need. prd-57 ruling 3
+  // keeps declared and inferred apart by the envelope's witness, never by a
+  // separate activity word — a surface that needs to know which one it has asks
+  // the witness, and `AgentState.dissent` preserves whatever this overruled.
+  if (
+    lane.agentStatus === 'waiting' ||
+    lane.agentStatus === 'waiting-permission' ||
+    lane.pathologies.some((p) => p.kind === 'waiting')
+  ) {
     return 'waiting'
   }
+  // A declared tool call beats the clock. The work-age reading below exists
+  // because a lane can look busy while answering nothing; a harness saying it
+  // is inside a tool call is not that case, and reading its age instead would
+  // let an inference overrule a declaration.
+  if (lane.agentStatus === 'tool-running') return 'working'
+  // `crashed` is deliberately NOT mapped to an activity — and deliberately not
+  // left to fall through either. prd-57's 2026-09-15 amendment rules it a
+  // `PathologyKind`, landing in wave 4: a crash is a thing WRONG with a lane,
+  // which is what a pathology already is, and `LaneActivity` has no honest slot
+  // for it (`done` is the crash-as-success failure ruling 5 exists to remove).
+  // Until that lands the fleet says it does not know, which is weaker and true.
+  // Nothing emits this word yet; the arm is explicit so it cannot quietly take
+  // the work-age branch below and surface as `idle`.
+  if (lane.agentStatus === 'crashed') return 'unknown'
   // Working means *doing something*, so this reads work-age too: a lane whose
   // pane is repainting a prompt it never answers is idle, not busy.
   if (lane.workAgeMs === null) return 'unknown'

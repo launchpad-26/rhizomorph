@@ -21,6 +21,23 @@ export const eventSourceSchema = z.enum([
   // can name itself without widening this enum per harness.
   'sessionlog',
   'otel',
+  // prd-57 ruling 1, licensed by ADR-0052: the operating system's process
+  // table, read through `collectors/process/`.
+  //
+  // It joins outright, on this enum's own stated test — it runs unattended
+  // behind the poll loop and reports what it saw, which is the property `lab`
+  // is out for and `operator` was admitted in spite of. So unlike `operator`
+  // below, this member widens nothing about what the enum MEANS: a process
+  // table is the same KIND of thing as a git tree or a pane list, a surface the
+  // instrument looks at on a tick without being asked.
+  //
+  // What is new is where it looks. Every other member here reads the watched
+  // repo or a rhizomorph-owned directory; this one reads the operator's own
+  // machine. That widening is ADR-0052's whole subject rather than this line's,
+  // and the bound travels with it: a process becomes an event only when its
+  // argv matches a known agent signature, and no event carries argv or
+  // environment.
+  'process',
   // prd-27 wave 1 (#217), landing prd17 ruling 2's door: a collector that
   // tails one rhizomorph-owned directory of one-line JSON beacons
   // (ADR-0036, collectors/beacon/). It runs behind the poll loop and reports
