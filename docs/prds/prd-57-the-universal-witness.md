@@ -579,3 +579,60 @@ claimant.**
   and a tool name is not a tool input — but it is another field on a closed set.
 - **Codex's lifecycle channel** — no hook system in Claude Code's sense; whether its `notify` config
   can carry a `Notification`-equivalent is a capture question.
+
+---
+
+## Amendment — `crashed` is a pathology, and one scene file is entered (operator, Lachlan Kelliher, 2026-09-15)
+
+Raised at grooming, before any issue was filed, and ruled in session the same day. **Ruling 5's
+decision is unchanged**: `crashed` exists, it is reached only from a `process.gone` following a
+`process.seen` with no `SessionEnd` between, and never from silence. What this amendment settles is
+where the word lives once the fold has it, which ruling 5 did not say and which decides a fence.
+
+**The gap.** Ruling 5 widens `agentStatusSchema` — the *event* vocabulary. The fleet's *derived*
+vocabulary is a different type, `LaneActivity` (`packages/core/src/fleet/types.ts:22`:
+`'working' | 'waiting' | 'done' | 'idle' | 'unknown'`). Three of the four new words land on it
+cleanly — `tool-running` is `working`, `waiting-permission` is `waiting`, `stopped` is `done`, with
+declared-versus-inferred already carried by ADR-0037's `witness` rather than by a separate word.
+`crashed` lands on none of them: `done` is the exact "convert a crash into a success" failure the
+ruling exists to remove, and `unknown` says less than the instrument knows.
+
+**The ruling.** `crashed` joins `PathologyKind` (`packages/core/src/fleet/pathology.ts:24`), not
+`LaneActivity`. Three reasons, in the order they weighed:
+
+1. **A crash is a thing wrong with a lane, which is what a pathology already is.** It takes
+   `PATHOLOGY_RANK`'s `broken` rung beside `frozen`, whose own comment calls dead air *"the only
+   lane state that is unambiguously broken"* — a crash is that, with a witness.
+2. **The machinery already exists and the crash raiser is already on it.** ADR-0038's summons raiser
+   reads `Lane.pathologies` from the fold on the tick and edge-triggers; this ruling's raiser is the
+   same shape (see the Grooming note under ruling 5), so `crashed` arrives where that raiser already
+   looks rather than needing a second path.
+3. **`activityOf` already lets a pathology reach activity** —
+   `packages/core/src/fleet/plumbing.ts:360` reads `lane.pathologies.some((p) => p.kind ===
+   'waiting')` beside `lane.agentStatus`. So a pathology is not a quieter place to put the word; it
+   is the place the fleet already consults.
+
+**The territory sentence is corrected, because as written it was unachievable.** Sequencing said
+*"`packages/web/src/scene/` is entered by nothing in this PRD."* No route to Success 5 satisfies
+that: any new lane-state word — activity or pathology — is keyed exhaustively by a colour table, and
+the colour tables live under `scene/`. The correction is the smallest one available:
+
+> **Exactly one file under `packages/web/src/scene/` is entered, by exactly one wave.** Wave 4, the
+> crash raiser's wave, claims `packages/web/src/scene/marks/node.ts` — one row in its
+> `Record<PathologyKind, Rgb>` and the switch beside it — and nothing else under that directory.
+> **`packages/web/src/scene/view/useFrameLoop.ts` and `packages/web/src/scene/tripwire-law.test.ts`
+> are entered by nothing, in any wave**, which is the property prd-58's Success 2 actually depends
+> on.
+
+That row is `crashed: status.broken` — an existing named rank colour, so **no new hue is minted** and
+charter law 9's "colour is computed, never picked" is satisfied by construction. The alternative
+considered and rejected was widening `LaneActivity`, which costs three `Record<LaneActivity, …>`
+tables in `packages/web/src/scene/palette.ts` — coupling entry 36, read by seven sibling modules —
+and a colour the activity map does not already have.
+
+**One sequencing consequence, ruled with it.** Wave 1 widens `agentStatusSchema`'s **words** only.
+`AGENT_STATUS_SOURCES` gaining `'hook'`, and ruling 5's precedence, **move to wave 3**, where a hook
+can actually emit. Landing a third source literal and a precedence arm in wave 1 would be code whose
+only test could not bite — the defect shape `AGENTS.md` names as *"a test that cannot fail for the
+reason it claims"* — and it would put `packages/core/src/reduce.ts` in two wave-1 fences at once.
+Wave 3 gains the union, the precedence and the law that exercises all three witnesses together.
