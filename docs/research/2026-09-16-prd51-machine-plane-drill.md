@@ -25,7 +25,7 @@ in this document and is recorded in full below.
 | 1 | `init.sh` from nothing: key printed exactly once, `.env` 0600, no plaintext key stored | EXECUTED |
 | 2 | Second `init.sh` run refuses and does not re-print | EXECUTED |
 | 3 | First boot is legible: 21 lines total, 9 notices at one line each | EXECUTED |
-| 4 | All four ingest refusals distinct, with the right statuses and strings | EXECUTED |
+| 4 | Three of the four refusals distinct, plus the no-header 401, with the right statuses and strings | EXECUTED |
 | 5 | A valid batch is accepted 202 after the journal fsync | EXECUTED |
 | 6 | Torn journal tail detected, repaired at open, appended to afterwards | EXECUTED |
 | 7 | Restore into the empty database before first boot: ordering holds | EXECUTED |
@@ -79,8 +79,15 @@ Seven cases, run from inside the container network:
 | replay of that batch | **202** | `{"accepted":1,"journalSeq":2}` |
 | `GET` on the ingest path | **405** | `GET is not allowed on /v1/rhizomorph/ingest; a batch is POSTed` |
 
-**EXECUTED.** Four distinct refusals, each naming its own reason, 401 for "not a key we know" and
-403 for "a key, but not for this" — `keys/verify.ts`'s split, holding on a real host.
+**EXECUTED, and one short of what this section first claimed.** Four distinct refusal responses,
+each naming its own reason — but only **three** of them are `IngestKeyRefusal` members. The
+no-header 401 is `ingest/handle.ts`'s own, returned before `checkKey()` is ever reached, so it
+stood in for a fourth reason rather than being one. The union is `malformed | unknown | revoked |
+wrong-project` (`keys/verify.ts`), and `revoked` was not run. What that leaves witnessed: the 401
+for "not a key we know" on **both** its members, and the 403 for "a key, but not for this" on
+**one of two** — `statusForIngestKeyRefusal` returns 403 for `revoked` as well as for
+`wrong-project`. `keys/verify.ts`'s split holds on a real host for the cases run; #567 carries the
+one that was not.
 
 **A false pass in the harness, recorded because it nearly became evidence.** The first run of this
 matrix sent `x-rhizomorph-ingest-key`. Every request was therefore refused for *having no key
@@ -198,6 +205,11 @@ and the second filing would have been the one nobody checked.
 
 ## What this drill did NOT check
 
+- **A revoked key.** The matrix ran the no-header case in its place, and the verdict table said
+  "all four" until the review of #566 counted them. `revoked` is the only one of the four
+  `IngestKeyRefusal` reasons decided by a row flag — `revoked_at` in `0005_ingest_keys.sql`,
+  checked once per batch — rather than by shape or by a lookup that missed, so it is the one a
+  host adds most to and the one a unit test stands in for least. #567.
 - **A working team view.** There is no viewer, no doctor route and no mint surface. Three routes
   exist in total. That is #171's, and it needs waves 11 and 12 first.
 - **The human plane on *this* stack.** The drill stack was brought up with no GitHub App credentials,
