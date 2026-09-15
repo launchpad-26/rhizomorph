@@ -4,13 +4,13 @@ import postgres from 'postgres'
  * THE DRIVER SEAM (ADR-0043).
  *
  * The only module in `packages/team` that names the `postgres` package. The
- * adapter in `postgres.ts` is typed against {@link SqlLike} — a hand-written
- * slice of postgres.js — rather than against `postgres.Sql`, and that is what
- * makes the adapter testable without a database: a plain object can satisfy
- * `SqlLike`, so `recording-sql.ts` can record exactly which statements the
- * adapter sends and exactly which bytes it binds.
+ * adapters under `ports/<port>/sql.ts` are typed against {@link SqlLike} — a
+ * hand-written slice of postgres.js — rather than against `postgres.Sql`, and
+ * that is what makes them testable without a database: a plain object can
+ * satisfy `SqlLike`, so `recording-sql.ts` can record exactly which statements
+ * an adapter sends and exactly which bytes it binds.
  *
- * Keeping the slice narrow is the point. Anything the adapter needs that is not
+ * Keeping the slice narrow is the point. Anything an adapter needs that is not
  * here is a widening *decision*, visible in a diff to this file, rather than a
  * capability that arrived by autocomplete.
  */
@@ -46,7 +46,8 @@ export interface SqlLike {
   /**
    * The ONLY un-parameterised path, and the reason ADR-0043 chose a driver
    * whose unsafe path is *named* unsafe. Reserved for DDL, which cannot go
-   * through a tagged template because its identifiers are not bindable.
+   * through a tagged template because its identifiers are not bindable. The
+   * package's one call site is `ddl.ts`, and the law names it by path.
    */
   unsafe(text: string): { simple(): PromiseLike<unknown> }
   begin<T>(fn: (tx: SqlLike) => Promise<T>): Promise<T>
