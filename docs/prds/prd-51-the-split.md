@@ -1338,3 +1338,191 @@ sequence #487 restructures reaches the very file that pins the migration set; an
 `DoctorReading` is declared in `packages/web/src/connect/meta.ts`, which has no shipper facts at
 all today, so #488 claiming only the row's own file would have stranded it at the type boundary.
 Both were widened **at grooming**, which is the only time widening is free.
+
+## Amendment — waves 8, 9 and 10 as built, and waves 11–13 groomed (operator, 2026-09-16)
+
+The 2026-09-14 amendment above left a wave-8 row reading *"retention under a named ceiling · the
+three questions and the read-only role · the team server's doctor route · the key-mint surface —
+not groomed, and it may not be one wave"*. **None of that is what wave 8 became.** Three waves ran
+past that row without it being corrected, so a reader arriving at the map today is told that work
+is next when it is in fact three waves out. This amendment records what the numbers actually hold
+and grooms the remainder.
+
+### The map, superseded again
+
+| wave | what | state |
+|---|---|---|
+| 0 | operator acts | recorded in the 2026-09-08 amendment |
+| 1 | the Keystone | **merged** (#257, #258, #259) |
+| 2 | `packages/team`: the storage port, ruling 5's schema, the migration runner | **merged** (#355) |
+| 3 | the shipper outbound · the ingest journals before it acks | **merged** (#386) |
+| 4 | the two wedges and the doctor route | **merged** (#425, `a3c5b305`; #410 in #446) |
+| 5 | ruling 11's local archive · ruling 13's image and init · two wave-4 deferrals | **merged** (#454, `2784204e`) |
+| 6 | membership is the boundary · a key is a hash · the ADR ruling 8 never got | **merged** (#476, `7abfdee2`) |
+| 7 | the listener becomes a router · `/connect` says whether a batch was acknowledged · #436 | **merged** (#487, #488, #436) |
+| 8 | a storage capability is a port, and adding one touches no other port's files | **merged** (#509) |
+| 9 | the GitHub App's credentials through the deployment (#515) · the key-material guard (#544, PR #552) · the refusals, the key check before the parse, and a legible first boot (#543, #545, #550, #551) | **merged** (PR #556, `55ac09f9`) |
+| 10 | the machine plane meets a real host, and the capture says what it did not test | groomed — #514, and the only prd-51 work not blocked on another lane |
+| 11 | the three questions answer in a browser, read as a viewer role · the team server's doctor command | **groomed** — #557, #558 |
+| 12 | retention under a named ceiling (rulings 9, 10) · a member mints a key in the viewer (ruling 8) | **groomed** — #559, #560 |
+| 13 | #171's timed drill on the real host · the doc sweep, which absorbs #354 | **groomed** — #171, #561 |
+
+Wave 8 is a layout and ships no user-visible behaviour; it is in this table because four later lanes
+are built on its claim. Wave 9 grew out of a deployment to a real host rather than out of a suite —
+three of its four defects were found that way, which is the argument for wave 10 existing at all.
+
+### What split wave 11 from wave 12 — three seams, and only the third was written down
+
+The 2026-09-14 amendment predicted this split and declined to guess it: *"all three want the same
+file and the router's existence does not by itself make them parallel. That is a grooming decision
+for when wave 8 comes up."* Here it is, and it is three constraints rather than one.
+
+1. **The route table.** Every remaining piece wants a row on `packages/team/src/api/http.ts`'s
+   `TABLE`. Two lanes adding rows are a rebase conflict already scheduled.
+2. **The storage composition roots, which no registry entry carries.** #509's layout means a new
+   capability is a directory *plus* one registration line in each of
+   `packages/team/src/storage/contract.ts`, `packages/team/src/storage/postgres.ts` and
+   `packages/team/src/storage/fake.ts` — enforced rather than remembered by
+   `packages/team/src/storage/composition-law.test.ts`'s case 2. The three questions need a port and
+   retention needs a port, so **at most one port-adding lane per wave**, the same shape as the
+   one-dependency-adding-lane rule. This constraint is the reason wave 11 and wave 12 are two waves
+   and not one, and it was in no registry and no prior amendment.
+3. **The migration pin**, already recorded: retention spends the next migration, and
+   `packages/team/src/api/api.test.ts` pins the tracked id set independently — so a migration lane
+   must claim the router's own test file.
+
+### Ruling A — the migration pin outside `migrations/` is retired, in #557
+
+`packages/team/src/api/api.test.ts`'s boot case asserts `storage.committed` against a literal list
+of migration ids. #557 **re-derives that array from the migrations directory**, keeping the ordering
+claim the case makes, and retires the matching entry in `.swarm/coupling.txt`.
+
+**Why it is safe to drop.** The enumeration is already pinned *inside* the migrations directory by
+`packages/team/src/migrations/runner.test.ts` case 17 and
+`packages/team/src/migrations/schema-law.test.ts` case 26 — where the lane adding a migration is
+already fenced. The copy outside catches nothing those two miss, and charges every migration-adding
+lane a claim on a file in another directory. `packages/team/src/bootstrap.test.ts` keeps its pin and
+is claimed by the retention lane for exactly that reason; only the router's copy goes.
+
+**Why it is in wave 11 and not wave 12.** Wave 12's two lanes are parallel **only because this
+lands**. Without it, retention claims the router's test file, the mint surface claims the route
+table in the same file, and wave 12 splits into two waves. #557's own falsifier says to stop and
+report if re-deriving cannot preserve the ordering claim — that is the signal the split changes, not
+an invitation to widen.
+
+**The entry it retires is also stale**, which is its own small lesson: it quotes four migration ids
+where the file pins five. A registry entry that quotes an enumeration rots the same way a
+line-number citation does.
+
+### Ruling B — an admin names a retention ceiling with a host command, not a route
+
+Ruling 9 says the organisation admin may name ceilings; it does not say through what, and the answer
+decides a wave. A route would put retention on the same route table as the mint surface beside it.
+
+**In v1 the ceiling is named through a command in the deployment directory, beside
+`packages/team/deploy/init.sh`** — an admin act on the host, which is also the honest reading of
+ruling 10's *"made once at ceiling time, never silently"*. The viewer's admin page is deferred, and
+whoever unparks it owns that route.
+
+Ruling 9's discipline is unchanged and applies to every effective ceiling: it names **who set it and
+where**, including where the setter is a default.
+
+### Two couplings found at grooming, both by hand
+
+Law 6 of the grooming contract says the lint's coupling warning is unreachable when a claim is a
+directory, and most of wave 11's claims are directories. Checking by hand found two things a passing
+lint could not, and #557 registers both:
+
+- **The storage composition roots**, above. Adding a port forces three registration edits.
+- **A new config value with no default reddens `packages/team/deploy/report.test.ts`**, whose
+  `unsetCount` is an exact pin, from a lane whose boundary is the config directory. Wave 11's viewer
+  lane needs a new value for the viewer role's connection, and its sibling holds that test file — so
+  the value **carries a default**, and the two lanes stay disjoint inside one directory. A fence can
+  separate two lanes by file where a directory claim would collide them.
+
+### The sweep's target list was derived, and two of the PRD's own targets did not survive
+
+The Sequencing section names the wave-5 sweep's targets as *"`docs/`, `SECURITY.md`,
+`docs/telemetry.md:457-499`, ADR-0009's status line"*. Grooming read the tree rather than copying
+that list, and two entries changed:
+
+- **ADR-0009's status line is already amended.** It reads *"accepted (amended by ADR-0033 — a
+  versioned ingest protocol carries the record; the record itself is unchanged)"*. That target is
+  discharged. Its Context paragraph still carries the old promise and is **correct as written for
+  2026-08-06**; the log is append-only and a changed mind gets a new record. The ADR directory is
+  therefore in no lane's boundary — #561 verifies and reports rather than editing.
+- **`README.md` is not a sweep target.** Ruling 12 binds the Trust rewrite to the commit of the code
+  that makes it false, and that already happened with the shipper. A later lane that makes it
+  incomplete again owns that edit.
+
+`docs/design/ui-2.0-decisions.md` joined the list instead — it anticipates this PRD in its own
+words, *"Nothing leaves the machine" becomes "nothing leaves the team"* — and
+`docs/user-guide/replay.md` carries #354's finding.
+
+**#354 is absorbed into #561 and closed**, as its own Definition of done offered. Its finding and its
+falsifier both travel: the page's *"Nothing auto-transmits — no push, no server-to-server exchange"*
+is a general claim that ADR-0033 now contradicts, **unless** the page is read as scoped to replay
+rather than transmission — in which case the verdict is recorded and the page is left alone rather
+than edited to look busy.
+
+### #171's number is settled at 13
+
+Its body has said since 2026-09-14 that its wave number was provisional and that it is *"the last
+wave whatever that resolves to"*. The integration wave is now groomed, so it resolves to 13. Its
+sibling #561 is fenced **file by file and never on the docs directory**, so it cannot swallow the
+drill's dated capture. The team-server runbook stays #171's to re-claim at dispatch, with #514's
+capture as its baseline.
+
+### The wave-citation sweep, re-run — and one citation has now rotted twice
+
+The 2026-09-09 amendment swept the corpus for `prd-51 wave <N>` citations and found five, three of
+them invalidated. **That sweep is re-run here rather than assumed**, and by hand, for a reason the
+next section gives.
+
+Eight such citations exist outside this document today. Seven hold:
+`packages/team/src/storage/composition-law.test.ts` (wave 8, correct as of this amendment),
+`packages/team/src/storage/driver.ts` (wave 3, the ingest build that forced the widening),
+`docs/adr/0033-the-record-travels-by-protocol.md` (wave 1),
+`docs/adr/0043-the-team-server-speaks-postgres-through-one-tagged-template-driver.md` and the two
+matching rows in `docs/adr/README.md` (waves 2 and 3), and
+`docs/adr/0046-the-ingest-journal-is-a-crc-framed-append-log.md` (wave 3). The eighth,
+`packages/server/src/shipper/veil.test.ts`, names wave 2 inside a QUOTE of what the law file once
+declared — reported speech, correct as a quote, and deliberately not "fixed".
+
+**The one that does not hold is `docs/adr/0035-the-watcher-is-never-a-container.md`**, whose
+*"one meaning and one timed drill (prd-51 wave 4)"* points at #171. The 2026-09-09 amendment already
+recorded it as wrong — wave 4 as written, wave 5+ as built — and left it standing. It has now moved
+again, to **wave 13**. So it is not merely stale: it is a citation that has rotted TWICE under two
+renumberings, and recording it a second time without fixing it is precisely the move that let it rot
+the first time.
+
+It is not edited here, and the reason is narrow rather than lazy: this lane amends a PRD and claims
+no ADR. The correction belongs to #171 — the issue the citation points at, and the last one standing.
+**#171 carries that record in its declared boundary as of 2026-09-16**, with the widening recorded on
+the issue before any change and the instruction stated as *do not update the digit*: cite the issue,
+which does not move when the waves do. Changing `wave 4` to `wave 13` would be the third value that
+sentence has carried and the third to go stale.
+
+### The law that would catch a dead path here does not read this file, by design
+
+`packages/server/src/doc-citation-law.test.ts` excludes `docs/prds/` as a CITING source — a dated
+artefact's own citations are a record of a tree at a commit, not a live claim — so **it passes over
+this document without reading a single path in it.** EXECUTED at authoring time: a deliberately
+broken path planted in this amendment left the law at 75/75 green. It is right to be excluded, and
+the consequence is the thing to write down: a dead path in a PRD amendment has no automated reader
+at all, and the sweep above is hand work because nothing else will do it.
+
+The exclusion is by CITING directory, not by cited target, which is what keeps the other direction
+live: an ADR or a source comment citing a file under `docs/prds/` still claims that file exists now.
+
+### The lint record
+
+`scripts/fence-lint.sh` run per wave, and read by **extracted path count** rather than by exit code:
+11 and 6 for wave 11, 10 and 3 for wave 12, 1 and 4 for wave 13 — each equal to what the issue
+declares, no overlaps. Re-run against all thirteen live In-progress lanes, every overlap reported is
+either cross-wave or against #550 — and #550 closed with PR #556 during that grooming session, so even those are now moot.
+
+The first wave-13 run **failed on a collision that did not exist**, for the third recorded time in
+this PRD and by the same mechanism: an explanatory sentence inside a Fence section named the docs
+directory in backticks, and the lint read it as a claim. Four declared, six extracted. The tell was
+the count, not the verdict — the exit code would have been just as wrong either way.
