@@ -110,8 +110,16 @@ const WINDOWS_EXECUTABLE_SUFFIXES = ['.exe', '.cmd', '.bat', '.com']
  * `weird\claude` would now match. The two failure directions are not
  * comparable — that one is a false positive on a filename nobody has written,
  * and the other was total blindness on an entire platform.
+ *
+ * **Exported because the property is not observable through `poll` on Windows.**
+ * There, `path.basename` splits backslashes itself, so a collector-level test of
+ * a Windows argv passes whether or not this function splits — proven by
+ * mutation: dropping the backslash arm leaves the whole collector suite green on
+ * this machine, and would redden only on a POSIX runner. A claim that holds on
+ * every platform needs an assertion that can FAIL on every platform, and that
+ * means asserting the function rather than the fold around it.
  */
-function signatureToken(token: string): string {
+export function signatureToken(token: string): string {
   const basename = token.slice(Math.max(token.lastIndexOf('/'), token.lastIndexOf('\\')) + 1)
   const lower = basename.toLowerCase()
   for (const suffix of WINDOWS_EXECUTABLE_SUFFIXES) {

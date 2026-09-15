@@ -4,7 +4,7 @@ import path from 'node:path'
 import type { CollectorContext, RhizomorphEvent } from '@rhizomorph/core'
 import { createEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createProcessCollector, type ProcessSnapshot } from './collector.js'
+import { createProcessCollector, type ProcessSnapshot, signatureToken } from './collector.js'
 import type { ProcessRow, ProcessTableReading } from './read-table.js'
 
 /**
@@ -249,17 +249,22 @@ describe('the Windows basename — the defect no fixture test could have found',
     expect((events[0]?.payload as { dialect: string }).dialect).toBe('claude')
   })
 
-  it('runs that match on THIS machine, whatever it is — the fixture is parsed everywhere', async () => {
-    // Not a duplicate of the cases above: it names why they are written with
-    // literal backslashes rather than `path.join`. `path.basename` is the
-    // runtime's flavour, so a Windows row matched through it would be found on
-    // Windows and invisible on the Linux box running the suite — a leg green in
-    // CI and blind in the field, which is the shape this whole PRD is about.
-    // Proven here rather than asserted: the separator really is a backslash.
+  it('normalises a Windows path on EVERY platform, which `poll` alone cannot show', () => {
+    // Why this one drops to the function while every other case here goes
+    // through `poll`: on win32 `path.basename` splits backslashes itself, so
+    // the cases above pass whether or not `signatureToken` splits — proven by
+    // mutation, which left the entire collector suite green on this machine.
+    // The portability claim is invisible from the fold here and would redden
+    // only on a POSIX runner, and an assertion that can fail only on someone
+    // else's machine is not an assertion. So this one asserts the string.
     expect(WINDOWS_AGENT_PATH).toContain(String.fromCharCode(92))
-    const collector = createProcessCollector({ readTable: readerFor({ rows: [row({ argv: [WINDOWS_AGENT_PATH] })] }) })
-    const { events } = await collector.poll(collector.initialSnapshot(), contextFor(1000))
-    expect(typesOf(events), `matched nothing on ${process.platform}`).toEqual(['process.seen'])
+    expect(signatureToken(WINDOWS_AGENT_PATH)).toBe('claude')
+    expect(signatureToken(String.raw`C:\Program Files\x\claude.exe`)).toBe('claude')
+    expect(signatureToken('/usr/local/bin/claude')).toBe('claude')
+    expect(signatureToken('claude')).toBe('claude')
+    // And it takes a suffix off without inventing one that is not there.
+    expect(signatureToken('/usr/bin/node')).toBe('node')
+    expect(signatureToken(String.raw`C:\bin\vim.exe`)).toBe('vim')
   })
 
   it('invents no agent out of a suffix — stripping `.exe` must not widen the roster', async () => {
