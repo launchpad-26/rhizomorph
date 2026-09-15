@@ -49,6 +49,34 @@ POSTGRES_DB=${postgres_db}
 RZ_TEAM_DATABASE_URL=${database_url}
 RZ_TEAM_PROJECT=${project}
 RZ_TEAM_INGEST_KEY_SHA256=${ingest_key_sha256}
+
+# --- THE GITHUB APP (the human sign-in plane) ------------------------------
+# Empty on purpose. These come from GitHub and this script neither prompts for
+# them nor generates them. Fill them in, then run: docker compose up -d
+# (NOT restart -- a restart does not re-read this file). The full recipe,
+# including how to register the App, is in docs/team-server-runbook.md under
+# "Signing in with GitHub". While they are empty, sign-in answers 503 and says
+# which ones are missing; that is a valid deployment, not a fault.
+#
+# The organisation login -- github.com/<this>
+RZ_TEAM_GITHUB_ORG=
+# App settings -> About -> App ID
+RZ_TEAM_GITHUB_APP_ID=
+# Org -> Settings -> GitHub Apps -> Configure: the last segment of that URL
+RZ_TEAM_GITHUB_INSTALLATION_ID=
+# App settings -> Client ID
+RZ_TEAM_GITHUB_CLIENT_ID=
+# App settings -> Generate a new client secret. Shown once
+RZ_TEAM_GITHUB_CLIENT_SECRET=
+# HOST path of the .pem from App settings -> Private keys. Compose mounts it
+# read-only at /run/secrets/github-app-private-key.pem. Keep it OUTSIDE this
+# repository: only .env and .env.tmp.* are ignored here, so a key left in this
+# directory is copied into an image layer by the Dockerfile.
+RZ_TEAM_GITHUB_APP_PRIVATE_KEY_PATH=
+# Non-docker hosts only: the PEM inline. Left commented because a compose .env
+# CANNOT carry a multi-line value -- it truncates at the first newline. Use
+# RZ_TEAM_GITHUB_APP_PRIVATE_KEY_PATH above for this deployment.
+#RZ_TEAM_GITHUB_APP_PRIVATE_KEY=
 EOF
 chmod 600 "$tmp_file"
 mv "$tmp_file" "$ENV_FILE"

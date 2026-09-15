@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { MIGRATIONS_DIR } from '../migrations/runner.js'
 import type { EffectiveValue } from '../storage/contract.js'
 
@@ -43,6 +44,30 @@ export const ENV_GITHUB_INSTALLATION_ID = 'RZ_TEAM_GITHUB_INSTALLATION_ID'
 export const ENV_GITHUB_APP_PRIVATE_KEY = 'RZ_TEAM_GITHUB_APP_PRIVATE_KEY'
 export const ENV_GITHUB_CLIENT_ID = 'RZ_TEAM_GITHUB_CLIENT_ID'
 export const ENV_GITHUB_CLIENT_SECRET = 'RZ_TEAM_GITHUB_CLIENT_SECRET'
+
+/** The file the PEM is read from, preferred over the inline value when both are set. */
+export const ENV_GITHUB_APP_PRIVATE_KEY_FILE = 'RZ_TEAM_GITHUB_APP_PRIVATE_KEY_FILE'
+
+/**
+ * The seam that lets a test resolve a key file without one existing. Never
+ * injected in production — `resolveTeamConfig`'s default reads the real file.
+ */
+export type ReadTextFileSync = (filePath: string) => string
+
+/**
+ * Every key-file fault display starts with this, so `keyFileFault` can
+ * recognise one without parsing prose and a report can print it verbatim.
+ */
+export const KEY_FILE_FAULT_PREFIX = '<key file '
+
+/**
+ * The fault this deployment's key file has, or `null` when it has none —
+ * including when no key file was configured at all, which is not a fault.
+ * `deploy/serve.ts` uses it to say so on stderr at boot.
+ */
+export function keyFileFault(key: EffectiveValue<string>): string | null {
+  return key.display.startsWith(KEY_FILE_FAULT_PREFIX) ? key.display : null
+}
 
 export interface TeamConfig {
   readonly databaseUrl: EffectiveValue<string>
@@ -109,14 +134,70 @@ function stringValue(
   return { name, value, setBy, source: setBy === 'environment' ? envName : DEFAULTS_SOURCE, display: display(value) }
 }
 
-export function resolveTeamConfig(env: Readonly<Record<string, string | undefined>>): TeamConfig {
+const defaultReadTextFile: ReadTextFileSync = (filePath) => readFileSync(filePath, 'utf8')
+
+/**
+ * THE PRIVATE KEY IS A FILE (ruled on #515).
+ *
+ * A docker compose `.env` cannot carry a multi-line value: it truncates at the
+ * first newline, and the damage surfaces much later as an unreadable JWT rather
+ * than as a config error. So the file wins when both are set, and the inline
+ * variable stays supported unchanged for a host running outside docker.
+ *
+ * AN ABSENT OR UNREADABLE FILE IS A NAMED FAULT, NEVER A SILENT EMPTY STRING.
+ * `<unset>` (nothing configured), `<key file empty: …>` and
+ * `<key file unreadable: …>` are three different observations, because "you
+ * forgot to mount it" and "your key is wrong" are two different fixes. The
+ * VALUE is still `''` in every fault case — an unconfigured deployment boots
+ * and answers 503 (#169), and a faulty one must not do anything different.
+ */
+function privateKeyValue(
+  env: Readonly<Record<string, string | undefined>>,
+  readTextFile: ReadTextFileSync,
+): EffectiveValue<string> {
+  const filePath = env[ENV_GITHUB_APP_PRIVATE_KEY_FILE]
+  if (filePath === undefined || filePath === '') {
+    return stringValue('githubAppPrivateKey', ENV_GITHUB_APP_PRIVATE_KEY, '', env, redactSecret)
+  }
+
+  const faulted = (display: string): EffectiveValue<string> => ({
+    name: 'githubAppPrivateKey',
+    value: '',
+    setBy: 'environment',
+    source: ENV_GITHUB_APP_PRIVATE_KEY_FILE,
+    display,
+  })
+
+  let contents: string
+  try {
+    contents = readTextFile(filePath)
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause)
+    return faulted(`${KEY_FILE_FAULT_PREFIX}unreadable: ${filePath}: ${message}>`)
+  }
+
+  if (contents.trim() === '') return faulted(`${KEY_FILE_FAULT_PREFIX}empty: ${filePath}>`)
+
+  return {
+    name: 'githubAppPrivateKey',
+    value: contents,
+    setBy: 'environment',
+    source: ENV_GITHUB_APP_PRIVATE_KEY_FILE,
+    display: redactSecret(contents),
+  }
+}
+
+export function resolveTeamConfig(
+  env: Readonly<Record<string, string | undefined>>,
+  readTextFile: ReadTextFileSync = defaultReadTextFile,
+): TeamConfig {
   return {
     databaseUrl: stringValue('databaseUrl', ENV_DATABASE_URL, DEFAULT_DATABASE_URL, env, redactDatabaseUrl),
     migrationsDir: stringValue('migrationsDir', ENV_MIGRATIONS_DIR, MIGRATIONS_DIR, env),
     githubOrgLogin: stringValue('githubOrgLogin', ENV_GITHUB_ORG, '', env, displayIdentity),
     githubAppId: stringValue('githubAppId', ENV_GITHUB_APP_ID, '', env, displayIdentity),
     githubInstallationId: stringValue('githubInstallationId', ENV_GITHUB_INSTALLATION_ID, '', env, displayIdentity),
-    githubAppPrivateKey: stringValue('githubAppPrivateKey', ENV_GITHUB_APP_PRIVATE_KEY, '', env, redactSecret),
+    githubAppPrivateKey: privateKeyValue(env, readTextFile),
     githubClientId: stringValue('githubClientId', ENV_GITHUB_CLIENT_ID, '', env, displayIdentity),
     githubClientSecret: stringValue('githubClientSecret', ENV_GITHUB_CLIENT_SECRET, '', env, redactSecret),
   }
