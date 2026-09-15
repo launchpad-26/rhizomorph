@@ -611,12 +611,15 @@ through libproc. Until a real capture of both exists under
 process events at all and `doctor` says so, with the capture command as the
 remedy.
 
-**Windows (native) — not built, and it has a gap a capture will not close.**
-`Get-CimInstance Win32_Process` yields the command line, so identifying an agent
-ports directly. The working directory does **not**: Windows does not expose
-another process's cwd without native calls into the target. So the Windows leg,
-when it lands, will match agents and decline to place them, and will say which
-of the two it is doing.
+**Windows (native) — built, and it identifies agents without placing them.**
+`Get-CimInstance Win32_Process` yields the command line, so identification ports
+directly. The working directory does **not**: Windows does not expose another
+process's cwd without native calls into the target. So this leg matches agents
+and declines to place them — and since a lane is a place, a Windows actor reaches
+no lane in this wave. `doctor` reports it `partial` with that reason, which is
+neither the `provided` a built leg usually earns nor the `absent` macOS gets.
+Placement arrives with the transcript and hook join
+([prd-57](docs/prds/prd-57-the-universal-witness.md) ruling 3).
 
 Why the rule is *capture first* rather than *write it from the documentation*:
 a reader written from a man page proves we read the man page. prd-15 ruling 7
@@ -624,6 +627,17 @@ and [prd-57](docs/prds/prd-57-the-universal-witness.md) ruling 2 both draw that
 line, and `fixtures/CAPTURE.md` is the recipe — including what to sanitise before
 committing, since a capture emits your username and home directory by
 construction.
+
+**The Windows capture then taught that rule a second half, by breaking it.** With
+the real bytes committed and every fixture test green, the first run against a
+live table holding three real `claude.exe` processes matched **zero**: the tests
+asserted that the capture PARSED and never that an agent MATCHED, and a Windows
+basename is `claude.exe` where the roster holds `claude`. A capture proves the
+format and cannot prove the match, because a capture is bytes and matching is
+behaviour. So a leg owes a live run as well, and a record of what that run found
+— [`docs/review/2026-09-16-prd57-windows-witness.md`](docs/review/2026-09-16-prd57-windows-witness.md)
+is the Windows one, with the measured per-tick cost of both built legs in it.
+macOS owes both.
 
 **A local verdict is not a foreign-runner verdict, and the difference is the
 point of the row above.** `scripts/ci-local.sh` runs on one contributor's
