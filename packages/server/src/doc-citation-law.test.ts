@@ -3041,10 +3041,10 @@ describe('doc symbol law: a symbol cited from a document or a comment still exis
     expect(measured.length, '.symbol-citation-baseline has no parseable "# measured:" line').toBe(1)
     expect(renamedAway.length, '40 pairs over 34 distinct symbols — a symbol cited from three files is three entries').toBe(40)
     expect(historical.length, 'cited-on-purpose is the RARE section — every addition is a ruling, not a chore').toBe(1)
-    expect(notOurs.length).toBe(70)
+    expect(notOurs.length).toBe(72)
     for (const { reason } of renamedAway) expect(reason.length).toBeGreaterThan(0)
     for (const { reason } of historical) expect(reason.length).toBeGreaterThan(0)
-    expect(new Set(notOurs.map(({ symbol }) => symbol)).size, 'a duplicate not-ours entry hides a second citing file').toBe(70)
+    expect(new Set(notOurs.map(({ symbol }) => symbol)).size, 'a duplicate not-ours entry hides a second citing file').toBe(72)
 
     // The two sections mean opposite things about the same pair — debt to be removed, or a
     // ruling that stands. A pair in both would make "is this fixed yet?" unanswerable.

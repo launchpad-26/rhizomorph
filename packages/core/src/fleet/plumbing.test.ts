@@ -84,6 +84,32 @@ describe('crashed is not an activity, and does not fall through to the clock', (
   it('is NOT mapped to done — that is the crash-as-success failure ruling 5 exists to remove', () => {
     expect(activityOf(laneWith({ agentStatus: 'crashed' }))).not.toBe('done')
   })
+
+  it('BUT a crashed lane whose worktree is gone reads done — pinned as it behaves, not as it should', () => {
+    // Asked for by the review of #553, which went looking for the sibling
+    // defect here and reasoned it was absent: `Lane.present` is *"false once
+    // its worktree has been removed"*, which is not process death, so a crashed
+    // agent in a live worktree never reaches the `!lane.present` arm.
+    //
+    // That reasoning is right, and it does not cover this case. Writing the
+    // assertion found that `activityOf({ agentStatus: 'crashed', present:
+    // false })` returns **`done`** — the `!lane.present` arm runs first, so a
+    // lane that crashed and then had its worktree cleaned up is recorded as
+    // finished work. That is the crash-as-success shape ruling 5 exists to
+    // remove, reached by a different route.
+    //
+    // It is NOT changed here, deliberately. Whether a removed worktree should
+    // outrank a crash is a ruling-5 question about what `crashed` means once
+    // the evidence is gone, not a defect to patch on a review pass — and #530
+    // ("a vanished agent reaches crashed, and never from silence") is the wave
+    // where that word gets its home. This test pins today's answer so the
+    // decision there is made against a stated behaviour rather than a guess,
+    // and so a change to it cannot be silent.
+    expect(activityOf(laneWith({ agentStatus: 'crashed', present: false }))).toBe('done')
+    // The live-worktree case, which is the one the reviewer reasoned about and
+    // the one that holds.
+    expect(activityOf(laneWith({ agentStatus: 'crashed', present: true }))).toBe('unknown')
+  })
 })
 
 describe('every word the schema admits has an answer here', () => {
