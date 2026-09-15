@@ -8,10 +8,13 @@
 
 > **Shelf exemption:** stays on the live shelf rather than moving to `docs/prds/done/`
 > — this PRD's ruling 2 is the standing authority for every declared exemption now in
-> force, and four PRDs rest on it by name: `docs/prds/prd-14-experiment-console.md`,
-> `docs/prds/prd-17-complete-record.md`, `docs/prds/prd-20-the-concierge.md` and
-> `docs/prds/prd-53-the-lab.md` each cite "prd56 ruling 2" as what licenses them to be
-> where they are. Archiving the document that grants a rule, while four documents are
+> force, and both PRDs that hold one rest on it by name:
+> `docs/prds/prd-17-complete-record.md` and `docs/prds/prd-20-the-concierge.md` each
+> cite "prd56 ruling 2" as what licenses them to be where they are — together they are
+> the complete set of live declared exemptions, not a sample of it.
+> (`prd-14-experiment-console` and `prd-53-the-lab` held exemptions on this same
+> authority until `3bfabe98` retired them on archival; spent, so not counted here.)
+> Archiving the document that grants a rule, while two documents are
 > exercising it, demotes the rule to a record — which is the reading
 > `docs/follow-up-292.md` warns about and the one ruling 2 was written to prevent.
 > `docs/prds/prd-17-complete-record.md` also reasons from this PRD in the present
