@@ -5,9 +5,9 @@ import type { SqlLike } from './driver.js'
  *
  * This is not `FakeTeamStorage`, and conflating the two loses the thing each
  * one is for. `fake.ts` stands in for the *port*, so the runner and the
- * bootstrap can be tested above it. This stands in for the *driver*, so
- * `postgres.ts` — the one module the port cannot abstract away — has a
- * falsifiable test at all.
+ * bootstrap can be tested above it. This stands in for the *driver*, so the
+ * adapters under `ports/<port>/sql.ts` — the modules the port cannot abstract
+ * away — have a falsifiable test at all.
  *
  * What it records is deliberately two different things:
  *
