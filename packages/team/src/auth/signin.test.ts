@@ -1,6 +1,19 @@
 import { generateKeyPairSync } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { resolveTeamConfig } from '../config/config.js'
+import {
+  ENV_GITHUB_APP_ID,
+  ENV_GITHUB_APP_PRIVATE_KEY,
+  ENV_GITHUB_APP_PRIVATE_KEY_FILE,
+  ENV_GITHUB_CLIENT_ID,
+  ENV_GITHUB_CLIENT_SECRET,
+  ENV_GITHUB_INSTALLATION_ID,
+  ENV_GITHUB_ORG,
+  resolveTeamConfig,
+} from '../config/config.js'
+import { ENV_GITHUB_APP_PRIVATE_KEY_PATH } from '../../deploy/report.js'
 import type { Fetch } from './github-app.js'
 import {
   OAUTH_STATE_COOKIE,
@@ -36,6 +49,9 @@ const INSTALL_TOKEN = 'ghs_install_tok'
 const CLIENT_SECRET = 'the-client-secret'
 const CLIENT_ID = 'Iv1.abcdef0123456789'
 const NOW = Date.UTC(2026, 8, 14, 9, 0, 0)
+
+/** One base64 line of the test key — no newline, so it survives JSON.stringify. */
+const KEY_FRAGMENT = TEST_PRIVATE_KEY.split('\n')[1] ?? ''
 
 const CONFIGURED_ENV = {
   RZ_TEAM_GITHUB_ORG: 'rhizomorph-team',
@@ -98,6 +114,22 @@ function freshState(nowMs = NOW): { state: string; cookieHeader: string } {
 function callbackRequest(overrides: Partial<CallbackRequest> = {}): CallbackRequest {
   const state = freshState()
   return { code: CODE, state: state.state, cookieHeader: state.cookieHeader, ...overrides }
+}
+
+const errorOf = (response: SignInResponse): string => {
+  const body = response.body as { error?: unknown }
+  return typeof body.error === 'string' ? body.error : ''
+}
+
+const knobsIn = (sentence: string): string[] => [...sentence.matchAll(/RZ_TEAM_[A-Z_]+/g)].map((m) => m[0])
+
+/** Client id and secret set, org empty — `credentialsFrom` returns undefined, so the callback
+ *  reaches `membership-unconfigured` with the exchange and the identity read both succeeding. */
+async function membershipUnconfigured(): Promise<SignInResponse> {
+  return handleGithubCallback(
+    { config: resolveTeamConfig({ ...CONFIGURED_ENV, RZ_TEAM_GITHUB_ORG: '' }), fetch: fakeFetch([]), now: () => NOW },
+    callbackRequest(),
+  )
 }
 
 function setCookies(response: SignInResponse): readonly string[] {
@@ -352,53 +384,55 @@ describe('the callback refuses everything else, naming the reason', () => {
   })
 })
 
-describe('nothing leaks, and the callback never redirects', () => {
-  /** Every case above, gathered once — the loop reddens on the case nobody thought of. */
-  async function everyResponse(): Promise<Array<{ label: string; response: SignInResponse }>> {
-    const out: Array<{ label: string; response: SignInResponse }> = []
-    const push = async (label: string, stubs: Stubs, overrides: Partial<CallbackRequest> = {}) => {
-      out.push({ label, response: (await callback(stubs, overrides)).response })
-    }
-    await push('happy path', {})
-    await push('non-member', { member: { status: 404 } })
-    await push('mint failure', { mint: { status: 401 } })
-    await push('no code', {}, { code: undefined })
-    await push('bad state', {}, { state: 'somebody-elses' })
-    await push('used code', { exchange: { status: 200, json: async () => ({ error: 'bad_verification_code' }) } })
-    await push('exchange throws', {
-      exchange: () => {
-        throw new Error(`boom ${CLIENT_SECRET}`)
-      },
-    })
-    await push('no identity', { identity: { status: 200, json: async () => ({}) } })
-    await push('identity refused', { identity: { status: 401 } })
-    out.push({
-      label: 'unconfigured',
-      response: await handleGithubCallback(
-        { config: resolveTeamConfig({ ...CONFIGURED_ENV, RZ_TEAM_GITHUB_CLIENT_ID: '' }), fetch: fakeFetch([]), now: () => NOW },
-        callbackRequest(),
-      ),
-    })
-    out.push({ label: 'start, configured', response: handleSignInStart({ config, fetch: fakeFetch([]), now: () => NOW }) })
-    out.push({
-      label: 'start, unconfigured',
-      response: handleSignInStart({
-        config: resolveTeamConfig({ ...CONFIGURED_ENV, RZ_TEAM_GITHUB_CLIENT_SECRET: '' }),
-        fetch: fakeFetch([]),
-        now: () => NOW,
-      }),
-    })
-    return out
+/** Every case above, gathered once — the loop reddens on the case nobody thought of. */
+async function everyResponse(): Promise<Array<{ label: string; response: SignInResponse }>> {
+  const out: Array<{ label: string; response: SignInResponse }> = []
+  const push = async (label: string, stubs: Stubs, overrides: Partial<CallbackRequest> = {}) => {
+    out.push({ label, response: (await callback(stubs, overrides)).response })
   }
+  await push('happy path', {})
+  await push('non-member', { member: { status: 404 } })
+  await push('mint failure', { mint: { status: 401 } })
+  await push('no code', {}, { code: undefined })
+  await push('bad state', {}, { state: 'somebody-elses' })
+  await push('used code', { exchange: { status: 200, json: async () => ({ error: 'bad_verification_code' }) } })
+  await push('exchange throws', {
+    exchange: () => {
+      throw new Error(`boom ${CLIENT_SECRET}`)
+    },
+  })
+  await push('no identity', { identity: { status: 200, json: async () => ({}) } })
+  await push('identity refused', { identity: { status: 401 } })
+  out.push({
+    label: 'unconfigured',
+    response: await handleGithubCallback(
+      { config: resolveTeamConfig({ ...CONFIGURED_ENV, RZ_TEAM_GITHUB_CLIENT_ID: '' }), fetch: fakeFetch([]), now: () => NOW },
+      callbackRequest(),
+    ),
+  })
+  out.push({ label: 'membership unconfigured', response: await membershipUnconfigured() })
+  out.push({ label: 'start, configured', response: handleSignInStart({ config, fetch: fakeFetch([]), now: () => NOW }) })
+  out.push({
+    label: 'start, unconfigured',
+    response: handleSignInStart({
+      config: resolveTeamConfig({ ...CONFIGURED_ENV, RZ_TEAM_GITHUB_CLIENT_SECRET: '' }),
+      fetch: fakeFetch([]),
+      now: () => NOW,
+    }),
+  })
+  return out
+}
 
+describe('nothing leaks, and the callback never redirects', () => {
   it('C14 — no secret reaches the wire, on any path', async () => {
+    expect(KEY_FRAGMENT.length).toBeGreaterThan(40)
     for (const { label, response } of await everyResponse()) {
       const wire = JSON.stringify({ status: response.status, headers: response.headers, body: response.body })
-      for (const secret of [CODE, USER_TOKEN, INSTALL_TOKEN, CLIENT_SECRET]) {
+      for (const secret of [CODE, USER_TOKEN, INSTALL_TOKEN, CLIENT_SECRET, KEY_FRAGMENT]) {
         expect(wire, `${label} leaked a secret`).not.toContain(secret)
       }
       if (response.operatorNote !== undefined) {
-        for (const secret of [CODE, USER_TOKEN, CLIENT_SECRET]) {
+        for (const secret of [CODE, USER_TOKEN, CLIENT_SECRET, KEY_FRAGMENT]) {
           expect(response.operatorNote, `${label}'s operatorNote leaked a secret`).not.toContain(secret)
         }
       }
@@ -452,5 +486,106 @@ describe('handleSignInStart', () => {
       expect(setCookies(response)).toEqual([])
       expect(response.headers.location).toBeUndefined()
     }
+  })
+})
+
+/**
+ * THE REFUSALS ARE CHECKED AGAINST compose.yml, NOT AGAINST MEMORY (#543).
+ *
+ * The same device `packages/team/deploy/report.test.ts` uses for the boot line,
+ * applied here to the two sentences an operator reads while sign-in is failing.
+ * Every knob name below is imported rather than retyped, so a rename reddens.
+ * Every literal compared against the yaml is a single line with no newline in it,
+ * which is what keeps this green on the Windows leg.
+ */
+describe('the configuration refusals name a knob a docker operator can actually set', () => {
+  const COMPOSE = readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), '../../deploy/compose.yml'),
+    'utf8',
+  )
+  const APP_SERVICE = COMPOSE.slice(COMPOSE.indexOf('\n  app:'), COMPOSE.indexOf('\n  caddy:'))
+
+  it('C19 — the app service block really is what was sliced out', () => {
+    expect(APP_SERVICE).toContain(`${ENV_GITHUB_APP_PRIVATE_KEY_FILE}:`)
+    expect(APP_SERVICE).not.toContain('caddy')
+  })
+
+  it('C20 — the start refusal names the two knobs compose forwards, and says recreate, not restart', () => {
+    const response = handleSignInStart({
+      config: resolveTeamConfig({ ...CONFIGURED_ENV, RZ_TEAM_GITHUB_CLIENT_ID: '' }),
+      fetch: fakeFetch([]),
+      now: () => NOW,
+    })
+    const sentence = errorOf(response)
+    expect(new Set(knobsIn(sentence))).toEqual(new Set([ENV_GITHUB_CLIENT_ID, ENV_GITHUB_CLIENT_SECRET]))
+    for (const name of [ENV_GITHUB_CLIENT_ID, ENV_GITHUB_CLIENT_SECRET]) {
+      expect(APP_SERVICE, name).toContain(`${name}: \${${name}`)
+    }
+    expect(sentence).toContain('docker compose up -d')
+    expect(sentence).not.toContain('and restart')
+  })
+
+  it('C21 — the membership refusal names the key knob compose reads, never the one it ignores', async () => {
+    const response = await membershipUnconfigured()
+    expect(response.status).toBe(503)
+    expect(response.body).toMatchObject({ refusal: 'membership-unconfigured' })
+
+    const sentence = errorOf(response)
+    const named = knobsIn(sentence)
+    expect(new Set(named)).toEqual(
+      new Set([
+        ENV_GITHUB_ORG,
+        ENV_GITHUB_APP_ID,
+        ENV_GITHUB_INSTALLATION_ID,
+        ENV_GITHUB_APP_PRIVATE_KEY_PATH,
+        ENV_GITHUB_APP_PRIVATE_KEY_FILE,
+        ENV_GITHUB_APP_PRIVATE_KEY,
+      ]),
+    )
+    for (const name of [ENV_GITHUB_ORG, ENV_GITHUB_APP_ID, ENV_GITHUB_INSTALLATION_ID]) {
+      expect(APP_SERVICE, name).toContain(`${name}: \${${name}`)
+    }
+    // compose derives the file variable from the host-path one …
+    expect(APP_SERVICE).toContain(`\${${ENV_GITHUB_APP_PRIVATE_KEY_PATH}`)
+    // … and never forwards the inline one, which is why it is offered only outside docker.
+    expect(APP_SERVICE).not.toMatch(new RegExp(`^\\s+${ENV_GITHUB_APP_PRIVATE_KEY}:`, 'm'))
+    expect(named.indexOf(ENV_GITHUB_APP_PRIVATE_KEY_PATH)).toBeLessThan(named.indexOf(ENV_GITHUB_APP_PRIVATE_KEY))
+    expect(sentence).toContain('Outside docker')
+    expect(sentence).toContain('docker compose up -d')
+
+    // BIND EACH NAME TO ITS CLAUSE, not only to the set (review of #543, verify's MX-C/MX-E):
+    // a set-plus-one-ordering check does not stop `_FILE` from becoming the docker-apply knob
+    // while `_PATH` is demoted into "Outside docker" — the identical class of defect this issue
+    // exists to kill, in a new spelling, with the same six names present in the same relative
+    // order. Split the sentence at the clause boundary and assert per half.
+    const clauseBoundary = sentence.indexOf('Outside docker')
+    expect(clauseBoundary).toBeGreaterThan(-1)
+    const dockerClause = sentence.slice(0, clauseBoundary)
+    const nonDockerClause = sentence.slice(clauseBoundary)
+    expect(knobsIn(dockerClause)).toContain(ENV_GITHUB_APP_PRIVATE_KEY_PATH)
+    expect(knobsIn(dockerClause)).not.toContain(ENV_GITHUB_APP_PRIVATE_KEY_FILE)
+    expect(knobsIn(nonDockerClause)).toContain(ENV_GITHUB_APP_PRIVATE_KEY_FILE)
+    expect(knobsIn(nonDockerClause)).not.toContain(ENV_GITHUB_APP_PRIVATE_KEY_PATH)
+  })
+
+  it('C22 — on EVERY path, no refusal tells an operator to restart, and any that names a knob says how to apply it', async () => {
+    let withKnobs = 0
+    for (const { label, response } of await everyResponse()) {
+      const sentence = errorOf(response)
+      if (sentence === '') continue
+      expect(sentence, label).not.toContain('and restart')
+      if (knobsIn(sentence).length > 0) {
+        withKnobs += 1
+        expect(sentence, label).toContain('docker compose up -d')
+      }
+    }
+    // Non-vacuity: the two configuration refusals really were in the sweep.
+    expect(withKnobs).toBeGreaterThanOrEqual(2)
+  })
+
+  it('C23 — repetition: the membership refusal three times is the identical response', async () => {
+    const first = await membershipUnconfigured()
+    expect(await membershipUnconfigured()).toEqual(first)
+    expect(await membershipUnconfigured()).toEqual(first)
   })
 })
