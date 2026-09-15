@@ -6,6 +6,29 @@
 > to the operator and decided before blessing. Sequenced after `#416` lands,
 > because two of the files a move must update are in its fence.
 
+> **Shelf exemption:** stays on the live shelf rather than moving to `docs/prds/done/`
+> — this PRD's ruling 2 is the standing authority for every declared exemption now in
+> force, and both PRDs that hold one rest on it by name:
+> `docs/prds/prd-17-complete-record.md` and `docs/prds/prd-20-the-concierge.md` each
+> cite "prd56 ruling 2" as what licenses them to be where they are — together they are
+> the complete set of live declared exemptions, not a sample of it.
+> (`prd-14-experiment-console` and `prd-53-the-lab` held exemptions on this same
+> authority until `3bfabe98` retired them on archival; spent, so not counted here.)
+> Archiving the document that grants a rule, while two documents are
+> exercising it, demotes the rule to a record — which is the reading
+> `docs/follow-up-292.md` warns about and the one ruling 2 was written to prevent.
+> `docs/prds/prd-17-complete-record.md` also reasons from this PRD in the present
+> tense: *"Classifying is a read; moving is an act, and prd-56 is where the act gets
+> its rule."*
+>
+> The distinction being drawn is deliberate and narrow. Being **cited** by a live PRD
+> is not a reason to stay — nearly every shipped PRD is cited, and if that sufficed the
+> archival shelf would never fill. Being the **live source of a rule other documents
+> are currently applying** is different, and it is the only claim made here.
+>
+> Operator-ruled 2026-09-15, per this PRD's own ruling 2; read by
+> `packages/server/src/prd-location-law.test.ts` for the `**Shelf exemption:**` marker.
+
 ## Problem
 
 Where a PRD file sits is read as a claim about whether its rulings are live.
