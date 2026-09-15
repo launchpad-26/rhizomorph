@@ -129,9 +129,10 @@ Two warnings that belong here and nowhere else:
   boot report will say so — `<key file unreadable: …: EACCES …>`.
 - **Keep the key outside the repository.** The build context is the **repository root**
   (`compose.yml`'s `context: ../../..`), and the runtime stage copies this directory wholesale —
-  `COPY packages/team/deploy packages/team/deploy`. `.dockerignore` excludes only this directory's
-  generated `.env` and `.env.tmp.*` files from it — nothing else — so a `.pem` left anywhere in
-  the repository is copied into an image layer, where it outlives every rotation recipe in this
+  `COPY packages/team/deploy packages/team/deploy`. `.dockerignore` carries five rules, and the only
+  two that concern this directory are its generated `.env` and `.env.tmp.*` files (the rest
+  exclude `node_modules` and `.git`). No rule excludes a key, so a `.pem` left anywhere in the
+  repository is copied into an image layer, where it outlives every rotation recipe in this
   document.
 
 **(f) An existing deployment's `.env` does not gain these names.** `init.sh` refuses to
