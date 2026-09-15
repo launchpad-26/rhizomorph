@@ -1662,6 +1662,29 @@ const LIVE_WAVE_WORD_RE = /\b(?:open|reopened|in[- ]flight|in[- ]progress|not\s+
 /** A reference to some `prd-NN`/`prdNN`, used only to test OWNERSHIP of a nearby wave claim — never to identify the document itself. */
 const PRD_NUMBER_RE = /\bprd-?(\d+)\b/gi
 
+/**
+ * Pure: are these two PRD references the SAME PRD, given that this corpus writes a low number
+ * both ways?
+ *
+ * Round 3 (review of `#537`). {@link ShelfEntry.number} is the raw digit run from the FILENAME,
+ * so `prd-03-viz-design-study.md` owns the string `'03'` — while prose cites the same PRD as
+ * `prd3` or `prd-3`, which {@link PRD_NUMBER_RE} captures as `'3'`. Compared as strings those are
+ * unequal, so {@link selfWaveClaim} read a PRD's citation of ITSELF as a reference to somebody
+ * else and acquitted the wave claim beside it — a false NEGATIVE, the direction that matters for
+ * a law whose job is convicting.
+ *
+ * Not hypothetical spelling: `prd-03`'s own real head block reads *"prd2 sealed the numbers; prd3
+ * makes them glanceable and beautiful"* — an unpadded self-citation sitting in the live corpus
+ * today. It changes no verdict as written, because that head carries no wave-liveness word; it
+ * would the moment one were added, and nothing would have gone red.
+ *
+ * Compared as NUMBERS, not by trimming a prefix: `'3'` and `'03'` are one PRD, while `'3'` and
+ * `'30'` stay two.
+ */
+function samePrdNumber(a: string, b: string): boolean {
+  return Number(a) === Number(b)
+}
+
 /** How close a liveness word must sit after a `wave N` token to count as describing it, and how wide a window either side of the pair is searched for an owning `prd-NN`. Generous enough for "wave 5 remains open" and "Successor prd-45 has wave 1 open.", narrow enough that an unrelated "open" three sentences later in a long head block cannot attach itself to a wave token it was never about. */
 const LIVE_WORD_WINDOW = 50
 const OWNERSHIP_WINDOW = 100
@@ -1807,7 +1830,7 @@ function selfWaveClaim(prose: string, ownNumber: string): boolean {
       const window = prose.slice(Math.max(0, start - OWNERSHIP_WINDOW), Math.min(prose.length, end + OWNERSHIP_WINDOW))
       let hasOtherPrd = false
       for (const pm of window.matchAll(PRD_NUMBER_RE)) {
-        if (pm[1] !== ownNumber) {
+        if (!samePrdNumber(pm[1]!, ownNumber)) {
           hasOtherPrd = true
           break
         }
@@ -1992,6 +2015,28 @@ describe("an archived PRD's status line agrees with the shelf it sits on (prd56 
       const ownNumber = '39'
       expect(inFlightClaim(headBlockquote(successor), ownNumber), 'a named OTHER PRD\'s open wave').toBe(false)
       expect(inFlightClaim(headBlockquote(selfCitedByNumber), ownNumber), 'THIS PRD\'s own open wave, cited by its own number').toBe(true)
+    })
+
+    it("a zero-padded PRD's UNPADDED self-citation is still itself — 'prd3' in prd-03, not a neighbour", () => {
+      // Round 3 (review of #537). `number` is the raw digit run from the FILENAME, so prd-03 owns
+      // the string '03' while prose writes the same PRD as `prd3`/`prd-3`. Compared as strings
+      // those are unequal, so the ownership check read a self-citation as SOMEBODY ELSE and
+      // acquitted the wave claim beside it — a false negative, the direction that matters here.
+      // The spelling is real: prd-03's own head says "prd2 sealed the numbers; prd3 makes them
+      // glanceable and beautiful."
+      const ownNumber = '03'
+      expect(inFlightClaim(headBlockquote('> **Outcome:** shipped 2026-08-01. prd3 has wave 1 open.\n'), ownNumber), "unpadded self-citation `prd3`").toBe(true)
+      expect(inFlightClaim(headBlockquote('> **Outcome:** shipped 2026-08-01. prd-3 has wave 1 open.\n'), ownNumber), 'unpadded self-citation `prd-3`').toBe(true)
+      expect(inFlightClaim(headBlockquote('> **Outcome:** shipped 2026-08-01. prd-03 has wave 1 open.\n'), ownNumber), 'padded self-citation `prd-03`').toBe(true)
+    })
+
+    it('normalising the padding does NOT merge distinct PRDs — prd-3 and prd-30 stay two documents', () => {
+      // The control for the fix above. Numbers are compared as NUMBERS, not by trimming a prefix
+      // or matching a suffix: a rule that made '3' and '03' one PRD by string-munging would be
+      // one slip away from making '3' and '30' one too, which would acquit a genuine own-wave
+      // claim in prd-30 whenever a `prd-3` sat in the window.
+      expect(inFlightClaim(headBlockquote('> **Outcome:** shipped 2026-08-01. prd-30 has wave 1 open.\n'), '03'), "prd-30 cited inside prd-03 is a NEIGHBOUR").toBe(false)
+      expect(inFlightClaim(headBlockquote('> **Outcome:** shipped 2026-08-01. prd-3 has wave 1 open.\n'), '30'), 'prd-3 cited inside prd-30 is a NEIGHBOUR').toBe(false)
     })
 
     it("prd-39's real sentence, rephrased the obvious way, is what BLOCKER 1 named — proven directly", () => {
