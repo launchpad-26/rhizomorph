@@ -10,8 +10,9 @@ history before anyone counted.
 **Corrected 2026-09-15, after verification.** The first draft of this note had
 a wrong headline cost figure and conflated two different board-reading
 operations that this repo's own tooling keeps separate. Both are fixed below;
-see the trail in `scratchpad/REVIEW-ROUND-1.md` if you want the findings that
-drove the correction.
+the six findings that drove the correction are listed in full in the message of
+the commit that added this note — the last entry in
+`git log --follow docs/design-notes/board-archive-cadence.md`.
 
 ## The cost this cadence exists to hold down
 
