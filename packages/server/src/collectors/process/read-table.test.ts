@@ -2,7 +2,11 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import type { Exec } from '@rhizomorph/core'
 import { NO_LEG_READER, createProcTableReader, defaultProcessTableReader } from './read-table.js'
+
+/** The Linux leg spawns nothing, so this is never called — it exists to satisfy the seam. */
+const noExec: Exec = async () => ({ stdout: '', stderr: '', code: 0, failed: false })
 
 /**
  * A fabricated procfs, so the Linux leg runs on any machine.
@@ -75,7 +79,7 @@ describe('the /proc reader parses what the kernel published', () => {
     const procRoot = fakeProc([
       { pid: 4321, argv: ['claude', '--resume'], cwd: 'x', startTicks: 500, utime: 30, stime: 20, rssPages: 100, ppid: 900 },
     ])
-    const reading = await createProcTableReader({ procRoot })()
+    const reading = await createProcTableReader({ procRoot })(noExec)
 
     expect(reading).not.toBeNull()
     const row = reading?.rows[0]
@@ -94,13 +98,13 @@ describe('the /proc reader parses what the kernel published', () => {
     // Splitting on whitespace from the left mis-reads every field after it, so
     // the parse takes everything after the LAST `)`.
     const procRoot = fakeProc([{ pid: 7, argv: ['claude'], comm: 'weird ) name', startTicks: 100 }])
-    const reading = await createProcTableReader({ procRoot })()
+    const reading = await createProcTableReader({ procRoot })(noExec)
     expect(reading?.rows[0]?.startedAt).toBe((BOOT_SECONDS + 1) * 1000)
   })
 
   it('splits argv on NUL and lets no NUL byte out', async () => {
     const procRoot = fakeProc([{ pid: 8, argv: ['node', '/path/to/claude', '-p', 'a prompt'] }])
-    const reading = await createProcTableReader({ procRoot })()
+    const reading = await createProcTableReader({ procRoot })(noExec)
     for (const part of reading?.rows[0]?.argv ?? []) expect(part).not.toContain(NUL)
     expect(reading?.rows[0]?.argv).toEqual(['node', '/path/to/claude', '-p', 'a prompt'])
   })
@@ -109,28 +113,28 @@ describe('the /proc reader parses what the kernel published', () => {
     // Windows reaches this for every process. The row is not dropped: the
     // process exists, and it is the PLACEMENT that is unknown.
     const procRoot = fakeProc([{ pid: 9, argv: ['claude'] }])
-    const reading = await createProcTableReader({ procRoot })()
+    const reading = await createProcTableReader({ procRoot })(noExec)
     expect(reading?.rows).toHaveLength(1)
     expect(reading?.rows[0]?.cwd).toBeNull()
   })
 
   it('skips a kernel thread — an empty cmdline is never an agent', async () => {
     const procRoot = fakeProc([{ pid: 2, argv: [] }, { pid: 3, argv: ['claude'] }])
-    const reading = await createProcTableReader({ procRoot })()
+    const reading = await createProcTableReader({ procRoot })(noExec)
     expect(reading?.rows.map((r) => r.pid)).toEqual([3])
   })
 })
 
 describe('unknown is never death — the probe\'s third law, one layer up', () => {
   it('answers null when there is no procfs at all', async () => {
-    expect(await createProcTableReader({ procRoot: path.join(tmpdir(), 'rhizo-does-not-exist-9d2f') })()).toBeNull()
+    expect(await createProcTableReader({ procRoot: path.join(tmpdir(), 'rhizo-does-not-exist-9d2f') })(noExec)).toBeNull()
   })
 
   it('answers null when the directory is not a process table', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'rhizo-notproc-'))
     roots.push(root)
     writeFileSync(path.join(root, 'README'), 'not a process table', 'utf8')
-    expect(await createProcTableReader({ procRoot: root })()).toBeNull()
+    expect(await createProcTableReader({ procRoot: root })(noExec)).toBeNull()
   })
 
   it('answers null when boot time cannot be read — every start time would otherwise be invented', async () => {
@@ -138,23 +142,33 @@ describe('unknown is never death — the probe\'s third law, one layer up', () =
     // reader that guessed would produce start times that look real and are not,
     // and start time is half of an actor's identity.
     const procRoot = fakeProc([{ pid: 4321, argv: ['claude'] }], { btime: null })
-    expect(await createProcTableReader({ procRoot })()).toBeNull()
+    expect(await createProcTableReader({ procRoot })(noExec)).toBeNull()
   })
 
   it('an EMPTY table is a real answer, distinct from null', async () => {
     // The distinction that matters: "I looked and there are no agents" versus
     // "I cannot look". The first may retire actors; the second may not.
     const procRoot = fakeProc([{ pid: 2, argv: [] }])
-    const reading = await createProcTableReader({ procRoot })()
+    const reading = await createProcTableReader({ procRoot })(noExec)
     expect(reading).not.toBeNull()
     expect(reading?.rows).toEqual([])
   })
 
-  it('the no-leg reader answers null, and is what every unbuilt platform gets', async () => {
-    expect(await NO_LEG_READER()).toBeNull()
-    expect(await defaultProcessTableReader('darwin')()).toBeNull()
-    expect(await defaultProcessTableReader('win32')()).toBeNull()
-    expect(await defaultProcessTableReader('freebsd')()).toBeNull()
+  it('the no-leg reader answers null, and is what every UNBUILT platform gets', async () => {
+    expect(await NO_LEG_READER(noExec)).toBeNull()
+    // macOS has no capture, so no leg. freebsd has neither and never will
+    // without someone naming a read-only strategy for it.
+    expect(defaultProcessTableReader('darwin')).toBe(NO_LEG_READER)
+    expect(defaultProcessTableReader('freebsd')).toBe(NO_LEG_READER)
+  })
+
+  it('win32 is BUILT and is no longer the no-leg reader — the capture is what changed that', () => {
+    // Asserted by identity rather than by result. The Windows reader also
+    // answers null when handed an exec that returns nothing, so a
+    // `toBeNull()` here would pass whether or not the leg existed — which is
+    // exactly the shape that let this platform look supported while being
+    // absent.
+    expect(defaultProcessTableReader('win32')).not.toBe(NO_LEG_READER)
   })
 
   it('picks the /proc reader on linux, which is WSL2 too — it is `linux` to Node, not a second leg', () => {

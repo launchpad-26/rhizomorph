@@ -74,12 +74,60 @@ export interface ProcessCollectorOptions {
 }
 
 /**
+ * Windows executable suffixes, stripped before a signature is matched.
+ *
+ * **Found by running the leg against a live table, not by the fixture test.**
+ * On Windows an agent's argv[0] is `…\claude.exe`, whose basename is
+ * `claude.exe` — and `AGENT_COMMANDS` holds `claude`. So the first live run on
+ * a machine with three real agents matched **zero**, while every fixture test
+ * passed, because those asserted the PARSE and not the MATCH.
+ *
+ * The probe half-anticipated this and it is worth naming: its
+ * `AGENT_INTERPRETERS` already carries `node.exe` beside `node`, while its
+ * `AGENT_COMMANDS` carries no `.exe` variant at all. Windows was handled for
+ * the interpreter arm and not for the agent arm.
+ *
+ * Normalising here rather than widening the probe's list is deliberate:
+ * `process-probe.ts` carries no edit in this PRD (Success 3), and a suffix is a
+ * property of the PLATFORM rather than of the roster — a second list with
+ * `claude.exe` in it would have to be kept in step with the first forever.
+ */
+const WINDOWS_EXECUTABLE_SUFFIXES = ['.exe', '.cmd', '.bat', '.com']
+
+/**
+ * `C:\bin\claude.exe` -> `claude` — on Linux as well as on Windows.
+ *
+ * The second half of that sentence is why this splits the path itself instead
+ * of leaving it to `path.basename`. `path` is the RUNTIME's flavour, and a
+ * Windows row does not only appear at runtime on Windows: the committed capture
+ * is parsed by whichever machine runs the suite, and under a POSIX `path` a
+ * backslash is an ordinary filename character — `basename('C:\bin\claude')` is
+ * the whole string, and matches nothing. A leg whose matching worked only on
+ * its own platform could not be tested from its own fixture, and being testable
+ * from the fixture is the property ADR-0004 exists to buy.
+ *
+ * The cost, stated rather than hidden: a POSIX file genuinely named
+ * `weird\claude` would now match. The two failure directions are not
+ * comparable — that one is a false positive on a filename nobody has written,
+ * and the other was total blindness on an entire platform.
+ */
+function signatureToken(token: string): string {
+  const basename = token.slice(Math.max(token.lastIndexOf('/'), token.lastIndexOf('\\')) + 1)
+  const lower = basename.toLowerCase()
+  for (const suffix of WINDOWS_EXECUTABLE_SUFFIXES) {
+    if (lower.endsWith(suffix)) return basename.slice(0, -suffix.length)
+  }
+  return basename
+}
+
+/**
  * Which dialect this argv names — the first signature that matches, so the
  * event can say `claude` rather than merely "an agent".
  */
 function dialectOf(argv: readonly string[]): string | null {
+  const normalised = argv.map(signatureToken)
   for (const command of AGENT_COMMANDS) {
-    if (matchesAgentCommand(argv, new Set([command]))) return command
+    if (matchesAgentCommand(normalised, new Set([command]))) return command
   }
   return null
 }
@@ -125,7 +173,7 @@ export function createProcessCollector(options: ProcessCollectorOptions = {}): C
     },
 
     async poll(prev: ProcessSnapshot, context: CollectorContext): Promise<PollResult<ProcessSnapshot>> {
-      const reading = await readTable()
+      const reading = await readTable(context.exec)
 
       if (reading === null) {
         // This build cannot look. Not "nothing is running" — the probe's third

@@ -1,5 +1,7 @@
 import { readFile, readdir, readlink } from 'node:fs/promises'
 import path from 'node:path'
+import type { Exec } from '@rhizomorph/core'
+import { readWindowsTable } from './read-table-windows.js'
 
 /**
  * READING THE PROCESS TABLE — prd-57 ruling 2, licensed by ADR-0052.
@@ -57,7 +59,7 @@ export interface ProcessTableReading {
  * That distinction is the probe's third law — unknown is never death — and it
  * is what stops an unbuilt platform leg from emitting a fleet-wide `gone`.
  */
-export type ProcessTableReader = () => Promise<ProcessTableReading | null>
+export type ProcessTableReader = (exec: Exec) => Promise<ProcessTableReading | null>
 
 /**
  * USER_HZ. Fixed at 100 on Linux for every architecture this instrument runs
@@ -228,5 +230,14 @@ export const NO_LEG_READER: ProcessTableReader = async () => null
  * not pay for a doomed `readdir` on every tick.
  */
 export function defaultProcessTableReader(platform: NodeJS.Platform = process.platform): ProcessTableReader {
-  return platform === 'linux' ? createProcTableReader() : NO_LEG_READER
+  if (platform === 'linux') return createProcTableReader()
+  // The Windows leg landed behind `fixtures/windows-cim.json`, captured on a
+  // real machine with three real agents running. It identifies an agent and
+  // cannot place one, because `Win32_Process` exposes no working directory —
+  // see `read-table-windows.ts` for what the capture taught that the
+  // documentation would not have.
+  if (platform === 'win32') return readWindowsTable
+  // macOS is still unbuilt: no capture, so no leg. `doctor` says so with the
+  // capture command as its remedy rather than reporting an empty table.
+  return NO_LEG_READER
 }

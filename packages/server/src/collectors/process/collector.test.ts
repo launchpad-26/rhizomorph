@@ -218,3 +218,75 @@ describe('what the collector declares it cannot do (ADR-0010)', () => {
     expect(capabilities?.liveness.level).toBe('provided')
   })
 })
+
+describe('the Windows basename — the defect no fixture test could have found', () => {
+  /**
+   * The first live run, on a machine with three real `claude.exe` processes,
+   * matched ZERO — while every fixture test in this directory passed. They
+   * asserted that the capture PARSED (`argv[0]` matching `/claude/i`) and the
+   * roster is matched against, never regex-searched. So these assert the MATCH,
+   * through `poll`, which is the only surface that was actually wrong.
+   */
+  /**
+   * `String.raw` throughout, and not as a style preference. A Windows path in
+   * an ordinary quoted string is an escape-sequence minefield: `'C:\bin\x'`
+   * COMPILES, and evaluates to a backspace character where the separator
+   * should be — a test that passes while asserting nothing about the thing it
+   * names. Every layer between here and the file (a heredoc, a generator, a
+   * patch) eats one level. `String.raw` has no level to eat.
+   */
+  const WINDOWS_AGENT_PATH = String.raw`C:\bin\claude.exe`
+
+  it.each([
+    [String.raw`C:\Users\operator\AppData\Local\claude.exe`],
+    [String.raw`C:\bin\claude.CMD`],
+    [String.raw`C:\bin\claude.bat`],
+  ])('identifies an agent launched as %s', async (executable) => {
+    const collector = createProcessCollector({ readTable: readerFor({ rows: [row({ argv: [executable, '--resume'] })] }) })
+    const { events } = await collector.poll(collector.initialSnapshot(), contextFor(1000))
+
+    expect(typesOf(events)).toEqual(['process.seen'])
+    expect((events[0]?.payload as { dialect: string }).dialect).toBe('claude')
+  })
+
+  it('runs that match on THIS machine, whatever it is — the fixture is parsed everywhere', async () => {
+    // Not a duplicate of the cases above: it names why they are written with
+    // literal backslashes rather than `path.join`. `path.basename` is the
+    // runtime's flavour, so a Windows row matched through it would be found on
+    // Windows and invisible on the Linux box running the suite — a leg green in
+    // CI and blind in the field, which is the shape this whole PRD is about.
+    // Proven here rather than asserted: the separator really is a backslash.
+    expect(WINDOWS_AGENT_PATH).toContain(String.fromCharCode(92))
+    const collector = createProcessCollector({ readTable: readerFor({ rows: [row({ argv: [WINDOWS_AGENT_PATH] })] }) })
+    const { events } = await collector.poll(collector.initialSnapshot(), contextFor(1000))
+    expect(typesOf(events), `matched nothing on ${process.platform}`).toEqual(['process.seen'])
+  })
+
+  it('invents no agent out of a suffix — stripping `.exe` must not widen the roster', async () => {
+    // The mirror of the fix, and the assertion that keeps it honest:
+    // `vim.exe` normalises to `vim`, which is not an agent and stays invisible.
+    const collector = createProcessCollector({
+      readTable: readerFor({ rows: [row({ argv: [String.raw`C:\bin\vim.exe`, 'claude.ts'] })] }),
+    })
+    const { events } = await collector.poll(collector.initialSnapshot(), contextFor(1000))
+    expect(events).toEqual([])
+  })
+
+  it('a matched Windows agent with no readable cwd reaches no lane, and that is wave 2 working', async () => {
+    // The real Windows row: identified, unplaceable. `Win32_Process` exposes no
+    // working directory, a lane is a place, so this actor is known to the leg
+    // and reported nowhere. Placement arrives with the hook join in wave 3;
+    // until then `doctor` says `partial` rather than pretending either way.
+    const collector = createProcessCollector({
+      readTable: readerFor({ rows: [row({ argv: [WINDOWS_AGENT_PATH], cwd: null })] }),
+    })
+    const { events, nextSnapshot } = await collector.poll(collector.initialSnapshot(), contextFor(1000))
+
+    expect(events).toEqual([])
+    expect(Object.keys((nextSnapshot as ProcessSnapshot).actors)).toEqual([])
+    // Distinct from the blind case: the table WAS readable. An unplaceable
+    // actor must not be mistaken for an unreadable table, or Windows would
+    // suppress `gone` for every Linux actor the same server is watching.
+    expect((nextSnapshot as ProcessSnapshot).readable).toBe(true)
+  })
+})
