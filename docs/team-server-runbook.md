@@ -223,13 +223,20 @@ states the ordering; it does not itself constitute the drill.
 **A plain `pg_dump` of this schema is not a complete restore on its own, even in the
 right order.** Executed while building this deployment: restoring a `pg_dump` taken
 after migrations had run, into a genuinely fresh Postgres container (no prior roles),
-produced **16 `role ... does not exist` errors across three roles** —
-`rz_viewer` ×8, `rz_readonly` ×4, `rz_ingest` ×4 — and **all 12 of the dump's `GRANT`
-statements are among the failures** (4 tables × the 3 roles each is granted on). The
+produced **17 `role ... does not exist` errors across three roles** —
+`rz_viewer` ×8, `rz_readonly` ×4, `rz_ingest` ×5 — and **all 13 of the dump's `GRANT`
+statements are among the failures**. The 13 derives: `rz_viewer` and `rz_readonly` 4 each, on the
+four tables `0003_roles_rls.sql` grants them `SELECT` on; `rz_ingest` 5 — `INSERT` on `events`, the
+three projection tables, and `SELECT` on `ingest_keys` from `0005_ingest_keys.sql`.
+
+**That count is an as-of measurement, re-derived 2026-09-16 against migrations `0001`–`0005`
+(#514's drill), and it has already moved once.** It read 16 with `rz_ingest` ×4 when first written;
+`0005_ingest_keys.sql` then added a GRANT and nothing re-derived the number. Re-measure it against
+the migration set rather than trusting it, and say which set you measured. The
 row-level-security policies in migration `0003_roles_rls.sql` name `rz_viewer` and
 `rz_readonly` directly in `CREATE POLICY ... TO rz_viewer, rz_readonly` (Postgres reports
 only the first missing role per statement, which is why `rz_viewer` alone accounts for
-half the total), and `rz_ingest` appears only in the `GRANT` statements. Roles are
+8 of the 17), and `rz_ingest` appears only in the `GRANT` statements. Roles are
 cluster-level objects a per-database dump does not carry. A database restored this way
 ends up with its schema and data intact but **no privileges granted to any of the three
 application roles** — not a partial restore so much as a restore with the access layer
