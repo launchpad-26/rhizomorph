@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -144,6 +144,19 @@ describe('the composition law (#509, prd-51 wave 8)', () => {
       createMigrationsSql(sql),
       createSettingsSql(sql),
     ].map((port) => Object.keys(port))
+
+    // The list above is written by hand, so its completeness is the one thing
+    // this case cannot take for granted. Without this, a wave-9 lane that adds a
+    // sixth port and not a sixth line gets a GREEN case 5 that checks nothing of
+    // theirs — demonstrated in review of #511 with a port declaring `close`
+    // beside LifecyclePort's: all five cases passed, and only an unrelated
+    // behaviour assertion in postgres.test.ts noticed. Case 2 already refuses to
+    // let registration be remembered rather than enforced; this case was
+    // exempting itself from its own rule.
+    expect(
+      perPort.length,
+      'a port directory exists that this case does not list — add it to `perPort` above, or its method names go unchecked for collisions',
+    ).toBe(portDirectories().length)
 
     const total = perPort.reduce((sum, keys) => sum + keys.length, 0)
     const union = new Set(perPort.flat())
