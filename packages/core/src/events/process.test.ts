@@ -80,23 +80,79 @@ describe('no field here can carry a command line (ADR-0052, Success 2)', () => {
     }
   })
 
-  it('a marker planted in every string field cannot reach an event as a command line', () => {
-    // The two string fields are `dialect` and `worktreePath`. Both are bounded
-    // facts — a roster name and a path — and neither is free text a marker
-    // could ride in unnoticed. Asserted rather than assumed, because "no field
-    // carries argv" is only true if the fields that DO exist cannot be abused
-    // as one.
-    const marker = 'MARKER-e6f1a2'
-    const event = createEvent(
-      'process.seen',
-      { ...SEEN, dialect: 'claude', worktreePath: '/repo-wt/2-core' },
-      { id: 'evt-1', ts: 1 },
-    )
-    expect(JSON.stringify(event)).not.toContain(marker)
-    // And the control that makes that assertion mean something: the event WAS
-    // built. A marker test over an empty object passes for the wrong reason.
-    expect(event.type).toBe('process.seen')
-    expect(event.payload.pid).toBe(4321)
+  /**
+   * The marker is PLANTED here, which the first version of this test did not do.
+   *
+   * Review of #553, B3: it declared `MARKER-e6f1a2`, built an event that never
+   * contained it, and asserted the marker was absent — a constant compared
+   * against text that never had a chance to carry it. #516 asked for this test
+   * and named this exact trap: *"break the argv filter deliberately and show
+   * the marker test going red for the reason it claims."*
+   *
+   * Planting it turned up B2 in the same breath — `worktreePath` had no ceiling,
+   * so a whole command line parsed and rode into the serialised event. So the
+   * honest version is three claims rather than one, because three different
+   * mechanisms do the work and **one of them is not in this package at all**.
+   */
+  describe('a planted marker, and what actually stops it', () => {
+    const MARKER = 'MARKER-e6f1a2'
+    const COMMAND_LINE = `claude -p "rewrite the deploy key ${MARKER}" --model opus`
+
+    it('1. a key this schema does not name is DROPPED by the parse — argv cannot ride under its own name', () => {
+      // The structural guarantee the docblock claims, and the one that holds
+      // without qualification. zod strips unknown keys (ADR-0011's lenient
+      // read, never `.strict()`) and `createEvent` parses, so a collector
+      // cannot smuggle a command line through by inventing a field for it.
+      const event = createEvent(
+        'process.seen',
+        { ...SEEN, argv: [COMMAND_LINE], cmdline: COMMAND_LINE } as never,
+        { id: 'evt-1', ts: 1 },
+      )
+
+      expect(JSON.stringify(event)).not.toContain(MARKER)
+      expect(event.payload).not.toHaveProperty('argv')
+      // The controls that make an absence mean something: the marker really was
+      // in the input, and the event really was built. Missing either is how the
+      // first version of this test passed while asserting nothing.
+      expect(COMMAND_LINE).toContain(MARKER)
+      expect(event.type).toBe('process.seen')
+      expect(event.payload.pid).toBe(4321)
+    })
+
+    it('2. an UNBOUNDED one is refused by both ceilings — nothing rides through by volume', () => {
+      const long = `${COMMAND_LINE} ${'x'.repeat(4096)}`
+      expect(() => createEvent('process.seen', { ...SEEN, worktreePath: long }, { id: 'evt-2', ts: 2 })).toThrow()
+      expect(() => createEvent('process.seen', { ...SEEN, dialect: long }, { id: 'evt-3', ts: 3 })).toThrow()
+    })
+
+    it('3. but a SHORT one fits BOTH string fields, and the schema is not what stops it', () => {
+      // Stated rather than papered over, and it is not only `worktreePath`:
+      // this command line is 61 characters, so it is under `dialect`'s ceiling
+      // of 64 as well. Found by writing this assertion — the first draft
+      // expected `dialect` to refuse it, and it did not.
+      //
+      // So "both fields are bounded facts, and neither is free text a marker
+      // could ride in" — the comment that stood here before the review — is
+      // false for both of them. A bound stops volume, never shape.
+      //
+      // What actually keeps a command line out of these two fields is upstream
+      // and not in this package: `worktreePath` gets a canonicalised cwd from
+      // the collector (prd-57 ruling 3), and `dialect` gets a member of the
+      // probe's `AGENT_COMMANDS` roster, which is a closed list rather than
+      // anything read off the process. Both are tested where they are decided,
+      // in `collectors/process/collector.test.ts`.
+      //
+      // This assertion exists so that limit is visible AT the schema rather
+      // than discovered later by someone trusting the docblock above it.
+      expect(COMMAND_LINE.length).toBeLessThan(64)
+
+      const inPath = createEvent('process.seen', { ...SEEN, worktreePath: COMMAND_LINE }, { id: 'evt-4', ts: 4 })
+      expect(inPath.payload.worktreePath).toBe(COMMAND_LINE)
+      expect(JSON.stringify(inPath)).toContain(MARKER)
+
+      const inDialect = createEvent('process.seen', { ...SEEN, dialect: COMMAND_LINE }, { id: 'evt-5', ts: 5 })
+      expect(inDialect.payload.dialect).toBe(COMMAND_LINE)
+    })
   })
 })
 
