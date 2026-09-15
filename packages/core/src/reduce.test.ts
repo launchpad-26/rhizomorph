@@ -50,6 +50,7 @@ describe('reduce — envelope bookkeeping', () => {
       judge: initialJudgeState(),
       refusals: initialRefusalState(),
       declared: {},
+      processes: {},
       eventCount: 0,
       firstEventTs: null,
       lastEventTs: null,

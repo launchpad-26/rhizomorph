@@ -12,7 +12,7 @@ import {
   selectWorktreeViews,
   type LaneSpend,
 } from '../selectors/index.js'
-import type { SessionState } from '../state.js'
+import type { AgentProcess, SessionState } from '../state.js'
 import { bucketizeSeries } from '../spark/index.js'
 import {
   EXPENSIVE_FLOOR_PER_MIN,
@@ -254,6 +254,29 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
   }
 
   // --- fill the numbers -----------------------------------------------------
+  /**
+   * prd-57 ruling 1: actors indexed by the place they are in, built once rather
+   * than re-scanned per lane.
+   *
+   * A GONE actor is kept in the index deliberately. The lane still holds it,
+   * because ruling 5 reaches `crashed` from a `gone` that follows a `seen` —
+   * dropping the row here would destroy the first half of that pair before the
+   * raiser ever sees it. A reader that wants only live actors filters on
+   * `goneAt`, which is a fact this object states rather than one it hides.
+   *
+   * An UNROOTED actor — one whose cwd is in no git worktree — belongs to no
+   * lane and appears in no bucket. It is not lost: prd-58 ruling 6 gives that
+   * case a home, and until then it lives in `state.processes` where anything
+   * can still read it.
+   */
+  const actorsByWorktree = new Map<string, AgentProcess[]>()
+  for (const actor of Object.values(state.processes)) {
+    if (actor.worktreePath === null) continue
+    const bucket = actorsByWorktree.get(actor.worktreePath)
+    if (bucket === undefined) actorsByWorktree.set(actor.worktreePath, [actor])
+    else bucket.push(actor)
+  }
+
   const lanes: Lane[] = []
   for (const draft of drafts.values()) {
     const handles = [...draft.handles].sort(compareStrings)
@@ -321,6 +344,13 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
           ? null
           : { kind: declaredRecord.kind, at: declaredRecord.at, writer: declaredRecord.writer },
       activity: 'unknown',
+      // prd-57 ruling 1. Placement is compared, never normalised: the collector
+      // canonicalises before the event leaves it, because `canonicalize`
+      // imports `node:fs` and ADR-0003 keeps that out of this package. A
+      // `worktreePath` that arrived uncanonical would simply not match here,
+      // which is why the obligation sits at the collector and is stated in the
+      // schema rather than trusted.
+      actors: draft.worktreePath === null ? [] : actorsByWorktree.get(draft.worktreePath) ?? [],
 
       tokens: tokens?.tokens ?? ZERO_TOKEN_TOTALS,
       outputTokens: tokens?.tokens.output ?? 0,

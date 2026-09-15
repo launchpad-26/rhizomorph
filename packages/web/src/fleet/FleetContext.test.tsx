@@ -814,7 +814,8 @@ describe('the beat (#158)', () => {
     // already covers `FLEET_TICK_MS` end to end. This only guards against a
     // slice silently falling out of the constant the key is spread from.
     // Twelve since #283: `declared` is read by `buildFleet` for `Lane.declared`.
-    expect(FLEET_INPUT_SLICES).toHaveLength(12)
+    // Thirteen since prd-57 ruling 1: `processes` is read for `Lane.actors`.
+    expect(FLEET_INPUT_SLICES).toHaveLength(13)
   })
 
   /** Slices `buildFleet` provably does not read, plus the envelope fields. */

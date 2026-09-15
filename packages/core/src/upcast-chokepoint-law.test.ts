@@ -104,6 +104,9 @@ function allFamilies(f: EventFactory) {
   return [
     f.sessionStarted(),
     f.sessionClosed(),
+    f.processSeen(),
+    f.processActivity(),
+    f.processGone(),
     f.collectorError(),
     f.collectorDisabled(),
     f.collectorDegraded(),

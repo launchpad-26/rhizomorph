@@ -814,6 +814,9 @@ describe('SessionRecorder — the fold handed out is frozen (#69, ADR-0031)', ()
     const events = [
       f.sessionStarted(),
       f.beaconReceived(),
+      f.processSeen(),
+      f.processActivity(),
+      f.processGone(),
       f.collectorError(),
       f.collectorDisabled(),
       f.collectorDegraded(),

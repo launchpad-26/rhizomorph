@@ -521,6 +521,14 @@ function oneOfEach() {
   let n = 0
   const id = () => `evt-${(n += 1)}`
   return [
+    // prd-57 ruling 1: the process witness's three families.
+    createEvent(
+      'process.seen',
+      { pid: 4321, dialect: 'claude', startedAt: 10, worktreePath: '/repo-wt/2-core', placement: 'rooted', parentPid: null },
+      { id: id(), ts: 10 },
+    ),
+    createEvent('process.activity', { pid: 4321, startedAt: 10, cpuMsDelta: 5, rssBytes: 1024 }, { id: id(), ts: 11 }),
+    createEvent('process.gone', { pid: 4321, startedAt: 10, reason: 'absent' }, { id: id(), ts: 12 }),
     createEvent('session.started', {
       sessionId: 's1',
       repoPath: '/repo',
