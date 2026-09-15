@@ -33,7 +33,15 @@ import { describe, expect, it } from 'vitest'
  */
 
 const MIGRATIONS_DIR = path.dirname(fileURLToPath(import.meta.url))
-const CONTRACT_PATH = path.join(MIGRATIONS_DIR, '..', 'storage', 'contract.ts')
+/**
+ * Where the events port declares its interface.
+ *
+ * Was `storage/contract.ts` until #509 split `TeamStorage` into one file per
+ * port; `contract.ts` is now the intersection and the re-export surface and
+ * declares no methods of its own. The assertion below is unchanged — the same
+ * signature, at the file that now declares it.
+ */
+const EVENTS_PORT_PATH = path.join(MIGRATIONS_DIR, '..', 'storage', 'ports', 'events', 'port.ts')
 
 const RULING_5_COLUMNS = [
   'project_id',
@@ -277,7 +285,7 @@ describe('case 19 — a monthly window, with a top-up path', () => {
   })
 
   it('and the port declares the top-up, because a window is not a promise', () => {
-    expect(readFileSync(CONTRACT_PATH, 'utf8')).toContain('ensureMonthlyPartition(month: string): Promise<void>')
+    expect(readFileSync(EVENTS_PORT_PATH, 'utf8')).toContain('ensureMonthlyPartition(month: string): Promise<void>')
   })
 })
 

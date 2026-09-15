@@ -79,6 +79,10 @@ esac
 case "$all" in
   *mutation*)          echo '{"data":{}}' ;;
   *ProjectV2SingleSelectField*)
+    if [ -n "${MOCK_FIELDS_FAIL:-}" ]; then
+      echo "HTTP 401: Bad credentials (https://api.github.com/graphql)" >&2
+      exit 1
+    fi
     cat <<'JSON'
 {"data":{"node":{"fields":{"nodes":[
  {"__typename":"ProjectV2SingleSelectField","id":"F_status","name":"Status",
@@ -98,6 +102,14 @@ JSON
   *"repository(owner:"*)
     echo "I_issue_repo" ;;
   *issueFieldValues*)
+    # MOCK_LIST_FLAKE fails the FIRST call that reaches this branch with the
+    # connection-fault text, then answers normally — proving cmd_list's
+    # embedded python still surfaces gh-retry.sh own "retrying once" notice
+    # on a call that ultimately succeeds (review of #508, finding 4).
+    if [ -n "${MOCK_LIST_FLAKE:-}" ] && [ "$(grep -c 'issueFieldValues' "$GH_LOG")" -eq 1 ]; then
+      echo "error connecting to api.github.com" >&2
+      exit 1
+    fi
     # cmd_list's paginated board walk. One page, no next page.
     python3 -c '
 import json, sys
@@ -233,6 +245,33 @@ fresh recon
 out=$(MOCK_BOARD_ITEMS=2 MOCK_OPEN_ISSUES=5 "$SCRIPT" list 2>&1)
 has "list reconciles board against open issues" "2 shown, 5 open" "$out"
 has "list warns about what it did not show"     "WARNING: 3 open issue(s) not shown" "$out"
+
+# Review of #508, finding 4: cmd_list's embedded python only forwarded gh's
+# stderr when the call ultimately FAILED, so a retried-then-recovered call
+# (gh-retry.sh exits 0 after its own internal retry) had its "retrying once"
+# notice silently dropped — the retry was real, but completely invisible.
+# `list` is the most-used read, so this was the widest-reaching instance of
+# criterion 1's "says which failure it retried" going unmet.
+fresh list_flake
+out=$(MOCK_LIST_FLAKE=1 "$SCRIPT" list 2>&1); rc=$?
+is  "a flaky-then-recovered 'list' still exits 0"        0 "$rc"
+has "...and still surfaces the retry notice, not silence" "retrying once" "$out"
+has "...with a normal listing still following it"         "shown," "$out"
+
+# Review of #508: fetch_fields used to pipe gh_retry straight into python3. A
+# genuine failure (401, here) left gh_retry's stdout empty, so python3 raised
+# JSONDecodeError on an empty stdin and buried the honest error under a
+# traceback instead of ensure_fields's own `|| die`. Captured-then-piped now,
+# matching fetch_board right below it.
+fresh fieldsfail
+out=$(MOCK_FIELDS_FAIL=1 "$SCRIPT" when 1 now 2>&1); rc=$?
+is  "a real failure reading fields dies non-zero"        1 "$rc"
+has "...with the honest die message"                     "could not read the project's fields" "$out"
+has "...the underlying gh error still reaches the reader" "Bad credentials" "$out"
+case "$out" in
+  *Traceback*) bad "...NOT buried under a python traceback" "got: $out" ;;
+  *)           ok  "...NOT buried under a python traceback" ;;
+esac
 
 echo ""
 echo "── issues.sh: argument handling ──"
