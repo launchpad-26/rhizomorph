@@ -1,6 +1,12 @@
 import { generateKeyPairSync, verify } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { type Fetch, type GithubAppCredentials, mintInstallationToken } from './github-app.js'
+import {
+  ENV_GITHUB_APP_PRIVATE_KEY,
+  ENV_GITHUB_APP_PRIVATE_KEY_FILE,
+  ENV_GITHUB_INSTALLATION_ID,
+} from '../config/config.js'
+import { ENV_GITHUB_APP_PRIVATE_KEY_PATH } from '../../deploy/report.js'
+import { type Fetch, type GithubAppCredentials, type MintTokenResult, mintInstallationToken } from './github-app.js'
 
 /** Generated fresh at test run — synthetic, never a real app key. */
 const { publicKey: TEST_PUBLIC_KEY, privateKey: TEST_PRIVATE_KEY } = generateKeyPairSync('rsa', {
@@ -103,5 +109,83 @@ describe('case 39 — a credential failure is never reported as a clean falsy re
     expect(!result.ok && typeof result.error).toBe('string')
     expect(!result.ok && result.error.length > 0).toBe(true)
     expect(!result.ok && result.error).toMatch(/installation token/)
+  })
+})
+
+/**
+ * Loudly not-a-key, and shaped like one so the leak assertion below is not
+ * vacuous. Same device as `packages/team/deploy/report.test.ts`'s FAKE_PRIVATE_KEY.
+ */
+const FAKE_MALFORMED_PEM = '-----BEGIN PRIVATE KEY-----\nFAKE-543-NOT-A-KEY\n-----END PRIVATE KEY-----'
+
+/** One base64 line of the real test key — NO newline, see the note in the leak test. */
+const KEY_FRAGMENT = TEST_PRIVATE_KEY.split('\n')[1] ?? ''
+
+const knobsIn = (sentence: string): string[] => [...sentence.matchAll(/RZ_TEAM_[A-Z_]+/g)].map((m) => m[0])
+const errorOf = (result: MintTokenResult): string => (result.ok ? '' : result.error)
+
+describe('case 40 — the mint refusal names a knob a docker operator can actually set (#543)', () => {
+  it('names the compose knob first, the non-docker knobs second, and nothing else', async () => {
+    const fetchImpl = fakeFetch([], () => ({ status: 201, json: async () => ({ token: 'unreachable' }) }))
+    const result = await mintInstallationToken({ ...CREDENTIALS, privateKeyPem: FAKE_MALFORMED_PEM }, fetchImpl)
+    expect(result.ok).toBe(false)
+
+    const error = errorOf(result)
+    const named = knobsIn(error)
+    // The WHOLE set, not one membership: `report.test.ts`'s mutation M-H showed a
+    // presence-and-position check stays green when a bogus knob is appended.
+    expect(new Set(named)).toEqual(
+      new Set([
+        ENV_GITHUB_INSTALLATION_ID,
+        ENV_GITHUB_APP_PRIVATE_KEY_PATH,
+        ENV_GITHUB_APP_PRIVATE_KEY_FILE,
+        ENV_GITHUB_APP_PRIVATE_KEY,
+      ]),
+    )
+    expect(named.indexOf(ENV_GITHUB_APP_PRIVATE_KEY_PATH)).toBeLessThan(named.indexOf(ENV_GITHUB_APP_PRIVATE_KEY))
+    expect(error).toContain('docker compose up -d')
+    expect(error).toContain('Outside docker')
+    expect(error).not.toContain('and restart')
+
+    // BIND EACH NAME TO ITS CLAUSE, not only to the set (review of #543, verify's MX-C/MX-E):
+    // a set-plus-one-ordering check does not stop `_FILE` from becoming the docker-apply knob
+    // while `_PATH` is demoted into "Outside docker" — the identical class of defect this issue
+    // exists to kill, in a new spelling, with the same names present in the same relative order.
+    const clauseBoundary = error.indexOf('Outside docker')
+    expect(clauseBoundary).toBeGreaterThan(-1)
+    const dockerClause = error.slice(0, clauseBoundary)
+    const nonDockerClause = error.slice(clauseBoundary)
+    expect(knobsIn(dockerClause)).toContain(ENV_GITHUB_APP_PRIVATE_KEY_PATH)
+    expect(knobsIn(dockerClause)).not.toContain(ENV_GITHUB_APP_PRIVATE_KEY_FILE)
+    expect(knobsIn(nonDockerClause)).toContain(ENV_GITHUB_APP_PRIVATE_KEY_FILE)
+    expect(knobsIn(nonDockerClause)).not.toContain(ENV_GITHUB_APP_PRIVATE_KEY_PATH)
+  })
+
+  it('no failure path echoes the key it was given, on any of the three', async () => {
+    // NON-VACUITY: the fragment must be a real base64 line. A `split('\n')[1]`
+    // that came back '' would make every assertion below pass against nothing.
+    expect(KEY_FRAGMENT.length).toBeGreaterThan(40)
+    expect(FAKE_MALFORMED_PEM).toContain('FAKE-543-NOT-A-KEY')
+
+    const ok201 = () => ({ status: 201, json: async () => ({ token: 'unreachable' }) })
+    const cases: Array<{ label: string; result: MintTokenResult }> = [
+      { label: 'non-201', result: await mintInstallationToken(CREDENTIALS, fakeFetch([], () => ({ status: 401, json: async () => ({}) }))) },
+      { label: 'malformed key', result: await mintInstallationToken({ ...CREDENTIALS, privateKeyPem: FAKE_MALFORMED_PEM }, fakeFetch([], ok201)) },
+      { label: 'network failure', result: await mintInstallationToken(CREDENTIALS, throwingFetch()) },
+    ]
+    for (const one of cases) {
+      expect(one.result.ok, one.label).toBe(false)
+      const error = errorOf(one.result)
+      expect(error, one.label).not.toContain(KEY_FRAGMENT)
+      expect(error, one.label).not.toContain('FAKE-543-NOT-A-KEY')
+      expect(error, one.label).not.toContain('-----BEGIN')
+    }
+  })
+
+  it('repetition: the same failure three times is the identical sentence', async () => {
+    const run = async () => errorOf(await mintInstallationToken(CREDENTIALS, throwingFetch()))
+    const first = await run()
+    expect(await run()).toBe(first)
+    expect(await run()).toBe(first)
   })
 })
