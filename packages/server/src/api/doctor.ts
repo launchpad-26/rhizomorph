@@ -169,7 +169,7 @@ export async function runServerDoctor(repoPath: string, options: ServerDoctorOpt
     message: 'implied: this server is already running against this repository',
     assumed: true,
   }
-  const ladder = await checkEnrichmentLadder([impliedTargetPath, ...baseChecks], repoPath, fold?.declared ?? {})
+  const ladder = await checkEnrichmentLadder([impliedTargetPath, ...baseChecks], repoPath, fold?.declared ?? {}, fold?.processes ?? {})
 
   // Attention before the ladder, the order `rhizomorph doctor` prints them in:
   // the per-lane readings are what the rung line below is derived from.

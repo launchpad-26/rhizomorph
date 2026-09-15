@@ -28,6 +28,7 @@ import { GIT_CAPABILITIES } from '../collectors/git/index.js'
 import { OTEL_CAPABILITIES } from '../collectors/otel/index.js'
 import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/worktree-slug.js'
+import { processWitnessCapabilitiesFor } from '../collectors/process/doctor-row.js'
 import { TMUX_CAPABILITIES } from '../collectors/tmux/index.js'
 import { WORKMUX_CAPABILITIES } from '../collectors/workmux/index.js'
 import { DECLARED_HARNESSES, IMPLEMENTED_HARNESS_IDS } from '../harness-roster.js'
@@ -1061,6 +1062,8 @@ export async function checkEnrichmentLadder(
   checks: readonly DoctorCheck[],
   repoPath: string,
   declared: Readonly<Record<string, DeclaredAttention>> = {},
+  /** prd-57 ruling 1's actors, from the fold. Keyed `pid:startedAt`; only the count is read here. */
+  processes: Readonly<Record<string, unknown>> = {},
 ): Promise<DoctorCheck[]> {
   const contributors: AdapterCapabilities[] = [
     checkOk(checks, 'target-path') ? GIT_CAPABILITIES : absentCapabilities('target path is not a usable git repository'),
@@ -1087,6 +1090,13 @@ export async function checkEnrichmentLadder(
     // once any lane has been declared for, `partial` with the
     // configured-but-silent reason before that.
     beaconCapabilitiesFor(declared),
+    // prd-57 ruling 1 and ruling 2: the process witness. Like the beacon
+    // organ above, its manifest is a function of the fold rather than a
+    // static declaration — `provided` once any actor has been seen,
+    // `partial` while the leg exists but has said nothing, and on a platform
+    // with no leg built, `absent` carrying the CAPTURE command as its remedy
+    // (prd-15 ruling 7: a leg lands behind a capture, never from a man page).
+    processWitnessCapabilitiesFor(Object.keys(processes).length, process.platform),
   ]
 
   const rung = deriveRung(mergeCapabilities(contributors))

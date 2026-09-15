@@ -306,7 +306,9 @@ function useSessionVoice(bootFacts: BootFactsState): SessionVoice | null {
  * block can no longer disagree with this bar about how many sources exist.
  *
  * Typed off the constant rather than restated: a seventh source fails to
- * compile in the label map below until it is named there too.
+ * compile in the label map below until it is named there too. prd-57 ruling 1
+ * is that seventh — the process witness — and this file behaved exactly as
+ * that sentence promised when it landed.
  */
 const SOURCES: readonly ConnectionSource[] = CONNECTION_SOURCES
 
@@ -317,6 +319,7 @@ const SOURCE_LABEL: Record<ConnectionSource, string> = {
   sessionlog: 'Sessionlog',
   otel: 'OTel',
   beacon: 'Beacon',
+  process: 'Process',
 }
 
 type SourceHealth = 'live' | 'waiting' | 'disabled' | 'degraded' | 'errored'
