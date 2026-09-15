@@ -220,10 +220,26 @@ function LandingRow({ entry }: { entry: LandingFeedEntry }): ReactElement {
   )
 }
 
+/**
+ * Exhaustive over `AgentStatus` — the same property the witness record below
+ * has, and for the same reason: a word added to `agentStatusSchema` must fail
+ * here at typecheck rather than render as an empty tag. prd-57 ruling 5 widened
+ * this from three words to seven, and this record is where the build said so.
+ *
+ * The labels are the words themselves, because the tag's job is to report what
+ * was said rather than to interpret it. Declared-versus-inferred is carried by
+ * the witness mark beside it and never by the wording — prd-57 ruling 3's
+ * rendering law, which is the rule `evidenceLine` and the attention strip
+ * already follow.
+ */
 const AGENT_STATUS_LABEL: Record<AgentStatus, string> = {
   working: 'working',
   waiting: 'waiting',
   done: 'done',
+  'tool-running': 'tool call',
+  'waiting-permission': 'needs you',
+  stopped: 'stopped',
+  crashed: 'crashed',
 }
 
 /**
