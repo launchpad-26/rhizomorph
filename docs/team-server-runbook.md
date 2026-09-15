@@ -127,9 +127,12 @@ Two warnings that belong here and nowhere else:
 - **uid 1000 is the `node` user the image runs as** (`packages/team/Dockerfile`). A key
   file that is mode 600 and owned by `root` is unreadable inside the container, and the
   boot report will say so — `<key file unreadable: …: EACCES …>`.
-- **Keep the key outside the repository.** `packages/team/deploy/` is the Docker build
-  context and only `.env` and `.env.tmp.*` are ignored, so a `.pem` left there is copied
-  into an image layer, where it outlives every rotation recipe in this document.
+- **Keep the key outside the repository.** The build context is the **repository root**
+  (`compose.yml`'s `context: ../../..`), and the runtime stage copies this directory wholesale —
+  `COPY packages/team/deploy packages/team/deploy`. `.dockerignore` excludes only this directory's
+  generated `.env` and `.env.tmp.*` files from it — nothing else — so a `.pem` left anywhere in
+  the repository is copied into an image layer, where it outlives every rotation recipe in this
+  document.
 
 **(f) An existing deployment's `.env` does not gain these names.** `init.sh` refuses to
 regenerate an `.env` that already exists — by design, so it can never reprint or rotate
