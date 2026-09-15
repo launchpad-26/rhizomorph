@@ -1,0 +1,47 @@
+[
+    {
+        "ProcessId":  24136,
+        "ParentProcessId":  11416,
+        "CreationDate":  "\/Date(1788956011002)\/",
+        "CommandLine":  "\"C:\\Users\\operator\\.local\\bin\\claude.exe\" --resume 0199c3f1-7a2b-7c3d-8e4f-5a6b7c8d9e0f",
+        "WorkingSetSize":  718364672,
+        "UserModeTime":  152128281250,
+        "KernelModeTime":  33901562500
+    },
+    {
+        "ProcessId":  29772,
+        "ParentProcessId":  5436,
+        "CreationDate":  "\/Date(1789095074344)\/",
+        "CommandLine":  "\"C:\\Users\\operator\\.local\\bin\\claude.exe\"",
+        "WorkingSetSize":  869863424,
+        "UserModeTime":  59945468750,
+        "KernelModeTime":  16298750000
+    },
+    {
+        "ProcessId":  39828,
+        "ParentProcessId":  34520,
+        "CreationDate":  "\/Date(1789378528695)\/",
+        "CommandLine":  "\"C:\\Users\\operator\\.local\\bin\\claude.exe\"",
+        "WorkingSetSize":  451604480,
+        "UserModeTime":  18574687500,
+        "KernelModeTime":  5018906250
+    },
+    {
+        "ProcessId":  1748,
+        "ParentProcessId":  1580,
+        "CreationDate":  "\/Date(1788896969105)\/",
+        "CommandLine":  null,
+        "WorkingSetSize":  58781696,
+        "UserModeTime":  3631093750,
+        "KernelModeTime":  3713750000
+    },
+    {
+        "ProcessId":  1912,
+        "ParentProcessId":  1580,
+        "CreationDate":  "\/Date(1788896969167)\/",
+        "CommandLine":  null,
+        "WorkingSetSize":  26513408,
+        "UserModeTime":  16439375000,
+        "KernelModeTime":  19828906250
+    }
+]

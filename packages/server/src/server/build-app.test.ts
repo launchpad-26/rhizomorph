@@ -85,6 +85,10 @@ describe('buildApp integration', () => {
         // Six since #307: the beacon door is a connection source like the
         // other five, folded from `state.declared`.
         beacon: { source: 'beacon', firstEventTs: null, lastEventTs: null, count: 0 },
+        // prd-57 ruling 1: the seventh source. Silent here because this bare
+        // recorder has folded no actor — which is the honest reading ruling 4
+        // asks for, and never a stand-in for "fine".
+        process: { source: 'process', firstEventTs: null, lastEventTs: null, count: 0 },
         uninstrumentedSessions: [],
         refusals: { count: 0, instance: null, expectedInstance: null },
       },

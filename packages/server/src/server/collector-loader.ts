@@ -3,6 +3,7 @@ import { reduceAll } from '@rhizomorph/core'
 import { gitCollector } from '../collectors/git/index.js'
 import { createJudgeCollector, DEFAULT_JUDGE_CADENCE_MS } from '../collectors/judge/index.js'
 import { createBeaconCollector } from '../collectors/beacon/index.js'
+import { createProcessCollector } from '../collectors/process/index.js'
 import { createPiCollector, type PiCollectorConfig } from '../collectors/pi/index.js'
 import type { DisableableSnapshot } from '../collectors/resilience.js'
 import { withResilience } from '../collectors/resilience.js'
@@ -128,5 +129,13 @@ export async function loadCollectors(
     wrap(createSessionlogCollector(sessionlogConfig)),
     wrap(createPiCollector(piConfig)),
     wrap(createBeaconCollector()),
+    // prd-57 ruling 1, licensed by ADR-0052. Registered here by STATIC
+    // import like every sibling — a variable dynamic specifier cannot be
+    // bundled, which is what this file's own comment records. Its reader
+    // answers null on every platform with no leg built, so on macOS and
+    // Windows this collector polls, emits nothing, and says so through
+    // `doctor` rather than reporting an empty process table as an empty
+    // fleet.
+    wrap(createProcessCollector()),
   ]
 }

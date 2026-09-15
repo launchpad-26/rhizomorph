@@ -147,8 +147,35 @@ nothing back to any of them.
 **What it reads:** the git state of the repo you point it at (worktrees,
 branches, commits — read-only, no writes); tmux panes and
 [workmux](https://github.com/raine/workmux) state, if either is installed
-(neither is required); and, to show an agent's actual conversation in the
-lane drawer, your own Claude Code session logs under `~/.claude/projects`.
+(neither is required); your own Claude Code session logs under
+`~/.claude/projects`, to show an agent's actual conversation in the lane
+drawer; and **your machine's process table**, to see the agents you are
+actually running.
+
+That last one is the newest reach and the one that deserves the most precision,
+because it is the only thing here that looks outside the repo you pointed at.
+[ADR-0052](docs/adr/0052-the-observer-reads-the-operators-own-agent-processes.md)
+is the decision and its bound, and the bound is narrow:
+
+- **A process is only ever looked at if its command line names a known agent.**
+  Anything else — your browser, your editor, your shell — is not counted, not
+  named and not reported. This is not a general process monitor, and *"what is
+  running on my machine"* is not a question it will answer.
+- **What is recorded is: a process id, which agent it is, when it started, which
+  worktree it is in, its CPU and memory, and which other agent started it.**
+  Nothing else. Never the command line beyond the match that identified it — a
+  command line can contain a prompt — and never any environment variable of any
+  process, ever, because an environment can contain a key.
+- **It never signals a process.** Not `kill`, not a stop, and specifically not
+  signal 0, the usual way a program asks *"are you still there?"* — that is a
+  call *at* your agent, and this hand only ever looks. Enforced by a grep over
+  its own source, so the rule outlives whatever the collector grows into.
+- **It sees only your own processes.** Another user's are invisible to it, and
+  that is fine: your agents are yours.
+
+On macOS and Windows this reach does not exist yet — the reader for those
+platforms is not built, and the instrument says so rather than reporting an
+empty table as an empty fleet.
 
 **Where it listens:** `127.0.0.1` only, on the port you choose (default
 `4321`). It does not bind a public interface. If you also point a live
@@ -564,6 +591,53 @@ what it does and does not prove.
 | WSL | The daily development platform — exercised constantly, just not by CI |
 | macOS | **Declared, not currently witnessed.** `.github/workflows/ci.yml` still declares the `macos-latest` leg that ran build, suite, typecheck, lint and the boot smoke, and the `pack-smoke` job that covered it at both node legs; neither has run since Actions was retired, and nobody has re-run them by hand. Nobody daily-drives macOS either, so ergonomic rough edges are likelier here than correctness ones — and that gap is now wider than it was, not narrower. |
 | Windows (native) | **Partial: installs and boots; the suite runs against a committed expected-fail list.** `.github/workflows/ci.yml` declares a `windows-latest` leg on the `pack-smoke` job at both node legs — packing the repo, installing the tarball into a clean project and booting the installed CLI under Git Bash, which is what first witnessed the `pathToFileURL` built-clone boot fix. `.github/workflows/windows-suite.yml` declares the full-suite run that compares failing files against `.windows-known-failures`, per file: a failure outside that list is red, a listed file that passes is a removal candidate, and every entry carries its cause class and evidence. `build-test-boot` has no Windows leg. **Neither declared job runs today**, and the local leg does not replace them here: `scripts/ci-local.sh` runs the suite raw and consults neither the expected-fail list nor `scripts/windows-triage.sh`, so it cannot go green on a native-Windows machine ([#457](https://github.com/launchpad-26/rhizomorph/issues/457)). A contributor on native Windows triages by hand, with `scripts/windows-triage.sh`. |
+
+### The process witness is built per platform, and that is a different axis
+
+The table above is about **what has been verified**. Which platforms the process
+witness can actually read is a separate question with a separate answer, because
+that reader is the least portable component this repo ships — `/proc` on Linux,
+and two different base-system tools elsewhere.
+
+**Linux and WSL2 — built.** One leg, not two: WSL2 runs a real kernel, so `/proc`
+is native and complete for Linux-side processes and Node reports the platform as
+`linux`. A Windows-side `claude.exe` is not visible from inside WSL, which is the
+row below rather than this one.
+
+**macOS — not built.** The strategy is named and unimplemented: `ps` for the
+command line, and `lsof` for the working directory, which macOS exposes only
+through libproc. Until a real capture of both exists under
+`packages/server/src/collectors/process/fixtures/`, this platform produces no
+process events at all and `doctor` says so, with the capture command as the
+remedy.
+
+**Windows (native) — built, and it identifies agents without placing them.**
+`Get-CimInstance Win32_Process` yields the command line, so identification ports
+directly. The working directory does **not**: Windows does not expose another
+process's cwd without native calls into the target. So this leg matches agents
+and declines to place them — and since a lane is a place, a Windows actor reaches
+no lane in this wave. `doctor` reports it `partial` with that reason, which is
+neither the `provided` a built leg usually earns nor the `absent` macOS gets.
+Placement arrives with the transcript and hook join
+([prd-57](docs/prds/prd-57-the-universal-witness.md) ruling 3).
+
+Why the rule is *capture first* rather than *write it from the documentation*:
+a reader written from a man page proves we read the man page. prd-15 ruling 7
+and [prd-57](docs/prds/prd-57-the-universal-witness.md) ruling 2 both draw that
+line, and `fixtures/CAPTURE.md` is the recipe — including what to sanitise before
+committing, since a capture emits your username and home directory by
+construction.
+
+**The Windows capture then taught that rule a second half, by breaking it.** With
+the real bytes committed and every fixture test green, the first run against a
+live table holding three real `claude.exe` processes matched **zero**: the tests
+asserted that the capture PARSED and never that an agent MATCHED, and a Windows
+basename is `claude.exe` where the roster holds `claude`. A capture proves the
+format and cannot prove the match, because a capture is bytes and matching is
+behaviour. So a leg owes a live run as well, and a record of what that run found
+— [`docs/review/2026-09-16-prd57-windows-witness.md`](docs/review/2026-09-16-prd57-windows-witness.md)
+is the Windows one, with the measured per-tick cost of both built legs in it.
+macOS owes both.
 
 **A local verdict is not a foreign-runner verdict, and the difference is the
 point of the row above.** `scripts/ci-local.sh` runs on one contributor's
