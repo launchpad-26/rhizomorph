@@ -170,5 +170,14 @@ describe('formatKeyFaultAdvice', () => {
     const named = [...advice.matchAll(/RZ_TEAM_[A-Z_]+/g)].map((m) => m[0])
     expect(named).toContain(ENV_GITHUB_APP_PRIVATE_KEY_PATH)
     expect(named.indexOf(ENV_GITHUB_APP_PRIVATE_KEY_PATH)).toBe(0)
+    // The title says EVERY variable it names, so assert the whole set rather than
+    // one membership. Found by the second-eyes pass on f707c463 (mutation M-H):
+    // appending a bogus RZ_TEAM_NONEXISTENT_KNOB left this test green, because only
+    // presence and position were checked — the title overclaimed its own assertion,
+    // which is the shape AGENTS.md ranks second-worst. These three are the knobs a
+    // reader can actually act on: _PATH under compose, the other two outside docker.
+    expect(new Set(named)).toEqual(
+      new Set([ENV_GITHUB_APP_PRIVATE_KEY_PATH, ENV_GITHUB_APP_PRIVATE_KEY_FILE, ENV_GITHUB_APP_PRIVATE_KEY]),
+    )
   })
 })
