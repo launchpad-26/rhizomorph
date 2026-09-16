@@ -5,6 +5,16 @@
 > (delivery); the PTY tier is prd-20 ruling 7's parked option; multi-orchestrator honesty
 > (ruling 6) parks behind a named trigger. See the amendment. Reconciled 2026-08-22 at
 > `03df141`; lives in `done/`.
+>
+> **Ruling 5's ladder is RE-CUT by prd-57 ruling 8 (2026-09-16), not renumbered.**
+> The five rungs keep their names and their meanings — ADR-0037's option D cites
+> "L2 versus L0" in its reasoning, and `core/src/collector.ts`'s `Rung` and
+> `deriveRung` are untouched. What changed is what a PERSON is told they group:
+> `rhizomorph doctor` reports three levels (L0, L1, L2) with the rig as an
+> enrichment rather than L4 at the top, because telling every machine without a
+> multiplexer that it sat two rungs short was the opposite of this PRD's own
+> central Success. The rungs remain the capability vocabulary; the levels are
+> the climbing one.
 
 **STATUS: BLESSED** — operator, 2026-08-05: *"CAN we do it? If we CAN do
 it, then LETS do it"* (condition affirmed by the conductor against the

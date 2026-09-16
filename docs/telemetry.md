@@ -158,48 +158,33 @@ conductor can usually still reach a WSL-side Rhizomorph over
 separate machine needs the server's real host/IP and an open port. The
 otel receiver has no auth — don't expose it beyond a trusted LAN/localhost.
 
-**Instrumentation attaches at launch, not retroactively.** These are
-environment variables read once when a `claude` process starts; a conductor
-session already running when you read this cannot be retro-instrumented by
-exporting the vars into its shell afterward — it has to be restarted with the
-env block already in place. This is exactly why the block above must be
-wired **before** handover, on whichever shell the conductor actually runs:
-there is no supported way to attach it after the fact. The burn strip treats a
-conductor with zero `llm.cost` events as an honest gap rather than a zero: its
-overhead figure gates on `conductorInstrumented`, which is a cost-event fact and
-not a token one, so a conductor whose tokens arrive through `--extra-sessions`
-with no cost telemetry behind them still reads as a gap — precisely because this
-is a common way to end up mid-session with no conductor cost data yet. See "The
-overhead number" below for which figure that is.
+not a token one, so a conductor's tokens reach this instrument the same way any
+other agent's do: through the telemetry its harness was configured to send.
 
-A conductor's own Claude Code **session-log** directory (the `sessionlog`
-collector's source, `~/.claude/projects/<slug>`) may also live somewhere the
-Rhizomorph wouldn't otherwise discover — a different filesystem entirely
-(`/mnt/c/Users/<u>/.claude/projects/<slug>` for a Windows-side conductor
-talking to a WSL-side Rhizomorph). Point the server at it with (repeatable):
+**Enlist once, rather than paste per lane.** `rhizomorph enlist claude` writes
+the variables above and the lifecycle hooks into the harness's own user-level
+configuration — one file, in your home directory, never inside a repository.
+Every session after that reports, in every terminal and every repo, including
+ones this instrument has never seen. It prints the diff first and writes nothing
+without `--apply`, copies the original beside it, and `rhizomorph unenlist
+claude` puts it back.
 
-```sh
-rhizomorph --extra-sessions /mnt/c/Users/<u>/.claude/projects/<slug>:conductor
-```
+That is what the three levels in `rhizomorph doctor` are counting: **L0** is git
+and your own session logs, **L1** adds dollars and traces, **L2** adds attention
+that was declared rather than inferred. `enlist` is one act and it reaches L2,
+which is why doctor names exactly one command to climb.
 
-The optional `:conductor` suffix names the lane this session dir shows up as
-in the worktree table, the spend ticker and the ledger — without it, the
-label defaults to `conductor` for the first `--extra-sessions` flag, then
-`conductor-2`, `conductor-3`… for any further ones (`--extra-sessions` is
-repeatable). Either way the label is never the raw `<slug>` — that's an
-implementation detail of where Claude Code happens to store the session log,
-not a name a human should have to read.
+**The per-lane paste path still works**, and is the right tool when you want one
+lane wired differently from the rest — a worker on a foreign endpoint, a
+one-off capture. `rhizomorph env <lane>` renders the block; nothing about it
+changed except that it is no longer the only way.
 
-Sessions discovered under an `--extra-sessions` dir are attributed
-`role: conductor` automatically, no matter what `role` the OTel export used —
-the two collectors attribute independently and cross-validate rather than
-sharing one flag. **This is history and replay, not the cost metric.**
-Tailing those logs yields tokens, tool-call counts and a timeline for a
-conductor session that already happened — genuinely useful for "what did the
-conductor actually do" — but session-log lines carry no `cost_usd` field at
-all (`research/2026-07-30-telemetry-capture-routes.md` [never committed] §S2). So a directory
-full of token counts is not proof the conductor's dollars were ever measured,
-and the spend panel's dollar headline says so.
+A conductor's own transcript is DISCOVERED rather than declared. It lives where
+the harness puts it — `~/.claude/projects/<slug>` for Claude Code — and the
+instrument reads it there, attributing the main working tree `role: conductor`
+when it finds one and claiming nothing at all when it does not. The
+`--extra-sessions` flag that used to carry that sentence is retired (prd-57
+ruling 8).
 
 ## The enrichment rung
 
@@ -353,7 +338,7 @@ What #47's concern survives as is the **gate**, not the basis.
 `formatOverheadOrGap` refuses to print a ratio unless `burn.conductorInstrumented`
 is true — a cost-event fact, not a token one — even when `overheadRatio` is
 itself a perfectly good number, because a conductor whose tokens arrive through
-`--extra-sessions` with no cost telemetry behind them is exactly the "worse than
+a discovered conductor session with no cost telemetry behind it is exactly the "worse than
 absent" shape the gap voice exists to name. The selector and the strip therefore
 part company on purpose: the selector says what the tokens are, and the strip
 declines to headline them while the conductor's own instrumentation is unproven.
@@ -386,7 +371,7 @@ the nearest branch and never dropped.
 
 What this means in practice: for a lane's dollars to show up per-branch, the
 same `claude` session must be **both** exporting OTel **and** visible to the
-sessionlog collector (its own worktree, or an `--extra-sessions` dir). One
+sessionlog collector (its own worktree, or the discovered conductor dir). One
 without the other gives you tokens with no dollars, or dollars with no branch —
 both honest, both incomplete.
 
