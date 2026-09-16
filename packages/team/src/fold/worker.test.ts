@@ -4,13 +4,18 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FoldFaults } from '../ingest/faults.js'
+import { startTeamServer } from '../api/main.js'
+import { resolveTeamConfig } from '../config/config.js'
+import { INGEST_KEY_HEADER } from '../ingest/handle.js'
 import { openJournal } from '../journal/journal.js'
+import { hashIngestKey } from '../keys/hash.js'
+import { mintIngestKey } from '../keys/mint.js'
 import { grants, stripSqlComments } from '../migrations/schema-law.test.js'
 import { FakeTeamStorage } from '../storage/fake.js'
 import { createPostgresStorage } from '../storage/postgres.js'
 import { createRecordingSql } from '../storage/recording-sql.js'
 import { readCursor } from './cursor.js'
-import { runOnce } from './worker.js'
+import { type FoldResult, runOnce, startFoldWorker } from './worker.js'
 
 /**
  * ORDERING 2's FAULT-POINT HARNESS (prd-51 ruling 4, F6–F9).
@@ -713,5 +718,505 @@ describe('a session that ended does not hold the journal back', () => {
     expect(second.ok && second.records).toBe(2)
     expect(second.ok && second.inserted).toBe(0)
     expect(readCursor(cursorPath()).seq).toBe(1)
+  })
+})
+
+/**
+ * THE SUPERVISOR (#564) — the gap was that nothing called `runOnce`.
+ *
+ * Every case above proves the fold PASS is correct. None of them proved anything CALLS it, and
+ * on the real host (#514) nothing did: batches were accepted, journalled and acked, and `events`
+ * stayed empty. These cases are about the thing that calls it.
+ *
+ * No case here sleeps on a real timer — `setTimer`/`clearTimer` are injected everywhere a tick
+ * is involved, and `tickMs` defaults to 0 (disabled) otherwise.
+ */
+describe('#564 — the fold worker runs, and drains', () => {
+  /** Counts one entry per `runOnce`, which is what `onResult` is called once per. */
+  function counting(): { results: FoldResult[]; onResult: (r: FoldResult) => void } {
+    const results: FoldResult[] = []
+    return { results, onResult: (r) => results.push(r) }
+  }
+
+  it('THE GAP: a journalled batch reaches events only because something drains it', async () => {
+    const storage = new FakeTeamStorage()
+    writeBatch(3)
+
+    // The deployed state before this issue: a journal with records and nothing folding them.
+    expect(storage.events).toEqual([])
+
+    const worker = startFoldWorker({ ...deps(storage) })
+    await worker.drain()
+    await worker.stop()
+
+    // Read the ROWS, not a 202. That is the issue's Definition of done in one line.
+    expect(storage.events.map((e) => e.n)).toEqual([1, 2, 3])
+    expect(storage.spend.get('acme-widgets 2026-08-03')?.events).toBe(3)
+  })
+
+  it('the boot drain folds what arrived while no worker existed', async () => {
+    const storage = new FakeTeamStorage()
+    writeBatch(2, 1)
+    writeBatch(2, 3)
+    writeBatch(1, 5)
+
+    // Constructed only now — everything above predates the worker entirely.
+    const worker = startFoldWorker({ ...deps(storage) })
+    await worker.drain()
+    await worker.stop()
+
+    expect(storage.events.map((e) => e.n)).toEqual([1, 2, 3, 4, 5])
+  })
+
+  it('a replayed batch produces ONE row, not two', async () => {
+    const storage = new FakeTeamStorage()
+    writeBatch(2)
+    const worker = startFoldWorker({ ...deps(storage) })
+    await worker.drain()
+    writeBatch(2) // the identical batch again, at a new journal seq
+    await worker.drain()
+    await worker.stop()
+
+    expect(storage.events.map((e) => e.n)).toEqual([1, 2])
+    expect(storage.spend.get('acme-widgets 2026-08-03')?.events).toBe(2)
+  })
+
+  it('REPETITION — draining three times folds once and calls appendEvents once', async () => {
+    const storage = new FakeTeamStorage()
+    writeBatch(3)
+    const worker = startFoldWorker({ ...deps(storage) })
+    await worker.drain()
+    await worker.drain()
+    await worker.drain()
+    await worker.stop()
+
+    expect(storage.events.map((e) => e.n)).toEqual([1, 2, 3])
+    expect(storage.calls.filter((c) => c === 'appendEvents').length).toBe(1)
+  })
+
+  it('a restart resumes from the cursor: it does not re-fold, and does not skip', async () => {
+    const first = new FakeTeamStorage()
+    writeBatch(2, 1)
+    const a = startFoldWorker({ ...deps(first) })
+    await a.drain()
+    await a.stop()
+    expect(first.events.map((e) => e.n)).toEqual([1, 2])
+
+    // A SECOND worker over the SAME cursor path — the container restart, at file level.
+    const second = new FakeTeamStorage()
+    writeBatch(1, 3)
+    const b = startFoldWorker({ ...deps(second) })
+    await b.drain()
+    await b.stop()
+
+    // Only the new record folded: the first two are not re-read into this storage.
+    expect(second.events.map((e) => e.n)).toEqual([3])
+  })
+
+  it('TERMINATES on a permanently stuck group rather than spinning — the cursor is the loop condition', async () => {
+    const storage = new FakeTeamStorage()
+    const opened = openJournal({ path: journalPath() })
+    if (!opened.ok) throw new Error(opened.error)
+    opened.journal.append({
+      project: 'acme-widgets',
+      actorInstance: 'lane-7',
+      receivedAtMs: TS,
+      batch: [{ n: 1, line: 'this is not an event at all' }],
+    })
+    opened.journal.close()
+
+    const { results, onResult } = counting()
+    const worker = startFoldWorker({ ...deps(storage), onResult })
+
+    // The assertion is that this RETURNS. Written `while (records > 0)` it never does:
+    // `runOnce` reports records > 0 with the cursor unmoved for exactly this input.
+    await worker.drain()
+    await worker.stop()
+
+    expect(storage.events).toEqual([])
+    expect(results.length).toBe(1)
+    expect(results[0]?.ok && results[0].refused.map((r) => r.n)).toEqual([1])
+    expect(readCursor(cursorPath()).seq).toBe(0)
+  })
+
+  it('COALESCING — two wakes during one in-flight pass produce one follow-up pass, not two', async () => {
+    const storage = new FakeTeamStorage()
+    writeBatch(1)
+
+    // Hold the first appendEvents open so both wakes land while a pass is genuinely in flight.
+    let release: () => void = () => undefined
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let first = true
+    const gated = new Proxy(storage, {
+      get(target, prop, receiver) {
+        if (prop !== 'appendEvents') return Reflect.get(target, prop, receiver)
+        return async (...args: Parameters<FakeTeamStorage['appendEvents']>) => {
+          if (first) {
+            first = false
+            await held
+          }
+          return target.appendEvents(...args)
+        }
+      },
+    }) as FakeTeamStorage
+
+    const { results, onResult } = counting()
+    const worker = startFoldWorker({ ...deps(gated), onResult })
+    const boot = worker.drain()
+
+    worker.wake()
+    worker.wake()
+    release()
+    await boot
+    await worker.stop()
+
+    // Three runOnce calls total: the held one, the one its own loop takes after the cursor
+    // advanced, and ONE follow-up for both wakes. Without coalescing each wake starts its own.
+    expect(results.length).toBe(3)
+    expect(storage.events.map((e) => e.n)).toEqual([1])
+  })
+
+  /**
+   * THE SIBLING CASE, and the first version of this test did not have it.
+   *
+   * I first wrote this against a storage whose `appendEvents` throws — and the mutation proved
+   * it vacuous: removing `wake()`'s `.catch()` left all 80 green, because `runOnce` catches its
+   * own storage failure and returns `ok: false`. Nothing inside a fold pass rejects, so the
+   * guard was unreachable by that input and the test asserted nothing.
+   *
+   * The reachable one is a **throwing subscriber** — `onResult` is called outside `runOnce` and
+   * its exception escapes `pass()`. `deploy/serve.ts` passes a real `onResult` that writes to
+   * the console. That is the shape AGENTS.md names as this repo's commonest defect: a seal
+   * released on a failed write but not on a throwing subscriber.
+   */
+  it('wake() never throws into the ingest hot path, even when a subscriber does', async () => {
+    const storage = new FakeTeamStorage()
+    writeBatch(1)
+    const worker = startFoldWorker({
+      ...deps(storage),
+      onResult: () => {
+        throw new Error('the operator log is on fire')
+      },
+    })
+
+    // `notify` is synchronous and on the hot path: a throw here refuses a batch that was
+    // already durably journalled and acked, which inverts ruling 4.
+    expect(worker.wake()).toBeUndefined()
+    await expect(worker.stop()).resolves.toBeUndefined()
+  })
+
+  it('a fold failure is reported through onResult rather than thrown', async () => {
+    const storage = new FakeTeamStorage()
+    writeBatch(1)
+    const exploding = new Proxy(storage, {
+      get(target, prop, receiver) {
+        if (prop !== 'appendEvents') return Reflect.get(target, prop, receiver)
+        return async () => {
+          throw new Error('database is on fire')
+        }
+      },
+    }) as FakeTeamStorage
+
+    const { results, onResult } = counting()
+    const worker = startFoldWorker({ ...deps(exploding), onResult })
+    await worker.drain()
+    await worker.stop()
+
+    expect(results.some((r) => !r.ok)).toBe(true)
+    expect(storage.events).toEqual([])
+  })
+
+  it('tickMs 0 arms no timer at all — which is what keeps this suite off real clocks', async () => {
+    const storage = new FakeTeamStorage()
+    const armed: number[] = []
+    const worker = startFoldWorker({
+      ...deps(storage),
+      tickMs: 0,
+      setTimer: (_fn, ms) => {
+        armed.push(ms)
+        return 0
+      },
+      clearTimer: () => undefined,
+    })
+    await worker.drain()
+    await worker.stop()
+    expect(armed).toEqual([])
+  })
+
+  /**
+   * THE TICK MUST NOT PRECEDE THE BOOT DRAIN (#564, found at verification).
+   *
+   * `arm()` used to run in `startFoldWorker`'s body. `deploy/serve.ts` constructs the worker
+   * before `startTeamServer`, which re-runs the migration preflight and tops up the monthly
+   * partitions before listening — so with the production default of 5000 ms a slow startup fired
+   * a fold before the partitions existed, and on the first boot of a new month those rows have
+   * nowhere to land.
+   *
+   * This is the case that would have caught it: a real timer, a short interval, and no drain.
+   */
+  it('NO timer is armed until the first drain — construction alone must not fold', async () => {
+    const storage = new FakeTeamStorage()
+    writeBatch(1)
+    const armed: number[] = []
+    const worker = startFoldWorker({
+      ...deps(storage),
+      tickMs: 20,
+      setTimer: (_fn, ms) => {
+        armed.push(ms)
+        return armed.length
+      },
+      clearTimer: () => undefined,
+    })
+
+    expect(armed).toEqual([])
+    expect(storage.events).toEqual([])
+
+    await worker.drain()
+    await worker.stop()
+
+    // Armed only once the drain it follows had settled.
+    expect(armed).toEqual([20])
+    expect(storage.events.map((e) => e.n)).toEqual([1])
+  })
+
+  it('a real timer does not fire a fold before the first drain either', async () => {
+    const storage = new FakeTeamStorage()
+    writeBatch(1)
+    // No injected timer: the production path, with an interval far shorter than the wait below.
+    const worker = startFoldWorker({ ...deps(storage), tickMs: 5 })
+    await new Promise((resolve) => setTimeout(resolve, 80))
+
+    // This is the assertion. Before the fix it read `expected 1 to be +0`.
+    expect(storage.events).toEqual([])
+
+    await worker.drain()
+    await worker.stop()
+    expect(storage.events.map((e) => e.n)).toEqual([1])
+  })
+
+  it('a non-numeric tick is treated as disabled, not as a 1ms hot loop', async () => {
+    const storage = new FakeTeamStorage()
+    const armed: number[] = []
+    const worker = startFoldWorker({
+      ...deps(storage),
+      // What `Number(process.env.RZ_TEAM_FOLD_TICK_MS)` gives for "5s". `NaN <= 0` is FALSE, and
+      // `setTimeout(fn, NaN)` is clamped to 1ms — 145 drains in 200ms, measured.
+      tickMs: Number('5s'),
+      setTimer: (_fn, ms) => {
+        armed.push(ms)
+        return armed.length
+      },
+      clearTimer: () => undefined,
+    })
+    await worker.drain()
+    await worker.stop()
+    expect(armed).toEqual([])
+  })
+
+  it('STOP IS FINAL — a wake after stop() does not start another pass', async () => {
+    const storage = new FakeTeamStorage()
+    writeBatch(1, 1)
+    const worker = startFoldWorker({ ...deps(storage) })
+    await worker.drain()
+    await worker.stop()
+
+    // Reachable from `serve.ts`: shutdown stops the worker BEFORE closing the server, so an
+    // in-flight request can ack and wake after stop resolved — and `sql.end()` follows.
+    writeBatch(1, 2)
+    worker.wake()
+    await new Promise((resolve) => setTimeout(resolve, 60))
+
+    expect(storage.events.map((e) => e.n)).toEqual([1])
+  })
+
+  it('stop() awaits a pass that is genuinely in flight, including one started late', async () => {
+    const storage = new FakeTeamStorage()
+    writeBatch(2)
+    let release: () => void = () => undefined
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let first = true
+    const gated = new Proxy(storage, {
+      get(target, prop, receiver) {
+        if (prop !== 'appendEvents') return Reflect.get(target, prop, receiver)
+        return async (...args: Parameters<FakeTeamStorage['appendEvents']>) => {
+          if (first) {
+            first = false
+            await held
+          }
+          return target.appendEvents(...args)
+        }
+      },
+    }) as FakeTeamStorage
+
+    const worker = startFoldWorker({ ...deps(gated) })
+    const pending = worker.drain()
+    const stopping = worker.stop()
+    release()
+    await Promise.all([pending, stopping])
+
+    // stop() returned only after the held pass committed.
+    expect(storage.events.map((e) => e.n)).toEqual([1, 2])
+  })
+
+  it('a throwing cursor WRITE does not become an unhandled rejection that kills the process', async () => {
+    const storage = new FakeTeamStorage()
+
+    /**
+     * THE UNCAUGHT PATH, which the first version of this case did not reach.
+     *
+     * `runOnce`'s docblock says it never throws, and it is NEARLY true: the `rows.length === 0`
+     * branch writes the cursor OUTSIDE its own try/catch. Reaching it needs a pass that advances
+     * the cursor while producing no rows — an EMPTY batch, which the journal accepts because this
+     * harness appends directly and `protocol.ts`'s `min(1)` guards the wire, not the file.
+     *
+     * Delta verification found the earlier version pointing at the CAUGHT `writeCursor`, so
+     * deleting `loop`'s rejection handler left the suite green: a case that could not fail for
+     * the reason it claimed.
+     */
+    const opened = openJournal({ path: journalPath() })
+    if (!opened.ok) throw new Error(opened.error)
+    opened.journal.append({ project: 'acme-widgets', actorInstance: 'lane-7', receivedAtMs: TS, batch: [] })
+    opened.journal.close()
+
+    const doomed = { ...deps(storage), cursorPath: path.join(dir, 'no-such-dir', 'fold.cursor') }
+    // The control: this really is the uncaught branch, and it really does throw.
+    await expect(runOnce(doomed)).rejects.toThrow()
+
+    const rejections: unknown[] = []
+    const onRejection = (reason: unknown) => rejections.push(reason)
+    process.on('unhandledRejection', onRejection)
+    try {
+      const worker = startFoldWorker(doomed)
+      worker.wake()
+      await new Promise((resolve) => setTimeout(resolve, 40))
+      await worker.stop().catch(() => undefined)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    } finally {
+      process.off('unhandledRejection', onRejection)
+    }
+    expect(rejections).toEqual([])
+  })
+})
+
+/**
+ * THE SEAM ITSELF (#564) — an accepted batch reaches `events`, read as a ROW.
+ *
+ * Every case above drives `startFoldWorker` directly against a journal this harness wrote. That
+ * proves the supervisor and proves nothing about the thing this issue exists to create: that
+ * something in the DEPLOYMENT calls it. Found at verification — deleting
+ * `onBatch: () => worker.wake()` from `deploy/serve.ts`, which is exactly the #514 bug, left the
+ * whole package green, and so did deleting the boot drain.
+ *
+ * `deploy/serve.ts` has no test anywhere in the repo and cannot easily get one: it opens a real
+ * Postgres connection in `main()`. So this closes the gap in two halves — the BEHAVIOUR through a
+ * real `startTeamServer` here, and the WIRING as a law over the tracked source below. Neither is
+ * sufficient alone: the first would pass with serve.ts wiring nothing, the second would pass if
+ * the seam did not work.
+ */
+describe('#564 — the seam, end to end and as shipped', () => {
+  const MINTED = mintIngestKey({ projectId: 'acme-widgets', nowMs: TS })
+  const KEY = MINTED.takePlaintext()
+
+  it('a batch POSTed to the running server reaches events — the ROW, not the 202', async () => {
+    const storage = new FakeTeamStorage({ settings: { synchronous_commit: 'on' } })
+    await storage.insertIngestKey({
+      keyHash: MINTED.row.keyHash,
+      projectId: 'acme-widgets',
+      createdAtMs: TS,
+      revokedAtMs: null,
+    })
+
+    // Wired exactly as `deploy/serve.ts` wires it: the worker first, `onBatch` to its wake.
+    const worker = startFoldWorker({ ...deps(storage), journalPath: journalPath() })
+    const started = await startTeamServer({
+      storage,
+      config: resolveTeamConfig({}),
+      journalPath: journalPath(),
+      port: 0,
+      now: () => TS,
+      onBatch: () => worker.wake(),
+    })
+    if (!started.ok) throw new Error(started.error)
+
+    try {
+      const response = await fetch(`http://${started.server.host}:${started.server.port}/v1/rhizomorph/ingest`, {
+        method: 'POST',
+        headers: { [INGEST_KEY_HEADER]: KEY },
+        body: JSON.stringify({
+          protocolVersion: 1,
+          project: 'acme-widgets',
+          actorInstance: 'lane-7',
+          batch: [{ n: 1, line: COST_LINE(1, 1, TS) }],
+        }),
+      })
+      expect(response.status).toBe(202)
+
+      // The wake is fire-and-forget by design, so settle the fold before reading.
+      await worker.drain()
+
+      // THE ASSERTION THIS ISSUE IS ABOUT. Before #564 this was `[]` on a real host, with the
+      // records on disk and the 202 already returned.
+      expect(storage.events.map((e) => e.n)).toEqual([1])
+      expect(storage.spend.get('acme-widgets 2026-08-03')?.events).toBe(1)
+      expect(storage.keyLookups).toEqual([hashIngestKey(KEY)])
+    } finally {
+      await worker.stop()
+      await started.server.close()
+    }
+  })
+
+  /**
+   * THE WIRING, AS A LAW OVER THE TRACKED SOURCE.
+   *
+   * `deploy/serve.ts` is the one file that turns the seam above into a running deployment, and it
+   * is untestable by execution without a database. Reading it is weaker than running it and this
+   * says so — but it is the difference between the #514 regression being caught and being
+   * invisible, which is what verification measured.
+   */
+  it('deploy/serve.ts wires onBatch to the worker AND drains at boot', () => {
+    const raw = readFileSync(
+      path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'deploy', 'serve.ts'),
+      'utf8',
+    ).replace(/\r\n/g, '\n')
+
+    /**
+     * COMMENTS ARE STRIPPED FIRST, and that is load-bearing (found at delta verification).
+     *
+     * The first version asserted against the raw text and claimed in a comment that "the comment
+     * bodies in that file do not contain these spellings" — true when written, and a property
+     * nothing held. EXECUTED: deleting the real `onBatch` wiring and planting ONE decoy comment
+     * carrying the asserted strings left all 146 cases GREEN. A law that reads a file's prose
+     * acquits it for explaining itself; `migrations/schema-law.test.ts` records the same trap and
+     * strips for the same reason.
+     */
+    const serve = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+    expect(serve, 'the stripper must not eat the code').toContain('async function main()')
+    expect(raw.length, 'serve.ts carries comments, so the strip is not a no-op').toBeGreaterThan(serve.length)
+    expect(serve, 'serve.ts must construct the fold worker').toContain('startFoldWorker({')
+    expect(serve, 'serve.ts must wake the worker on every accepted batch (#514)').toContain(
+      'onBatch: () => worker.wake(),',
+    )
+    expect(serve, 'serve.ts must drain the journal at boot').toContain('await worker.drain()')
+    // Whitespace-insensitive: the previous spelling pinned six spaces of indentation, so a
+    // formatter could redden a law about wiring (review of #574).
+    expect(serve.replace(/\s+/g, ' '), 'shutdown must stop the worker').toContain('worker .stop()')
+
+    /**
+     * The ORDER is the ADR-0056 claim: the boot drain follows `startTeamServer`, because that
+     * call tops up the monthly partitions and the fold issues no DDL.
+     *
+     * Both anchors are asserted present FIRST. `indexOf` returns -1 when absent, and -1 is less
+     * than any real index — so with `startTeamServer` missing the comparison passed vacuously,
+     * asserting an ordering between a line and a thing that was not there.
+     */
+    const drainAt = serve.indexOf('await worker.drain()')
+    const startAt = serve.indexOf('await startTeamServer({')
+    expect(drainAt, 'the boot drain must be present to be ordered').toBeGreaterThan(-1)
+    expect(startAt, 'startTeamServer must be present to be ordered').toBeGreaterThan(-1)
+    expect(drainAt).toBeGreaterThan(startAt)
   })
 })
