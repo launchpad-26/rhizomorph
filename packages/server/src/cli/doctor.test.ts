@@ -1,7 +1,9 @@
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Exec, ExecResult } from '@rhizomorph/core'
 import {
   BEACON_LAPSE_MS,
@@ -12,12 +14,13 @@ import {
   reduceAll,
 } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { CAPABILITY_TOKEN_HEADER } from '../api/security.js'
+import { processWitnessCapabilitiesFor } from '../collectors/process/doctor-row.js'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/worktree-slug.js'
 import { sessionDirFor } from '../log/paths.js'
-import { SessionLogWriter } from '../recorder/index.js'
-import { readResumedCount, recordResume, RESUME_WINDOW_MS, sessionFilePath } from '../log/session-log.js'
 import { writeSessionLock } from '../log/session-lock.js'
-import { CAPABILITY_TOKEN_HEADER } from '../api/security.js'
+import { RESUME_WINDOW_MS, readResumedCount, recordResume, sessionFilePath } from '../log/session-log.js'
+import { SessionLogWriter } from '../recorder/index.js'
 // Through `connect-team.ts`, the hand's one declared importer, never
 // `../shipper/index.js`: a second route in is what ADR-0034's clause-3 seam
 // exists to refuse, and `shipper/hand-law.test.ts` convicts a test file for it
@@ -29,14 +32,13 @@ import {
   checkEnrichmentLadder,
   checkHarnessRoster,
   checkTelemetryEnv,
+  type DoctorCheck,
   declaredAttentionChecks,
   doctorHelpText,
   parseDoctorArgs,
   renderDoctorReport,
   runDoctor,
-  type DoctorCheck,
 } from './doctor.js'
-import { processWitnessCapabilitiesFor } from '../collectors/process/doctor-row.js'
 import { CAPABILITY_META_NAME } from './rotate.js'
 
 /**
@@ -506,7 +508,17 @@ describe('runDoctor', () => {
     })
   })
 
-  it('warns (degraded, not fatal) when tmux is missing', async () => {
+  /**
+   * SUCCESS 1's FALSIFIER, live — prd-57 ruling 8.
+   *
+   * These read `warn` before this change, and the message apologised for itself
+   * in the same breath: "optional and will be degraded, not fatal". A warning
+   * that has to say it is not a problem is not a warning. What it cost is the
+   * whole reason the ruling exists — the honest reading of a warning is that
+   * you are expected to act on it, so a first run answered "what do I install
+   * to use this?" with "tmux and workmux", which was never true.
+   */
+  it('a machine with no tmux reads ok — an enrichment that is not present, never a warning', async () => {
     const noTmuxExec: Exec = async (command, args) => {
       if (command === 'tmux') return missingBinary('tmux')
       return healthyExec(command, args)
@@ -522,12 +534,15 @@ describe('runDoctor', () => {
     })
 
     const tmux = checkFor(report.checks, 'tmux')
-    expect(tmux.status).toBe('warn')
-    expect(tmux.message).toContain('optional')
+    expect(tmux.status).toBe('ok')
+    expect(tmux.message).toContain('not installed')
+    // Never a requirement, in either direction: the word an operator would act
+    // on must not appear at all.
+    expect(tmux.message).not.toMatch(/install tmux|not found|degraded/)
     expect(report.exitCode).toBe(0)
   })
 
-  it('warns (degraded, not fatal) when workmux is missing', async () => {
+  it('a machine with no workmux reads ok too — the sibling, asserted rather than assumed', async () => {
     const noWorkmuxExec: Exec = async (command, args) => {
       if (command === 'workmux') return missingBinary('workmux')
       return healthyExec(command, args)
@@ -543,8 +558,44 @@ describe('runDoctor', () => {
     })
 
     const workmux = checkFor(report.checks, 'workmux')
-    expect(workmux.status).toBe('warn')
+    expect(workmux.status).toBe('ok')
+    expect(workmux.message).toContain('not installed')
+    expect(workmux.message).not.toMatch(/install workmux|not found|degraded/)
     expect(report.exitCode).toBe(0)
+  })
+
+  /**
+   * SUCCESS 7 — the two configurations differ in NOTHING else.
+   *
+   * The stronger form of the pair above, and the one that would catch a fix
+   * that merely downgraded the status while leaving the rest of the report
+   * describing a lesser machine. Run the whole doctor twice, once with the rig
+   * and once without, and diff every check.
+   */
+  it('a machine with the rig and a machine without differ in the rig lines and nothing else', async () => {
+    const withoutRig: Exec = async (command, args) => {
+      if (command === 'tmux' || command === 'workmux') return missingBinary(command)
+      return healthyExec(command, args)
+    }
+    const options = { path: repoPath, port: 0, webDistDir, claudeProjectsRoot, dataRoot }
+
+    const rigged = await runDoctor({ ...options, exec: healthyExec })
+    const bare = await runDoctor({ ...options, exec: withoutRig })
+
+    // Same checks, in the same order, with the same verdicts.
+    expect(bare.checks.map((check) => check.id)).toEqual(rigged.checks.map((check) => check.id))
+    expect(bare.checks.map((check) => check.status)).toEqual(rigged.checks.map((check) => check.status))
+    expect(bare.exitCode).toBe(rigged.exitCode)
+
+    // And the only messages that differ are the rig's own two. The LADDER line
+    // is deliberately excluded from that claim and tested separately: it names
+    // what the rig adds when the rig is there, which is the one place an
+    // enrichment is allowed to show up.
+    const differing = bare.checks
+      .filter((check, i) => check.message !== rigged.checks[i]?.message)
+      .map((check) => check.id)
+      .filter((id) => !id.startsWith('ladder'))
+    expect(differing.sort()).toEqual(['tmux', 'workmux'])
   })
 
   it('reports "found but erroring" (not "not found") when tmux is on PATH but exits non-zero', async () => {
@@ -1233,14 +1284,14 @@ describe('runDoctor', () => {
       return runDoctor({ path: repoPath, port: 0, exec, webDistDir, claudeProjectsRoot, dataRoot, now })
     }
 
-    it('never declared: every present lane says so, and the ladder reads L4 on a healthy machine', async () => {
+    it('never declared: every present lane says so, and the ladder reads L2 on a healthy machine', async () => {
       await seed(worktrees())
       const report = await run()
 
       expect(checkFor(report.checks, 'attention:2-core').message).toContain('never declared')
       expect(checkFor(report.checks, 'attention:3-web').message).toContain('never declared')
       expect(checkFor(report.checks, 'attention:2-core').status).toBe('ok')
-      expect(checkFor(report.checks, 'ladder').message).toContain('L4')
+      expect(checkFor(report.checks, 'ladder').message).toContain('L2')
     })
 
     it('configured but silent: a lane with no beacon beside one that has reads the reason, and the other reads declared', async () => {
@@ -1252,7 +1303,7 @@ describe('runDoctor', () => {
       expect(checkFor(report.checks, 'attention:2-core').message).toContain('declared waiting 30s ago')
     })
 
-    it('live declaration on a workmux-less machine: the ladder reads L2 and names the beacon', async () => {
+    it('live declaration on a workmux-less machine: still L2, reached by the beacon alone', async () => {
       const noWorkmuxExec: Exec = async (command, args) => {
         if (command === 'workmux') return missingBinary('workmux')
         return healthyExec(command, args)
@@ -1262,14 +1313,47 @@ describe('runDoctor', () => {
 
       const ladder = checkFor(report.checks, 'ladder')
       expect(ladder.message).toContain('L2')
-      expect(ladder.message).toContain('beacon')
+      // It no longer names WHICH witness, and that is prd-57 ruling 8 rather
+      // than a loss. `deriveRung` split them (L2 beacon, L4 rig) because it
+      // answers "what is providing this", which a fold needs. A person climbing
+      // is asking whether attention is declared or guessed, and both witnesses
+      // answer that identically — so naming one here would be re-introducing a
+      // distinction the level deliberately does not make.
+      expect(ladder.message).not.toContain('L4')
     })
 
-    it('live declaration on a healthy machine: the rig still wins the tie, L4', async () => {
+    it('with NEITHER rig tool present, the enrichment is not claimed at all', () => {
+      // The `pane previews` clause appears when EITHER tool is there, so the
+      // test above (which mocks only workmux missing, and still has tmux)
+      // cannot make this claim — it would have been asserting the absence of a
+      // sentence that was legitimately present. Its own case, with both gone.
+      return (async () => {
+        const noRig: Exec = async (command, args) => {
+          if (command === 'tmux' || command === 'workmux') return missingBinary(command)
+          return healthyExec(command, args)
+        }
+        await seed([...worktrees(), beaconFor('2-core', 'waiting', NOW - 30_000)])
+        const ladder = checkFor((await run(noRig)).checks, 'ladder')
+
+        expect(ladder.message).toContain('L2')
+        expect(ladder.message).not.toContain('pane previews')
+      })()
+    })
+
+    it('live declaration on a healthy machine: the SAME level, because there is no longer a tie to win', async () => {
+      // The pair this makes with the test above is the whole of the re-cut.
+      // Two machines, two different declaring witnesses, one level — where the
+      // old ladder put them a rung apart and told the beacon-only one it had
+      // further to climb.
       await seed([...worktrees(), beaconFor('2-core', 'waiting', NOW - 30_000)])
       const report = await run()
 
-      expect(checkFor(report.checks, 'ladder').message).toContain('L4')
+      const ladder = checkFor(report.checks, 'ladder')
+      expect(ladder.message).toContain('L2')
+      expect(ladder.message).not.toContain('L4')
+      // The rig IS named here — as what it adds, which is the one place an
+      // enrichment is allowed to appear.
+      expect(ladder.message).toContain('pane previews')
     })
 
     it('lapsed: a working beacon older than the interval warns, and says how long ago it lapsed', async () => {
@@ -1282,7 +1366,7 @@ describe('runDoctor', () => {
       expect(lane.message).toContain('--hooks claude')
       // A lapse is per lane; the organ's session-wide manifest is unchanged, so
       // the rung does not fall with it.
-      expect(checkFor(report.checks, 'ladder').message).toContain('L4')
+      expect(checkFor(report.checks, 'ladder').message).toContain('L2')
       expect(report.exitCode).toBe(0)
     })
 
@@ -1316,7 +1400,7 @@ describe('runDoctor', () => {
 
       expect(checkFor(report.checks, 'attention').message).toContain('no session recorded for this repo yet')
       expect(report.checks.some((check) => check.id.startsWith('attention:'))).toBe(false)
-      expect(checkFor(report.checks, 'ladder').message).toContain('L4')
+      expect(checkFor(report.checks, 'ladder').message).toContain('L2')
     })
 
     /**
@@ -1424,7 +1508,7 @@ describe('runDoctor', () => {
   })
 
   describe('the enrichment ladder (prd15 ruling 5)', () => {
-    it('names L4 and says there is nothing further to climb on a fully healthy machine', async () => {
+    it('names L2 and says there is nothing further to climb on a fully healthy machine', async () => {
       const report = await runDoctor({
         path: repoPath,
         port: 0,
@@ -1437,7 +1521,7 @@ describe('runDoctor', () => {
 
       const ladder = checkFor(report.checks, 'ladder')
       expect(ladder.status).toBe('ok')
-      expect(ladder.message).toContain('L4')
+      expect(ladder.message).toContain('L2')
       expect(ladder.message).toContain('nothing further to climb')
       // The CLI's own `target-path` is always a real, measured `checkTargetPath`
       // run — never the route's synthetic entry — so nothing here is `assumed`
@@ -1446,7 +1530,20 @@ describe('runDoctor', () => {
       expect(ladder.message).not.toContain('assumed')
     })
 
-    it('drops a rung — the direction\'s own example — when workmux is missing, and names the remedy for the next one', async () => {
+    /**
+      * THE TEST WHOSE PREMISE RULING 8 REMOVED.
+      *
+      * It was called "drops a rung — the direction's own example — when workmux
+      * is missing", and it was right about the old ladder: L4 was the top and
+      * removing the rig cost you rungs. That is the claim the ruling deletes, so
+      * the test is inverted rather than retitled — removing the rig must now
+      * cost NOTHING, and the level must be decided entirely by what the
+      * instrument can see.
+      *
+      * The L0 here comes from the env being empty, not from the missing
+      * workmux, and the pair below is what proves the difference.
+      */
+     it('a bare machine is told what it CAN see and one command — never that a multiplexer is missing', async () => {
       const noWorkmuxExec: Exec = async (command, args) => {
         if (command === 'workmux') return missingBinary('workmux')
         return healthyExec(command, args)
@@ -1470,8 +1567,42 @@ describe('runDoctor', () => {
 
       const ladder = checkFor(report.checks, 'ladder')
       expect(ladder.message).toContain('L0')
-      expect(ladder.message).toContain('next:')
-      expect(ladder.status).toBe('ok') // degrading a rung is honest, not a failure
+      // ONE command, and it reaches the top — ruling 4 made the climb a single
+      // act rather than two, because `enlist` writes the variables and the
+      // hooks together.
+      expect(ladder.message).toContain('rhizomorph enlist claude')
+      expect(ladder.status).toBe('ok')
+      // Nothing about the rig, in either direction. This machine has no
+      // workmux and is never told so.
+      expect(ladder.message).not.toMatch(/workmux|tmux/)
+
+      // WHAT THE RIG STILL DOES, stated rather than wished away — and this is
+      // the correction that matters, because the first version of this test
+      // asserted the opposite and was wrong.
+      //
+      // The same machine WITH the rig reads L2, because a rig genuinely
+      // DECLARES attention: workmux says what a lane is doing, and that is the
+      // same kind of fact a hook declares. Ruling 8 does not take that away and
+      // must not be read as saying the rig contributes nothing.
+      //
+      // What it takes away is the other three things, all asserted above: the
+      // warning, the rung ABOVE declared attention, and the instrument telling
+      // you to go and install one. A bare machine is never told it is missing
+      // something; it is told what it can see and the one command that changes
+      // that, and that command is never `install tmux`.
+      const withRig = await runDoctor({
+        path: repoPath,
+        port: 0,
+        exec: healthyExec,
+        webDistDir,
+        claudeProjectsRoot,
+        dataRoot,
+        env: {},
+      })
+      const rigged = checkFor(withRig.checks, 'ladder')
+      expect(rigged.message).toContain('L2')
+      // And even at the top, the climb line never sends anyone to a multiplexer.
+      expect(rigged.message).not.toMatch(/install (tmux|workmux)/)
     })
 
     it('climbs to L1 once telemetry env is set, even with no tmux/workmux at all', async () => {
@@ -1519,7 +1650,7 @@ describe('runDoctor', () => {
       const laneChecks = report.checks.filter((check) => check.id.startsWith('ladder:'))
       expect(laneChecks.map((check) => check.id)).toEqual(['ladder:188-sessionlog', 'ladder:190-honesty'])
       for (const check of laneChecks) {
-        expect(check.message).toContain('L4')
+        expect(check.message).toContain('L2')
         expect(check.status).toBe('ok')
       }
       // The whole-repo fallback line only fires with no lanes at all.
@@ -1699,5 +1830,45 @@ describe('checkDeclaredAttention hands the fold on rather than discarding it', (
       await rm(repo, { recursive: true, force: true })
       await rm(data, { recursive: true, force: true })
     }
+  })
+})
+
+/**
+ * THE BLAST RADIUS, held as a law rather than a grep I ran once — the issue's
+ * own sibling case.
+ *
+ * `checkOptionalTool` is shared, and ruling 8 changed what its verdict MEANS:
+ * absent is now `ok`. That is right for an enrichment and wrong for anything
+ * the instrument actually needs. The reason it could be changed in place, with
+ * no second function and no file outside the fence, is that every call site is
+ * tmux or workmux — so this pins that, and a third tool routed through it
+ * reddens here rather than silently inheriting a verdict nobody chose for it.
+ */
+describe('only enrichments go through checkOptionalTool (prd-57 ruling 8)', () => {
+  const SERVER_SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
+
+  function sourceFiles(dir: string): string[] {
+    const out: string[] = []
+    for (const entry of readdirSync(dir)) {
+      if (entry === 'node_modules' || entry === 'dist') continue
+      const full = path.join(dir, entry)
+      if (statSync(full).isDirectory()) {
+        out.push(...sourceFiles(full))
+        continue
+      }
+      if (/\.ts$/.test(entry) && !/\.test\.ts$/.test(entry)) out.push(full)
+    }
+    return out
+  }
+
+  it('every call names tmux or workmux, and nothing else', () => {
+    const calls = sourceFiles(SERVER_SRC).flatMap((file) =>
+      [...readFileSync(file, 'utf8').matchAll(/checkOptionalTool\('([a-z-]+)'/g)].map((m) => m[1]!),
+    )
+
+    // The control first: a regex that matched nothing would make the set check
+    // below pass vacuously, which is how a law like this stops biting.
+    expect(calls.length).toBeGreaterThanOrEqual(4)
+    expect([...new Set(calls)].sort()).toEqual(['tmux', 'workmux'])
   })
 })
