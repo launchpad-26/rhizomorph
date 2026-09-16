@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
 import { exec as realExec } from '../server/exec.js'
 import { captureCheckpoint } from './checkpoint.js'
-import { dispatchFork } from './fork.js'
+import { dispatchFork, headlessLaunchFor, isHeadlessRefusal } from './fork.js'
 import { isInside, labRoot } from './paths.js'
 
 /**
@@ -814,4 +814,65 @@ describe('the lab namespace law, live, with the lab data dir behind a symlink (m
     )
     expect(outside, containmentFailureEvidence(outside, dataRoot)).toEqual([])
   })
+})
+
+/**
+ * The headless launch's own cases — prd-57 ruling 8. Their own `describe` with
+ * no fixture: the suite above builds a symlinked data root in `beforeEach`,
+ * which these do not need and which no Windows box can create without
+ * elevation. A law that could only run on one platform would be the shape this
+ * PRD spent a wave removing.
+ */
+describe("the laboratory's headless launch (prd-57 ruling 8)", () => {
+/**
+ * THE HEADLESS LAUNCH WRITES NOTHING NEW — prd-57 ruling 8, Success 8.
+ *
+ * The law above already proves the lab registers no worktree outside its own
+ * root. What ruling 8 changes is WHO creates one: `workmux add` used to, in
+ * the operator's own ref namespace and a worktree of workmux's choosing,
+ * which is the contradiction `fork.ts`'s header has worried about since it
+ * was written. Nothing spawns it now.
+ *
+ * So this case is about the launch path specifically, and it does not weaken
+ * a clause of the law above by one word — it adds the assertion that the new
+ * spawn is the harness itself, in a tree the lab already made, and that no
+ * branch-creating verb appears in the argv at all.
+ */
+it('the headless launch creates nothing — no branch verb, no worktree verb, in a tree the lab already made', () => {
+  const source = readFileSync(path.join(SERVER_SRC, 'lab', 'fork.ts'), 'utf8')
+
+  // The argv the arm is spawned with, read from the declaration rather than
+  // from a run: `-p` is non-interactive and `--strict-mcp-config` keeps an
+  // arm from inheriting the operator's own servers. Neither creates anything.
+  const launch = headlessLaunchFor('claude')
+  expect(isHeadlessRefusal(launch)).toBe(false)
+  if (isHeadlessRefusal(launch)) return
+  for (const verb of ['add', 'worktree', 'branch', '-b', 'checkout', 'switch']) {
+    expect(launch.argv, `the launch argv names ${verb}`).not.toContain(verb)
+  }
+
+  // And the module no longer SPAWNS workmux at all. `workmuxAddArgv` survives
+  // as an offered command — a string an operator may run themselves — which
+  // is why this asserts on the spawn rather than on the mention.
+  expect(source).not.toMatch(/(?:launchExec|forkExec|rawExec|exec)\(\s*'workmux'/)
+})
+
+/**
+ * THE FLOOR — prd-20 ruling 7, and the half that makes the declaration
+ * honest rather than decorative.
+ *
+ * A dialect with no captured headless launch must not get a guessed argv. The
+ * refusal carries a reason, which is the shape every refusal in this repo
+ * takes, and the arm falls back to the copyable command.
+ */
+it('a dialect with no capture is refused with a reason, never given an invented argv', () => {
+  const refusal = headlessLaunchFor('openclaw')
+
+  expect(isHeadlessRefusal(refusal)).toBe(true)
+  if (!isHeadlessRefusal(refusal)) return
+  expect(refusal.reason).toContain('no captured headless launch')
+  // Never a bare "unsupported": it says what is missing and what happens
+  // instead, which is what an operator can act on.
+  expect(refusal.reason).toContain('run by hand')
+})
 })

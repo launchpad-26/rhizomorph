@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -1443,5 +1443,30 @@ describe('the concierge namespace law, clause 6 — the migration power (prd-20 
         path.join('packages', 'server', 'src', 'concierge', 'paths.ts'),
       )
     })
+  })
+
+  /**
+   * THE LABORATORY DID NOT REACH IN — prd-57 ruling 8, Success 8.
+   *
+   * Ruling 8 gave the laboratory a headless launch, and the obvious way to
+   * build one would have been to read `concierge/harness/claude.ts`'s own
+   * `launchArgv`. That would be a second route into the fourth hand, through a
+   * directory whose whole design is one declared importer — so the issue says
+   * `ALLOWED_IMPORTERS` gains nothing, and this is the assertion that it did
+   * not.
+   *
+   * Worth stating because the alternative is invisible in behaviour: an
+   * imported adapter would launch arms perfectly well. The only thing wrong
+   * with it is the edge, which is what this law is for.
+   */
+  it('the laboratory reaches no adapter — ALLOWED_IMPORTERS is unchanged by the headless launch', () => {
+    expect([...ALLOWED_IMPORTERS]).toEqual([path.join(SERVER_SRC, 'api', 'concierge.ts')])
+
+    const labFiles = walkSourceFiles(path.join(SERVER_SRC, 'lab'))
+    // The control: the sweep really reached the file that got the launch.
+    expect(labFiles.some((file) => file.endsWith(`${path.sep}fork.ts`))).toBe(true)
+
+    const reaching = labFiles.filter((file) => /from '[^']*concierge/.test(readFileSync(file, 'utf8')))
+    expect(reaching).toEqual([])
   })
 })

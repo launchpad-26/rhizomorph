@@ -335,14 +335,21 @@ the worktrees directory, but into the harness's own
 is a session Claude Code itself can resume
 ([ADR-0032](docs/adr/0032-synthesized-sessions-live-in-the-harness-projects-tree.md)).
 It never pushes, never merges, and never checks out or rewrites a branch that
-already exists. The one write that lands outside those namespaces is never
-silent or automatic: pass `lab fork --launch` (or click the dashboard's
-launch button, which always sets it) and it hands the dispatch off to
-`workmux add`, the same command that starts every other worker lane in a
-workmux-driven fleet — that call is what creates an actual branch and tmux
-pane, and it only runs because you typed the flag or clicked the button.
-Without `--launch`, `fork` says so plainly: *"No tmux window was opened and
-no branch was created... Pass --launch to authorise that yourself."*
+already exists, and **nothing is created outside them at all**. The arm's
+worktree is the laboratory's own, detached, with no ref outside
+`refs/rhizomorph/` — so a fork no longer needs a multiplexer, or anything
+else, to make somewhere for an arm to run.
+
+Starting one is still never silent or automatic: pass `lab fork --launch` (or
+click the dashboard's launch button, which always sets it) and the arm runs the
+harness itself, headless, in that worktree. It only runs because you typed the
+flag or clicked the button. Without `--launch`, `fork` restores every arm and
+hands you the exact command line instead of running it.
+
+A harness this repo has no captured headless launch for is not guessed at: the
+arm is restored and ready, and the command is handed back to be run by hand.
+`workmux add` remains available as a launcher you can choose, and is offered to
+nobody who does not already run workmux.
 
 Enforced twice over. At runtime,
 [`assertInsideLabWorktrees`](packages/server/src/lab/paths.ts) refuses —

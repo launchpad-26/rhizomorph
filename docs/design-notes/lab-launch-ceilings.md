@@ -119,3 +119,32 @@ The same commit also fixed `compare.ts`'s hand-rolled failure-detail line
 `describeExecFailure` — the fourth copy of the `exit null` bug `server/exec.ts`
 already names three prior instances of (#306's git collector, #425's three
 judge readers, `restore.ts`'s own npm-install line).
+
+## The headless arm (prd-57 ruling 8, 2026-09-16)
+
+`workmux add` is no longer spawned. An arm runs the harness itself, headless, in
+the worktree `restoreCheckpoint` already made — so the ceiling that governed it
+now governs a different process, and the reason it is wide has changed.
+
+**It keeps `FORK_LAUNCH_TIMEOUT_MS` (120s), and the reason is no longer `npm
+ci`.** #408 widened that ceiling because `workmux add` ran the worktree's
+configured setup and 5s killed arm 1 mid-install on a cold cache. A headless
+harness spawn runs no setup at all, so that premise is gone — and the ceiling
+stays, because #408's *ruling* was that a launch is not a plumbing read.
+Narrowing it now would be re-deciding #408 from one of its premises rather than
+from what it decided.
+
+**What it actually bounds, measured against nothing.** The wall clock of one
+agent turn, which is unbounded in principle: an arm given a long prompt can
+legitimately exceed 120s, and the ceiling would kill it. Nobody has measured a
+real arm's first-turn duration, so this is a ceiling inherited from a different
+process rather than one fitted to this one. Stated rather than quietly carried —
+the next person to see an arm die at exactly 120s should find this paragraph
+before they find the constant.
+
+**The narrow ceiling lost its only user in this path.** `FORK_EXEC_TIMEOUT_MS`
+(5s) bounded `workmux path`, the read that asked a launcher where it had put the
+arm. Nothing asks now, because nothing but the laboratory chooses. The constant
+is still exported and still reasoned about by `restore.ts`; `fork.ts` no longer
+wraps anything in it.
+
