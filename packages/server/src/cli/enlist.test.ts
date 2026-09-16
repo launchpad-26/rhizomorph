@@ -36,7 +36,7 @@ const READY = {
   harness: 'claude',
   intent: 'enlist',
   applied: false,
-  target: { path: '/home/op/.claude/settings.json', display: '~/.claude/settings.json' },
+  target: { path: '/home/operator/.claude/settings.json', display: '~/.claude/settings.json' },
   kind: 'ready',
   changes: [
     { keyPath: ['env', 'OTEL_EXPORTER_OTLP_ENDPOINT'], before: null, after: '"http://127.0.0.1:4321"' },
@@ -147,7 +147,7 @@ describe('the diff-first two-step', () => {
   it('--apply sends back the digest the diff carried — the second act, not a skipped confirmation', async () => {
     const fetchImpl = serving(
       { body: READY },
-      { body: { applied: true, target: READY.target, backupPath: '/home/op/.claude/settings.json.rhizo-backup', changedKeys: ['env.OTEL_LOGS_EXPORTER', 'hooks'] } },
+      { body: { applied: true, target: READY.target, backupPath: '/home/operator/.claude/settings.json.rhizo-backup', changedKeys: ['env.OTEL_LOGS_EXPORTER', 'hooks'] } },
     )
 
     const { out, code } = await run(['claude', '--apply'], 'enlist', fetchImpl)
