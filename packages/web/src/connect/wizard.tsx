@@ -100,15 +100,38 @@ import {
  * harness in front of the operator rather than what is true of claude.
  */
 
-/** Where the operator is. Three steps, and the wizard never skips one on their behalf. */
-export type WizardStep = 'repo' | 'conductor' | 'verify'
+/**
+ * Where the operator is. **TWO steps** since prd-57 ruling 8, and the wizard
+ * still never skips one on their behalf.
+ *
+ * It was three — repo, conductor, verify — and the middle one was the tell. A
+ * step called "conductor" exists because the instrument used to need one
+ * launched through it before it could see anything. Ruling 4 removed that
+ * requirement: an enlisted harness reports from every terminal, including the
+ * ones this page never touched, so "start a conductor here" stopped being the
+ * way in and became one of the things you can do.
+ *
+ * So the two steps are the two questions actually left:
+ *
+ * - **enlist** — teach this machine's harness to report at all. Machine-wide,
+ *   done once, and the step where the repo and the harness are chosen because
+ *   both are inputs to it.
+ * - **connect** — is this repo's own chain live, in prd-19's own handshake
+ *   rows. Unchanged; it was `verify` and the rename is the honest word for what
+ *   the rows answer.
+ *
+ * Nothing moved between the steps: the former repo and conductor bodies render
+ * together under `enlist`, in the order they always had. The collapse is a
+ * regroup, not a redesign — which is what keeps every affordance test below
+ * still testing the affordance it was written for.
+ */
+export type WizardStep = 'enlist' | 'connect'
 
-export const WIZARD_STEPS: readonly WizardStep[] = ['repo', 'conductor', 'verify']
+export const WIZARD_STEPS: readonly WizardStep[] = ['enlist', 'connect']
 
 const STEP_TITLE: Record<WizardStep, string> = {
-  repo: '1 · repo',
-  conductor: '2 · conductor',
-  verify: '3 · verify',
+  enlist: '1 · enlist',
+  connect: '2 · connect',
 }
 
 /**
@@ -357,7 +380,7 @@ export function SetupWizard({
   onRetargeted,
   onCopy,
 }: SetupWizardProps) {
-  const [step, setStep] = useState<WizardStep>('repo')
+  const [step, setStep] = useState<WizardStep>('enlist')
   const [repos, setRepos] = useState<ReposReading | null>(null)
   const [chosenRepo, setChosenRepo] = useState<string | null>(null)
   const [cloneUrl, setCloneUrl] = useState('')
@@ -556,8 +579,14 @@ export function SetupWizard({
         ))}
       </nav>
 
-      {step === 'repo' && (
-        <RepoStep
+      {/* ONE STEP, TWO BODIES — prd-57 ruling 8's collapse. The wrapper carries
+          the STEP's identity and each body keeps its own, so `wizard-repo` and
+          `wizard-conductor` still name exactly what they always named. That is
+          what makes this a regroup rather than a rewrite: every assertion
+          written against a body is still written against that body. */}
+      {step === 'enlist' && (
+        <div data-testid="wizard-enlist" className="flex flex-col gap-2">
+          <RepoStep
           repos={repos}
           watched={watched}
           chosen={target}
@@ -568,10 +597,7 @@ export function SetupWizard({
           clone={clone}
           onClone={() => void confirmClone()}
         />
-      )}
-
-      {step === 'conductor' && (
-        <ConductorStep
+          <ConductorStep
           harness={harness}
           onHarness={setHarness}
           mode={mode}
@@ -596,9 +622,14 @@ export function SetupWizard({
           onRetarget={() => void confirmRetarget()}
           onCopy={onCopy}
         />
+        </div>
       )}
 
-      {step === 'verify' && <VerifyStep links={links} />}
+      {step === 'connect' && (
+        <div data-testid="wizard-connect">
+          <VerifyStep links={links} />
+        </div>
+      )}
     </section>
   )
 }
@@ -975,7 +1006,7 @@ function ConductorStep({
           adapter to plan an enlistment with, and its own line above already
           says what it would take. */}
       {facts !== undefined && facts.status === 'implemented' && (
-        <div data-testid="wizard-enlist" className="flex flex-col gap-1">
+        <div data-testid="wizard-enlistment" className="flex flex-col gap-1">
           <p className="text-read-body leading-snug text-(--ink-dim)">
             agents you start yourself report nothing to this instrument unless {facts.displayName}’s own
             configuration says so. Enlisting writes that once, in your home directory — never in a repository — and
