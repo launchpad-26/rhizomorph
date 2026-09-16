@@ -585,28 +585,66 @@ async function dispatchArm(ctx: DispatchArmContext): Promise<DispatchedArm> {
    * has already made the worktree, detached, with no ref outside the lab's
    * namespace, so there is nothing left for a launcher to create.
    */
-  const launcherArgv = isHeadlessRefusal(headless)
+  /**
+   * A HEADLESS ARM NEEDS A PROMPT, and this is a correctness rule before it is
+   * an ergonomic one.
+   *
+   * `claude -p` with no prompt argument reads the prompt from **stdin** and
+   * blocks there forever. An arm launched that way is not a slow arm; it is a
+   * process that never returns, holding the lab worktree open until the
+   * launch ceiling kills it 120 seconds later. Found by the suite hanging
+   * rather than failing, which is the shape a blocked read always takes.
+   *
+   * So no prompt is a refusal, not a launch — the same floor a dialect with no
+   * capture reaches, for a different reason, and said in its own words.
+   */
+  const missingPrompt = options.promptFile === undefined
+  const launchPlan: HeadlessLaunch | HeadlessRefusal = missingPrompt
+    ? {
+        reason:
+          'a headless arm needs a prompt to run and this fork was given none — `claude -p` with no prompt blocks ' +
+          'reading stdin, so nothing is spawned. Pass --prompt-file, or run the restored worktree by hand',
+      }
+    : headless
+  const launcherArgv = isHeadlessRefusal(launchPlan)
     ? []
-    : [headless.command, ...headless.argv, ...(options.promptFile === undefined ? [] : ['--', options.promptFile])]
+    : [launchPlan.command, ...launchPlan.argv, '--', options.promptFile as string]
   let launched = false
   const worktreePath = labWorktreePath
   const launcherSession: SynthesizedSession | null = null
 
-  if (options.launch === true && !isHeadlessRefusal(headless)) {
-    // `launchExec`, not `forkExec` (#408): a launch is not a plumbing read and
-    // keeps the wider ceiling, even though nothing runs `npm ci` here any more.
-    //
-    // `cwd` is the LAB's worktree, not the parent's. That is the whole point of
-    // the change: the arm runs in the tree the lab restored, so ruling 5's "the
-    // session follows the agent" is satisfied by construction rather than by
-    // asking a launcher afterwards where it put things.
-    const result = await ctx.launchExec(headless.command, launcherArgv.slice(1), { cwd: labWorktreePath })
-    if (result.failed) {
-      const detail = result.stderr.trim() || result.errorMessage || `exit ${result.code}`
-      throw new Error(`${launcherArgv.join(' ')} failed: ${detail}`)
-    }
-    launched = true
-  }
+  /**
+   * **NOTHING IS SPAWNED, and this is the finding rather than a shortfall.**
+   *
+   * The plan was to spawn the headless argv per arm. Built, it hung the suite,
+   * and the reason is a difference between the two launchers that no amount of
+   * reading would have shown: `workmux add` is fire-and-forget — it creates a
+   * pane, the agent runs inside it, the command returns at once. `claude -p`
+   * runs **to completion**. It is a turn, not a start.
+   *
+   * So spawning one per arm inside `dispatchArm` would serialise the entire
+   * experiment: arm 2 would not begin until arm 1's whole turn finished, every
+   * arm bounded by a 120s launch ceiling that a real turn routinely exceeds,
+   * with the operator's own money being spent synchronously inside a loop
+   * nobody could see progress in. A fork exists to run arms CONCURRENTLY; that
+   * is most of what it is for.
+   *
+   * Doing it properly needs a detached spawn — a new primitive, an orphaned
+   * paid process to reason about, and ADR-0048's "explicitly invoked, spends
+   * your own money" argument re-made for a process nobody is watching. That is
+   * a decision, not an implementation detail, and it is not this wave's.
+   *
+   * So the arm is restored, ready, and handed its exact command line — prd-20
+   * ruling 7's floor, which the issue names as the fallback and which is now
+   * the path every arm takes. `workmux add` remains available as an offered
+   * launcher for operators who run workmux and want a pane.
+   *
+   * What this wave DID settle is the thing ruling 8 asked for: no launch path
+   * requires a multiplexer, the branch and worktree are the laboratory's own
+   * inside `refs/rhizomorph/`, and nothing is created outside the namespaces
+   * prd-12 ruling 1 confines it to.
+   */
+  void ctx.launchExec
 
   const event = createEvent(
     'fork.dispatched',
@@ -643,7 +681,7 @@ async function dispatchArm(ctx: DispatchArmContext): Promise<DispatchedArm> {
     // prd-20 ruling 7's floor, reached whenever the dialect declares no
     // captured headless launch: the arm is restored and ready, and the command
     // is handed back to be run by hand rather than guessed at.
-    ...(isHeadlessRefusal(headless) ? { headlessRefusal: headless.reason } : {}),
+    ...(isHeadlessRefusal(launchPlan) ? { headlessRefusal: launchPlan.reason } : {}),
     event,
   }
 }

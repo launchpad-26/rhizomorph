@@ -340,16 +340,13 @@ worktree is the laboratory's own, detached, with no ref outside
 `refs/rhizomorph/` — so a fork no longer needs a multiplexer, or anything
 else, to make somewhere for an arm to run.
 
-Starting one is still never silent or automatic: pass `lab fork --launch` (or
-click the dashboard's launch button, which always sets it) and the arm runs the
-harness itself, headless, in that worktree. It only runs because you typed the
-flag or clicked the button. Without `--launch`, `fork` restores every arm and
-hands you the exact command line instead of running it.
-
-A harness this repo has no captured headless launch for is not guessed at: the
-arm is restored and ready, and the command is handed back to be run by hand.
-`workmux add` remains available as a launcher you can choose, and is offered to
-nobody who does not already run workmux.
+**A fork restores arms; it does not start them.** Every arm is restored into its
+own lab worktree and handed the exact command line to run, which you run
+yourself. That is deliberate: a headless agent run is a whole turn, so starting
+one per arm from inside the fork would run your arms one after another rather
+than side by side, and spend real money while you watched a command that had not
+returned. `workmux add` remains available as a launcher you can choose, and is
+offered to nobody who does not already run workmux.
 
 Enforced twice over. At runtime,
 [`assertInsideLabWorktrees`](packages/server/src/lab/paths.ts) refuses —

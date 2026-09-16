@@ -126,21 +126,36 @@ judge readers, `restore.ts`'s own npm-install line).
 the worktree `restoreCheckpoint` already made — so the ceiling that governed it
 now governs a different process, and the reason it is wide has changed.
 
-**It keeps `FORK_LAUNCH_TIMEOUT_MS` (120s), and the reason is no longer `npm
-ci`.** #408 widened that ceiling because `workmux add` ran the worktree's
-configured setup and 5s killed arm 1 mid-install on a cold cache. A headless
-harness spawn runs no setup at all, so that premise is gone — and the ceiling
-stays, because #408's *ruling* was that a launch is not a plumbing read.
-Narrowing it now would be re-deciding #408 from one of its premises rather than
-from what it decided.
+**Nothing is spawned, and that is the finding.** The plan was to spawn the
+headless argv per arm. Built, it hung the suite, and the reason is a difference
+between the two launchers no amount of reading would have shown: `workmux add`
+is fire-and-forget — it creates a pane, the agent runs inside it, the command
+returns at once. `claude -p` runs **to completion**. It is a turn, not a start.
 
-**What it actually bounds, measured against nothing.** The wall clock of one
+Spawning one per arm inside `dispatchArm` would serialise the whole experiment:
+arm 2 would not begin until arm 1's turn finished, every arm bounded by a 120s
+ceiling a real turn routinely exceeds, with the operator's own money spent
+synchronously inside a loop nobody can see progress in. A fork exists to run
+arms concurrently; that is most of what it is for.
+
+Doing it properly needs a detached spawn — a new primitive, an orphaned paid
+process to reason about, and ADR-0048's "explicitly invoked, spends your own
+money" argument re-made for a process nobody is watching. That is a decision,
+not an implementation detail, and it was not this wave's. So every arm takes
+prd-20 ruling 7's floor: restored, ready, handed its exact command line.
+
+**`FORK_LAUNCH_TIMEOUT_MS` (120s) is kept and now bounds nothing in this
+module.** #408 widened it because `workmux add` ran the worktree's configured setup and
+5s killed arm 1 mid-install on a cold cache. That spawn is gone. The constant is
+kept rather than deleted because the decision it encodes — a launch is not a
+plumbing read — is what a detached spawn will need when one lands, and deleting
+it would make that wave re-derive #408 from scratch.
+
+**What a detached spawn would need to bound, unmeasured.** The wall clock of one
 agent turn, which is unbounded in principle: an arm given a long prompt can
-legitimately exceed 120s, and the ceiling would kill it. Nobody has measured a
-real arm's first-turn duration, so this is a ceiling inherited from a different
-process rather than one fitted to this one. Stated rather than quietly carried —
-the next person to see an arm die at exactly 120s should find this paragraph
-before they find the constant.
+legitimately exceed 120s. Nobody has measured a real arm's first-turn duration,
+so whoever lands the detached spawn is fitting a ceiling to a process nobody has
+timed. Stated here so that wave starts from the gap rather than from the number.
 
 **The narrow ceiling lost its only user in this path.** `FORK_EXEC_TIMEOUT_MS`
 (5s) bounded `workmux path`, the read that asked a launcher where it had put the

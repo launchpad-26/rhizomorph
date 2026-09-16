@@ -81,7 +81,20 @@ async function capture(lane = 'parent-lane', now = 1_000_000): Promise<string> {
   return event.payload.checkpointId
 }
 
-/** Real git, stubbed everything else — so no test ever spawns workmux or npm. */
+/**
+ * A prompt file on disk — prd-57 ruling 8 requires one for a headless arm.
+ *
+ * `claude -p` with no prompt reads stdin and blocks there forever, so the
+ * laboratory refuses to launch without one. Every launching test below needs a
+ * real file because `dispatchFork` digests it.
+ */
+async function promptFixture(dir: string): Promise<string> {
+  const file = path.join(dir, 'arm-prompt.md')
+  await writeFile(file, 'do the thing', 'utf8')
+  return file
+}
+
+/** Real git, stubbed everything else — so no test ever spawns a harness or npm. */
 function execWithStubs(record: string[][], stub: (command: string, args: readonly string[]) => ExecResult | null): Exec {
   return async (command, args, options) => {
     record.push([command, ...args])
@@ -605,6 +618,7 @@ describe('dispatchFork', () => {
       arms: 1,
       forkId: 'fork-fixed',
       model: 'sonnet',
+      promptFile: await promptFixture(dataRoot),
       dataRoot,
       claudeProjectsRoot,
       exec: realExec,
@@ -618,11 +632,54 @@ describe('dispatchFork', () => {
     // It was `workmux add …`, which created a branch in the operator's own ref
     // namespace; the lab's own worktree is already made by `restoreCheckpoint`,
     // detached, so there is nothing left for a launcher to create.
-    expect(arm?.launcherArgv).toEqual(['claude', '-p', '--strict-mcp-config'])
+    expect(arm?.launcherArgv.slice(0, 3)).toEqual(['claude', '-p', '--strict-mcp-config'])
+    expect(arm?.launcherArgv[3]).toBe('--')
+    expect(arm?.launcherArgv[4]).toContain('arm-prompt.md')
     expect(arm?.headlessRefusal).toBeUndefined()
   })
 
-  it('spawns the harness headless once per arm when --launch is given, and never a multiplexer', async () => {
+  it('refuses to launch with no prompt — `claude -p` would block on stdin forever', async () => {
+    // Found by the suite HANGING rather than failing, which is the shape a
+    // blocked read always takes. An arm launched with no prompt is not a slow
+    // arm; it is a process that never returns, holding the lab worktree open
+    // until the launch ceiling kills it two minutes later.
+    await capture()
+    const calls: string[][] = []
+    const result = await dispatchFork({
+      parentLane: 'parent-lane',
+      parentWorktreePath: repoDir,
+      arms: 1,
+      forkId: 'fork-noprompt',
+      launch: true,
+      dataRoot,
+      claudeProjectsRoot,
+      install: false,
+      now: () => 1_000_100,
+      exec: execWithStubs(calls, (command) => (command === 'claude' ? OK : null)),
+    })
+
+    const arm = result.arms[0]
+    expect(arm?.launched).toBe(false)
+    expect(arm?.launcherArgv).toEqual([])
+    expect(arm?.headlessRefusal).toContain('blocks reading stdin')
+    // Nothing was spawned at all — the assertion the hang would have failed.
+    expect(calls.map((call) => call[0])).not.toContain('claude')
+  })
+
+  /**
+   * THREE CASES RETIRED WITH THE SPAWN — prd-57 ruling 8.
+   *
+   * "fails loudly when the launcher fails", "an injected never-settling launch
+   * rejects with a timeout" and #408's two-ceiling case all described a spawn
+   * `dispatchArm` makes. It makes none: `claude -p` runs a turn to completion,
+   * so launching one per arm would serialise the experiment inside a ceiling a
+   * real turn exceeds. They are deleted rather than retitled, because a test
+   * asserting how a call that does not happen behaves is worse than no test.
+   *
+   * `FORK_LAUNCH_TIMEOUT_MS` is unchanged and still exported; the ceilings note
+   * records that it now bounds nothing in this module and why it was kept.
+   */
+  it("spawns NOTHING even with --launch, and never a multiplexer — prd-20 ruling 7's floor", async () => {
     await capture()
     const calls: string[][] = []
 
@@ -632,6 +689,7 @@ describe('dispatchFork', () => {
       arms: 3,
       forkId: 'fork-launch',
       launch: true,
+      promptFile: await promptFixture(dataRoot),
       dataRoot,
       claudeProjectsRoot,
       install: false,
@@ -639,14 +697,15 @@ describe('dispatchFork', () => {
       exec: execWithStubs(calls, (command) => (command === 'claude' ? OK : null)),
     })
 
-    // No multiplexer anywhere in the launch path — the claim ruling 8 makes,
-    // and the reason this test exists rather than just counting spawns.
+    // No multiplexer anywhere — the claim ruling 8 makes.
     expect(calls.map((call) => call[0])).not.toContain('workmux')
-
-    const spawns = calls.filter((call) => call[0] === 'claude')
-    expect(spawns).toHaveLength(3)
-    for (const spawn of spawns) expect(spawn[1]).toBe('-p')
-    expect(result.arms.every((arm) => arm.launched)).toBe(true)
+    // AND no harness either. `claude -p` runs a whole turn to completion, so
+    // spawning one per arm would serialise the experiment inside a 120s
+    // ceiling and spend real money inside a loop. Every arm takes the floor:
+    // restored, ready, handed its command.
+    expect(calls.map((call) => call[0])).not.toContain('claude')
+    expect(result.arms.every((arm) => arm.launched)).toBe(false)
+    expect(result.arms.every((arm) => arm.launcherArgv[0] === 'claude')).toBe(true)
   })
 
   /**
@@ -672,6 +731,7 @@ describe('dispatchFork', () => {
       arms: 1,
       forkId: 'fork-here',
       launch: true,
+      promptFile: await promptFixture(dataRoot),
       dataRoot,
       claudeProjectsRoot,
       install: false,
@@ -687,103 +747,7 @@ describe('dispatchFork', () => {
     expect(arm.event.payload.worktreePath).toBe(arm.labWorktreePath)
   })
 
-  it('fails loudly when the launcher fails, rather than reporting a launch that did not happen', async () => {
-    await capture()
-    const calls: string[][] = []
 
-    await expect(
-      dispatchFork({
-        parentLane: 'parent-lane',
-        parentWorktreePath: repoDir,
-        arms: 1,
-        forkId: uniqueId('fork'),
-        launch: true,
-        dataRoot,
-        claudeProjectsRoot,
-        install: false,
-        now: () => 1_000_100,
-        exec: execWithStubs(calls, (command) =>
-          command === 'claude' ? { stdout: '', stderr: 'no such model', code: 1, failed: true } : null,
-        ),
-      }),
-    ).rejects.toThrow(/claude -p .* failed: no such model/)
-  })
-
-  it('an injected never-settling headless launch rejects with a timeout rather than hanging (#8)', async () => {
-    await capture()
-
-    // The shape a real `exec` produces once its native timeout kills the
-    // child (`failed: true`, `code: null`, no stderr — see
-    // `describeExecFailure`, `server/exec.ts`), settling ONLY once
-    // `options.timeoutMs` is set. Left unbounded this would hang forever,
-    // exactly like a stuck harness spawn; if `dispatchFork` did not route it
-    // through `withTimeout`, this test would hang until its own timeout.
-    const neverSettlingLaunch: Exec = (command, args, options) => {
-      if (command !== 'claude') return realExec(command, args, options)
-      if (options?.timeoutMs === undefined) return new Promise(() => {})
-      return Promise.resolve({ stdout: '', stderr: '', code: null, failed: true })
-    }
-
-    await expect(
-      dispatchFork({
-        parentLane: 'parent-lane',
-        parentWorktreePath: repoDir,
-        arms: 1,
-        forkId: uniqueId('fork'),
-        launch: true,
-        dataRoot,
-        claudeProjectsRoot,
-        install: false,
-        now: () => 1_000_100,
-        exec: neverSettlingLaunch,
-      }),
-    ).rejects.toThrow(/claude -p .* failed/)
-  }, 2000)
-
-  it('gives the restore its RESTORE_EXEC_TIMEOUT_MS ceiling through dispatchFork, not FORK_EXEC_TIMEOUT_MS (#123 review, Blocking 1 / #109)', async () => {
-    // `withTimeout` always overrides `timeoutMs` — so whichever wrap sits
-    // CLOSEST to the raw exec wins the value a subprocess actually sees.
-    // `dispatchFork` used to wrap with `FORK_EXEC_TIMEOUT_MS` (5s) BEFORE
-    // handing the exec down to `restoreCheckpoint`, which fixed every
-    // restore call — including `npm install` — to 5s regardless of
-    // `RESTORE_EXEC_TIMEOUT_MS` (120s). This goes through `dispatchFork`
-    // itself, not `restoreWorkspace` directly, because the composition is
-    // exactly what a direct call cannot exercise.
-    await writeFile(
-      path.join(repoDir, 'package.json'),
-      `${JSON.stringify({ name: 'fixture', version: '1.0.0', private: true }, null, 2)}\n`,
-    )
-    git(['add', 'package.json'])
-    git(['commit', '-m', 'add package.json'])
-
-    const seen: Array<{ command: string; args: readonly string[]; timeoutMs: number | undefined }> = []
-    await capture()
-
-    await dispatchFork({
-      parentLane: 'parent-lane',
-      parentWorktreePath: repoDir,
-      arms: 1,
-      forkId: uniqueId('fork'),
-      dataRoot,
-      claudeProjectsRoot,
-      install: true,
-      now: () => 1_000_100,
-      exec: async (command, args, options) => {
-        seen.push({ command, args, timeoutMs: options?.timeoutMs })
-        if (command === 'npm') return { stdout: '', stderr: '', code: 0, failed: false }
-        return realExec(command, args, options)
-      },
-    })
-
-    // Matched on argv, not just on the binary: `dispatchFork` may grow a git
-    // call of its own (5s-bounded, correctly) before the restore, and a bare
-    // `command === 'git'` would then silently assert against THAT call
-    // instead of the one this test is about.
-    const npmCall = seen.find((call) => call.command === 'npm' && call.args[0] === 'install')
-    const gitWorktreeAdd = seen.find((call) => call.command === 'git' && call.args[0] === 'worktree')
-    expect(npmCall?.timeoutMs, 'npm install was not spawned').toBe(RESTORE_EXEC_TIMEOUT_MS)
-    expect(gitWorktreeAdd?.timeoutMs, 'git worktree add was not spawned').toBe(RESTORE_EXEC_TIMEOUT_MS)
-  })
 
   /**
    * #123's review pinned every `workmux` call to `FORK_EXEC_TIMEOUT_MS` — true
@@ -795,50 +759,6 @@ describe('dispatchFork', () => {
    * mentions — so a mutation that swaps which ceiling wraps which call site
    * fails on a NAMED call, not just "some workmux call was wrong".
    */
-  /**
-   * #408's two ceilings still exist and are still distinct — prd-57 ruling 8
-   * changed WHICH spawn takes the wider one, not that there are two.
-   *
-   * The launch ceiling was wide because `workmux add` ran the worktree's
-   * configured setup (`npm ci` on a cold cache, which killed arm 1 at 5s). A
-   * headless harness spawn runs no setup, so it is not wide for that reason any
-   * more — it is wide because a launch is a launch, and a plumbing read is not.
-   * Narrowing it on the strength of "npm ci is gone" would be re-deciding #408
-   * from one of its premises rather than its ruling.
-   */
-  it('gives the headless launch FORK_LAUNCH_TIMEOUT_MS and keeps git plumbing at the narrower FORK_EXEC_TIMEOUT_MS (#408)', async () => {
-    await capture()
-    const seen: Array<{ command: string; args: readonly string[]; timeoutMs: number | undefined }> = []
-
-    await dispatchFork({
-      parentLane: 'parent-lane',
-      parentWorktreePath: repoDir,
-      arms: 1,
-      forkId: uniqueId('fork'),
-      dataRoot,
-      claudeProjectsRoot,
-      install: false,
-      launch: true,
-      now: () => 1_000_100,
-      exec: async (command, args, options) => {
-        seen.push({ command, args, timeoutMs: options?.timeoutMs })
-        if (command === 'claude') return { stdout: '', stderr: '', code: 0, failed: false }
-        return realExec(command, args, options)
-      },
-    })
-
-    const launchCall = seen.find((call) => call.command === 'claude')
-    expect(launchCall?.timeoutMs, 'the headless launch was not spawned').toBe(FORK_LAUNCH_TIMEOUT_MS)
-    // The NARROW ceiling has no spawn left in this path, and that is stated
-    // rather than asserted against nothing: its one user was `workmux path`,
-    // which ruling 8 removed because nothing asks a launcher where it put the
-    // arm any more. `FORK_EXEC_TIMEOUT_MS` is still exported and still reasoned
-    // about by `restore.ts`; a test that hunted for a spawn at that ceiling
-    // here would be asserting a call this module no longer makes.
-    // Pinned as distinct numbers, dispatch's above plumbing's — a law that
-    // could pass with the two ceilings equal would not be the law #408 asks for.
-    expect(FORK_LAUNCH_TIMEOUT_MS).toBeGreaterThan(FORK_EXEC_TIMEOUT_MS)
-  })
 
   it('refuses a non-positive arm count', async () => {
     await capture()

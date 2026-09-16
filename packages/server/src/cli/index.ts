@@ -277,7 +277,15 @@ async function runLabForkCommand(
           (arm.launcherSession === null
             ? ''
             : `\n    session   ${arm.launcherSession.filePath} (the launcher's own tree)`) +
-          `\n    launch    ${arm.launched ? 'ran: ' : 'not run — run it yourself: '}${arm.launcherArgv.join(' ')}`,
+          // prd-57 ruling 8: an arm is restored and handed its command rather
+          // than started. A refusal carries its own reason, which is what to
+          // print when there is no command to hand over at all.
+          `
+    launch    ${
+            arm.headlessRefusal !== undefined
+              ? `not run — ${arm.headlessRefusal}`
+              : `${arm.launched ? 'ran: ' : 'not run — run it yourself: '}${arm.launcherArgv.join(' ')}`
+          }`,
       )
     }
     if (!args.launch) {

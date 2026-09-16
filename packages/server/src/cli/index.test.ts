@@ -1560,7 +1560,9 @@ describe('runCli lab fork + compare subcommands (prd12 phase 2)', () => {
     expect(fork.out).toContain('arm 1')
     expect(fork.out).toContain('arm 3')
     expect(fork.out).toContain('paths rewritten to this tree')
-    expect(fork.out).toContain('not run — run it yourself: workmux add')
+    // prd-57 ruling 8: no prompt file, so there is no command to hand over —
+    // the refusal says why rather than printing a launcher that is gone.
+    expect(fork.out).toContain('not run — a headless arm needs a prompt')
     expect(fork.out).toContain('rhizomorph lab compare')
     // The watched repo is untouched.
     expect(git(['status', '--porcelain'])).toBe(before)

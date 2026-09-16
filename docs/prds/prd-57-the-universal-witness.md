@@ -700,8 +700,16 @@ lane did not perform — it is never a synonym for met.
    doctor report is diffed between the two configurations and only the rig's own
    two lines differ. `connect/links.ts` no longer paints an absent rig `broken`.
 
-8. **Launch needs no workmux — MET.** The arm runs the harness headless in the
-   lab's own detached worktree; `workmux add` is not spawned. Both namespace
+8. **Launch needs no workmux — MET, at ruling 7's floor.** `workmux add` is not
+   spawned and nothing outside the lab's namespaces is created: the arm's
+   worktree is the laboratory's own, detached, with no ref outside
+   `refs/rhizomorph/`. **No arm is started**, and that is a finding rather than
+   a shortfall — `claude -p` runs a whole turn to completion where `workmux add`
+   returned at once, so spawning one per arm would serialise the experiment
+   inside a ceiling a real turn exceeds and spend the operator's money
+   synchronously. Every arm takes prd-20 ruling 7's floor: restored, ready,
+   handed its command. A detached spawn is owed and is its own decision
+   (ADR-0048's argument re-made for a process nobody is watching). Both namespace
    laws gained a case and neither weakened by a clause — the lab's asserts the
    launch argv creates nothing and the module spawns no workmux, the
    concierge's asserts the laboratory reaches no adapter.
@@ -757,6 +765,12 @@ a dependency.
   says the rungs keep their names; it did not say that `doctor` and `/api/meta`
   would then answer in two vocabularies and stop agreeing. A law asserted they
   agreed. It now asserts they map.
+
+- **The headless launch could not be built as planned, and only building it
+  showed why.** The difference between `workmux add` and `claude -p` is
+  fire-and-forget versus run-to-completion, which no reading of either surfaced
+  — the suite HANGING is what surfaced it. Ruling 8's launch half lands at its
+  own fallback rather than its main clause.
 
 - **Retiring a flag broke three tests on Linux that Windows could not show.**
   One of them was the end-to-end wiring test for the flag itself — a known

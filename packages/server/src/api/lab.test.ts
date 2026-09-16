@@ -485,7 +485,7 @@ describe('parseForkStdout', () => {
       '  arm 1  fork-xyz-arm-1',
       '    worktree  /data/lab/worktrees/fork-xyz-arm-1',
       '    session   /home/x/.claude/projects/y/z.jsonl (0 lines, 0 paths rewritten to this tree)',
-      '    launch    not run — run it yourself: workmux add fork-xyz-arm-1 -b',
+      '    launch    not run — run it yourself: claude -p --strict-mcp-config -- /tmp/brief.md',
       '  arm 1 run 2  fork-xyz-arm-1-run-2',
       '    worktree  /data/lab/worktrees/fork-xyz-arm-1-run-2',
       '    session   /home/x/.claude/projects/y/z.jsonl (0 lines, 0 paths rewritten to this tree)',
@@ -763,8 +763,13 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
       // loop even started, not as a side effect of a successful one.
       const checkpointId = await seedCheckpoint('lane-override-order', () => 1_000_000)
       await seedProposal('proposal-override-2', 'ckpt-the-hand-picked-2', 1_500_000)
-      const exec = execWithStubs((command) =>
-        command === 'workmux' ? { stdout: '', stderr: 'tmux server not running', code: 1, failed: true } : null,
+      // The arm must FAIL for this test to mean anything, and prd-57 ruling 8
+      // removed the `workmux add` spawn that used to be the failure point. The
+      // restore is where an arm can fail now.
+      const exec = execWithStubs((command, args) =>
+        command === 'git' && args[0] === 'worktree' && args[1] === 'add'
+          ? { stdout: '', stderr: 'fatal: could not create work tree dir', code: 128, failed: true }
+          : null,
       )
 
       const result = await launchExperiment(
@@ -1362,7 +1367,13 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
     expect(arm?.arm).toBe(1)
     expect(arm?.model).toBe('opus')
     expect(arm?.briefProvided).toBe(true)
-    expect(arm?.launched).toBe(true)
+    // FALSE since prd-57 ruling 8, and it is the ruling rather than a
+    // regression: an arm is restored and handed its command, never started.
+    // `claude -p` runs a whole turn to completion, so spawning one per arm
+    // would serialise the experiment inside a launch ceiling a real turn
+    // exceeds — and spend the operator's money inside a loop. The route still
+    // reports the field; what changed is what the laboratory does.
+    expect(arm?.launched).toBe(false)
     expect(arm?.forkId).toMatch(/^fork-/)
     expect(arm?.worktreePath.startsWith(path.join(dataRoot, 'lab', 'worktrees'))).toBe(true)
   })
@@ -1413,11 +1424,14 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
 
   it("stops at the first failing arm and keeps what already dispatched — a fork's spend is real and is never discarded (prd12 ruling 3)", async () => {
     const checkpointId = await seedCheckpoint('lane-d', () => 1_000_000)
-    let workmuxCalls = 0
-    const exec = execWithStubs((command) => {
-      if (command !== 'workmux') return null
-      workmuxCalls += 1
-      return workmuxCalls === 1 ? OK : { stdout: '', stderr: 'workmux: tmux server not running', code: 1, failed: true }
+    let worktreeAdds = 0
+    const exec = execWithStubs((command, args) => {
+      if (command !== 'git' || args[0] !== 'worktree' || args[1] !== 'add') return null
+      worktreeAdds += 1
+      // prd-57 ruling 8 removed the `workmux add` spawn this used to fail.
+      // The claim is unchanged — whatever already dispatched is kept, because a
+      // fork's spend is real — so the failure moved into the RESTORE.
+      return worktreeAdds === 1 ? null : { stdout: '', stderr: 'fatal: could not create work tree dir', code: 128, failed: true }
     })
 
     const result = await launchExperiment(
@@ -1428,7 +1442,7 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
     expect(result.arms).toHaveLength(1)
     expect(result.arms[0]?.model).toBe('opus')
     expect(result.failed?.arm).toBe(2)
-    expect(result.failed?.error).toMatch(/tmux server not running/)
+    expect(result.failed?.error).toMatch(/could not create work tree dir/)
   })
 
   it('a lane with no checkpoint at all fails the first arm outright, and dispatches nothing', async () => {
@@ -1475,10 +1489,16 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
     })
 
     const exec: Exec = async (command, args, execOptions) => {
-      if (command !== 'workmux') return realExec(command, args, execOptions)
+      // Gated on the RESTORE's worktree add since prd-57 ruling 8 — the slow
+      // call this test needs is no longer a launcher's, and the thing under
+      // test (a console.error raised outside the lab during a slow fork) is
+      // unchanged by which call is slow.
+      if (command !== 'git' || args[0] !== 'worktree' || args[1] !== 'add') {
+        return realExec(command, args, execOptions)
+      }
       markWorkmuxStarted()
       await workmuxGate
-      return { stdout: '', stderr: 'workmux: tmux server not running', code: 1, failed: true }
+      return { stdout: '', stderr: 'fatal: could not create work tree dir', code: 128, failed: true }
     }
 
     const realWrites: string[] = []
@@ -1503,7 +1523,7 @@ describe('launchExperiment (prd14 ruling 2/4 — free-form arms, one dispatch pe
       const result = await launchPromise
 
       expect(result.failed?.arm).toBe(1)
-      expect(result.failed?.error).toMatch(/tmux server not running/)
+      expect(result.failed?.error).toMatch(/could not create work tree dir/)
       expect(result.failed?.error).not.toMatch(/OUTSIDE-STDERR-MARKER/)
       expect(realWrites.some((chunk) => chunk.includes('OUTSIDE-STDERR-MARKER'))).toBe(true)
     } finally {
