@@ -105,6 +105,20 @@ function declaredAdapter(harness: DeclaredHarness): HarnessAdapter {
     launchArgv: refuse,
     continueArgv: refuse,
     resumeArgv: refuse,
+
+    /**
+     * prd-57 ruling 4's last clause: *"Codex, pi and openclaw get members that
+     * throw with the reason no capture."*
+     *
+     * The same refusal as the four above, for a sharper version of the same
+     * reason. Writing into an operator's configuration requires knowing which
+     * file, which keys, and what the harness does with them — and for these
+     * harnesses nobody has captured any of it. A plausible-looking merge into a
+     * file nobody has read is worse than a launch argv nobody has run: it edits
+     * durable state on somebody's machine rather than starting a process on one.
+     */
+    enlistmentTarget: refuse,
+    planEnlistment: refuse,
   }
 }
 

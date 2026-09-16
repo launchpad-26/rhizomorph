@@ -1,7 +1,10 @@
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { otlpEndpoint, renderTelemetryEnv } from '../../cli/telemetry-env.js'
-import { claudeAdapter, claudeEnvRecipe } from './claude.js'
-import type { HarnessLaunchContext } from './types.js'
+import { CLAUDE_HOOK_EVENTS, claudeAdapter, claudeEnvRecipe } from './claude.js'
+import { codexAdapter } from './codex.js'
+import { HarnessNotImplementedError } from './types.js'
+import type { EnlistmentPlan, HarnessEnlistContext, HarnessLaunchContext } from './types.js'
 
 const CONTEXT: HarnessLaunchContext = {
   lane: 'lane-a',
@@ -205,5 +208,197 @@ describe('the claude adapter\'s four members', () => {
     expect(plan.whatContinues.length).toBeGreaterThan(0)
     // The physics: instrumentation attaches at launch and is never back-filled.
     expect(plan.whatIsLost).toMatch(/attaches at launch|back-filled/)
+  })
+})
+
+// ── enlistment (prd-57 ruling 4, ADR-0053) ───────────────────────────────────
+
+/**
+ * Ruling 4's law, in the form the ruling asks for: *"against a fixture with
+ * unrelated content, that enlist changes exactly the declared keys and unenlist
+ * restores the file byte-for-byte except those."*
+ *
+ * Every test below runs against a STRING. No home directory, no settings file,
+ * no machine with claude installed — because `planEnlistment` is a pure
+ * function of the file's current text, which is the property that makes this
+ * law checkable by someone who has never enlisted anything.
+ */
+describe('enlistment plans the exact keys and nothing else', () => {
+  const ENLIST_CONTEXT: HarnessEnlistContext = { ...CONTEXT, runnerPath: '/opt/rhizomorph/bin/rhizomorph' }
+  const TARGET = claudeAdapter.enlistmentTarget('/home/operator')
+  const enlist = (current: string | null) =>
+    claudeAdapter.planEnlistment(current, TARGET, { kind: 'enlist', context: ENLIST_CONTEXT })
+  const unenlist = (current: string | null) => claudeAdapter.planEnlistment(current, TARGET, { kind: 'unenlist' })
+
+  /** A real settings file whose content has nothing to do with us. */
+  const UNRELATED =
+    JSON.stringify(
+      {
+        theme: 'dark',
+        permissions: { allow: ['Bash(git status)'] },
+        env: { EDITOR: 'vim' },
+        hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: '/usr/local/bin/my-audit' }] }] },
+      },
+      null,
+      2,
+    ) + '\n'
+
+  function readyOrThrow(plan: EnlistmentPlan) {
+    if (plan.kind !== 'ready') throw new Error(`expected a ready plan, got ${plan.kind}`)
+    return plan
+  }
+
+  it('targets the USER-level file, never anything inside a repo', () => {
+    // ADR-0019 clause 4 is "never inside the watched repo". A repo-local
+    // `.claude/settings.local.json` would put this hand's writes into somebody's
+    // working tree, where the instrument would then report them as dirty files.
+    expect(TARGET.path).toBe(path.join('/home/operator', '.claude', 'settings.json'))
+    expect(TARGET.display).toBe('~/.claude/settings.json')
+  })
+
+  it('changes exactly the declared keys — everything unrelated is untouched', () => {
+    const plan = readyOrThrow(enlist(UNRELATED))
+    const before = JSON.parse(UNRELATED)
+    const after = JSON.parse(plan.next)
+
+    expect(after.theme).toEqual(before.theme)
+    expect(after.permissions).toEqual(before.permissions)
+    // The operator's own EDITOR survives beside ours.
+    expect(after.env.EDITOR).toBe('vim')
+    // And every key this plan reports touching is one of the two it declares.
+    for (const change of plan.changes) expect(['env', 'hooks']).toContain(change.keyPath[0])
+  })
+
+  it('merges into hooks, never clobbers them — the operator keeps their own audit hook', () => {
+    const after = JSON.parse(readyOrThrow(enlist(UNRELATED)).next)
+    const preToolUse = after.hooks.PreToolUse as unknown[]
+
+    expect(preToolUse).toHaveLength(2)
+    expect(JSON.stringify(preToolUse[0])).toContain('/usr/local/bin/my-audit')
+    expect(JSON.stringify(preToolUse[1])).toContain('/opt/rhizomorph/bin/rhizomorph hook')
+  })
+
+  it('subscribes to the five events ruling 5 derives its vocabulary from, and no others', () => {
+    // Not a spelling check. A hook this hand installs fires on the operator's
+    // machine for every session they run, so subscribing to an event no word is
+    // derived from would be collection for its own sake.
+    const after = JSON.parse(readyOrThrow(enlist(null)).next)
+    expect(Object.keys(after.hooks).sort()).toEqual([...CLAUDE_HOOK_EVENTS].sort())
+  })
+
+  it('invokes the ABSOLUTE runner path, never npx — ruling 6, and the reason is a timeout', () => {
+    const rendered = readyOrThrow(enlist(null)).next
+    expect(rendered).toContain('/opt/rhizomorph/bin/rhizomorph hook')
+    expect(rendered).not.toContain('npx')
+  })
+
+  it('a missing settings file is an ordinary first run, not an error', () => {
+    const after = JSON.parse(readyOrThrow(enlist(null)).next)
+    expect(Object.keys(after.env).length).toBeGreaterThan(0)
+    expect(Object.keys(after.hooks)).toHaveLength(CLAUDE_HOOK_EVENTS.length)
+  })
+
+  it('is idempotent — enlisting an enlisted file is already-settled, not a second entry', () => {
+    const once = readyOrThrow(enlist(UNRELATED)).next
+    expect(enlist(once).kind).toBe('already-settled')
+    // And specifically not by appending a duplicate, which is what matching our
+    // entry by position rather than by the command it invokes would have done.
+    expect(JSON.parse(once).hooks.PreToolUse).toHaveLength(2)
+  })
+
+  it('unenlist restores the document — deep equality, which holds for ANY input', () => {
+    const enlisted = readyOrThrow(enlist(UNRELATED)).next
+    const restored = readyOrThrow(unenlist(enlisted)).next
+    expect(JSON.parse(restored)).toEqual(JSON.parse(UNRELATED))
+  })
+
+  it('unenlist restores it BYTE-FOR-BYTE when the document was canonically formatted', () => {
+    // The stronger half, with a stated limit: this round-trips through
+    // `JSON.parse`, so indent width, key order and the trailing newline survive
+    // while aligned values and blank lines cannot. `UNRELATED` is
+    // `JSON.stringify(_, null, 2)` output, which is the canonical form.
+    const enlisted = readyOrThrow(enlist(UNRELATED)).next
+    expect(readyOrThrow(unenlist(enlisted)).next).toBe(UNRELATED)
+  })
+
+  it('unenlist leaves no empty container behind — a fingerprint is not a restoration', () => {
+    // This file had no `env` and no `hooks` at all. After enlist and unenlist it
+    // must not carry `"env": {}`, which is the difference between putting
+    // something back and leaving a mark where it used to be.
+    const bare = JSON.stringify({ theme: 'dark' }, null, 2) + '\n'
+    const enlisted = readyOrThrow(enlist(bare)).next
+    expect(readyOrThrow(unenlist(enlisted)).next).toBe(bare)
+  })
+
+  it('unenlist on a file we never touched is already-settled', () => {
+    expect(unenlist(UNRELATED).kind).toBe('already-settled')
+  })
+
+  it('unenlist removes every env key the RECIPE declares, so a new variable cannot be stranded', () => {
+    // Derived rather than listed. A hand-written removal list would strand any
+    // variable later added to `cli/telemetry-env.ts` in the operator's file
+    // forever — a fingerprint left by an act whose whole promise is reversal.
+    const enlisted = readyOrThrow(enlist(UNRELATED)).next
+    const restoredEnv = JSON.parse(readyOrThrow(unenlist(enlisted)).next).env
+    for (const key of Object.keys(claudeEnvRecipe(CONTEXT).env)) expect(restoredEnv).not.toHaveProperty(key)
+    expect(restoredEnv.EDITOR).toBe('vim')
+  })
+})
+
+describe('what enlistment refuses, and what it offers instead', () => {
+  const ENLIST_CONTEXT: HarnessEnlistContext = { ...CONTEXT, runnerPath: '/opt/rhizomorph/bin/rhizomorph' }
+  const TARGET = claudeAdapter.enlistmentTarget('/home/operator')
+  const enlist = (current: string | null) =>
+    claudeAdapter.planEnlistment(current, TARGET, { kind: 'enlist', context: ENLIST_CONTEXT })
+
+  it('refuses a pre-existing foreign OTLP endpoint BY NAME, and still offers the hooks', () => {
+    // Ruling 4's merge-never-clobber clause, the case the ruling names by hand.
+    // The operator already exports somewhere, and overwriting it would silently
+    // redirect telemetry they configured deliberately.
+    const foreign = JSON.stringify({ env: { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://otel.corp.internal:4318' } }, null, 2)
+    const plan = enlist(foreign)
+    if (plan.kind !== 'ready') throw new Error(`expected ready, got ${plan.kind}`)
+
+    expect(plan.refusals).toHaveLength(1)
+    expect(plan.refusals[0]?.keyPath).toEqual(['env', 'OTEL_EXPORTER_OTLP_ENDPOINT'])
+    expect(plan.refusals[0]?.existing).toBe('http://otel.corp.internal:4318')
+    expect(plan.refusals[0]?.offer).toMatch(/hooks-only/)
+    // Refused, and NOT overwritten in the document that would be written.
+    expect(JSON.parse(plan.next).env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe('http://otel.corp.internal:4318')
+    // And the hooks still land, which is what makes the offer a real one.
+    expect(Object.keys(JSON.parse(plan.next).hooks)).toHaveLength(CLAUDE_HOOK_EVENTS.length)
+  })
+
+  it('refuses malformed JSON rather than repairing it', () => {
+    // A hand that "fixed" an operator's settings file would be rewriting
+    // something it does not understand, and the backup it took would be of a
+    // file nobody asked it to touch.
+    const plan = enlist('{ "theme": "dark", oops }')
+    expect(plan.kind).toBe('refused')
+    if (plan.kind !== 'refused') return
+    expect(plan.reason).toMatch(/not valid JSON/)
+    expect(plan.remedy).toMatch(/by hand/)
+  })
+
+  it('refuses a JSON document that is not an object', () => {
+    expect(enlist('["not", "a", "settings", "object"]').kind).toBe('refused')
+  })
+
+  it('carries a digest of the text it planned FROM, so the write can refuse a changed file', () => {
+    const a = enlist(JSON.stringify({ theme: 'dark' }, null, 2) + '\n')
+    const b = enlist(JSON.stringify({ theme: 'light' }, null, 2) + '\n')
+    if (a.kind !== 'ready' || b.kind !== 'ready') throw new Error('expected ready plans')
+    expect(a.sourceDigest).not.toBe(b.sourceDigest)
+    expect(a.sourceDigest).toMatch(/^[0-9a-f]{64}$/)
+  })
+})
+
+describe('a harness with no capture refuses to be enlisted at all', () => {
+  it('codex throws and says no capture — implemented for LAUNCHING is not enlistable', () => {
+    // The two refusals arrive at the same words from opposite directions: codex
+    // is implemented, and its telemetry channel is launch-time argv that
+    // persists nowhere, so there is no captured document to merge into.
+    expect(() => codexAdapter.enlistmentTarget('/home/operator')).toThrow(HarnessNotImplementedError)
+    expect(() => codexAdapter.enlistmentTarget('/home/operator')).toThrow(/no capture/)
   })
 })

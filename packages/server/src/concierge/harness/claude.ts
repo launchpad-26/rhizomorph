@@ -1,8 +1,15 @@
+import { createHash } from 'node:crypto'
+import path from 'node:path'
 import { renderTelemetryEnv } from '../../cli/telemetry-env.js'
 import { detectHarness } from './detect.js'
 import type {
   ContinuityPlan,
   DetectOptions,
+  EnlistmentChange,
+  EnlistmentIntent,
+  EnlistmentPlan,
+  EnlistmentRefusal,
+  EnlistmentTarget,
   HarnessAdapter,
   HarnessDetection,
   HarnessEnvRecipe,
@@ -166,6 +173,243 @@ function claudeCommand(context: HarnessLaunchContext): string {
   return context.executablePath ?? 'claude'
 }
 
+// ── enlistment (prd-57 ruling 4, ADR-0053) ───────────────────────────────────
+
+/**
+ * The five lifecycle events ruling 5's vocabulary is derived from, and only
+ * those.
+ *
+ * Each is named in the ruling's own table: `tool-running` is `PreToolUse`
+ * without its `PostToolUse`; `waiting-permission` is a `Notification` carrying
+ * a permission request, withdrawn by the matching `PostToolUse` or `Stop`;
+ * `stopped` is `SessionEnd`. Nothing else is subscribed, because a hook this
+ * hand installs fires on the operator's machine for every session they run, and
+ * subscribing to an event no word is derived from would be collecting for its
+ * own sake — the non-goal ADR-0052 draws hardest.
+ */
+export const CLAUDE_HOOK_EVENTS = ['PreToolUse', 'PostToolUse', 'Notification', 'Stop', 'SessionEnd'] as const
+
+/**
+ * The environment key that means the operator already exports somewhere.
+ *
+ * Ruling 4's merge-never-clobber clause names this one by hand, and it is the
+ * only key in the recipe whose pre-existing value could be load-bearing for
+ * something that is not us: pointing it at this server would silently redirect
+ * an export the operator set up deliberately.
+ */
+const FOREIGN_ENDPOINT_KEY = 'OTEL_EXPORTER_OTLP_ENDPOINT'
+
+/** The shape this hand reaches into. Everything else in the document is passed through untouched. */
+interface ClaudeSettings {
+  env?: Record<string, unknown>
+  hooks?: Record<string, unknown>
+  [key: string]: unknown
+}
+
+/**
+ * The hook entry this hand writes, per event.
+ *
+ * `command` is the ABSOLUTE path resolved at enlist time plus the subcommand —
+ * ruling 6, and the reason is a measurement rather than a preference: `npx`'s
+ * cold start would eat the harness's hook timeout. On Windows that path is the
+ * `.cmd` shim, which is the caller's to resolve and this file's to write down.
+ */
+function claudeHookEntry(runnerPath: string): Record<string, unknown> {
+  return { hooks: [{ type: 'command', command: `${runnerPath} hook` }] }
+}
+
+/** True when an entry is one of ours — matched by the subcommand it invokes, never by position. */
+function isOurHookEntry(entry: unknown): boolean {
+  if (typeof entry !== 'object' || entry === null) return false
+  const hooks = (entry as { hooks?: unknown }).hooks
+  if (!Array.isArray(hooks)) return false
+  return hooks.some((hook) => {
+    if (typeof hook !== 'object' || hook === null) return false
+    const command = (hook as { command?: unknown }).command
+    return typeof command === 'string' && OUR_RUNNER_RE.test(command.trim())
+  })
+}
+
+/** `<anything>/rhizomorph hook`, with the Windows shim spellings. Anchored at the basename. */
+const OUR_RUNNER_RE = /(^|[/\\])rhizomorph(\.cmd|\.exe|\.bat)?["']?\s+hook$/
+
+/**
+ * The source's own indentation and trailing newline, so a rewrite looks like
+ * the file it replaces rather than like `JSON.stringify`'s house style.
+ *
+ * **The limit of the byte-for-byte claim, stated here rather than discovered
+ * later.** This round-trips through `JSON.parse`, so what survives is the
+ * indent width, the key order (insertion-ordered for string keys) and the
+ * trailing newline. What cannot survive is anything a parse does not see:
+ * aligned values, blank lines between blocks, tabs mixed with spaces. So ruling
+ * 4's *"restores the file byte-for-byte except those keys"* holds exactly for a
+ * canonically formatted document and holds as DEEP EQUALITY for every other
+ * one. `claude.test.ts` asserts both halves, and names which is which.
+ */
+function formatOf(source: string | null): { indent: number | string; trailingNewline: boolean } {
+  if (source === null) return { indent: 2, trailingNewline: true }
+  const match = /\n([ \t]+)"/.exec(source)
+  const lead = match?.[1] ?? '  '
+  return { indent: lead.includes('\t') ? '\t' : lead.length, trailingNewline: source.endsWith('\n') }
+}
+
+function renderSettings(value: ClaudeSettings, format: { indent: number | string; trailingNewline: boolean }): string {
+  return JSON.stringify(value, null, format.indent) + (format.trailingNewline ? '\n' : '')
+}
+
+/** A digest of the exact text a plan was computed from. Pure — hashing is not IO. */
+function digestOf(text: string | null): string {
+  return createHash('sha256').update(text ?? '').digest('hex')
+}
+
+const jsonOf = (value: unknown): string => JSON.stringify(value) ?? 'undefined'
+
+/**
+ * The env keys unenlist takes back.
+ *
+ * **Derived from the recipe rather than listed**, so a variable added to
+ * `cli/telemetry-env.ts` is removed by unenlist automatically. That is the same
+ * no-second-truth argument this file's header makes about the recipe itself,
+ * and here it has teeth: a hand-written list would strand every new key in the
+ * operator's file forever, which is a fingerprint left behind by an act whose
+ * whole promise is reversibility.
+ */
+const ENLISTED_ENV_KEYS: ReadonlySet<string> = new Set(
+  Object.keys(claudeEnvRecipe({ lane: 'unenlist-probe', role: 'worker', port: 0, instance: 'unenlist-probe' }).env),
+)
+
+/**
+ * What enlisting or unenlisting would do to `current` — the whole of ruling 4's
+ * bound, touching no filesystem and reading no clock.
+ */
+export function planClaudeEnlistment(
+  current: string | null,
+  target: EnlistmentTarget,
+  intent: EnlistmentIntent,
+): EnlistmentPlan {
+  let document: ClaudeSettings
+  if (current === null || current.trim().length === 0) {
+    // A missing or empty settings file is an ordinary first run, not an error:
+    // an operator who has never written one still gets enlisted, into a file
+    // this creates. Unenlist on the same file answers `already-settled`.
+    document = {}
+  } else {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(current)
+    } catch (error) {
+      // Refused, never repaired. A hand that "fixed" a malformed settings file
+      // would be rewriting something it does not understand, and the backup it
+      // took would be of a file nobody asked it to touch.
+      return {
+        kind: 'refused',
+        target,
+        reason: `${target.display} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+        remedy: 'fix the file by hand and run this again — this hand will not rewrite a document it cannot parse',
+      }
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return {
+        kind: 'refused',
+        target,
+        reason: `${target.display} is valid JSON but not an object, so there is nowhere to merge into`,
+        remedy: 'inspect the file by hand; this hand will not replace a document whose shape it did not expect',
+      }
+    }
+    document = parsed as ClaudeSettings
+  }
+
+  const format = formatOf(current)
+  const env: Record<string, unknown> = { ...(document.env as Record<string, unknown> | undefined) }
+  const hooks: Record<string, unknown> = { ...(document.hooks as Record<string, unknown> | undefined) }
+  const changes: EnlistmentChange[] = []
+  const refusals: EnlistmentRefusal[] = []
+
+  if (intent.kind === 'enlist') {
+    for (const [key, value] of Object.entries(claudeEnvRecipe(intent.context).env)) {
+      const existing = env[key]
+      if (existing === value) continue
+      if (key === FOREIGN_ENDPOINT_KEY && typeof existing === 'string' && existing.length > 0) {
+        // Ruling 4, by name. The operator already exports somewhere, and this
+        // hand does not get to decide that we are a better destination.
+        refusals.push({
+          keyPath: ['env', key],
+          existing,
+          reason:
+            `${key} is already set, so this machine already exports somewhere. Overwriting it would silently ` +
+            'redirect telemetry the operator configured deliberately',
+          offer:
+            'hooks-only enlist, which installs the lifecycle hooks and touches no environment variable. That ' +
+            'still delivers the agent-status witness (prd-57 ruling 5); only the OTLP export is left alone',
+        })
+        continue
+      }
+      changes.push({
+        keyPath: ['env', key],
+        before: existing === undefined ? null : jsonOf(existing),
+        after: jsonOf(value),
+      })
+      env[key] = value
+    }
+
+    for (const event of CLAUDE_HOOK_EVENTS) {
+      const existing = hooks[event]
+      const list = Array.isArray(existing) ? existing : []
+      // Merge, never clobber: an operator's own hooks on this event survive,
+      // and re-enlisting adds nothing, because ours is already in the list.
+      if (list.some(isOurHookEntry)) continue
+      const next = [...list, claudeHookEntry(intent.context.runnerPath)]
+      changes.push({
+        keyPath: ['hooks', event],
+        before: existing === undefined ? null : jsonOf(existing),
+        after: jsonOf(next),
+      })
+      hooks[event] = next
+    }
+  } else {
+    for (const key of Object.keys(env)) {
+      if (!ENLISTED_ENV_KEYS.has(key)) continue
+      changes.push({ keyPath: ['env', key], before: jsonOf(env[key]), after: null })
+      delete env[key]
+    }
+
+    // Our hook entries are identified by the command they invoke rather than by
+    // where they sit, so an operator who reordered their hooks still gets a
+    // clean removal and keeps their own.
+    for (const event of CLAUDE_HOOK_EVENTS) {
+      const existing = hooks[event]
+      if (!Array.isArray(existing)) continue
+      const kept = existing.filter((entry) => !isOurHookEntry(entry))
+      if (kept.length === existing.length) continue
+      changes.push({ keyPath: ['hooks', event], before: jsonOf(existing), after: kept.length === 0 ? null : jsonOf(kept) })
+      if (kept.length === 0) delete hooks[event]
+      else hooks[event] = kept
+    }
+  }
+
+  if (changes.length === 0) {
+    return {
+      kind: 'already-settled',
+      target,
+      why:
+        intent.kind === 'enlist'
+          ? `${target.display} already carries every key this hand installs`
+          : `${target.display} carries nothing this hand installed`,
+    }
+  }
+
+  // Rebuilt rather than mutated in place, so a container this hand emptied
+  // disappears instead of being left behind as `{}`. That is the difference
+  // between unenlist restoring the file and unenlist leaving a fingerprint.
+  const next: ClaudeSettings = { ...document }
+  if (Object.keys(env).length > 0) next.env = env
+  else delete next.env
+  if (Object.keys(hooks).length > 0) next.hooks = hooks
+  else delete next.hooks
+
+  return { kind: 'ready', target, changes, refusals, next: renderSettings(next, format), sourceDigest: digestOf(current) }
+}
+
 export const claudeAdapter: HarnessAdapter = {
   id: 'claude',
   displayName: 'Claude Code',
@@ -285,4 +529,22 @@ export const claudeAdapter: HarnessAdapter = {
         'was probed and found on that minor line (a patch inside the line is an argued inference, not a re-run)',
     }
   },
+
+  /**
+   * `~/.claude/settings.json` — the USER-level file, which is the whole of what
+   * ADR-0053 grants.
+   *
+   * Not `.claude/settings.local.json` inside a repo, and not a project-level
+   * file: ADR-0019 clause 4 is *"never inside the watched repo"*, and enlisting
+   * a repo-local file would put this hand's writes inside somebody's working
+   * tree, where they would show up as a dirty file the instrument then reports
+   * on. The same path on every platform — Claude Code does not use
+   * `%APPDATA%` — so `platform` is accepted and deliberately unused, because a
+   * caller should not have to know that to call this.
+   */
+  enlistmentTarget(home: string): EnlistmentTarget {
+    return { path: path.join(home, '.claude', 'settings.json'), display: '~/.claude/settings.json' }
+  },
+
+  planEnlistment: planClaudeEnlistment,
 }
