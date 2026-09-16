@@ -270,14 +270,45 @@ machine.
 
 ## What is not wired up yet
 
-Bringing the image up is not the same as the ingest pipeline being end-to-end. Two
-things are deliberately unbuilt:
+Bringing the image up is not the same as the ingest pipeline being end-to-end. One
+thing is deliberately unbuilt:
 
-- **The fold worker is not started.** The ingest route durably accepts and journals
-  batches, but nothing folds them into Postgres's `events` table or the projections yet
-  — the journal grows and nothing reads it.
 - **There is no `doctor` for the team server yet.** Nothing in this deployment should be
   read as implying one exists.
+
+### The fold runs in the app process
+
+The journal is no longer the end of the line. The fold runs **inside the `app` container**,
+alongside the HTTP server, and there is exactly one of it:
+
+- **Woken by each accepted batch.** The ingest route's `onBatch` seam wakes it after the
+  fsync, so a batch is normally folded within milliseconds of its 202.
+- **Drained at boot, from the cursor.** Everything the journal already holds is folded when
+  the server starts, including records written while no worker was running. Bringing the
+  image up on a journal that has been accumulating will fold the backlog in one pass.
+- **Re-ticked every `RZ_TEAM_FOLD_TICK_MS`**, default `5000`. Set it to `0` to disable the
+  tick and fold only on wake and at boot. A value that is not a number is treated as `0`
+  rather than as "immediately" — `RZ_TEAM_FOLD_TICK_MS=5s` disables the tick, it does not
+  set five seconds.
+- **The first tick cannot precede the boot drain.** The timer is armed when a drain
+  finishes, not when the server starts, so the fold never runs before the migrations and the
+  monthly partitions have been brought up to date. On the first boot of a new month that
+  ordering is what keeps rows from being folded with nowhere to land.
+- **Folds never stack**, however slow the database is. That is the worker's coalescing and
+  not the tick's spacing: at most one fold runs at a time, and everything that arrives
+  during one — ticks and batches alike — is satisfied by a single follow-up pass.
+- **The cursor is `/data/journal/ingest.cursor`**, on the same `team_journal` volume as the
+  journal itself. A container restart therefore resumes where the fold left off: it does not
+  re-fold what landed and does not skip what did not.
+
+A batch that is accepted twice is folded once — the journal is append-only and accepts the
+replay, and the insert dedups against the month's partition. A line the fold cannot read
+stops **that actor** at that position and is logged as `fold refused <actor> at n=<n>`;
+every other actor keeps moving.
+
+**Do not scale the `app` service to more than one replica.** The fold cursor is written
+tmp-then-rename with no lock, so two app containers folding the same journal would rewind
+each other. ADR-0056 records this and what it would take to lift.
 
 Minting a key **from the team viewer** is also not here, because the viewer is not: the
 one key this deployment holds is the one `init.sh` seeds. That is a narrowing of ruling

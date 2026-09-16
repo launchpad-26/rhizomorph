@@ -8,10 +8,18 @@ import {
   startTeamServer,
 } from '../src/index.js'
 import { keyFileFault } from '../src/config/config.js'
+import { type FoldResult, startFoldWorker } from '../src/fold/worker.js'
 import { ENV_INGEST_KEY_SHA256, ENV_PROJECT, seedProjectIngestKey } from '../src/keys/seed.js'
 import { formatBootReport, formatConfigReport, formatKeyFaultAdvice } from './report.js'
 
 const JOURNAL_DIR = process.env.RZ_TEAM_JOURNAL_DIR ?? '/data/journal'
+/**
+ * The fold's safety tick. Read straight off `process.env` beside the three values below rather
+ * than through `resolveTeamConfig`, and that is deliberate: `deploy/report.test.ts` pins the
+ * config's `unsetCount` at an exact number, so a new `TeamConfig` value would redden a file this
+ * lane does not own. `0` disables the tick — wake and boot drain only.
+ */
+const FOLD_TICK_MS = Number(process.env.RZ_TEAM_FOLD_TICK_MS ?? 5000)
 const PORT = Number(process.env.PORT ?? 8787)
 const HOST = process.env.HOST ?? '0.0.0.0'
 
@@ -75,10 +83,46 @@ async function main(): Promise<void> {
 
   mkdirSync(JOURNAL_DIR, { recursive: true })
 
+  /**
+   * THE FOLD (#564, ADR-0056). `runOnce` shipped in #373 and nothing called it, so every batch
+   * this server accepted was journalled, acked and never folded — measured on the real host by
+   * #514's drill, `events` empty with records on disk.
+   *
+   * The cursor sits in JOURNAL_DIR on purpose: `compose.yml` already mounts that as the named
+   * volume `team_journal`, so a container restart resumes from the cursor rather than re-folding
+   * the journal, and no new volume or variable is needed to get it.
+   */
+  const worker = startFoldWorker({
+    journalPath: path.join(JOURNAL_DIR, 'ingest.log'),
+    cursorPath: path.join(JOURNAL_DIR, 'ingest.cursor'),
+    storage,
+    tickMs: FOLD_TICK_MS,
+    onResult: (fold: FoldResult) => {
+      if (!fold.ok) {
+        console.error(`fold failed: ${fold.error}`)
+        return
+      }
+      // A pass that folded nothing and refused nothing says nothing: at one tick every few
+      // seconds, logging the no-ops would be the whole log.
+      if (fold.records > 0 || fold.refused.length > 0) {
+        console.log(
+          `fold: ${fold.records} record(s), ${fold.rows} row(s), ${fold.inserted} inserted, cursor ${fold.cursor}`,
+        )
+      }
+      for (const refusal of fold.refused) {
+        console.error(`fold refused ${refusal.actorInstance} at n=${refusal.n}: ${refusal.error}`)
+      }
+    },
+  })
+
   const result = await startTeamServer({
     storage,
     config,
     journalPath: path.join(JOURNAL_DIR, 'ingest.log'),
+    // The seam `api/main.ts` documents as "Wakes the fold worker". It fires once per accepted
+    // batch on the ingest hot path, so it must never throw and never block — `wake()` is
+    // fire-and-forget by construction.
+    onBatch: () => worker.wake(),
     host: HOST,
     port: PORT,
     // A server-side failure the wire must not carry (the key check's storage
@@ -93,9 +137,23 @@ async function main(): Promise<void> {
 
   console.log(`listening on ${result.server.host}:${result.server.port}`)
 
+  /**
+   * THE BOOT DRAIN, AND IT RUNS HERE RATHER THAN EARLIER FOR A REASON.
+   *
+   * `startTeamServer` tops up the monthly partitions before it returns, and the fold NEVER
+   * creates one (`fold/worker.ts`: `rz_ingest` holds no CREATE). A row whose `ts` falls outside
+   * every existing partition fails its insert, the transaction rolls back and the cursor stays
+   * put — so draining before the top-up would fail-closed on the first boot in a new month.
+   *
+   * Anything accepted between `listen` and this line is not lost: it wakes the worker, and the
+   * wake coalesces into the drain that is already about to run.
+   */
+  await worker.drain()
+
   const shutdown = () => {
-    void result.server
-      .close()
+    void worker
+      .stop()
+      .then(() => result.server.close())
       .then(() => sql.end())
       .then(() => process.exit(0))
   }
