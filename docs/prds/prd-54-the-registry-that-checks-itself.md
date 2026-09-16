@@ -762,6 +762,45 @@ two backticked spans and nothing looser, so that a declaration is as greppable a
 citation. Ruling 3's per-path, asserted, never-a-pattern rule stands. The shell script's
 tightening is in this wave's fence, not wave 2's, because the ADR entry trips it today.
 
+## Ruling 11 — a self-citing entry carries no assertion span (settles wave 4's operator act)
+
+**Verdict.** An entry whose leading path is `.swarm/coupling.txt` itself — a **self-citing**
+entry — may not carry a backticked assertion span. The construction is **refused**, not
+exempted and not redirected. An example of a pin that lives in another file is written in
+prose, without backticks, exactly as Ruling 9 rule 1 already requires of a grep target.
+
+**Why.** Ruling 7 checks a span against the entry's leading-path file. In a self-citing
+entry that file is the registry, so the span is satisfied **by its own sentence**: a check
+that cannot fail, sitting inside the law whose subject is checks that cannot fail. EXECUTED
+during wave 2's fix re-review on [#367][i367]: rewriting the self-entry's span to a literal
+present in no source file anywhere left the law green, while the identical rewrite on an
+ordinary entry reddened.
+
+This is Ruling 6's question one surface over, and it gets Ruling 6's answer for Ruling 6's
+reason. Two alternatives were weighed and refused:
+
+- **Check the span against the file the reason names.** Most faithful to what the author
+  meant — the span in wave 2's self-entry belongs to `packages/team/src/api/api.test.ts` —
+  but it opens the "which file is the cited file" question this document still carries as
+  unfiled work, and it needs a syntax for naming the target. A new declaration form to
+  rescue one illustrative quotation is machinery bought at a poor price.
+- **Admit the span and declare it exempt.** That is an exception minted on day one, which
+  is what Ruling 4 exists to prevent.
+
+Refusing costs the self-entry one quoted example and buys a law with no new branch: nothing
+to parse, nothing to invert, nothing to allowlist. The cheapest rule is still the one with
+no exception in it.
+
+**Extent.** Assertion spans only. A self-citing entry may carry **path** citations, and they
+resolve under Ruling 5 normally — a path is checked against the tree, not against the entry's
+own file, so the defect this ruling closes does not arise there. The registry's own entry
+therefore keeps its citation of the law's full path, which is the thing Ruling 9 rule 4 wants
+it to carry.
+
+**Falsifier.** If a self-citing entry ever genuinely needs to quote a pin — because prose
+cannot make the coupling legible — then this rule has cost a real claim, and the answer is to
+amend here and decide the cited-file question properly, not to grow a marker in the law.
+
 ## Sequencing (waves, each gated as ever)
 
 *Groomed 2026-09-09, operator sign-off in session; regroomed 2026-09-15 after the
@@ -917,6 +956,12 @@ overtaken when wave 2 added the registry's own entry, which cites itself**; see 
    the strongest check available — `prefix-comparison-law.test.ts` already does it for its own
    allowlist — and may be too expensive to generalise. **Open, not ruled.**
 
+*Questions 1 and 2 were put to the operator on 2026-09-16, with question 3, and deliberately
+left open: no entry has yet gone stale in either way, so ruling now would be deciding without
+the evidence the rest of this document insists on. Recorded so a later reader knows they were
+considered and declined, not overlooked — an unasked question and a question answered "not
+yet" look identical in a list of open items, and only one of them is a gap.*
+
 3. **Should the law assert anything about an entry it checked nothing in?** Wave 2's law
    reports, per entry, how many backticked spans the selector saw and how many each ruling
    selected — and asserts only that the registry-wide totals are non-zero. Measured on the
@@ -928,10 +973,20 @@ overtaken when wave 2 added the registry's own entry, which cites itself**; see 
    entry contributes no checked item at all and the law cannot say why"; what shipped
    asserts the per-entry count is an integer, which cannot fail. The question is which
    reading was meant: that presence *is* a checked item and the 29 are fully covered, or
-   that an entry contributing nothing mechanical should have to say so. **Open, not ruled** —
-   and worth noting the reporting is invisible either way, since this repo's vitest setup
-   swallows `console.log` unless `--disable-console-intercept` is passed, which neither CI
-   nor the landing gate does.
+   that an entry contributing nothing mechanical should have to say so.
+
+   — **ANSWERED (operator, 2026-09-16): presence IS a checked item.** The 29 are fully
+   covered — their leading path is asserted to exist and their reason is asserted not to
+   restate it — and their backticked spans are identifiers, shell fragments and a glob that
+   Rulings 7 and 8 **correctly** decline. So the law is not under-reaching; its per-entry
+   guard is simply asserting the wrong thing. The consequence is a law change, booked into
+   wave 4: replace the `Number.isInteger` assertion, which cannot fail, with one asserting
+   that **every entry received the presence checks**, so the per-entry claim is true and
+   falsifiable rather than true and vacuous. No entry is edited and no declaration form is
+   invented. Worth carrying forward: the reporting is invisible either way, since this
+   repo's vitest setup swallows `console.log` unless `--disable-console-intercept` is
+   passed, which neither CI nor the landing gate does — so the counts exist and no reader
+   sees them.
 
 [i353]: https://github.com/launchpad-26/rhizomorph/issues/353
 [i358]: https://github.com/launchpad-26/rhizomorph/issues/358
