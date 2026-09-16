@@ -3,6 +3,7 @@ import type { IngestKeysPort } from './ports/ingest-keys/port.js'
 import type { LifecyclePort } from './ports/lifecycle/port.js'
 import type { MigrationsPort } from './ports/migrations/port.js'
 import type { QuestionsPort } from './ports/questions/port.js'
+import type { RetentionPort } from './ports/retention/port.js'
 import type { SettingsPort } from './ports/settings/port.js'
 
 /**
@@ -80,6 +81,12 @@ export type { IngestKeyRow, IngestKeysPort } from './ports/ingest-keys/port.js'
 export type { LifecyclePort } from './ports/lifecycle/port.js'
 export type { AppliedMigration, MigrationsPort } from './ports/migrations/port.js'
 export type { CollisionRow, LaneRow, QuestionsPort, SpendRow } from './ports/questions/port.js'
+export {
+  NO_CEILING_SOURCE,
+  RETENTION_QUOTA_GAP,
+  type RetentionCeiling,
+  type RetentionPort,
+} from './ports/retention/port.js'
 export type { SettingsPort } from './ports/settings/port.js'
 
 /**
@@ -92,4 +99,10 @@ export type { SettingsPort } from './ports/settings/port.js'
  * whichever consumer used its methods — which is the compile-time proof that
  * the intersection is what consumers depend on.
  */
-export type TeamStorage = SettingsPort & MigrationsPort & EventsPort & IngestKeysPort & LifecyclePort & QuestionsPort
+export type TeamStorage = SettingsPort &
+  MigrationsPort &
+  EventsPort &
+  IngestKeysPort &
+  LifecyclePort &
+  QuestionsPort &
+  RetentionPort
