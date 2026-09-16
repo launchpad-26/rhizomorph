@@ -1,4 +1,5 @@
 import type {
+  ActorPlacement,
   AgentRole,
   AgentStatus,
   AgentStatusWitness,
@@ -1118,6 +1119,43 @@ export interface DeclaredAttention {
   offset: number
 }
 
+/**
+ * One roster-matched agent process, as the process witness saw it — prd-57
+ * ruling 1's *actor*.
+ *
+ * **Not called `Actor`.** That name is taken in `packages/core/src/record/schema.ts`
+ * for *who recorded this*, and two `Actor`s in one package is a collision a
+ * reader pays for forever. Ruling 1 requires only that the name not collide and
+ * that the record's own `Actor` be left alone; `AgentProcess` says exactly what
+ * the thing is, and `Lane.actors` keeps the ruling's vocabulary at the seam
+ * where it is read.
+ *
+ * Keyed by `pid:startedAt`, never by pid alone. A recycled pid is a DIFFERENT
+ * actor, and the probe's own laws already refuse to let one impersonate a live
+ * agent; keying on pid alone would hand that confusion to every reader
+ * downstream.
+ */
+export interface AgentProcess {
+  pid: number
+  /** The roster dialect its argv matched. */
+  dialect: string
+  /** Epoch ms. With `pid`, the identity of one run. */
+  startedAt: number
+  /** Canonical when present — the collector canonicalises, because ADR-0003 keeps `node:fs` out of this package. */
+  worktreePath: string | null
+  placement: ActorPlacement
+  /** Only ever another matched actor — a conductor and its subagents. Never a shell, never init. */
+  parentPid: number | null
+  /** Last reported deltas, or null until an activity event arrives. Absent is not zero. */
+  cpuMsDelta: number | null
+  rssBytes: number | null
+  /** When the witness first and last spoke about it. `goneAt` non-null is the fact `crashed` is reached from. */
+  seenAt: number
+  goneAt: number | null
+  /** Why it went, when it did. `recycled` means the pid came back under a different run. */
+  goneReason: 'absent' | 'recycled' | null
+}
+
 export interface SessionState {
   session: SessionInfo | null
   /** Branch everything is measured against; null until we learn it. */
@@ -1155,6 +1193,12 @@ export interface SessionState {
   refusals: RefusalState
   /** prd-27 ruling 3 (#283): declared attention per lane handle. Additive again — see {@link DeclaredAttention}. */
   declared: Record<string, DeclaredAttention>
+  /**
+   * prd-57 ruling 1: the process witness's actors, keyed `pid:startedAt`.
+   * Additive again — nothing above changed, and no existing reducer arm
+   * reads it.
+   */
+  processes: Record<string, AgentProcess>
   eventCount: number
   firstEventTs: number | null
   lastEventTs: number | null
@@ -1182,6 +1226,7 @@ export function initialSessionState(): SessionState {
     judge: initialJudgeState(),
     refusals: initialRefusalState(),
     declared: {},
+    processes: {},
     eventCount: 0,
     firstEventTs: null,
     lastEventTs: null,

@@ -16,6 +16,11 @@ const NOW = Date.UTC(2026, 7, 16, 12, 0, 0)
 
 function baseLane(overrides: Partial<Lane> = {}): Lane {
   return {
+    // prd-57 ruling 1: a lane holds its actors. Empty here because these cases
+    // are about the CONDITION a lane is in, which the process witness does not
+    // speak to — and because empty is never evidence of absence, so an empty
+    // list changes no assertion below.
+    actors: [],
     id: 'lane-1',
     label: 'lane-1',
     handles: ['lane-1'],

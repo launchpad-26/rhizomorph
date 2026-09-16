@@ -6,6 +6,7 @@ import { gitEventSchemas } from './git.js'
 import { judgeEventSchemas } from './judge.js'
 import { labEventSchemas } from './lab.js'
 import { operatorEventSchemas } from './operator.js'
+import { processEventSchemas } from './process.js'
 import { summonsEventSchemas } from './summons.js'
 import { systemEventSchemas } from './system.js'
 import { telemetryEventSchemas } from './telemetry.js'
@@ -18,6 +19,7 @@ export * from './common.js'
 export * from './gate.js'
 export * from './git.js'
 export * from './judge.js'
+export * from './process.js'
 export * from './lab.js'
 export * from './operator.js'
 export * from './summons.js'
@@ -30,6 +32,7 @@ export * from './workmux.js'
 /** The one event union every consumer reads. Discriminates on `type`. */
 export const rhizomorphEventSchema = z.discriminatedUnion('type', [
   ...gitEventSchemas,
+  ...processEventSchemas,
   ...tmuxEventSchemas,
   ...workmuxEventSchemas,
   ...systemEventSchemas,
@@ -82,6 +85,11 @@ export const EVENT_SOURCE_BY_TYPE = {
   // `system`, like the start it terminates — no collector ever emits it.
   'session.closed': 'system',
   'beacon.received': 'beacon',
+  // prd-57 ruling 1: the process table's three families. `process` is their
+  // only possible source — no other collector reads that surface.
+  'process.seen': 'process',
+  'process.activity': 'process',
+  'process.gone': 'process',
   'collector.error': 'system',
   'collector.disabled': 'system',
   'collector.degraded': 'system',

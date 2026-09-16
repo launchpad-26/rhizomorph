@@ -192,6 +192,12 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
       return state
     case 'beacon.received':
       return beaconReceived(state, event)
+    case 'process.seen':
+      return processSeen(state, event)
+    case 'process.activity':
+      return processActivity(state, event)
+    case 'process.gone':
+      return processGone(state, event)
     case 'collector.error':
       return collectorError(state, event)
     case 'collector.disabled':
@@ -314,6 +320,87 @@ function applyEvent(state: SessionState, event: RhizomorphEvent): SessionState {
       void _never
       return state
     }
+  }
+}
+
+// --- the process witness (prd-57 ruling 1) ---------------------------------
+
+/**
+ * An actor's identity is the RUN, not the pid.
+ *
+ * A pid is reused by the operating system within one session, routinely. Keying
+ * on it alone would let a new process inherit a dead one's history the moment
+ * the number came round again — which is the exact confusion
+ * `collectors/sessionlog/process-probe.ts` already refuses at its own boundary,
+ * and it would be careless to un-refuse it one layer up.
+ */
+export function actorKey(pid: number, startedAt: number): string {
+  return `${pid}:${startedAt}`
+}
+
+function processSeen(state: SessionState, event: EventOf<'process.seen'>): SessionState {
+  const { pid, dialect, startedAt, worktreePath, placement, parentPid } = event.payload
+  const key = actorKey(pid, startedAt)
+  const existing = state.processes[key]
+  return {
+    ...state,
+    processes: {
+      ...state.processes,
+      [key]: {
+        pid,
+        dialect,
+        startedAt,
+        worktreePath,
+        placement,
+        parentPid,
+        // A repeat sighting keeps whatever activity has been reported. ADR-0029
+        // admits a recording that repeats a fact — the poll path is
+        // at-least-once — so a second `seen` must not erase what a later
+        // `activity` already established.
+        cpuMsDelta: existing?.cpuMsDelta ?? null,
+        rssBytes: existing?.rssBytes ?? null,
+        seenAt: existing?.seenAt ?? event.ts,
+        // A `seen` after a `gone` for the SAME run is the at-least-once case
+        // again, not a resurrection: the run is the key, so this cannot be a
+        // different process wearing the same identity.
+        goneAt: existing?.goneAt ?? null,
+        goneReason: existing?.goneReason ?? null,
+      },
+    },
+  }
+}
+
+function processActivity(state: SessionState, event: EventOf<'process.activity'>): SessionState {
+  const { pid, startedAt, cpuMsDelta, rssBytes } = event.payload
+  const key = actorKey(pid, startedAt)
+  const existing = state.processes[key]
+  // Activity for an actor never seen is dropped rather than invented. A fold
+  // that materialised one would be claiming a placement and a dialect it was
+  // never told, and `buildFleet` would then place a lane on it.
+  if (existing === undefined) return state
+  return { ...state, processes: { ...state.processes, [key]: { ...existing, cpuMsDelta, rssBytes } } }
+}
+
+function processGone(state: SessionState, event: EventOf<'process.gone'>): SessionState {
+  const { pid, startedAt, reason } = event.payload
+  const key = actorKey(pid, startedAt)
+  const existing = state.processes[key]
+  if (existing === undefined) return state
+  // The actor is KEPT, marked gone, never deleted. prd-57 ruling 5 reaches
+  // `crashed` from a `gone` that follows a `seen` with no session end between,
+  // and a fold that dropped the row would destroy the first half of that pair —
+  // the raiser would have nothing to edge-trigger against.
+  //
+  // The asymmetry on the next line is deliberate, and was the one line in this
+  // fold with no comment (review of #553). `goneAt` is FIRST-write-wins: the
+  // instant an actor went is a fact that cannot improve, and letting a second
+  // `gone` push it later would keep resetting the age a raiser measures
+  // against. `goneReason` is LAST-write-wins for the opposite reason — it is a
+  // classification rather than an instant, so a later one is a better one, and
+  // an `absent` resolving into `recycled` on the following tick is exactly that.
+  return {
+    ...state,
+    processes: { ...state.processes, [key]: { ...existing, goneAt: existing.goneAt ?? event.ts, goneReason: reason } },
   }
 }
 
