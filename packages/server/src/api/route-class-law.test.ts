@@ -1347,7 +1347,7 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     expect(allSourceFiles().length).toBeGreaterThan(100)
   })
 
-  it('are exactly these fourteen modules and seventeen call sites — no more, no fewer', () => {
+  it('are exactly these fifteen modules and eighteen call sites — no more, no fewer', () => {
     const found = realCallSites()
     expect(found).toEqual(EXPECTED_CALL_SITES)
     expect(found.reduce((sum, entry) => sum + entry.count, 0)).toBe(EXPECTED_TOTAL)

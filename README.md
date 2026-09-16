@@ -407,10 +407,11 @@ surface is `packages/server/src/lab/`, and the concierge's is
 Sweep the app and the desktop shell (`packages/web/src` and
 `packages/app/src`, every module format, comments stripped, excluding tests)
 for a **named vocabulary** of request-originating spellings, and there are
-**seventeen** call sites in **fourteen** modules:
+**eighteen** call sites in **fifteen** modules:
 `packages/app/src/host/fleet-feed.ts` (two),
 `packages/web/src/app/StreamContext.tsx`,
 `packages/web/src/concierge/clone.ts`,
+`packages/web/src/concierge/enlist.ts`,
 `packages/web/src/concierge/instrument.ts`,
 `packages/web/src/concierge/retarget.ts`,
 `packages/web/src/hooks/useEventStream.ts`,
