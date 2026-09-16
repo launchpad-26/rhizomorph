@@ -2,7 +2,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Fetch } from '../auth/github-app.js'
 import { type CallbackRequest, type SignInResponse, handleGithubCallback, handleSignInStart } from '../auth/signin.js'
 import type { TeamConfig } from '../config/config.js'
-import { type Question, handleQuestion } from '../view/questions.js'
+import { handleMint } from '../view/mint/mint.js'
+import { type Question, type ViewResponse, handleQuestion } from '../view/questions.js'
 import { INGEST_KEY_HEADER, handleIngest } from '../ingest/handle.js'
 import type { Journal } from '../journal/journal.js'
 import { type IngestKeyVerdict, resolveIngestKeyCheck } from '../keys/verify.js'
@@ -86,6 +87,26 @@ import { type RouteDeclaration, matchRoute, methodNotAllowedBody, notFoundBody }
  * routes are the human plane and reach `../auth/`; the ingest route is the
  * machine plane and reaches `../keys/`. Nothing below crosses them.
  *
+ * **The mint route is where the two planes would fuse if anything did, and it
+ * does not** (#560). It sits on the human plane: it is gated by a session and a
+ * membership check, and it reaches `../keys/mint.ts`, which takes a project id
+ * and a clock and 32 bytes from `node:crypto`. The signed-in member's `uid` and
+ * `sub` reach the minted key as **nothing at all** — no key is derived from a
+ * GitHub token because no GitHub-shaped value is an input to minting. In the
+ * other direction the mint route reads no `rzk_` header and calls no part of
+ * `../keys/verify.ts`, so presenting an ingest key to it is presenting nothing.
+ * `api.test.ts` asserts both crossings fail over a real socket.
+ *
+ * ## Minting is a write from a browser, and the guard below is not what guards it
+ *
+ * `../view/mint/mint.ts`'s header carries the reasoning in full. In one line:
+ * ADR-0008's loopback bind and ADR-0012's per-process capability token are the
+ * local server's answers to another local process on the same machine, and this
+ * server binds `0.0.0.0` behind Caddy on a public name. What defends the mint is
+ * the `SameSite=Lax` session cookie (a cross-site POST carries no session), the
+ * mint module's own same-origin check on the POST, and the per-request
+ * membership check that every member-facing route here already runs.
+ *
  * ## Why `node:http` and not Fastify
  *
  * Fastify is the repo's convention for `packages/server` routes, and it loses
@@ -122,6 +143,16 @@ export const INGEST_PATH = '/v1/rhizomorph/ingest'
 export const WHERE_PATH = '/v1/rhizomorph/where'
 export const COST_PATH = '/v1/rhizomorph/cost'
 export const STUCK_PATH = '/v1/rhizomorph/stuck'
+/**
+ * The mint (#560). **Two rows on one path**, which is the router's existing grammar rather than a
+ * new one — `matchRoute`'s `allow` is *"every method declared for that path, in table order"*.
+ *
+ * The GET is not an extra: minting is a write, so a GET that minted would fire on a refresh, a
+ * prefetch and a back-button restore, and ruling 8's *"shown once"* would become "shown once per
+ * accidental navigation". Without the GET there is also no viewer to mint *in*, which is the half
+ * of ruling 8 this commit ships.
+ */
+export const MINT_PATH = '/v1/rhizomorph/keys'
 export const SIGNIN_START_PATH = '/auth/github/start'
 export const CALLBACK_PATH = '/auth/github/callback'
 
@@ -144,6 +175,8 @@ export const TABLE = [
   { method: 'GET', path: WHERE_PATH, methodHint: 'a member reads where work is by GET' },
   { method: 'GET', path: COST_PATH, methodHint: 'a member reads what it costs by GET' },
   { method: 'GET', path: STUCK_PATH, methodHint: 'a member reads who is stuck by GET' },
+  { method: 'GET', path: MINT_PATH, methodHint: 'a member opens the mint page by GET' },
+  { method: 'POST', path: MINT_PATH, methodHint: 'a key is minted by POST' },
 ] as const satisfies readonly RouteDeclaration[]
 
 export interface TeamListenerDeps {
@@ -151,7 +184,10 @@ export interface TeamListenerDeps {
   /** Wakes the fold worker. Called AFTER the fsync and BEFORE the 202, exactly once per accepted batch. */
   readonly notify: (seq: number) => void
   readonly now: () => number
-  readonly storage: Pick<TeamStorage, 'findIngestKey' | 'readSpendByDay' | 'readLaneState' | 'readCollisions'>
+  readonly storage: Pick<
+    TeamStorage,
+    'findIngestKey' | 'insertIngestKey' | 'readSpendByDay' | 'readLaneState' | 'readCollisions'
+  >
   readonly config: TeamConfig
   readonly fetch: Fetch
   readonly onError?: ((message: string) => void) | undefined
@@ -176,9 +212,49 @@ async function writeView(
     question,
     { cookieHeader: request.headers.cookie, project: query.get('project') ?? undefined },
   )
+  writeHtml(deps, response, view)
+}
+
+/** One writer for both HTML handlers: the note to the operator, never to the wire. */
+function writeHtml(deps: TeamListenerDeps, response: ServerResponse, view: ViewResponse): void {
   if (view.operatorNote !== undefined) deps.onError?.(view.operatorNote)
   response.writeHead(view.status, view.headers)
   response.end(view.html)
+}
+
+/**
+ * THE MINT, BOTH ROWS (#560).
+ *
+ * **The request body is never read.** The form carries no inputs, and the project is named in the
+ * query string exactly as the three questions name it — so there is nothing to parse, no second
+ * body grammar, no second cap, and an unauthorised POST buys no buffering. That is `serveIngest`'s
+ * discipline of handing an *unread* request to a refusal, applied where the refusal is the only
+ * thing this route ever does for a caller it does not know.
+ *
+ * `formAction` is built here because the adapter is the only layer that knows a path; the view
+ * escapes it into the attribute.
+ */
+async function writeMint(
+  deps: TeamListenerDeps,
+  response: ServerResponse,
+  act: 'page' | 'mint',
+  request: IncomingMessage,
+  query: URLSearchParams,
+): Promise<void> {
+  const project = query.get('project') ?? undefined
+  const origin = request.headers.origin
+  const view = await handleMint(
+    { storage: deps.storage, config: deps.config, fetch: deps.fetch, now: deps.now },
+    {
+      cookieHeader: request.headers.cookie,
+      project,
+      act,
+      origin: Array.isArray(origin) ? origin[0] : origin,
+      host: request.headers.host,
+      formAction: `${MINT_PATH}?project=${encodeURIComponent(project ?? '')}`,
+    },
+  )
+  writeHtml(deps, response, view)
 }
 
 function send(response: ServerResponse, status: number, body: unknown): void {
@@ -339,6 +415,11 @@ export function createTeamListener(deps: TeamListenerDeps) {
         return
       case STUCK_PATH:
         await writeView(deps, response, 'stuck', request, query)
+        return
+      // The one path with two rows. The METHOD is what says which act it is, and the router has
+      // already proved it is one of the two — anything else was a 405 above.
+      case MINT_PATH:
+        await writeMint(deps, response, match.route.method === 'POST' ? 'mint' : 'page', request, query)
         return
       case CALLBACK_PATH: {
         const callback: CallbackRequest = {

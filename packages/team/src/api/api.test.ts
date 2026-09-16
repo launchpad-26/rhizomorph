@@ -5,14 +5,14 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Fetch } from '../auth/github-app.js'
-import { OAUTH_STATE_COOKIE, SESSION_COOKIE, parseCookieHeader } from '../auth/session.js'
+import { OAUTH_STATE_COOKIE, SESSION_COOKIE, deriveSessionKey, parseCookieHeader, signSessionCookie } from '../auth/session.js'
 import { resolveTeamConfig } from '../config/config.js'
 import { INGEST_KEY_HEADER } from '../ingest/handle.js'
 import { readJournal } from '../journal/read.js'
 import { hashIngestKey } from '../keys/hash.js'
 import { mintIngestKey } from '../keys/mint.js'
 import { FakeTeamStorage } from '../storage/fake.js'
-import { CALLBACK_PATH, INGEST_PATH, MAX_BODY_BYTES, SIGNIN_START_PATH } from './http.js'
+import { CALLBACK_PATH, INGEST_PATH, MAX_BODY_BYTES, MINT_PATH, SIGNIN_START_PATH } from './http.js'
 import { type TeamServer, monthsToTopUp, startTeamServer } from './main.js'
 
 /**
@@ -776,5 +776,172 @@ describe('a key is refused before the body is parsed', () => {
     expect(JSON.stringify(await response.json())).toContain(INGEST_KEY_HEADER)
     expect(storage.keyLookups).toEqual([])
     expect(readJournal(journalPath).ok && readJournal(journalPath)).toMatchObject({ records: [] })
+  })
+})
+
+/**
+ * THE MINT, OVER A REAL SOCKET (#560, prd-51 ruling 8).
+ *
+ * `../view/mint/mint.test.ts` proves the handler: how many times `takePlaintext` was called, what
+ * the row does not carry, that two pages are byte-identical. What only a socket can prove is that
+ * the two rows on one path reach the two acts, that a browser's `Origin` and the session cookie
+ * arrive as this surface expects them, and that the two identity planes do not meet on the wire.
+ */
+describe('a member mints a key in the viewer, and sees it exactly once', () => {
+  /** The session `startConfigured`'s client secret signs — the same one `resolveTeamConfig` derived from. */
+  function memberCookie(login = 'octocat'): string {
+    const key = deriveSessionKey(CONFIGURED_ENV.RZ_TEAM_GITHUB_CLIENT_SECRET)
+    return `${SESSION_COOKIE}=${signSessionCookie(key, { uid: 583231, sub: login }, Date.UTC(2026, 10, 20))}`
+  }
+
+  /** `happyGithub`, except the membership GET answers 404 — a non-member, or a pending invitee. */
+  function notAMemberGithub(): Fetch {
+    const fn = async (at: string | URL | Request) => {
+      if (String(at).includes('/access_tokens')) {
+        return { status: 201, json: async () => ({ token: 'ghs_install_tok' }) } as unknown as Response
+      }
+      return { status: 404, json: async () => ({}) } as unknown as Response
+    }
+    return fn as Fetch
+  }
+
+  function mintUrl(server: TeamServer, project = 'acme-widgets'): string {
+    return `${url(server, MINT_PATH)}?project=${encodeURIComponent(project)}`
+  }
+
+  /** The key a mint page shows, or `null`. The shape `keys/shape.ts` declares: prefix plus 32 hex bytes. */
+  function keyIn(html: string): string | null {
+    return /rzk_[0-9a-f]{64}/.exec(html)?.[0] ?? null
+  }
+
+  it('GET the mint page with no cookie is 401 HTML — the route exists, and it gates', async () => {
+    const { server } = await startConfigured()
+    const response = await fetch(mintUrl(server))
+    expect(response.status).toBe(401)
+    expect(response.headers.get('content-type')).toContain('text/html')
+    const html = await response.text()
+    expect(html).toContain('/auth/github/start')
+    expect(keyIn(html)).toBeNull()
+  })
+
+  it('a member GETs a form, POSTs it, and a RE-GET does not show the key again', async () => {
+    const { server, storage } = await startConfigured()
+    const cookie = memberCookie()
+
+    const form = await fetch(mintUrl(server), { headers: { cookie } })
+    expect(form.status).toBe(200)
+    const formHtml = await form.text()
+    expect(formHtml).toContain('<form method="post"')
+    expect(formHtml).toContain(`action="${MINT_PATH}?project=acme-widgets"`)
+    expect(keyIn(formHtml)).toBeNull()
+
+    const minted = await fetch(mintUrl(server), {
+      method: 'POST',
+      headers: { cookie, origin: `http://${server.host}:${server.port}` },
+    })
+    expect(minted.status).toBe(200)
+    const key = keyIn(await minted.text())
+    expect(key).not.toBeNull()
+
+    // The value shown is the value stored — as its digest, and only as its digest.
+    const row = storage.ingestKeys.get(hashIngestKey(String(key)))
+    expect(row?.projectId).toBe('acme-widgets')
+    expect(row?.revokedAtMs).toBeNull()
+    expect(JSON.stringify([...storage.ingestKeys.values()])).not.toContain(String(key))
+
+    // THE CLAIM: coming back to the page does not show it again.
+    const again = await fetch(mintUrl(server), { headers: { cookie } })
+    expect(again.status).toBe(200)
+    const againHtml = await again.text()
+    expect(againHtml).not.toContain(String(key))
+    expect(againHtml).toBe(formHtml)
+  })
+
+  it('a NON-MEMBER’s POST is 403 and nothing is minted — a pending invitee included (#169)', async () => {
+    const { server, storage } = await startConfigured(notAMemberGithub())
+    const response = await fetch(mintUrl(server), {
+      method: 'POST',
+      headers: { cookie: memberCookie('mallory'), origin: `http://${server.host}:${server.port}` },
+    })
+    expect(response.status).toBe(403)
+    expect(keyIn(await response.text())).toBeNull()
+    expect(storage.ingestKeys.size).toBe(0)
+  })
+
+  it('a CROSS-ORIGIN POST is 403 and nothing is minted', async () => {
+    const { server, storage } = await startConfigured()
+    const response = await fetch(mintUrl(server), {
+      method: 'POST',
+      headers: { cookie: memberCookie(), origin: 'https://evil.example' },
+    })
+    expect(response.status).toBe(403)
+    expect(keyIn(await response.text())).toBeNull()
+    expect(storage.ingestKeys.size).toBe(0)
+  })
+
+  it('PUT on the mint path is a 405 allowing both methods — derived from the table, not written beside it', async () => {
+    const { server } = await startConfigured()
+    const response = await fetch(mintUrl(server), { method: 'PUT', headers: { cookie: memberCookie() } })
+    expect(response.status).toBe(405)
+    expect(response.headers.get('allow')).toBe('GET, POST')
+  })
+
+  it('the mint buys NO row read — the table says this route reads nothing, and it reads nothing', async () => {
+    const { server, storage } = await startConfigured()
+    const cookie = memberCookie()
+    await fetch(mintUrl(server), { headers: { cookie } })
+    await fetch(mintUrl(server), { method: 'POST', headers: { cookie, origin: `http://${server.host}:${server.port}` } })
+    expect(storage.keyLookups).toEqual([])
+    expect(storage.ingestKeys.size).toBe(1)
+  })
+
+  /**
+   * THE TWO PLANES, ON THE WIRE (ruling 8).
+   *
+   * A mint route is exactly where the human and machine planes would fuse. Neither credential is
+   * legal tender on the other's route, and both directions are asserted: a GitHub session presented
+   * to ingest, and an ingest key presented to the viewer.
+   */
+  it('THE PLANES NEVER MEET: a session is not an ingest key, and an ingest key is not a session', async () => {
+    const { server, storage } = await startConfigured()
+    const cookie = memberCookie()
+
+    const minted = await fetch(mintUrl(server), {
+      method: 'POST',
+      headers: { cookie, origin: `http://${server.host}:${server.port}` },
+    })
+    const key = String(keyIn(await minted.text()))
+
+    // A session cookie on the ingest route buys nothing: the refusal names the header, not the cookie.
+    const shipped = await fetch(url(server), { method: 'POST', headers: { cookie }, body: JSON.stringify(body()) })
+    expect(shipped.status).toBe(401)
+    expect(JSON.stringify(await shipped.json())).toContain(INGEST_KEY_HEADER)
+
+    // …and the key it just minted is not a way into the viewer.
+    const viewed = await fetch(mintUrl(server), { headers: { [INGEST_KEY_HEADER]: key } })
+    expect(viewed.status).toBe(401)
+    expect(await viewed.text()).toContain('/auth/github/start')
+
+    // The mint itself asked GitHub about the member and nothing else; the key carries no trace of them.
+    expect(key).toMatch(/^rzk_[0-9a-f]{64}$/)
+    expect(key).not.toContain('octocat')
+    expect(storage.ingestKeys.size).toBe(1)
+  })
+
+  it('REPETITION: three POSTs are three distinct keys and three live rows', async () => {
+    const { server, storage } = await startConfigured()
+    const cookie = memberCookie()
+    const keys: string[] = []
+    for (const _ of [1, 2, 3]) {
+      const response = await fetch(mintUrl(server), {
+        method: 'POST',
+        headers: { cookie, origin: `http://${server.host}:${server.port}` },
+      })
+      expect(response.status).toBe(200)
+      keys.push(String(keyIn(await response.text())))
+    }
+    expect(new Set(keys).size).toBe(3)
+    expect(storage.ingestKeys.size).toBe(3)
+    for (const key of keys) expect(storage.ingestKeys.get(hashIngestKey(key))?.revokedAtMs).toBeNull()
   })
 })
