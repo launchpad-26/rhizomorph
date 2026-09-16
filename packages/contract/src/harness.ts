@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createEventFactory, eventsToJsonl, type RhizomorphEvent } from '@rhizomorph/core'
+import { readOrMintInstallationId } from '@rhizomorph/server/log/installation-id'
 import { sessionFileName } from '@rhizomorph/server/log/paths'
 import { buildApp } from '@rhizomorph/server/server/build-app'
 import { SessionRecorder } from '@rhizomorph/server/server/recorder'
@@ -63,6 +64,17 @@ export interface ContractHarness {
   fetch: InjectedFetch
   repoPath: string
   sessionDir: string
+  /**
+   * THE ID AN EXPORT MUST DECLARE — prd-57 ruling 7.
+   *
+   * Per harness rather than a fixed literal like {@link HARNESS_LIVE_SESSION_ID},
+   * because it is not a value this file chooses: it is minted into this
+   * harness's own data root and READ BACK from the same file the booted server
+   * reads. A contract test that hardcoded one would be asserting against its own
+   * guess instead of against the server, which is the whole thing a contract
+   * test exists not to do.
+   */
+  installationId: string
   /** Tear everything down; call in afterEach. */
   close: () => Promise<void>
 }
@@ -74,11 +86,14 @@ function defaultSessionEvents(repoPath: string): RhizomorphEvent[] {
 }
 
 /**
- * The harness's own live recorder's session id — fixed, so a read contract
- * test that needs to address THIS instance (e.g. an OTLP export's own
- * `instance` resource attribute, `api/otel.ts`'s `INSTANCE_ATTRIBUTE`) can
- * name it without hardcoding a magic literal that only this file actually
+ * The harness's own live recorder's session id — fixed, so a read contract test
+ * that needs to name THIS run can do so without a magic literal only this file
  * owns.
+ *
+ * **It is no longer what an OTLP export declares.** prd-57 ruling 7 moved the
+ * inbox's key to the installation id, because ruling 4 writes telemetry
+ * configuration into a file with no session in it. `ContractHarness.installationId`
+ * is that value; this one remains the record's identity and nothing else.
  */
 export const HARNESS_LIVE_SESSION_ID = '2000'
 
@@ -96,9 +111,23 @@ export async function buildContractHarness(
   options: { events?: (repoPath: string) => RhizomorphEvent[] } = {},
 ): Promise<ContractHarness> {
   const repoPath = await mkdtemp(path.join(tmpdir(), 'rhizomorph-contract-repo-'))
-  const sessionDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-contract-sessions-'))
+  /**
+   * A DATA ROOT of this harness's own, with the session dir one segment under
+   * it — the shape `dataRootFor(ctx)` climbs back out of.
+   *
+   * `sessionDir` used to be a bare `mkdtemp` directly under `tmpdir()`, which
+   * made this harness's data root the OS temp directory itself. Harmless while
+   * nothing under a data root was read; prd-57 ruling 7 reads the installation
+   * id from there, so the booted server would have minted one into the shared
+   * OS temp directory — a real write outside anything this harness cleans up,
+   * visible to every other test on the machine.
+   */
+  const dataRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-contract-data-'))
+  const sessionDir = path.join(dataRoot, 'repo-contract')
   const distDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-contract-dist-'))
   await mkdir(sessionDir, { recursive: true })
+  // Read back from the file the booted server reads, never chosen here.
+  const installationId = readOrMintInstallationId({ dataRoot }).id
   await writeFile(path.join(distDir, 'index.html'), APP_SHELL, 'utf8')
 
   const events = (options.events ?? defaultSessionEvents)(repoPath)
@@ -136,11 +165,14 @@ export async function buildContractHarness(
     fetch,
     repoPath,
     sessionDir,
+    installationId,
     close: async () => {
       await app.close()
       await Promise.all([
         rm(repoPath, { recursive: true, force: true }),
-        rm(sessionDir, { recursive: true, force: true }),
+        // The whole data root, which now contains the session dir and the
+        // installation id alike.
+        rm(dataRoot, { recursive: true, force: true }),
         rm(distDir, { recursive: true, force: true }),
       ])
     },

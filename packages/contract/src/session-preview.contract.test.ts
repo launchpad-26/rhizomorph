@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   buildContractHarness,
   type ContractHarness,
-  HARNESS_LIVE_SESSION_ID,
   routeGlobalFetchThroughHarness,
   stripCapabilityToken,
   tamperCapabilityToken,
@@ -32,16 +31,22 @@ const SESSION_ID = 'otel-preview-session'
  * ever attributed to it), which is the real, honest `available: false`
  * "vanished" case, not the "unknown identifier" 404.
  */
-function otlpUsageMetric(sessionId: string): Record<string, unknown> {
+function otlpUsageMetric(sessionId: string, instance: string): Record<string, unknown> {
   return {
     resourceMetrics: [
       {
         // `api/otel.ts`'s `INSTANCE_ATTRIBUTE`: an export declaring no
         // instance — or a foreign one — is refused 403 ("one repo, one
         // Rhizomorph") before it is ever parsed into events. This addresses
-        // THIS harness's own live recorder, exactly as a real exporter's
-        // `rhizomorph env` stamping would.
-        resource: { attributes: [{ key: 'instance', value: { stringValue: HARNESS_LIVE_SESSION_ID } }] },
+        // THIS harness's own instrument, exactly as a real exporter's
+        // `rhizomorph env` or `rhizomorph enlist` stamping would.
+        //
+        // The INSTALLATION id since prd-57 ruling 7, taken off the harness
+        // rather than named here: the harness reads it from the same file the
+        // booted server reads, so this is the server's own answer and not this
+        // test's guess at it. It was `HARNESS_LIVE_SESSION_ID`, and that value
+        // is now exactly what the inbox refuses.
+        resource: { attributes: [{ key: 'instance', value: { stringValue: instance } }] },
         scopeMetrics: [
           {
             metrics: [
@@ -81,7 +86,7 @@ describe('contract: a session preview is gated (prd-29 ruling 1)', () => {
     const attributed = await h.app.inject({
       method: 'POST',
       url: '/v1/metrics',
-      payload: otlpUsageMetric(SESSION_ID),
+      payload: otlpUsageMetric(SESSION_ID, h.installationId),
     })
     expect(attributed.statusCode).toBe(200)
   })
