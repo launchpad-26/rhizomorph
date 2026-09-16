@@ -65,6 +65,7 @@ const EXPECTED: ReadonlyArray<{ route: string; contractTest: string }> = [
   { route: '/api/concierge/clone', contractTest: 'clone.contract.test.ts' },
   { route: '/api/retarget', contractTest: 'retarget.contract.test.ts' },
   { route: '/api/lab/comparisons', contractTest: 'lab-comparison-save.contract.test.ts' },
+  { route: '/api/concierge/enlist', contractTest: 'enlist.contract.test.ts' },
 ]
 
 /**
