@@ -1345,7 +1345,7 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     { file: path.join('packages', 'web', 'src', 'replay', 'rotate.ts'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'scene', 'parity', 'capture.mjs'), count: 2 },
   ]
-  const EXPECTED_TOTAL = 17
+  const EXPECTED_TOTAL = 18
 
   it('the sweep walks real source trees, not an empty directory — an empty sweep proves nothing', () => {
     expect(allSourceFiles().length).toBeGreaterThan(100)
