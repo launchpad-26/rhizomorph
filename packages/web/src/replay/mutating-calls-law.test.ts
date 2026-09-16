@@ -209,6 +209,15 @@ const MUTATING_MODULES: ReadonlyArray<{ file: string; route: string; headers: re
     route: '/api/lab/rd',
     headers: ['Content-Type', CAPABILITY_TOKEN_HEADER],
   },
+  // The TENTH, and the only reversible one (prd-57 ruling 4 / ADR-0053). Two
+  // functions, one route: the diff writes nothing, and the write is refused
+  // without the digest the diff returned — so the confirmation bar is held by
+  // the server rather than asked of the caller.
+  {
+    file: path.join(WEB_SRC, 'concierge', 'enlist.ts'),
+    route: '/api/concierge/enlist',
+    headers: ['Content-Type', CAPABILITY_TOKEN_HEADER],
+  },
 ]
 const THE_ONLY_VERB = 'POST'
 
@@ -434,7 +443,7 @@ function assertHeaderBlocksExact(text: string, allowed: readonly string[], fromD
   }
 }
 
-describe('the web app names exactly eight mutating calls (prd16 rulings 2 and 4; prd12/prd14 for the launch; prd-20 ruling 6 / ADR-0020 for the instrument button; prd-20 ruling 1 / ADR-0019 for the clone; prd-20 ruling 5 for the retarget; prd-14 ruling 5 for the comparison save; prd-55 ruling 1 / ADR-0048 for the R&D hand)', () => {
+describe(`the web app names exactly ${MUTATING_MODULES.length} mutating calls (prd16 rulings 2 and 4; prd12/prd14 for the launch; prd-20 ruling 6 / ADR-0020 for the instrument button; prd-20 ruling 1 / ADR-0019 for the clone; prd-20 ruling 5 for the retarget; prd-14 ruling 5 for the comparison save; prd-55 ruling 1 / ADR-0048 for the R&D hand; prd-57 ruling 4 / ADR-0053 for the enlist)`, () => {
   it('has the whole app to check, not one directory — an empty grep proves nothing', () => {
     const files = sourceFiles()
     expect(files.length).toBeGreaterThan(80)

@@ -23,7 +23,7 @@ import { SESSIONLOG_CAPABILITIES } from '../sessionlog/collector.js'
 import { WORKMUX_CAPABILITIES } from '../workmux/collector.js'
 import { BEACON_CAPABILITIES, beaconCapabilitiesFor, createBeaconCollector } from './collector.js'
 import { parseBeaconLine } from './parse-beacon-line.js'
-import { beaconDirFor } from './paths.js'
+import { beaconDirFor, installationBeaconDir } from './paths.js'
 
 /**
  * One injectable read fault, for the "present but unreadable this tick" case.
@@ -111,10 +111,15 @@ async function bytesOf(dir: string): Promise<Record<string, string>> {
 describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
   let root: string
   let dir: string
+  let cursorKey: (name: string) => string
 
   beforeEach(async () => {
     root = await mkdtemp(path.join(tmpdir(), 'beacon-collector-'))
     dir = beaconDirFor('/repo', root)
+    // The snapshot is keyed by the file's FULL path since prd-57 ruling 6,
+    // because two doors can hold a file of the same name and a shared key
+    // would make one file's cursor resume the other's.
+    cursorKey = (name: string) => path.join(dir, name)
   })
 
   afterEach(async () => {
@@ -223,7 +228,7 @@ describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
     it('is idempotent: three more polls with no writes emit nothing and move no cursor', async () => {
       const collector = createBeaconCollector({ dataRoot: root })
       const first = await collector.poll(collector.initialSnapshot(), context())
-      const cursor = first.nextSnapshot.files['claude-hook.jsonl']
+      const cursor = first.nextSnapshot.files[cursorKey('claude-hook.jsonl')]
       expect(cursor?.offset).toBe(Buffer.byteLength(FIXTURE))
       expect(cursor?.identity).toMatchObject({ dev: expect.any(Number), ino: expect.any(Number) })
 
@@ -231,7 +236,7 @@ describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
       for (let i = 0; i < 3; i += 1) {
         const result = await collector.poll(snapshot, context())
         expect(result.events).toEqual([])
-        expect(result.nextSnapshot.files['claude-hook.jsonl']).toEqual(cursor)
+        expect(result.nextSnapshot.files[cursorKey('claude-hook.jsonl')]).toEqual(cursor)
         snapshot = result.nextSnapshot
       }
     })
@@ -249,7 +254,7 @@ describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
         ts: 1_725_000_003_000,
         payload: { offset: Buffer.byteLength(FIXTURE), digest: sha256(appended) },
       })
-      expect(second.nextSnapshot.files['claude-hook.jsonl']?.offset).toBe(Buffer.byteLength(FIXTURE) + Buffer.byteLength(appended) + 1)
+      expect(second.nextSnapshot.files[cursorKey('claude-hook.jsonl')]?.offset).toBe(Buffer.byteLength(FIXTURE) + Buffer.byteLength(appended) + 1)
 
       const third = await collector.poll(second.nextSnapshot, context())
       expect(third.events).toEqual([])
@@ -263,7 +268,7 @@ describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
       await writeFile(file, '{"v":1,"at":', { flag: 'a' })
       const second = await collector.poll(first.nextSnapshot, context())
       expect(second.events).toEqual([])
-      expect(second.nextSnapshot.files['claude-hook.jsonl']?.offset).toBe(Buffer.byteLength(FIXTURE))
+      expect(second.nextSnapshot.files[cursorKey('claude-hook.jsonl')]?.offset).toBe(Buffer.byteLength(FIXTURE))
 
       await writeFile(file, '1725000004000,"writer":"claude-hook","kind":"stopped"}\n', { flag: 'a' })
       const third = await collector.poll(second.nextSnapshot, context())
@@ -312,7 +317,7 @@ describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
       const second = await collector.poll(first.nextSnapshot, context())
       expect(readFault.armed).toBe(false) // the fault was actually consumed by this tick
       expect(second.events).toEqual([])
-      expect(second.nextSnapshot.files['claude-hook.jsonl']?.offset).toBe(first.nextSnapshot.files['claude-hook.jsonl']?.offset)
+      expect(second.nextSnapshot.files[cursorKey('claude-hook.jsonl')]?.offset).toBe(first.nextSnapshot.files[cursorKey('claude-hook.jsonl')]?.offset)
 
       const third = await collector.poll(second.nextSnapshot, context())
       const beacons = ofType(third.events, 'beacon.received')
@@ -334,7 +339,11 @@ describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
         ['claude-hook.jsonl', 'claude-hook'],
         ['gate.jsonl', 'gate'],
       ])
-      expect(Object.keys(result.nextSnapshot.files).sort()).toEqual(['claude-hook.jsonl', 'gate.jsonl'])
+      // Keys are full paths; the EVENTS still name the basename, which is what
+      // a reader recognises. Asserted as a pair so a change to either is loud.
+      expect(Object.keys(result.nextSnapshot.files).sort()).toEqual(
+        [cursorKey('claude-hook.jsonl'), cursorKey('gate.jsonl')].sort(),
+      )
     })
 
     it('ignores anything that is not a *.jsonl file: notes, a subdirectory, a temp file', async () => {
@@ -648,5 +657,146 @@ describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
         expect(parseBeaconLine(line).kind, line).toBe('beacon')
       }
     })
+  })
+})
+
+describe('two repos share one door and neither folds into the other (prd-57 ruling 6, ADR-0055)', () => {
+  /**
+   * The law ruling 6 names, written as it names it: plant two repos' lines in
+   * ONE door and assert neither reaches the other's session.
+   *
+   * ADR-0036's guarantee is unchanged — a beacon from one repo's swarm must
+   * never fold into another repo's session. What ADR-0055 moves is where it is
+   * enforced: from the shape of the directory to a routing rule, because a
+   * per-repo door requires the WRITER to know the slug derivation the READER
+   * uses, and a hook fires for whatever repo the agent happens to be in.
+   */
+  let root: string
+  let sharedDir: string
+  let repoA: string
+  let repoB: string
+
+  const lineFor = (cwd: string, lane: string) =>
+    `${JSON.stringify({ v: 1, at: 1788591365000, writer: 'claude-hook', kind: 'working', lane, cwd })}\n`
+
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'beacon-door-'))
+    sharedDir = installationBeaconDir(root)
+    // Real directories, because containment is decided by `isInside`, which
+    // canonicalises — a fabricated path that does not exist would be refused
+    // for the wrong reason and the test would pass while proving nothing.
+    repoA = await mkdtemp(path.join(tmpdir(), 'beacon-repo-a-'))
+    repoB = await mkdtemp(path.join(tmpdir(), 'beacon-repo-b-'))
+    await mkdir(sharedDir, { recursive: true })
+  })
+
+  afterEach(async () => {
+    await Promise.all([
+      rm(root, { recursive: true, force: true }),
+      rm(repoA, { recursive: true, force: true }),
+      rm(repoB, { recursive: true, force: true }),
+    ])
+  })
+
+  async function pollFor(repoPath: string) {
+    const collector = createBeaconCollector({ dataRoot: root })
+    return collector.poll(collector.initialSnapshot(), context(repoPath))
+  }
+
+  it('a server watching A sees A’s line and not B’s, from the same file', async () => {
+    await writeFile(path.join(sharedDir, 'claude-hook.jsonl'), lineFor(repoA, 'lane-a') + lineFor(repoB, 'lane-b'))
+
+    const { events } = await pollFor(repoA)
+    const lanes = events.filter((e) => e.type === 'beacon.received').map((e) => (e.payload as { lane: string }).lane)
+    expect(lanes).toEqual(['lane-a'])
+  })
+
+  it('and a server watching B sees B’s and not A’s — the same bytes, the other way', async () => {
+    // The mirror, which is what makes the case above evidence rather than a
+    // filter that happens to drop the second line.
+    await writeFile(path.join(sharedDir, 'claude-hook.jsonl'), lineFor(repoA, 'lane-a') + lineFor(repoB, 'lane-b'))
+
+    const { events } = await pollFor(repoB)
+    const lanes = events.filter((e) => e.type === 'beacon.received').map((e) => (e.payload as { lane: string }).lane)
+    expect(lanes).toEqual(['lane-b'])
+  })
+
+  it('a line from a repo NOBODY watches is retained, and attributed to none', async () => {
+    // Ruling 6's own words. The cursor must still advance past it, or every
+    // later tick re-reads it forever; and no event may be emitted for it,
+    // because this instrument has nowhere to put it.
+    const elsewhere = await mkdtemp(path.join(tmpdir(), 'beacon-unwatched-'))
+    try {
+      const file = path.join(sharedDir, 'claude-hook.jsonl')
+      await writeFile(file, lineFor(elsewhere, 'lane-nowhere'))
+
+      const result = await pollFor(repoA)
+      expect(result.events.filter((e) => e.type === 'beacon.received')).toEqual([])
+      // Retained: the bytes are still on disk, and the cursor has moved past
+      // them so the next tick does not re-read what it already declined.
+      expect(await readFile(file, 'utf8')).toContain('lane-nowhere')
+      expect(result.nextSnapshot.files[file]?.offset).toBeGreaterThan(0)
+    } finally {
+      await rm(elsewhere, { recursive: true, force: true })
+    }
+  })
+
+  it('a line with NO cwd is not folded — the honest unknown, never a guess', async () => {
+    // A writer that does not say where it came from cannot be attributed by
+    // containment. Guessing would be exactly the fold this rule prevents.
+    const bare = `${JSON.stringify({ v: 1, at: 1788591365000, writer: 'claude-hook', kind: 'working', lane: 'lane-x' })}\n`
+    await writeFile(path.join(sharedDir, 'claude-hook.jsonl'), bare)
+
+    const { events } = await pollFor(repoA)
+    expect(events.filter((e) => e.type === 'beacon.received')).toEqual([])
+  })
+
+  it('a cwd in a SUBDIRECTORY of the watched repo belongs to it — containment, not equality', async () => {
+    // An agent runs in a worktree or a subdirectory far more often than at the
+    // repo root, so equality would drop almost every real line.
+    const nested = path.join(repoA, 'packages', 'server')
+    await mkdir(nested, { recursive: true })
+    await writeFile(path.join(sharedDir, 'claude-hook.jsonl'), lineFor(nested, 'lane-nested'))
+
+    const { events } = await pollFor(repoA)
+    const lanes = events.filter((e) => e.type === 'beacon.received').map((e) => (e.payload as { lane: string }).lane)
+    expect(lanes).toEqual(['lane-nested'])
+  })
+
+  it('the PER-REPO door is not routed — its lines predate cwd and are scoped by the directory', async () => {
+    // ADR-0036's structural scoping still holds for its own door. Routing those
+    // lines would drop every beacon the existing hooks have ever written, which
+    // is a regression wearing a rule's clothes.
+    const perRepo = beaconDirFor(repoA, root)
+    await mkdir(perRepo, { recursive: true })
+    const bare = `${JSON.stringify({ v: 1, at: 1788591365000, writer: 'claude-hook', kind: 'working', lane: 'lane-legacy' })}\n`
+    await writeFile(path.join(perRepo, 'claude-hook.jsonl'), bare)
+
+    const { events } = await pollFor(repoA)
+    const lanes = events.filter((e) => e.type === 'beacon.received').map((e) => (e.payload as { lane: string }).lane)
+    expect(lanes).toEqual(['lane-legacy'])
+  })
+
+  it('both doors are read in one tick, and a same-named file in each keeps its own cursor', async () => {
+    // The reason the snapshot is keyed by full path. A shared key would make
+    // one file's cursor resume the other's — re-emitting or skipping bytes
+    // depending on which door was longer.
+    const perRepo = beaconDirFor(repoA, root)
+    await mkdir(perRepo, { recursive: true })
+    await writeFile(path.join(sharedDir, 'claude-hook.jsonl'), lineFor(repoA, 'lane-shared'))
+    await writeFile(
+      path.join(perRepo, 'claude-hook.jsonl'),
+      `${JSON.stringify({ v: 1, at: 1788591365000, writer: 'claude-hook', kind: 'working', lane: 'lane-perrepo' })}\n`,
+    )
+
+    const result = await pollFor(repoA)
+    const lanes = result.events
+      .filter((e) => e.type === 'beacon.received')
+      .map((e) => (e.payload as { lane: string }).lane)
+      .sort()
+    expect(lanes).toEqual(['lane-perrepo', 'lane-shared'])
+    expect(Object.keys(result.nextSnapshot.files).sort()).toEqual(
+      [path.join(sharedDir, 'claude-hook.jsonl'), path.join(perRepo, 'claude-hook.jsonl')].sort(),
+    )
   })
 })

@@ -1,5 +1,6 @@
 import { otlpEndpoint } from '../../cli/telemetry-env.js'
 import { detectHarness } from './detect.js'
+import { HarnessNotImplementedError } from './types.js'
 import type {
   ContinuityPlan,
   DetectOptions,
@@ -8,6 +9,27 @@ import type {
   HarnessEnvRecipe,
   HarnessLaunchContext,
 } from './types.js'
+
+/**
+ * Why codex refuses enlistment even though it is an implemented harness —
+ * prd-57 ruling 4's last clause, argued rather than assumed.
+ *
+ * Being launchable does not make it enlistable. Enlisting means editing a
+ * user-level configuration file, and the three facts that needs — which file,
+ * which keys, what the harness does with them — are not the facts `envRecipe`
+ * needed. codex takes its telemetry config as `-c otel.*` argv, which is
+ * exactly the channel that does NOT persist: there is no captured document for
+ * this hand to merge into, and no captured codex equivalent of the lifecycle
+ * hooks ruling 5 derives its vocabulary from.
+ *
+ * So codex throws `no capture`, the same words the declared harnesses use — the
+ * two arriving at the same refusal from opposite directions.
+ */
+const CODEX_ENLIST_REFUSAL =
+  'no capture. codex is configured through `-c otel.*` argv at launch rather than through a persisted ' +
+  'user-level file, so there is no captured document for this hand to merge into — and no captured codex ' +
+  'equivalent of the lifecycle hooks prd-57 ruling 5 derives its vocabulary from. A capture of codex’s own ' +
+  'user-level config file, and of whatever hook surface it offers, is what would settle it'
 
 /**
  * The codex adapter — prd-20 ruling 4's "codex next, its native OTel config".
@@ -220,5 +242,15 @@ export const codexAdapter: HarnessAdapter = {
         'codex accepting a specific session id — e.g. `codex resume <id>` in its own --help, or a resumed session ' +
         'under a chosen id — would be what settles this',
     }
+  },
+
+  /** @see CODEX_ENLIST_REFUSAL — implemented for launching, uncaptured for enlisting. */
+  enlistmentTarget(): never {
+    throw new HarnessNotImplementedError('codex', CODEX_ENLIST_REFUSAL)
+  },
+
+  /** @see CODEX_ENLIST_REFUSAL */
+  planEnlistment(): never {
+    throw new HarnessNotImplementedError('codex', CODEX_ENLIST_REFUSAL)
   },
 }

@@ -286,7 +286,129 @@ export interface DetectOptions {
   readonly watchedRepoPath?: string
 }
 
-/** The seam itself. Five members; everything above is what they return. */
+/**
+ * ENLISTMENT — prd-57 ruling 4, licensed by ADR-0053, which amends ADR-0019
+ * clause 1's two powers to a third: enlist or unenlist a detected harness's
+ * user-level configuration, idempotently and reversibly.
+ *
+ * ## Why this is a PURE plan and never a write
+ *
+ * Everything below is a function of the file's CURRENT TEXT and nothing else.
+ * The adapter opens no file, knows no home directory, reads no clock.
+ * `concierge/enlist.ts` does the IO and calls this to decide what the IO should
+ * be.
+ *
+ * That is ADR-0004's shape one module over, and here it buys something exact:
+ * the law ruling 4 demands — *that enlist changes exactly the declared keys and
+ * unenlist restores the file byte-for-byte except those* — is a claim about a
+ * STRING TRANSFORM. Asserting it against a fixture with unrelated content needs
+ * no home directory, no settings file, and no machine with claude installed.
+ *
+ * ## Diff first, then write
+ *
+ * The first act produces an {@link EnlistmentPlan} and writes nothing. The
+ * second writes, and re-reads immediately before doing so: the plan carries
+ * {@link EnlistmentPlan} `sourceDigest`, and a write whose re-read does not
+ * match is refused rather than applied. An operator who edited the file between
+ * seeing a diff and accepting it gets a refusal, not a surprise.
+ */
+
+/** The user-level file a harness keeps its configuration in. */
+export interface EnlistmentTarget {
+  /** Absolute, with `~` already expanded by the caller that knows the home. */
+  readonly path: string
+  /** How a human refers to it — `~/.claude/settings.json`. Prose only, never IO. */
+  readonly display: string
+}
+
+/** One key this enlistment would change, and what it would become. */
+export interface EnlistmentChange {
+  /** From the document root: `['env', 'OTEL_EXPORTER_OTLP_ENDPOINT']`. */
+  readonly keyPath: readonly string[]
+  /** The value as it stands, JSON-rendered. `null` when the key is absent today. */
+  readonly before: string | null
+  /** The value after. `null` when the change REMOVES the key, which is what unenlist does. */
+  readonly after: string | null
+}
+
+/**
+ * Something already in the file that this hand will not overwrite.
+ *
+ * Ruling 4's merge-never-clobber clause, and the case it names by hand: a
+ * pre-existing foreign `OTEL_EXPORTER_OTLP_ENDPOINT` means the operator already
+ * exports somewhere, so it is refused BY NAME rather than replaced — and the
+ * offer that comes back is hooks-only enlist, which still delivers ruling 5.
+ */
+export interface EnlistmentRefusal {
+  readonly keyPath: readonly string[]
+  /** The value found, so an operator can see what this hand declined to touch. */
+  readonly existing: string
+  readonly reason: string
+  /** What is still on the table given the refusal. Never empty. */
+  readonly offer: string
+}
+
+export type EnlistmentPlan =
+  | {
+      readonly kind: 'ready'
+      readonly target: EnlistmentTarget
+      /** Never empty — an empty change set is `already-settled`, which is a different answer. */
+      readonly changes: readonly EnlistmentChange[]
+      readonly refusals: readonly EnlistmentRefusal[]
+      /** The file as it would be written. The diff a human approves is this against the source. */
+      readonly next: string
+      /**
+       * A digest of the text this plan was computed FROM.
+       *
+       * The write re-reads and compares. This is what makes "diff first, then
+       * write" honest rather than decorative: without it the two acts are
+       * separated by an unbounded stretch of wall-clock in which anything at
+       * all could have edited the file.
+       */
+      readonly sourceDigest: string
+    }
+  /**
+   * Nothing to do — already enlisted, or already unenlisted. Idempotence,
+   * stated.
+   *
+   * **It still carries refusals** (review of #573, N1). Settled and declined
+   * are not exclusive: a second enlist over a foreign OTLP endpoint changes
+   * nothing AND leaves something untouched, and an arm that dropped the second
+   * fact would tell the operator everything was fine at the one moment they
+   * most need to hear what was not.
+   */
+  | {
+      readonly kind: 'already-settled'
+      readonly target: EnlistmentTarget
+      readonly why: string
+      readonly refusals: readonly EnlistmentRefusal[]
+    }
+  /** This hand will not proceed at all. Never a partial write. */
+  | {
+      readonly kind: 'refused'
+      readonly target: EnlistmentTarget
+      readonly reason: string
+      readonly remedy: string
+    }
+
+/**
+ * What enlist needs beyond a launch.
+ *
+ * `runnerPath` is ruling 6's requirement and is not negotiable: the hook entries
+ * invoke **the absolute path to the installed CLI, resolved at enlist time** —
+ * never `npx`, whose cold start would eat the harness's hook timeout. On Windows
+ * it is the `.cmd` shim.
+ */
+export interface HarnessEnlistContext extends HarnessLaunchContext {
+  readonly runnerPath: string
+}
+
+/** What the caller wants. Unenlist needs no context — it removes what enlist declared. */
+export type EnlistmentIntent =
+  | { readonly kind: 'enlist'; readonly context: HarnessEnlistContext }
+  | { readonly kind: 'unenlist' }
+
+/** The seam itself. Seven members; everything above is what they return. */
 export interface HarnessAdapter {
   readonly id: HarnessId
   /** How the picker spells it. Presentation only — carries no ordering. */
@@ -329,4 +451,32 @@ export interface HarnessAdapter {
    * @throws {HarnessNotImplementedError} when {@link implementation} is `declared`.
    */
   resumeArgv(context: HarnessLaunchContext, sessionId: string): ContinuityPlan
+
+  /**
+   * Where this harness's user-level configuration lives — prd-57 ruling 4.
+   *
+   * Takes the home directory rather than reading one, so this stays a pure
+   * function of its arguments and a test needs no `$HOME`. The caller that
+   * knows the home is `concierge/enlist.ts`, which is also the only thing here
+   * allowed to touch a filesystem.
+   *
+   * @throws {HarnessNotImplementedError} when {@link implementation} is `declared`.
+   */
+  enlistmentTarget(home: string, platform?: NodeJS.Platform): EnlistmentTarget
+
+  /**
+   * What enlisting or unenlisting WOULD do to `current`, computing nothing else.
+   *
+   * `current` is the file's text, or `null` when it does not exist — which is
+   * an ordinary first-run state and not an error: an operator who has never
+   * written a settings file still gets enlisted, into a file this creates.
+   *
+   * Never writes, never throws on a merge conflict. A key this hand will not
+   * overwrite comes back as an {@link EnlistmentRefusal} with the offer that
+   * remains, because a refusal an operator can act on is worth more than an
+   * exception they cannot.
+   *
+   * @throws {HarnessNotImplementedError} when {@link implementation} is `declared`.
+   */
+  planEnlistment(current: string | null, target: EnlistmentTarget, intent: EnlistmentIntent): EnlistmentPlan
 }

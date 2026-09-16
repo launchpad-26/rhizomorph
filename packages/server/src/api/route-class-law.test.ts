@@ -120,8 +120,8 @@ describe('the route-class law (prd-23 ruling 5)', () => {
     // 31 -> 33: prd-55 ruling 6's telemetry and footprint reads (#402),
     // `GET /api/lab/telemetry` and `GET /api/lab/footprint` — the frame's own
     // two stated gaps, closed the same way transcript's was.
-    expect(routes.length).toBe(34)
-    expect(ROUTE_CLASSES.length).toBe(34)
+    expect(routes.length).toBe(35)
+    expect(ROUTE_CLASSES.length).toBe(35)
 
     await app.close()
   })
@@ -185,7 +185,7 @@ describe('the route-class law (prd-23 ruling 5)', () => {
       const entry = classify(route, ROUTE_CLASSES)
       return entry !== undefined && isGated(entry) && route.hasCapabilityGate
     })
-    expect(gatedFound.length).toBe(29)
+    expect(gatedFound.length).toBe(30)
 
     await app.close()
   })
@@ -1323,6 +1323,10 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     { file: path.join('packages', 'app', 'src', 'host', 'fleet-feed.ts'), count: 2 },
     { file: path.join('packages', 'web', 'src', 'app', 'StreamContext.tsx'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'concierge', 'clone.ts'), count: 1 },
+    // prd-57 ruling 4 / ADR-0053, #524: the enlist client — the app's TENTH
+    // mutating call and the only reversible one. One aliased fetch, shared by
+    // both steps of the diff-then-write.
+    { file: path.join('packages', 'web', 'src', 'concierge', 'enlist.ts'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'concierge', 'instrument.ts'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'concierge', 'retarget.ts'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'hooks', 'useEventStream.ts'), count: 1 },
@@ -1341,13 +1345,13 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     { file: path.join('packages', 'web', 'src', 'replay', 'rotate.ts'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'scene', 'parity', 'capture.mjs'), count: 2 },
   ]
-  const EXPECTED_TOTAL = 17
+  const EXPECTED_TOTAL = 18
 
   it('the sweep walks real source trees, not an empty directory — an empty sweep proves nothing', () => {
     expect(allSourceFiles().length).toBeGreaterThan(100)
   })
 
-  it('are exactly these fourteen modules and seventeen call sites — no more, no fewer', () => {
+  it('are exactly these fifteen modules and eighteen call sites — no more, no fewer', () => {
     const found = realCallSites()
     expect(found).toEqual(EXPECTED_CALL_SITES)
     expect(found.reduce((sum, entry) => sum + entry.count, 0)).toBe(EXPECTED_TOTAL)
@@ -1661,7 +1665,7 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     expect(stated.reduce((sum, entry) => sum + entry.count, 0)).toBe(EXPECTED_TOTAL)
   })
 
-  it('README states the same seventeen-across-fourteen the sweep above finds — every occurrence, not just the first', () => {
+  it('README states the same eighteen-across-fifteen the sweep above finds — every occurrence, not just the first', () => {
     const README_MD = readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8')
     // Two anchors over the same sentence rather than one two-group match, so
     // each number goes through the same every-occurrence rule the mutating-

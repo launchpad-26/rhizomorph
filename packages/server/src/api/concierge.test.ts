@@ -946,3 +946,145 @@ describe('POST /api/concierge/launch — mode: resume brings the transcript home
     expect(planMigrationMock).not.toHaveBeenCalled()
   })
 })
+
+describe('POST /api/concierge/enlist — the third power (prd-57 ruling 4, review of #573 N3)', () => {
+  let repoPath: string
+  let sessionDir: string
+
+  beforeEach(async () => {
+    repoPath = await mkdtemp(path.join(tmpdir(), 'rhizomorph-enlist-repo-'))
+    sessionDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-enlist-session-'))
+  })
+
+  afterEach(async () => {
+    await Promise.all([
+      rm(repoPath, { recursive: true, force: true }),
+      rm(sessionDir, { recursive: true, force: true }),
+    ])
+  })
+
+  function enlistApp(overrides: { readOnly?: boolean; port?: number } = {}) {
+    const recorder = new SessionRecorder('1000', sessionFilePath(sessionDir, '1000'))
+    return buildApp({
+      repoPath,
+      repoName: 'repo',
+      sessionDir,
+      recorder,
+      capabilityToken: TEST_CAPABILITY_TOKEN,
+      port: 7317,
+      ...overrides,
+    })
+  }
+
+  const post = (body: Record<string, unknown>, token: string | null = TEST_CAPABILITY_TOKEN, overrides = {}) =>
+    enlistApp(overrides).inject({
+      method: 'POST',
+      url: '/api/concierge/enlist',
+      headers: token === null ? {} : capabilityHeaders(token),
+      payload: body,
+    })
+
+  /**
+   * Every case here stops before a byte is written to a real home directory —
+   * the sharpest edge in this file, because `homedir()` is not injectable and a
+   * completed apply would rewrite the settings of whoever runs the suite.
+   *
+   * What makes that stopping point trustworthy: the gates run in a fixed order,
+   * all strictly before `applyEnlistment` is reached — the capability
+   * preHandler, the replay refusal, `parseEnlistRequestBody`, the runner
+   * resolution, then `planEnlistment`, which writes nothing by construction.
+   * Each case below is refused by one of those, and the status says which.
+   */
+  it('is gated: no token is a 401, and nothing is planned', async () => {
+    expect((await post({ harness: 'claude' }, null)).statusCode).toBe(401)
+  })
+
+  it('refuses a replay server — there is no machine to enlist', async () => {
+    const response = await post({ harness: 'claude' }, TEST_CAPABILITY_TOKEN, { readOnly: true })
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error).toMatch(/replaying/)
+  })
+
+  it('400s a body with no harness', async () => {
+    // A non-object body is refused by fastify's own content-type handling
+    // before this route sees it (415), which is a different gate and a
+    // different test's business. What this route owns is a well-formed JSON
+    // object that says nothing useful.
+    expect((await post({})).statusCode).toBe(400)
+    expect((await post({ harness: '' })).statusCode).toBe(400)
+  })
+
+  it('400s an intent that is neither enlist nor unenlist', async () => {
+    expect((await post({ harness: 'claude', intent: 'destroy' })).statusCode).toBe(400)
+  })
+
+  it('400s an unknown harness — a name the caller can fix', async () => {
+    // Distinct from a 409: `EnlistmentUnknownHarnessError` is its own type
+    // precisely so the route need not read an error message to tell "send
+    // something different" from "the state has to change".
+    const response = await post({ harness: 'nosuchharness' })
+    expect(response.statusCode).toBe(400)
+    expect(response.json().error).toMatch(/no harness named/)
+  })
+
+  it('409s a harness that cannot be enlisted — codex is implemented and uncaptured', async () => {
+    // Asked as an UNENLIST so the runner guard is not in the way: unenlisting
+    // removes what enlist declared and renders no hook command, so it needs no
+    // runner and reaches `planEnlistment`, where codex's refusal lives.
+    const response = await post({ harness: 'codex', intent: 'unenlist' })
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error).toMatch(/no capture/)
+  })
+
+  it('409s an enlist when this server was not started through the installed CLI', async () => {
+    // The B1 refusal, and the test process is the case: vitest's `argv[1]` is
+    // not `rhizomorph`, so the route declines rather than writing a hook
+    // command the shell cannot run. Refusing is the whole fix — a hook pointing
+    // at a source file collects nothing, is not recognised as ours on the next
+    // enlist, and could never be removed by unenlist.
+    const response = await post({ harness: 'claude' })
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error).toMatch(/not started through the installed/)
+  })
+
+  describe('THE DIFF-FIRST PROTOCOL, which is the whole of ruling 4', () => {
+    it('400s apply:true with no digest, and names the field', async () => {
+      // The clause that IS the protocol. Nothing asserted it before the review
+      // of #573 — a bar held only by a line nobody checked is held by nobody.
+      const response = await post({ harness: 'claude', apply: true })
+      expect(response.statusCode).toBe(400)
+      expect(response.json().error).toMatch(/sourceDigest/)
+    })
+
+    it('400s a digest that is not a string', async () => {
+      expect((await post({ harness: 'claude', apply: true, sourceDigest: 42 })).statusCode).toBe(400)
+    })
+
+    it('409s a digest that does not match — refused, never applied', async () => {
+      // Whether this machine has a settings file or not, a wrong digest can
+      // only ever be a 409: either the plan cannot proceed, or it can and the
+      // digest disagrees. Asserting the status rather than the message keeps
+      // this true on both kinds of machine — including CI, which has neither.
+      const response = await post({ harness: 'claude', apply: true, sourceDigest: 'f'.repeat(64) })
+      expect(response.statusCode).toBe(409)
+    })
+  })
+
+  it('an UNENLIST diff answers 200, having written nothing — the read half, reachable', async () => {
+    // The read path proved through the direction that needs no runner. Safe by
+    // construction against the real home: `apply` is absent, so the handler
+    // returns after `planEnlistment`, which is a pure function of the file's
+    // text and opens nothing for writing.
+    //
+    // On a machine that has never enlisted this answers `already-settled`; on
+    // one that has, `ready`. Both are 200 and both wrote nothing, which is what
+    // this asserts — the alternative would be a test that only passes on one
+    // kind of developer machine.
+    const response = await post({ harness: 'claude', intent: 'unenlist' })
+    expect(response.statusCode).toBe(200)
+    const body = response.json()
+    expect(body.applied).toBe(false)
+    expect(['ready', 'already-settled']).toContain(body.kind)
+    if (body.kind === 'ready') expect(body.sourceDigest).toMatch(/^[0-9a-f]{64}$/)
+  })
+})

@@ -3,6 +3,8 @@ import type { Exec } from '@rhizomorph/core'
 import { describe, expect, it, vi } from 'vitest'
 import type {
   ContinuityPlan,
+  EnlistmentPlan,
+  EnlistmentTarget,
   HarnessAdapter,
   HarnessDetection,
   HarnessEnvRecipe,
@@ -137,6 +139,17 @@ function fakeAdapter(overrides: Partial<HarnessAdapter> = {}): HarnessAdapter {
         evidence: 'fixture',
       }),
     ),
+    // prd-57 ruling 4's two members, present because `HarnessAdapter` is
+    // exhaustive and this double is a complete literal of it. Nothing in this
+    // file enlists, and `planEnlistment` THROWS rather than returning a benign
+    // plan on purpose: a launch that started reaching for an enlistment is a
+    // defect, and a stub returning something plausible would hide it.
+    enlistmentTarget: vi.fn(
+      (home: string): EnlistmentTarget => ({ path: `${home}/.fake/settings.json`, display: '~/.fake/settings.json' }),
+    ),
+    planEnlistment: vi.fn((): EnlistmentPlan => {
+      throw new Error('launch never plans an enlistment — a launch reaching this member is the bug')
+    }),
     ...overrides,
   }
 }

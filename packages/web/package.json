@@ -48,6 +48,7 @@
     "./concierge/instrument": "./src/concierge/instrument.ts",
     "./concierge/clone": "./src/concierge/clone.ts",
     "./concierge/retarget": "./src/concierge/retarget.ts",
+    "./concierge/enlist": "./src/concierge/enlist.ts",
     "./replay/api": "./src/replay/api.ts",
     "./fleet/manifest": "./src/fleet/manifest.ts",
     "./drawer/useTranscript": "./src/drawer/useTranscript.ts",

@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { defaultDataRoot, sessionDirFor } from '../../log/paths.js'
+import { isInside } from '../../paths/containment.js'
 
 export const BEACONS_DIR_NAME = 'beacons'
 export const BEACON_FILE_SUFFIX = '.jsonl'
@@ -26,4 +27,65 @@ export const BEACON_FILE_SUFFIX = '.jsonl'
  */
 export function beaconDirFor(repoPath: string, dataRoot: string = defaultDataRoot()): string {
   return path.join(sessionDirFor(repoPath, dataRoot), BEACONS_DIR_NAME)
+}
+
+/**
+ * `<dataRoot>/beacons` — the door for the whole INSTALLATION, not for one repo.
+ *
+ * prd-57 ruling 6, licensed by ADR-0055, which amends ADR-0036. The docblock
+ * above is left standing rather than rewritten, because its reason is the one
+ * that has to be answered rather than waved past: **a beacon from one repo's
+ * swarm must never fold into another repo's session.** The pi collector learned
+ * that the hard way and had to enforce it by header field.
+ *
+ * ADR-0055 keeps the guarantee and moves where it is enforced. A per-repo door
+ * requires the WRITER to know the slug derivation the READER uses — and a hook
+ * fires for whatever repo the agent is sitting in, including one this
+ * instrument has never discovered. A writer that must compute a reader's
+ * private key is a coupling that breaks silently the first time the derivation
+ * changes.
+ *
+ * So the guarantee becomes a ROUTING RULE with a law: every line carries `cwd`,
+ * {@link beaconLineBelongsTo} decides by containment, and a line matching no
+ * watched repo is retained and attributed to none.
+ *
+ * **Not a novel mechanism — the one the pi collector already proved in this
+ * tree.** `collectors/pi/collector.ts` declines to assume a slug convention it
+ * cannot back, and attributes each session by the `cwd` its own header line
+ * reports, skipping out-of-scope sessions (landed `a51b0867`). ADR-0036's own
+ * cautionary example is, in its current form, a working implementation of
+ * routing-by-cwd rather than scoping-by-directory.
+ *
+ * The per-repo door is NOT retired: {@link beaconDirFor} still resolves and the
+ * collector reads both. A door written before this wave holds lines nobody
+ * would otherwise fold, and dropping them silently would lose beacons an
+ * operator had already collected.
+ */
+export function installationBeaconDir(dataRoot: string = defaultDataRoot()): string {
+  return path.join(dataRoot, BEACONS_DIR_NAME)
+}
+
+/**
+ * Whether a beacon line belongs to the repo this server is watching.
+ *
+ * An absent `cwd` is the honest unknown and is NOT a match: a line that does
+ * not say where it came from cannot be attributed by containment, and guessing
+ * would be the fold ADR-0036 refuses. Such a line stays in the file and is
+ * attributed to nobody, which is what ruling 6 asks for.
+ *
+ * Containment rather than equality, because an agent runs in a worktree or a
+ * subdirectory far more often than at the repo root — and through `isInside`,
+ * which canonicalises both sides, because a repo reached through a symlink is
+ * the standing macOS case (#217).
+ */
+export function beaconLineBelongsTo(repoPath: string, cwd: string | undefined): boolean {
+  if (cwd === undefined || cwd.length === 0) return false
+  try {
+    return isInside(repoPath, cwd)
+  } catch {
+    // A cwd that cannot be canonicalised (ELOOP, EACCES, a path that no longer
+    // exists) is a placement this cannot state. Refused, never guessed — the
+    // fail-closed posture `isInside` itself takes for an unresolvable root.
+    return false
+  }
 }
