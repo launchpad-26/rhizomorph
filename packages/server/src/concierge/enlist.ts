@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { isInside } from '../paths/containment.js'
 import { harnessById } from './harness/registry.js'
 import { HarnessNotImplementedError } from './harness/types.js'
 import type { EnlistmentPlan, EnlistmentTarget, HarnessEnlistContext, HarnessId } from './harness/types.js'
@@ -70,13 +71,26 @@ export function backupPathFor(target: string, at: Date): string {
  * `home` is passed rather than read so this stays testable without a real one.
  */
 export function assertUserLevelTarget(target: EnlistmentTarget, home: string, watchedRepoPath?: string): void {
-  const resolved = path.resolve(target.path)
-  if (!resolved.startsWith(path.resolve(home) + path.sep)) {
+  // Through `isInside`, never a hand-rolled prefix compare. The first version of
+  // this function was `resolved.startsWith(path.resolve(home) + path.sep)` and
+  // `prefix-comparison-law` convicted it (prd-42 ruling 2, #401) on the run that
+  // landed it — correctly, and for two reasons a reviewer would have had to
+  // find separately:
+  //
+  //   * `startsWith` is the containment bug this repo has a law about. It is
+  //     right often enough to ship and wrong on `/home/foo` against
+  //     `/home/foobar`.
+  //   * It compares UNRESOLVED paths. `isInside` canonicalises both sides
+  //     through the same `realpath`, which is what reconciles a symlinked
+  //     ancestor — macOS's `/tmp` -> `/private/tmp` being the standing example
+  //     (#217), and macOS being precisely where an operator's home is reached
+  //     through one.
+  if (!isInside(home, target.path)) {
     throw new EnlistmentRefusedError(
       `${target.display} is not inside the home directory, and this hand writes nowhere else (ADR-0019 clause 4)`,
     )
   }
-  if (watchedRepoPath !== undefined && resolved.startsWith(path.resolve(watchedRepoPath) + path.sep)) {
+  if (watchedRepoPath !== undefined && isInside(watchedRepoPath, target.path)) {
     throw new EnlistmentRefusedError(
       `${target.display} is inside the watched repo. ADR-0019 clause 4 is "never inside the watched repo": a write ` +
         'there would show up as a dirty file this instrument then reports on, and a `git clean` would silently undo it',
