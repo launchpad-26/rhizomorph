@@ -349,13 +349,14 @@ export function grants(sql: string): { privileges: string[]; tables: string[]; r
 }
 
 describe('case 26 — the walk really reads the tracked migrations', () => {
-  it('finds exactly the five that ship with this package', () => {
+  it('finds exactly the six that ship with this package', () => {
     expect(migrations().map((m) => m.id)).toEqual([
       '0001_events',
       '0002_projections',
       '0003_roles_rls',
       '0004_events_dedup',
       '0005_ingest_keys',
+      '0006_viewer_role_membership',
     ])
   })
 

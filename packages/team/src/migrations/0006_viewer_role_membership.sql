@@ -1,0 +1,72 @@
+-- 0006 — the owner may become `rz_viewer`, so a read can stop being the owner's.
+--
+-- WHY THIS EXISTS AT ALL. `0003_roles_rls.sql`'s header states the requirement and
+-- says, in terms, that it cannot enforce it:
+--
+--     a superuser bypasses RLS unconditionally ... the isolation guarantee
+--     therefore rests on a deployment fact this migration cannot enforce:
+--     wave 3 reads as `rz_viewer` or `rz_readonly`, never as the owner and
+--     never as a superuser.
+--
+-- The viewer (#557) is the first reader to need that fact to be true, and found
+-- it unbuildable: all three `rz_` roles are NOLOGIN and no migration grants
+-- LOGIN or a password, so nothing can CONNECT as `rz_viewer`; and no role
+-- membership was granted either, so the owner could not SET ROLE to it.
+--
+-- ONE GRANT, AND NOT A LOGIN. Membership is the smaller of the two fixes and the
+-- one that adds no credential: `SET LOCAL ROLE rz_viewer` inside the read's
+-- transaction makes `current_user` the viewer for that statement, so the
+-- policies in `0003` apply and the owner's own rights do not. Giving the role
+-- LOGIN and a password would mean a second secret in `.env`, a second DSN, and a
+-- connection pool per role, for no isolation the SET ROLE does not already give.
+--
+-- CURRENT_USER, never a literal. `deploy/init.sh` names the owner
+-- (`POSTGRES_USER`) and an operator may change it; the migration is applied by
+-- that owner, so CURRENT_USER is exactly the role that needs the membership
+-- and spelling it out would bind the schema to one deployment's choice.
+--
+-- WITH INHERIT FALSE, AND THAT CLAUSE IS THE WHOLE OF THIS MIGRATION'S SAFETY.
+--
+-- A plain `GRANT rz_viewer TO CURRENT_USER` makes the owner a member, and RLS
+-- matches a policy's `TO` list by role MEMBERSHIP — so the owner would start
+-- passing `FOR SELECT TO rz_viewer` policies with no SET ROLE at all, silently
+-- widening exactly the plain-owner case `0003`'s header measured as closed.
+-- `WITH INHERIT FALSE` grants the right to BECOME the role without inheriting
+-- its privileges passively, which is all `SET LOCAL ROLE` needs.
+--
+-- EXECUTED on PostgreSQL 18.4 (the version `deploy/compose.yml` pins), with the
+-- owner creating the role as `0003` does and then granting as this file does —
+-- counting rows a FORCEd, policy-scoped table returns:
+--
+--     before the grant        no SET ROLE: 0    SET ROLE: permission denied
+--     plain GRANT             no SET ROLE: 1    SET ROLE: 1      <-- the widening
+--     GRANT ... INHERIT FALSE no SET ROLE: 0    SET ROLE: 1      <-- this file
+--
+-- The middle row is what this migration's first draft shipped and what
+-- verification caught. The `permission denied` in the first row is also why this
+-- migration has to exist at all: the owner cannot BECOME a role it is not a
+-- member of, whatever its other rights.
+--
+-- WHAT THIS STILL DOES NOT DO. It does not make the superuser case safe — a
+-- superuser that has NOT done SET ROLE bypasses RLS whatever its memberships,
+-- exactly as `0003` says. This grant removes the app's accidental dependence on
+-- BEING a superuser to reach `rz_viewer`, which is what a deployment that later
+-- narrows the app's role would otherwise lose silently.
+--
+-- No CONCURRENTLY, no DDL on a table: `applyMigration` runs each file inside one
+-- transaction, the same decision 0001, 0004 and 0005 record.
+
+-- WHY THE GUARD, RATHER THAN A BARE GRANT. A bare `GRANT rz_viewer TO
+-- CURRENT_USER` fails with `role "rz_viewer" does not exist`, which names
+-- neither the cause nor the fix. That is not hypothetical here: #514 measured a
+-- restored database whose `_migrations` recorded `0003` as applied while every
+-- `rz_` role it creates was absent, because the roles did not survive the
+-- dump/restore and the migration will never re-run to recreate them. This
+-- migration is the first thing after `0003` that needs one of those roles to
+-- exist, so it is where that state surfaces -- and it should surface by name.
+
+DO $$ BEGIN
+  GRANT rz_viewer TO CURRENT_USER WITH INHERIT FALSE;
+EXCEPTION WHEN undefined_object THEN
+  RAISE EXCEPTION 'rz_viewer does not exist: 0003_roles_rls.sql is recorded as applied but its roles are absent, which is what a restored dump without roles looks like. Recreate the roles before re-running.';
+END $$;

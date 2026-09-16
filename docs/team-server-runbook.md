@@ -310,7 +310,37 @@ every other actor keeps moving.
 tmp-then-rename with no lock, so two app containers folding the same journal would rewind
 each other. ADR-0056 records this and what it would take to lift.
 
-Minting a key **from the team viewer** is also not here, because the viewer is not: the
+### The three questions
+
+Three read-only pages, for members of the organisation:
+
+```
+GET /v1/rhizomorph/where?project=<id>    where is work      (lane_state)
+GET /v1/rhizomorph/cost?project=<id>     what does it cost  (spend_by_project_day)
+GET /v1/rhizomorph/stuck?project=<id>    who is stuck       (collisions)
+```
+
+Sign in first at `/auth/github/start`. Membership of the organisation is checked **per request**,
+so removing someone from the org closes their access at their next page load rather than at their
+next sign-in. A pending, never-accepted invitation is not membership.
+
+**`RZ_TEAM_PROJECT` now decides what a viewer may read, not only which project the seeded ingest
+key is scoped to.** `init.sh` always writes it (defaulting to `default`), and a request naming any
+other project is refused with a 404. That is a narrowing, not an authorisation model: **membership
+of the organisation is the boundary**, and if you ever run a deployment with that variable empty,
+any member may read any project it holds.
+
+**The pages read as `rz_viewer`, never as the owner**, which is what makes the per-project policies
+in `0003_roles_rls.sql` mean anything — the header there records the measurement, and
+`0006_viewer_role_membership.sql` is the grant that makes it possible. Each read also sets
+`rhizomorph.project_id`; without it the policies admit nothing and a page is empty rather than
+wrong. A page that is empty when you expect rows is more likely the fold (above) than the scope.
+
+A database that cannot answer gives **503** and a log line naming the cause; the page never
+carries it.
+
+Minting a key **from the team viewer** is not here, because minting is not — the viewer reads and
+does not write: the
 one key this deployment holds is the one `init.sh` seeds. That is a narrowing of ruling
 8's *"a member mints a key in the viewer"*, not a gap in the verification below.
 

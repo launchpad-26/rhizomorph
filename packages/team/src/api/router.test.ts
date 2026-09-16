@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CALLBACK_PATH, INGEST_PATH, SIGNIN_START_PATH, TABLE } from './http.js'
+import { CALLBACK_PATH, INGEST_PATH, SIGNIN_START_PATH, TABLE, COST_PATH, STUCK_PATH, WHERE_PATH } from './http.js'
 import { type RouteDeclaration, matchRoute, methodNotAllowedBody, notFoundBody } from './router.js'
 
 /**
@@ -65,7 +65,7 @@ describe('matchRoute', () => {
     // enumeration compared to the table it came from is true whatever the table
     // says, and would survive a row whose path had drifted.
     expect(error).toBe(
-      `no route "/nope"; this server serves POST ${INGEST_PATH}, GET ${SIGNIN_START_PATH}, GET ${CALLBACK_PATH}`,
+      `no route "/nope"; this server serves POST ${INGEST_PATH}, GET ${SIGNIN_START_PATH}, GET ${CALLBACK_PATH}, GET ${WHERE_PATH}, GET ${COST_PATH}, GET ${STUCK_PATH}`,
     )
     // Today's sentence ended "…serves /v1/rhizomorph/ingest only", which this
     // commit makes false by adding routes. Ruling 12 forbids shipping that.
@@ -96,7 +96,7 @@ describe('matchRoute', () => {
     // Against the declared order, not just against a snapshot: a matcher that
     // sorts or memoises the shared table is invisible to a snapshot taken after
     // an earlier test in this file already triggered it.
-    expect(TABLE.map((route) => route.path)).toEqual([INGEST_PATH, SIGNIN_START_PATH, CALLBACK_PATH])
+    expect(TABLE.map((route) => route.path)).toEqual([INGEST_PATH, SIGNIN_START_PATH, CALLBACK_PATH, WHERE_PATH, COST_PATH, STUCK_PATH])
   })
 
   it('A9 — no duplicate (method, path) pair, and no empty path', () => {
