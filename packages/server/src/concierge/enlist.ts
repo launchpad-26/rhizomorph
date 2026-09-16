@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -141,10 +140,37 @@ export interface EnlistContext {
   readonly launch?: HarnessEnlistContext
 }
 
+/**
+ * Whether this registry knows the name at all — the cheapest question, so a
+ * caller gets the most useful refusal.
+ *
+ * Exported so the route can ask it BEFORE anything more expensive. Found by the
+ * route tests (review of #573, N3): the runner-resolution guard ran first, so an
+ * unknown harness came back 409 "this server was not started through the CLI"
+ * when the caller's actual mistake was a name they could fix. Order the gates
+ * cheapest-and-most-actionable first, or the status lies about which thing is
+ * wrong.
+ */
+export function isKnownHarness(id: string): boolean {
+  return harnessById(id as HarnessId) !== undefined
+}
+
 /** What a plan was computed from, so the write can prove the file has not moved. */
 export interface PlannedEnlistment {
   readonly plan: EnlistmentPlan
   readonly target: EnlistmentTarget
+  /**
+   * What the plan was made from, so the write can make it AGAIN rather than
+   * re-deriving the digest with its own arithmetic.
+   *
+   * This module used to carry a second `createHash` implementation beside the
+   * adapter's, and the two had to agree forever for the stale check to mean
+   * anything — a second truth free to drift, which is the shape this repo has
+   * laws about. Found while fixing the review of #573's N4: correcting one
+   * digest silently broke the comparison against the other.
+   */
+  readonly context: EnlistContext
+  readonly intent: 'enlist' | 'unenlist'
 }
 
 /**
@@ -176,7 +202,7 @@ export async function planEnlistment(context: EnlistContext, intent: 'enlist' | 
       ? adapter.planEnlistment(current, target, { kind: 'enlist', context: context.launch as HarnessEnlistContext })
       : adapter.planEnlistment(current, target, { kind: 'unenlist' })
 
-  return { plan, target }
+  return { plan, target, context, intent }
 }
 
 export interface EnlistmentOutcome {
@@ -219,8 +245,14 @@ export async function applyEnlistment(
     )
   }
 
+  // Re-PLANNED, not re-hashed. The digest is the adapter's to compute, and
+  // asking it again is what keeps one implementation rather than two that must
+  // agree forever.
+  const fresh = await planEnlistment(planned.context, planned.intent)
+  if (fresh.plan.kind !== 'ready' || fresh.plan.sourceDigest !== plan.sourceDigest) {
+    throw new EnlistmentStaleError(target.display)
+  }
   const current = await readIfPresent(target.path)
-  if (digestOf(current) !== plan.sourceDigest) throw new EnlistmentStaleError(target.display)
 
   let backupPath: string | null = null
   if (current !== null) {
@@ -251,14 +283,4 @@ async function readIfPresent(file: string): Promise<string | null> {
   }
 }
 
-/**
- * The same digest the adapter computed, so the two can be compared.
- *
- * Imported from nowhere: `node:crypto`'s `createHash` is what `claude.ts` uses,
- * and duplicating the one line is better than exporting a hashing helper from
- * an adapter — the adapters are a seam with seven members and this is not one
- * of them.
- */
-function digestOf(text: string | null): string {
-  return createHash('sha256').update(text ?? '').digest('hex')
-}
+

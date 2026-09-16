@@ -87,7 +87,8 @@ second machine by design. That has not yet been asked for.
 > `/api/lab/comparisons` (prd-14 ruling 5, #213),
 > `/api/lab/rd` (prd-55 ruling 1, the R&D hand),
 > `/api/operator/:act` (#276) and the
-> concierge's two — and
+> concierge's THREE, `/api/concierge/clone`, `/api/concierge/launch` and
+> `/api/concierge/enlist` (prd-57 ruling 4 / ADR-0053) — and
 > [ADR-0024](0024-a-gated-read-is-the-fourth-route-class.md)'s gate-presence law
 > fails the build if any of those rows loses its `preHandler`, so "the first route
 > to adopt the token" is now the whole table. Reads gate too: seven under prd-29

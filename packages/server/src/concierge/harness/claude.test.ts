@@ -402,3 +402,133 @@ describe('a harness with no capture refuses to be enlisted at all', () => {
     expect(() => codexAdapter.enlistmentTarget('/home/operator')).toThrow(/no capture/)
   })
 })
+
+describe('the producer and the recogniser, tested against each other (review of #573, B1)', () => {
+  const TARGET = claudeAdapter.enlistmentTarget('/home/operator')
+  const enlistWith = (runnerPath: string, current: string | null = null) =>
+    claudeAdapter.planEnlistment(current, TARGET, { kind: 'enlist', context: { ...CONTEXT, runnerPath } })
+
+  /**
+   * Every spelling `runnerPath()` can actually return, which is the set the
+   * first version of this pair was never tested against.
+   *
+   * The regex named `.cmd`, `.exe` and `.bat` and the producer returned
+   * `process.argv[1]` — so `bin/rhizomorph.mjs`, the package's own declared
+   * `bin`, was written and then not recognised. Nothing anywhere called the
+   * producer; both tests hardcoded a path chosen to satisfy the pattern.
+   */
+  const SPELLINGS = [
+    '/usr/local/bin/rhizomorph',
+    'node_modules/.bin/rhizomorph',
+    '/repo/packages/server/bin/rhizomorph.mjs',
+    'C:\\Users\\operator\\AppData\\Roaming\\npm\\rhizomorph.cmd',
+  ]
+
+  it.each(SPELLINGS)('writes %s and recognises it again — the round trip that was missing', (runnerPath) => {
+    const plan = enlistWith(runnerPath)
+    if (plan.kind !== 'ready') throw new Error(`expected ready, got ${plan.kind}`)
+
+    // Enlisting the file it just produced must find nothing left to do. That is
+    // idempotence, and it is the property that fails the instant the producer
+    // writes a spelling the recogniser cannot read.
+    expect(enlistWith(runnerPath, plan.next).kind).toBe('already-settled')
+  })
+
+  it('and a second enlist appends NOTHING, on every spelling — the duplicate the drift caused', () => {
+    for (const runnerPath of SPELLINGS) {
+      const once = enlistWith(runnerPath)
+      if (once.kind !== 'ready') throw new Error('expected ready')
+      const twice = enlistWith(runnerPath, once.next)
+      expect(twice.kind, runnerPath).toBe('already-settled')
+      // And the file still holds exactly one entry per event, not two.
+      const hooks = JSON.parse(once.next).hooks as Record<string, unknown[]>
+      for (const event of CLAUDE_HOOK_EVENTS) expect(hooks[event], `${runnerPath} / ${event}`).toHaveLength(1)
+    }
+  })
+
+  it('UNENLIST removes them again, on every spelling — the fingerprint that would have been permanent', () => {
+    // The third and worst consequence of the drift: an unrecognised entry can
+    // never be filtered out, so it stays in the operator's home forever. This
+    // is the reversibility promise, asserted per spelling rather than once.
+    for (const runnerPath of SPELLINGS) {
+      const once = enlistWith(runnerPath)
+      if (once.kind !== 'ready') throw new Error('expected ready')
+      const back = claudeAdapter.planEnlistment(once.next, TARGET, { kind: 'unenlist' })
+      if (back.kind !== 'ready') throw new Error(`${runnerPath}: expected ready, got ${back.kind}`)
+      expect(JSON.parse(back.next).hooks, runnerPath).toBeUndefined()
+    }
+  })
+})
+
+describe('unenlist does not delete what enlist refused to touch (review of #573, B2)', () => {
+  const TARGET = claudeAdapter.enlistmentTarget('/home/operator')
+  const ENLIST_CONTEXT: HarnessEnlistContext = { ...CONTEXT, runnerPath: '/opt/rhizomorph/bin/rhizomorph' }
+
+  /** A real settings file: the operator's own editor, and a corporate collector. */
+  const CORPORATE =
+    JSON.stringify(
+      { env: { EDITOR: 'vim', OTEL_EXPORTER_OTLP_ENDPOINT: 'http://otel.corp.internal:4318' } },
+      null,
+      2,
+    ) + '\n'
+
+  it('the corporate endpoint survives the whole round trip — enlist refused it, unenlist leaves it', () => {
+    // The executed case from the review. The old unenlist removed every recipe
+    // key BY NAME, so the act whose promise is putting the file back destroyed
+    // configuration it had never written.
+    const enlisted = claudeAdapter.planEnlistment(CORPORATE, TARGET, { kind: 'enlist', context: ENLIST_CONTEXT })
+    if (enlisted.kind !== 'ready') throw new Error('expected ready')
+    expect(JSON.parse(enlisted.next).env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe('http://otel.corp.internal:4318')
+
+    const back = claudeAdapter.planEnlistment(enlisted.next, TARGET, { kind: 'unenlist' })
+    if (back.kind !== 'ready') throw new Error(`expected ready, got ${back.kind}`)
+    const restored = JSON.parse(back.next).env
+    expect(restored.OTEL_EXPORTER_OTLP_ENDPOINT).toBe('http://otel.corp.internal:4318')
+    expect(restored.EDITOR).toBe('vim')
+  })
+
+  it('but OUR endpoint is removed — the control, without which the case above is satisfied by never removing anything', () => {
+    const enlisted = claudeAdapter.planEnlistment(null, TARGET, { kind: 'enlist', context: ENLIST_CONTEXT })
+    if (enlisted.kind !== 'ready') throw new Error('expected ready')
+    // Loopback, per ADR-0019 clause 3 — which is exactly what makes it ours.
+    expect(JSON.parse(enlisted.next).env.OTEL_EXPORTER_OTLP_ENDPOINT).toMatch(/127\.0\.0\.1|localhost/)
+
+    const back = claudeAdapter.planEnlistment(enlisted.next, TARGET, { kind: 'unenlist' })
+    if (back.kind !== 'ready') throw new Error('expected ready')
+    expect(JSON.parse(back.next).env).toBeUndefined()
+  })
+})
+
+describe('already-settled still says what was declined (review of #573, N1)', () => {
+  const TARGET = claudeAdapter.enlistmentTarget('/home/operator')
+  const ENLIST_CONTEXT: HarnessEnlistContext = { ...CONTEXT, runnerPath: '/opt/rhizomorph/bin/rhizomorph' }
+  const CORPORATE =
+    JSON.stringify({ env: { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://otel.corp.internal:4318' } }, null, 2) + '\n'
+
+  it('carries the refusal and its offer, rather than reporting everything settled', () => {
+    // Enlist once over a foreign endpoint, then again. The second answer used
+    // to say "already carries every key this hand installs" — which is false,
+    // because the endpoint was refused rather than installed, and the operator
+    // was told everything was fine at the moment they most needed the opposite.
+    const first = claudeAdapter.planEnlistment(CORPORATE, TARGET, { kind: 'enlist', context: ENLIST_CONTEXT })
+    if (first.kind !== 'ready') throw new Error('expected ready')
+    const second = claudeAdapter.planEnlistment(first.next, TARGET, { kind: 'enlist', context: ENLIST_CONTEXT })
+
+    expect(second.kind).toBe('already-settled')
+    if (second.kind !== 'already-settled') return
+    expect(second.refusals).toHaveLength(1)
+    expect(second.refusals[0]?.keyPath).toEqual(['env', 'OTEL_EXPORTER_OTLP_ENDPOINT'])
+    expect(second.refusals[0]?.offer).toMatch(/hooks-only/)
+    // And the prose says so too, so a surface that renders only `why` is honest.
+    expect(second.why).toMatch(/declined/)
+  })
+
+  it('and says nothing about refusals when there were none', () => {
+    const first = claudeAdapter.planEnlistment(null, TARGET, { kind: 'enlist', context: ENLIST_CONTEXT })
+    if (first.kind !== 'ready') throw new Error('expected ready')
+    const second = claudeAdapter.planEnlistment(first.next, TARGET, { kind: 'enlist', context: ENLIST_CONTEXT })
+    if (second.kind !== 'already-settled') throw new Error('expected already-settled')
+    expect(second.refusals).toEqual([])
+    expect(second.why).not.toMatch(/declined/)
+  })
+})

@@ -1,4 +1,5 @@
 import { homedir } from 'node:os'
+import path from 'node:path'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import {
   CloneDestinationExistsError,
@@ -28,6 +29,7 @@ import {
   EnlistmentRefusedError,
   EnlistmentStaleError,
   EnlistmentUnknownHarnessError,
+  isKnownHarness,
   planEnlistment,
   type EnlistContext,
 } from '../concierge/enlist.js'
@@ -500,7 +502,8 @@ function describeEnlistmentPlan(plan: EnlistmentPlan): Record<string, unknown> {
       sourceDigest: plan.sourceDigest,
     }
   }
-  if (plan.kind === 'already-settled') return { kind: plan.kind, why: plan.why }
+  // `refusals` rides on this arm too — see the type's own note (review of #573, N1).
+  if (plan.kind === 'already-settled') return { kind: plan.kind, why: plan.why, refusals: plan.refusals }
   return { kind: plan.kind, why: plan.reason, remedy: plan.remedy }
 }
 
@@ -523,6 +526,14 @@ export function registerConciergeEnlistRoute(app: FastifyInstance, ctx: ServerCo
         throw err
       }
 
+      // The cheapest, most actionable refusal first (review of #573, N3): an
+      // unknown NAME is a 400 the caller fixes by sending a different one, and
+      // it must not be masked by the runner refusal below, which is a 409 about
+      // this server rather than about the request.
+      if (!isKnownHarness(body.harness)) {
+        return reply.code(400).send({ error: `no harness named ${body.harness} is in this registry` })
+      }
+
       /**
        * Built before the context rather than inside a ternary, so the port
        * guard actually narrows — and so the reason for each field has somewhere
@@ -536,6 +547,19 @@ export function registerConciergeEnlistRoute(app: FastifyInstance, ctx: ServerCo
             error:
               'this server does not know the port it is listening on, and the enlisted environment is what points a ' +
               'harness at it — there is nothing to write that would work',
+          })
+        }
+        const runner = runnerPath()
+        if (runner === null) {
+          // Refused rather than written broken (review of #573, B1). A hook
+          // command the shell cannot run collects nothing, is not recognised
+          // as ours on the next enlist, and cannot be removed by unenlist —
+          // so it would be a permanent fingerprint in the operator's home.
+          return reply.code(409).send({
+            error:
+              'this server was not started through the installed `rhizomorph` command, so it cannot write a hook ' +
+              'command that would run. Start the server through the installed CLI and enlist again — a hook ' +
+              'pointing at a source file would collect nothing and could not be removed later',
           })
         }
         launch = {
@@ -562,7 +586,7 @@ export function registerConciergeEnlistRoute(app: FastifyInstance, ctx: ServerCo
           role: 'conductor',
           port: ctx.port,
           instance: ctx.recorder.sessionId,
-          runnerPath: runnerPath(),
+          runnerPath: runner,
         }
       }
 
@@ -630,16 +654,51 @@ export function registerConciergeEnlistRoute(app: FastifyInstance, ctx: ServerCo
   )
 }
 
+/** What `packages/server/package.json` calls its `bin`. The one name a hook command may invoke. */
+const RUNNER_BIN_NAME = 'rhizomorph'
+
 /**
- * The absolute path to the installed CLI, resolved at enlist time — ruling 6,
- * and the reason is a measurement rather than a preference: `npx`'s cold start
- * would eat the harness's hook timeout.
+ * The installed CLI's own path, resolved at enlist time — ruling 6, and the
+ * reason is a measurement rather than a preference: `npx`'s cold start would
+ * eat the harness's hook timeout.
  *
- * `process.argv[1]` is the entry this very server was started from, which makes
- * it the one path guaranteed to exist and to be the right version — a `which`
- * could find a different installation from the one the operator is running.
- * On Windows that is the `.cmd` shim, which is what the hook needs there.
+ * **`null` when this process was not started through the CLI**, and that
+ * refusal is the whole of the fix for the review of #573, B1.
+ *
+ * This returned `process.argv[1]` unconditionally. That is the installed shim
+ * when the server was launched as `rhizomorph`, and it is `src/index.ts` under
+ * the `tsx watch` launch this repo's own `package.json` declares as `dev`. In
+ * that case the route wrote `…/src/index.ts hook` into the operator's REAL
+ * settings file, and three things followed, none of them loud:
+ *
+ * 1. the command is not executable, so ruling 5's witness silently collects
+ *    nothing;
+ * 2. `isOurHookEntry` did not recognise it, so enlist stopped being idempotent
+ *    and every re-enlist appended another entry to all five events;
+ * 3. **unenlist could never remove it**, so the fingerprint stayed in the
+ *    operator's home permanently — the reversibility promise failing in exactly
+ *    the direction ruling 4 names.
+ *
+ * Refusing is the ADR-0010 posture: a hand that cannot write a working hook
+ * command says so and writes nothing, rather than writing one that looks
+ * installed and collects nothing. The route turns this into a 409 naming the
+ * remedy.
+ *
+ * **What is NOT settled here, and is owed:** on Windows a global npm install
+ * puts a `.cmd` shim on PATH while `argv[1]` is the `.mjs` inside the package,
+ * and a bare `.mjs` is not a command `cmd.exe` can run. This accepts the stem
+ * match either way, so a Windows enlist may still write a command that does not
+ * execute. Unverified rather than handled — nobody has run an enlist on Windows,
+ * and inventing the shim's path from `argv[1]` would be the guess ADR-0010
+ * forbids. The macOS and Linux paths are the ones this wave can stand behind.
  */
-function runnerPath(): string {
-  return process.argv[1] ?? 'rhizomorph'
+function runnerPath(): string | null {
+  const entry = process.argv[1]
+  if (entry === undefined) return null
+  // Extension stripped, then compared to the bin name `packages/server/package.json`
+  // declares. `/usr/local/bin/rhizomorph`, `node_modules/.bin/rhizomorph`,
+  // `…\npm\rhizomorph.cmd` and `bin/rhizomorph.mjs` all pass; `src/index.ts`
+  // under `tsx watch` does not, and neither does anything else this process
+  // might have been started from.
+  return path.basename(entry).replace(/\.[^.]+$/, '') === RUNNER_BIN_NAME ? entry : null
 }

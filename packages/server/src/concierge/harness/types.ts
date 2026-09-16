@@ -367,8 +367,22 @@ export type EnlistmentPlan =
        */
       readonly sourceDigest: string
     }
-  /** Nothing to do — already enlisted, or already unenlisted. Idempotence, stated. */
-  | { readonly kind: 'already-settled'; readonly target: EnlistmentTarget; readonly why: string }
+  /**
+   * Nothing to do — already enlisted, or already unenlisted. Idempotence,
+   * stated.
+   *
+   * **It still carries refusals** (review of #573, N1). Settled and declined
+   * are not exclusive: a second enlist over a foreign OTLP endpoint changes
+   * nothing AND leaves something untouched, and an arm that dropped the second
+   * fact would tell the operator everything was fine at the one moment they
+   * most need to hear what was not.
+   */
+  | {
+      readonly kind: 'already-settled'
+      readonly target: EnlistmentTarget
+      readonly why: string
+      readonly refusals: readonly EnlistmentRefusal[]
+    }
   /** This hand will not proceed at all. Never a partial write. */
   | {
       readonly kind: 'refused'

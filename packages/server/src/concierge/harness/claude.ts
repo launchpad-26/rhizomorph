@@ -199,6 +199,28 @@ export const CLAUDE_HOOK_EVENTS = ['PreToolUse', 'PostToolUse', 'Notification', 
  */
 const FOREIGN_ENDPOINT_KEY = 'OTEL_EXPORTER_OTLP_ENDPOINT'
 
+/**
+ * Whether an endpoint is one THIS hand could have written.
+ *
+ * ADR-0019 clause 3 fixes the answer: a loopback URL and an installation id,
+ * never a token and never a remote host. So loopback-ness decides ownership
+ * without needing the launch context — which unenlist does not have, and could
+ * not trust anyway, since the port may have changed since the enlist.
+ *
+ * Used in BOTH directions, which is the point: enlist refuses an endpoint that
+ * is not ours, and unenlist removes only one that is. A single predicate is
+ * what stops the two from disagreeing about the same key.
+ */
+function isLoopbackEndpoint(value: unknown): boolean {
+  if (typeof value !== 'string') return false
+  try {
+    const host = new URL(value).hostname
+    return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '[::1]'
+  } catch {
+    return false
+  }
+}
+
 /** The shape this hand reaches into. Everything else in the document is passed through untouched. */
 interface ClaudeSettings {
   env?: Record<string, unknown>
@@ -230,8 +252,21 @@ function isOurHookEntry(entry: unknown): boolean {
   })
 }
 
-/** `<anything>/rhizomorph hook`, with the Windows shim spellings. Anchored at the basename. */
-const OUR_RUNNER_RE = /(^|[/\\])rhizomorph(\.cmd|\.exe|\.bat)?["']?\s+hook$/
+/**
+ * `<anything>/rhizomorph<any extension> hook`.
+ *
+ * ANY extension rather than a listed set — review of #573, B1. The first
+ * version named `.cmd`, `.exe` and `.bat`, so it did not recognise
+ * `rhizomorph.mjs`: the package's own `bin`, and what `argv[1]` is when the CLI
+ * is invoked directly. The producer and this recogniser were never tested
+ * against each other, so the pattern was only ever asserted against a path
+ * chosen to satisfy it.
+ *
+ * `claude.test.ts` round-trips them now — `isOurHookEntry(claudeHookEntry(p))`
+ * for every spelling `runnerPath()` can return — which is the assertion whose
+ * absence let the two drift apart.
+ */
+const OUR_RUNNER_RE = /(^|[/\\])rhizomorph(\.[A-Za-z0-9]+)?["']?\s+hook$/
 
 /**
  * The source's own indentation and trailing newline, so a rewrite looks like
@@ -257,9 +292,25 @@ function renderSettings(value: ClaudeSettings, format: { indent: number | string
   return JSON.stringify(value, null, format.indent) + (format.trailingNewline ? '\n' : '')
 }
 
-/** A digest of the exact text a plan was computed from. Pure — hashing is not IO. */
+/**
+ * A digest of the exact text a plan was computed from. Pure — hashing is not IO.
+ *
+ * **A missing file and an empty file are different states**, and this collapsed
+ * them: `update(text ?? '')` made `digestOf(null) === digestOf('')`, so a file
+ * that appeared EMPTY between the diff and the write read as "still absent" and
+ * was accepted. `enlist.test.ts` claimed to cover exactly that case and passed
+ * only because its appeared file had content — a test that could not fail for
+ * the reason it named, in the module arguing against them (review of #573, N4).
+ *
+ * Neither state was unsafe: both parse to `{}`, and the write takes a backup
+ * whenever the file exists. What was wrong was a comment promising a guarantee
+ * the code did not give.
+ *
+ * Domain-separated with a printable separator rather than a NUL, which would
+ * make this file read as binary to git and to every grep in the repo.
+ */
 function digestOf(text: string | null): string {
-  return createHash('sha256').update(text ?? '').digest('hex')
+  return createHash('sha256').update(text === null ? 'absent:' : `present:${text}`).digest('hex')
 }
 
 const jsonOf = (value: unknown): string => JSON.stringify(value) ?? 'undefined'
@@ -369,6 +420,20 @@ export function planClaudeEnlistment(
   } else {
     for (const key of Object.keys(env)) {
       if (!ENLISTED_ENV_KEYS.has(key)) continue
+      // The key enlist may have REFUSED is the one unenlist must not assume it
+      // owns — review of #573, B2, and it is the same key by name.
+      //
+      // The old loop removed every recipe key by NAME, so a corporate
+      // `OTEL_EXPORTER_OTLP_ENDPOINT` that enlist had correctly declined to
+      // overwrite was deleted by unenlist. The act whose whole promise is
+      // putting the file back was destroying configuration it had never
+      // written, which is #524's own named sibling case failing verbatim.
+      //
+      // The two directions share one predicate now: enlist refuses an endpoint
+      // that is not ours, and unenlist removes only one that IS. "Ours" is
+      // decidable without the launch context because ADR-0019 clause 3 fixes
+      // it — this hand only ever writes a loopback URL.
+      if (key === FOREIGN_ENDPOINT_KEY && !isLoopbackEndpoint(env[key])) continue
       changes.push({ keyPath: ['env', key], before: jsonOf(env[key]), after: null })
       delete env[key]
     }
@@ -388,12 +453,23 @@ export function planClaudeEnlistment(
   }
 
   if (changes.length === 0) {
+    /**
+     * Settled — and it must still say what was DECLINED (review of #573, N1).
+     *
+     * This arm used to carry no refusals, so enlisting twice over a foreign
+     * OTLP endpoint answered "already carries every key this hand installs".
+     * It does not: the endpoint was refused, not installed. The operator was
+     * told everything was settled at exactly the moment they most needed to
+     * hear what had been left alone, and the hooks-only offer vanished with it.
+     */
+    const declined = refusals.length === 0 ? '' : ` — except ${refusals.map((r) => r.keyPath.join('.')).join(', ')}, which this hand declined to touch`
     return {
       kind: 'already-settled',
       target,
+      refusals,
       why:
         intent.kind === 'enlist'
-          ? `${target.display} already carries every key this hand installs`
+          ? `${target.display} already carries every key this hand installs${declined}`
           : `${target.display} carries nothing this hand installed`,
     }
   }

@@ -59,10 +59,11 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
  *    GATED mutating routes requires it: `/api/label`, `/api/rotate`,
  *    `/api/retarget`, `/api/lab/launch`, `/api/lab/measure`,
  *    `/api/lab/comparisons`, `/api/lab/rd`, `/api/operator/:act`, and the
- *    concierge's two granted powers `/api/concierge/clone` and
- *    `/api/concierge/launch` (prd-20 ruling 1 /
- *    ADR-0019 — the gate IS the grant there, which is why neither may ever
- *    be reachable from a collector or a poll). The other four mutating
+ *    concierge's THREE granted powers `/api/concierge/clone`,
+ *    `/api/concierge/launch` and `/api/concierge/enlist` (prd-20 ruling 1 /
+ *    ADR-0019 for the first two, prd-57 ruling 4 / ADR-0053 for the third —
+ *    the gate IS the grant there, which is why NONE of them may ever be
+ *    reachable from a collector or a poll). The other four mutating
  *    routes — the OTLP inbox's
  *    `/v1/metrics`, `/v1/logs`, `/v1/traces`, and the bare-path fallback
  *    `POST /` (ADR-0018) — are ungated by design (prd-23 ruling 6): an
@@ -102,7 +103,8 @@ const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
  * is where all fifteen are declared): eleven gated (`/api/label`,
  * `/api/rotate`, `/api/retarget`, `/api/lab/launch`, `/api/lab/measure`,
  * `/api/lab/comparisons`, `/api/lab/rd`, `/api/operator/:act`,
- * `/api/concierge/clone`, `/api/concierge/launch`) and four ungated by
+ * `/api/concierge/clone`, `/api/concierge/launch`, `/api/concierge/enlist`)
+ * and four ungated by
  * design (the OTLP inbox: `/v1/metrics`, `/v1/logs`, `/v1/traces`, and the
  * bare-path fallback `POST /`, ADR-0018) — every one of them a `POST`;
  * `PUT`/`PATCH`/`DELETE` are included so a future mutating route never has

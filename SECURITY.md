@@ -152,18 +152,29 @@ exactly as the browser does. A value handed to a page over unauthenticated
 loopback HTTP cannot be hidden from something that can already reach that
 page.
 
-This server answers **fifteen** mutating routes in total, not three. Three more
+This server answers **fifteen** mutating routes in total, not three. Four more
 are gated exactly as the three above are: `POST /api/lab/measure` (prd-53 ruling
 3 — measuring runs a gate and records its verdict, so it is gated like the launch
-it measures), and the concierge's granted powers,
-`POST /api/concierge/clone` and `POST /api/concierge/launch` (prd-20
-ruling 1 / `docs/adr/0019-the-fourth-hand.md`) — for the fourth hand the
-gate *is* the grant, so neither may ever be reached from a collector or a
-poll. The clone lands only inside the concierge's own fenced namespace,
-`~/rhizomorph/repos` by default (`concierge/paths.ts`'s `defaultClonesRoot`);
-the launch's one further write, a create-only transcript copy (ADR-0020),
-lands only under `~/.claude/projects/<watched-repo-slug>/`, never elsewhere
-under `~/.claude`.
+it measures), and the concierge's three granted powers,
+`POST /api/concierge/clone`, `POST /api/concierge/launch` (prd-20
+ruling 1 / `docs/adr/0019-the-fourth-hand.md`) and `POST /api/concierge/enlist`
+(prd-57 ruling 4 / `docs/adr/0053-the-fourth-hand-may-enlist-a-harness.md`) —
+for the fourth hand the gate *is* the grant, so none of them may ever be reached
+from a collector or a poll. The clone lands only inside the concierge's own
+fenced namespace, `~/rhizomorph/repos` by default (`concierge/paths.ts`'s
+`defaultClonesRoot`); the launch's one further write, a create-only transcript
+copy (ADR-0020), lands only under `~/.claude/projects/<watched-repo-slug>/`,
+never elsewhere under `~/.claude`.
+
+**The enlist is the one that writes to a file you use every day**, and it is
+bounded accordingly: exactly one file, `~/.claude/settings.json`, never inside
+any repository; the original copied beside itself before a byte moves; exactly
+the declared keys changed and an operator's own hooks and variables left alone;
+a pre-existing OTLP endpoint refused by name rather than overwritten; and the
+whole act reversible — `intent: 'unenlist'` puts the file back. It is also the
+only route that cannot be reached in one call: the write requires a digest of
+the diff, which the read returns and nothing else produces, so a write this
+server cannot tie to a diff somebody saw does not happen.
 
 A sixth, `POST /api/retarget` (prd-20 ruling 5's repo switch, #389), is
 gated the same way and, since #216, has exactly one caller: the setup
