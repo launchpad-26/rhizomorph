@@ -7,6 +7,7 @@ import { createEventFactory, type RhizomorphEvent } from '@rhizomorph/core'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/worktree-slug.js'
+import { readOrMintInstallationId } from '../log/installation-id.js'
 import { sessionFilePath } from '../log/session-log.js'
 import { buildApp } from '../server/build-app.js'
 import { SessionRecorder } from '../server/recorder.js'
@@ -18,9 +19,9 @@ import {
   CloneDestinationExistsError,
   CloneFenceError,
   CloneValidationError,
+  ConciergeLaunchValidationError,
   HarnessNotAvailableError,
   LaunchContinuityUnavailableError,
-  ConciergeLaunchValidationError,
   registerConciergeLaunchRoute,
 } from './concierge.js'
 import { CAPABILITY_TOKEN_HEADER } from './security.js'
@@ -360,13 +361,31 @@ describe('POST /api/concierge/clone', () => {
 
 describe('POST /api/concierge/launch', () => {
   let repoPath: string
+  let dataRoot: string
   let sessionDir: string
+  /**
+   * The installation id this boot's routes resolve — prd-57 ruling 7.
+   *
+   * A launch env block declares it, where it used to declare the recorder's
+   * session id, and the reason is the one the inbox now enforces: this server
+   * accepts exports carrying the installation id and refuses everything else,
+   * so a launch writing a session id would dispatch an agent whose telemetry
+   * this very server throws away.
+   *
+   * `sessionDir` sits one segment under `dataRoot` so `dataRootFor(ctx)` climbs
+   * back to a directory this test owns. Flattening the two would mint the id
+   * into the OS temp directory, shared with every other test on the machine.
+   */
+  let installationId: string
   const CAPABILITY_TOKEN = 'test-token'
   const PORT = 4321
 
   beforeEach(async () => {
     repoPath = await mkdtemp(path.join(tmpdir(), 'rhizomorph-concierge-launch-repo-'))
-    sessionDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-concierge-launch-session-'))
+    dataRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-concierge-launch-data-'))
+    sessionDir = path.join(dataRoot, 'repo-abc123')
+    await mkdir(sessionDir, { recursive: true })
+    installationId = readOrMintInstallationId({ dataRoot }).id
     planLaunchMock.mockReset()
     runLaunchMock.mockReset()
     // Clear, not reset — see the migrate mock's own comment above.
@@ -377,7 +396,7 @@ describe('POST /api/concierge/launch', () => {
   afterEach(async () => {
     await Promise.all([
       rm(repoPath, { recursive: true, force: true }),
-      rm(sessionDir, { recursive: true, force: true }),
+      rm(dataRoot, { recursive: true, force: true }),
     ])
   })
 
@@ -467,7 +486,11 @@ describe('POST /api/concierge/launch', () => {
     expect(response.json()).toEqual({ error: 'no continuity story' })
   })
 
-  it('plans with ctx.repoPath/port/instance, then reports runLaunch’s outcome in a 200 body', async () => {
+  it('plans with ctx.repoPath/port and the INSTALLATION id, then reports runLaunch’s outcome in a 200 body', async () => {
+    // The control: the id passed is not the recorder's, which is what this
+    // asserted before ruling 7 and what an unmoved implementation still sends.
+    expect(installationId).not.toBe('1000')
+
     planLaunchMock.mockResolvedValue({
       argv: ['claude'],
       env: {},
@@ -484,7 +507,7 @@ describe('POST /api/concierge/launch', () => {
     expect(planLaunchMock).toHaveBeenCalledWith(
       'claude',
       'launch',
-      { watchedRepoPath: repoPath, port: PORT, instance: '1000' },
+      { watchedRepoPath: repoPath, port: PORT, instance: installationId },
       undefined,
     )
     expect(response.statusCode).toBe(200)
@@ -650,6 +673,8 @@ describe('POST /api/concierge/launch — mode: resume brings the transcript home
   let repoPath: string
   let originRepoPath: string
   let sessionDir: string
+  /** prd-57 ruling 7's id, from this test's own data root — `sessionDir`'s parent. */
+  let installationId: string
 
   beforeEach(async () => {
     // `realpathSync`: the destination slug is derived from the watched repo's
@@ -664,6 +689,7 @@ describe('POST /api/concierge/launch — mode: resume brings the transcript home
     await mkdir(repoPath, { recursive: true })
     await mkdir(originRepoPath, { recursive: true })
     await mkdir(sessionDir, { recursive: true })
+    installationId = readOrMintInstallationId({ dataRoot: root }).id
     await writeTranscript(originTranscript(), [userLine('the conversation that began somewhere else')])
 
     planLaunchMock.mockReset()
@@ -777,7 +803,7 @@ describe('POST /api/concierge/launch — mode: resume brings the transcript home
     expect(planLaunchMock).toHaveBeenCalledWith(
       'claude',
       'resume',
-      { watchedRepoPath: repoPath, port: PORT, instance: '1000' },
+      { watchedRepoPath: repoPath, port: PORT, instance: installationId },
       SESSION_ID,
     )
     expect(runLaunchMock).toHaveBeenCalledTimes(1)

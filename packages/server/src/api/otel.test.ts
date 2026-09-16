@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { EventOf } from '@rhizomorph/core'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { readOrMintInstallationId } from '../log/installation-id.js'
 import { sessionFilePath } from '../log/session-log.js'
 import { buildApp } from '../server/build-app.js'
 import { SessionRecorder } from '../server/recorder.js'
@@ -16,12 +17,28 @@ import { capabilityHeaders } from './test-support.js'
  * routes, real body parsing, asserting on what actually lands in the recorder
  * — not just the pure parser (see `collectors/otel/parse-metrics.test.ts` for that).
  *
- * The instance id under test is the recorder's session id (`OUR_INSTANCE`),
- * which is what `/api/meta` publishes and `rhizomorph env` writes into a
- * lane's `OTEL_RESOURCE_ATTRIBUTES`.
+ * The instance id under test is the INSTALLATION id since prd-57 ruling 7
+ * (`OUR_INSTANCE`), where it used to be the recorder's session id. Both exist
+ * here, deliberately and separately: `OUR_SESSION` is still the record's
+ * identity and every recorded event is written under it, while `OUR_INSTANCE`
+ * is what an export must declare. Holding both is what lets the refusal case
+ * post the plausible-but-wrong id rather than an obviously foreign one — and a
+ * stale env block carrying the session id is exactly the shape a real refusal
+ * will take from this change onward.
  */
 
-const OUR_INSTANCE = '1000'
+/** The recorder's own id. Unchanged by ruling 7, and NOT what an export declares. */
+const OUR_SESSION = '1000'
+
+/**
+ * This installation's id, minted into each test's own temp data root.
+ *
+ * Minted rather than written as a literal because `isInstallationId` gates the
+ * mint and the routes read the real file: a hand-written string would be
+ * testing a different program. Per-test root so nothing is shared between
+ * files or workers.
+ */
+let OUR_INSTANCE: string
 
 function fixture(name: string): Record<string, unknown> {
   return JSON.parse(
@@ -72,11 +89,19 @@ function twoResourceBlocks(first: string, second: string): Record<string, unknow
 
 describe('OTLP/HTTP receiver routes', () => {
   let dir: string
+  let sessionDir: string
   let recorder: SessionRecorder
 
   beforeEach(async () => {
+    // `dir` is the DATA ROOT and `sessionDir` sits one segment under it, which
+    // is the shape `dataRootFor(ctx)` climbs back out of. Flattening the two
+    // would put the installation id in the OS temp directory, shared by every
+    // test on the machine.
     dir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-otel-test-'))
-    recorder = new SessionRecorder(OUR_INSTANCE, sessionFilePath(dir, OUR_INSTANCE))
+    sessionDir = path.join(dir, 'repo-abc123')
+    await mkdir(sessionDir, { recursive: true })
+    OUR_INSTANCE = readOrMintInstallationId({ dataRoot: dir }).id
+    recorder = new SessionRecorder(OUR_SESSION, sessionFilePath(sessionDir, OUR_SESSION))
   })
 
   afterEach(async () => {
@@ -84,7 +109,7 @@ describe('OTLP/HTTP receiver routes', () => {
   })
 
   function makeApp() {
-    return buildApp({ repoPath: '/repo', repoName: 'repo', sessionDir: dir, recorder })
+    return buildApp({ repoPath: '/repo', repoName: 'repo', sessionDir, recorder })
   }
 
   function refusals(): Array<EventOf<'telemetry.refused'>> {
@@ -205,6 +230,98 @@ describe('OTLP/HTTP receiver routes', () => {
     expect(errors).toHaveLength(1)
     expect(errors[0]?.payload).toMatchObject({ collector: 'otel' })
     expect(refusals()).toHaveLength(0)
+  })
+
+  /**
+   * THE ATTRIBUTION, prd-57 ruling 7 — the id an export must declare is the
+   * INSTALLATION id, not the session id.
+   *
+   * The issue names the mutation these have to survive: *an acceptance test
+   * that posts the right id survives an inbox that accepts everything.* So the
+   * acceptance and the refusal run over the SAME route table, in the same file,
+   * and the refusal posts the plausible-but-wrong id rather than an obviously
+   * foreign one — because "it rejects `factory-rhizomorph-77`" would also pass
+   * an inbox still keyed on the session id.
+   */
+  describe('the inbox attributes by installation id (prd-57 ruling 7)', () => {
+    /** Every route an export can arrive on. The bare path is the one easiest to miss. */
+    const ROUTES = [
+      ['/v1/metrics', 'metrics-token-and-cost.json'],
+      ['/v1/logs', 'logs-basic.json'],
+      ['/v1/traces', 'claude-code-2.1.220-traces-llm-request.json'],
+      ['/', 'metrics-token-and-cost.json'],
+      ['/', 'logs-basic.json'],
+      ['/', 'claude-code-2.1.220-traces-llm-request.json'],
+    ] as const
+
+    it('the two ids are different things, and this file would be vacuous if they were not', () => {
+      // The control every assertion below leans on. If `OUR_INSTANCE` ever
+      // equalled `OUR_SESSION`, the refusal cases would be posting the right id
+      // and passing for the wrong reason.
+      expect(OUR_INSTANCE).not.toBe(OUR_SESSION)
+      expect(OUR_INSTANCE.startsWith('rzi_')).toBe(true)
+      // And the record's identity is untouched by any of it.
+      expect(recorder.sessionId).toBe(OUR_SESSION)
+    })
+
+    it.each(ROUTES)('%s accepts an export declaring the installation id', async (url, name) => {
+      const response = await makeApp().inject({ method: 'POST', url, payload: declaring(fixture(name), OUR_INSTANCE) })
+
+      expect(response.statusCode).toBe(200)
+      expect(refusals()).toHaveLength(0)
+    })
+
+    it.each(ROUTES)('%s refuses an export declaring the SESSION id — the plausible wrong one', async (url, name) => {
+      // What every env block generated before this change carries. It is the
+      // id `/api/meta` publishes and the id the old inbox keyed on, so an
+      // implementation that had not really moved would accept it.
+      const response = await makeApp().inject({ method: 'POST', url, payload: declaring(fixture(name), OUR_SESSION) })
+
+      expect(response.statusCode).toBe(403)
+      expect(refusals()).toHaveLength(1)
+      // Both values named, which is what makes the refusal actionable.
+      expect(refusals()[0]?.payload).toEqual({ instance: OUR_SESSION, expectedInstance: OUR_INSTANCE, count: 1 })
+      expect(response.json().error).toContain(OUR_INSTANCE)
+      expect(response.json().error).toContain(OUR_SESSION)
+    })
+
+    it('refuses a body mixing the installation id with a foreign one, whole', async () => {
+      // All-or-nothing, as today: splitting it would be the silent merge prd2
+      // forbids. Asserted here as well as above because the id being compared
+      // changed underneath it.
+      const response = await makeApp().inject({
+        method: 'POST',
+        url: '/v1/metrics',
+        payload: twoResourceBlocks(OUR_INSTANCE, 'factory-rhizomorph-77'),
+      })
+
+      expect(response.statusCode).toBe(403)
+      expect(recorder.eventsSoFar().filter((e) => e.type === 'llm.usage')).toHaveLength(0)
+    })
+
+    it('the refusal names both commands that can fix it', async () => {
+      const response = await makeApp().inject({
+        method: 'POST',
+        url: '/v1/metrics',
+        payload: declaring(fixture('metrics-token-and-cost.json'), OUR_SESSION),
+      })
+
+      expect(response.json().error).toContain('rhizomorph enlist')
+      expect(response.json().error).toContain('rhizomorph env')
+    })
+
+    it('an injected id is what the routes check — the seam a real boot does not use', () => {
+      // Pins that `installationId` is honoured rather than silently ignored,
+      // which is the one way the injection could make every test above lie.
+      const app = Fastify()
+      registerOtelRoutes(app, { repoPath: '/repo', repoName: 'repo', sessionDir, recorder }, { installationId: 'rzi_injected' })
+
+      return app
+        .inject({ method: 'POST', url: '/v1/metrics', payload: declaring(fixture('metrics-token-and-cost.json'), 'rzi_injected') })
+        .then((response) => {
+          expect(response.statusCode).toBe(200)
+        })
+    })
   })
 
   describe('foreign traffic is refused, loudly', () => {
@@ -541,7 +658,7 @@ describe('OTLP/HTTP receiver routes', () => {
       const app = Fastify()
       registerOtelRoutes(
         app,
-        { repoPath: '/repo', repoName: 'repo', sessionDir: dir, recorder },
+        { repoPath: '/repo', repoName: 'repo', sessionDir, recorder },
         { now: () => clock.ms },
       )
       return app
@@ -635,7 +752,7 @@ describe('OTLP/HTTP receiver routes', () => {
       const app = Fastify()
       registerOtelRoutes(
         app,
-        { repoPath: '/repo', repoName: 'repo', sessionDir: dir, recorder },
+        { repoPath: '/repo', repoName: 'repo', sessionDir, recorder },
         { now: () => clock.ms },
       )
       return app

@@ -3,10 +3,18 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { beaconDirFor } from '../collectors/beacon/paths.js'
+import { readOrMintInstallationId } from '../log/installation-id.js'
 import { DATA_ROOT_ENV_VAR } from '../log/paths.js'
-import { runCli, type CliHandle } from './index.js'
+import { type CliHandle, runCli } from './index.js'
 import { capabilityAwareFetch } from './rotate.js'
-import { fetchInstanceId, fetchInstanceMeta, metaUrl, otlpEndpoint, renderTelemetryEnv } from './telemetry-env.js'
+import {
+  fetchInstanceId,
+  fetchInstanceMeta,
+  installationInstanceId,
+  metaUrl,
+  otlpEndpoint,
+  renderTelemetryEnv,
+} from './telemetry-env.js'
 
 /** A `fetch` that answers one `/api/meta` body, without a socket. */
 function metaFetch(body: unknown, init: ResponseInit = {}): typeof globalThis.fetch {
@@ -212,6 +220,56 @@ describe('fetchInstanceMeta', () => {
  * their booted servers a real `webDistDir`. Without one there is no page to
  * scrape a token off.
  */
+/**
+ * THE ID AN ENV BLOCK DECLARES — prd-57 ruling 7.
+ *
+ * `installationInstanceId` reads a file rather than asking a server, and the
+ * module doc says why that is not the guessed identity prd2 removed: a session
+ * id is known only to the process holding it, while an installation id is one
+ * file that both processes read. These pin that claim on both sides — the same
+ * root agrees, a different root does not — because the second half is the
+ * failure mode an operator can actually create, and the refusal that follows
+ * names both ids.
+ */
+describe('installationInstanceId (prd-57 ruling 7)', () => {
+  let root: string
+
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'rhizomorph-instance-'))
+  })
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  it('two readers of one data root get one id — there is nothing left to guess', () => {
+    // Called twice, as the CLI and the server each call it once. Reading it
+    // must not mint a second one, which is the property that makes a local read
+    // safe at all.
+    expect(installationInstanceId({ dataRoot: root })).toBe(installationInstanceId({ dataRoot: root }))
+    expect(installationInstanceId({ dataRoot: root }).startsWith('rzi_')).toBe(true)
+  })
+
+  it('a DIFFERENT data root is a different id — the bound, stated as a test', async () => {
+    // An operator who points one process elsewhere gets two ids. That is the
+    // loud failure (a 403 naming both) rather than the invisible one, and it is
+    // worth pinning so nobody later "fixes" it into a shared global.
+    const other = await mkdtemp(path.join(tmpdir(), 'rhizomorph-instance-other-'))
+    try {
+      expect(installationInstanceId({ dataRoot: root })).not.toBe(installationInstanceId({ dataRoot: other }))
+    } finally {
+      await rm(other, { recursive: true, force: true })
+    }
+  })
+
+  it('renders into the block verbatim, which is what the receiver compares against', () => {
+    const id = installationInstanceId({ dataRoot: root })
+    const block = renderTelemetryEnv({ lane: 'l', role: 'worker', port: 4321, instance: id })
+
+    expect(block).toContain(`instance=${id}`)
+  })
+})
+
 describe('rhizomorph env against a live server', () => {
   let dataRoot: string
   let webDistDir: string
@@ -243,7 +301,15 @@ describe('rhizomorph env against a live server', () => {
     await rm(webDistDir, { recursive: true, force: true })
   })
 
-  async function boot(): Promise<{ port: number; instance: string }> {
+  /**
+   * Boots a server on this test's own data root and reports BOTH ids.
+   *
+   * They are different values with different lifetimes since prd-57 ruling 7,
+   * and every test below that said `instance` meant the session id — so they
+   * are named apart here rather than one of them quietly changing meaning
+   * under the same word.
+   */
+  async function boot(): Promise<{ port: number; instance: string; sessionId: string }> {
     server = await runCli([path.join(tmpdir(), 'env-repo'), '--port', '0'], {
       dataRoot,
       collectors: [],
@@ -251,19 +317,45 @@ describe('rhizomorph env against a live server', () => {
       webDistDir,
     })
     const port = Number(new URL(server.url).port)
-    return { port, instance: server.recorder.sessionId }
+    return { port, instance: readOrMintInstallationId({ dataRoot }).id, sessionId: server.recorder.sessionId }
   }
 
-  it('carries the live server\'s instance id into OTEL_RESOURCE_ATTRIBUTES', async () => {
-    const { port, instance } = await boot()
+  /**
+   * Runs the CLI with `RHIZOMORPH_DATA_DIR` pointed at this test's data root.
+   *
+   * The `--hooks` test below already did this and explained why: the CLI and
+   * the server agree only because they share an environment, never because a
+   * test could inject the server's `dataRoot` into a CLI a real operator runs
+   * in another process. Since ruling 7 the INSTANCE has that property too — it
+   * is a file under the data root, read by both — so the same reproduction now
+   * covers both halves and lives in one place.
+   */
+  async function runCliInEnv(
+    argv: readonly string[],
+    log: Pick<Console, 'log' | 'warn'>,
+  ) {
+    const previous = process.env[DATA_ROOT_ENV_VAR]
+    process.env[DATA_ROOT_ENV_VAR] = dataRoot
+    try {
+      return await runCli(argv, { log, exit: fakeExit() }).catch((err: unknown) => err)
+    } finally {
+      if (previous === undefined) delete process.env[DATA_ROOT_ENV_VAR]
+      else process.env[DATA_ROOT_ENV_VAR] = previous
+    }
+  }
 
-    expect(await fetchInstanceId(port, { fetch: capabilityAwareFetch(port) })).toBe(instance)
+  it('carries the INSTALLATION id into OTEL_RESOURCE_ATTRIBUTES, not the session id (prd-57 ruling 7)', async () => {
+    const { port, instance, sessionId } = await boot()
+
+    // The control that makes the assertion below mean something: these are
+    // two different values, and the session id is still exactly what
+    // `/api/meta` publishes and `fetchInstanceId` reads. Neither moved; what
+    // moved is which of them an env block declares.
+    expect(instance).not.toBe(sessionId)
+    expect(await fetchInstanceId(port, { fetch: capabilityAwareFetch(port) })).toBe(sessionId)
 
     const log = { log: vi.fn(), warn: vi.fn() }
-    const thrown = await runCli(['env', 'my-lane', '--port', String(port)], {
-      log,
-      exit: fakeExit(),
-    }).catch((err: unknown) => err)
+    const thrown = await runCliInEnv(['env', 'my-lane', '--port', String(port)], log)
 
     expect(thrown).toBeInstanceOf(FakeExit)
     expect((thrown as FakeExit).code).toBe(0)
@@ -271,6 +363,9 @@ describe('rhizomorph env against a live server', () => {
     expect(output).toContain(
       `export OTEL_RESOURCE_ATTRIBUTES=lane=my-lane,role=worker,instance=${instance}`,
     )
+    // Said in the negative too, because 'carries the right id' would pass a
+    // block that carried both.
+    expect(output).not.toContain(`instance=${sessionId}`)
     expect(output).toContain(`export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:${port}`)
   })
 
@@ -283,23 +378,12 @@ describe('rhizomorph env against a live server', () => {
     // decision 1): the CLI and the server agree only because they share an
     // environment. Reproduce that environment here rather than the server's
     // injected `dataRoot`, which a real CLI invocation never has access to.
-    const previousDataRoot = process.env[DATA_ROOT_ENV_VAR]
-    process.env[DATA_ROOT_ENV_VAR] = dataRoot
-    let output: string
-    try {
-      const log = { log: vi.fn(), warn: vi.fn() }
-      const thrown = await runCli(['env', 'my-lane', '--hooks', 'claude', '--port', String(port)], {
-        log,
-        exit: fakeExit(),
-      }).catch((err: unknown) => err)
+    const log = { log: vi.fn(), warn: vi.fn() }
+    const thrown = await runCliInEnv(['env', 'my-lane', '--hooks', 'claude', '--port', String(port)], log)
 
-      expect(thrown).toBeInstanceOf(FakeExit)
-      expect((thrown as FakeExit).code).toBe(0)
-      output = log.log.mock.calls.map((call) => String(call[0])).join('\n')
-    } finally {
-      if (previousDataRoot === undefined) delete process.env[DATA_ROOT_ENV_VAR]
-      else process.env[DATA_ROOT_ENV_VAR] = previousDataRoot
-    }
+    expect(thrown).toBeInstanceOf(FakeExit)
+    expect((thrown as FakeExit).code).toBe(0)
+    const output = log.log.mock.calls.map((call) => String(call[0])).join('\n')
     const parsed = JSON.parse(output) as { hooks: Record<string, [{ hooks: [{ command: string }] }]> }
 
     const expectedBeaconDir = beaconDirFor(path.join(tmpdir(), 'env-repo'), dataRoot)
@@ -309,8 +393,8 @@ describe('rhizomorph env against a live server', () => {
     }
   })
 
-  it('emits a block the receiver on that very port accepts, and one it refuses without the id', async () => {
-    const { port, instance } = await boot()
+  it('emits a block the receiver on that very port accepts, and refuses the session id and no id alike', async () => {
+    const { port, instance, sessionId } = await boot()
 
     const metrics = (declared: string | null) => ({
       resourceMetrics: [
@@ -341,5 +425,17 @@ describe('rhizomorph env against a live server', () => {
       body: JSON.stringify(metrics(null)),
     })
     expect(refused.status).toBe(403)
+
+    // End to end over a real socket, against a real boot: the id this very
+    // server publishes on `/api/meta` is NOT the id its own inbox accepts.
+    // That is the whole of ruling 7, and it is the case a unit test with an
+    // injected id cannot make — both halves here were resolved by the
+    // running process, from its own data root.
+    const stale = await fetch(`${otlpEndpoint(port)}/v1/metrics`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(metrics(sessionId)),
+    })
+    expect(stale.status).toBe(403)
   })
 })
