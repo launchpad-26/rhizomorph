@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, rmSync, truncateSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -562,6 +562,56 @@ describe('the fold cursor', () => {
     expect(warned.status).toBe('warn')
     expect(warned.message).toContain(`${FOLD_LAG_WARN_RECORDS + 1} journal records unfolded`)
     expect(warned.message).toContain('fold refused')
+  })
+
+  /**
+   * THE JOURNAL WENT BACKWARDS UNDER A LIVE CURSOR (review of #585).
+   *
+   * The sibling of the `#514` case above: that one is a cursor that never moved, this one a
+   * journal that shrank. All three spellings reported `ok` and exit 0 before the fix — the first
+   * two as "nothing has been ingested yet", because `readJournal` maps `ENOENT` to an empty
+   * buffer, and the third as a NEGATIVE unfolded count. The remedy is executed in the case below.
+   */
+  it.each([
+    ['deleted', (): void => unlinkSync(path.join(dir, 'ingest.log'))],
+    ['truncated to zero', (): void => truncateSync(path.join(dir, 'ingest.log'), 0)],
+    ['rewound to 3 records', (): void => writeJournal(3)],
+  ])('a journal %s under a cursor at 500 FAILS rather than reading as untouched', async (_label, shrink) => {
+    writeJournal(500)
+    writeCursor(path.join(dir, 'ingest.cursor'), { seq: 500, actors: {} })
+    shrink()
+
+    const report = await doctor(fullEnv())
+    const check = byId(report, 'fold-cursor')
+    expect(check.status).toBe('fail')
+    expect(check.message).toContain('is at seq 500')
+    expect(check.message).toContain('WEDGED')
+    expect(report.exitCode).toBe(1)
+    // The reassuring line the three states used to print must not be what an operator sees.
+    expect(check.message).not.toContain('nothing has been ingested yet')
+    // …and no line may report a negative backlog.
+    expect(check.message).not.toMatch(/-\d+ record/)
+  })
+
+  /**
+   * THE REMEDY IS TYPED BACK IN, which is the issue's own standard for a printed remedy: it
+   * names removing the cursor, so removing the cursor must turn the check green.
+   */
+  it('the remedy it prints is the one that fixes it', async () => {
+    writeJournal(500)
+    writeCursor(path.join(dir, 'ingest.cursor'), { seq: 500, actors: {} })
+    writeJournal(3)
+    const wedged = byId(await doctor(fullEnv()), 'fold-cursor')
+    expect(wedged.status).toBe('fail')
+    expect(wedged.message).toContain('rm -f')
+
+    // What the printed remedy says to do: remove the cursor, then let the boot drain re-fold.
+    unlinkSync(path.join(dir, 'ingest.cursor'))
+    const afterRemedy = byId(await doctor(fullEnv()), 'fold-cursor')
+    expect(afterRemedy.status).toBe('fail')
+    // A cold start against a journal holding records is #514's state, which is the HONEST
+    // next finding rather than a green line: the boot drain is what clears it.
+    expect(afterRemedy.message).toContain('NOTHING has ever been folded')
   })
 
   it('a corrupt journal FAILS and carries the reader\'s own byte offset', async () => {

@@ -498,6 +498,34 @@ function checkFoldCursor(journalDir: string): DoctorCheck {
   const tail = journal.lastSeq
   const tornNote = journal.verdict === 'torn' ? ' (the tail record is torn, which reads as never-acked and is legal)' : ''
 
+  /**
+   * THE CURSOR IS AHEAD OF THE TAIL, WHICH MEANS THE JOURNAL SHRANK UNDER IT.
+   *
+   * This is the structural SIBLING of the `cursor.seq === 0` arm below — that one is a cursor
+   * that never moved while the journal grew; this one is a journal that went backwards while the
+   * cursor stayed. Found in review of #585, and it must be checked BEFORE the `tail === 0` arm,
+   * because a deleted journal reads as `lastSeq === 0` (`readJournal` maps `ENOENT` to an empty
+   * buffer) and would otherwise report the reassuring "nothing has been ingested yet".
+   *
+   * It is a `fail` rather than a `warn` because the fold is then WEDGED, silently and
+   * indefinitely: `runOnce` reads `readJournal(journalPath, cursor.seq)`, which returns only
+   * records with `seq > cursor.seq`, so a journal restarting at seq 1 under a cursor at 500 has
+   * every new record filtered out. Batches are accepted, fsynced and acked 202 while `events`
+   * never grows — #514's exact state, which is the state this check exists to catch.
+   */
+  if (cursor.seq > tail) {
+    return check(
+      'fold-cursor',
+      'fail',
+      `fold cursor: ${cursorPath} is at seq ${cursor.seq} but ${journalPath} only reaches ${tail}, so the journal has ` +
+        'been truncated, deleted or replaced under a live cursor. The fold is WEDGED: it reads only records past the ' +
+        'cursor, so every record this journal now holds — and every batch that arrives from here — is filtered out and ' +
+        'events will never grow, however many 202s are returned. Remedy: docker compose exec app rm -f ' +
+        `${cursorPath} && docker compose up -d app — a missing cursor is a cold start, so the boot drain re-folds the ` +
+        'journal from byte 0 and the rows dedup (ON CONFLICT DO NOTHING), which makes a rewind cost time and not rows.',
+    )
+  }
+
   if (tail === 0) {
     return check('fold-cursor', 'ok', `fold cursor: nothing has been ingested yet — ${journalPath} holds no records${tornNote}`)
   }
