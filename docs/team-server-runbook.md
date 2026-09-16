@@ -270,16 +270,77 @@ machine.
 
 ## What is not wired up yet
 
-Bringing the image up is not the same as the ingest pipeline being end-to-end. Two
-things are deliberately unbuilt:
+Bringing the image up is not the same as the ingest pipeline being end-to-end. One
+thing is deliberately unbuilt:
 
-- **The fold worker is not started.** The ingest route durably accepts and journals
-  batches, but nothing folds them into Postgres's `events` table or the projections yet
-  — the journal grows and nothing reads it.
 - **There is no `doctor` for the team server yet.** Nothing in this deployment should be
   read as implying one exists.
 
-Minting a key **from the team viewer** is also not here, because the viewer is not: the
+### The fold runs in the app process
+
+The journal is no longer the end of the line. The fold runs **inside the `app` container**,
+alongside the HTTP server, and there is exactly one of it:
+
+- **Woken by each accepted batch.** The ingest route's `onBatch` seam wakes it after the
+  fsync, so a batch is normally folded within milliseconds of its 202.
+- **Drained at boot, from the cursor.** Everything the journal already holds is folded when
+  the server starts, including records written while no worker was running. Bringing the
+  image up on a journal that has been accumulating will fold the backlog in one pass.
+- **Re-ticked every `RZ_TEAM_FOLD_TICK_MS`**, default `5000`. Set it to `0` to disable the
+  tick and fold only on wake and at boot. A value that is not a number is treated as `0`
+  rather than as "immediately" — `RZ_TEAM_FOLD_TICK_MS=5s` disables the tick, it does not
+  set five seconds.
+- **The first tick cannot precede the boot drain.** The timer is armed when a drain
+  finishes, not when the server starts, so the fold never runs before the migrations and the
+  monthly partitions have been brought up to date. On the first boot of a new month that
+  ordering is what keeps rows from being folded with nowhere to land.
+- **Folds never stack**, however slow the database is. That is the worker's coalescing and
+  not the tick's spacing: at most one fold runs at a time, and everything that arrives
+  during one — ticks and batches alike — is satisfied by a single follow-up pass.
+- **The cursor is `/data/journal/ingest.cursor`**, on the same `team_journal` volume as the
+  journal itself. A container restart therefore resumes where the fold left off: it does not
+  re-fold what landed and does not skip what did not.
+
+A batch that is accepted twice is folded once — the journal is append-only and accepts the
+replay, and the insert dedups against the month's partition. A line the fold cannot read
+stops **that actor** at that position and is logged as `fold refused <actor> at n=<n>`;
+every other actor keeps moving.
+
+**Do not scale the `app` service to more than one replica.** The fold cursor is written
+tmp-then-rename with no lock, so two app containers folding the same journal would rewind
+each other. ADR-0056 records this and what it would take to lift.
+
+### The three questions
+
+Three read-only pages, for members of the organisation:
+
+```
+GET /v1/rhizomorph/where?project=<id>    where is work      (lane_state)
+GET /v1/rhizomorph/cost?project=<id>     what does it cost  (spend_by_project_day)
+GET /v1/rhizomorph/stuck?project=<id>    who is stuck       (collisions)
+```
+
+Sign in first at `/auth/github/start`. Membership of the organisation is checked **per request**,
+so removing someone from the org closes their access at their next page load rather than at their
+next sign-in. A pending, never-accepted invitation is not membership.
+
+**`RZ_TEAM_PROJECT` now decides what a viewer may read, not only which project the seeded ingest
+key is scoped to.** `init.sh` always writes it (defaulting to `default`), and a request naming any
+other project is refused with a 404. That is a narrowing, not an authorisation model: **membership
+of the organisation is the boundary**, and if you ever run a deployment with that variable empty,
+any member may read any project it holds.
+
+**The pages read as `rz_viewer`, never as the owner**, which is what makes the per-project policies
+in `0003_roles_rls.sql` mean anything — the header there records the measurement, and
+`0006_viewer_role_membership.sql` is the grant that makes it possible. Each read also sets
+`rhizomorph.project_id`; without it the policies admit nothing and a page is empty rather than
+wrong. A page that is empty when you expect rows is more likely the fold (above) than the scope.
+
+A database that cannot answer gives **503** and a log line naming the cause; the page never
+carries it.
+
+Minting a key **from the team viewer** is not here, because minting is not — the viewer reads and
+does not write: the
 one key this deployment holds is the one `init.sh` seeds. That is a narrowing of ruling
 8's *"a member mints a key in the viewer"*, not a gap in the verification below.
 

@@ -60,6 +60,7 @@ describe('case 29 — an equal-or-stronger setting is accepted', () => {
       '0003_roles_rls',
       '0004_events_dedup',
       '0005_ingest_keys',
+      '0006_viewer_role_membership',
     ])
     expect(fake.migrationsTableExists).toBe(true)
   })

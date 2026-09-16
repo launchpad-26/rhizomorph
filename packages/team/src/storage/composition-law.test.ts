@@ -7,6 +7,7 @@ import { createEventsSql } from './ports/events/sql.js'
 import { createIngestKeysSql } from './ports/ingest-keys/sql.js'
 import { createLifecycleSql } from './ports/lifecycle/sql.js'
 import { createMigrationsSql } from './ports/migrations/sql.js'
+import { createQuestionsSql } from './ports/questions/sql.js'
 import { createSettingsSql } from './ports/settings/sql.js'
 import { createPostgresStorage } from './postgres.js'
 import { createRecordingSql } from './recording-sql.js'
@@ -142,6 +143,7 @@ describe('the composition law (#509, prd-51 wave 8)', () => {
       createIngestKeysSql(sql),
       createLifecycleSql(sql),
       createMigrationsSql(sql),
+      createQuestionsSql(sql),
       createSettingsSql(sql),
     ].map((port) => Object.keys(port))
 
