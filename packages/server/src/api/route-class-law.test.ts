@@ -1323,6 +1323,10 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     { file: path.join('packages', 'app', 'src', 'host', 'fleet-feed.ts'), count: 2 },
     { file: path.join('packages', 'web', 'src', 'app', 'StreamContext.tsx'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'concierge', 'clone.ts'), count: 1 },
+    // prd-57 ruling 4 / ADR-0053, #524: the enlist client — the app's TENTH
+    // mutating call and the only reversible one. One aliased fetch, shared by
+    // both steps of the diff-then-write.
+    { file: path.join('packages', 'web', 'src', 'concierge', 'enlist.ts'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'concierge', 'instrument.ts'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'concierge', 'retarget.ts'), count: 1 },
     { file: path.join('packages', 'web', 'src', 'hooks', 'useEventStream.ts'), count: 1 },
