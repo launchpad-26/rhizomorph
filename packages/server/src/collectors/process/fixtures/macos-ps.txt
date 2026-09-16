@@ -1,0 +1,42 @@
+# captured: 2026-09-16 by Ciaran, at Lachlan Kelliher's direction (prd-57 ruling 10)
+# machine:  macOS 26.6.2 (build 25G83), arm64 (Apple silicon), host HOST-REDACTED
+# harness:  Claude Code 2.1.270, desktop app. THREE live sessions in three different
+#           directories at capture time; pids 5001, 5090 and 6132 are those sessions.
+# command:  ps -axww -o pid=,ppid=,lstart=,time=,rss=,comm=
+#
+# This is the SPINE: every numeric field, plus argv[0] exactly. `comm=` and not `command=`,
+# and that substitution is the macOS finding — see macos-ps-args.txt.
+#
+# Two traps visible in the rows below:
+#   * `lstart` is FIVE whitespace-separated tokens (`Sun Sep 13 12:41:26 2026`) sitting in the
+#     MIDDLE of the row. Splitting the line from the left mis-reads every field after it.
+#   * `comm` is last and may itself contain spaces and parentheses — pid 537.
+#
+# rows:     7 of 487. A SUBSET, and the selection is stated rather than called a sample.
+#           Every row is load-bearing on something the parser must survive:
+#             pid 1     root-owned, single-token command, and lsof will not give its cwd
+#             pid 350   a root-owned daemon whose ARGS carry a parenthesised suffix `(System)`
+#             pid 421   a three-digit MINUTES field in TIME — 404:34.97, not an hours:minutes:seconds form
+#             pid 537   an executable whose own name contains SPACES and parentheses
+#             pid 5001  a real Claude Code session — argv[0] contains a space
+#             pid 5090  a real Claude Code session, second directory (a rhizomorph checkout)
+#             pid 6132  a real Claude Code session, third directory
+#
+# sanitised: taken on a real machine; every personal value substituted AFTER the capture and
+#            BEFORE the commit. The left-hand side is DESCRIBED rather than written out,
+#            because naming the home it replaced would be the same disclosure:
+#              the operator's rhizomorph checkout  -> /repo
+#              the operator's home directory       -> /home/operator
+#              that home's SLUG encoding           -> -home-operator-   (re-derived from the
+#                  line above rather than retyped — a path and its encoding are ONE edit)
+#              the machine's hostname              -> HOST-REDACTED
+#              the OS username                     -> operator
+#              every session UUID                  -> a fixed synthetic UUID, the same
+#                  substitution at every place that UUID appeared
+    1     0 Sun Sep 13 12:41:26 2026      27:46.42   8816 /sbin/launchd
+  350     1 Sun Sep 13 12:41:48 2026       0:24.11   5088 /usr/libexec/UserEventAgent
+  421     1 Sun Sep 13 12:41:49 2026     404:34.97  37232 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer
+  537     1 Sun Sep 13 12:41:45 2026       2:51.21   4880 Core Audio Driver (MSTeamsAudioDevice.driver)
+ 5001  5000 Tue Sep 15 12:32:30 2026      24:09.95  85232 /home/operator/Library/Application Support/Claude/claude-code/2.1.270/claude.app/Contents/MacOS/claude
+ 5090  5089 Wed Sep 16 11:35:35 2026       0:24.26 189696 /home/operator/Library/Application Support/Claude/claude-code/2.1.270/claude.app/Contents/MacOS/claude
+ 6132  6131 Wed Sep 16 11:35:59 2026       0:22.81 202112 /home/operator/Library/Application Support/Claude/claude-code/2.1.270/claude.app/Contents/MacOS/claude

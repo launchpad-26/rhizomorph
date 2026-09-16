@@ -1,0 +1,42 @@
+# captured: 2026-09-16 by Ciaran, beside macos-ps.txt
+# machine:  macOS 26.6.2 (build 25G83), arm64 (Apple silicon), host HOST-REDACTED
+# harness:  Claude Code 2.1.270, desktop app. THREE live sessions in three different
+#           directories at capture time; pids 5001, 5090 and 6132 are those sessions.
+# command:  lsof -d cwd -Fpn
+#
+# note:     the WHOLE table in ONE call, not `-a -p <pid>` per process. The leg needs a cwd for
+#           every row it returns and one exec is what a tick can afford; the per-pid form in
+#           CAPTURE.md would be 400+ execs. `-Fn` and `-Fpn` are byte-identical here (verified
+#           by diff) — `p` is DECLARED rather than relied on as lsof's incidental default.
+#
+# THE OWNERSHIP FINDING — what this capture was taken to settle:
+#
+#           pid(s) 1, 350, 421, 537 are in macos-ps.txt and are NOT here. Every one is root-owned.
+#           Run directly at one of them, `lsof -a -p 1 -d cwd -Fn` exits 1 with empty stdout
+#           AND EMPTY STDERR — it declines silently, with no sudo prompt and no diagnostic.
+#           Against a process this user owns it exits 0 and prints the path, no sudo needed.
+#
+#           So macOS behaves like LINUX here, not like Windows: cwd is readable for exactly
+#           the processes that matter, because an agent is always the reader's own user.
+#           That is the probe's fourth law — other users are invisible, and that is fine.
+#
+# sanitised: taken on a real machine; every personal value substituted AFTER the capture and
+#            BEFORE the commit. The left-hand side is DESCRIBED rather than written out,
+#            because naming the home it replaced would be the same disclosure:
+#              the operator's rhizomorph checkout  -> /repo
+#              the operator's home directory       -> /home/operator
+#              that home's SLUG encoding           -> -home-operator-   (re-derived from the
+#                  line above rather than retyped — a path and its encoding are ONE edit)
+#              the machine's hostname              -> HOST-REDACTED
+#              the OS username                     -> operator
+#              every session UUID                  -> a fixed synthetic UUID, the same
+#                  substitution at every place that UUID appeared
+p5001
+fcwd
+n/home/operator/Desktop/RetroNZ
+p5090
+fcwd
+n/repo
+p6132
+fcwd
+n/home/operator/Library/Application Support/Claude/scratch-workspaces/00000004-0000-4000-8000-000000000004/00000001-0000-4000-8000-000000000001/scratch-2026-09-15-002caf

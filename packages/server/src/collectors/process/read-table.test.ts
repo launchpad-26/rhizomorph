@@ -156,20 +156,26 @@ describe('unknown is never death — the probe\'s third law, one layer up', () =
 
   it('the no-leg reader answers null, and is what every UNBUILT platform gets', async () => {
     expect(await NO_LEG_READER(noExec)).toBeNull()
-    // macOS has no capture, so no leg. freebsd has neither and never will
-    // without someone naming a read-only strategy for it.
-    expect(defaultProcessTableReader('darwin')).toBe(NO_LEG_READER)
+    // freebsd has no capture and no named read-only strategy, and it is now
+    // the only standing example: the three platforms this instrument actually
+    // runs on have all left this reader.
     expect(defaultProcessTableReader('freebsd')).toBe(NO_LEG_READER)
   })
 
-  it('win32 is BUILT and is no longer the no-leg reader — the capture is what changed that', () => {
-    // Asserted by identity rather than by result. The Windows reader also
-    // answers null when handed an exec that returns nothing, so a
-    // `toBeNull()` here would pass whether or not the leg existed — which is
-    // exactly the shape that let this platform look supported while being
-    // absent.
-    expect(defaultProcessTableReader('win32')).not.toBe(NO_LEG_READER)
-  })
+  it.each([['win32'], ['darwin']] as const)(
+    '%s is BUILT and is no longer the no-leg reader — the capture is what changed that',
+    (platform) => {
+      // Asserted by identity rather than by result, and that choice is the
+      // whole value of these two lines. Every one of these readers ALSO
+      // answers null when handed an exec that returns nothing, so a
+      // `toBeNull()` here would pass whether or not the leg existed — which is
+      // exactly the shape that let a platform look supported while being
+      // absent. `darwin` was on the other side of this assertion until its
+      // capture was taken; it was inverted rather than deleted, so the fact
+      // that changed is visible in the diff.
+      expect(defaultProcessTableReader(platform)).not.toBe(NO_LEG_READER)
+    },
+  )
 
   it('picks the /proc reader on linux, which is WSL2 too — it is `linux` to Node, not a second leg', () => {
     expect(defaultProcessTableReader('linux')).not.toBe(NO_LEG_READER)
