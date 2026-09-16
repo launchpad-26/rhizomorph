@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { isInside } from './paths/containment.js'
@@ -60,6 +61,14 @@ import { isInside } from './paths/containment.js'
  *   plain unresolved citation, which is the right verdict with the wrong message on its
  *   own; this law's failure text for an unresolved citation names ruling 9 so the reader
  *   is not sent to "the path moved" when the real fix is "quote it the way ruling 9 asks".
+ * - **Ruling 11, enforced.** An entry whose leading path IS `.swarm/coupling.txt` itself —
+ *   a self-citing entry — may not carry a backticked assertion span, full stop: not
+ *   checked against the file the reason names, not exempted. Ruling 7's whole-span check
+ *   is satisfied by the entry's OWN sentence when the leading-path file is the registry
+ *   itself, which is a check that cannot fail — the same defect class ruling 6 already
+ *   named for a different construction. Path citations are unaffected (Extent, ruling 11):
+ *   they resolve against the tree, never against the entry's own file, so the defect this
+ *   ruling closes does not arise there.
  *
  * ## Collection must not throw
  *
@@ -76,6 +85,21 @@ import { isInside } from './paths/containment.js'
 const REPO_ROOT = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
 const COUPLING_PATH = '.swarm/coupling.txt'
 const COUPLING_SCRIPT_PATH = 'scripts/dev/coupling.test.sh'
+/**
+ * The self-citing comparison (ruling 11) is done against this RESOLVED absolute path, never
+ * against `entry.path` as a raw string. `path.join` normalises `./` and `..` segments, so a
+ * self-entry spelled `./.swarm/coupling.txt` or `docs/../.swarm/coupling.txt` — the same
+ * file, a different string — still compares equal here; a raw `entry.path === COUPLING_PATH`
+ * does not, and was found (round 1 review) to leave ruling 11 refusing nothing for those
+ * spellings.
+ *
+ * KNOWN RESIDUAL, not fixed here: `path.join` normalises segments but does not resolve
+ * symlinks or fold case. A self-entry reached through a symlinked path, or (on a
+ * case-insensitive filesystem) a case-variant spelling, still compares unequal to
+ * `COUPLING_ABS` and bypasses ruling 11 (round 2 review, EXECUTED). Recorded as a property
+ * of this predicate, not a gap to close on this pass.
+ */
+const COUPLING_ABS = path.join(REPO_ROOT, COUPLING_PATH)
 
 // ── parsing — must agree exactly with the registry read in scripts/fence-lint.sh's `── coupling points ──` block, and with scripts/dev/coupling.test.sh ──
 
@@ -387,20 +411,151 @@ function readFileIfFile(absPath: string): string | undefined {
   }
 }
 
+const MENTION_TRAILING_CHAR_RE = /[A-Za-z0-9._/-]/
 /**
- * True when `haystack` mentions `needle` as a COMPLETE path token, not merely as a prefix
- * of a longer one (ruling 10: the generator must NAME the declared path). Checked only at
- * the trailing edge — the character immediately after the match must not be one that would
- * extend it into a different name (`[A-Za-z0-9._/-]`, the same class ruling 8 uses for a
- * path citation). The leading edge is deliberately unchecked: a real declaration is
- * ordinarily found as part of a LONGER enclosing path (`$root/.swarm/timing-count` in
- * `scripts/gate.sh`), and that is the legitimate, everyday shape this must not reject.
- * `.swarm/timing-count-probe-suffix` contains `.swarm/timing-count` as a substring; this
- * matches neither there (the trailing `-` extends it) nor anywhere else in that string.
+ * Characters the leading walk crosses OUTSIDE an open `{...}`/`(...)`: plain path
+ * characters, `$`, parens (to ENTER a `$(cmd)`, tracked below) and a quote mark (for a
+ * quoted interpolation) — everything a shell interpolation or a merge attempt can be
+ * built from at the top level.
+ */
+const MENTION_PREFIX_OUTER_RE = /[A-Za-z0-9_./$()"-]/
+
+/**
+ * One interpolation token: `${name}`/`${digits}` optionally with a parameter-expansion
+ * operator tail, `$name`, a SINGLE-digit positional parameter `$N` (real shell: `$10` is
+ * `$1` followed by a literal `0`, not one token — braces are required for two or more
+ * digits, `${10}`), or a command substitution `$(cmd)`.
+ */
+const MENTION_INTERPOLATION = String.raw`(?:\$\{(?:[A-Za-z_]\w*|[0-9]+)[^{}]*\}|\$[A-Za-z_]\w*|\$[0-9]|\$\([^()]*\))`
+/**
+ * The whitelist of legitimate non-empty leading prefixes: one interpolation immediately
+ * followed by `/`, unquoted, quoted-and-closed-before-the-slash, or quoted-and-still-open
+ * (the real quote closes somewhere after the needle, which this check never needs to see).
+ * Anything else non-empty is a merge onto a longer name or an extra path segment.
+ */
+const MENTION_LEGITIMATE_PREFIXES: readonly RegExp[] = [
+  new RegExp(`^${MENTION_INTERPOLATION}/$`),
+  new RegExp(`^"${MENTION_INTERPOLATION}"/$`),
+  new RegExp(`^"${MENTION_INTERPOLATION}/$`),
+]
+
+/**
+ * True when `haystack` mentions `needle` as a COMPLETE path token, not merely as a
+ * fragment of a longer, DIFFERENT name, and not as a DIFFERENT path that merely ends the
+ * same way (ruling 10: the generator must NAME the declared path). Both edges are bounded,
+ * and by different rules, because a path is built differently on each side:
+ *
+ * - TRAILING (unchanged since round 1): the character immediately after the match must
+ *   not be one that would extend it into a different name — `[A-Za-z0-9._/-]`, the same
+ *   class ruling 8 uses for a path citation.
+ * - LEADING: walk BACK from the match through everything that could plausibly be part of
+ *   a shell value expression — plain path characters, `$`, parens, a quote, and (only
+ *   while inside a matched `{...}` OR `(...)`, tracked by depth as the walk crosses them
+ *   right-to-left) ANYTHING except a newline — operator characters (`%`, `#`, `:`, `+`,
+ *   `=`, `?`) and whitespace both, since both are ordinary INSIDE a parameter expansion or
+ *   a command substitution and mean something else (or nothing) at the top level. A
+ *   trailing run of self-referential `/./ ` segments is then stripped before validating
+ *   (`stripCurrentDirSegments`) — `.` is a path no-op, not an extra segment, and folding it
+ *   away is what tells it apart from a genuine one. Round 1 required only `$name`/`${name}`
+ *   and rejected four real, independently-found generator spellings (round 2 review,
+ *   EXECUTED); the repair that closed those (round 3) was in turn too permissive in one
+ *   direction and too narrow in three others (round 3 review, EXECUTED):
+ *     `$root"/.swarm/timing-count` and unbraced `$10/...`   — OVER-admitted: `$10` read as
+ *       one positional token, but bash expands it as `$1` then a literal `0`
+ *     `$(dirname "$0")/...`, `$(cd sub && pwd)/...`         — falsely REJECTED: any
+ *       whitespace inside `$(...)` stopped the walk before the whitelist saw a complete token
+ *     `$root/./.swarm/timing-count`                         — falsely REJECTED: a `.`
+ *       segment read as a different, extra path segment
+ *   All are covered now. An intervening REAL path segment (`$root/nested/.swarm/timing-count`,
+ *   round 1's own reachable defect) still fails, because the whole normalised span must
+ *   match one complete form and two real segments never do; neither does a bare merge like
+ *   `cache.swarm/...` or `relay_.swarm/...`.
+ *
+ * Two things this cannot close, recorded rather than silently accepted as closed:
+ * - A mention inside a COMMENT or an error string is textually indistinguishable from a
+ *   mention in a write — this check has no notion of "shell comment" or "string literal",
+ *   only of adjacent characters.
+ * - A generator that builds the path by variable indirection (`d="$root/.swarm";
+ *   C="$d/timing-count"`) is wrongly REJECTED: the generated text `.swarm/timing-count`
+ *   never appears contiguously in the generator's own source in that shape at all.
+ * - NESTED command substitution (`$(foo $(bar))`) is walked correctly (paren depth tracks
+ *   it) but still fails the WHITELIST: `MENTION_INTERPOLATION`'s command-substitution
+ *   branch, `[^()]*`, excludes any paren, so a nested pair inside the captured span breaks
+ *   that alternative. Narrower than round 3's note (which blamed the walk); the walk is
+ *   fine now, the validation regex is the remaining boundary.
  */
 function mentionsWholePath(haystack: string, needle: string): boolean {
-  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return new RegExp(`${escaped}(?![A-Za-z0-9._/-])`).test(haystack)
+  let searchFrom = 0
+  for (;;) {
+    const idx = haystack.indexOf(needle, searchFrom)
+    if (idx === -1) return false
+    searchFrom = idx + 1
+
+    const after = haystack[idx + needle.length]
+    if (after !== undefined && MENTION_TRAILING_CHAR_RE.test(after)) continue
+
+    const prefix = stripCurrentDirSegments(walkMentionPrefix(haystack, idx))
+    if (prefix === '' || prefix === '"' || MENTION_LEGITIMATE_PREFIXES.some((re) => re.test(prefix))) {
+      return true
+    }
+  }
+}
+
+/**
+ * Walks backward from `idx`, tracking brace AND paren depth so operator characters and
+ * whitespace are only ever consumed while genuinely inside a matched `{...}` or `(...)`,
+ * never at the top level where the same characters mean something else entirely (`=` is a
+ * shell assignment operator there, a space ends a token). Depths are independent counters,
+ * not a shared stack — a mismatched pair (an unbalanced stray `{` or `(`) stops the walk
+ * rather than guessing.
+ */
+function walkMentionPrefix(haystack: string, idx: number): string {
+  let i = idx
+  let braceDepth = 0
+  let parenDepth = 0
+  while (i > 0) {
+    const c = haystack[i - 1]!
+    if (c === '}') {
+      braceDepth++
+      i--
+      continue
+    }
+    if (c === '{') {
+      if (braceDepth === 0) break
+      braceDepth--
+      i--
+      continue
+    }
+    if (c === ')') {
+      parenDepth++
+      i--
+      continue
+    }
+    if (c === '(') {
+      if (parenDepth === 0) break
+      parenDepth--
+      i--
+      continue
+    }
+    if (braceDepth > 0 || parenDepth > 0) {
+      if (c === '\n') break
+      i--
+      continue
+    }
+    if (MENTION_PREFIX_OUTER_RE.test(c)) {
+      i--
+      continue
+    }
+    break
+  }
+  return haystack.slice(i, idx)
+}
+
+/** Folds away a trailing run of `./` segments — `$root/./` is `$root/`, a path no-op, not an extra segment the way `$root/nested/` is. */
+function stripCurrentDirSegments(prefix: string): string {
+  let p = prefix
+  while (p.endsWith('./')) p = p.slice(0, -2)
+  return p
 }
 
 // ── per-entry analysis ──
@@ -415,10 +570,37 @@ interface EntryAnalysis {
   readonly pathCitationsExempt: number
 }
 
+/**
+ * Presence (ruling 10: existence, reason-honesty) is verified by asserting the REAL OUTPUT
+ * against KNOWN-bad synthetic entries (see the `presence checks actually flag a KNOWN
+ * stale path and a KNOWN unexplained reason` describe block below), not by any side-channel
+ * "did it run" signal on `analyzeEntry` itself. Two such signals were tried and both were
+ * defeated, three times over:
+ *
+ * - round 1: `Number.isInteger(t.backtickSpans)` — true by construction for any array
+ *   length, checked or not.
+ * - round 2: `presenceChecked: boolean`, a bare `const presenceChecked = true` positioned
+ *   after the two checks — three mutations that skip the checks (both guards replaced
+ *   with `if (false)`; both wrapped in an unrelated `if`; an early return before either
+ *   check runs) all left it `true`, because "control flow reached this line" and "the
+ *   checks ran" are different facts and the field only ever recorded the first one.
+ * - round 3 (this file's own second attempt): an external tracker interface, recording
+ *   into a caller-owned counter via a `tracker.record(entry.lineNo)` call placed before
+ *   each check. Still defeated: `record` is a SEPARATE STATEMENT from the check it sits
+ *   beside, so deleting the check's body entirely (`existsInsideRepo(leadingAbs)` and its
+ *   `if`) while leaving both `record` calls untouched left the tracker reporting 2/2 with
+ *   a genuinely stale entry undetected end to end (round 2 review, EXECUTED).
+ *
+ * Three defeats of the same instrument is the stopping rule: no fourth "did it run" flag.
+ * A synthetic entry with a KNOWN-wrong leading path, run through the REAL `analyzeEntry`,
+ * makes "the check ran and was wired correctly" the only way to pass — there is no
+ * separate signal to leave behind while deleting the logic that produces it.
+ */
 function analyzeEntry(entry: RegistryEntry, sets: TrackedSets, pkgRoots: readonly string[]): EntryAnalysis {
   const violations: string[] = []
 
   const leadingAbs = path.join(REPO_ROOT, entry.path)
+
   if (!existsInsideRepo(leadingAbs)) {
     violations.push(`leading path does not exist inside the repo (prd-54 ruling 10, presence): ${entry.path}`)
   }
@@ -442,6 +624,20 @@ function analyzeEntry(entry: RegistryEntry, sets: TrackedSets, pkgRoots: readonl
   for (const span of spans) {
     if (isAssertionSpan(span.text)) {
       assertionSpansSelected++
+      if (leadingAbs === COUPLING_ABS) {
+        // Ruling 11: a self-citing entry's leading-path file IS the registry, so ruling
+        // 7's whole-span check below would be satisfied by the entry's OWN sentence — a
+        // check that cannot fail. Refused outright rather than checked or exempted.
+        // Compared as RESOLVED absolute paths (`leadingAbs`/`COUPLING_ABS`), not as raw
+        // strings — `./.swarm/coupling.txt` is the same file under a different spelling,
+        // and a raw `entry.path === COUPLING_PATH` missed it (round 1 review).
+        violations.push(
+          `self-citing entry carries an assertion span (prd-54 ruling 11) — refused, not checked: a self-citing ` +
+            `entry's leading-path file is this registry itself, so the span would be satisfied by its own ` +
+            `sentence. Move it into unbackticked prose: \`${span.text}\``,
+        )
+        continue
+      }
       if (citedFileText === undefined) {
         violations.push(
           `assertion span cannot be checked — ${entry.path} is not a readable file (prd-54 ruling 7): \`${span.text}\``,
@@ -540,6 +736,7 @@ describe('coupling registry law: .swarm/coupling.txt checks itself (prd-54, #367
     const analyses = entries.map((e) => analyzeEntry(e, sets, pkgRoots))
 
     const table = analyses.map((a) => ({
+      lineNo: a.entry.lineNo,
       path: a.entry.path,
       backtickSpans: a.totalBacktickSpans,
       assertionSpansSelected: a.assertionSpansSelected,
@@ -566,14 +763,53 @@ describe('coupling registry law: .swarm/coupling.txt checks itself (prd-54, #367
       totals.pathCitationsAdmitted,
       'ruling 8 admitted zero path citations across the whole registry — the selector is broken, not the registry',
     ).toBeGreaterThan(0)
+  })
 
-    // Every entry's breakdown is a defined, non-negative count — silence because an entry
-    // is clean and silence because the selector never reached it must never be the same
-    // output with no way to tell them apart (prd-54's own Evidence section names exactly
-    // this failure, twice, elsewhere in this repo).
-    for (const t of table) {
-      expect(Number.isInteger(t.backtickSpans), `${t.path}: backtick-span count is not a defined integer`).toBe(true)
-    }
+  // Presence (ruling 10: existence, reason-honesty) is verified against KNOWN-bad
+  // synthetic entries here, not by any "did it run" side-channel — see analyzeEntry's own
+  // doc comment for the three prior attempts at that (an always-true integer check, a
+  // positional boolean, an external tracker) and why each was defeated. There is no
+  // signal to fake here: the assertion is the real `violations` output of the real
+  // function, so the only way to pass is for the check to have actually run and been
+  // wired into `violations` correctly.
+  describe('presence checks actually flag a KNOWN stale path and a KNOWN unexplained reason', () => {
+    // trackedFileSets()/packageSourceRoots() are called INSIDE each `it`, not once at this
+    // describe callback's scope — a `describe` body runs at COLLECTION time, before any
+    // test is selected to run, which is exactly the anti-pattern this file's own header
+    // (above, "Collection must not throw") names `gate-honesty-law.test.ts` for: an
+    // unavailable `git ls-files` there took every assertion in that file out of service at
+    // once, for one reworded line (round 3 review, EXECUTED: this file had the same
+    // property at collection scope — `git ls-files` throwing left ALL 93 tests unreported
+    // as "no tests", where calling it per-`it` instead leaves every OTHER test unaffected
+    // and names the one that failed). Both functions are memoised, so calling them from
+    // three separate `it`s costs one real `git ls-files`/`readdirSync` pass, not three.
+    it('flags a leading path that does not exist', () => {
+      const [entry] = parseRegistry('does/not/exist/for-a-presence-probe.ts  # a genuine, honest reason\n')
+      const analysis = analyzeEntry(entry!, trackedFileSets(), packageSourceRoots())
+      expect(analysis.violations.some((v) => v.includes('does not exist inside the repo'))).toBe(true)
+    })
+
+    it('flags a reason that restates its own leading path', () => {
+      const [entry] = parseRegistry('docs/adr/README.md  # docs/adr/README.md\n')
+      const analysis = analyzeEntry(entry!, trackedFileSets(), packageSourceRoots())
+      expect(analysis.violations.some((v) => v.includes('restates its own leading path'))).toBe(true)
+    })
+
+    it('does NOT flag a healthy entry (control)', () => {
+      const [entry] = parseRegistry('README.md  # a real, honest reason naming what couples here\n')
+      const analysis = analyzeEntry(entry!, trackedFileSets(), packageSourceRoots())
+      expect(analysis.violations.filter((v) => v.includes('prd-54 ruling 10, presence'))).toEqual([])
+    })
+
+    // RECORDED, NOT FIXED (round 3 review): every synthetic fixture above parses a
+    // one-line registry, so each entry's `lineNo` is 1 — a guard keyed on
+    // `entry.lineNo === 1` (never a plausible accidental simplification; nothing else in
+    // this file keys behaviour on which line an entry came from) would defeat this
+    // control specifically without defeating presence checking generically. Left as a
+    // known, bounded property of these three fixtures rather than closed by threading a
+    // second-line synthetic registry through every case: the realistic mutation shapes
+    // (a guard neutered, a guard misfiled, an early return) are what this describe block
+    // exists to survive, and none of them have this shape.
   })
 
   it('agrees with scripts/dev/coupling.test.sh about which paths are stale and which reasons are unexplained', { timeout: 20_000 }, () => {
@@ -587,16 +823,38 @@ describe('coupling registry law: .swarm/coupling.txt checks itself (prd-54, #367
       shellOutput = (err as { stdout?: string }).stdout ?? ''
     }
 
-    // The script's OWN summary line, not merely "the process exited" or "stdout is
-    // non-empty" — a script that crashed before printing anything (or was replaced with a
-    // bare `exit N`) leaves both extracted sets empty, and an empty-vs-empty `toEqual`
-    // below would pass having compared nothing to nothing. This is what "prove the
-    // agreement, do not assert it" actually requires: proof the comparison's INPUT is real.
+    // The precondition is the POPULATION, not the summary. A script that emits a genuine
+    // "<N> passed, <M> failed" line — or even a genuine "ok 0 entries parsed" — before
+    // examining a single entry still satisfies a check that only asks "did it speak"; a
+    // script replaced with one that prints that exact summary and exits before its entry
+    // loop stays GREEN against that check, comparing two empty sets and passing vacuously,
+    // which is the precise failure "prove the agreement, do not assert it" exists to rule
+    // out. What proves the two engines looked at the same registry is the script's own
+    // "entries parsed" line — `ok    $entries entries parsed`, or a bare `FAIL  entries
+    // parsed` when it found none — compared against this law's own `entries.length` from
+    // the same file. A disagreement in population is its own failure, distinct from a
+    // disagreement in verdict below.
+    const okMatch = /^\s*ok\s+(\d+) entries parsed$/m.exec(shellOutput)
+    const failMatch = /^\s*FAIL\s+entries parsed$/m.exec(shellOutput)
     expect(
-      shellOutput,
-      "scripts/dev/coupling.test.sh produced no '<N> passed, <M> failed' summary line — it did not run to completion, so the agreement below would compare two empty sets and pass vacuously",
-    ).toMatch(/^\d+ passed, \d+ failed$/m)
+      okMatch ?? failMatch,
+      "scripts/dev/coupling.test.sh produced no 'entries parsed' line at all — it did not run far enough to report a population, so the agreement below would compare two empty sets and pass vacuously",
+    ).not.toBeNull()
+    const shellEntryCount = okMatch ? Number(okMatch[1]) : 0
+    expect(
+      shellEntryCount,
+      `scripts/dev/coupling.test.sh reports ${shellEntryCount} entries parsed but this law parsed ${entries.length} from the same file — the two engines examined different populations, so any agreement on missing/unexplained sets below proves nothing`,
+    ).toBe(entries.length)
 
+    // What population agreement does NOT prove, on its own: today's real registry has zero
+    // stale paths and zero unexplained reasons, so the set comparison below is empty
+    // against empty regardless of whether either engine's DETECTION logic is intact — a
+    // stub that prints the correct count but never inspects a single entry satisfies
+    // population agreement AND this empty-vs-empty comparison (round 1 review, EXECUTED:
+    // a five-line stub printing `ok 52 entries parsed` and a matching pass/fail summary,
+    // exiting before any entry loop, passed both). That the two engines' DETECTION agrees
+    // on a KNOWN-bad case is proven separately, against a synthetic registry, by the next
+    // test — this one only proves they parsed the same real file into the same count.
     const shellMissing = new Set(extractPrefixedPaths(shellOutput, 'no such path: '))
     const shellUnexplained = new Set(extractPrefixedPaths(shellOutput, 'no reason given: '))
 
@@ -612,9 +870,201 @@ describe('coupling registry law: .swarm/coupling.txt checks itself (prd-54, #367
     ).toEqual(shellUnexplained)
   })
 
+  it(
+    'the shell/law agreement is load-bearing: both engines catch a KNOWN stale path and a KNOWN unexplained reason',
+    { timeout: 20_000 },
+    () => {
+      // Round 1 review: the test above is vacuous on detection, because the real registry
+      // has nothing stale or unexplained for either engine to disagree about. This test
+      // gives both engines a registry with exactly one of each, in an isolated git
+      // worktree — never the real `.swarm/coupling.txt`, so there is no shared-file risk
+      // with any other test or worker reading it concurrently.
+      const SYNTHETIC_STALE_PATH = 'does/not/exist/anywhere.ts'
+      const SYNTHETIC_UNEXPLAINED_PATH = 'docs/adr/README.md'
+      const syntheticRegistry =
+        `${SYNTHETIC_STALE_PATH}  # a genuine, honest reason so only presence is at issue\n` +
+        `${SYNTHETIC_UNEXPLAINED_PATH}  # ${SYNTHETIC_UNEXPLAINED_PATH}\n`
+
+      // The shell engine under test is read from REPO_ROOT (the absolute path, exactly as
+      // the sibling test above does) even though `cwd` is the synthetic worktree. Passing
+      // the bare relative `COUPLING_SCRIPT_PATH` here was found (round 2 review, EXECUTED:
+      // renaming this script's own "no such path: " wording in the working tree only left
+      // the whole law, this test included, 65/65 green) to make bash resolve the script
+      // inside `tmpDir`'s OWN checkout — HEAD's frozen copy of the shell engine, not the
+      // one this test is meant to exercise. In an amend workflow HEAD == the working tree
+      // at the moment the test runs, which is exactly why that was invisible until a
+      // reviewer changed the SCRIPT rather than the registry.
+      const tmpDir = mkdtempSync(path.join(tmpdir(), 'coupling-synth-'))
+      let worktreeAdded = false
+      try {
+        execFileSync('git', ['worktree', 'add', '--quiet', '--detach', tmpDir, 'HEAD'], { cwd: REPO_ROOT })
+        worktreeAdded = true
+        writeFileSync(path.join(tmpDir, COUPLING_PATH), syntheticRegistry, 'utf8')
+
+        let shellOutput: string
+        try {
+          shellOutput = execFileSync('bash', [path.join(REPO_ROOT, COUPLING_SCRIPT_PATH)], {
+            cwd: tmpDir,
+            encoding: 'utf8',
+          })
+        } catch (err) {
+          shellOutput = (err as { stdout?: string }).stdout ?? ''
+        }
+        const shellMissing = new Set(extractPrefixedPaths(shellOutput, 'no such path: '))
+        const shellUnexplained = new Set(extractPrefixedPaths(shellOutput, 'no reason given: '))
+
+        expect(shellMissing, 'the shell script did not report the KNOWN stale path in the synthetic registry').toEqual(
+          new Set([SYNTHETIC_STALE_PATH]),
+        )
+        expect(
+          shellUnexplained,
+          'the shell script did not report the KNOWN unexplained reason in the synthetic registry',
+        ).toEqual(new Set([SYNTHETIC_UNEXPLAINED_PATH]))
+
+        const syntheticEntries = parseRegistry(syntheticRegistry)
+        const lawMissing = new Set(
+          syntheticEntries.filter((e) => !existsInsideRepo(path.join(REPO_ROOT, e.path))).map((e) => e.path),
+        )
+        const lawUnexplained = new Set(syntheticEntries.filter((e) => isUnexplained(e)).map((e) => e.path))
+
+        expect(lawMissing, 'the law did not report the KNOWN stale path in the synthetic registry').toEqual(
+          new Set([SYNTHETIC_STALE_PATH]),
+        )
+        expect(
+          lawUnexplained,
+          'the law did not report the KNOWN unexplained reason in the synthetic registry',
+        ).toEqual(new Set([SYNTHETIC_UNEXPLAINED_PATH]))
+
+        expect(lawMissing, 'the law and the shell script disagree on the synthetic stale path').toEqual(shellMissing)
+        expect(
+          lawUnexplained,
+          'the law and the shell script disagree on the synthetic unexplained reason',
+        ).toEqual(shellUnexplained)
+      } finally {
+        // `worktreeAdded` guards the removal: if `git worktree add` itself failed, `tmpDir`
+        // was never registered as a worktree, and calling `git worktree remove` on it
+        // would ALSO fail — and in a `finally`, that second failure REPLACES the first in
+        // the thrown error (round 2 review, EXECUTED: confirmed via Node's own
+        // finally-throw-overrides-try-throw semantics), so a real setup failure would
+        // report as a cleanup failure and hide its own cause. `rmSync` on the plain
+        // directory runs unconditionally either way, so a leaked `mkdtemp` directory never
+        // survives this test regardless of which step failed.
+        //
+        // `--force` DOUBLED, not once: a single `--force` removes a DIRTY worktree but
+        // refuses a LOCKED one outright ("use 'remove -f -f' to override or unlock first" —
+        // confirmed against the real git binary), and `git worktree prune` does not clear a
+        // locked worktree's metadata either, by design. A single-`--force` attempt that
+        // fails on a lock left permanent admin-directory metadata behind after `rmSync`
+        // deleted the underlying directory (round 3 review, EXECUTED). Nothing in this test
+        // locks the worktree itself, but the removal must not depend on that remaining true.
+        if (worktreeAdded) {
+          try {
+            execFileSync('git', ['worktree', 'remove', '--force', '--force', tmpDir], { cwd: REPO_ROOT })
+          } catch {
+            // best-effort — the directory removal below still runs
+          }
+        }
+        rmSync(tmpDir, { recursive: true, force: true })
+      }
+    },
+  )
+
   it("scripts/dev/coupling.test.sh points at this law's full path, so the two cannot silently diverge", () => {
     const scriptText = readFileSync(path.join(REPO_ROOT, COUPLING_SCRIPT_PATH), 'utf8')
     expect(scriptText).toContain('packages/server/src/coupling-registry-law.test.ts')
+  })
+})
+
+/**
+ * The generator-declaration form table (prd-54 ruling 10), in the tree rather than only in
+ * a review comment — round 2 review found four real generator spellings this check
+ * rejected (`"$root"/`, `$(pwd)/`, a positional `$1/`, `${root%/}/`) that no test here would
+ * have caught, because the only exercised case was the one real line in `scripts/gate.sh`.
+ * Round 3 review found the round-2 repair had, in turn, over-admitted an unbraced
+ * multi-digit positional (`$10/`) and still falsely rejected whitespace inside a command
+ * substitution and a self-referential `./` segment — the same lesson twice: a table this
+ * cheap earns its keep exactly at the moment a fix for one direction risks the other.
+ * Needs no fixture: `mentionsWholePath` takes plain strings.
+ */
+describe('mentionsWholePath recognizes every legitimate generator-declaration shape (prd-54 ruling 10)', () => {
+  const NEEDLE = '.swarm/timing-count'
+  const cases: readonly { readonly haystack: string; readonly mentions: boolean; readonly note: string }[] = [
+    { haystack: NEEDLE, mentions: true, note: 'bare' },
+    { haystack: `"${NEEDLE}"`, mentions: true, note: 'bare, quoted' },
+    { haystack: `$root/${NEEDLE}`, mentions: true, note: 'interpolated behind a variable' },
+    { haystack: `\${root}/${NEEDLE}`, mentions: true, note: 'interpolated, braced' },
+    { haystack: `\${root%/}/${NEEDLE}`, mentions: true, note: 'interpolated, braced, with a trim operator' },
+    { haystack: `$1/${NEEDLE}`, mentions: true, note: 'a positional parameter' },
+    { haystack: `$(pwd)/${NEEDLE}`, mentions: true, note: 'a command substitution' },
+    { haystack: `"$root"/${NEEDLE}`, mentions: true, note: 'a quoted variable, quote closed before the slash' },
+    { haystack: `"$1/${NEEDLE}`, mentions: true, note: 'a quoted positional parameter, quote still open' },
+    { haystack: `"$(pwd)/${NEEDLE}`, mentions: true, note: 'a quoted command substitution, quote still open' },
+    { haystack: `X=${NEEDLE}`, mentions: true, note: 'preceded by =' },
+    { haystack: `echo ${NEEDLE}`, mentions: true, note: 'preceded by whitespace' },
+    { haystack: `flux${NEEDLE}`, mentions: false, note: 'merged into a longer alnum name' },
+    { haystack: `relay_${NEEDLE}`, mentions: false, note: 'merged into a longer name via underscore' },
+    { haystack: `$root/annex/${NEEDLE}`, mentions: false, note: 'an intervening path segment after a bare variable' },
+    { haystack: `\${root}/annex/${NEEDLE}`, mentions: false, note: 'an intervening path segment after a braced variable' },
+    { haystack: `$root$extra/${NEEDLE}`, mentions: false, note: 'two interpolations, not one' },
+    { haystack: `${NEEDLE}-probe-suffix-fresh`, mentions: false, note: 'trailing continuation' },
+    { haystack: '.swarm/wall-clock-floor', mentions: false, note: 'a different basename entirely' },
+    {
+      haystack: `  COUNT_FILE="$root/${NEEDLE}"`,
+      mentions: true,
+      note: 'the real scripts/gate.sh line, unmutated (quoted, still open at the needle)',
+    },
+    {
+      haystack: `$10/${NEEDLE}`,
+      mentions: false,
+      note: 'unbraced two-digit positional — bash reads this as $1 then a literal 0, not one token (round 3 review)',
+    },
+    { haystack: `\${10}/${NEEDLE}`, mentions: true, note: 'braced two-digit positional — the correct spelling of the above' },
+    {
+      haystack: `$(dirname "$0")/${NEEDLE}`,
+      mentions: true,
+      note: 'a command substitution containing whitespace and a quoted argument (round 3 review)',
+    },
+    {
+      haystack: `$(cd sub && pwd)/${NEEDLE}`,
+      mentions: true,
+      note: 'a command substitution containing whitespace and &&  (round 3 review)',
+    },
+    { haystack: `$root/./${NEEDLE}`, mentions: true, note: 'a self-referential `.` path segment is a no-op, not an extra one (round 3 review)' },
+    { haystack: `\${root}/./${NEEDLE}`, mentions: true, note: 'the same no-op segment, braced variable' },
+  ]
+
+  it.each(cases)('$note -> mentions=$mentions', ({ haystack, mentions }) => {
+    expect(mentionsWholePath(haystack, NEEDLE)).toBe(mentions)
+  })
+})
+
+/**
+ * Ruling 11's self-citation check, in the tree — round 2 review found the branch dead on
+ * the live registry (this file's own fix removed the only self-entry assertion span), so
+ * nothing here exercised more than the canonical spelling of `.swarm/coupling.txt` before
+ * now.
+ */
+describe('ruling 11 recognizes self-citation under multiple spellings of the same file', () => {
+  // trackedFileSets()/packageSourceRoots() are NOT hoisted to this describe callback's
+  // scope — see the sibling presence-check describe block's comment for why a `describe`
+  // body is the wrong place for anything that can throw (round 3 review, EXECUTED: this
+  // exact hoisting took all 93 tests in this file out of service, unnamed, on an
+  // unavailable `git ls-files`). Called per-`it.each` case instead; both are memoised.
+  const cases: readonly { readonly path: string; readonly selfCiting: boolean }[] = [
+    { path: '.swarm/coupling.txt', selfCiting: true },
+    { path: './.swarm/coupling.txt', selfCiting: true },
+    { path: 'docs/../.swarm/coupling.txt', selfCiting: true },
+    { path: '.swarm/./coupling.txt', selfCiting: true },
+    { path: 'README.md', selfCiting: false },
+  ]
+
+  it.each(cases)('$path -> selfCiting=$selfCiting', ({ path: entryPath, selfCiting }) => {
+    const [entry] = parseRegistry(
+      `${entryPath}  # a real, honest reason \`expect(formTableProbe).toBe(true)\`\n`,
+    )
+    const analysis = analyzeEntry(entry!, trackedFileSets(), packageSourceRoots())
+    const flagged = analysis.violations.some((v) => v.includes('prd-54 ruling 11'))
+    expect(flagged).toBe(selfCiting)
   })
 })
 
