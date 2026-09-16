@@ -10,11 +10,12 @@ import type { AdapterCapabilities } from '@rhizomorph/core'
  *
  * 1. `provided` — an actor has been seen.
  * 2. `partial` — the leg reads, and has seen nothing yet.
- * 3. `absent` — **no reader is built for this platform** (macOS today). Not
- *    "absent" in the sense the other rows use it — "the tool is not installed,
- *    go and install it" — because there is nothing the operator can install.
- *    What is missing is a capture, so the remedy is the capture command.
- *    prd-15 ruling 7: a platform leg lands behind a capture, never a man page.
+ * 3. `absent` — **no reader is built for this platform.** Not "absent" in the
+ *    sense the other rows use it — "the tool is not installed, go and install
+ *    it" — because there is nothing the operator can install. What is missing
+ *    is a capture, so the remedy is the capture command. prd-15 ruling 7: a
+ *    platform leg lands behind a capture, never a man page. macOS was this
+ *    state until 2026-09-16; no platform this instrument runs on is now.
  * 4. `partial` for an entirely different reason — **the leg is built, verified
  *    against a real capture, and structurally cannot do the whole job**
  *    (Windows). Added when that leg landed; see `fixtures/CAPTURE.md` and
@@ -22,16 +23,33 @@ import type { AdapterCapabilities } from '@rhizomorph/core'
  *
  * Collapsing 3 and 4 is the failure this shape exists to prevent: it would tell
  * a Windows operator to go and capture a table that is already committed.
+ *
+ * ## Why macOS takes states 1 and 2 rather than state 4
+ *
+ * It looked like Windows' twin — no `/proc`, a base-system subprocess, a
+ * working directory nobody had confirmed was readable. The capture settled it
+ * the other way: `lsof -d cwd` returns the working directory of every process
+ * the reader OWNS, with no sudo and no prompt, and declines silently for
+ * anyone else's. An agent process is always the reader's own user, so macOS
+ * identifies AND places, which is Linux's shape and not Windows'.
+ *
+ * That answer came from running the command, not from reading about it —
+ * `fixtures/macos-lsof-cwd.txt` records the exit code and the empty stderr of
+ * the refusal, and `docs/review/2026-09-16-prd57-macos-witness.md` is the pass.
+ * Had it come back the other way, macOS would have joined Windows in state 4
+ * with a structural reason, and this file would say so instead.
  */
 
-/** The one command that makes an unbuilt leg buildable, per platform. */
+/**
+ * The one command that makes an unbuilt leg buildable.
+ *
+ * There is no per-platform arm left. macOS had one until its capture was
+ * taken, and a switch with a single `default` is what an honest version of
+ * this function looks like now — a named arm for a platform nobody has a
+ * strategy for would be inventing the strategy here.
+ */
 function captureRemedy(platform: NodeJS.Platform): string {
-  switch (platform) {
-    case 'darwin':
-      return 'capture a real table while an agent runs — `ps -axo pid=,ppid=,lstart=,time=,rss=,command=` and `lsof -a -p <pid> -d cwd -Fn` — and commit it under collectors/process/fixtures (see its CAPTURE.md)'
-    default:
-      return 'name a read-only way to read this platform’s process table and land it behind a capture (see collectors/process/fixtures/CAPTURE.md)'
-  }
+  return `name a read-only way to read ${platform}’s process table and land it behind a capture (see collectors/process/fixtures/CAPTURE.md)`
 }
 
 export function processWitnessCapabilitiesFor(actorCount: number, platform: NodeJS.Platform): AdapterCapabilities {
@@ -61,7 +79,11 @@ export function processWitnessCapabilitiesFor(actorCount: number, platform: Node
     }
   }
 
-  if (platform !== 'linux') {
+  // macOS joins Linux rather than getting an arm of its own: both read the
+  // whole row INCLUDING the working directory, so both have the same two
+  // states and the same remedy. A third arm here would be two copies of the
+  // prose below that must agree forever.
+  if (platform !== 'linux' && platform !== 'darwin') {
     const reason = `no process-table reader is built for ${platform}, so no agent process can be seen here`
     const remedy = captureRemedy(platform)
     return {
@@ -77,7 +99,8 @@ export function processWitnessCapabilitiesFor(actorCount: number, platform: Node
   if (actorCount === 0) {
     // The leg IS built and has said nothing. That is not the same fact as
     // having no leg, and collapsing the two would tell an operator to go and
-    // capture something on a platform that already works.
+    // capture something on a platform that already works. macOS reaches here
+    // as of 2026-09-16, and that is the whole of what its capture changed.
     const reason = 'the process witness is reading, and has not seen an agent process in this repo yet'
     const remedy = 'start an agent in a worktree of this repo — no configuration is needed for it to be seen'
     return {

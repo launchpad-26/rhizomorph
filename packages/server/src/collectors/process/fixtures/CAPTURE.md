@@ -1,6 +1,7 @@
 # Capturing a process table
 
-**Windows: captured 2026-09-16 — `windows-cim.json`. macOS: still owed.**
+**Windows: captured 2026-09-16 — `windows-cim.json`.**
+**macOS: captured 2026-09-16 — `macos-ps.txt`, `macos-ps-args.txt`, `macos-lsof-cwd.txt`.**
 
 prd-57 ruling 2 says a platform leg lands *behind* a real capture and never from
 a man page. This file is both the recipe and the record of what each capture
@@ -27,17 +28,82 @@ the real bytes, commit them, and write the parser against the file.
 ### macOS
 
 ```sh
-# argv for every process this user can see
-ps -axo pid=,ppid=,lstart=,time=,rss=,command= > macos-ps.txt
+# the SPINE: every numeric field, plus argv[0] exactly
+ps -axww -o pid=,ppid=,lstart=,time=,rss=,comm=  > macos-ps.txt
 
-# the working directory of ONE known agent process, by pid
-lsof -a -p <pid> -d cwd -Fn > macos-lsof-cwd.txt
+# argv[1..], and nothing else
+ps -axww -o pid=,command=                        > macos-ps-args.txt
+
+# every process's working directory, in one call
+lsof -d cwd -Fpn                                 > macos-lsof-cwd.txt
 ```
 
-Run both **while a real Claude Code session is running**, and note its pid in
-the header block below. `lsof` is the only way macOS exposes another process's
-cwd — it wraps libproc, which has no shell equivalent — so a capture without it
-cannot answer the placement half.
+Run all three **while at least two real Claude Code sessions are running in
+different directories**, and note their pids in the header block below. `lsof`
+is the only way macOS exposes another process's cwd — it wraps libproc, which
+has no shell equivalent — so a capture without it cannot answer the placement
+half.
+
+**The recipe above is corrected, and the correction IS the macOS finding.** Its
+first draft read `-o …,command=` in one call and `lsof -a -p <pid> -d cwd -Fn`
+per process. Both were wrong, and neither is the kind of wrong a parse failure
+would have shown:
+
+- **`command=` cannot be the spine.** `ps` joins argv with spaces and quotes
+  nothing, and argv[0] of a real Claude Code session on macOS *contains a
+  space* — `…/Library/Application Support/Claude/…/claude`. Split on
+  whitespace, argv[0] reads as `…/Library/Application`, basename `Application`,
+  which is in no roster. `comm=` is the kernel's own executable path and is
+  argv[0] exactly, so the spine reads that and `command=` supplies only
+  argv[1..]. Measured on the capture machine: `command` starts with `comm` for
+  463 of the 463 pids present in both reads.
+- **`lsof` per pid cannot be a tick.** The leg needs a cwd for every row it
+  returns; the per-pid form would be one exec per process, 487 of them on the
+  capture machine. One `lsof -d cwd -Fpn` answers for all of them in ~280 ms.
+  `-Fn` and `-Fpn` are byte-identical here; `p` is declared rather than relied
+  on as lsof's incidental default.
+- **`-ww`** because `ps` truncates to the terminal width when stdout is a tty
+  and does not when it is a pipe. Without it the leg and a human running the
+  same command by hand see different bytes.
+
+### What the macOS capture taught, and none of it is in the documentation
+
+Same shape as the Windows list below — each of these produces a parser that
+looks right and is wrong:
+
+1. **`ps -o command=` is argv joined by spaces, and it does not quote.** The
+   defect above, and the macOS twin of Windows' `.exe` basename. It is worse
+   than the Windows one in a specific way: Windows quotes, so a quoted-run
+   splitter recovers argv[0]; `ps` gives you nothing to un-quote, and **no
+   parser can recover argv[1..] faithfully** — an argument containing a space
+   is indistinguishable from two arguments. Only argv[0] is exact, and only
+   from `comm`.
+2. **`lstart` is FIVE whitespace-separated tokens in the MIDDLE of the row** —
+   `Sun Sep 13 12:41:26 2026`. Splitting the line from the left mis-reads
+   `time`, `rss` and `comm`, and mis-reads them into plausible values rather
+   than failing. The leg anchors on the date's own shape, which is the same
+   defence `/proc/<pid>/stat`'s unescaped `comm` needs on Linux.
+3. **`comm` itself can contain spaces and parentheses.** `Core Audio Driver
+   (MSTeamsAudioDevice.driver)` is a real captured row whose entire command
+   line is that name.
+4. **`time=` minutes are not bounded at 60.** The capture carries `404:34.97` —
+   four hundred and four MINUTES. A parser that read a three-digit leading
+   field as hours would report 404 hours of CPU for WindowServer.
+5. **`rss=` is kilobytes**, not bytes and not pages.
+6. **`lsof` answers for a process you OWN and declines silently for one you do
+   not.** Exit 1, empty stdout, *empty stderr* — no sudo prompt and no
+   diagnostic. This was the open question nobody in the project could answer,
+   and it is why macOS gets Linux's `doctor` states rather than Windows'
+   structural gap: an agent is always the reader's own user. Four of the seven
+   captured rows are root-owned and absent from `macos-lsof-cwd.txt` for
+   exactly that reason.
+
+**What the macOS capture did NOT cover, stated rather than left to assume:**
+neither macOS install shape on the capture machine puts an interpreter at
+argv[0]. The desktop app and the native CLI both give a real executable whose
+basename is `claude`, so `matchesAgentCommand`'s interpreter arm
+(`node /path/to/claude`) is exercised by a synthetic case in
+`read-table-macos.test.ts` and by nothing real.
 
 ### Windows (native)
 
@@ -75,7 +141,17 @@ Recorded here because each one would have produced a plausible, broken parser:
 **So the rule needs a second half.** A capture proves the format. It does not
 prove the match, because a capture is bytes and matching is behaviour. Run the
 leg against the live machine as well, and record what it found — which for
-Windows is in `docs/review/2026-09-16-prd57-windows-witness.md`.
+Windows is in `docs/review/2026-09-16-prd57-windows-witness.md` and for macOS
+in `docs/review/2026-09-16-prd57-macos-witness.md`.
+
+**macOS measured the cost of ignoring that second half, on purpose.** The leg
+that CAPTURE.md's first recipe would have produced was built and run against
+the live machine beside the real one: it parsed 482 rows, 17 of them had an
+`argv[0]` matching `/claude/i` — the exact assertion the Windows fixture tests
+shipped, and it was *green* — and the collector matched **zero** of the four
+running agents. The 17 were `Claude.app` Electron helpers, which are not agents
+at all. A regex over `argv[0]` is not merely weaker than asserting the match;
+on this platform it is green in both directions at once.
 
 **`Win32_Process` does not expose a working directory**, which the capture
 confirmed by inspection of the live class rather than by repeating the claim.

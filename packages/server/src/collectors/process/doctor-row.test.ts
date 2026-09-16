@@ -29,20 +29,31 @@ function gap(detail: CapabilityDetail): DeclaredGap {
   return detail
 }
 
-describe('macOS: no leg, and the remedy is a capture nobody has taken', () => {
+describe('macOS: the leg IS built, and it places as well as identifies', () => {
+  // Inverted rather than deleted when the capture landed (2026-09-16). This
+  // block asserted `absent` and the capture command as its remedy; the fact
+  // that changed is visible in the diff, which is the point of inverting.
   const capabilities = processWitnessCapabilitiesFor(0, 'darwin')
 
-  it('reports absent, not partial — there is no reader here at all', () => {
-    expect(capabilities.identity.level).toBe('absent')
-    expect(capabilities.liveness.level).toBe('absent')
+  it('reports partial, never absent — the capture exists and is committed', () => {
+    // The failure this pins: `absent` would send a macOS operator off to
+    // capture `macos-ps.txt`, which is already in this tree.
+    expect(capabilities.identity.level).toBe('partial')
+    expect(capabilities.liveness.level).toBe('partial')
   })
 
-  it('names the capture command, because nothing here is installable', () => {
-    // The distinction from every other doctor row in the repo: those say "go
-    // and install tmux". This one cannot, so the remedy is the capture itself.
-    expect(gap(capabilities.identity).remedy).toMatch(/ps -axo/)
-    expect(gap(capabilities.identity).remedy).toMatch(/lsof/)
-    expect(gap(capabilities.identity).remedy).toMatch(/CAPTURE\.md/)
+  it('gives Linux’s remedy — an action that works — and never the capture command', () => {
+    expect(gap(capabilities.identity).remedy).toMatch(/start an agent/i)
+    expect(gap(capabilities.identity).remedy).not.toMatch(/ps -axo|lsof|CAPTURE\.md/)
+  })
+
+  it('reaches PROVIDED once an actor has been seen, which Windows never does', () => {
+    // The whole difference between this platform and the one below it. macOS
+    // reads a working directory, so an identified actor is a placed actor and
+    // the row may honestly say `provided`. Windows cannot and stays `partial`
+    // at any actor count.
+    expect(processWitnessCapabilitiesFor(3, 'darwin').identity.level).toBe('provided')
+    expect(processWitnessCapabilitiesFor(3, 'win32').identity.level).toBe('partial')
   })
 })
 
@@ -102,6 +113,20 @@ describe('Linux: the two states that differ only by what the fold holds', () => 
     const capabilities = processWitnessCapabilitiesFor(1, 'linux')
     expect(capabilities.activity.level).toBe('partial')
     expect(gap(capabilities.activity).reason).toMatch(/wedged/)
+  })
+})
+
+describe('a platform with no leg at all — the state macOS left', () => {
+  const capabilities = processWitnessCapabilitiesFor(0, 'freebsd')
+
+  it('reports absent, and the remedy is to name a strategy and capture it', () => {
+    // Nothing here is installable, so the remedy cannot be "go and install
+    // something" the way every other doctor row in this repo reads. This arm
+    // is still reachable, and this is now the only test that reaches it —
+    // without it, `captureRemedy` would be dead code that looked alive.
+    expect(capabilities.identity.level).toBe('absent')
+    expect(gap(capabilities.identity).remedy).toMatch(/CAPTURE\.md/)
+    expect(gap(capabilities.identity).remedy).toMatch(/freebsd/)
   })
 })
 

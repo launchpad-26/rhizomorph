@@ -1,6 +1,7 @@
 import { readFile, readdir, readlink } from 'node:fs/promises'
 import path from 'node:path'
 import type { Exec } from '@rhizomorph/core'
+import { readMacosTable } from './read-table-macos.js'
 import { readWindowsTable } from './read-table-windows.js'
 
 /**
@@ -215,13 +216,18 @@ async function readRow(procRoot: string, pid: string, bootSeconds: number): Prom
 }
 
 /**
- * The reader for a platform with no leg built — macOS, Windows native, or any
- * Linux where `/proc` is not mounted.
+ * The reader for a platform with no leg built — any platform this instrument
+ * has never been run on, and any Linux where `/proc` is not mounted.
  *
  * Answers `null` to everything, which the collector renders as **no events at
  * all** rather than as an empty table. prd-57 ruling 2 and prd-15 ruling 7: a
  * leg lands behind a real capture, never from a man page, and until then it
  * yields nothing and `doctor` says so with the capture command as the remedy.
+ *
+ * The three platforms this instrument actually runs on have all left this
+ * reader now — Linux and WSL2 on `/proc`, Windows on `Win32_Process`, macOS on
+ * `ps` and `lsof` — so what remains here is the genuinely unvisited case, and
+ * `freebsd` in `read-table.test.ts` is the one standing example.
  */
 export const NO_LEG_READER: ProcessTableReader = async () => null
 
@@ -237,7 +243,12 @@ export function defaultProcessTableReader(platform: NodeJS.Platform = process.pl
   // see `read-table-windows.ts` for what the capture taught that the
   // documentation would not have.
   if (platform === 'win32') return readWindowsTable
-  // macOS is still unbuilt: no capture, so no leg. `doctor` says so with the
-  // capture command as its remedy rather than reporting an empty table.
+  // The macOS leg landed behind `fixtures/macos-ps.txt` and its two siblings,
+  // captured on a real machine with three real agents running in three
+  // different directories. It identifies an agent AND places one, because
+  // `lsof` gives the working directory of every process the reader owns — see
+  // `read-table-macos.ts` for what the capture taught that the documentation
+  // would not have, starting with the space inside argv[0].
+  if (platform === 'darwin') return readMacosTable
   return NO_LEG_READER
 }
