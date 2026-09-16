@@ -7,7 +7,15 @@ absolutely. The observer — collectors, receiver, server, UI — never runs a
 git command that changes anything, never sends a keystroke to an agent, and
 never merges or launches anything, enforced by this repo's own readonly law
 tests (e.g. `packages/web/src/drawer/readonly.test.ts`,
-`packages/server/src/judge/mergetree.test.ts`). It watches git, tmux, and
+`packages/server/src/judge/mergetree.test.ts`).
+
+Since [ADR-0052](docs/adr/0052-the-observer-reads-the-operators-own-agent-processes.md)
+the observer also reads the operating system's **process table** — which agent
+processes are running, their cpu and memory, and when one goes away. That adds
+one more thing it must never do, and it is the sibling of the keystroke clause
+above: **it never signals a process.** No kill, no stop, no continue, no
+priority change. Reading `/proc` (or the platform's equivalent) is how it knows
+an agent died; it has no way to be why. It watches git, tmux, and
 workmux state in the repo you point it at, it reads your own Claude
 Code session logs (`~/.claude/projects`) to show what your agents are
 doing, and it reads your machine's **process table** to see agent processes

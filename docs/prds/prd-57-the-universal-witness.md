@@ -636,3 +636,145 @@ can actually emit. Landing a third source literal and a precedence arm in wave 1
 only test could not bite — the defect shape `AGENTS.md` names as *"a test that cannot fail for the
 reason it claims"* — and it would put `packages/core/src/reduce.ts` in two wave-1 fences at once.
 Wave 3 gains the union, the precedence and the law that exercises all three witnesses together.
+
+## Closeout — prd-57 (2026-09-16)
+
+> Written at `prd57-w5-the-launch`, after waves 1–5 landed. Waves 1 and 2 are on
+> `main`; waves 3, 4 and 5 are PRs #576, #578 and this branch's. Wave 6's other
+> half (#535, the verification record) is assessed below and is **not** written
+> by this lane.
+
+Every Success is assessed **met**, **not met** or **not assessed**, with what
+decides it. "Not assessed" is used where the criterion asks for a live run this
+lane did not perform — it is never a synonym for met.
+
+### The twelve
+
+1. **Zero-multiplexer start — NOT ASSESSED.** Its falsifier's second half is met
+   and tested: `doctor` emits no `warn` or `FAIL` naming tmux or workmux, both
+   read `ok` present or absent, and the two configurations differ in nothing but
+   their own two lines (#531). Its first half — two real sessions in two plain
+   terminals, seen within sixty seconds of boot — is a live run on a
+   tmux-less machine that nobody has performed. Decided by performing it.
+
+2. **The process witness keeps four laws and gains a fifth — MET.** The planted
+   marker is asserted absent from the written bytes rather than from a parsed
+   event, which is the stronger form and the one ADR-0036 forces (a collector
+   keeps whatever the writer said, so only "never written" is true). No signal
+   idiom exists in `collectors/process/`; no event names a non-signature
+   process. Measured by test, in wave 2 and again in wave 3's runner.
+
+3. **The probe is untouched and still green — MET.** `process-probe.ts` and
+   `process-probe.test.ts` appear in no wave's fence and carry no edit. Checked
+   against every prd-57 commit, not assumed.
+
+4. **Enlist once, reversibly — MET, with one unverified platform.** The diff is
+   shown before the write and the server holds the digest bar, so a caller that
+   skipped the first step is refused rather than trusted; the original is copied
+   beside itself, create-only; a pre-existing foreign OTLP endpoint is refused
+   **by name** with what is still on the table. Enlist is reachable only through
+   `api/concierge.ts`, which two namespace laws hold. **The gap:** on Windows a
+   global npm install puts a `.cmd` shim on PATH while `argv[1]` is the `.mjs`
+   inside the package, so an enlist there may write a hook command that does not
+   execute. Declared in `api/concierge.ts` rather than guessed at; the macOS and
+   Linux paths are the ones this PRD can stand behind.
+
+5. **The instrument stops being silent about a dead agent — MET.** `crashed`
+   rises from a recorded `process.gone` following a `process.seen` with no
+   session end between, and **cannot** be reached from silence: the raiser takes
+   no clock and no threshold, so it cannot express "quiet for N minutes" at all,
+   and a test asserts its arity so a later edit cannot add one. `lane-state.ts`
+   keeps every line of its logic, so a stalled-but-alive lane still publishes
+   only its inference word.
+
+6. **Declared state exists, and inferred state says so — PARTLY MET.** The
+   declared half is done: `hook` is the third witness, outranks both readings,
+   and the fold keeps every overruled word as `dissent` (#529). The precedence
+   is exercised in all six speaker orders. **What is owed:** the disclosure card
+   does not yet state the join kind in its why line, and the affordance test
+   #532's DoD pairs with it is unwritten. Both need a field in
+   `disclosure/vocabulary.ts` and a producer that knows which keys the join
+   used — recorded in #532's commit, not skipped quietly.
+
+7. **tmux is an enrichment — MET.** Absent and present both read `ok`; the whole
+   doctor report is diffed between the two configurations and only the rig's own
+   two lines differ. `connect/links.ts` no longer paints an absent rig `broken`.
+
+8. **Launch needs no workmux — MET.** The arm runs the harness headless in the
+   lab's own detached worktree; `workmux add` is not spawned. Both namespace
+   laws gained a case and neither weakened by a clause — the lab's asserts the
+   launch argv creates nothing and the module spawns no workmux, the
+   concierge's asserts the laboratory reaches no adapter.
+
+9. **Three platforms witnessed — NOT ASSESSED by this lane, and #535 owns it.**
+   The macOS leg was run by the cohort and reviewed; Linux is this PRD's
+   authoritative gate and every wave ran on it; Windows cannot go green locally
+   (#457) and its legs were attributed by failing test NAME against a
+   same-worktree baseline rather than by a green run. Whether that clears the
+   criterion is #535's call to record, with the artifacts.
+
+10. **The newbie acceptance runs — NOT MET.** No person who is not the author
+    has run this. It is not simulated and a described walkthrough is not a
+    performance of it, so it is reported not met rather than assessed. #535
+    records it when someone runs it.
+
+11. **Words true in the same commit — MET.** README's Trust section moved in the
+    commit that made ADR-0019's "exactly two powers" false (#525); the front
+    door and `docs/telemetry.md` moved in the commit that retired the flag their
+    rows named (#533); `SECURITY.md`, `docs/vision.md` and `docs/architecture.md`
+    move here, in the wave that made their sentences false.
+
+12. **Nothing crosses into territory this PRD disclaims — MET, checked.**
+    All 51 commits carrying a prd-57 issue number were diffed against
+    `packages/team/`, `docs/record-format.md` and
+    `packages/core/src/wire/protocol.ts`. None touches any of them. Stated
+    having checked rather than assumed, which is what the criterion asks for.
+
+**Zero new dependencies — HOLDS, re-checked rather than repeated.** Every
+`package.json` in the PRD's commit span was diffed for an added dependency line.
+There are none. One export entry was added to `packages/server/package.json`
+(`./log/installation-id`), which is a path this repo already publishes from, not
+a dependency.
+
+### What the plan got wrong
+
+- **The `crashed` fan-out was under-counted.** `crashed` joining `PathologyKind`
+  breaks four exhaustive `Record`s, which the compiler names, and one plain
+  **array** — `scene/geometry/layout.ts`'s `PATHOLOGY_PRIORITY` — which it does
+  not. A kind missing from that array compiles and silently renders no label at
+  all. It was in no fence. The plan's fence for #530 named `marks/node.ts` and
+  stopped.
+
+- **#532's fence could not express #532's DoD.** It named six UI files; the
+  retired flag's parser was in `cli/args.ts`. Recorded on the issue.
+
+- **A `PathologyKind` that `diagnose` can never emit was not anticipated.**
+  `crashed` turns on a recorded edge in the fold rather than on a `Lane`'s
+  shape, which made a standing law — every kind appears in the staged fixture —
+  unsatisfiable by construction. `DIAGNOSED_KINDS` names the distinction now.
+
+- **Ruling 8's re-cut needed a second vocabulary, not a renaming.** The plan
+  says the rungs keep their names; it did not say that `doctor` and `/api/meta`
+  would then answer in two vocabularies and stop agreeing. A law asserted they
+  agreed. It now asserts they map.
+
+- **Retiring a flag broke three tests on Linux that Windows could not show.**
+  One of them was the end-to-end wiring test for the flag itself — a known
+  drive-letter timeout on Windows, so its real failure sat underneath an
+  unrelated one. This is the same name-level masking that made Linux the
+  authoritative leg for this PRD after wave 2, and it recurred at the last wave.
+
+### Measured versus reasoned
+
+**Measured.** Every law in this PRD that claims to bite was run against a
+deliberately broken tree: the three-speaker fold in all six permutations; the
+inbox's key (20 red across six routes, both arms); the wizard's arming bar; the
+hook's stdin bound (red *after hanging five seconds*); the refusal's exit code.
+The territory and dependency checks above are commands, not recollections. Every
+wave gated on Linux with `origin/main` an ancestor.
+
+**Reasoned.** The Windows enlist shim (Success 4's gap) — nobody has run an
+enlist on Windows, and the failure mode is argued from `argv[1]`'s shape rather
+than observed. The headless arm's 120s ceiling — inherited from a process that
+ran `npm ci`, kept because #408's ruling rather than its premise still applies,
+and fitted to nothing anyone has measured. Both are stated where they live.
