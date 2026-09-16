@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CAPABILITY_TOKEN_HEADER } from '../recordings/capability.js'
-import { applyEnlistment, requestEnlistDiff, type EnlistFetchLike } from './enlist.js'
+import { applyEnlistment, type EnlistFetchLike, requestEnlistDiff } from './enlist.js'
 
 /**
  * The tenth mutating call's client — prd-57 ruling 4 / ADR-0053.
@@ -35,6 +35,70 @@ const READY_DIFF = {
 
 beforeEach(() => {
   tokenInDocument('test-token')
+})
+
+/**
+ * A stand-in server that REMEMBERS WHETHER IT WROTE.
+ *
+ * The issue names the mutation the pair has to survive: *a test asserting the
+ * diff is shown survives a build where the second click also writes nothing.*
+ * Two separate tests — one that the first call sends `apply: false`, one that
+ * the second sends `apply: true` — do not catch that either, because neither
+ * has any idea what the other did.
+ *
+ * So one fake, one run, counting writes on the far side of the wire. After step
+ * one it must be zero; after step two, exactly one.
+ */
+function recordingServer() {
+  const writes: Record<string, unknown>[] = []
+  const fetchImpl = (async (_url: string, init: { body: string }) => {
+    const sent = JSON.parse(init.body) as Record<string, unknown>
+    if (sent.apply === true) {
+      if (sent.sourceDigest !== READY_DIFF.sourceDigest) {
+        // What the real route does, and the reason the digest is the bar
+        // rather than a convenience: the server holds it, not the caller.
+        return { status: 409, ok: false, json: async () => ({ error: 'stale digest' }), text: async () => 'stale' }
+      }
+      writes.push(sent)
+      return {
+        status: 200,
+        ok: true,
+        json: async () => ({ target: READY_DIFF.target, backupPath: '/somewhere/.claude/settings.json.bak', changedKeys: ['hooks'] }),
+        text: async () => '',
+      }
+    }
+    return { status: 200, ok: true, json: async () => READY_DIFF, text: async () => '' }
+  }) as unknown as EnlistFetchLike
+  return { fetchImpl, writes }
+}
+
+describe('THE PAIR: the diff writes nothing and the confirmation writes once', () => {
+  it('counts the writes on the server side across one whole two-step', async () => {
+    const server = recordingServer()
+
+    const diff = await requestEnlistDiff('claude', 'enlist', server.fetchImpl)
+    // Nothing yet. This is the assertion a diff-only test cannot make.
+    expect(server.writes).toHaveLength(0)
+    expect(diff.kind).toBe('ready')
+    if (diff.kind !== 'ready') return
+
+    const applied = await applyEnlistment('claude', 'enlist', diff.sourceDigest, server.fetchImpl)
+
+    expect(server.writes).toHaveLength(1)
+    expect(server.writes[0]).toMatchObject({ harness: 'claude', intent: 'enlist', apply: true })
+    expect(applied.changedKeys).toEqual(['hooks'])
+    expect(applied.backupPath).toBe('/somewhere/.claude/settings.json.bak')
+  })
+
+  it("a digest from nowhere writes nothing — the bar is the SERVER's, not this client's", async () => {
+    const server = recordingServer()
+
+    await expect(applyEnlistment('claude', 'enlist', 'b'.repeat(64), server.fetchImpl)).rejects.toThrow(/not applied/)
+
+    // The point of holding the count: an implementation that sent the write and
+    // then reported the refusal would still have written.
+    expect(server.writes).toHaveLength(0)
+  })
 })
 
 describe('step one reads, and cannot write', () => {

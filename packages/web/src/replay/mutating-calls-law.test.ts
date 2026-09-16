@@ -452,7 +452,10 @@ describe(`the web app names exactly ${MUTATING_MODULES.length} mutating calls (p
     expect(files.map((file) => file.name)).toContain(path.join('drawer', 'useTranscript.ts'))
   })
 
-  it('are the ONLY eight files in the app that name a mutating verb or build a request init', () => {
+  // Derived, not typed. This title read 'eight' while the list held nine,
+  // and then ten — prose one behind the data it guards is the exact defect
+  // this law exists to catch, wearing the law's own clothes.
+  it(`are the ONLY ${MUTATING_MODULES.length} files in the app that name a mutating verb or build a request init`, () => {
     expect(mutatingFiles()).toEqual(
       MUTATING_MODULES.map((module) => path.relative(WEB_SRC, module.file)).sort(),
     )
@@ -942,5 +945,60 @@ describe(`the web app names exactly ${MUTATING_MODULES.length} mutating calls (p
     // …and do not fire on ordinary reading code, so the law is not vacuous.
     expect(MUTATING_VERB_RE.test("const data = await fetch('/api/sessions')")).toBe(false)
     expect(REQUEST_INIT_RE.test("const data = await fetch('/api/sessions')")).toBe(false)
+  })
+})
+
+/**
+ * THE TENTH CALL'S CALLER ARMS BEFORE IT ACTS — prd-57 ruling 4, prd-14 ruling 4.
+ *
+ * The nine entries above are held to "one route, two headers, no other
+ * credential". That is a property of the MODULE that builds the request, and it
+ * says nothing about how many clicks stand between an operator and the write.
+ * `../concierge/explicit-invocation-law.test.ts` holds that second property for
+ * the launch and the retarget, by reading `connect/wizard.tsx`'s own source —
+ * and it does not know about this one yet, which is recorded rather than left
+ * to be noticed: that file is not in this change's fence.
+ *
+ * So the bar is pinned here, in the law that does enumerate the tenth call, in
+ * the same idiom: read the caller's source and assert the shape.
+ *
+ * Reading source text rather than rendering is the right instrument for this
+ * particular claim. A render test proves a button exists in some state; it
+ * cannot prove there is no OTHER path to the act. Counting the call sites can.
+ */
+describe('the enlistment is two clicks from the wizard, never one (prd-57 ruling 4)', () => {
+  const wizard = readFileSync(path.join(WEB_SRC, 'connect', 'wizard.tsx'), 'utf8')
+
+  it('the first click only READS — its handler is the diff, which writes nothing', () => {
+    expect(wizard).toMatch(/data-testid="wizard-enlist-read"[\s\S]{0,160}?onClick=\{\(\) => onReadEnlistDiff\('enlist'\)\}/)
+    expect(wizard).toMatch(/data-testid="wizard-unenlist-read"[\s\S]{0,160}?onClick=\{\(\) => onReadEnlistDiff\('unenlist'\)\}/)
+  })
+
+  it('the write is reachable from exactly ONE control, and only out of the confirming state', () => {
+    // The whole bar, as two facts. A second `onApplyEnlistment` anywhere — a
+    // shortcut button, a keyboard handler, a retry — would be a write one click
+    // away, which is what this counts rather than trusts.
+    expect(wizard.match(/onClick=\{onApplyEnlistment\}/g)).toHaveLength(1)
+    expect(wizard).toMatch(/data-testid="wizard-enlist-confirm"[\s\S]{0,120}?onClick=\{onApplyEnlistment\}/)
+    expect(wizard).toMatch(/enlist\.status === 'confirming'/)
+  })
+
+  it('the confirming state carries the digest, which is why the bar cannot be skipped', () => {
+    // `applyEnlistment` is called with the digest off the state, and the state
+    // only holds one because the diff put it there. A caller that reached the
+    // write without step one would have nothing to pass.
+    expect(wizard).toMatch(/applyEnlistment\(harness, intent, diff\.sourceDigest/)
+    expect(wizard.match(/applyEnlistment\(/g)).toHaveLength(1)
+  })
+
+  it('and it remembers nothing across a reload — said, not left to be assumed', () => {
+    // `settings/registry.ts` is the one module permitted to name browser
+    // storage, and the sibling case this issue raises is whether a wizard step
+    // persists. This one deliberately does not, for a reason in the source: a
+    // digest restored after a reload is stale by construction.
+    const enlistRegion = wizard.slice(0, wizard.indexOf('export function SetupWizard'))
+    expect(enlistRegion).toContain('NOTHING HERE IS REMEMBERED ACROSS A RELOAD')
+    // And the sweep that proves it, rather than the sentence alone.
+    expect(wizard).not.toMatch(/\b(?:localStorage|sessionStorage|indexedDB)\b/)
   })
 })

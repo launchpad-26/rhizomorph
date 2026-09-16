@@ -1,18 +1,26 @@
 import { useEffect, useState } from 'react'
-import { BUTTON, BUTTON_PRIMARY, FIELD } from '../ui/controls.js'
-import { requestClone, type CloneFetchLike, type CloneOutcome } from '../concierge/clone.js'
-import { requestInstrument, type InstrumentFetchLike, type InstrumentMode, type InstrumentOutcome } from '../concierge/instrument.js'
-import { requestRetarget, type RetargetFetchLike, type RetargetOutcome, type RetargetSwitched } from '../concierge/retarget.js'
-import type { CopyText } from '../drawer/AttachButton.js'
-import { restartCommand, STATE_GLYPH, STATE_WORD, type ChainLink } from './links.js'
+import { type CloneFetchLike, type CloneOutcome, requestClone } from '../concierge/clone.js'
 import {
+  applyEnlistment,
+  type EnlistApplied,
+  type EnlistDiff,
+  type EnlistFetchLike,
+  type EnlistIntent,
+  requestEnlistDiff,
+} from '../concierge/enlist.js'
+import { type InstrumentFetchLike, type InstrumentMode, type InstrumentOutcome, requestInstrument } from '../concierge/instrument.js'
+import { type RetargetFetchLike, type RetargetOutcome, type RetargetSwitched, requestRetarget } from '../concierge/retarget.js'
+import type { CopyText } from '../drawer/AttachButton.js'
+import { BUTTON, BUTTON_PRIMARY, FIELD } from '../ui/controls.js'
+import { type ChainLink, restartCommand, STATE_GLYPH, STATE_WORD } from './links.js'
+import {
+  type FetchLike,
   fetchRepos,
   isWorktreeLaneSlug,
-  REPO_SELECT_CAP,
-  UNAVAILABLE,
-  type FetchLike,
   type MetaFacts,
+  REPO_SELECT_CAP,
   type ReposReading,
+  UNAVAILABLE,
 } from './meta.js'
 
 /**
@@ -249,6 +257,8 @@ export interface SetupWizardProps {
   fetchImpl?: FetchLike
   /** Test seam for the launch — narrower than {@link fetchImpl} on purpose; see `ConnectPageProps`. */
   instrumentFetchImpl?: InstrumentFetchLike
+  /** Test seam for the enlistment, narrow for the same reason as its siblings. */
+  enlistFetchImpl?: EnlistFetchLike
   /** Test seam for the clone, and narrow for the same reason. */
   cloneFetchImpl?: CloneFetchLike
   /** Test seam for the switch — a fourth narrow seam, for the reason the second and third exist. */
@@ -285,6 +295,43 @@ type LaunchState =
   | { status: 'failed'; message: string }
 
 /**
+ * THE ENLISTMENT'S ARM-THEN-ACT STATE — prd-57 ruling 4.
+ *
+ * The same shape {@link LaunchState} carries, with one difference worth
+ * stating: the other two acts arm on a sentence this page writes about what is
+ * about to happen. This one arms on **the diff the server computed**, carried
+ * in `confirming` because it is the thing the operator is confirming and
+ * because `sourceDigest` rides on it — the second step cannot be made without
+ * it, and there is nowhere else to obtain one.
+ *
+ * So the bar here is not a convention this page keeps. A caller that skipped
+ * the first step would have no digest to send and the SERVER would refuse it.
+ *
+ * `already-settled` and `refused` come back from the first step too, and they
+ * are terminal: nothing to apply, so no second click is offered. They are
+ * their own arms rather than a `failed` message because neither is a failure —
+ * one means the machine is already in the state asked for, the other means
+ * this hand will not enter it and says what would.
+ *
+ * NOTHING HERE IS REMEMBERED ACROSS A RELOAD, and that is deliberate rather
+ * than unfinished. `settings/registry.ts` is the one module in this package
+ * permitted to name browser storage, and a half-finished enlistment is exactly
+ * what must not survive: a `sourceDigest` is a claim about bytes on disk at one
+ * moment, and one restored from storage after a reload would be stale by
+ * construction — the server would refuse it, which is the right answer arrived
+ * at the long way round. A reload starts at `idle` and reads the diff again.
+ */
+type EnlistState =
+  | { status: 'idle' }
+  | { status: 'reading'; intent: EnlistIntent }
+  | { status: 'confirming'; intent: EnlistIntent; diff: Extract<EnlistDiff, { kind: 'ready' }> }
+  | { status: 'writing'; intent: EnlistIntent }
+  | { status: 'done'; intent: EnlistIntent; applied: EnlistApplied }
+  | { status: 'settled'; why: string; display: string }
+  | { status: 'refused'; why: string; remedy: string; display: string }
+  | { status: 'failed'; message: string }
+
+/**
  * The switch's own arm-then-act state, the identical shape {@link LaunchState}
  * carries and for the same reason: the current recording closes and a new one
  * opens the moment this act runs, so the click that reaches it is the second
@@ -304,6 +351,7 @@ export function SetupWizard({
   port,
   fetchImpl,
   instrumentFetchImpl,
+  enlistFetchImpl,
   cloneFetchImpl,
   retargetFetchImpl,
   onRetargeted,
@@ -318,6 +366,7 @@ export function SetupWizard({
   const [mode, setMode] = useState<Exclude<InstrumentMode, 'resume'>>('launch')
   const [launch, setLaunch] = useState<LaunchState>({ status: 'idle' })
   const [retarget, setRetarget] = useState<RetargetState>({ status: 'idle' })
+  const [enlist, setEnlist] = useState<EnlistState>({ status: 'idle' })
 
   // ONE READ, ONCE — never on the page's poll. The repo list is a filesystem
   // walk over the operator's home directory; re-running it every five seconds
@@ -347,6 +396,54 @@ export function SetupWizard({
       if (outcome.kind === 'cloned') setChosenRepo(outcome.path)
     } catch (err) {
       setClone({ status: 'failed', message: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  /**
+   * STEP ONE. Reads what enlisting would change and writes nothing.
+   *
+   * Every arm of the answer lands in state rather than only the one this page
+   * hoped for: an operator who already enlisted, and one whose own OTLP
+   * endpoint this hand declines to overwrite, are the two most likely outcomes
+   * after the first successful run, and a surface that rendered neither would
+   * look broken at exactly those moments.
+   */
+  async function readEnlistDiff(intent: EnlistIntent) {
+    setEnlist({ status: 'reading', intent })
+    try {
+      const diff = await requestEnlistDiff(harness, intent, enlistFetchImpl)
+      if (diff.kind === 'ready') setEnlist({ status: 'confirming', intent, diff })
+      else if (diff.kind === 'already-settled') {
+        setEnlist({ status: 'settled', why: diff.why, display: diff.target.display })
+      } else setEnlist({ status: 'refused', why: diff.why, remedy: diff.remedy, display: diff.target.display })
+    } catch (err) {
+      setEnlist({ status: 'failed', message: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  /**
+   * STEP TWO. Writes, against the digest step one carried.
+   *
+   * The state is re-read rather than trusted from the closure, for the reason
+   * `confirmLaunch` below re-checks `live`: the two clicks are separated by an
+   * unbounded stretch of wall clock, and the harness picker stays interactive
+   * the whole time. A confirm that fired against a digest taken for a different
+   * harness would be a write nobody reviewed — and the digest would not match
+   * that file either, so the server would refuse it, but this page should not
+   * need the server to catch its own bookkeeping.
+   */
+  async function confirmEnlist() {
+    if (enlist.status !== 'confirming') return
+    const { intent, diff } = enlist
+    setEnlist({ status: 'writing', intent })
+    try {
+      setEnlist({
+        status: 'done',
+        intent,
+        applied: await applyEnlistment(harness, intent, diff.sourceDigest, enlistFetchImpl),
+      })
+    } catch (err) {
+      setEnlist({ status: 'failed', message: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -486,6 +583,10 @@ export function SetupWizard({
           watched={watched}
           port={port}
           launch={launch}
+          enlist={enlist}
+          onReadEnlistDiff={(intent) => void readEnlistDiff(intent)}
+          onApplyEnlistment={() => void confirmEnlist()}
+          onCancelEnlist={() => setEnlist({ status: 'idle' })}
           onArm={() => setLaunch({ status: 'confirming' })}
           onCancelLaunch={() => setLaunch({ status: 'idle' })}
           onLaunch={() => void confirmLaunch()}
@@ -753,6 +854,10 @@ function ConductorStep({
   watched,
   port,
   launch,
+  enlist,
+  onReadEnlistDiff,
+  onApplyEnlistment,
+  onCancelEnlist,
   onArm,
   onCancelLaunch,
   onLaunch,
@@ -775,6 +880,10 @@ function ConductorStep({
   port: string
   launch: LaunchState
   /** The first click — it shows what is about to happen and spends nothing. */
+  enlist: EnlistState
+  onReadEnlistDiff: (intent: EnlistIntent) => void
+  onApplyEnlistment: () => void
+  onCancelEnlist: () => void
   onArm: () => void
   /** The way back out of an armed launch, which must exist for the arming to mean anything. */
   onCancelLaunch: () => void
@@ -852,6 +961,145 @@ function ConductorStep({
             </>
           )}
         </p>
+      )}
+
+      {/* THE ENLISTMENT — prd-57 ruling 4, said where the harness is chosen.
+
+          The telemetry line above is about a conductor THIS HAND starts. This
+          is about every other one: the agent an operator opens a terminal and
+          types. It sits here because the harness picker is what it is scoped
+          to, and because an operator reading "telemetry: proven" has just been
+          told a thing that is only true of launches from this page.
+
+          Offered for implemented harnesses only. A declared harness has no
+          adapter to plan an enlistment with, and its own line above already
+          says what it would take. */}
+      {facts !== undefined && facts.status === 'implemented' && (
+        <div data-testid="wizard-enlist" className="flex flex-col gap-1">
+          <p className="text-read-body leading-snug text-(--ink-dim)">
+            agents you start yourself report nothing to this instrument unless {facts.displayName}’s own
+            configuration says so. Enlisting writes that once, in your home directory — never in a repository — and
+            can be undone from here.
+          </p>
+
+          {(enlist.status === 'idle' || enlist.status === 'failed') && (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                data-testid="wizard-enlist-read"
+                onClick={() => onReadEnlistDiff('enlist')}
+                className={BUTTON}
+              >
+                see what enlisting would change
+              </button>
+              <button
+                type="button"
+                data-testid="wizard-unenlist-read"
+                onClick={() => onReadEnlistDiff('unenlist')}
+                className={BUTTON}
+              >
+                see what unenlisting would change
+              </button>
+            </div>
+          )}
+
+          {enlist.status === 'reading' && (
+            <p data-testid="wizard-enlist-reading" className="text-read-body text-(--ink-dim)">
+              reading {facts.displayName}’s configuration — nothing is being written
+            </p>
+          )}
+
+          {/* THE DIFF IS THE CONFIRMATION. Every key, before and after, plus
+              anything this hand declined to touch — a refusal is the one thing
+              an operator most needs to read and the arm that carries it is the
+              one that otherwise looks like plain success. */}
+          {enlist.status === 'confirming' && (
+            <div
+              data-testid="wizard-enlist-diff"
+              className="flex flex-col gap-1 rounded-none border border-(--line-hair) px-2 py-2"
+            >
+              <p className="text-read-body leading-snug text-(--ink-body)">
+                {enlist.intent === 'enlist' ? 'would add to' : 'would remove from'}{' '}
+                <span className="figures">{enlist.diff.target.display}</span>. Nothing has been written yet.
+              </p>
+              <ul className="flex flex-col gap-0.5 text-read-floor leading-snug figures text-(--ink-dim)">
+                {enlist.diff.changes.map((change) => (
+                  <li key={change.keyPath.join('.')} data-testid="wizard-enlist-change">
+                    {change.before === null
+                      ? `+ ${change.keyPath.join('.')} = ${change.after}`
+                      : change.after === null
+                        ? `- ${change.keyPath.join('.')} (was ${change.before})`
+                        : `~ ${change.keyPath.join('.')}: ${change.before} -> ${change.after}`}
+                  </li>
+                ))}
+              </ul>
+              {enlist.diff.refusals.map((refusal) => (
+                <p
+                  key={refusal.keyPath.join('.')}
+                  data-testid="wizard-enlist-refusal"
+                  className="text-read-body leading-snug text-waiting-benign"
+                >
+                  {refusal.keyPath.join('.')} is left alone — {refusal.reason}. Still on the table: {refusal.offer}
+                </p>
+              ))}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  data-testid="wizard-enlist-confirm"
+                  onClick={onApplyEnlistment}
+                  className={BUTTON}
+                >
+                  {enlist.intent === 'enlist' ? 'write these changes' : 'remove these keys'}
+                </button>
+                <button type="button" data-testid="wizard-enlist-cancel" onClick={onCancelEnlist} className={BUTTON}>
+                  leave it alone
+                </button>
+              </div>
+            </div>
+          )}
+
+          {enlist.status === 'writing' && (
+            <p data-testid="wizard-enlist-writing" className="text-read-body text-(--ink-dim)">
+              writing…
+            </p>
+          )}
+
+          {enlist.status === 'done' && (
+            <p data-testid="wizard-enlist-done" className="text-read-body leading-snug text-(--ink-body)">
+              {enlist.intent === 'enlist' ? 'enlisted' : 'unenlisted'} — {enlist.applied.changedKeys.length} key
+              {enlist.applied.changedKeys.length === 1 ? '' : 's'} changed in{' '}
+              <span className="figures">{enlist.applied.target.display}</span>
+              {enlist.applied.backupPath !== null && (
+                <>
+                  . The file as it was is at <span className="figures">{enlist.applied.backupPath}</span>
+                </>
+              )}
+              . Agents started from a new terminal report from their next session on.
+            </p>
+          )}
+
+          {enlist.status === 'settled' && (
+            <p data-testid="wizard-enlist-settled" className="text-read-body leading-snug text-(--ink-dim)">
+              nothing to do — {enlist.why} (<span className="figures">{enlist.display}</span>)
+            </p>
+          )}
+
+          {enlist.status === 'refused' && (
+            <p
+              role="status"
+              data-testid="wizard-enlist-refused"
+              className="text-read-body leading-snug text-waiting-benign"
+            >
+              {enlist.why} — {enlist.remedy} (<span className="figures">{enlist.display}</span>)
+            </p>
+          )}
+
+          {enlist.status === 'failed' && (
+            <p role="status" data-testid="wizard-enlist-error" className="text-read-body text-broken">
+              {enlist.message}
+            </p>
+          )}
+        </div>
       )}
 
       {/* THE STATUS, FROM THE FOLD'S OWN FACTS — never a second probe, and
