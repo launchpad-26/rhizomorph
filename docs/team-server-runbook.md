@@ -217,8 +217,13 @@ Postgres comes up alone, and only after it reports healthy does the dump go in �
 empty database, before the app (and its on-boot migrations) has ever touched it. Only
 then do `app` and `caddy` start.
 
-Wave 6's drill is what times and proves this sequence on the real host. This runbook
-states the ordering; it does not itself constitute the drill.
+The machine-plane drill in `docs/research/2026-09-16-prd51-machine-plane-drill.md` is what
+times and proves this sequence on the real host — its finding 7, restore into the empty
+database before first boot. (This paragraph said "wave 6's drill" until 2026-09-17; the drill
+that ran was a later wave's, and a reader following the old pointer landed on a wave that
+never ran one. The research note is cited instead of a wave number for the reason this file
+records elsewhere: the number is the part that rots.) This runbook states the ordering; it
+does not itself constitute the drill.
 
 **A plain `pg_dump` of this schema is not a complete restore on its own, even in the
 right order.** Executed while building this deployment: restoring a `pg_dump` taken
@@ -273,8 +278,13 @@ machine.
 Bringing the image up is not the same as the ingest pipeline being end-to-end. One
 thing is deliberately unbuilt:
 
-- **There is no `doctor` for the team server yet.** Nothing in this deployment should be
-  read as implying one exists.
+- **Retention has no ceiling.** Nothing drops an old partition, so `events` grows until the
+  volume does. `packages/team/src/` has no retention module and `deploy/` has no ceiling
+  script; there is no setting that changes this today.
+
+**The doctor is no longer on that list** — it is below, under "The doctor". This paragraph
+said there was none until 2026-09-17, and that sentence was load-bearing: it is what a reader
+was meant to trust when nothing else in the deployment said so.
 
 ### The fold runs in the app process
 
@@ -343,6 +353,105 @@ Minting a key **from the team viewer** is not here, because minting is not — t
 does not write: the
 one key this deployment holds is the one `init.sh` seeds. That is a narrowing of ruling
 8's *"a member mints a key in the viewer"*, not a gap in the verification below.
+
+## The doctor
+
+One line per check, each carrying its exact remedy (prd-51 ruling 13). It runs **in the
+container**, not as an HTTP route — a doctor reachable only through a sign-in that may itself
+be the broken thing is a doctor you cannot use when you need it:
+
+```
+docker compose exec app node_modules/.bin/tsx packages/team/deploy/doctor.ts
+```
+
+It exits **0** when nothing is failing and **1** when something is, so it is usable from a
+script. A `[warn]` is a thing to know, not a thing that sets the exit code.
+
+A healthy deployment, verbatim from a run (the host, the database URL and the journal path are
+this deployment's; the run itself was against the same PostgreSQL 18.4 the image pins):
+
+```
+notice: relation "events_2026_09" already exists, skipping
+notice: relation "events_2026_09_pos_uq" already exists, skipping
+notice: relation "events_2026_10" already exists, skipping
+notice: relation "events_2026_10_pos_uq" already exists, skipping
+[ok  ] database: reachable at postgres://***@postgres:5432/rhizomorph (PostgreSQL 18.4)
+[ok  ] migrations: 6 tracked, 6 applied (0001_events, 0002_projections, 0003_roles_rls, 0004_events_dedup, 0005_ingest_keys, 0006_viewer_role_membership)
+[ok  ] partition window: events partitions for 2026-09 and 2026-10 are present (topped up by this run, the same idempotent call boot makes — this check is the one that writes)
+[ok  ] ingest key: one live key for project rhizomorph, seeded 2026-09-16T21:51:05.317Z
+[warn] GitHub App: no sign-in configured — all six values are empty. This is a valid deployment, not a fault: ingest is unaffected and /auth/github/start answers 503. To enable sign-in, fill in githubOrgLogin (set RZ_TEAM_GITHUB_ORG in deploy/.env), githubAppId (set RZ_TEAM_GITHUB_APP_ID in deploy/.env), githubInstallationId (set RZ_TEAM_GITHUB_INSTALLATION_ID in deploy/.env), githubClientId (set RZ_TEAM_GITHUB_CLIENT_ID in deploy/.env), githubClientSecret (set RZ_TEAM_GITHUB_CLIENT_SECRET in deploy/.env), githubAppPrivateKey (set RZ_TEAM_GITHUB_APP_PRIVATE_KEY_PATH in deploy/.env), then docker compose up -d — NOT docker compose restart, which does not re-read .env.
+[ok  ] journal directory: /data/journal is writable
+[ok  ] fold cursor: at seq 1 of 1, 0 record(s) unfolded
+[ok  ] fold tick: effective 5000ms, armed (RZ_TEAM_FOLD_TICK_MS is unset, so the built-in default applies)
+
+All checks passed.
+```
+
+**The four `notice:` lines are expected and are not a fault.** They are the partition check
+saying the month's partitions already exist, which is what a healthy deployment looks like —
+see the partition note below.
+
+And the same command against a stopped database, which is what an operator will see most
+often:
+
+```
+[FAIL] database: unreachable at postgres://***@postgres:5432/rhizomorph — connect ECONNREFUSED 10.0.0.1:5432. Remedy: docker compose ps (postgres must read healthy) then docker compose logs postgres; if the host or credentials are wrong, fix RZ_TEAM_DATABASE_URL in deploy/.env and run docker compose up -d — NOT docker compose restart, which does not re-read .env.
+[warn] migrations: not measured — the database is unreachable (see the database line above). Remedy: fix that line first, then re-run this doctor.
+[warn] partition window: not measured — the database is unreachable (see the database line above). Remedy: fix that line first, then re-run this doctor.
+[warn] ingest key: not measured — the database is unreachable (see the database line above). Remedy: fix that line first, then re-run this doctor.
+```
+
+**"not measured" is not "ok".** Three checks need a connection, so when there is not one they
+say they were not run rather than reporting a second copy of the same `ECONNREFUSED` under
+three remedies that do not fit it.
+
+### Three things about the checks that are worth knowing before you read the output
+
+- **The partition check is the one that WRITES.** Every other check only looks. There is no
+  way to read the catalog from behind this server's storage interface, so the only honest way
+  to assert that this month and next are covered is to run the same idempotent top-up boot
+  runs (`CREATE TABLE IF NOT EXISTS`). On a healthy deployment it changes nothing and emits
+  the `notice:` lines above; on a broken one it fails with the reason. The line says "topped
+  up by this run" rather than "covers" for exactly that reason.
+
+- **Two of the remedies name `compose.yml` rather than `.env`, and that is not a slip.**
+  Compose passes the `app` service only the variables listed in its `environment:` block.
+  `RZ_TEAM_FOLD_TICK_MS` and `RZ_TEAM_JOURNAL_DIR` are **not** among them, so setting either
+  in `deploy/.env` changes nothing at all. To change the fold tick you add the variable to
+  that block first. Under compose the journal is always `/data/journal`, the mount point of
+  the `team_journal` volume.
+
+- **The `ingest key` check is about THIS deployment's key**, not about the table having rows
+  in it. A rotation followed by `docker compose restart` leaves the server seeded with the old
+  digest and every batch refused — the table is full and the deployment is dead. That state
+  reads as `[FAIL] ingest key: … was revoked at …`.
+
+### What a failing line looks like
+
+Each carries the command to type. Two, as examples:
+
+```
+[FAIL] journal directory: /data/journal is not writable — EACCES: permission denied, access '/data/journal', so every batch will be refused rather than journalled. Remedy: docker compose exec -u root app sh -c 'chown -R node:node /data/journal && chmod -R u+rwX /data/journal' — one command because the two causes look identical from here (the image runs as uid 1000, so a root-owned volume and a mode with no owner write bit both read as EACCES). If the path does not exist at all the team_journal volume is not mounted: check the app service's volumes: block in packages/team/deploy/compose.yml and run docker compose up -d. Note that compose does not pass RZ_TEAM_JOURNAL_DIR to this container at all, so setting it in deploy/.env moves nothing: under compose the journal is always the team_journal volume mounted at /data/journal.
+```
+
+```
+[warn] fold tick: RZ_TEAM_FOLD_TICK_MS="5s" is not a number, so the effective tick is 0ms and the periodic fold is DISABLED — the fold still runs on each accepted batch and at boot, so this is quiet rather than visible. Remedy: add RZ_TEAM_FOLD_TICK_MS: ${RZ_TEAM_FOLD_TICK_MS:-} to the `app` service's environment: block in packages/team/deploy/compose.yml and set a whole number of MILLISECONDS in deploy/.env, then docker compose up -d. Setting it in deploy/.env ALONE does nothing: compose does not forward this variable to the container.
+```
+
+That second one is the reason the tick is a check at all: `5s` is the typo a reader of the
+fold section above will make, it is `NaN`, it silently disables the periodic fold, and nothing
+else anywhere says it happened.
+
+### What the doctor does NOT check
+
+- **The three view routes.** Reaching them needs a signed-in member, and a doctor behind a
+  sign-in that may itself be the broken thing is one an operator cannot use.
+- **The `rz_` roles and the row-level-security policies in the live catalog.** That is the
+  state a restore leaves behind (see "Restore ordering" above), it is real, and it is not here
+  yet: reading `pg_roles` and `pg_policy` needs SQL, and SQL in this package lives behind the
+  storage interface, which is a different change. Until it lands, a restored database still
+  needs the manual check that section describes.
+- **Retention.** There is none to check.
 
 ## Rotating the ingest key
 
