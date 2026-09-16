@@ -24,18 +24,24 @@ observed; if it is, raise the budget rather than remove the watchdog.
 *Added by prd-57 wave 1 as a placeholder. Measured 2026-09-16, wave 2.*
 
 Both ceilings above are written against a **subprocess**. The process collector
-has two legs and only one of them spawns anything, so it needs both numbers and
-they are a factor of thirty apart.
+has three legs and only two of them spawn anything, so it needs three numbers
+and they are a factor of thirty apart end to end.
 
 | leg | measured | over | how |
 |---|---|---|---|
 | **Linux / WSL2** | **42 ms** median (min 37, max 45, five runs) | 63 processes | `/proc` read directly — one `readdir`, then a `readlink` and two `readFile`s per candidate pid. **No subprocess at all.** |
+| **macOS (Apple silicon)** | **143 ms** median (min 123, max 189, eleven runs) | 453 processes | THREE execs, issued together: `ps …comm=`, `ps …command=`, `lsof -d cwd -Fpn` |
 | **Windows (native)** | **1273 ms** | 216 processes | one `powershell -Command "Get-CimInstance …"` through ADR-0004's injected `Exec` |
 
-Measured on one machine, 2026-09-16: WSL2 Ubuntu under Windows 11, node 22.23.2
-for the Linux figure; native Windows 11, node 22.23.1 for the Windows one. Both
-are single-machine readings rather than a distribution, and the process counts
-are stated beside them because a tick cost without one means nothing.
+Measured on one machine each, 2026-09-16: WSL2 Ubuntu under Windows 11, node
+22.23.2 for the Linux figure; native Windows 11, node 22.23.1 for the Windows
+one; macOS 26.6.2 on an Apple silicon Mac mini, node 22.22.2, for the macOS one.
+All are single-machine readings rather than a distribution, and the process
+counts are stated beside them because a tick cost without one means nothing.
+
+The macOS machine was **not idle** while it was measured — four Claude Code
+sessions and a build were running on it, which is roughly the condition this
+collector is for and is why the spread (123–189 ms) is wider than Linux's.
 
 **What that means against the two ceilings above.**
 
@@ -44,6 +50,14 @@ are stated beside them because a tick cost without one means nothing.
   it spawns no child. Its cost scales with *how many processes the machine is
   running*, not with how many worktrees this repo has — a shape neither existing
   constant describes.
+- **The macOS leg costs three subprocesses and is still an order of magnitude
+  under the Windows one**, on a machine running seven times as many processes.
+  `ps` and `lsof` are small C programs; PowerShell's start-up is what the
+  Windows figure is mostly made of. The three execs are issued together rather
+  than in sequence — two of them are the same process table read twice and
+  joined on pid, so the window in which a process can exit between them is a
+  source of wrong answers and is the one thing worth minimising. Sequentially
+  it would be roughly the sum rather than the max.
 - **The Windows leg spends a quarter of the exec ceiling on every tick.** 1273 ms
   against `COLLECTOR_EXEC_TIMEOUT_MS = 5000` is comfortable today and is the
   largest single exec this instrument performs. Nearly all of it is PowerShell's
@@ -56,5 +70,12 @@ the Windows leg degrades linearly or worse. The tradeoff paragraph above says to
 raise a budget rather than remove a watchdog if a healthy tick approaches one —
 that instruction stands, and nothing here is close enough to act on yet.
 
-**macOS is unmeasured because the leg is unbuilt.** It will spawn `ps` and
-`lsof`, so expect it to sit nearer the Windows figure than the Linux one.
+**The macOS prediction this note carried was wrong, and it is left here rather
+than quietly replaced.** It said: *"macOS is unmeasured because the leg is
+unbuilt. It will spawn `ps` and `lsof`, so expect it to sit nearer the Windows
+figure than the Linux one."* Measured, it is 143 ms — nine times cheaper than
+Windows and three times dearer than Linux, so nearer neither and nearer Linux
+if forced to choose. The reasoning was that spawning is what costs; the
+measurement says WHAT you spawn is what costs. That is the same lesson the
+legs themselves keep producing: the guess was structural and plausible, and
+running it is what settled it.
