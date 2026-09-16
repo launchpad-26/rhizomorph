@@ -324,6 +324,24 @@ Sign in first at `/auth/github/start`. Membership of the organisation is checked
 so removing someone from the org closes their access at their next page load rather than at their
 next sign-in. A pending, never-accepted invitation is not membership.
 
+### Minting an ingest key
+
+One more member-facing page, and the only one that writes:
+
+```
+GET  /v1/rhizomorph/keys?project=<id>    the form
+POST /v1/rhizomorph/keys?project=<id>    mints, and shows the key ONCE
+```
+
+Same gate as the three questions — a session, then organisation membership, re-checked on the
+POST itself rather than trusted from the cookie. **The plaintext is shown on that one response and
+never again**: this server stores only its SHA-256 (ruling 8), so coming back to the page shows
+the form, not the key, and a lost key is replaced rather than recovered. Paste it into
+`rhizomorph connect team <url> --project <id>`, which reads it on stdin and never from argv.
+
+Minting adds a key; it revokes nothing (see *Rotating the ingest key* below). A POST whose
+`Origin` is not this site is refused with a 403 and mints nothing.
+
 **`RZ_TEAM_PROJECT` now decides what a viewer may read, not only which project the seeded ingest
 key is scoped to.** `init.sh` always writes it (defaulting to `default`), and a request naming any
 other project is refused with a 404. That is a narrowing, not an authorisation model: **membership
@@ -371,6 +389,11 @@ Three things worth knowing before you run it:
   different project id mints a key for that other project and leaves the original
   project's key live, which is not what "rotate" means.
 
+**Minting a second key is not rotation, and does not revoke anything.** The viewer's mint
+(below) adds a live key for the project — that is what lets a second machine ship without
+re-keying the first. Only the boot that learns a *different* `RZ_TEAM_INGEST_KEY_SHA256`
+retires what came before it.
+
 To revoke without minting a replacement — a key you believe is compromised, with no
 shipper to re-key yet — there is no command for that today: it is a row update against
-`ingest_keys`, and a mint-and-revoke path from the viewer is wave 7's.
+`ingest_keys`. The viewer mints; it does not yet revoke.
