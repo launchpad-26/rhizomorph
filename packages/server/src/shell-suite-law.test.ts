@@ -203,7 +203,17 @@ import { describe, expect, it } from 'vitest'
 
 const REPO_ROOT = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
 const SHELL_TEST_GLOB = 'scripts/dev/*.test.sh'
-const SHELL_TEST_TIMEOUT_MS = 60_000
+// A HANG guard, not a performance assertion — nothing here asserts a script is fast, so
+// raising this weakens no property (contrast `await-merge.test.sh`'s own `took_under`, which
+// IS the assertion and must never be widened). Measured on macOS during the review of #575:
+// the two slowest scripts run 15.0s (`fence-lint.test.sh`) and 15.4s (`prd-reconcile.test.sh`)
+// on an idle box, and 28.6s / 27.0s under a 6-way CPU load — but a full `VITEST_MAX_WORKERS=6
+// npm test` on an 8 GB box with an `npm install` competing took `fence-lint.test.sh` past
+// 60_000 ms, killing it by SIGTERM: `status` null, reported as "did not run to completion".
+// One occurrence in two full-suite runs, so a thin margin rather than a reproducible failure.
+// 180s keeps ~12x headroom over the idle measurement while still bounding a genuinely hung
+// script inside a single test.
+const SHELL_TEST_TIMEOUT_MS = 180_000
 
 function discoverShellTests(pattern: string): string[] {
   return execFileSync('git', ['ls-files', pattern], { cwd: REPO_ROOT, encoding: 'utf8' })
