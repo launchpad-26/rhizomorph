@@ -436,7 +436,7 @@ export function planRetention(input: {
   })
 }
 
-/** What one sweep did. `sweepRetention` never throws — a failure is a row in {@link failed}. */
+/** What one sweep did. A failing DROP is a row in {@link failed} rather than a rejection — see {@link sweepRetention} for what a failing READ does instead. */
 export interface RetentionSweep {
   readonly ceilings: readonly RetentionCeiling[]
   readonly verdicts: readonly PartitionVerdict[]
@@ -447,7 +447,20 @@ export interface RetentionSweep {
 }
 
 /**
- * One pass of the ceiling over the partitions. Never throws.
+ * One pass of the ceiling over the partitions.
+ *
+ * **A failing DROP is contained; a failing READ is not, and the difference is deliberate.** The
+ * per-partition loop below catches, so one partition that cannot be dropped becomes a row in
+ * {@link RetentionSweep.failed} and the rest of the sweep still runs. The two reads that open the
+ * pass — `readCeilings` and `listEventPartitions` — are NOT caught, so this function REJECTS when
+ * the ceiling table or the partition list cannot be answered. That is not an oversight: with no
+ * ceilings read there are no verdicts to report, so there is no honest `RetentionSweep` to return,
+ * and the totality belongs to the caller. `startFoldWorker`'s `sweep()` records where it lives —
+ * `drain()` resolves its waiters from `run()`'s `finally` whatever happened, and `loop` carries its
+ * own `.catch`, which is why a guard here was measured and removed rather than kept.
+ *
+ * This paragraph replaces two sentences that said "never throws" (review of #585). Both were
+ * false for the two reads, and `worker.test.ts` now pins the real contract rather than the claim.
  *
  * Drops **oldest first**, which `listEventPartitions`' name ordering already
  * gives for `events_YYYY_MM`, so an interrupted sweep has removed a contiguous

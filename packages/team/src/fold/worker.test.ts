@@ -1459,6 +1459,48 @@ describe('#559 — one failing drop does not cost the sweep the rest', () => {
   })
 })
 
+/**
+ * THE CONTRACT THE DOCBLOCK USED TO GET WRONG (review of #585).
+ *
+ * `sweepRetention` said "Never throws" in two places. A failing DROP is indeed contained — the
+ * test above proves it — but the two READS that open the pass are not caught, so the function
+ * rejects when the ceiling table or the partition list cannot be answered. That behaviour is the
+ * deliberate one (`startFoldWorker`'s `sweep()` records why the guard was measured and removed);
+ * what was wrong was the sentence describing it. These two cases pin the real contract, so a
+ * future guard added here has to redden a test rather than quietly contradict a comment.
+ */
+describe('#585 — a failing READ rejects, and that is the contract', () => {
+  it.each([['readCeilings'], ['listEventPartitions']] as const)(
+    'a %s that cannot answer rejects rather than returning a sweep that reports nothing',
+    async (method) => {
+      const storage = new FakeTeamStorage({
+        eventPartitions: ['events_2020_01'],
+        ceilings: [CEILING({ maxAgeDays: 30 })],
+      })
+      const boom = new Error(`${method} is unavailable`)
+      // biome-ignore lint/suspicious/noExplicitAny: replacing one method on the fake, as the test above does.
+      ;(storage as any)[method] = async (): Promise<never> => {
+        throw boom
+      }
+
+      await expect(sweepRetention({ storage, nowMs: NOW })).rejects.toThrow(`${method} is unavailable`)
+    },
+  )
+
+  it('a drop that fails is still contained, so the two are genuinely different arms', async () => {
+    const storage = new FakeTeamStorage({
+      eventPartitions: ['events_2020_01'],
+      ceilings: [CEILING({ maxAgeDays: 30 })],
+    })
+    storage.dropEventPartition = async (): Promise<void> => {
+      throw new Error('lock timeout')
+    }
+    const sweep = await sweepRetention({ storage, nowMs: NOW })
+    expect(sweep.dropped).toEqual([])
+    expect(sweep.failed).toEqual([{ partition: 'events_2020_01', error: 'lock timeout' }])
+  })
+})
+
 describe('#559 — the worker sweeps after it drains, and the fold is untouched', () => {
   it('a drain drops the partition the ceiling names', async () => {
     writeBatch(2)
