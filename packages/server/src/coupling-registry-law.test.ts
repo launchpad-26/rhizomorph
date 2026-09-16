@@ -77,7 +77,7 @@ const REPO_ROOT = execFileSync('git', ['rev-parse', '--show-toplevel'], { encodi
 const COUPLING_PATH = '.swarm/coupling.txt'
 const COUPLING_SCRIPT_PATH = 'scripts/dev/coupling.test.sh'
 
-// ── parsing — must agree exactly with scripts/fence-lint.sh:79-81 and scripts/dev/coupling.test.sh ──
+// ── parsing — must agree exactly with the registry read in scripts/fence-lint.sh's `── coupling points ──` block, and with scripts/dev/coupling.test.sh ──
 
 interface RegistryEntry {
   readonly lineNo: number
@@ -158,7 +158,7 @@ function xargsNormalize(s: string): string {
   return tokens.join(' ')
 }
 
-/** Parses registry text with the same rules as `scripts/fence-lint.sh:79-81` and `scripts/dev/coupling.test.sh` — blank lines and lines starting with `#` are skipped, everything else is one entry. */
+/** Parses registry text with the same rules as the `${line%%#*}` / `${line#*#}` split inside `scripts/fence-lint.sh`'s `── coupling points ──` block and in `scripts/dev/coupling.test.sh` — blank lines and lines starting with `#` are skipped, everything else is one entry. Cited by the block it lives in, not by line number: that split sat at lines 79-81 when this law was written and at 218-220 one merge later (#549), and a pin to a number in a file that moves is what prd-54 exists to stop. */
 function parseRegistry(text: string): RegistryEntry[] {
   const entries: RegistryEntry[] = []
   const lines = text.split('\n')
