@@ -82,7 +82,7 @@ import { compareStrings } from './touches.js'
  * flowing in. The `lab` and `judge` hands are absent for the same reason: both
  * are explicitly invoked by us.
  */
-export const CONNECTION_SOURCES = ['git', 'tmux', 'workmux', 'sessionlog', 'otel', 'beacon'] as const
+export const CONNECTION_SOURCES = ['git', 'tmux', 'workmux', 'sessionlog', 'otel', 'beacon', 'process'] as const
 
 export type ConnectionSource = (typeof CONNECTION_SOURCES)[number]
 
@@ -165,6 +165,8 @@ export interface Connection {
   sessionlog: SourceFlow
   otel: SourceFlow
   beacon: SourceFlow
+  /** prd-57 ruling 1: the process witness. Present on every platform; silent on the ones with no leg built. */
+  process: SourceFlow
   /**
    * Earliest transcript sighting first, session id as the only tiebreak — a
    * total order over the state, so a fold and a refold of one log hand back the
@@ -217,6 +219,7 @@ export function selectConnection(state: SessionState): Connection {
     sessionlog: newFlow(),
     otel: newFlow(),
     beacon: newFlow(),
+    process: newFlow(),
   }
 
   for (const worktree of Object.values(state.worktrees)) {
@@ -228,6 +231,12 @@ export function selectConnection(state: SessionState): Connection {
   // `bySha`, not `log`: a re-landed sha appears in the log twice, and its
   // first sighting already carried the `landedAt` this fold wants once.
   for (const commit of Object.values(state.commits.bySha)) fold(flows.git, commit.landedAt)
+
+  // prd-57 ruling 1: the process witness. `seenAt` is when this instrument first
+  // heard about an actor, and `goneAt` when it last did — the same first/last
+  // shape every source above folds, so a source that has never spoken reads
+  // `null` rather than a stand-in for "fine".
+  for (const actor of Object.values(state.processes)) fold(flows.process, actor.seenAt, actor.goneAt)
 
   for (const pane of Object.values(state.panes)) {
     fold(flows.tmux, pane.discoveredAt, pane.closedAt, pane.lastActivityTs, pane.lastContentChangeTs)
@@ -270,6 +279,7 @@ export function selectConnection(state: SessionState): Connection {
     sessionlog: sourceFlow('sessionlog', flows.sessionlog),
     otel: sourceFlow('otel', flows.otel),
     beacon: sourceFlow('beacon', flows.beacon),
+    process: sourceFlow('process', flows.process),
     uninstrumentedSessions: uninstrumentedSessions(state),
   }
 }

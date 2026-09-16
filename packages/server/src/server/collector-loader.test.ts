@@ -11,10 +11,24 @@ import type { SessionRecorder } from './recorder.js'
 import { SUMMONS_SNAPSHOT_KEY } from './summons.js'
 
 describe('loadCollectors', () => {
-  it('registers all seven collectors', async () => {
+  it('registers all eight collectors', async () => {
     const collectors = await loadCollectors({ warn: () => {} })
 
-    expect(collectors.map((c) => c.name).sort()).toEqual(['beacon', 'git', 'judge', 'pi', 'sessionlog', 'tmux', 'workmux'])
+    // prd-57 ruling 1 adds `process`. It registers on EVERY platform, not just
+    // the ones with a leg built: on macOS and Windows its reader answers null,
+    // so it polls and emits nothing. Registering conditionally would make the
+    // collector list a platform fact, and `doctor` could then not tell an
+    // unbuilt leg from an absent collector.
+    expect(collectors.map((c) => c.name).sort()).toEqual([
+      'beacon',
+      'git',
+      'judge',
+      'pi',
+      'process',
+      'sessionlog',
+      'tmux',
+      'workmux',
+    ])
   })
 
   it('never warns for the real collectors, which are always present', async () => {

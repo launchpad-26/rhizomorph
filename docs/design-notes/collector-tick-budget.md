@@ -19,32 +19,63 @@ git latency, could in principle approach the tick budget on a healthy tick. At
 this tool's scale — a swarm of worktrees, not thousands — that has not been
 observed; if it is, raise the budget rather than remove the watchdog.
 
-## The process collector's cost has a different shape, and no number yet
+## The process collector's cost has a different shape, and two numbers
 
-*Added by prd-57 wave 1. The figure is deliberately absent; wave 2 measures it.*
+*Added by prd-57 wave 1 as a placeholder. Measured 2026-09-16, wave 2.*
 
-Both ceilings above are written against a **subprocess**: one bounds a child's
-runtime, the other bounds the poll that waits on it. The process collector's
-Linux leg spawns no child at all. It reads `/proc` directly — one `readdir`,
-then a `readlink` and a `readFile` per candidate pid — so its cost is **syscall
-fan-out across the whole process table**, and it scales with how many processes
-the machine is running rather than with how many worktrees this repo has.
+Both ceilings above are written against a **subprocess**. The process collector
+has three legs and only two of them spawn anything, so it needs three numbers
+and they are a factor of thirty apart end to end.
 
-That is a shape neither constant describes, and borrowing one would be a
-guess wearing a number:
+| leg | measured | over | how |
+|---|---|---|---|
+| **Linux / WSL2** | **42 ms** median (min 37, max 45, five runs) | 63 processes | `/proc` read directly — one `readdir`, then a `readlink` and two `readFile`s per candidate pid. **No subprocess at all.** |
+| **macOS (Apple silicon)** | **143 ms** median (min 123, max 189, eleven runs) | 453 processes | THREE execs, issued together: `ps …comm=`, `ps …command=`, `lsof -d cwd -Fpn` |
+| **Windows (native)** | **1273 ms** | 216 processes | one `powershell -Command "Get-CimInstance …"` through ADR-0004's injected `Exec` |
 
-- `COLLECTOR_EXEC_TIMEOUT_MS` does not apply on Linux, because there is no exec
-  to cap. It **does** apply to the macOS and Windows legs, which reach the table
-  through `ps`/`lsof` and `Get-CimInstance` behind ADR-0004's injected `Exec` —
-  so the same collector is bounded by different constants on different platforms,
-  which is worth knowing before reading a green tick on one as evidence about
-  another.
-- `COLLECTOR_TICK_BUDGET_MS` applies everywhere, and is the one that would catch
-  a pathological table. Whether 10s is generous or tight here is unmeasured.
+Measured on one machine each, 2026-09-16: WSL2 Ubuntu under Windows 11, node
+22.23.2 for the Linux figure; native Windows 11, node 22.23.1 for the Windows
+one; macOS 26.6.2 on an Apple silicon Mac mini, node 22.22.2, for the macOS one.
+All are single-machine readings rather than a distribution, and the process
+counts are stated beside them because a tick cost without one means nothing.
 
-**What wave 2 measures, and records in place of this paragraph:** the tick's
-wall-clock cost on a real machine, with the process count it was measured
-against, because the second number is what makes the first mean anything. The
-tradeoff paragraph above says to raise a budget rather than remove a watchdog if
-a healthy tick approaches it; that instruction holds here, and a measurement is
-what it is waiting on.
+The macOS machine was **not idle** while it was measured — four Claude Code
+sessions and a build were running on it, which is roughly the condition this
+collector is for and is why the spread (123–189 ms) is wider than Linux's.
+
+**What that means against the two ceilings above.**
+
+- The Linux leg is nowhere near either. 42 ms is noise beside the 10 s tick
+  budget, and it is not bounded by `COLLECTOR_EXEC_TIMEOUT_MS` at all, because
+  it spawns no child. Its cost scales with *how many processes the machine is
+  running*, not with how many worktrees this repo has — a shape neither existing
+  constant describes.
+- **The macOS leg costs three subprocesses and is still an order of magnitude
+  under the Windows one**, on a machine running seven times as many processes.
+  `ps` and `lsof` are small C programs; PowerShell's start-up is what the
+  Windows figure is mostly made of. The three execs are issued together rather
+  than in sequence — two of them are the same process table read twice and
+  joined on pid, so the window in which a process can exit between them is a
+  source of wrong answers and is the one thing worth minimising. Sequentially
+  it would be roughly the sum rather than the max.
+- **The Windows leg spends a quarter of the exec ceiling on every tick.** 1273 ms
+  against `COLLECTOR_EXEC_TIMEOUT_MS = 5000` is comfortable today and is the
+  largest single exec this instrument performs. Nearly all of it is PowerShell's
+  own start-up rather than the query: the same machine's `/proc`-equivalent work
+  is two orders of magnitude cheaper.
+
+**What has NOT been measured, said plainly rather than left to be assumed:** how
+either figure moves on a machine running hundreds more processes, and whether
+the Windows leg degrades linearly or worse. The tradeoff paragraph above says to
+raise a budget rather than remove a watchdog if a healthy tick approaches one —
+that instruction stands, and nothing here is close enough to act on yet.
+
+**The macOS prediction this note carried was wrong, and it is left here rather
+than quietly replaced.** It said: *"macOS is unmeasured because the leg is
+unbuilt. It will spawn `ps` and `lsof`, so expect it to sit nearer the Windows
+figure than the Linux one."* Measured, it is 143 ms — nine times cheaper than
+Windows and three times dearer than Linux, so nearer neither and nearer Linux
+if forced to choose. The reasoning was that spawning is what costs; the
+measurement says WHAT you spawn is what costs. That is the same lesson the
+legs themselves keep producing: the guess was structural and plausible, and
+running it is what settled it.
