@@ -190,7 +190,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
 
   const checks: DoctorCheck[] = [
     ...withAttention,
-    ...(await checkEnrichmentLadder(withAttention, repoPath, attention.declared)),
+    ...(await checkEnrichmentLadder(withAttention, repoPath, attention.declared, attention.processes)),
   ]
 
   const exitCode = checks.some((check) => FAILING_CHECK_IDS.has(check.id) && check.status === 'fail') ? 1 : 0
@@ -670,6 +670,22 @@ export interface DeclaredAttentionFacts {
   checks: DoctorCheck[]
   /** The newest session's folded `declared`, for the ladder's beacon contributor; `{}` when no session exists. */
   declared: Readonly<Record<string, DeclaredAttention>>
+  /**
+   * The newest session's folded `processes`, for the ladder's PROCESS
+   * contributor; `{}` when no session exists.
+   *
+   * Review of #555, finding 2. `checkEnrichmentLadder` grew a fourth parameter
+   * when the process row landed, and `api/doctor.ts` passes it while this path
+   * did not — so `actorCount` was permanently 0 on the CLI and
+   * `rhizomorph doctor` could never report the witness as `provided`, printing
+   * the zero-actor reason on a Linux machine with agents plainly running.
+   *
+   * The fold was already in hand and thrown away: `reduceAll` builds the whole
+   * `SessionState` here and this shape returned only `declared` from it. The
+   * beacon row's fold-derived input was threaded through; the process row's
+   * was not, which is the sibling shape one file over.
+   */
+  processes: Readonly<Record<string, unknown>>
 }
 
 /**
@@ -753,6 +769,7 @@ export async function checkDeclaredAttention(
         },
       ],
       declared: {},
+      processes: {},
     }
   }
 
@@ -772,10 +789,11 @@ export async function checkDeclaredAttention(
         },
       ],
       declared: {},
+      processes: {},
     }
   }
 
-  return { checks: declaredAttentionChecks(state, now()), declared: state.declared }
+  return { checks: declaredAttentionChecks(state, now()), declared: state.declared, processes: state.processes }
 }
 
 /** Which process's env `checkTelemetryEnv` actually inspected — see its own doc. */
@@ -1064,6 +1082,20 @@ export async function checkEnrichmentLadder(
   declared: Readonly<Record<string, DeclaredAttention>> = {},
   /** prd-57 ruling 1's actors, from the fold. Keyed `pid:startedAt`; only the count is read here. */
   processes: Readonly<Record<string, unknown>> = {},
+  /**
+   * Injectable so the process row's two readings can be told apart ANYWHERE.
+   *
+   * Review of #555, finding 2. On win32 `processWitnessCapabilitiesFor` answers
+   * `partial` whatever the actor count is — that leg identifies and cannot
+   * place — so a test of "the fold reaches this row", written on Windows,
+   * produces the same ladder with zero actors and with one, and could only ever
+   * fail on a Linux runner.
+   *
+   * That is the shape `signatureToken` hit two commits earlier: a claim that can
+   * fail only on someone else's machine is not an assertion. Injecting the
+   * platform is what lets the test fail here.
+   */
+  platform: NodeJS.Platform = process.platform,
 ): Promise<DoctorCheck[]> {
   const contributors: AdapterCapabilities[] = [
     checkOk(checks, 'target-path') ? GIT_CAPABILITIES : absentCapabilities('target path is not a usable git repository'),
@@ -1096,7 +1128,7 @@ export async function checkEnrichmentLadder(
     // `partial` while the leg exists but has said nothing, and on a platform
     // with no leg built, `absent` carrying the CAPTURE command as its remedy
     // (prd-15 ruling 7: a leg lands behind a capture, never from a man page).
-    processWitnessCapabilitiesFor(Object.keys(processes).length, process.platform),
+    processWitnessCapabilitiesFor(Object.keys(processes).length, platform),
   ]
 
   const rung = deriveRung(mergeCapabilities(contributors))
