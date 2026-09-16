@@ -14,15 +14,12 @@ import { captureCheckpoint } from './checkpoint.js'
 import {
   armLaneHandle,
   dispatchFork,
-  FORK_EXEC_TIMEOUT_MS,
-  FORK_LAUNCH_TIMEOUT_MS,
   findCheckpoint,
   LAUNCH_CEILING_LANES,
   MODEL_GRAMMAR,
   workmuxAddArgv,
 } from './fork.js'
 import { labWorktreesRoot } from './paths.js'
-import { RESTORE_EXEC_TIMEOUT_MS } from './restore.js'
 
 /** Hermetic under 4x concurrency: per-test `mkdtemp` root, pid+uuid ids, no shared state. */
 
