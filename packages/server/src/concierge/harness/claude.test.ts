@@ -532,3 +532,66 @@ describe('already-settled still says what was declined (review of #573, N1)', ()
     expect(second.why).not.toMatch(/declined/)
   })
 })
+
+describe('a MOVED cli is a change, not nothing to do (review of #573, N5)', () => {
+  const TARGET = claudeAdapter.enlistmentTarget('/home/operator')
+  const enlistWith = (runnerPath: string, current: string | null = null) =>
+    claudeAdapter.planEnlistment(current, TARGET, { kind: 'enlist', context: { ...CONTEXT, runnerPath } })
+
+  it('re-points a stale command instead of reporting already-settled', () => {
+    // The silent state this closes: `already-settled` meant "enlisted" while
+    // the hook invoked a binary that had moved. An operator would never think
+    // to check, because the hand said there was nothing to do.
+    const first = enlistWith('/old/bin/rhizomorph')
+    if (first.kind !== 'ready') throw new Error('expected ready')
+
+    const moved = enlistWith('/new/bin/rhizomorph', first.next)
+    expect(moved.kind).toBe('ready')
+  })
+
+  it('and the entry really is re-pointed, not duplicated', () => {
+    const first = enlistWith('/old/bin/rhizomorph')
+    if (first.kind !== 'ready') throw new Error('expected ready')
+    const moved = enlistWith('/new/bin/rhizomorph', first.next)
+    if (moved.kind !== 'ready') throw new Error(`expected ready, got ${moved.kind}`)
+
+    const hooks = JSON.parse(moved.next).hooks as Record<string, unknown[]>
+    for (const event of CLAUDE_HOOK_EVENTS) {
+      expect(hooks[event], event).toHaveLength(1)
+      expect(JSON.stringify(hooks[event]), event).toContain('/new/bin/rhizomorph hook')
+      expect(JSON.stringify(hooks[event]), event).not.toContain('/old/bin/rhizomorph')
+    }
+  })
+
+  it('keeps the operator’s own hooks in the order they put them', () => {
+    // Replaced in place, never removed-and-appended. Ours is found by the
+    // command it invokes, so the replacement lands wherever they had it — and
+    // an operator who ordered their hooks deliberately keeps that order.
+    const theirs = {
+      hooks: {
+        PreToolUse: [
+          { matcher: 'Bash', hooks: [{ type: 'command', command: '/usr/local/bin/first-audit' }] },
+          { hooks: [{ type: 'command', command: '/old/bin/rhizomorph hook' }] },
+          { matcher: 'Edit', hooks: [{ type: 'command', command: '/usr/local/bin/last-audit' }] },
+        ],
+      },
+    }
+    const moved = enlistWith('/new/bin/rhizomorph', `${JSON.stringify(theirs, null, 2)}\n`)
+    if (moved.kind !== 'ready') throw new Error('expected ready')
+
+    const preToolUse = JSON.parse(moved.next).hooks.PreToolUse as unknown[]
+    expect(preToolUse).toHaveLength(3)
+    expect(JSON.stringify(preToolUse[0])).toContain('first-audit')
+    expect(JSON.stringify(preToolUse[1])).toContain('/new/bin/rhizomorph hook')
+    expect(JSON.stringify(preToolUse[2])).toContain('last-audit')
+  })
+
+  it('an UNCHANGED command is still already-settled — the control', () => {
+    // Without this, "re-point on any difference" would be satisfied by a plan
+    // that rewrites the file on every single enlist, which would destroy
+    // idempotence in the other direction.
+    const first = enlistWith('/opt/bin/rhizomorph')
+    if (first.kind !== 'ready') throw new Error('expected ready')
+    expect(enlistWith('/opt/bin/rhizomorph', first.next).kind).toBe('already-settled')
+  })
+})

@@ -406,10 +406,25 @@ export function planClaudeEnlistment(
     for (const event of CLAUDE_HOOK_EVENTS) {
       const existing = hooks[event]
       const list = Array.isArray(existing) ? existing : []
+      const desired = claudeHookEntry(intent.context.runnerPath)
+      const mine = list.findIndex(isOurHookEntry)
+
       // Merge, never clobber: an operator's own hooks on this event survive,
-      // and re-enlisting adds nothing, because ours is already in the list.
-      if (list.some(isOurHookEntry)) continue
-      const next = [...list, claudeHookEntry(intent.context.runnerPath)]
+      // and re-enlisting adds nothing when ours is already there AND still
+      // points where it should.
+      //
+      // That second clause is the review of #573's N5. An entry of ours whose
+      // command has gone stale — the CLI moved, or was reinstalled somewhere
+      // else — used to read as "nothing to do", so `already-settled` meant
+      // "enlisted" while the hook pointed at a binary that is no longer there.
+      // Silent, and exactly the state an operator would never think to check.
+      //
+      // Replaced IN PLACE rather than removed and appended, so an operator who
+      // ordered their hooks deliberately keeps that order. Ours is still
+      // identified by the command it invokes, never by position, so the
+      // replacement finds it wherever they put it.
+      if (mine >= 0 && jsonOf(list[mine]) === jsonOf(desired)) continue
+      const next = mine >= 0 ? list.map((entry, index) => (index === mine ? desired : entry)) : [...list, desired]
       changes.push({
         keyPath: ['hooks', event],
         before: existing === undefined ? null : jsonOf(existing),
