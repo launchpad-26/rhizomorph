@@ -120,8 +120,8 @@ describe('the route-class law (prd-23 ruling 5)', () => {
     // 31 -> 33: prd-55 ruling 6's telemetry and footprint reads (#402),
     // `GET /api/lab/telemetry` and `GET /api/lab/footprint` — the frame's own
     // two stated gaps, closed the same way transcript's was.
-    expect(routes.length).toBe(34)
-    expect(ROUTE_CLASSES.length).toBe(34)
+    expect(routes.length).toBe(35)
+    expect(ROUTE_CLASSES.length).toBe(35)
 
     await app.close()
   })
@@ -185,7 +185,7 @@ describe('the route-class law (prd-23 ruling 5)', () => {
       const entry = classify(route, ROUTE_CLASSES)
       return entry !== undefined && isGated(entry) && route.hasCapabilityGate
     })
-    expect(gatedFound.length).toBe(29)
+    expect(gatedFound.length).toBe(30)
 
     await app.close()
   })

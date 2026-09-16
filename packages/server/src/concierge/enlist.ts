@@ -106,6 +106,21 @@ export class EnlistmentRefusedError extends Error {
   }
 }
 
+/**
+ * A name this registry has never heard of.
+ *
+ * Its own type rather than a `EnlistmentRefusedError`, because the two map to
+ * different statuses and a route should not have to read an error message to
+ * tell them apart: an unknown name is a 400 the caller can fix by sending a
+ * different one, and a refusal is a 409 that no request changes.
+ */
+export class EnlistmentUnknownHarnessError extends Error {
+  constructor(readonly harness: string) {
+    super(`no harness named ${harness} is in this registry`)
+    this.name = 'EnlistmentUnknownHarnessError'
+  }
+}
+
 /** The file changed between the diff and the write. Nothing was written. */
 export class EnlistmentStaleError extends Error {
   constructor(readonly target: string) {
@@ -138,9 +153,7 @@ export interface PlannedEnlistment {
  */
 export async function planEnlistment(context: EnlistContext, intent: 'enlist' | 'unenlist'): Promise<PlannedEnlistment> {
   const adapter = harnessById(context.harness)
-  if (adapter === undefined) {
-    throw new EnlistmentRefusedError(`no harness named ${context.harness} is in this registry`)
-  }
+  if (adapter === undefined) throw new EnlistmentUnknownHarnessError(context.harness)
   let target: EnlistmentTarget
   try {
     target = adapter.enlistmentTarget(context.home)

@@ -1,6 +1,11 @@
 import type { FastifyInstance } from 'fastify'
 import type { ServerContext } from '../server/context.js'
-import { registerConciergeCloneRoute, registerConciergeLaunchRoute, registerConciergeReposRoute } from './concierge.js'
+import {
+  registerConciergeCloneRoute,
+  registerConciergeEnlistRoute,
+  registerConciergeLaunchRoute,
+  registerConciergeReposRoute,
+} from './concierge.js'
 import { registerDoctorRoute } from './doctor.js'
 import { registerLabRoutes } from './lab.js'
 import { registerLabSeriesRoute } from './lab-series.js'
@@ -36,7 +41,7 @@ export function registerApiRoutes(app: FastifyInstance, ctx: ServerContext): voi
   // A session's first words (prd20 w6) — the read-only companion to the
   // transcript tail, sharing its attribution and its bounded-read shape.
   registerSessionPreviewRoute(app, ctx)
-  // The app's fourteen mutating routes (prd16 rulings 2 and 4; prd1's OTLP inbox;
+  // The app's fifteen mutating routes (prd16 rulings 2 and 4; prd1's OTLP inbox;
   // prd-20's two concierge powers and its repo switch; prd-17's operator
   // door) — see `ROUTE_CLASSES` below for the full classification, and
   // `rotate.ts` / `label.ts` for why each of these two is allowed to exist
@@ -85,6 +90,11 @@ export function registerApiRoutes(app: FastifyInstance, ctx: ServerContext): voi
   // The concierge's second power (#264): launch/relaunch-with-continuity the
   // conductor. Also gated through `api/concierge.ts` — see its own doc.
   registerConciergeLaunchRoute(app, ctx)
+  // The concierge's THIRD power (prd-57 ruling 4 / ADR-0053): enlist or
+  // unenlist a harness's user-level configuration. Same file, same gate —
+  // the namespace law's one declared importer is how every concierge power
+  // reaches a request, and a third power does not get a second door.
+  registerConciergeEnlistRoute(app, ctx)
 }
 
 /**
@@ -136,6 +146,12 @@ export const ROUTE_CLASSES: readonly RouteClassification[] = [
   // "never from a collector, never from a poll" — the gate is the grant.
   { method: 'POST', url: '/api/concierge/clone', routeClass: 'gated-mutation' },
   { method: 'POST', url: '/api/concierge/launch', routeClass: 'gated-mutation' },
+  // The third power (prd-57 ruling 4 / ADR-0053). Gated for the same reason
+  // the other two are — "never from a collector, never from a poll", and the
+  // gate IS the grant — and it writes OUTSIDE the watched repo, into the
+  // operator's own harness configuration, which is the sharpest reason of all
+  // for it to be a human act carrying a token.
+  { method: 'POST', url: '/api/concierge/enlist', routeClass: 'gated-mutation' },
   // prd-17 ruling 1's operator door (#276): one route, three acts — the
   // same posture as `/api/rotate` (a mutation of the instrument's own log,
   // never the watched repo), so no new route class is owed.

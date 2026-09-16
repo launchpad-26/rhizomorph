@@ -55,7 +55,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
  *    (true of every non-browser client, `rhizomorph rotate` included) is
  *    allowed through this check, deliberately and permanently — this guard is
  *    not the control for a caller with no browser. `requireCapabilityToken`
- *    in `api/security.ts` is, and since #234 each of this server's ten
+ *    in `api/security.ts` is, and since #234 each of this server's eleven
  *    GATED mutating routes requires it: `/api/label`, `/api/rotate`,
  *    `/api/retarget`, `/api/lab/launch`, `/api/lab/measure`,
  *    `/api/lab/comparisons`, `/api/lab/rd`, `/api/operator/:act`, and the
@@ -97,9 +97,9 @@ const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
 
 /**
  * Methods the `Origin` and `Content-Type` checks apply to — `Host` above
- * runs for every method regardless. This server has fourteen mutating routes
+ * runs for every method regardless. This server has fifteen mutating routes
  * today (prd-23 ruling 5's route-class law — `api/index.ts`'s `ROUTE_CLASSES`
- * is where all fourteen are declared): ten gated (`/api/label`,
+ * is where all fifteen are declared): eleven gated (`/api/label`,
  * `/api/rotate`, `/api/retarget`, `/api/lab/launch`, `/api/lab/measure`,
  * `/api/lab/comparisons`, `/api/lab/rd`, `/api/operator/:act`,
  * `/api/concierge/clone`, `/api/concierge/launch`) and four ungated by

@@ -1,3 +1,4 @@
+import { homedir } from 'node:os'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import {
   CloneDestinationExistsError,
@@ -22,6 +23,15 @@ import {
   runMigration,
   SessionUnknownError,
 } from '../concierge/migrate.js'
+import {
+  applyEnlistment,
+  EnlistmentRefusedError,
+  EnlistmentStaleError,
+  EnlistmentUnknownHarnessError,
+  planEnlistment,
+  type EnlistContext,
+} from '../concierge/enlist.js'
+import type { EnlistmentPlan, HarnessEnlistContext, HarnessId } from '../concierge/harness/types.js'
 import { CloneFenceError, MigrationFenceError } from '../concierge/paths.js'
 import { type DiscoverReposResult, discoverRepos } from '../concierge/repos.js'
 import { defaultClaudeProjectsRoot } from '../log/paths.js'
@@ -389,4 +399,247 @@ export function registerConciergeLaunchRoute(
       })
     },
   )
+}
+
+/**
+ * `POST /api/concierge/enlist` — prd-57 ruling 4 / ADR-0053's THIRD power:
+ * enlist or unenlist a detected harness's user-level configuration.
+ *
+ * ## The two-step is the ROUTE, not a client convention
+ *
+ * Ruling 4 says *diff first, then write*, and this makes that unskippable
+ * rather than polite. `apply: false` — the default — reads the file and returns
+ * the exact diff, writing nothing. `apply: true` **requires** `sourceDigest`,
+ * the value the diff came back with, and the hand refuses if the file has moved
+ * since.
+ *
+ * A caller cannot reach the write without having asked for the diff, because
+ * the digest exists nowhere else. That is prd-14 ruling 4's confirmation bar
+ * expressed as a protocol rather than as a button: the SERVER holds the
+ * invariant, so a client that forgets to confirm gets a 409 instead of an
+ * unreviewed write to somebody's home directory.
+ *
+ * ## Why the statuses are what they are
+ *
+ * - **400** — a malformed body, or a harness name this registry has never heard
+ *   of. The caller fixes both by sending something different.
+ * - **409** — a real harness that cannot be enlisted (codex: implemented, and
+ *   no captured config file), a plan that cannot proceed, a stale digest, or a
+ *   replay server. No different request fixes these; the state has to change.
+ *   The same posture `/api/concierge/clone` takes.
+ * - **200 with `kind: 'already-settled'`** — idempotence is a SUCCESS. Asking
+ *   to enlist an enlisted machine is the normal outcome of running it twice,
+ *   and a 409 there would make every caller special-case it.
+ *
+ * Never hijacks the reply. This is a read, a copy and a write of one small
+ * file; it settles in milliseconds, so there is no progress to stream and the
+ * whole thing is one JSON response — unlike `clone`.
+ */
+export class ConciergeEnlistValidationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ConciergeEnlistValidationError'
+  }
+}
+
+interface EnlistRequestBody {
+  readonly harness: HarnessId
+  readonly intent: 'enlist' | 'unenlist'
+  readonly apply: boolean
+  readonly sourceDigest: string | null
+}
+
+/**
+ * Parsed by hand and refused loudly, the shape `parseCloneRequestBody` uses.
+ *
+ * The clause worth reading is the last: `apply: true` with no digest is a
+ * caller trying to skip the diff, and it is refused as a validation error
+ * rather than quietly treated as a fresh plan-and-write.
+ */
+export function parseEnlistRequestBody(body: unknown): EnlistRequestBody {
+  if (typeof body !== 'object' || body === null) {
+    throw new ConciergeEnlistValidationError('request body must be a JSON object')
+  }
+  const raw = body as Record<string, unknown>
+
+  const harness = raw.harness
+  if (typeof harness !== 'string' || harness.length === 0) {
+    throw new ConciergeEnlistValidationError('"harness" must be a non-empty string')
+  }
+
+  const intent = raw.intent ?? 'enlist'
+  if (intent !== 'enlist' && intent !== 'unenlist') {
+    throw new ConciergeEnlistValidationError('"intent" must be "enlist" or "unenlist"')
+  }
+
+  const apply = raw.apply ?? false
+  if (typeof apply !== 'boolean') throw new ConciergeEnlistValidationError('"apply" must be a boolean')
+
+  const sourceDigest = raw.sourceDigest ?? null
+  if (sourceDigest !== null && typeof sourceDigest !== 'string') {
+    throw new ConciergeEnlistValidationError('"sourceDigest" must be the string the diff returned, or absent')
+  }
+  if (apply && sourceDigest === null) {
+    throw new ConciergeEnlistValidationError(
+      '"apply" requires the "sourceDigest" the diff returned. Ruling 4 is diff-first: read the diff, then send it ' +
+        'back with the digest it carried — a write this hand cannot tie to a diff somebody saw is a write nobody approved',
+    )
+  }
+
+  return { harness: harness as HarnessId, intent, apply, sourceDigest }
+}
+
+/** The plan flattened for the wire — every arm, so a caller never guesses which keys exist. */
+function describeEnlistmentPlan(plan: EnlistmentPlan): Record<string, unknown> {
+  if (plan.kind === 'ready') {
+    return {
+      kind: plan.kind,
+      changes: plan.changes,
+      refusals: plan.refusals,
+      next: plan.next,
+      sourceDigest: plan.sourceDigest,
+    }
+  }
+  if (plan.kind === 'already-settled') return { kind: plan.kind, why: plan.why }
+  return { kind: plan.kind, why: plan.reason, remedy: plan.remedy }
+}
+
+export function registerConciergeEnlistRoute(app: FastifyInstance, ctx: ServerContext): void {
+  app.post(
+    '/api/concierge/enlist',
+    { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') },
+    async (request: FastifyRequest, reply) => {
+      if (ctx.readOnly === true) {
+        return reply.code(409).send({
+          error: 'this server is replaying a session record, not watching a repo — there is no machine to enlist',
+        })
+      }
+
+      let body: EnlistRequestBody
+      try {
+        body = parseEnlistRequestBody(request.body)
+      } catch (err) {
+        if (err instanceof ConciergeEnlistValidationError) return reply.code(400).send({ error: err.message })
+        throw err
+      }
+
+      /**
+       * Built before the context rather than inside a ternary, so the port
+       * guard actually narrows — and so the reason for each field has somewhere
+       * to live. Only an enlist needs one: an unenlist removes what enlist
+       * declared and renders nothing.
+       */
+      let launch: HarnessEnlistContext | undefined
+      if (body.intent === 'enlist') {
+        if (ctx.port === undefined) {
+          return reply.code(409).send({
+            error:
+              'this server does not know the port it is listening on, and the enlisted environment is what points a ' +
+              'harness at it — there is nothing to write that would work',
+          })
+        }
+        launch = {
+                /**
+                 * **The one thing a user-level enlistment cannot know, said
+                 * plainly.** `envRecipe` renders a lane into
+                 * `OTEL_RESOURCE_ATTRIBUTES`, and this file is read by EVERY
+                 * session the operator runs — so one label is written once and
+                 * every agent on the machine reports under it.
+                 *
+                 * The repo this server watches is the least wrong label
+                 * available at write time, and it is not a guess dressed as an
+                 * answer: ADR-0055 is what actually attributes, by routing each
+                 * beacon line to a session by the `cwd` it carries. The env's
+                 * lane is a telemetry label; the hook's `cwd` is the join.
+                 *
+                 * Ruling 4 asks for both `env` and `hooks`, so both are written.
+                 * Whether a per-lane variable belongs in a user-level file at
+                 * all is a question for prd-58, where the instrument stops
+                 * watching one repo — recorded here rather than resolved by a
+                 * lane this hand invented.
+                 */
+          lane: ctx.repoName,
+          role: 'conductor',
+          port: ctx.port,
+          instance: ctx.recorder.sessionId,
+          runnerPath: runnerPath(),
+        }
+      }
+
+      const context: EnlistContext = {
+        harness: body.harness,
+        home: homedir(),
+        watchedRepoPath: ctx.repoPath,
+        launch,
+      }
+
+      let planned: Awaited<ReturnType<typeof planEnlistment>>
+      try {
+        planned = await planEnlistment(context, body.intent)
+      } catch (err) {
+        if (err instanceof EnlistmentUnknownHarnessError) return reply.code(400).send({ error: err.message })
+        if (err instanceof EnlistmentRefusedError) return reply.code(409).send({ error: err.message })
+        throw err
+      }
+
+      if (!body.apply) {
+        // The diff, and nothing has happened. `sourceDigest` is what the caller
+        // sends back in order to write, and there is no other way to obtain it.
+        return reply.code(200).send({
+          harness: body.harness,
+          intent: body.intent,
+          applied: false,
+          target: planned.target,
+          ...describeEnlistmentPlan(planned.plan),
+        })
+      }
+
+      if (planned.plan.kind !== 'ready') {
+        return reply.code(409).send({
+          error: `nothing to apply: ${describeEnlistmentPlan(planned.plan).why as string}`,
+          ...describeEnlistmentPlan(planned.plan),
+        })
+      }
+      if (planned.plan.sourceDigest !== body.sourceDigest) {
+        // The file moved between the diff and this call. Refused here as well
+        // as in the hand: catching it at the route means the re-read below
+        // never runs against bytes the caller has not seen.
+        return reply.code(409).send({
+          error: `${planned.target.display} changed since that diff was taken — read it again`,
+          ...describeEnlistmentPlan(planned.plan),
+        })
+      }
+
+      try {
+        const outcome = await applyEnlistment(planned)
+        return reply.code(200).send({
+          harness: body.harness,
+          intent: body.intent,
+          applied: true,
+          target: outcome.target,
+          backupPath: outcome.backupPath,
+          changedKeys: outcome.changedKeys,
+        })
+      } catch (err) {
+        if (err instanceof EnlistmentStaleError || err instanceof EnlistmentRefusedError) {
+          return reply.code(409).send({ error: err.message })
+        }
+        throw err
+      }
+    },
+  )
+}
+
+/**
+ * The absolute path to the installed CLI, resolved at enlist time — ruling 6,
+ * and the reason is a measurement rather than a preference: `npx`'s cold start
+ * would eat the harness's hook timeout.
+ *
+ * `process.argv[1]` is the entry this very server was started from, which makes
+ * it the one path guaranteed to exist and to be the right version — a `which`
+ * could find a different installation from the one the operator is running.
+ * On Windows that is the `.cmd` shim, which is what the hook needs there.
+ */
+function runnerPath(): string {
+  return process.argv[1] ?? 'rhizomorph'
 }
