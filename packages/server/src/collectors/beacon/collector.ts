@@ -9,7 +9,7 @@ import type {
   PollResult,
   RhizomorphEvent,
 } from '@rhizomorph/core'
-import { beaconDirFor, BEACON_FILE_SUFFIX } from './paths.js'
+import { beaconDirFor, beaconLineBelongsTo, BEACON_FILE_SUFFIX, installationBeaconDir } from './paths.js'
 import { parseBeaconLine } from './parse-beacon-line.js'
 import { readBeaconLines } from './read-beacon-lines.js'
 import type { BeaconSnapshot } from './types.js'
@@ -115,31 +115,51 @@ export function createBeaconCollector(config: BeaconCollectorConfig = {}): Colle
       // The resilience wrapper flips this off before every attempt it schedules.
       if (previous.disabled) return { nextSnapshot: previous, events: [] }
 
-      const dir = beaconDirFor(context.repoPath, dataRoot)
-      let entries
-      try {
-        const info = await stat(dir)
-        if (!info.isDirectory()) return disable(context, `beacon path is not a directory: ${dir}`)
-        entries = await readdir(dir, { withFileTypes: true })
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-          return { nextSnapshot: { disabled: false, files: {} }, events: [] }
+      /**
+       * TWO doors, read in one tick — prd-57 ruling 6 / ADR-0055.
+       *
+       * The installation door (`<dataRoot>/beacons`) is where the hook runner
+       * writes, because a hook fires for whatever repo the agent is in and the
+       * writer cannot be asked to compute the reader's slug. The per-repo door
+       * is still read because one written before this wave holds real lines,
+       * and dropping them silently would lose beacons already collected.
+       *
+       * Keyed by FULL path in the snapshot rather than by basename: two doors
+       * can hold a file of the same name, and a shared key would make one
+       * file's cursor resume the other's — re-emitting or skipping arbitrarily.
+       */
+      const doors = [
+        { dir: installationBeaconDir(dataRoot), shared: true },
+        { dir: beaconDirFor(context.repoPath, dataRoot), shared: false },
+      ]
+      const files: { path: string; shared: boolean }[] = []
+      for (const { dir, shared } of doors) {
+        let entries
+        try {
+          const info = await stat(dir)
+          if (!info.isDirectory()) return disable(context, `beacon path is not a directory: ${dir}`)
+          entries = await readdir(dir, { withFileTypes: true })
+        } catch (error) {
+          // A door that does not exist yet is the ordinary state, not a fault:
+          // this collector never creates one, and an operator who has never
+          // enlisted has no installation door at all.
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
+          return disable(context, `cannot read beacon directory ${dir}: ${String(error)}`)
         }
-        return disable(context, `cannot read beacon directory ${dir}: ${String(error)}`)
+        for (const entry of entries) {
+          if (entry.isFile() && entry.name.endsWith(BEACON_FILE_SUFFIX))
+            files.push({ path: path.join(dir, entry.name), shared })
+        }
       }
-
-      const files = entries
-        .filter((entry) => entry.isFile() && entry.name.endsWith(BEACON_FILE_SUFFIX))
-        .map((entry) => entry.name)
-        .sort()
+      files.sort((left, right) => left.path.localeCompare(right.path))
       const nextFiles: BeaconSnapshot['files'] = {}
       const events: RhizomorphEvent[] = []
 
-      for (const file of files) {
+      for (const { path: file, shared } of files) {
         const prior = previous.files[file]
         let result
         try {
-          result = await readBeaconLines(path.join(dir, file), prior?.offset ?? 0, prior?.identity)
+          result = await readBeaconLines(file, prior?.offset ?? 0, prior?.identity)
         } catch {
           // Not a tick failure either way, but the two reasons a read fails
           // here need different cursors. A file that **vanished** between
@@ -161,13 +181,36 @@ export function createBeaconCollector(config: BeaconCollectorConfig = {}): Colle
         for (const line of result.lines) {
           const parsed = parseBeaconLine(line.text)
           if (parsed.kind === 'beacon') {
+            /**
+             * THE ROUTING RULE (prd-57 ruling 6 / ADR-0055). ADR-0036's guarantee
+             * — a beacon from one repo's swarm never folds into another repo's
+             * session — is kept, and enforced here rather than by the shape of
+             * the directory.
+             *
+             * A line whose `cwd` is not inside the watched repo is RETAINED and
+             * attributed to none: the cursor still advances past it, so it is not
+             * re-read forever, and no event is emitted for it. That covers both
+             * cases a shared door creates — another repo's swarm, and a hook that
+             * fired somewhere this instrument has never watched.
+             *
+             * An absent `cwd` is the honest unknown and is also not a match.
+             * Guessing would be precisely the fold this rule exists to prevent.
+             *
+             * **Only the SHARED door is routed.** The per-repo door keeps
+             * ADR-0036's structural scoping — a line in it is already known to
+             * belong to this repo by the directory it sits in, and its writers
+             * predate `cwd` entirely. Routing those would drop every beacon
+             * ever written by the existing hooks, which is not a rule change
+             * but a regression wearing one.
+             */
+            if (shared && !beaconLineBelongsTo(context.repoPath, parsed.payload.cwd)) continue
             events.push(
               context.emit(
                 'beacon.received',
                 {
                   ...parsed.payload,
                   digest: createHash('sha256').update(line.text, 'utf8').digest('hex'),
-                  file,
+                  file: path.basename(file),
                   offset: line.offset,
                 },
                 { ts: parsed.at },
@@ -185,7 +228,7 @@ export function createBeaconCollector(config: BeaconCollectorConfig = {}): Colle
           events.push(
             context.emit('collector.error', {
               collector: BEACON_COLLECTOR_NAME,
-              message: `malformed beacon line skipped in ${file}`,
+              message: `malformed beacon line skipped in ${path.basename(file)}`,
               detail: `${firstReason} (first at byte ${firstOffset})`,
               count: malformed,
             }),
