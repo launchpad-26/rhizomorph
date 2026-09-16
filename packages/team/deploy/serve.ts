@@ -10,16 +10,27 @@ import {
 import { keyFileFault } from '../src/config/config.js'
 import { type FoldResult, startFoldWorker } from '../src/fold/worker.js'
 import { ENV_INGEST_KEY_SHA256, ENV_PROJECT, seedProjectIngestKey } from '../src/keys/seed.js'
-import { formatBootReport, formatConfigReport, formatKeyFaultAdvice } from './report.js'
+import {
+  formatBootReport,
+  formatConfigReport,
+  formatKeyFaultAdvice,
+  resolveFoldTickMs,
+  resolveJournalDir,
+} from './report.js'
 
-const JOURNAL_DIR = process.env.RZ_TEAM_JOURNAL_DIR ?? '/data/journal'
+const JOURNAL_DIR = resolveJournalDir(process.env)
 /**
- * The fold's safety tick. Read straight off `process.env` beside the three values below rather
- * than through `resolveTeamConfig`, and that is deliberate: `deploy/report.test.ts` pins the
- * config's `unsetCount` at an exact number, so a new `TeamConfig` value would redden a file this
- * lane does not own. `0` disables the tick — wake and boot drain only.
+ * The fold's safety tick. Read off `process.env` beside the two values below rather than through
+ * `resolveTeamConfig`, and that is deliberate: `deploy/report.test.ts` pins the config's
+ * `unsetCount` at an exact number, so a new `TeamConfig` value would redden a file this lane does
+ * not own. `0` disables the tick — wake and boot drain only.
+ *
+ * Resolved by `report.ts` rather than inline, so `deploy/doctor.ts` can print the value THIS
+ * process actually runs at instead of keeping a second copy of the same arithmetic. Two copies
+ * drift in silence: every test on both sides stays green while the doctor's "effective" stops
+ * being effective. `deploy/doctor.test.ts` greps this file for that import.
  */
-const FOLD_TICK_MS = Number(process.env.RZ_TEAM_FOLD_TICK_MS ?? 5000)
+const FOLD_TICK_MS = resolveFoldTickMs(process.env).effectiveMs
 const PORT = Number(process.env.PORT ?? 8787)
 const HOST = process.env.HOST ?? '0.0.0.0'
 
