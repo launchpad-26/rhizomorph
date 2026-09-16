@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import type { CollectorContext, Exec, RhizomorphEvent } from '@rhizomorph/core'
 import { createEvent } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
+import { canonicalize } from '../../paths/containment.js'
 import { createProcessCollector } from './collector.js'
 import {
   MACOS_LSOF_ARGV,
@@ -257,7 +258,19 @@ describe('the MATCH, through poll — what no capture can prove and the Windows 
     const payload = events[0]?.payload as { pid: number; placement: string; worktreePath: string }
     expect(payload.pid).toBe(5090)
     expect(payload.placement).toBe('rooted')
-    expect(payload.worktreePath).toBe('/repo')
+    // Compared against the CANONICAL form rather than the literal `/repo`,
+    // because the collector canonicalises before the event leaves it (prd-57
+    // ruling 3) and `canonicalize` is the runtime's flavour: on native Windows
+    // `/repo` resolves to `C:\repo`, so the literal made this the one assertion
+    // in the file that could pass only on POSIX. Found by running this suite on
+    // Windows — 105 of 106 green, and this was the one.
+    //
+    // Third time in this wave that a claim could only hold on one platform,
+    // after `signatureToken` and `checkEnrichmentLadder`'s injected platform.
+    // The fixture stays POSIX bytes — that is what a macOS capture IS — and
+    // only the expectation learns that the comparison happens on the reader's
+    // machine rather than on the captured one.
+    expect(payload.worktreePath).toBe(canonicalize('/repo'))
   })
 
   it('carries real CPU, real memory and a real start time out of the fold', async () => {
