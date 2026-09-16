@@ -97,6 +97,129 @@ function allStripped(): string {
     .join('\n')
 }
 
+/**
+ * `ALTER TABLE [ONLY] [schema.]["]name["]` — the spellings PostgreSQL accepts for one table.
+ *
+ * Written out because the first version matched `(\w+)` alone and so FAILED OPEN on all three:
+ * `ALTER TABLE ONLY events …`, `ALTER TABLE public.events …` and `ALTER TABLE "events" …` each
+ * parsed as NO table at all, which silently exempts it from both clauses below. A guard that
+ * stops seeing a table is worse here than one that is noisy about it, because the state it stops
+ * seeing is the one #514 measured.
+ */
+const TABLE_REF = '(?:ONLY\\s+)?(?:"?\\w+"?\\s*\\.\\s*)?"?(\\w+)"?'
+
+/** The bare table name from a reference the patterns above capture. */
+function tableNamesIn(sql: string, verb: string): string[] {
+  const pattern = new RegExp(`ALTER\\s+TABLE\\s+${TABLE_REF}\\s+${verb}\\s+ROW\\s+LEVEL\\s+SECURITY`, 'gi')
+  return [...sql.matchAll(pattern)].map((m) => m[1] as string)
+}
+
+/** Tables the schema turns RLS ON for, in declaration order. */
+function rlsEnabledTables(sql: string): string[] {
+  return tableNamesIn(sql, 'ENABLE')
+}
+
+/** Tables the schema FORCEs RLS on — the set that puts the owner inside the policies too. */
+function forcedTables(sql: string): Set<string> {
+  return new Set(tableNamesIn(sql, 'FORCE'))
+}
+
+/**
+ * Tables carrying at least one policy **that can admit a read**. Never a COUNT — see case 23.
+ *
+ * The command matters, and the first version of this did not check it. A policy is scoped by its
+ * `FOR` clause, so `FOR INSERT` admits no SELECT at all: a table with RLS on and nothing but an
+ * insert policy is exactly as unreadable as one with no policy, while "does it have a policy?"
+ * answers yes. Both clauses below rest on this set, so that spelling silenced both of them.
+ * PostgreSQL defaults an omitted `FOR` to `ALL`, which does admit a read.
+ */
+function policiedTables(sql: string): Set<string> {
+  const admits = new Map<string, Set<string>>()
+  const created = new RegExp(`CREATE\\s+POLICY\\s+(\\w+)\\s+ON\\s+${TABLE_REF}([^;]*);`, 'gi')
+  for (const m of sql.matchAll(created)) {
+    const command = /\bFOR\s+(ALL|SELECT|INSERT|UPDATE|DELETE)\b/i.exec(m[3] as string)
+    // No FOR clause at all means ALL, which admits a read.
+    if (command === null || /^(ALL|SELECT)$/i.test(command[1] as string)) {
+      const table = m[2] as string
+      if (!admits.has(table)) admits.set(table, new Set())
+      admits.get(table)?.add(m[1] as string)
+    }
+  }
+
+  /**
+   * A DROP RETRACTS ITS CREATE (review of #574).
+   *
+   * This read `CREATE POLICY` alone, so appending `DROP POLICY events_by_project ON events;` to
+   * the schema left the law GREEN on **precisely the state #514 measured** — RLS enabled and
+   * forced, zero policies. `0003_roles_rls.sql:73` already uses the `DROP POLICY IF EXISTS`
+   * idiom, so the statement form is in this corpus today and a future migration that drops
+   * without recreating plants that state where nothing sees it.
+   *
+   * Dropped by NAME, not by table: `0003`'s own `DROP POLICY IF EXISTS … ; CREATE POLICY … ;`
+   * pairs must not read as a table with no policy, and they do not — the create that follows
+   * re-adds the name.
+   */
+  const dropped = new RegExp(`DROP\\s+POLICY\\s+(?:IF\\s+EXISTS\\s+)?(\\w+)\\s+ON\\s+${TABLE_REF}`, 'gi')
+  for (const m of sql.matchAll(dropped)) {
+    const names = admits.get(m[2] as string)
+    if (names === undefined) continue
+    // A drop AFTER the last create of that name retracts it; a drop before it does not.
+    const lastCreate = sql.toLowerCase().lastIndexOf(`create policy ${(m[1] as string).toLowerCase()}`)
+    if ((m.index ?? 0) > lastCreate) names.delete(m[1] as string)
+  }
+
+  return new Set([...admits.entries()].filter(([, names]) => names.size > 0).map(([table]) => table))
+}
+
+/**
+ * THE TWO CLAUSES, AS FUNCTIONS — and they are functions for a measured reason.
+ *
+ * The first version computed both offender lists inline in their `it(...)` blocks and gave the
+ * "mutation" cases below rigged strings to assert PARSER facts against. That left the law itself
+ * downstream of nothing: EXECUTED on this file at `1e655b9b`, replacing `rlsEnabledTables`' body
+ * with `return []` kept all 43 cases GREEN, and so did gutting either clause's own filter. The
+ * non-vacuity guards were real but sat on the wrong side of the computation — they floored
+ * `forcedTables`, `policiedTables` and the reader map, none of which is the input the offender
+ * list is built from.
+ *
+ * Routing both the law cases and the mutation cases through these two functions is what makes
+ * the mutation cases mutations of the LAW rather than of its parsers.
+ */
+
+/** Clause A: FORCEd, and no policy that can admit a read. Nobody reads it, the owner included. */
+function forcedWithoutPolicy(sql: string): string[] {
+  const policied = policiedTables(sql)
+  const forced = forcedTables(sql)
+  return rlsEnabledTables(sql).filter((table) => forced.has(table) && !policied.has(table))
+}
+
+/** Clause B: RLS on, a non-bypassing role may SELECT it, and no policy admits anyone. */
+function readableWithoutPolicy(sql: string): string[] {
+  const policied = policiedTables(sql)
+  const readers = nonBypassingReaders(sql)
+  return rlsEnabledTables(sql).filter((table) => (readers.get(table)?.length ?? 0) > 0 && !policied.has(table))
+}
+
+/** Per table, the roles granted SELECT that do NOT carry BYPASSRLS — i.e. real RLS readers. */
+function nonBypassingReaders(sql: string): Map<string, string[]> {
+  const bypassing = new Set(
+    createdRoles(sql)
+      .filter((r) => r.bypassRls)
+      .map((r) => r.name),
+  )
+  const readers = new Map<string, string[]>()
+  for (const grant of grants(sql)) {
+    if (!grant.privileges.includes('SELECT')) continue
+    for (const table of grant.tables) {
+      for (const role of grant.roles) {
+        if (bypassing.has(role)) continue
+        readers.set(table, [...(readers.get(table) ?? []), role])
+      }
+    }
+  }
+  return readers
+}
+
 /** The column list of the `events` table declaration, as `[name, rest]` pairs. */
 function eventsColumns(): { name: string; declaration: string }[] {
   const match = /CREATE TABLE IF NOT EXISTS events \(([\s\S]*?)\)\s*PARTITION BY RANGE \(ts\);/.exec(sqlOf('0001_events'))
@@ -544,6 +667,186 @@ describe('case 23 — roles and RLS, both facts', () => {
     }
     expect(readers.size).toBeGreaterThan(0)
     expect([...readers].filter((r) => bypassing.has(r))).toEqual([])
+  })
+
+  /**
+   * RLS ENABLED WITH NO POLICY (#565), and the shape of this law is the whole finding.
+   *
+   * #514's drill restored a database exactly as `docs/team-server-runbook.md` prescribes and
+   * measured this on the real host:
+   *
+   *     rz_ roles present   : (NONE)      policies on events : 0
+   *     rls enabled/forced  : true/true   migrations recorded: 5
+   *
+   * A table in that state looks protected to every check an operator would think to run — `\d+`
+   * reports RLS on, the migration that configures it is recorded as applied, the boot report says
+   * nothing to do — while nothing restricts anything.
+   *
+   * ## THIS LAW IS TWO CLAUSES, AND NEITHER SUBSUMES THE OTHER
+   *
+   * The obvious law — *every RLS-enabled table has a policy* — is RED ON THIS SCHEMA, and
+   * correctly so: `0005` enables RLS on `ingest_keys` and deliberately does not FORCE it, with its
+   * header arguing the case (*"RLS with no policy denies anyone who later is"*). On that table the
+   * two booleans are a DECLARATION, not a symptom. Exempting it by name would be the absence
+   * machinery this repo forbids, so the law is narrowed until it is true instead:
+   *
+   * - **FORCED with no policy** — nobody reads it, the owner included, and the app connects as the
+   *   owner. `ingest_keys` is outside this because it is not FORCEd.
+   * - **ENABLED and readable by a role that does not BYPASSRLS, with no policy** — that role was
+   *   granted a read that returns nothing, forever. `ingest_keys` is outside this because its only
+   *   SELECT grant goes to `rz_ingest`, which the case above pins as the one BYPASSRLS role.
+   *
+   * Measured, not argued: dropping `events`' policy trips BOTH; a forced table with no grants at
+   * all trips only the first; granting `rz_viewer` SELECT on `ingest_keys` trips only the second.
+   * The two mutation cases below are those last two.
+   *
+   * ## WHAT THIS LAW CANNOT SEE
+   *
+   * It reads the tracked `.sql` and so proves a property of the DDL THIS PACKAGE WILL RUN. #514's
+   * host had correct files and a diverged database — `_migrations` recorded `0003` as applied
+   * while the roles and policies it creates were absent, so the migration will never re-run to
+   * recreate them. **No static law can catch that**, and this one does not claim to; that wants a
+   * boot-time check against `pg_policy`/`pg_roles`, which is a different fence.
+   *
+   * No count is asserted anywhere here. The claim is "enabled implies at least one", never
+   * "enabled implies four" — a policy count in a test is the rot #514 corrected in the runbook.
+   */
+  it('a FORCED table with no policy is a schema-law failure — nobody reads it, the owner included', () => {
+    const sql = allStripped()
+
+    // Not vacuous, and the floor is on the parser the offender list is BUILT FROM: a
+    // `rlsEnabledTables` that returned nothing would make this case pass forever.
+    expect(rlsEnabledTables(sql).length).toBeGreaterThan(0)
+    expect(forcedTables(sql).size).toBeGreaterThan(0)
+    expect(policiedTables(sql).size).toBeGreaterThan(0)
+
+    const offenders = forcedWithoutPolicy(sql).map(
+      (table) =>
+        `${table} FORCEs row level security and carries no policy that admits a read, so nothing — not even the owner — can read it: the schema no longer means what 0003_roles_rls.sql says it means`,
+    )
+    expect(offenders).toEqual([])
+  })
+
+  it('an RLS table a non-bypassing role may SELECT must have a policy, or that grant reads nothing', () => {
+    const sql = allStripped()
+    const readers = nonBypassingReaders(sql)
+
+    expect(rlsEnabledTables(sql).length).toBeGreaterThan(0)
+    expect([...readers.values()].reduce((n, roles) => n + roles.length, 0)).toBeGreaterThan(0)
+
+    const offenders = readableWithoutPolicy(sql).map(
+      (table) =>
+        `${table} has row level security enabled and is SELECT-able by ${readers.get(table)?.join(', ')}, but no policy admits anyone: the schema no longer means what 0003_roles_rls.sql says it means`,
+    )
+    expect(offenders).toEqual([])
+  })
+
+  /**
+   * MUTATION — the state #514 measured, planted as a string rather than as an edit to a tracked
+   * `.sql`. The migrations are checksummed (`runner.ts` refuses a run whose recorded checksum
+   * differs), so a law about them must not touch them to test itself.
+   *
+   * These assert the CLAUSES, not the parsers underneath them. An earlier version asserted
+   * `forcedTables(rigged).has(...)` and friends, which is a fact about a regex: gutting either
+   * clause left all of them green.
+   */
+  it("the law bites — drop `events`' policy with RLS still on and BOTH clauses name it", () => {
+    const rigged = allStripped().replace(/CREATE\s+POLICY\s+events_by_project[^;]*;/i, '')
+    expect(forcedWithoutPolicy(rigged)).toContain('events')
+    expect(readableWithoutPolicy(rigged)).toContain('events')
+    // The control: on the real schema neither clause names it.
+    expect(forcedWithoutPolicy(allStripped())).toEqual([])
+    expect(readableWithoutPolicy(allStripped())).toEqual([])
+  })
+
+  /**
+   * THE TWO CLAUSES ARE NOT REDUNDANT, and these are the cases that prove it. Each state below is
+   * caught by exactly ONE clause, so dropping either ships one of them green.
+   */
+  it('a FORCED table with no grants at all is caught by the first clause and missed by the second', () => {
+    const rigged = `${allStripped()}\nALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;\nALTER TABLE audit_log FORCE ROW LEVEL SECURITY;`
+    expect(forcedWithoutPolicy(rigged)).toContain('audit_log')
+    // Nothing was granted, so clause B has no reader to inspect and cannot see it.
+    expect(readableWithoutPolicy(rigged)).not.toContain('audit_log')
+  })
+
+  it('granting rz_viewer a read on policy-less ingest_keys is caught by the second clause and missed by the first', () => {
+    const rigged = `${allStripped()}\nGRANT SELECT ON ingest_keys TO rz_viewer;`
+    expect(readableWithoutPolicy(rigged)).toContain('ingest_keys')
+    // `ingest_keys` is ENABLED and not FORCEd, which is why it is green today. The exemption is
+    // derived from the schema, not written down.
+    expect(forcedWithoutPolicy(rigged)).not.toContain('ingest_keys')
+  })
+
+  /**
+   * A POLICY THAT ADMITS NO READ IS NOT A POLICY, for either clause.
+   *
+   * Found at verification. `FOR INSERT` silenced both clauses while the table stayed exactly as
+   * unreadable as one with no policy at all — and clause B's message would have said "no policy
+   * admits anyone" about a table that has one.
+   */
+  it('an INSERT-only policy does not satisfy either clause', () => {
+    const insertOnly = 'CREATE POLICY ingest_keys_insert_only ON ingest_keys FOR INSERT WITH CHECK (true);'
+    const readable = `${allStripped()}\nGRANT SELECT ON ingest_keys TO rz_viewer;\n${insertOnly}`
+    expect(readableWithoutPolicy(readable)).toContain('ingest_keys')
+
+    const forced = `${allStripped()}\nALTER TABLE ingest_keys FORCE ROW LEVEL SECURITY;\n${insertOnly}`
+    expect(forcedWithoutPolicy(forced)).toContain('ingest_keys')
+
+    // The control: a SELECT policy DOES satisfy both, so this is about the command and not
+    // about the parser failing to see the statement at all.
+    const selectPolicy = 'CREATE POLICY ingest_keys_read ON ingest_keys FOR SELECT TO rz_viewer USING (true);'
+    expect(readableWithoutPolicy(`${allStripped()}\nGRANT SELECT ON ingest_keys TO rz_viewer;\n${selectPolicy}`)).not.toContain('ingest_keys')
+    // …and so does one with no FOR clause, which PostgreSQL reads as ALL.
+    const allPolicy = 'CREATE POLICY ingest_keys_all ON ingest_keys USING (true);'
+    expect(readableWithoutPolicy(`${allStripped()}\nGRANT SELECT ON ingest_keys TO rz_viewer;\n${allPolicy}`)).not.toContain('ingest_keys')
+  })
+
+  /**
+   * THE PARSERS DO NOT FAIL OPEN ON A SPELLING, and that is the failure mode that matters.
+   *
+   * Found at verification: matching the table as a bare `(\\w+)` made `ALTER TABLE ONLY events`,
+   * `ALTER TABLE public.events` and `ALTER TABLE "events"` parse as no table at all — so a future
+   * migration written any of those three ways would plant exactly the state these clauses forbid
+   * and neither would see it. A parser that stops seeing tables makes both clauses vacuous for
+   * those tables, silently.
+   */
+  it('ONLY, a schema qualifier and quotes are all still the same table', () => {
+    for (const spelling of ['events', 'ONLY events', 'public.events', '"events"', 'ONLY public."events"']) {
+      expect(rlsEnabledTables(`ALTER TABLE ${spelling} ENABLE ROW LEVEL SECURITY;`), spelling).toEqual(['events'])
+      expect([...forcedTables(`ALTER TABLE ${spelling} FORCE ROW LEVEL SECURITY;`)], spelling).toEqual(['events'])
+    }
+    for (const spelling of ['events', 'public.events', '"events"']) {
+      expect([...policiedTables(`CREATE POLICY p ON ${spelling} FOR SELECT USING (true);`)], spelling).toEqual(['events'])
+    }
+  })
+
+  /**
+   * THE TWO HOLES REVIEW FOUND IN THIS GUARD, pinned so they cannot reopen.
+   *
+   * Both are the shape `TABLE_REF`'s docblock already argues against: *"a guard that stops seeing
+   * a table is worse here than one that is noisy about it, because the state it stops seeing is
+   * the one #514 measured."* Neither was a defect in the shipped schema — both were holes in the
+   * guard installed to watch it.
+   */
+  it('a DROPPED policy is not a policy — the #514 state, planted by a DROP', () => {
+    const rigged = `${allStripped()}\nDROP POLICY events_by_project ON events;`
+    expect(policiedTables(rigged).has('events')).toBe(false)
+    expect(forcedWithoutPolicy(rigged)).toContain('events')
+    expect(readableWithoutPolicy(rigged)).toContain('events')
+  })
+
+  it("…but 0003's own DROP-then-CREATE pairs still read as policied", () => {
+    // The corpus already contains `DROP POLICY IF EXISTS x ON t; CREATE POLICY x ON t …`.
+    expect(allStripped()).toContain('DROP POLICY IF EXISTS events_by_project ON events')
+    expect(policiedTables(allStripped()).has('events')).toBe(true)
+    expect(forcedWithoutPolicy(allStripped())).toEqual([])
+  })
+
+  it('a QUOTED schema qualifier is still the same table', () => {
+    for (const spelling of ['"public"."events"', 'public."events"', '"public".events']) {
+      expect(rlsEnabledTables(`ALTER TABLE ${spelling} ENABLE ROW LEVEL SECURITY;`), spelling).toEqual(['events'])
+    }
   })
 
   it('the grant parser bites — it would see the violation it is asserting the absence of', () => {
