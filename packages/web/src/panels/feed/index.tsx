@@ -1,22 +1,22 @@
-import { useMemo, useState, type ReactElement, type ReactNode } from 'react'
 import type { AgentStatus, AgentStatusWitness } from '@rhizomorph/core'
+import { type ReactElement, type ReactNode, useMemo, useState } from 'react'
 import { useStream } from '../../app/StreamContext.js'
 import { NEWS_GRACE_MS } from '../../app/streamState.js'
 import { INFERRED_MARK, useFleet, useSelection } from '../../fleet/index.js'
 import { HiddenNotice } from '../search/HiddenNotice.js'
 import { filterByQuery, useSessionQuery } from '../search/session.js'
 import {
-  FEED_KINDS,
-  FEED_KIND_LABEL,
-  FEED_LIMIT,
   buildFeedEntries,
   buildLaneIndex,
-  feedEntryText,
-  filterFeedEntries,
   type CollectorFeedEntry,
   type CommitFeedEntry,
+  FEED_KIND_LABEL,
+  FEED_KINDS,
+  FEED_LIMIT,
   type FeedEntry,
   type FeedKind,
+  feedEntryText,
+  filterFeedEntries,
   type LandingFeedEntry,
   type LaneFeedEntry,
 } from './feed.js'
@@ -264,6 +264,14 @@ function laneTag(status: AgentStatus, witness: AgentStatusWitness): string {
   const label = AGENT_STATUS_LABEL[status]
   switch (witness) {
     case 'workmux':
+      return label
+    // prd-57 ruling 5 / ADR-0054: a hook is a DECLARATION, so it renders bare
+    // exactly as the roster's word does. Ruling 3's rendering law is about
+    // declared-versus-inferred and not about which declarer spoke — marking a
+    // hook differently would invent a third visual rank the ruling does not
+    // have, and `data-witness` below already carries WHICH witness for anything
+    // that needs it.
+    case 'hook':
       return label
     case 'sessionlog':
       return `${INFERRED_MARK} ${label}`

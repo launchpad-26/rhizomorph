@@ -3,7 +3,7 @@ import type {
   EventOf,
   RhizomorphEvent,
 } from './events/index.js'
-import { BEACON_ATTENTION_KINDS, totalTokens } from './events/index.js'
+import { AGENT_STATUS_RANK, BEACON_ATTENTION_KINDS, totalTokens } from './events/index.js'
 import { upcast } from './events/upcast.js'
 import type {
   ActiveTimeRecord,
@@ -829,12 +829,22 @@ function agentStatus(state: SessionState, event: EventOf<'agent.status'>): Sessi
   // a summons. Only a declared `working` yields to an inference, because that
   // is the one declared word the organ can legitimately improve on. The refused
   // word is kept as dissent so it renders (ADR-0037; verify of #281).
+  // prd-57 ruling 5 / ADR-0054 adds the THIRD witness, and the rule is now an
+  // ORDER rather than a pair: hook > workmux roster > transcript inference.
+  // Ranked rather than chained, because a sequence written as conditionals
+  // drifts the moment a fourth witness arrives — which is how ADR-0037's
+  // two-source version came to need amending in the first place.
+  //
+  // A hook outranks both, and it is a DECLARATION rather than a reading: it
+  // fires inside the agent's own process. Every clause of ADR-0037's refusal of
+  // `beacon` was about the organ's INFERENCE, and none of it reaches here.
+  const incomingRank = AGENT_STATUS_RANK[event.source as keyof typeof AGENT_STATUS_RANK] ?? 0
+  const standingRank = prev === undefined ? 0 : (AGENT_STATUS_RANK[prev.witness] ?? 0)
   if (
     prev !== undefined &&
     prev.present &&
-    prev.witness === 'workmux' &&
-    prev.status !== 'working' &&
-    event.source === 'sessionlog'
+    incomingRank < standingRank &&
+    prev.status !== 'working'
   ) {
     const dissent: AgentStatusDissent | null =
       p.status === prev.status

@@ -1,6 +1,6 @@
+import { type AgentStatusWitness, createEventFactory, type RhizomorphEvent } from '@rhizomorph/core'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createEventFactory, type AgentStatusWitness, type RhizomorphEvent } from '@rhizomorph/core'
 import { StreamProvider } from '../../app/StreamContext.js'
 import { FleetProvider } from '../../fleet/FleetContext.js'
 import { INFERRED_MARK } from '../../fleet/index.js'
@@ -252,7 +252,7 @@ describe('lane rows name their witness (#290)', () => {
   })
 
   it('the tag is total over the witness type', () => {
-    const _covered: Record<AgentStatusWitness, true> = { workmux: true, sessionlog: true }
-    expect(_covered).toEqual({ workmux: true, sessionlog: true })
+    const _covered: Record<AgentStatusWitness, true> = { workmux: true, sessionlog: true, hook: true }
+    expect(_covered).toEqual({ workmux: true, sessionlog: true, hook: true })
   })
 })

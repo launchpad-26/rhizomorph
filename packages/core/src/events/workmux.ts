@@ -66,7 +66,35 @@ export type AgentStatusPayload = z.infer<typeof agentStatusPayloadSchema>
  * `source` is the witness; a reader that needs to know whether a WAITING was
  * declared or inferred reads it there and nowhere else.
  */
-export const AGENT_STATUS_SOURCES = ['workmux', 'sessionlog'] as const
+/**
+ * THE THIRD WITNESS — prd-57 ruling 5, licensed by ADR-0054, which amends
+ * ADR-0037's source union.
+ *
+ * ADR-0054 argues `hook` on its own merits and records that ADR-0037's refusal
+ * of `beacon` was about the ORGAN'S INFERENCE, not about a harness's own
+ * declaration — every clause of that refusal is about the organ, and none of it
+ * reaches a hook. A hook fires inside the agent's own process and reports what
+ * that process is doing; it does not read a pane and guess.
+ *
+ * **Precedence: hook > workmux roster > transcript inference**, with prd-27
+ * ruling 4's asymmetry preserved and every overruled word kept as `dissent` so
+ * it still renders. `reduce.ts` is where that order lives.
+ */
+export const AGENT_STATUS_SOURCES = ['workmux', 'sessionlog', 'hook'] as const
+
+/**
+ * How much a witness is allowed to overrule, highest first.
+ *
+ * A number rather than a chain of `if`s, because the rule is an ORDER and an
+ * order written as conditionals drifts the moment a fourth witness arrives —
+ * which is exactly how ADR-0037's two-source version came to need amending.
+ * `reduce.ts` compares ranks; nothing else encodes the sequence.
+ */
+export const AGENT_STATUS_RANK: Readonly<Record<(typeof AGENT_STATUS_SOURCES)[number], number>> = {
+  hook: 3,
+  workmux: 2,
+  sessionlog: 1,
+}
 
 export const agentStatusEventSchema = envelopeWithSources(AGENT_STATUS_SOURCES, 'agent.status', agentStatusPayloadSchema)
 /** `'workmux' | 'sessionlog'` — the envelope's own source type for this event. */
