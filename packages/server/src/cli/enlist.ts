@@ -298,19 +298,34 @@ export async function runEnlistCommand(
   for (const line of renderEnlistmentPlan(diff.body)) log.log(line)
 
   const digest = text(diff.body.sourceDigest)
+
+  /**
+   * A REFUSED plan exits 1, with or without `--apply`, and that is
+   * `rhizomorph doctor`'s rule rather than a new one: a read-only report whose
+   * content is a failure exits non-zero even though the reporting itself
+   * succeeded (`cli/doctor.ts`'s `FAILING_CHECK_IDS`). Reading a refusal is not
+   * a failure of the read, but it is a failure to enlist, and a script chaining
+   * on this cannot tell those apart from the text.
+   *
+   * `already-settled` is the opposite and stays 0: the operator asked for a
+   * state the machine is already in, which is what idempotence means, and a
+   * boot script running `enlist --apply` every time must not start failing on
+   * the second run.
+   */
+  const refusedCode = diff.body.kind === 'refused' ? 1 : 0
+
   if (!args.apply) {
     // Said explicitly rather than implied by the absence of output: the whole
     // promise of the first act is that nothing happened.
     if (diff.body.kind === 'ready') {
       log.log(`\nNothing was written. Run the same command with --apply to make these changes.`)
     }
-    return exit(0)
+    return exit(refusedCode)
   }
   if (diff.body.kind !== 'ready' || digest === null) {
-    // `--apply` over a settled or refused plan is not an error — the operator
-    // asked for a state the machine is already in, or one it will not enter,
-    // and the lines above already said which.
-    return exit(0)
+    // Nothing to send: there is no digest, because there is nothing to write.
+    // Same code as the diff-only path above, decided in one place.
+    return exit(refusedCode)
   }
 
   let applied: EnlistExchange

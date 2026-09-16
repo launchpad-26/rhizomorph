@@ -201,22 +201,59 @@ export async function runHookCommand(
 }
 
 /**
- * Everything on stdin, or `''` when there is none.
+ * How long the runner will wait for stdin before giving up on the firing.
  *
- * Wrapped in the same never-throw posture as the rest of this module: a
- * harness that closes the pipe early, or invokes the runner with no stdin at
- * all, produces an empty string that {@link runHookCommand} declines quietly.
+ * Generous against any real hook payload — a lifecycle event is a few hundred
+ * bytes already in the pipe — and short against a human's patience.
  */
-export async function readStdin(stream: NodeJS.ReadableStream = process.stdin): Promise<string> {
-  try {
-    const chunks: Buffer[] = []
+export const STDIN_TIMEOUT_MS = 2000
+
+/**
+ * Everything on stdin, or `''` — never a wait without an end.
+ *
+ * **The bound is the exit-0 law, not a nicety.** A hook that exits non-zero can
+ * make the harness surface an error; a hook that never returns at all blocks
+ * the tool call outright, which is the same failure this module exists to
+ * prevent and a worse version of it. An unbounded `for await` over
+ * `process.stdin` is exactly that wait: a harness that spawns the runner and
+ * does not close the pipe — a bug, a wrapper script, a shell that inherits a
+ * terminal — hangs it forever, and the agent hangs with it.
+ *
+ * So the read races a timer, and losing that race is the same quiet `''` every
+ * other failure here produces. Better to miss one beacon line than to cost the
+ * agent a turn, which is the trade this whole file is built on.
+ */
+export async function readStdin(
+  stream: NodeJS.ReadableStream = process.stdin,
+  timeoutMs: number = STDIN_TIMEOUT_MS,
+): Promise<string> {
+  const chunks: Buffer[] = []
+  const collect = (async () => {
     for await (const chunk of stream) {
       chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)
     }
-    return Buffer.concat(chunks).toString('utf8')
+    return 'read' as const
+  })()
+
+  let timer: NodeJS.Timeout | undefined
+  const expire = new Promise<'timeout'>((resolve) => {
+    timer = setTimeout(() => resolve('timeout'), timeoutMs)
+    // Never hold the process open on this timer's account: if the read finishes
+    // first there is nothing left to wait for, and an `unref`'d timer lets the
+    // runner exit immediately rather than idling out the full window.
+    timer.unref?.()
+  })
+
+  try {
+    await Promise.race([collect, expire])
   } catch {
-    return ''
+    // A stream that errored mid-read still hands back whatever arrived before
+    // it did — a partial line fails `JSON.parse` and is declined, which is the
+    // same quiet nothing.
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
   }
+  return Buffer.concat(chunks).toString('utf8')
 }
 
 /**

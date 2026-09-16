@@ -191,6 +191,54 @@ describe('the diff-first two-step', () => {
   })
 })
 
+describe('what --apply exits with, which is not one answer', () => {
+  it('a SETTLED plan exits 0 — running it twice is what idempotence means', async () => {
+    const fetchImpl = serving({
+      body: { kind: 'already-settled', target: READY.target, why: 'already enlisted', refusals: [] },
+    })
+
+    const { code } = await run(['claude', '--apply'], 'enlist', fetchImpl)
+
+    expect(code).toBe(0)
+  })
+
+  it('a REFUSED plan exits 1 — there will be no write, and a script must be able to tell', async () => {
+    // The two non-ready arms are not the same answer and one exit code for both
+    // would make the honest half dishonest: `enlist claude --apply && echo done`
+    // must not print `done` over a machine this hand declined to touch.
+    const fetchImpl = serving({
+      body: {
+        kind: 'refused',
+        target: READY.target,
+        why: 'this server is replaying a record',
+        remedy: 'point it at a repo and try again',
+      },
+    })
+
+    const { out, code } = await run(['claude', '--apply'], 'enlist', fetchImpl)
+
+    expect(code).toBe(1)
+    // And it still says which, rather than failing mutely.
+    expect(out).toContain('refused')
+    expect(out).toContain('point it at a repo')
+    // Nothing was attempted: there is no digest, so there was nothing to send.
+    expect(posted(fetchImpl)).toHaveLength(1)
+  })
+
+  it('a refused plan WITHOUT --apply also exits 1 — the answer does not depend on the flag', async () => {
+    // Reading a refusal is not a failure of the read, but it is a failure to
+    // enlist, and the two commands an operator chains this into cannot tell the
+    // difference from the text.
+    const fetchImpl = serving({
+      body: { kind: 'refused', target: READY.target, why: 'no adapter', remedy: 'pick another harness' },
+    })
+
+    const { code } = await run(['claude'], 'enlist', fetchImpl)
+
+    expect(code).toBe(1)
+  })
+})
+
 describe('the token, and the saving this command is the first to collect', () => {
   it('carries the capability header on both posts, from ONE shell scrape', async () => {
     const fetchImpl = serving({ body: READY }, { body: { applied: true, target: READY.target, changedKeys: [] } })

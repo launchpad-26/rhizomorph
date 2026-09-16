@@ -4,7 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { parseBeaconLine } from '../collectors/beacon/parse-beacon-line.js'
 import { installationBeaconDir } from '../collectors/beacon/paths.js'
-import { beaconLineFor, DECLARED_KEYS, MESSAGE_MAX, runHookCommand } from './hook.js'
+import { beaconLineFor, DECLARED_KEYS, MESSAGE_MAX, readStdin, runHookCommand } from './hook.js'
 
 /**
  * `rhizomorph hook` — prd-57 ruling 6.
@@ -140,6 +140,35 @@ describe('what the runner writes, and what it refuses to', () => {
 })
 
 describe('THE LAW: it never blocks the agent', () => {
+  it('gives up on a stdin that never closes, rather than waiting forever', async () => {
+    // The worst version of blocking the agent, and the one an exit code cannot
+    // express: a harness that spawns the runner and does not close the pipe.
+    // An unbounded read hangs here and the tool call hangs with it.
+    const { Readable } = await import('node:stream')
+    const openForever = new Readable({ read() {} })
+    openForever.push('{"hook_event_name":"Stop"')
+
+    const started = Date.now()
+    const text = await readStdin(openForever, 40)
+
+    expect(Date.now() - started).toBeLessThan(2000)
+    // What arrived before the deadline is handed back, not discarded — and a
+    // half-line is declined by the parse, which is the same quiet nothing.
+    expect(text).toBe('{"hook_event_name":"Stop"')
+    expect(await runHookCommand(text, { dataRoot: root })).toBe(0)
+    await expect(readdir(installationBeaconDir(root))).rejects.toThrow()
+    openForever.destroy()
+  })
+
+  it('a stdin that DOES close is read whole — the bound is a ceiling, not a truncation', async () => {
+    // The control. Without it, "it gave up" would also pass a runner that read
+    // nothing at all.
+    const { Readable } = await import('node:stream')
+    const payload = JSON.stringify(FIRING)
+
+    expect(await readStdin(Readable.from([payload]), 40)).toBe(payload)
+  })
+
   /**
    * Every one of these is a real failure and every one exits 0. A hook that
    * exits non-zero can make the harness surface an error, retry, or refuse the
