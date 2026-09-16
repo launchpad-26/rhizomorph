@@ -1892,7 +1892,7 @@ describe('a lane carries its actors, folded from process events', () => {
     return f.worktreeDiscovered({ path: WT, branch: 'feature', isMain: false })
   }
 
-  it('an actor placed in a lane s worktree appears on that lane', () => {
+  it('an actor placed in a lane\'s worktree appears on that lane', () => {
     const f = createEventFactory()
     const fleet = fleetWith([
       laneWithWorktree(f),
@@ -1945,7 +1945,35 @@ describe('a lane carries its actors, folded from process events', () => {
     for (const lane of fleet.lanes) expect(lane.actors).toEqual([])
   })
 
-  it('a GONE actor STAYS on its lane — dropping it would destroy half of ruling 5 s pair', () => {
+  it('a placeless actor does not land on a PLACELESS LANE — the null bucket the guard exists to prevent', () => {
+    // The case above asserts the right behaviour and does not exercise the
+    // guard: its only lane has a path, so a placeless actor misses it whether
+    // the `continue` is there or not. Certified — replacing BOTH guards with a
+    // `String(...)` key leaves `fleet` + `selectors` 553/553 green (review of
+    // #553, round 2).
+    //
+    // This is the failure the comment beside the skip actually names, and it
+    // needs the other half: a lane whose own `worktreePath` is null. That is
+    // not hypothetical — `Lane.worktreePath` is `string | null`, and a lane
+    // built from telemetry the git collector never found a home for keeps it
+    // null (`buildFleet.ts`, the `claim` step). Pair that with Windows, where
+    // EVERY actor is placeless, and a single orphan lane collects the entire
+    // fleet's processes.
+    const f = createEventFactory()
+    const fleet = fleetWith([
+      laneWithWorktree(f),
+      f.llmUsage({ lane: 'orphan', branch: null, worktreePath: null, sessionId: 'sess-orphan' }),
+      f.processSeen({ pid: 4321, worktreePath: null, placement: 'unknown' }),
+    ])
+
+    const placeless = fleet.lanes.filter((lane) => lane.worktreePath === null)
+    // The control: without a placeless lane this test asserts nothing, which is
+    // exactly how the case above passes while its guard is gone.
+    expect(placeless.length, 'no placeless lane was built — this test would be vacuous').toBeGreaterThan(0)
+    for (const lane of placeless) expect(lane.actors).toEqual([])
+  })
+
+  it('a GONE actor STAYS on its lane — dropping it would destroy half of ruling 5\'s pair', () => {
     // The deliberate retention, and the one most likely to be "tidied up" by a
     // later reader. `crashed` is reached from a `gone` that FOLLOWS a `seen`;
     // an index that dropped gone actors would remove the first half of that

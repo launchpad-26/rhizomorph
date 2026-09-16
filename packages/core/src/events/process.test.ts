@@ -139,8 +139,17 @@ describe('no field here can carry a command line (ADR-0052, Success 2)', () => {
       // and not in this package: `worktreePath` gets a canonicalised cwd from
       // the collector (prd-57 ruling 3), and `dialect` gets a member of the
       // probe's `AGENT_COMMANDS` roster, which is a closed list rather than
-      // anything read off the process. Both are tested where they are decided,
-      // in `collectors/process/collector.test.ts`.
+      // anything read off the process. Both belong to the collector, and
+      // NEITHER IS TESTED ANYWHERE YET — wave 1 ships no collector, so
+      // `packages/server/src/collectors/process/` holds one law and no source.
+      // Wave 2 is where those two obligations get a test; until it lands, the
+      // only thing standing between argv and an event is claim 1 above.
+      //
+      // Said in that many words on purpose (review of #553, round 2): the
+      // sentence here read "both are tested where they are decided, in
+      // `collectors/process/collector.test.ts`" — present tense, naming a file
+      // that does not exist. That is the shape B2 was, one layer out, and the
+      // citation law could not see it because the path was not repo-rooted.
       //
       // This assertion exists so that limit is visible AT the schema rather
       // than discovered later by someone trusting the docblock above it.

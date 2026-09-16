@@ -1570,3 +1570,118 @@ The first wave-13 run **failed on a collision that did not exist**, for the thir
 this PRD and by the same mechanism: an explanatory sentence inside a Fence section named the docs
 directory in backticks, and the lint read it as a claim. Four declared, six extracted. The tell was
 the count, not the verdict — the exit code would have been just as wrong either way.
+
+## Amendment — the drill reshaped waves 11 and 12, and the runbook is the new README (operator, 2026-09-16)
+
+Wave 10's drill ran the same day it was groomed (#514). Its capture lands under `docs/research/` in
+that issue's own PR as 2026-09-16-prd51-machine-plane-drill.md — named here without backticks on
+purpose, because it is not on `main` until that PR merges and a rooted citation to a file that does
+not exist yet is the defect this amendment spends a section on. It found nothing broken, and it found one
+thing missing from the *plan* rather than from the code — which moved an issue into wave 11 and
+pushed another out. This amendment records the reshape, the coupling that forced it, and two
+re-scopes that are rulings rather than tidying.
+
+### What the drill established, in one paragraph
+
+The ingest path works end to end on real hardware at `cfbaf6c7`: `init.sh` from nothing prints the
+key exactly once into a `0600` `.env` holding no plaintext; the first boot is 21 lines with 9
+notices at one line each (#551 holding where it was found); the four refusals are distinct with 401
+for *"not a key we know"* and 403 for *"a key, but not for this"*; a batch is 202 after the fsync;
+and the torn tail was detected at byte `76014`, repaired to exactly that offset at open, and
+appended to afterwards at `seq 272` with no gap — ADR-0046 and #398 on a real host at last.
+
+### The map, superseded again
+
+| wave | what | state |
+|---|---|---|
+| 1–9 | as recorded in the amendments above | **merged** |
+| 10 | the machine plane meets a real host | **in review** — #514 |
+| 11 | the three questions in a browser (#557) · the fold worker runs in the deployment (#564) · RLS-enabled-with-no-policy is a schema-law failure (#565) | **groomed** |
+| 12 | the team server's doctor (#558) · retention under a named ceiling (#559) · a member mints a key in the viewer (#560) | **groomed** |
+| 13 | #171's timed drill on the real host · the doc sweep (#561) | **groomed** |
+
+`scripts/fence-lint.sh` per wave, read by extracted path count rather than exit code: 11 + 5 + 1 for
+wave 11, 6 + 10 + 3 for wave 12, 2 + 5 for wave 13 — each equal to what the issue declares, no
+overlaps within any wave. Re-run against all twenty-three live prd-54 and prd-57 lanes: every remaining
+overlap is cross-wave, which is sequential by design — so that sweep FAILS as a whole and
+is read per wave, which is the only reading it supports.
+
+### What moved, and why it was not a choice
+
+**#564 — nothing scheduled starting the fold worker.** `fold/worker.ts` exports `runOnce`; nothing
+outside `*.test.ts` calls it; `deploy/serve.ts` passes no `onBatch`; `compose.yml` declares three
+services and the `Dockerfile` `CMD` is `serve.ts`. Measured: a batch is accepted and journalled
+(`202 {"accepted":1,"journalSeq":1}`) and `select count(*) from events` stays at **0**.
+
+`docs/team-server-runbook.md` says this plainly and calls it *deliberately* unbuilt, so it is not a
+defect. The gap is the **schedule**: searched across every state, no issue in any wave starts it,
+while **#557 reads the three projections it would maintain.** A viewer shipped against that would be
+correct, well-tested and permanently empty, and the first thing anyone would suspect is the viewer.
+So #564 joins wave 11 rather than following it.
+
+**#558 left wave 11 to make room.** It claims `packages/team/deploy/serve.ts` and the runbook, both
+of which #564 claims. #564 stayed because #557 depends on it; the doctor does not. #558 carries a
+revisit-at-dispatch instruction for the same reason #514 did: its check list was written when
+neither the viewer nor the fold existed, and by wave 12 both have landed.
+
+### Two re-scopes, both rulings
+
+**#564 does not get `compose.yml`.** Build the fold on the in-process `onBatch` seam
+`startTeamServer` already exposes. #557 holds `compose.yml` in the same wave, so taking it is a
+rebase conflict already scheduled — and *where the fold runs* is a shape decision that belongs to a
+groomer, not to a lane that discovers it needs one. If a second service turns out to be necessary,
+**stop and report**. This is #487's pattern, where a callback invited a sessions table and the
+answer was a ruling rather than a widening.
+
+**#565 stopped being prose and became a law.** It was filed as a documentation fix about a restored
+database losing its access layer. Its remaining content — a table with RLS **enabled and forced**
+and **zero policies** — is a schema claim, and its own Definition of done had already asked whether
+something should *detect* it. As a law on `packages/team/src/migrations/schema-law.test.ts` it stops
+touching the runbook, which is what lets it run beside #564. Its Definition of done forbids asserting
+a policy **count**: a count pinned in a test is the rot this PRD keeps recording, most recently the
+runbook line #514 corrected from 16 to 17 after `0005_ingest_keys.sql` added a GRANT and nothing
+re-derived it.
+
+### `docs/team-server-runbook.md` serialises this PRD, exactly as `README.md` did
+
+The 2026-09-08 amendment recorded that *"`README.md` serialises this PRD"* — four pieces needed it,
+`.swarm/coupling.txt` allows one claimant per wave, and wave 2 was regroomed to a single issue on
+discovering it.
+
+**The same thing is now true of the team-server runbook, and no registry entry says so.** #564 must
+edit it (its *"the fold worker is not started"* entry goes false in that commit, under ruling 12),
+#558 writes the doctor's invocation into it, #171 re-claims it for the full drill, and #565 had to be
+re-scoped out of it. Four claimants across three consecutive waves — the same shape, one file over,
+found the same way: by a groom running into it rather than by foresight.
+
+It is recorded here rather than in `.swarm/coupling.txt` because prd-54 wave 1 has just rewritten
+that registry (#546, merged in #562) and a second author appending to it in the same week is how
+two claims come to disagree. The entry belongs to whichever of #564, #558 or #171 lands first, and
+that lane should write it while the collision is in front of it.
+
+### A third rotted wave citation, still live on `main`
+
+The review of #563 found two: `hand-law.test.ts`, which a case-sensitive sweep missed, and
+`docs/roadmap.md`. The second was **recorded but not fixed** — `docs/roadmap.md` still says the
+*"prd-51 wave-5 doc sweep"* owns `docs/telemetry.md`, and the doc sweep is **wave 13** (#561). It
+had no claimant in any wave, which is why it survived a sweep that was looking for it. #561's
+boundary now carries it.
+
+That is three wave citations rotted across two renumberings, plus `docs/adr/0035-the-watcher-is-never-a-container.md`'s, which has
+rotted twice and is assigned to #171. The lesson is the one this PRD has now written down three
+times in different words: **a wave digit in a tracked file is a citation with no reader.**
+`doc-citation-law` resolves paths and issue numbers; it has no notion of a wave, so every one of
+these can be wrong with the whole suite green.
+
+### Both of the drill's issues were filed wrong first
+
+#564 went up as a Bug titled *"the deployed server journals a batch and never folds it"*. #565 went
+up as an **Urgent** Bug claiming a silent, undocumented loss of the access layer. Both framings were
+wrong, and wrong identically: **the runbook documented each one, and they were filed before it was
+read.** Both were corrected in place — retitled, reframed as the smaller thing that actually
+remained, and re-graded — before anyone acted on them.
+
+Recorded here because the failure is structural rather than personal, and cheap to prevent: a drill
+exists to compare a deployment against its own description, so **reading that description is step
+one, not a review step.** A drill that rediscovers documented behaviour and files it as a defect
+spends a reviewer's credibility on nothing — and the second filing is the one nobody checks.
