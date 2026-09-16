@@ -377,7 +377,7 @@ export function grants(sql: string): { privileges: string[]; tables: string[]; r
 }
 
 describe('case 26 — the walk really reads the tracked migrations', () => {
-  it('finds exactly the six that ship with this package', () => {
+  it('finds exactly the seven that ship with this package', () => {
     expect(migrations().map((m) => m.id)).toEqual([
       '0001_events',
       '0002_projections',
@@ -385,6 +385,7 @@ describe('case 26 — the walk really reads the tracked migrations', () => {
       '0004_events_dedup',
       '0005_ingest_keys',
       '0006_viewer_role_membership',
+      '0007_retention_ceilings',
     ])
   })
 
@@ -1061,5 +1062,96 @@ describe('case 31 — ingest_keys holds a digest, a project and two timestamps',
       .filter((g) => g.tables.includes('ingest_keys'))
       .flatMap((g) => g.roles)
     expect([...new Set(readers)].sort()).toEqual(['rz_ingest'])
+  })
+})
+
+/**
+ * CASE 32 — THE CEILING TABLE STORES AN AGE, A CHOICE AND ITS PROVENANCE, AND NO
+ * DEFAULT (#559, prd-51 rulings 9 and 10).
+ *
+ * Ruling 10: *"The server never invents an age."* The clause an implementation
+ * loses is the one that costs nothing at the time — a `DEFAULT 30` on
+ * `max_age_days`, which turns an empty table from "nothing is dropped" into a
+ * thirty-day retention policy nobody typed, applied to every project, and
+ * discoverable only by reading the migration. prd-51's success 6 names exactly
+ * that state as its falsifier.
+ *
+ * Ruling 9: *"Every effective value on the server names who set it and where."*
+ * `set_by` and `source` are NOT NULL, so a ceiling that cannot say who named it
+ * is not storable — the refusal is the database's rather than a convention a
+ * later caller can forget.
+ *
+ * MUTATIONS, executed before this was committed: plant `DEFAULT 30` on
+ * `max_age_days` and the no-default clause goes red (and so does
+ * `fold/worker.test.ts`'s package-wide sweep); make `set_by` nullable and the
+ * provenance clause goes red; drop the `ENABLE ROW LEVEL SECURITY` line and the
+ * RLS clause goes red; add a `GRANT SELECT ... TO rz_viewer` and both the
+ * grant clause here and `readableWithoutPolicy` above name this table.
+ */
+describe('case 32 — retention_ceilings carries an age, a choice and its provenance', () => {
+  it('0007 creates exactly one table, and it is the ceiling table', () => {
+    expect(createdTables(sqlOf('0007_retention_ceilings'))).toEqual(['retention_ceilings'])
+  })
+
+  it('declares exactly seven columns — an extra one fails, which is the point', () => {
+    expect(
+      tableColumns(sqlOf('0007_retention_ceilings'), 'retention_ceilings')
+        .map((c) => c.name)
+        .sort(),
+    ).toEqual(['archive_before_drop', 'archive_dir', 'max_age_days', 'project_id', 'set_at', 'set_by', 'source'])
+  })
+
+  it('the age carries a CHECK and NO DEFAULT — the server never invents one (ruling 10)', () => {
+    const byName = new Map(
+      tableColumns(sqlOf('0007_retention_ceilings'), 'retention_ceilings').map((c) => [c.name, c.declaration]),
+    )
+    expect(byName.get('max_age_days')).toContain('NOT NULL')
+    expect(byName.get('max_age_days')).toContain('CHECK (max_age_days > 0)')
+    // THE FALSIFIER. A default age here is a retention policy nobody typed.
+    expect(byName.get('max_age_days')).not.toContain('DEFAULT')
+    // …and no column in this table carries one either, so the claim is about the
+    // table rather than about the one column someone remembered.
+    for (const [name, declaration] of byName) {
+      expect(declaration, `${name} carries no DEFAULT`).not.toContain('DEFAULT')
+    }
+  })
+
+  it('provenance is NOT NULL, and archive_dir is the one nullable column (ruling 9)', () => {
+    const byName = new Map(
+      tableColumns(sqlOf('0007_retention_ceilings'), 'retention_ceilings').map((c) => [c.name, c.declaration]),
+    )
+    expect(byName.get('project_id')).toMatch(/^text\s+PRIMARY KEY$/)
+    expect(byName.get('set_by')).toMatch(/^text\s+NOT NULL$/)
+    expect(byName.get('source')).toMatch(/^text\s+NOT NULL$/)
+    expect(byName.get('set_at')).toMatch(/^timestamptz\s+NOT NULL$/)
+    expect(byName.get('archive_before_drop')).toMatch(/^boolean\s+NOT NULL$/)
+    // Nullable, and deliberately: `archive_before_drop = false` has no directory to name.
+    expect(byName.get('archive_dir')).toBe('text')
+  })
+
+  it('enables row level security, does not FORCE it, and says why in the file', () => {
+    const sql = sqlOf('0007_retention_ceilings')
+    expect(sql).toContain('ALTER TABLE retention_ceilings ENABLE ROW LEVEL SECURITY')
+    expect(sql).not.toContain('FORCE ROW LEVEL SECURITY')
+    expect(rawOf('0007_retention_ceilings')).toContain('NOT FORCE')
+  })
+
+  /**
+   * NO role is granted anything, in this file or anywhere else in the schema. A
+   * ceiling is an admin fact: `rz_ingest` appends events and never reads it, and
+   * a viewer has no reason to learn another project's retention policy. That
+   * absence is also what keeps both RLS clauses above green by DERIVATION rather
+   * than by an exemption — grant a non-bypassing role SELECT here with no policy
+   * and `readableWithoutPolicy` names this table.
+   */
+  it('grants no role anything at all, anywhere in the schema', () => {
+    const readers = grants(allStripped())
+      .filter((g) => g.tables.includes('retention_ceilings'))
+      .flatMap((g) => g.roles)
+    expect(readers).toEqual([])
+  })
+
+  it('carries no index: the primary key is the only access path there is', () => {
+    expect(indexDeclarations(allStripped()).filter((i) => i.table === 'retention_ceilings')).toEqual([])
   })
 })
