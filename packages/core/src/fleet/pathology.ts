@@ -21,9 +21,36 @@ export function worseRank(a: LadderRank, b: LadderRank): LadderRank {
 
 // ── pathologies (ruling 18) ─────────────────────────────────────────────────
 
-export type PathologyKind = 'looping' | 'frozen' | 'waiting' | 'expensive' | 'off-fence'
+export type PathologyKind = 'looping' | 'frozen' | 'waiting' | 'expensive' | 'off-fence' | 'crashed'
 
 export const PATHOLOGY_KINDS = [
+  'looping',
+  'frozen',
+  'waiting',
+  'expensive',
+  'off-fence',
+  'crashed',
+] as const satisfies readonly PathologyKind[]
+
+/**
+ * The kinds `fleet/diagnose.ts` can DERIVE from a lane's own shape — ages,
+ * cycles, spend, fence.
+ *
+ * A strict subset of {@link PATHOLOGY_KINDS}, and the gap between the two is
+ * the point rather than an oversight. `crashed` (prd-57 ruling 5) is a
+ * pathology in every sense this vocabulary means — it has a rung, a word, a
+ * reason, a remedy, a sigil and a hue — but it is not DIAGNOSABLE: it turns on
+ * a recorded edge (an actor seen, then gone, with no session end between) that
+ * lives in the fold rather than in a `Lane`, and `server/crashed.ts` raises it
+ * from the tick.
+ *
+ * Kept here rather than in `diagnose.ts` so a reader meets the distinction
+ * where the vocabulary is defined, and so the fixture law that asserts full
+ * coverage has something true to compare against. A law holding
+ * `PATHOLOGY_KINDS` would be asserting that a demo fold can stage a process
+ * death, which no fixture can do.
+ */
+export const DIAGNOSED_KINDS = [
   'looping',
   'frozen',
   'waiting',
@@ -35,6 +62,17 @@ export const PATHOLOGY_KINDS = [
 export const PATHOLOGY_RANK: Record<PathologyKind, LadderRank> = {
   // Dead air is the only lane state that is unambiguously broken.
   frozen: 'broken',
+  /**
+   * prd-57 ruling 5 — and it takes `broken` for the same reason `frozen` does,
+   * one certainty stronger. FROZEN is dead air, which is broken because nothing
+   * else explains it; CRASHED is a recorded death with no session end, which is
+   * broken because the recording says so.
+   *
+   * It mints NO new hue: `broken` is an existing named rank and the scene reads
+   * `status.broken` off the palette it already has, so charter law 9 holds by
+   * construction rather than by review.
+   */
+  crashed: 'broken',
   // These three all want a human; hue says that, form says which (graft g4).
   looping: 'needs-you',
   waiting: 'needs-you',
@@ -49,6 +87,7 @@ export const PATHOLOGY_WORD: Record<PathologyKind, string> = {
   waiting: 'WAITING',
   expensive: 'EXPENSIVE',
   'off-fence': 'OFF-FENCE',
+  crashed: 'CRASHED',
 }
 
 /** Prefixes any evidence a weaker signal produced. See {@link Pathology.inferred}. */

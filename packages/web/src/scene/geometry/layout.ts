@@ -46,6 +46,16 @@ const SPINE_SEGMENTS = 8
 
 /** Worst first: when a lane carries two faults, this one owns its node. */
 const PATHOLOGY_PRIORITY: readonly PathologyKind[] = [
+  // Above FROZEN: both are `broken`, and when a lane carries both, the recorded
+  // death is the better label — FROZEN says "no events of any kind", which a
+  // crashed lane also satisfies and which explains less.
+  //
+  // This list is a plain array rather than an exhaustive Record, so a kind
+  // missing from it COMPILES and then silently labels nothing: `find` returns
+  // undefined and the node renders with no pathology at all. That is why
+  // `crashed` is here rather than left to the typechecker to catch — it would
+  // not have caught it (prd-57 ruling 5).
+  'crashed',
   'frozen',
   'looping',
   'waiting',

@@ -1,10 +1,11 @@
 import type { AnyCollector, EventOf, Exec, LaneManifest, PollResult } from '@rhizomorph/core'
 import { buildFleet, createCollectorContext, createEvent, createIdFactory, evidenceLine, parseLaneManifest } from '@rhizomorph/core'
-import { readLanesManifest, type LanesResult } from '../api/lanes.js'
+import { type LanesResult, readLanesManifest } from '../api/lanes.js'
 import { deriveGateVerdict } from '../log/gate-verdict-derivation.js'
+import { crashedConditions } from './crashed.js'
+import { withTimeout } from './exec.js'
 import type { SessionRecorder } from './recorder.js'
 import type { SnapshotStore } from './snapshot-store.js'
-import { withTimeout } from './exec.js'
 import { diffSummons, isSummonsKind, SUMMONS_SNAPSHOT_KEY, type SummonsCondition, type SummonsPoint } from './summons.js'
 
 /** Per-exec ceiling for every collector subprocess (belt) — the same value as the doctor route's `ROUTE_EXEC_TIMEOUT_MS`. See `docs/design-notes/collector-tick-budget.md`. */
@@ -699,6 +700,50 @@ export function createPollLoop(options: PollLoopOptions): PollLoop {
           })
         }
       }
+
+      /**
+       * CRASHED — prd-57 ruling 5, and the last thing the tick judges.
+       *
+       * At the END of the tick, after every collector has polled, because the
+       * `process.gone` this turns on may have been emitted by THIS tick's
+       * process collector: judging before it polled would find the death one
+       * tick late, every time.
+       *
+       * It joins the same `conditions` array rather than getting a second
+       * edge-trigger of its own. `diffSummons` already answers raise-vs-clear,
+       * already handles a condition still true this tick, and already clears a
+       * point whose raise predates a restart — a parallel copy would drift from
+       * all three. `crashed.ts` answers the one question that code cannot:
+       * which lanes are crashed right now.
+       *
+       * Parked lanes are skipped on the same terms as every other kind, and for
+       * a sharper reason: a parked lane's process being gone is frequently WHY
+       * it was parked. Summoning a human to a stand-down they declared is the
+       * exact interruption `#302` closed.
+       */
+      conditions.push(
+        ...crashedConditions(
+          fleet.lanes
+            .filter((lane) => !parkedLaneIds.has(lane.id))
+            .map((lane) => ({
+              lane: lane.id,
+              actors: lane.actors.map((actor) => ({
+                key: `${actor.pid}:${actor.startedAt}`,
+                goneAt: actor.goneAt,
+                goneReason: actor.goneReason,
+                seenAt: actor.seenAt,
+              })),
+              // The lane's own last declared word and when. `buildFleet` carries
+              // the witness separately; what matters here is only whether a
+              // session END was declared before the process went, which is a
+              // question about the word and its instant, not about who said it.
+              declared:
+                lane.agentStatus === null || lane.lastEventTs === null
+                  ? null
+                  : { status: lane.agentStatus, at: lane.lastEventTs },
+            })),
+        ),
+      )
 
       /**
        * A point is PRESERVED — excluded from this tick's diff and carried

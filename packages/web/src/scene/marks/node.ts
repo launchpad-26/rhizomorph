@@ -1,23 +1,23 @@
-import { formatTokens } from '../../lib/format.js'
 import type { LadderRank, PathologyKind } from '../../fleet/index.js'
-import { tangentAt, type Point, type RetireGeometry, type ThreadGeometry } from '../geometry.js'
-import { growthEnvelope, alarmPulse } from '../motion.js'
-import { fruitAtOn,
-  TUFT_WASH,
-  clamp01,
+import { formatTokens } from '../../lib/format.js'
+import { type Point, type RetireGeometry, type ThreadGeometry, tangentAt } from '../geometry.js'
+import { alarmPulse, growthEnvelope } from '../motion.js'
+import { 
+  clamp01,fruitAtOn,
   hotterOn,
+  type Ink,
   ink,
   mix,
-  type Ink,
   type Rgb,
   type ScenePalette,
+  TUFT_WASH,
 } from '../palette.js'
 import { PERSIST, persistInks, toward } from '../retire.js'
 import { TIP_GLOW_RADIUS } from '../salience.js'
 import { blobRing, variationFor, variationSeed } from '../variation.js'
-import { alarmInk, budget, budgetTip, motionMode, summonsAgeMs, type SceneFrame } from './frame.js'
+import { alarmInk, budget, budgetTip, motionMode, type SceneFrame, summonsAgeMs } from './frame.js'
 import { NODE_LENS, THORN_OUT } from './glyphs.js'
-import { regionMark, ribbonMark, type Mark, type MarkRole, type RibbonMark } from './types.js'
+import { type Mark, type MarkRole, type RibbonMark, regionMark, ribbonMark } from './types.js'
 
 /**
  * THE NODES — where a lane's thread ends, and where its state is legible.
@@ -55,6 +55,11 @@ function pathologyHue(palette: ScenePalette, kind: PathologyKind): Rgb {
     waiting: status.needsYou,
     'off-fence': status.needsYou,
     frozen: status.broken,
+    // prd-57 ruling 5. An EXISTING named rank colour, deliberately — a crash is
+    // broken and broken already has a hue, so no new one is minted and charter
+    // law 9 holds by construction. Form is what separates CRASHED from FROZEN
+    // here, exactly as it does in the sigil alphabet (`fleet/sigils.tsx`).
+    crashed: status.broken,
     expensive: status.notice,
   }
   return table[kind]

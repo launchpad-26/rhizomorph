@@ -1,5 +1,5 @@
+import { type LadderRank, type LaneActivity, PATHOLOGY_RANK, type PathologyKind } from '@rhizomorph/core'
 import type { ReactElement } from 'react'
-import { PATHOLOGY_RANK, type LadderRank, type LaneActivity, type PathologyKind } from '@rhizomorph/core'
 import { arcPath, line, polar, segment, spiral, taper, thorn } from './strokes.js'
 
 /**
@@ -45,6 +45,7 @@ export const SIGIL_KINDS = [
   'waiting',
   'expensive',
   'off-fence',
+  'crashed',
   'working',
   'done',
   'idle',
@@ -58,6 +59,7 @@ export const SIGIL_WORD: Record<SigilKind, string> = {
   waiting: 'WAITING',
   expensive: 'EXPENSIVE',
   'off-fence': 'OFF-FENCE',
+  crashed: 'CRASHED',
   working: 'working',
   done: 'done',
   idle: 'idle',
@@ -74,8 +76,10 @@ export const SIGIL_WORD: Record<SigilKind, string> = {
  * spotlight and the fade exemption all read.
  */
 export const SIGIL_RANK: Record<SigilKind, LadderRank> = {
-  // The five pathologies keep the rungs the model gave them; `waiting` is in
-  // both vocabularies and is the same amber in each, which is the point.
+  // The pathologies keep the rungs the model gave them; `waiting` is in both
+  // vocabularies and is the same amber in each, which is the point. Spreading
+  // `PATHOLOGY_RANK` rather than listing them is why `crashed` needed no edit
+  // here — the ladder is asked once.
   ...PATHOLOGY_RANK,
   working: 'calm',
   done: 'calm',
@@ -189,6 +193,8 @@ function mark(kind: SigilKind): ReactElement {
       return <HeatMark />
     case 'off-fence':
       return <TrespassMark />
+    case 'crashed':
+      return <BreakMark />
     case 'working':
       return <WorkingMark />
     case 'done':
@@ -330,6 +336,55 @@ function TrespassMark(): ReactElement {
     </g>
   )
 }
+
+/**
+ * CRASHED — a solid form split along a diagonal fault, the halves driven apart.
+ *
+ * Distinct from all five on every channel the alphabet uses, which is the bar
+ * this file sets rather than a nicety:
+ *
+ * - **Axis:** the only DIAGONAL. FROZEN and OFF-FENCE are horizontal, WAITING is
+ *   vertical, LOOPING and EXPENSIVE are radial. Greyscale keeps an angle.
+ * - **Fill:** solid, where FROZEN — the other `broken`-rank mark, and the one it
+ *   most needs to be told apart from — is hollow. The two sit at the same rung
+ *   and therefore wear the same hue, so form is the ONLY thing separating them
+ *   and it has to do the whole job (law 9a).
+ * - **Enclosure:** none. FROZEN rings, LOOPING coils; this is open on every side.
+ *
+ * The gap is the mark. FROZEN is a trace that stopped and stayed one trace;
+ * this is one shape that is now two, which is what a run ending mid-work looks
+ * like from outside.
+ */
+function BreakMark(): ReactElement {
+  // The fault runs corner to corner; each half is pushed off it along the
+  // perpendicular, so the gap reads as a break rather than as two separate
+  // marks that happen to be near each other.
+  const shift = 0.075
+  const half = (sign: number) => {
+    const nx = (sign * shift) / Math.SQRT2
+    const ny = (-sign * shift) / Math.SQRT2
+    const pts =
+      sign > 0
+        ? [
+            { x: 0.1, y: 0.1 },
+            { x: 0.9, y: 0.78 },
+            { x: 0.62, y: 0.9 },
+          ]
+        : [
+            { x: 0.9, y: 0.9 },
+            { x: 0.1, y: 0.22 },
+            { x: 0.38, y: 0.1 },
+          ]
+    return line(pts.map((pt) => ({ x: pt.x + nx, y: pt.y + ny })))
+  }
+  return (
+    <g fill="currentColor">
+      <path d={`${half(1)} Z`} />
+      <path d={`${half(-1)} Z`} />
+    </g>
+  )
+}
+
 
 /**
  * WORKING — a four-pointed star with a tight waist: dense, sharp, alive. The
