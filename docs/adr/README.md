@@ -265,6 +265,7 @@ of an old decision will do the same thing.
 | [0053](0053-the-fourth-hand-may-enlist-a-harness.md) | The concierge's grant gains a third power: enlist or unenlist a detected harness's user-level configuration, on an explicit act, diff-first and byte-identically reversible — amends [0019](0019-the-fourth-hand.md) | 2026-09-15 | proposed (prd-57 ruling 4) |
 | [0054](0054-the-hook-is-the-third-witness.md) | `agent.status` gains a third witness, `'hook'`, argued on its own merits — and the earlier refusal of `'beacon'` is recorded as having been about the organ's inference, not about a harness's own declaration — amends [0037](0037-agent-status-names-its-witness.md) | 2026-09-15 | proposed (prd-57 ruling 5) |
 | [0055](0055-the-beacon-door-is-per-installation.md) | The beacon door becomes one directory per installation and the anti-fold guarantee moves from the directory's shape to a routing rule with a law — the mechanism the pi collector already proved — amends [0036](0036-a-beacon-is-a-line-in-a-watched-directory.md) | 2026-09-15 | proposed (prd-57 ruling 6) |
+| [0057](0057-the-viewer-reads-as-rz-viewer-by-set-role.md) | The team viewer reads as `rz_viewer` via `SET LOCAL ROLE` on the app's own connection, with the project scope set through `set_config`, rather than as a second authenticated DSN or by relying on the app being superuser | 2026-09-16 | accepted (prd-51 wave 11, #557) |
 
 Records 0001–0011 were reconstructed on 2026-08-06 and say so in their Context.
 One, **ADR-0003**, has an inverted evidence shape worth knowing about: the

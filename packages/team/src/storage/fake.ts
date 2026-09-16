@@ -1,5 +1,7 @@
 import type { TeamStorage } from './contract.js'
 import { type EventsFake, createEventsFake } from './ports/events/fake.js'
+import { type QuestionsFake, createQuestionsFake } from './ports/questions/fake.js'
+import type { CollisionRow, LaneRow, SpendRow } from './ports/questions/port.js'
 import type {
   CollisionDelta,
   EventQuery,
@@ -54,6 +56,7 @@ export class FakeTeamStorage implements TeamStorage {
   private readonly eventsPort: EventsFake
   private readonly keysPort: IngestKeysFake
   private readonly lifecyclePort: LifecycleFake
+  private readonly questionsPort: QuestionsFake
 
   // The port fakes' own objects, aliased rather than copied: tests mutate and
   // read them through that identity (`fake.failApply.clear()`,
@@ -72,6 +75,10 @@ export class FakeTeamStorage implements TeamStorage {
   readonly ingestKeys: Map<string, IngestKeyRow>
   /** Every hash {@link findIngestKey} was asked for, in order. */
   readonly keyLookups: string[]
+  /** The three questions' rows, seeded by a test and filtered by project. */
+  readonly spendRows: SpendRow[]
+  readonly laneRows: LaneRow[]
+  readonly collisionRows: CollisionRow[]
 
   constructor(options: FakeTeamStorageOptions = {}) {
     this.settingsPort = createSettingsFake(this.calls, options)
@@ -79,6 +86,7 @@ export class FakeTeamStorage implements TeamStorage {
     this.eventsPort = createEventsFake(this.calls)
     this.keysPort = createIngestKeysFake(this.calls, options)
     this.lifecyclePort = createLifecycleFake(this.calls)
+    this.questionsPort = createQuestionsFake(this.calls)
 
     this.events = this.eventsPort.events
     this.partitions = this.eventsPort.partitions
@@ -88,6 +96,9 @@ export class FakeTeamStorage implements TeamStorage {
     this.failApply = this.migrationsPort.failApply
     this.ingestKeys = this.keysPort.ingestKeys
     this.keyLookups = this.keysPort.keyLookups
+    this.spendRows = this.questionsPort.spendRows
+    this.laneRows = this.questionsPort.laneRows
+    this.collisionRows = this.questionsPort.collisionRows
   }
 
   /** Migration ids `applyMigration` was called with, in order — including the ones that threw. */
@@ -115,6 +126,18 @@ export class FakeTeamStorage implements TeamStorage {
 
   set failFindIngestKey(value: boolean) {
     this.keysPort.failFindIngestKey = value
+  }
+
+  readSpendByDay(projectId: string): Promise<SpendRow[]> {
+    return this.questionsPort.readSpendByDay(projectId)
+  }
+
+  readLaneState(projectId: string): Promise<LaneRow[]> {
+    return this.questionsPort.readLaneState(projectId)
+  }
+
+  readCollisions(projectId: string): Promise<CollisionRow[]> {
+    return this.questionsPort.readCollisions(projectId)
   }
 
   readSetting(name: string): Promise<string> {

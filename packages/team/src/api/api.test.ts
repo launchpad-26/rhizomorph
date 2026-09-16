@@ -1,6 +1,6 @@
 import { parseIngestAccepted } from '@rhizomorph/core/src/wire/index.js'
 import { generateKeyPairSync } from 'node:crypto'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -256,18 +256,27 @@ describe('boot', () => {
     expect(server.port).toBeGreaterThan(0)
     // The preflight and the migrations ran first…
     expect(storage.calls[0]).toBe('readSetting')
-    expect(storage.committed).toEqual([
-      '0001_events',
-      '0002_projections',
-      '0003_roles_rls',
-      '0004_events_dedup',
-      '0005_ingest_keys',
-    ])
+    // RULING A (prd-51, 2026-09-16): RE-DERIVED, NOT LISTED.
+    //
+    // This case used to pin the migration ids as a literal array, one directory above the
+    // migrations it enumerated — so every lane that added a `.sql` reddened a file in
+    // `api/`, which it had no reason to declare. The enumeration is already pinned INSIDE
+    // `migrations/` by `runner.test.ts` case 17 and `schema-law.test.ts` case 26, where the
+    // lane adding one is already fenced, so the copy here caught nothing those two miss.
+    //
+    // The ORDERING CLAIM the case makes is kept and is the point: ids are applied in
+    // lexicographic order, which is the order `runMigrations` walks the directory in.
+    const tracked = readdirSync(path.join(import.meta.dirname, '..', 'migrations'))
+      .filter((f) => f.endsWith('.sql'))
+      .map((f) => f.replace(/\.sql$/, ''))
+      .sort()
+    expect(tracked.length).toBeGreaterThan(0)
+    expect(storage.committed).toEqual(tracked)
     // …and only then the partitions, which is what "on the bootstrap
     // connection, after bootstrapTeamStorage" means.
     expect(storage.partitions).toEqual(['2026-11', '2026-12'])
     expect(storage.calls.indexOf('ensureMonthlyPartition')).toBeGreaterThan(
-      storage.calls.lastIndexOf('applyMigration:0005_ingest_keys'),
+      storage.calls.lastIndexOf(`applyMigration:${tracked[tracked.length - 1]}`),
     )
   })
 
