@@ -108,6 +108,7 @@ export async function runServerCommand(
     options.collectors ??
     (await loadCollectors(log, resumed?.events, {
       claudeProjectsRoot: options.claudeProjectsRoot,
+      home: options.home,
       backfill: args.backfill,
     }))
   const pollLoop = createPollLoop({
