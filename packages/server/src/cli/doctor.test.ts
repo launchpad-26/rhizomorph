@@ -25,6 +25,8 @@ import { CAPABILITY_TOKEN_HEADER } from '../api/security.js'
 import { enableShipper, shipperCursorPath, shipperKeyPath, shipperTeamConfigPath } from './connect-team.js'
 import {
   checkClaudeProjects,
+  checkDeclaredAttention,
+  checkEnrichmentLadder,
   checkHarnessRoster,
   checkTelemetryEnv,
   declaredAttentionChecks,
@@ -34,6 +36,7 @@ import {
   runDoctor,
   type DoctorCheck,
 } from './doctor.js'
+import { processWitnessCapabilitiesFor } from '../collectors/process/doctor-row.js'
 import { CAPABILITY_META_NAME } from './rotate.js'
 
 /**
@@ -1601,5 +1604,100 @@ describe('doctorHelpText', () => {
     expect(text).toContain('--port')
     expect(text).toContain('4321')
     expect(text).toContain('--help')
+  })
+})
+
+describe('the CLI doctor reports the process witness from the FOLD (review of #555, finding 2)', () => {
+  /**
+   * Nothing pinned this in either direction, which is why it shipped broken.
+   *
+   * `checkEnrichmentLadder` grew a fourth parameter when the process row
+   * landed. `api/doctor.ts` passes it; `cli/doctor.ts` passed three arguments
+   * and let `processes` fall back to `{}`. So on the CLI path `actorCount` was
+   * permanently 0, and `rhizomorph doctor` on Linux with agents plainly running
+   * printed the zero-actor reason — *"the process witness is reading, and has
+   * not seen an agent process in this repo yet"* — while the fold knew
+   * otherwise, dragging the derived rung down with it.
+   *
+   * The reviewer's `git grep` found ZERO assertions on this row anywhere on the
+   * branch: the string appeared only at its definition site. A test asserting
+   * it would have caught this and none existed — the same green-while-blind
+   * shape as the headline defect in this PR's own body.
+   */
+  let ladderRepo: string
+
+  beforeEach(async () => {
+    ladderRepo = await mkdtemp(path.join(tmpdir(), 'rhizomorph-ladder-'))
+  })
+
+  afterEach(async () => {
+    await rm(ladderRepo, { recursive: true, force: true })
+  })
+
+  const rowFor = async (processes: Readonly<Record<string, unknown>>): Promise<string> => {
+    const ladder = await checkEnrichmentLadder(
+      [{ id: 'target-path', status: 'ok', message: 'a git repository' }],
+      ladderRepo,
+      {},
+      processes,
+      'linux',
+    )
+    return JSON.stringify(ladder)
+  }
+
+  it('PINNED AS IT BEHAVES: the ladder output does not yet vary with the actor count', async () => {
+    // The finding's stated EFFECT does not reproduce, and this pins why rather
+    // than leaving the next reader to re-derive it.
+    //
+    // The review said `rhizomorph doctor` "will always print the row's
+    // zero-actor reason" and that the miss "drags the derived rung down with
+    // it". Measured on `platform: 'linux'` — where the row genuinely does move
+    // from `partial` to `provided` — across all four combinations of
+    // target-path ok/fail and zero/one actor: **every one returns L0**, and the
+    // ladder's message is a rung label plus a climb line that carries no
+    // contributor's reason at all.
+    //
+    // So the wiring defect is real — `api/doctor.ts` passed the fold and this
+    // path did not — and it was invisible from here for a reason bigger than
+    // the finding: the process row reaches NO CLI surface today. Its
+    // capabilities are merged into `deriveRung`, which these four readings show
+    // is insensitive to them, and its prose is never rendered anywhere. That
+    // belongs to wave 4 (#531, "doctor names a level"), not to this wave.
+    //
+    // Pinned so that when wave 4 makes the row visible this assertion fails and
+    // someone has to decide what it should say — rather than the row staying
+    // invisible because nothing ever asked it to speak.
+    const zero = await rowFor({})
+    const one = await rowFor({ '4321:1788000000000': { pid: 4321, dialect: 'claude' } })
+    expect(zero).toContain('L0')
+    expect(one).toBe(zero)
+  })
+
+  it('and the fold really does reach the row — asserted where the row can be seen', async () => {
+    // What the CLI wiring actually buys, asserted at the only surface that can
+    // observe it today. `doctor-row.test.ts` holds the row's own four states;
+    // this is the link between those and the fold the CLI now passes in.
+    expect(processWitnessCapabilitiesFor(0, 'linux').identity.level).toBe('partial')
+    expect(processWitnessCapabilitiesFor(1, 'linux').identity.level).toBe('provided')
+  })
+})
+
+describe('checkDeclaredAttention hands the fold on rather than discarding it', () => {
+  it('returns `processes` beside `declared`, so the ladder can be told', async () => {
+    // The shape fix behind finding 2: `reduceAll` builds the whole SessionState
+    // here and this function returned only `declared` from it. The data was in
+    // hand and thrown away one line before the caller needed it — while the
+    // beacon row's fold-derived input WAS threaded through, which is the
+    // sibling shape this PR's body names one file over.
+    const repo = await mkdtemp(path.join(tmpdir(), 'rhizomorph-facts-repo-'))
+    const data = await mkdtemp(path.join(tmpdir(), 'rhizomorph-facts-data-'))
+    try {
+      const facts = await checkDeclaredAttention(repo, data, () => Date.now())
+      expect(facts).toHaveProperty('processes')
+      expect(facts.processes).toEqual({})
+    } finally {
+      await rm(repo, { recursive: true, force: true })
+      await rm(data, { recursive: true, force: true })
+    }
   })
 })

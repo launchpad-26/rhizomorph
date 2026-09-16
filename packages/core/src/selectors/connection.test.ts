@@ -38,7 +38,7 @@ describe('selectConnection — the six sources', () => {
     for (const source of CONNECTION_SOURCES) {
       expect(connection[source].source, source).toBe(source)
     }
-    expect(CONNECTION_SOURCES).toEqual(['git', 'tmux', 'workmux', 'sessionlog', 'otel', 'beacon'])
+    expect(CONNECTION_SOURCES).toEqual(['git', 'tmux', 'workmux', 'sessionlog', 'otel', 'beacon', 'process'])
   })
 
   /**
