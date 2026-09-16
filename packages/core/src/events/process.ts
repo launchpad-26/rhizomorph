@@ -36,8 +36,9 @@ import { envelope, nonEmptyString } from './common.js'
  *   ceilings**. Nothing in this file distinguishes one from a real path or a
  *   real dialect. What keeps argv out of those two fields is upstream: the
  *   collector puts a canonicalised cwd in one (prd-57 ruling 3) and a member of
- *   the probe's closed `AGENT_COMMANDS` roster in the other. Both are tested
- *   where they are decided, not here.
+ *   the probe's closed `AGENT_COMMANDS` roster in the other. Neither obligation
+ *   is tested anywhere yet — wave 1 ships no collector — and wave 2 is where
+ *   both get a test, where they are decided rather than here.
  *
  * ## The payloads are closed the repo's way, which is not `.strict()`
  *
