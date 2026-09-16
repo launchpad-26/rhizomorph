@@ -19,6 +19,7 @@
 #   scripts/dev/issues.sh batch                   # many issues, many fields, one board read
 #   scripts/dev/issues.sh show <n>                # issue body + board fields
 #   scripts/dev/issues.sh close <n> "reason"      # close WITH a comment, never silently
+#                                                  #   (warns if a cited sha isn't on origin/main — #548)
 #   scripts/dev/issues.sh orphans                 # open issues off the board, or with no milestone
 #   scripts/dev/issues.sh ids                     # field/option ids (for debugging)
 #
@@ -539,10 +540,88 @@ if comments:
   cmd_list | awk -v n="#$1" 'NR==1 || $0 ~ ("[[:space:]]" n "[[:space:]]")'
 }
 
+# #548: four closure reasons in two days cited a sha that a rebase, between the
+# comment and the merge, had already killed — none of the four ever reached
+# `main`, and each existed only in one local checkout. The lane was not at
+# fault: it cites what it has when it comments, and the rebase happens after.
+#
+# `extract_shas` pulls out anything that LOOKS like a git sha — 6-40 hex chars,
+# EITHER case — and contains at least one a-f/A-F letter, so a bare decimal run
+# (an issue number, a date, a count) is never mistaken for one: a pure-decimal
+# token carries no letter at any length, which is what the letter requirement
+# tests. Length is not what excludes it and never was.
+#
+# A candidate is only ever a CANDIDATE. Two guards stand between it and a
+# warning, and both matter: the token must resolve to a commit here, and the
+# commit it resolves to must actually BEGIN with the token (below). Widening to
+# 6 and to mixed case admits hex words — `decade`, `facade`, `DECADE` — and
+# those guards are the whole reason that is safe rather than noisy.
+extract_shas() { # extract_shas <text> — one candidate sha per line, deduped
+  python3 -c '
+import re, sys
+seen = []
+for tok in re.findall(r"\b[0-9a-fA-F]{6,40}\b", sys.argv[1]):
+    if re.search(r"[a-fA-F]", tok) and tok not in seen:
+        seen.append(tok)
+print("\n".join(seen))
+' "$1"
+}
+
+# Offline by construction — `git merge-base --is-ancestor` needs no network,
+# which matters because the board path (everything else in this script) is
+# the one that already suffers from #508's DNS fault. A sha this repo's git
+# cannot even resolve locally (a typo, or one this checkout never fetched) is
+# skipped rather than flagged: this check can only speak to what it actually
+# knows, and flagging an unresolvable token would make noise out of every
+# non-sha hex-looking word too.
+#
+# Deliberately a WARNING, never a refusal, and deliberately never blocks the
+# close (see cmd_close below). This check cannot tell "not on main YET" (the
+# in-flight case every legitimate closure passes through before its PR
+# merges) from "will never land" — and per #548's own sibling case, a check
+# that cannot make that distinction should warn, not refuse, because a
+# warning that fires on every legitimate closure is one people learn to
+# ignore. A sha that IS an ancestor of origin/main stays silent.
+#
+# How often that silence actually happens depends on WHICH closures you count,
+# and the honest figures are both worth stating. Among the 43 closes this verb
+# actually produces (comment and close in one `close --comment` call), 25 cited
+# shas are ancestors against 2 that are not — silence is the common case and
+# this check is quiet. Across ALL 281 closed issues' last comment, 93 of the
+# 174 that cite a sha would warn against 57 silent — because a lane commenting
+# "landed on <branch> as <sha>, the operator lands the wave" is this repo's
+# normal workflow, and those citations are legitimate. So the quiet case is the
+# one this verb sees; the noisy figure is what it would become if the other
+# closure routes were ever routed through here, and it is the reason this warns
+# rather than refuses.
+warn_unlanded_shas() { # warn_unlanded_shas <issue> <reason>
+  local n="$1" reason="$2" sha resolved
+  git rev-parse --verify --quiet origin/main >/dev/null 2>&1 || return 0
+  while IFS= read -r sha; do
+    [ -n "$sha" ] || continue
+    resolved=$(git rev-parse --verify --quiet "${sha}^{commit}" 2>/dev/null) || continue
+    [ -n "$resolved" ] || continue
+    # `rev-parse ^{commit}` peels REFS as happily as object ids, so a tag or
+    # branch whose NAME is hex-ish makes ordinary prose resolve: with a tag
+    # called `decade`, "fixed last decade" warned (found by a review seat,
+    # EXECUTED). A cited sha is an object-id PREFIX of what it resolves to; a
+    # ref name is not. Requiring that relationship closes tags, branches, HEAD
+    # and every other ref in one test rather than one alternation per ref type.
+    case "${resolved}" in
+      "$(printf '%s' "$sha" | tr 'A-F' 'a-f')"*) : ;;
+      *) continue ;;
+    esac
+    git merge-base --is-ancestor "$resolved" origin/main 2>/dev/null && continue
+    echo "warning: #$n's closure reason cites $sha, which is not an ancestor of origin/main (#548) — a rebase between comment and merge can silently kill a cited sha. If $sha never lands, close again citing the sha that does." >&2
+  done < <(extract_shas "$reason")
+}
+
 cmd_close() {
   local n="$1"; shift
   [ $# -gt 0 ] || die "close needs a reason — an issue closed without one is a fact nobody can recover"
-  gh_retry issue close "$n" --repo "$REPO" --comment "$*" \
+  local reason="$*"
+  warn_unlanded_shas "$n" "$reason"
+  gh_retry issue close "$n" --repo "$REPO" --comment "$reason" \
     || die "could not close #$n (gh issue close failed — see the error above)"
 }
 
