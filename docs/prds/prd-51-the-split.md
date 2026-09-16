@@ -1601,9 +1601,10 @@ appended to afterwards at `seq 272` with no gap — ADR-0046 and #398 on a real 
 | 13 | #171's timed drill on the real host · the doc sweep (#561) | **groomed** |
 
 `scripts/fence-lint.sh` per wave, read by extracted path count rather than exit code: 11 + 5 + 1 for
-wave 11, 6 + 10 + 3 for wave 12, 2 + 4 for wave 13 — each equal to what the issue declares, no
-overlaps within any wave. Re-run against all twenty-three live prd-54 and prd-57 lanes: nothing
-collides.
+wave 11, 6 + 10 + 3 for wave 12, 2 + 5 for wave 13 — each equal to what the issue declares, no
+overlaps within any wave. Re-run against all twenty-three live prd-54 and prd-57 lanes: every remaining
+overlap is cross-wave, which is sequential by design — so that sweep FAILS as a whole and
+is read per wave, which is the only reading it supports.
 
 ### What moved, and why it was not a choice
 
