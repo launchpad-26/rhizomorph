@@ -816,7 +816,12 @@ and a wave 3 that the tracker already carried is declared here.*
 landed on `main` — `4299adec`, `b5d6630c`, `22a42739` — and seventeen further commits
 have edited the file since, none of them this PRD's. Every wave here edits that one file,
 so the waves are sequential by construction. No wave enters `scripts/fence-lint.sh`
-(Non-goals), and none enters `doc-citation-law.test.ts`, which is prd-17 territory.
+(Non-goals), and no wave before wave 5 enters `doc-citation-law.test.ts`, which was
+prd-17 territory. **That sentence read "none enters" until 2026-09-17**, and it was true
+of every wave then declared; wave 5 below is the exception the operator made deliberately,
+and the sentence is corrected in place rather than left standing — a boundary that a
+declared wave crosses is not a boundary, and this document's whole subject is a claim that
+stopped being true while nobody edited it.
 
 **Wave 0 — operator acts, booked and not dispatchable.** Six items, all answered, no
 issue minted for any of them. The first four were complete on 2026-09-10 and are
@@ -936,7 +941,52 @@ construction is refused. Ruling 6 is the precedent worth reading first — it an
 structurally identical question by forbidding the construction rather than by building
 machinery for it, and the cheapest rule is still the one with no exception to allowlist.
 
-Wave 4 shares no path with wave 3 and does not wait on it.
+**Wave 5 — the checks this PRD built are reading a stale premise, and the law's platform
+position is asserted.** Two issues, no dependency between them, both declared here on
+2026-09-17 with operator sign-off in session. Neither touches `.swarm/coupling.txt`, so the
+sequential-by-construction argument that orders waves 1-4 does not reach this one; wave 5
+sits after waves 3 and 4 because [#586][i586] needs wave 3's file to exist.
+
+[#583][i583] — filed by ciaran-slow, *the citation ceiling reads the deleted tracker's PR
+numbers, and main is red*. This is the one that crosses the boundary corrected above, and
+the reason it is here rather than in prd-17 is the reason ciaran gave when filing it: it is
+**this PRD's thesis inverted**. Every other wave here answers *an unenforced check is not a
+check*; this is a check that is enforced, correct, and reporting a premise that expired.
+The registry law of wave 2 and the citation ceiling fail the same way — both derive a fact
+from the tree and both go on asserting it after the tree moves — and prd-17 owns the file
+without owning that argument.
+
+Measured while grooming it, and it moved the issue's own Definition of done. Read the
+derivation rather than inferring it from the failure: `liveMaximum()` is already scoped to
+the post-reset window — `TRACKER_RESET_DATE = '2026-08-21'` and
+`git log <LANDING_REF> --since=<reset>` — and floored at the committed baseline's
+`live-maximum=`. EXECUTED the same way on `origin/main`, the ceiling is **582**, which is a
+number from this tracker. The highest citation under `docs/review/` is **579**.
+
+So the guard is firing because the ceiling **overtook the corpus**: 579 exceeded the ceiling
+while it stood at 574, and stopped exceeding it when the ceiling passed 579. `docs/review/`
+is a dated-artefact directory and does not grow, so this is not a transient — every merge
+climbs the ceiling and the exclusion stays vacuous from here on. What turns the suite green
+is therefore a ruling on what the vacuity guard should say when an exclusion is empty
+because the corpus moved rather than because it was always wrong, and the DoD was rewritten
+around that on 2026-09-17.
+
+The issue's own diagnosis attributes the failure to a different cause and is with its author;
+what this paragraph states is only what has been executed against the tree. Whether anything
+about the ceiling itself needs correcting is **open**, and no wave here may assume it does.
+
+[#586][i586] — the shell-suite law's Windows position, asserted. #394's Definition of done
+required it *decided and asserted*; the operator decided it on 2026-09-17 and it is built
+here rather than on #394's PR, which closes with that part of its own DoD unbuilt. Recorded
+in both places rather than smoothed over, because it is the shape this PRD exists to name.
+The ruling is **route B**, an asserted platform opt-out, and the finding that reshaped it is
+worth carrying: the alternative was framed as six `.windows-known-failures` entries, and six
+are not available — `windows-suite-law.test.ts` requires every entry to be a tracked
+`packages/**/*.test.ts(x)` file, and `scripts/dev/*.test.sh` are not vitest files. The only
+listable artefact was the law itself, one entry masking all 20 of its tests, of which 11 are
+platform-clean.
+
+**Wave 4 shares no path with wave 3 and does not wait on it.**
 
 **Unfiled work implied, described not numbered:** whether an entry's reason should be
 generated from the law it describes rather than written beside it; a sweep of the other
@@ -993,4 +1043,6 @@ yet" look identical in a list of open items, and only one of them is a gap.*
 [i366]: https://github.com/launchpad-26/rhizomorph/issues/366
 [i367]: https://github.com/launchpad-26/rhizomorph/issues/367
 [i394]: https://github.com/launchpad-26/rhizomorph/issues/394
+[i583]: https://github.com/launchpad-26/rhizomorph/issues/583
+[i586]: https://github.com/launchpad-26/rhizomorph/issues/586
 [i546]: https://github.com/launchpad-26/rhizomorph/issues/546
