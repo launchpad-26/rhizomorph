@@ -133,42 +133,70 @@ function forcedTables(sql: string): Set<string> {
  * answers yes. Both clauses below rest on this set, so that spelling silenced both of them.
  * PostgreSQL defaults an omitted `FOR` to `ALL`, which does admit a read.
  */
+/**
+ * The identity of one policy: its table and its name, both folded to lower case.
+ *
+ * SQL identifiers are case-insensitive unless quoted, so `DROP POLICY p ON t` retracts
+ * `CREATE POLICY P ON T`. `\u0000` separates because it cannot occur in either capture — both are
+ * `\w+` — so no `(table, name)` pair can collide with another by concatenation.
+ */
+function policyKey(table: string, policy: string): string {
+  return `${table.toLowerCase()}\u0000${policy.toLowerCase()}`
+}
+
 function policiedTables(sql: string): Set<string> {
-  const admits = new Map<string, Set<string>>()
+  /**
+   * Keyed `<table>\u0000<policy>`, and carrying WHERE the create was, because the retraction below
+   * needs both and a policy name is only unique per table.
+   */
+  const createdAt = new Map<string, { at: number; table: string }>()
   const created = new RegExp(`CREATE\\s+POLICY\\s+(\\w+)\\s+ON\\s+${TABLE_REF}([^;]*);`, 'gi')
   for (const m of sql.matchAll(created)) {
     const command = /\bFOR\s+(ALL|SELECT|INSERT|UPDATE|DELETE)\b/i.exec(m[3] as string)
     // No FOR clause at all means ALL, which admits a read.
     if (command === null || /^(ALL|SELECT)$/i.test(command[1] as string)) {
-      const table = m[2] as string
-      if (!admits.has(table)) admits.set(table, new Set())
-      admits.get(table)?.add(m[1] as string)
+      // LOWERCASED on both sides, because SQL identifiers are case-insensitive unless quoted and
+      // the code this replaced compared them with `.toLowerCase()`. Keying on the raw captures
+      // lost that: `CREATE POLICY P ON T …; DROP POLICY p ON t;` read as still policied — the
+      // silent direction, in the guard whose whole purpose is closing that direction. Found at
+      // verification of #580; it does not fire on `main`'s schema only because every name there
+      // happens to be lowercase.
+      createdAt.set(policyKey(m[2] as string, m[1] as string), { at: m.index ?? 0, table: m[2] as string })
     }
   }
 
   /**
-   * A DROP RETRACTS ITS CREATE (review of #574).
+   * A DROP RETRACTS ITS CREATE — per (table, policy), and by RECORDED OFFSET.
    *
-   * This read `CREATE POLICY` alone, so appending `DROP POLICY events_by_project ON events;` to
-   * the schema left the law GREEN on **precisely the state #514 measured** — RLS enabled and
-   * forced, zero policies. `0003_roles_rls.sql:73` already uses the `DROP POLICY IF EXISTS`
-   * idiom, so the statement form is in this corpus today and a future migration that drops
-   * without recreating plants that state where nothing sees it.
+   * This read `CREATE POLICY` alone at first, so appending `DROP POLICY events_by_project ON
+   * events;` left the law GREEN on precisely the state #514 measured. The repair for that then
+   * decided retraction with `lastIndexOf('create policy <name>')` over the raw text — a literal
+   * single-space search the matching regex never sees — and the review of #574 measured it
+   * failing BOTH ways:
    *
-   * Dropped by NAME, not by table: `0003`'s own `DROP POLICY IF EXISTS … ; CREATE POLICY … ;`
-   * pairs must not read as a table with no policy, and they do not — the create that follows
-   * re-adds the name.
+   *   a same-named policy on another table, created later  -> `events` reads as policied,
+   *                                                           which is F3's hole back, silently
+   *   a CREATE POLICY whose name wraps onto the next line  -> a legitimate pair reads as
+   *                                                           unpolicied, a false red on an
+   *                                                           idiom `0003` itself uses
+   *
+   * Both close by comparing against the offset the `created` loop already had, keyed on the same
+   * captures. The matching and the retraction now agree by construction rather than by two
+   * spellings of the same intent.
+   *
+   * Dropped by NAME AND TABLE: `0003`'s own `DROP POLICY IF EXISTS … ; CREATE POLICY … ;` pairs
+   * must not read as a table with no policy, and they do not — the create that follows re-adds it.
    */
   const dropped = new RegExp(`DROP\\s+POLICY\\s+(?:IF\\s+EXISTS\\s+)?(\\w+)\\s+ON\\s+${TABLE_REF}`, 'gi')
   for (const m of sql.matchAll(dropped)) {
-    const names = admits.get(m[2] as string)
-    if (names === undefined) continue
-    // A drop AFTER the last create of that name retracts it; a drop before it does not.
-    const lastCreate = sql.toLowerCase().lastIndexOf(`create policy ${(m[1] as string).toLowerCase()}`)
-    if ((m.index ?? 0) > lastCreate) names.delete(m[1] as string)
+    const key = policyKey(m[2] as string, m[1] as string)
+    const create = createdAt.get(key)
+    if (create === undefined) continue
+    // A drop AFTER that table's create of that name retracts it; a drop before it does not.
+    if ((m.index ?? 0) > create.at) createdAt.delete(key)
   }
 
-  return new Set([...admits.entries()].filter(([, names]) => names.size > 0).map(([table]) => table))
+  return new Set([...createdAt.values()].map((create) => create.table))
 }
 
 /**
@@ -842,6 +870,50 @@ describe('case 23 — roles and RLS, both facts', () => {
     expect(allStripped()).toContain('DROP POLICY IF EXISTS events_by_project ON events')
     expect(policiedTables(allStripped()).has('events')).toBe(true)
     expect(forcedWithoutPolicy(allStripped())).toEqual([])
+  })
+
+  /**
+   * THE RETRACTION IS PER (TABLE, NAME), and both directions are pinned because the first repair
+   * failed both ways (review of #574).
+   */
+  it('a same-named policy on ANOTHER table does not resurrect a dropped one', () => {
+    const rigged = `${allStripped()}\nDROP POLICY events_by_project ON events;\nCREATE POLICY events_by_project ON collisions FOR SELECT TO rz_viewer USING (true);`
+    // The silent direction: `events` has had its only policy dropped and must say so, however
+    // many same-named policies exist elsewhere in the corpus.
+    expect(policiedTables(rigged).has('events')).toBe(false)
+    expect(forcedWithoutPolicy(rigged)).toContain('events')
+    // …and `collisions` keeps the one it was actually given.
+    expect(policiedTables(rigged).has('collisions')).toBe(true)
+  })
+
+  it("the table's ORIGINAL case survives the fold — the whole point of carrying it in the value", () => {
+    // Found at delta verification of #580: the key is folded so a lowercase DROP retracts an
+    // uppercase CREATE, and the table is carried in the map's VALUE so the returned set keeps the
+    // spelling the schema used. Nothing asserted that second half — collapsing the stored table to
+    // lower case passed all 51 cases, so the claim in the docblock was unbacked.
+    const rigged = 'ALTER TABLE MixedCase ENABLE ROW LEVEL SECURITY;\nCREATE POLICY p ON MixedCase FOR SELECT TO rz_viewer USING (true);'
+    expect([...policiedTables(rigged)]).toEqual(['MixedCase'])
+  })
+
+  it('SQL identifiers are case-insensitive, so a lowercase DROP retracts an uppercase CREATE', () => {
+    // Found at verification of #580: the first repair keyed on the raw regex captures and lost
+    // the `.toLowerCase()` the code it replaced had on both sides, so this read as still policied
+    // — the silent direction, in the guard whose whole purpose is closing it.
+    const rigged =
+      'ALTER TABLE T ENABLE ROW LEVEL SECURITY;\nALTER TABLE T FORCE ROW LEVEL SECURITY;\n' +
+      'CREATE POLICY P ON T FOR SELECT TO rz_viewer USING (true);\nDROP POLICY p ON t;'
+    expect(policiedTables(rigged).has('T')).toBe(false)
+    expect(forcedWithoutPolicy(rigged)).toContain('T')
+  })
+
+  it('a CREATE POLICY whose name wraps a line is still a create', () => {
+    // The noisy direction: a legitimate DROP-then-CREATE pair read as unpolicied because the
+    // retraction searched raw text for a single-space spelling the regex never produced.
+    const rigged =
+      'ALTER TABLE t ENABLE ROW LEVEL SECURITY;\nALTER TABLE t FORCE ROW LEVEL SECURITY;\n' +
+      'DROP POLICY IF EXISTS t_by_project ON t;\nCREATE POLICY\n  t_by_project ON t FOR SELECT TO rz_viewer USING (true);'
+    expect(policiedTables(rigged).has('t')).toBe(true)
+    expect(forcedWithoutPolicy(rigged)).not.toContain('t')
   })
 
   it('a QUOTED schema qualifier is still the same table', () => {
