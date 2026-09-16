@@ -3,7 +3,7 @@
 > **Status:** **BLESSED** — ciaran-slow, 2026-09-08, in session. Milestone `prd54`. Written out of the review of
 > [#353][i353], which registered one coupling point and found in passing that the registry it
 > writes into is unverified prose, and that the script written to verify it is wired to nothing.
-> Three waves and a correction that has already had to run twice: the first pass
+> Four waves and a correction that has already had to run twice: the first pass
 > (#366) made the registry true on 2026-09-10, and eleven claims were false again by
 > 2026-09-15. The second pass is this PRD's own thesis measured against itself.
 
@@ -659,6 +659,26 @@ is Ruling 9. The clauses, the scope and the `-e` predicate are unchanged. The se
 comment on line 24 carries a bare `` `.toBe()` ``; it is outside the stated scope and
 stays so.
 
+*Amendment note, 2026-09-16 — the falsifier fired a third time, from the other side.*
+Wave 2's law made these clauses executable, and running them exposed a property the
+ruling does not state: **the admitted set is derived from the tree it checks, so a
+citation leaves the checked set when its target leaves the tree.** Renaming a cited
+`.gitignore` away does not redden the entry that cites it — clause 4c admits a span only
+if the repo tracks that basename, so the span silently stops being a citation. EXECUTED
+during wave 2's fix re-review, with the control that makes the mechanism visible:
+renaming only one of the two tracked `.gitignore` files leaves the other still tracked,
+and the citation then reddens as an unresolved path. Clause 4b has the same shape and one
+live span today, so it is not yet reachable there.
+
+The clauses are **faithful to this ruling as written** — deriving the sets from the
+tracked file list is what the ruling requires, and hardcoding them is the rot class it
+exists to prevent. So this is recorded rather than fixed: a selector that narrows when the
+tree narrows is the honest consequence of a derived population, and the alternative
+(remembering a basename the repo no longer tracks) is a hardcoded list arriving by the
+back door. What it costs is that deleting a cited file is invisible to the check that
+cites it, which is the one direction this PRD's Success 3 does not cover. Left as a known
+property; if it ever hides a real rot, amend here rather than patching the law.
+
 ## Ruling 9 — a backticked span cites one thing that exists; a search string, a family, or a second-hand shorthand is written another way (settles Ruling 8's first falsifier)
 
 **Verdict.** Every span Ruling 8's clauses admit is a citation and is checked; nothing
@@ -745,7 +765,9 @@ tightening is in this wave's fence, not wave 2's, because the ADR entry trips it
 ## Sequencing (waves, each gated as ever)
 
 *Groomed 2026-09-09, operator sign-off in session; regroomed 2026-09-15 after the
-registry was measured false again. The 09-09 groom's three deviations from its draft
+registry was measured false again; wave 4 added 2026-09-16, operator sign-off in
+session, after wave 2 landed as `219b5b56` and its own fix re-review found three
+residuals in the repair. The 09-09 groom's three deviations from its draft
 stand (the `.swarm/timing-count` declaration in wave 1; wave 2 as one issue; the law
 porting the shell script's presence checks). The 09-15 regroom adds three more, each
 recorded where it bites: wave 1 runs a second pass; wave 2 widens to the registry itself;
@@ -831,13 +853,60 @@ count.** Ruling 1 put the registry's checks in vitest because the suite is what 
 3 is the same ruling applied to the shell tests the suite does not reach, and it is this
 PRD's because #367's fence is the file that proved the point.
 
+**Wave 4 — the law's own predicates are no weaker than the claims they stand for.**
+One issue, plus one operator act. Wave 2 landed on `main` as `219b5b56` after three
+review rounds; the third found three residuals in the repair itself, each reproduced
+with a control and none a regression — they are strictly narrower than what round one
+found, and they are recorded on [#367][i367] so a later reader can check them rather
+than take this paragraph's word.
+
+Two of the three are the same production wave 2's own repair was written to close: **a
+predicate weaker than the claim it stands for.** `mentionsWholePath` seals the trailing
+edge of ruling 10's generator check and leaves the leading edge open, so a generator
+writing `cache.swarm/timing-count` still satisfies a declaration of
+`.swarm/timing-count` — and since that path is the declared-generated one and does not
+exist on disk, the generator check is the only guard behind its exemption from
+resolution. The shell-agreement test's precondition proves the script *emitted a
+summary*, not that it *examined any entries*, so a script reporting zero entries parsed
+still passes on an empty-against-empty comparison. Both live in the law file, so they
+are one issue and not two: two issues claiming that path is an overlap
+`scripts/fence-lint.sh` hard-fails by construction.
+
+That the same class survived the repair written to close it is the wave's whole
+argument, and it is why the issue asks for the predicate table to be *completed and
+asserted* rather than extended by two rows. Wave 2's table found a fourth instance the
+review had not — the containment bound was missing at both resolution call sites, not
+one — which is the evidence that enumerating beats patching here.
+
+**The operator act, and it is not the wave's to make.** The third residual is a ruling
+question wearing a defect's clothes. The registry's own entry, added by wave 2 under
+ruling 9 rule 4, is the first **self-citing** entry this file has ever had: its leading
+path is `.swarm/coupling.txt`, so ruling 7 checks its spans against the file they are
+written in, and the span is satisfied by its own sentence. EXECUTED on [#367][i367]:
+rewriting that span to a literal present in no source file anywhere leaves the law
+green, while the identical rewrite on an ordinary entry reddens.
+
+The Unfiled-work paragraph below carries the neighbouring question, recorded there with
+the note that no entry does this and that the 2026-09-15 measurement confirmed it at 47
+entries. **That note stopped being true when wave 2 landed** — it is corrected in place
+below rather than left standing, since a stale "nobody does this" is exactly the rot
+this PRD exists about. So the edge is live, and it wants a ruling before the law is
+touched: whether a self-citing entry's spans are checked against something other than
+themselves, whether such an entry may carry assertion spans at all, or whether the
+construction is refused. Ruling 6 is the precedent worth reading first — it answered a
+structurally identical question by forbidding the construction rather than by building
+machinery for it, and the cheapest rule is still the one with no exception to allowlist.
+
+Wave 4 shares no path with wave 3 and does not wait on it.
+
 **Unfiled work implied, described not numbered:** whether an entry's reason should be
 generated from the law it describes rather than written beside it; a sweep of the other
 entries' un-backticked prose claims, which no ruling here makes checkable — and which
 Ruling 9 rule 4 makes *more* numerous, since every as-of count beside a quoted pin is
 one; and a position on which file is "the cited file" when a reason quotes a form
-belonging to another file it names — Ruling 2's amendment note 2 records that no entry
-does this today, and the 2026-09-15 measurement confirms it still holds at 47 entries.
+belonging to another file it names — Ruling 2's amendment note 2 recorded that no entry
+did this, and the 2026-09-15 measurement confirmed it at 47 entries — **both were
+overtaken when wave 2 added the registry's own entry, which cites itself**; see wave 4.
 
 ## Open questions
 
@@ -847,6 +916,22 @@ does this today, and the 2026-09-15 measurement confirms it still holds at 47 en
 2. **Should the law fail, or warn, when a cited file no longer trips its own detector?** That is
    the strongest check available — `prefix-comparison-law.test.ts` already does it for its own
    allowlist — and may be too expensive to generalise. **Open, not ruled.**
+
+3. **Should the law assert anything about an entry it checked nothing in?** Wave 2's law
+   reports, per entry, how many backticked spans the selector saw and how many each ruling
+   selected — and asserts only that the registry-wide totals are non-zero. Measured on the
+   tree it landed on: **29 of 52 entries contribute no assertion span and no admitted path
+   citation at all.** Every one is legitimate — their backticked spans are identifiers,
+   shell fragments and a glob, which rulings 7 and 8 correctly decline — so the law is not
+   wrong, but for those entries it asserts only that the leading path exists and the reason
+   is not a restatement. [#367][i367]'s Definition of done asked for a law that fails "if an
+   entry contributes no checked item at all and the law cannot say why"; what shipped
+   asserts the per-entry count is an integer, which cannot fail. The question is which
+   reading was meant: that presence *is* a checked item and the 29 are fully covered, or
+   that an entry contributing nothing mechanical should have to say so. **Open, not ruled** —
+   and worth noting the reporting is invisible either way, since this repo's vitest setup
+   swallows `console.log` unless `--disable-console-intercept` is passed, which neither CI
+   nor the landing gate does.
 
 [i353]: https://github.com/launchpad-26/rhizomorph/issues/353
 [i358]: https://github.com/launchpad-26/rhizomorph/issues/358
