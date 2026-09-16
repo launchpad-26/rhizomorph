@@ -117,6 +117,9 @@ Every subcommand `rhizomorph` dispatches on (`packages/server/src/cli/index.ts`)
 | `rhizomorph label <sessionId> <text>` | Renames a recorded session's auto-title. |
 | `rhizomorph rotate` | Asks the running instrument to close its current session log and open a new one. |
 | `rhizomorph lab <checkpoint\|fork\|compare\|rd>` | The laboratory's namespace (opt-in, explicitly invoked) — see [The laboratory](#the-laboratory--opt-in-explicitly-invoked-and-separate-prd12-ruling-1). `rd` spawns **your own** agent CLI and spends **your own** money; this instrument holds no credential ([ADR-0048](docs/adr/0048-the-instrument-spawns-the-operators-own-tools-as-an-explicit-act.md)). |
+| `rhizomorph enlist <harness>` | Adds the telemetry variables and lifecycle hooks to a harness's own user-level configuration, so agents you start yourself are witnessed too. Prints the diff and writes nothing without `--apply`; copies the original beside it first; refuses a key you already set. Needs a running server on `--port` — see [Enlistment](#enlistment--the-fourth-hands-third-power). |
+| `rhizomorph unenlist <harness>` | Removes exactly what `enlist` added, leaving your own hooks and variables untouched. Same diff-first two-step. |
+| `rhizomorph hook` | Not for you to type. It is what the hook entries `enlist` writes invoke: reads one hook firing on stdin and appends one line to this installation's beacon door. Takes no flags and exits 0 whatever happens, because the agent waiting on it must never pay for a broken instrument. |
 | `rhizomorph connect team <url> --project <id>` | Turns on the shipper for this repo — the fifth hand, off by default. Reads a project-scoped `rzk_` ingest key on stdin, never argv. `--status` reports; `--ship` runs the batch timer in the foreground. See [The shipper](#the-shipper--the-fifth-hand-off-by-default-outbound-only-adr-0034--prd-51-ruling-2). |
 
 ## Trust
@@ -370,8 +373,10 @@ The three hands above assume you already have a repo with a wired
 conductor in it. Getting *to* that state used to be homework — clone,
 build, start, generate an env block, eval it in the right shell, relaunch
 the agent — so the constitution was amended once more, deliberately and on
-the record ([ADR-0019](docs/adr/0019-the-fourth-hand.md)), to grant exactly
-two powers and no others:
+the record ([ADR-0019](docs/adr/0019-the-fourth-hand.md)), to grant a
+closed list of powers — closed by its own terms, so a new one costs another
+written amendment. There are three, and the third was added that way
+([ADR-0053](docs/adr/0053-the-fourth-hand-may-enlist-a-harness.md)):
 
 - **Clone a repo to disk** — a plain `git clone` through your machine's own
   existing git credentials, into the concierge's own namespace. This is the
@@ -387,13 +392,59 @@ two powers and no others:
   it never overwrites, never deletes, never edits a line, and the UI says
   every time what continuity means and what is lost.
 
-Both powers are **token-gated mutating routes** and both are invoked only
-by an explicit human act in `/connect` — never a collector, never a poll,
-never a timer. The fence is enforced the same way the laboratory's is:
+- **Enlist or unenlist a harness** — see below. The one power that writes
+  a file **outside** the watched repo, in your own home directory, and the
+  one that had to be argued for in writing before it existed.
+
+Every one of them is a **token-gated mutating route**, and every one is
+invoked only by an explicit human act — in `/connect`, or by a command you
+typed — never a collector, never a poll, never a timer. The fence is enforced the same way the laboratory's is:
 [`packages/server/src/concierge/namespace-law.test.ts`](packages/server/src/concierge/namespace-law.test.ts)
 watches the whole write surface, and
 [`assertMigrationPaths`](packages/server/src/concierge/paths.ts) derives
 both ends of that copy rather than trusting a supplied path.
+
+#### Enlistment — the fourth hand's third power
+
+The telemetry block above assumes every agent is launched through a lane
+manager, because that is where this instrument grew up. It does not survive
+you opening a terminal and typing `claude`. **Enlistment is the answer to
+that**: it writes the same variables, plus the lifecycle hooks, into the
+harness's own user-level configuration — `~/.claude/settings.json` for Claude
+Code — where they apply to every future session, in every terminal, in every
+repo, including ones this instrument has never seen.
+
+That is a write in **your** home directory, to a file **another program**
+owns, so every clause of the bound is mechanical rather than promised
+([ADR-0053](docs/adr/0053-the-fourth-hand-may-enlist-a-harness.md)):
+
+- **Never without you asking, and never for a harness you didn't name.**
+  One harness per act, typed or clicked.
+- **Diff first, always.** The first act computes what would change and
+  writes nothing. The second sends back a digest of the bytes the first one
+  read, and the server refuses it if the file has changed since — so a file
+  you edited in between is never silently overwritten.
+- **The original is copied beside it first**, create-only, never
+  overwriting an existing backup.
+- **Only declared keys**, and **merge never clobbers**: a variable you had
+  already set is refused by name, with what was found and what is still on
+  the table, rather than replaced. A setting of yours that this hand did not
+  write is a setting this hand will not touch.
+- **Reversible.** `rhizomorph unenlist claude` removes exactly what was
+  added and leaves the rest of the file as it stands.
+- **Never inside the watched repo** — the target is refused unless it
+  resolves under your home directory ([ADR-0019](docs/adr/0019-the-fourth-hand.md)
+  clause 4).
+
+What the hooks then do is append one line per lifecycle event to this
+installation's own beacon door, through `rhizomorph hook`. That line carries
+when, which session, which working directory and which process — and
+**never** what the agent was about to run, what you typed, or what it wrote
+back. The one field carrying an agent's own words is a permission prompt's
+short sentence, and it is bounded before it reaches disk. The writer is
+[`packages/server/src/cli/hook.ts`](packages/server/src/cli/hook.ts); its
+test plants a command line in the input and asserts the bytes on disk do not
+contain it.
 
 If you'd rather verify all of this yourself than take it on faith — the
 right instinct for exactly this kind of tool — the source is right here:

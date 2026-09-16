@@ -23,9 +23,15 @@ import { runArchiveCommand } from './archive.js'
 // and nothing more.
 import { runConnectCommand } from './connect-team.js'
 import { runDoctorCommand } from './doctor.js'
+// prd-57 ruling 4's CLI twin. Note what is NOT imported here: `concierge/`.
+// The fourth hand has exactly one declared importer (`api/concierge.ts`), and
+// these two commands reach it over HTTP so that stays true — see
+// `cli/enlist.ts` for why that is the design and not a workaround.
+import { runEnlistCommand } from './enlist.js'
 import { runEnvCommand } from './env.js'
 import { runExportOtlpCommand } from './export-otlp.js'
 import { runExportRecordCommand } from './export-record.js'
+import { runHookCli } from './hook.js'
 import { labHelpText } from './lab.js'
 import { labCheckpointHelpText, parseLabCheckpointArgs } from './lab-checkpoint.js'
 import { labCompareHelpText, parseLabCompareArgs } from './lab-compare.js'
@@ -58,6 +64,17 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
 
   if (argv[0] === 'connect') {
     return runConnectCommand(argv.slice(1), log, exit, options)
+  }
+
+  // Before every other arm, and ordered here on purpose: this one is invoked by
+  // a harness on the hot path of an agent's tool call, not by a person. It
+  // takes no flags, prints no usage, and cannot fail (`cli/hook.ts`).
+  if (argv[0] === 'hook') {
+    return runHookCli(exit, { dataRoot: options.dataRoot })
+  }
+
+  if (argv[0] === 'enlist' || argv[0] === 'unenlist') {
+    return runEnlistCommand(argv.slice(1), argv[0], log, exit)
   }
 
   if (argv[0] === 'doctor') {

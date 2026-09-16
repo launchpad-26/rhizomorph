@@ -52,14 +52,17 @@ const KNOWN_SURFACE = new Set([
   'archive',
   'connect',
   'doctor',
+  'enlist',
   'env',
   'export-otlp',
   'export-record',
+  'hook',
   'label',
   'lab',
   'replay',
   'rotate',
   'sessions',
+  'unenlist',
 ])
 
 describe("the CLI surface law: cli/index.ts and README's CLI reference name the same subcommands, both directions (prd43 w3, #21)", () => {
