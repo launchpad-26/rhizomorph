@@ -78,8 +78,8 @@ export function assertUserLevelTarget(target: EnlistmentTarget, home: string, wa
   // find separately:
   //
   //   * `startsWith` is the containment bug this repo has a law about. It is
-  //     right often enough to ship and wrong on `/home/foo` against
-  //     `/home/foobar`.
+  //     right often enough to ship and wrong whenever one directory's name is a
+  //     prefix of a sibling's — `…/foo` matching `…/foobar`.
   //   * It compares UNRESOLVED paths. `isInside` canonicalises both sides
   //     through the same `realpath`, which is what reconciles a symlinked
   //     ancestor — macOS's `/tmp` -> `/private/tmp` being the standing example
