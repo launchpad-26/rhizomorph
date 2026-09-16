@@ -1368,14 +1368,48 @@ describe('the concierge namespace law, clause 6 — the migration power (prd-20 
       expect(offenders).toEqual([])
     })
 
-    it('and there is at most ONE of them — one power, one write', () => {
-      // ADR-0020 grants a single copy, not a copying facility. Today this is
-      // zero; wave 6 makes it one. Two would mean a second write nobody argued
-      // for, which is what the amendment's friction exists to price.
-      const copiers = conciergeSourceFiles().filter((file) =>
-        /\bcopyFile(?:Sync)?\s*\(/.test(codeOf(readFileSync(file, 'utf8'))),
-      )
-      expect(copiers.map(relative).length).toBeLessThanOrEqual(1)
+    /**
+     * Which files may copy, and which granted power each one serves.
+     *
+     * **A named set rather than a count** (prd-57 ruling 4). This read
+     * `toBeLessThanOrEqual(1)` — *"one power, one write"* — under a comment
+     * saying today is zero and wave 6 makes it one. Wave 6 landed, ADR-0053
+     * granted a third power, and a bare count could then only say "2 is too
+     * many" without saying which two were argued for or what a third would have
+     * to argue.
+     *
+     * A count also cannot tell a copy that was LICENSED from one that merely
+     * arrived first. This can: adding a row here is a diff a reviewer reads
+     * beside the record that licenses it, which is the friction the amendment
+     * exists to price. It is also the lesson this PRD has now hit three times —
+     * the boundary belongs around the class, never around the arithmetic.
+     */
+    const LICENSED_COPIERS: ReadonlyMap<string, string> = new Map([
+      ['concierge/migrate.ts', 'ADR-0020 clause 6 — the migration power: one transcript copied, origin untouched'],
+      [
+        'concierge/enlist.ts',
+        'ADR-0053, amending ADR-0019 clause 1 to a third power — the backup taken before an enlistment writes, ' +
+          'which is the only thing that makes a non-atomic write recoverable',
+      ],
+    ])
+
+    it('every file that copies is one this repo granted a copy to, BY NAME', () => {
+      const copiers = conciergeSourceFiles()
+        .filter((file) => /\bcopyFile(?:Sync)?\s*\(/.test(codeOf(readFileSync(file, 'utf8'))))
+        .map((file) => relative(file).replace(/\\/g, '/').replace(/^packages\/server\/src\//, ''))
+
+      for (const copier of copiers) {
+        expect(
+          LICENSED_COPIERS.has(copier),
+          `${copier} copies a file and no granted power names it. A copy in this namespace is a WRITE and ` +
+            'ADR-0019 clause 1 enumerates the writes — land the record that licenses it, then add it here',
+        ).toBe(true)
+      }
+      // And the set cannot rot: a row naming a file that no longer copies is a
+      // licence nobody is using, which is how an allowlist quietly widens.
+      for (const [licensed] of LICENSED_COPIERS) {
+        expect(copiers, `${licensed} is licensed to copy and does not — drop the row`).toContain(licensed)
+      }
     })
 
     it('that detector bites on the unguarded forms', () => {
