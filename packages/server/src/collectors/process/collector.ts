@@ -193,25 +193,72 @@ export function createProcessCollector(options: ProcessCollectorOptions = {}): C
 
       const events = []
       const actors: Record<string, ActorSnapshot> = {}
-      const matchedPids = new Set<number>()
-
+      /**
+       * Every signature match, placed once.
+       *
+       * One `placementOf` per matched row rather than two passes over the
+       * table: it canonicalises, which touches the filesystem, and the parent
+       * lookup below needs every row's placement decided before any row's
+       * event is formed.
+       */
+      const matched = []
       for (const row of reading.rows) {
         const dialect = dialectOf(row.argv)
         if (dialect === null) continue // not an agent; recorded nowhere, counted nowhere
-        matchedPids.add(row.pid)
+        matched.push({ row, dialect, ...placementOf(row, context.repoPath) })
       }
 
-      for (const row of reading.rows) {
-        const dialect = dialectOf(row.argv)
-        if (dialect === null) continue
-        const { worktreePath, placement } = placementOf(row, context.repoPath)
-        // Wave 2 watches one repo. An actor elsewhere is prd-58's.
-        if (placement !== 'rooted') continue
+      /**
+       * Parentage among ANNOUNCED actors only — rooted, not merely matched.
+       *
+       * Review of #555 (offered note): built from every match, this named a pid
+       * that no `process.seen` ever mentioned, because an unrooted parent is
+       * dropped below. Any consumer joining `parentPid` to a known actor got a
+       * dangling reference, and wave 4 is where something will want that join.
+       * `null` — "no known actor parent" — is a true statement; a pid nobody
+       * announced is not.
+       */
+      const rootedPids = new Set(matched.filter(({ placement }) => placement === 'rooted').map(({ row }) => row.pid))
 
-        // Parentage among ACTORS only. A shell, an editor or init is a fact
-        // about the operator's machine that ADR-0052 does not license recording.
-        const parentPid = matchedPids.has(row.parentPid) ? row.parentPid : null
+      for (const { row, dialect, worktreePath, placement } of matched) {
         const key = actorKeyOf(row.pid, row.startedAt)
+        const before = prev.actors[key]
+
+        /**
+         * Not ours, and never was. Wave 2 watches one repo, and an agent
+         * running somewhere else on this machine is recorded nowhere, counted
+         * nowhere and emitted nowhere — ADR-0052's sharpest non-goal.
+         *
+         * The `before === undefined` half is what makes this safe to pair with
+         * the carry-forward below: an actor we never announced can never
+         * produce a `gone`, so nothing here can emit a death for a process this
+         * collector never mentioned.
+         */
+        if (placement !== 'rooted' && before === undefined) continue
+
+        const parentPid = rootedPids.has(row.parentPid) ? row.parentPid : null
+        /**
+         * The actor is remembered whatever its placement now is — review of
+         * #555, finding 1, and the reason is this collector's own third law.
+         *
+         * It used to `continue` here on any non-rooted placement. The row never
+         * reached `actors`, and the `gone` block below then reported the actor
+         * `absent` **while its pid sat in the table this collector had just
+         * read**. Two reachable triggers, and the second is the one that
+         * matters: a process that genuinely leaves the repo, and a `cwd` the
+         * reader could not resolve — which `read-table.ts` produces
+         * deliberately, keeping the row with `cwd: null` because *"the process
+         * is real and its placement is what is unknown"*. The reader preserved
+         * the distinction and this loop collapsed it into death.
+         *
+         * "Unknown is never death" was enforced at the TABLE (via `readable`)
+         * and not at the ROW. Now it is enforced at both.
+         *
+         * **Why this matters past wave 2:** wave 4's raiser derives `crashed`
+         * from a `gone` following a `seen`. A `gone` for a living process is a
+         * phantom `crashed` — the crash-as-success inversion ruling 5 exists to
+         * remove, running the other way.
+         */
         actors[key] = {
           pid: row.pid,
           dialect,
@@ -223,11 +270,27 @@ export function createProcessCollector(options: ProcessCollectorOptions = {}): C
           rssBytes: row.rssBytes,
         }
 
-        const before = prev.actors[key]
         if (before === undefined) {
           events.push(
             context.emit('process.seen', { pid: row.pid, dialect, startedAt: row.startedAt, worktreePath, placement, parentPid }),
           )
+        } else if (placement !== 'rooted') {
+          /**
+           * Carried, and silent. The actor is alive and this collector can no
+           * longer place it in the watched repo, which is a fact wave 2 has
+           * nowhere to publish: `process.seen` announces an arrival and there
+           * is no event for a departure that is not a death.
+           *
+           * Deliberately NOT a `gone` with a third reason. prd-58 ruling 6
+           * gives an actor with no lane a home, and an unrooted actor is not
+           * ending — it is somewhere this instrument does not yet watch. A
+           * `gone` emitted here would have to be un-emitted by prd-58.
+           *
+           * The cost, stated: the last published placement stays until the pid
+           * really leaves the table, so a fleet can show an actor on a lane it
+           * has walked out of. That is a stale fact rather than a false death,
+           * and only one of those wakes a human at 3am.
+           */
         } else if (before.cpuMs !== row.cpuMs || before.rssBytes !== row.rssBytes) {
           // Only on change. Edge-triggered rather than per-tick, because
           // `buildFleet` folds events into the recency a stall is measured
@@ -244,8 +307,17 @@ export function createProcessCollector(options: ProcessCollectorOptions = {}): C
         }
       }
 
-      // `gone` only when the previous tick could actually SEE. Otherwise a
-      // platform that lost its leg, or a denied read, would flatline the fleet.
+      /**
+       * `gone` only when the previous tick could actually SEE — otherwise a
+       * platform that lost its leg, or a denied read, would flatline the fleet.
+       *
+       * And now only when the actor is genuinely missing from the reading. The
+       * carry-forward above is what makes `reason: 'absent'` true again by
+       * construction: this block can no longer be reached by an actor whose pid
+       * is sitting in the table, so the word means what the schema says it means
+       * — *"a pid absent from the table"* — rather than "a pid this loop stopped
+       * tracking".
+       */
       if (prev.readable) {
         const livePids = new Set(Object.values(actors).map((actor) => actor.pid))
         for (const [key, before] of Object.entries(prev.actors)) {

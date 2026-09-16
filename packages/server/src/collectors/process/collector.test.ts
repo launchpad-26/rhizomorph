@@ -295,3 +295,147 @@ describe('the Windows basename — the defect no fixture test could have found',
     expect((nextSnapshot as ProcessSnapshot).readable).toBe(true)
   })
 })
+
+describe('unknown is never death AT THE ROW, not only at the table (review of #555, finding 1)', () => {
+  /**
+   * The gap the third law had. `readable` enforced it for the whole TABLE — a
+   * platform with no leg, or a denied read, emits nothing. `placementOf`'s own
+   * `'unknown'` walked straight through that at the ROW level: any actor that
+   * was rooted last tick and is not rooted this tick was dropped before it
+   * reached `actors`, and then reported `gone` with `reason: 'absent'` while its
+   * pid sat in the table the collector had just read.
+   *
+   * Both triggers below were executed against the old code by the reviewer on
+   * darwin and both passed — that is, both produced the phantom death.
+   *
+   * The one that matters is the second. `read-table.ts` produces `cwd: null`
+   * DELIBERATELY: a failed `readlink` keeps the row, because "the process is
+   * real and its placement is what is unknown". The reader preserved the
+   * distinction and the collector collapsed it into death.
+   */
+  const stillThere = (overrides: Partial<ProcessRow>) => ({ rows: [row(overrides)] })
+
+  it('a live actor whose cwd can no longer be READ is not gone — the Windows shape, mid-session', async () => {
+    const collector = createProcessCollector({
+      readTable: readerFor({ rows: [row()] }, stillThere({ cwd: null })),
+    })
+    const first = await collector.poll(collector.initialSnapshot(), contextFor(1000))
+    const second = await collector.poll(first.nextSnapshot, contextFor(2000))
+
+    expect(typesOf(first.events)).toEqual(['process.seen'])
+    expect(second.events).toEqual([])
+    // And it is still HELD, which is what stops the next tick reporting it gone.
+    expect(Object.keys((second.nextSnapshot as ProcessSnapshot).actors)).toHaveLength(1)
+  })
+
+  it('a live actor that walked OUT of the watched repo is not gone either', async () => {
+    const elsewhere = mkdtempSync(path.join(tmpdir(), 'rhizo-elsewhere-'))
+    roots.push(elsewhere)
+    const collector = createProcessCollector({
+      readTable: readerFor({ rows: [row()] }, stillThere({ cwd: elsewhere })),
+    })
+    const first = await collector.poll(collector.initialSnapshot(), contextFor(1000))
+    const second = await collector.poll(first.nextSnapshot, contextFor(2000))
+
+    expect(typesOf(first.events)).toEqual(['process.seen'])
+    expect(second.events).toEqual([])
+  })
+
+  it('and it still goes gone when the pid REALLY leaves — the carry-forward is not a leak', async () => {
+    // The control the two above would be worthless without: a collector that
+    // simply never emitted `gone` would pass both of them.
+    const collector = createProcessCollector({
+      readTable: readerFor({ rows: [row()] }, stillThere({ cwd: null }), { rows: [] }),
+    })
+    const first = await collector.poll(collector.initialSnapshot(), contextFor(1000))
+    const blind = await collector.poll(first.nextSnapshot, contextFor(2000))
+    const third = await collector.poll(blind.nextSnapshot, contextFor(3000))
+
+    expect(typesOf(third.events)).toEqual(['process.gone'])
+    expect((third.events[0]?.payload as { reason: string }).reason).toBe('absent')
+  })
+
+  it('`absent` now means what the schema says — a pid absent from the table', async () => {
+    // The word was separately wrong on its own terms: `processGonePayloadSchema`
+    // defines `absent` as "a pid absent from the table", and the old path
+    // emitted it for a pid that was present. This asserts the invariant rather
+    // than a case: every `gone` this collector emits names a pid the reading did
+    // not contain.
+    const elsewhere = mkdtempSync(path.join(tmpdir(), 'rhizo-elsewhere-'))
+    roots.push(elsewhere)
+    const collector = createProcessCollector({
+      readTable: readerFor({ rows: [row()] }, { rows: [row({ cwd: elsewhere }), row({ pid: 77, argv: ['bash'] })] }),
+    })
+    const first = await collector.poll(collector.initialSnapshot(), contextFor(1000))
+    const second = await collector.poll(first.nextSnapshot, contextFor(2000))
+
+    expect(first.events).toHaveLength(1)
+    expect(second.events.filter((e) => e.type === 'process.gone')).toEqual([])
+  })
+
+  it('an agent that was NEVER ours is still recorded nowhere — the non-goal is not weakened', async () => {
+    // The carry-forward must not become a way for every agent on the machine to
+    // enter the snapshot. Only an actor this collector already announced is
+    // held through a placement change; one that was never rooted is invisible,
+    // which is ADR-0052's sharpest non-goal.
+    const elsewhere = mkdtempSync(path.join(tmpdir(), 'rhizo-elsewhere-'))
+    roots.push(elsewhere)
+    const collector = createProcessCollector({ readTable: readerFor({ rows: [row({ cwd: elsewhere })] }, { rows: [] }) })
+    const first = await collector.poll(collector.initialSnapshot(), contextFor(1000))
+    const second = await collector.poll(first.nextSnapshot, contextFor(2000))
+
+    expect(first.events).toEqual([])
+    expect(Object.keys((first.nextSnapshot as ProcessSnapshot).actors)).toEqual([])
+    // And therefore no `gone` when it leaves — a death for a process this
+    // collector never mentioned would be noise about the operator's machine.
+    expect(second.events).toEqual([])
+  })
+
+  it('no activity is emitted while an actor is unplaceable — work outside the repo is not ours to report', async () => {
+    const collector = createProcessCollector({
+      readTable: readerFor({ rows: [row({ cpuMs: 100 })] }, stillThere({ cwd: null, cpuMs: 9_000 })),
+    })
+    const first = await collector.poll(collector.initialSnapshot(), contextFor(1000))
+    const second = await collector.poll(first.nextSnapshot, contextFor(2000))
+
+    expect(typesOf(first.events)).toEqual(['process.seen'])
+    expect(second.events).toEqual([])
+  })
+})
+
+describe('parentPid names an actor that was actually announced (review of #555, offered)', () => {
+  it('a parent OUTSIDE the repo is not named — null beats a dangling reference', async () => {
+    // The parent set was built from every signature match, before the rooted
+    // filter, so a rooted worker whose conductor ran elsewhere was emitted with
+    // `parentPid: 900` — a pid no `process.seen` ever mentioned. Any consumer
+    // joining that to a known actor gets a dangling reference, and wave 4 is
+    // where something will want that join. "No known actor parent" is true;
+    // a pid nobody announced is not.
+    const elsewhere = mkdtempSync(path.join(tmpdir(), 'rhizo-elsewhere-'))
+    roots.push(elsewhere)
+    const conductor = row({ pid: 900, cwd: elsewhere })
+    const worker = row({ pid: 200, parentPid: 900 })
+    const collector = createProcessCollector({ readTable: readerFor({ rows: [conductor, worker] }) })
+    const { events } = await collector.poll(collector.initialSnapshot(), contextFor(1000))
+
+    expect(typesOf(events)).toEqual(['process.seen'])
+    expect((events[0]?.payload as { pid: number }).pid).toBe(200)
+    expect((events[0]?.payload as { parentPid: number | null }).parentPid).toBeNull()
+  })
+
+  it('every parentPid emitted in a tick is a pid that tick also announced', async () => {
+    // The invariant rather than the case, so a future change that reintroduces
+    // a dangling parent fails here whatever shape it takes.
+    const conductor = row({ pid: 100, cpuMs: 1 })
+    const worker = row({ pid: 200, parentPid: 100 })
+    const orphan = row({ pid: 300, parentPid: 999 })
+    const collector = createProcessCollector({ readTable: readerFor({ rows: [conductor, worker, orphan] }) })
+    const { events } = await collector.poll(collector.initialSnapshot(), contextFor(1000))
+
+    const announced = new Set(events.map((e) => (e.payload as { pid: number }).pid))
+    for (const event of events) {
+      const parent = (event.payload as { parentPid: number | null }).parentPid
+      if (parent !== null) expect(announced, `parentPid ${parent} was never announced`).toContain(parent)
+    }
+  })
+})
