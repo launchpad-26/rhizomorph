@@ -421,7 +421,10 @@ describe('runDoctor', () => {
 
     const sessionLogs = checkFor(report.checks, 'session-logs')
     expect(sessionLogs.status).toBe('warn')
-    expect(sessionLogs.message).toContain('--extra-sessions')
+    // `--extra-sessions` is retired (prd-57 ruling 8) — the remedy is now the
+    // one thing a reader can act on without a flag that no longer parses.
+    expect(sessionLogs.message).not.toContain('--extra-sessions')
+    expect(sessionLogs.message).toContain('has run at least once here')
     expect(report.exitCode).toBe(0)
   })
 
@@ -503,7 +506,7 @@ describe('runDoctor', () => {
       const withMissingRoot = checkClaudeProjects(missingRoot)
       expect(withMissingRoot.status).toBe('warn')
       expect(withMissingRoot.message).toBe(
-        `no Claude Code session logs at ${missingRoot} — per-agent history stays empty until \`claude\` has run at least once here (or point elsewhere with --extra-sessions)`,
+        `no Claude Code session logs at ${missingRoot} — per-agent history stays empty until \`claude\` has run at least once here`,
       )
     })
   })

@@ -1,5 +1,5 @@
 import type { RhizomorphEvent } from '@rhizomorph/core'
-import { MAIN_SELECTION, type Lane, type RootMass } from '../fleet/index.js'
+import { type Lane, MAIN_SELECTION, type RootMass } from '../fleet/index.js'
 
 /**
  * THE ATTACH COMMAND (ruling 17) — the one thing in the Rhizomorph that hands
@@ -144,7 +144,7 @@ export type AttachRoot = Pick<RootMass, 'mainBranch' | 'worktreePath'>
  * The same tmux lookup a lane gets, pointed at the root-mass: a pane sitting in
  * the main worktree, or a window named for the main branch or called
  * `conductor` — the handle the sessionlog collector gives an
- * `--extra-sessions` dir by default. It copies a string, like everything else
+ * discovered conductor's dir by default. It copies a string, like everything else
  * in this file.
  *
  * **No workmux fallback, and that is the point.** `workmux open <handle>` makes

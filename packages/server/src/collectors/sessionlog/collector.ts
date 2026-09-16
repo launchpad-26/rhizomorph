@@ -2,31 +2,39 @@ import { readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import {
-  UNATTRIBUTED_LANE,
-  createEvent,
   type AdapterCapabilities,
   type AgentRole,
   type AgentThread,
   type Collector,
   type CollectorContext,
-  type RhizomorphEvent,
+  createEvent,
   type PollResult,
+  type RhizomorphEvent,
+  UNATTRIBUTED_LANE,
 } from '@rhizomorph/core'
+import { USER_LEVEL_SESSION_LOGS } from '../../harness-roster.js'
 import {
   agentStatusEmissionFor,
   deriveLaneState,
+  type LaneStateReading,
   needsProcessProbe,
   quietMsOf,
-  type LaneStateReading,
 } from './lane-state.js'
 import { parseWorktreePaths } from './parse-worktree-paths.js'
 import { defaultProcessProbe, type ProcessLiveness, type ProcessProbe } from './process-probe.js'
 import { isRotated, readNewLines } from './tail.js'
-import { CLAUDE_JSONL_GRAMMAR } from './turn-grammar-claude.js'
 import type { TurnGrammar } from './turn-grammar.js'
+import { CLAUDE_JSONL_GRAMMAR } from './turn-grammar-claude.js'
 import { advanceTurnShape, initialTurnShape, type TurnShapeState } from './turn-shape.js'
 import type { LaneLiveness, SessionlogSnapshot, TailedFileState } from './types.js'
 import { worktreePathToProjectSlug } from './worktree-slug.js'
+
+/**
+ * The lane a remembered conductor comes back as — derived from the roster's own
+ * `claude` entry rather than spelled a second time, so the discovered lane and
+ * the remembered one cannot drift apart.
+ */
+const CONDUCTOR_LANE = USER_LEVEL_SESSION_LOGS.find((d) => d.id === 'claude')?.lane ?? 'conductor'
 
 const COLLECTOR_NAME = 'sessionlog'
 const JSONL_SUFFIX = '.jsonl'
@@ -74,27 +82,12 @@ export interface SessionlogCollectorConfig {
    */
   claudeProjectsRoot?: string
   /**
-   * Extra session sources to tail as `role: 'conductor'`, each shaped
-   * `<path>[:<lane>]` (`--extra-sessions`; CLI wiring is a separate issue).
-   * `<path>` is tried two ways, dir-first:
+   * The user's home, for per-dialect session-log discovery — prd-57 ruling 8.
    *
-   * 1. **Directly**, as the session-log directory itself (contains
-   *    `*.jsonl`) — no slug inference, no assumption about where the
-   *    conductor's projects root lives or what OS it runs. This is the path
-   *    that makes a Windows/foreign-filesystem conductor work at all: point
-   *    it straight at the mounted session dir.
-   * 2. **As a fallback**, if step 1 finds no `*.jsonl`: treated as a cwd and
-   *    slug-inferred under `claudeProjectsRoot`, same as today (local
-   *    conductor convenience).
-   *
-   * `<lane>` names the lane for every session under this dir. Left off, it
-   * defaults to `conductor` for the first `--extra-sessions` (index 0), then
-   * `conductor-2`, `conductor-3`… for the rest — never the raw project-dir
-   * slug, and never inferred from the log content either (see
-   * `defaultConductorLane`). A spec that resolves neither way emits one
-   * `collector.error` instead of silently doing nothing.
+   * Injectable so a test can point the whole mechanism at a temp directory
+   * without mocking `os.homedir()`. Defaults to the real one.
    */
-  extraSessionDirs?: readonly string[]
+  home?: string
   /**
    * When a session file is seen for the very first time (no persisted offset
    * — including one rehydrated from a snapshot), read it from byte 0 instead
@@ -149,7 +142,7 @@ export function createSessionlogCollector(
   config: SessionlogCollectorConfig = {},
 ): Collector<SessionlogSnapshot> {
   const claudeProjectsRoot = config.claudeProjectsRoot ?? path.join(homedir(), '.claude', 'projects')
-  const extraSessionDirs = config.extraSessionDirs ?? []
+  const home = config.home ?? homedir()
   const backfill = config.backfill ?? false
   const processProbe = config.processProbe ?? defaultProcessProbe()
   const turnGrammar = config.turnGrammar ?? CLAUDE_JSONL_GRAMMAR
@@ -186,30 +179,60 @@ export function createSessionlogCollector(
       const nextErroredExtraSessionDirs: Record<string, true> = {}
       const extraWatchedDirs: WatchedDir[] = []
 
-      const extraResolutions = await Promise.all(
-        extraSessionDirs.map((spec, index) => resolveExtraSessionDir(spec, claudeProjectsRoot, index)),
-      )
-      for (const resolution of extraResolutions) {
-        if (resolution.dir) {
-          extraWatchedDirs.push(resolution.dir)
-          continue
-        }
-        nextErroredExtraSessionDirs[resolution.spec] = true
-        if (!prevSnapshot.erroredExtraSessionDirs[resolution.spec]) {
-          events.push(context.emit('collector.error', { collector: COLLECTOR_NAME, message: resolution.reason }))
-        }
-      }
+      // PER-DIALECT DISCOVERY — prd-57 ruling 8, in place of `--extra-sessions`.
+      //
+      // Deferred until the main worktree is known, a few lines below: the whole
+      // of what this replaces is "the main tree is my conductor", and the main
+      // tree is what `git worktree list --porcelain` names first.
 
       // `git worktree list --porcelain` always lists the main working tree
       // first, then linked worktrees in the order they were added — a stable
       // ordering, not an assumption. Linked worktrees only exist because the
-      // swarm made them, so `role: 'worker'` is correct there; the main tree
-      // is where a human (or a conductor) drives the repo directly, so unless
-      // the operator has declared it via `--extra-sessions` (kept exactly as
-      // declared, never overridden here), it is `unattributed` — a setup gap
-      // to fill in, never silently booked as worker spend (#62).
+      // swarm made them, so `role: 'worker'` is correct there.
+      //
+      // THE MAIN TREE IS THE CONDUCTOR'S, AND IT IS NOW DISCOVERED (prd-57
+      // ruling 8). It used to be `unattributed` unless the operator declared it
+      // with `--extra-sessions` — #62's ruling, and the right one: silently
+      // booking a conductor's spend as worker spend is worse than an honest
+      // gap. What changed is not that ruling but the alternative to it. The
+      // gap existed because nothing could tell the instrument where a
+      // conductor's transcript lived, and that was never a fact only the
+      // operator knew — it is a fact about the DIALECT, which the roster now
+      // states (`USER_LEVEL_SESSION_LOGS`).
+      //
+      // So the main tree is attributed `conductor` when a dialect's user-level
+      // root actually holds a session directory for it, and stays
+      // `unattributed` when none does. The honest gap survives for the case it
+      // was written for — nothing discovered means nothing claimed — and stops
+      // being the default for the case a flag existed to fix.
       const liveWorktreePaths = parseWorktreePaths(worktreeListResult.stdout)
       const mainWorktreePath = liveWorktreePaths[0]
+
+      if (mainWorktreePath !== undefined) {
+        for (const dialect of USER_LEVEL_SESSION_LOGS) {
+          // ALWAYS from `home`, never from `claudeProjectsRoot`. The two
+          // coincide in production — `claudeProjectsRoot` defaults to
+          // `<home>/.claude/projects` — and they answer different questions,
+          // which is why the special case that read the override here was
+          // wrong. `claudeProjectsRoot` is where a transcript is READ from, an
+          // override a test or a foreign mount may repoint. `home` is where the
+          // DIALECT keeps its own sessions, which is what discovery asks about.
+          // Collapsing them made "the main tree has a transcript" and "the
+          // dialect declares this directory" the same fact, and they are not:
+          // the first is true of any slug dir, the second is what licenses
+          // calling its owner the conductor.
+          const discovered = path.join(home, ...dialect.segments, worktreePathToProjectSlug(mainWorktreePath))
+          const info = await statOrNull(discovered)
+          if (!info?.isDirectory()) continue
+          extraWatchedDirs.push({
+            worktreePath: mainWorktreePath,
+            role: 'conductor',
+            sessionDirOverride: discovered,
+            laneOverride: dialect.lane,
+          })
+        }
+      }
+
       const declaredWorktreePaths = new Set(extraWatchedDirs.map((dir) => dir.worktreePath))
 
       const liveDiscoveredDirs: WatchedDir[] = liveWorktreePaths
@@ -228,15 +251,28 @@ export function createSessionlogCollector(
       // this time) stays in it (#165).
       const knownWorktrees: Record<string, AgentRole> = { ...prevSnapshot.knownWorktrees }
       for (const dir of liveDiscoveredDirs) knownWorktrees[dir.worktreePath] = dir.role
+      // The DISCOVERED conductor is remembered too — prd-57 ruling 8. It is not
+      // in `liveDiscoveredDirs` (that set excludes every declared path), so
+      // without this line a main tree that folds is forgotten entirely, where a
+      // linked worker that folds is remembered. #165's whole claim is that a
+      // folded worktree keeps its role; a conductor is not the exception to it.
+      for (const dir of extraWatchedDirs) knownWorktrees[dir.worktreePath] = dir.role
 
       const liveDiscoveredPaths = new Set(liveDiscoveredDirs.map((dir) => dir.worktreePath))
       const foldedDirs: WatchedDir[] = Object.entries(knownWorktrees)
         .filter(([worktreePath]) => !liveDiscoveredPaths.has(worktreePath) && !declaredWorktreePaths.has(worktreePath))
-        .map(([worktreePath, role]): WatchedDir =>
-          role === 'unattributed'
-            ? { worktreePath, role, laneOverride: UNATTRIBUTED_LANE }
-            : { worktreePath, role },
-        )
+        .map(([worktreePath, role]): WatchedDir => {
+          // A remembered role brings its LANE back with it, for the two roles
+          // whose lane is a property of the role rather than of the log's
+          // content. `unattributed` always did; `conductor` now must, because a
+          // discovered conductor's lane comes from the roster and a folded one
+          // would otherwise fall back to whatever its transcript happens to
+          // name (`main`, a branch, a directory) — the same leak #165 closed
+          // for `unattributed`, one role over.
+          if (role === 'unattributed') return { worktreePath, role, laneOverride: UNATTRIBUTED_LANE }
+          if (role === 'conductor') return { worktreePath, role, laneOverride: CONDUCTOR_LANE }
+          return { worktreePath, role }
+        })
 
       const watchedDirs: WatchedDir[] = [...liveDiscoveredDirs, ...foldedDirs, ...extraWatchedDirs]
 
@@ -360,93 +396,6 @@ async function deriveLanes(
     }
   }
   return lanes
-}
-
-/** A parsed `<path>[:<lane>]` extra-sessions spec, before we know which resolution mode applies. */
-interface ExtraSessionSpec {
-  path: string
-  lane: string | null
-}
-
-/**
- * Splits on the last `:` only when what follows looks like a lane name, not
- * a path fragment (no `/`) — real session dirs on this project are POSIX
- * paths with no colons, so this never fires on a bare path.
- */
-function parseExtraSessionSpec(spec: string): ExtraSessionSpec {
-  const separatorIndex = spec.lastIndexOf(':')
-  if (separatorIndex === -1) return { path: spec, lane: null }
-
-  const candidateLane = spec.slice(separatorIndex + 1)
-  if (candidateLane.length === 0 || candidateLane.includes('/')) {
-    return { path: spec, lane: null }
-  }
-  return { path: spec.slice(0, separatorIndex), lane: candidateLane }
-}
-
-type ExtraSessionResolution =
-  | { spec: string; dir: WatchedDir; reason?: undefined }
-  | { spec: string; dir: null; reason: string }
-
-/**
- * Default lane for an `--extra-sessions` spec with no explicit `:<lane>`:
- * `conductor` for the first extra dir (index 0), `conductor-2`, `conductor-3`…
- * for the rest, keyed by the spec's position in `--extra-sessions` — never the
- * raw project-dir slug, and never inferred from the log content (gitBranch,
- * cwd) either. The dir path stays exactly what the operator passed; only the
- * presentation label defaults.
- */
-function defaultConductorLane(index: number): string {
-  return index === 0 ? 'conductor' : `conductor-${index + 1}`
-}
-
-/**
- * Resolves one `--extra-sessions` spec dir-first: tries `path` directly as a
- * session-log dir (contains `*.jsonl`), then falls back to slug-inferring it
- * as a cwd under `claudeProjectsRoot` (today's behaviour). Neither working
- * means the spec is a misconfiguration, not "no session yet" — that becomes
- * a `collector.error` at the call site rather than silence.
- */
-async function resolveExtraSessionDir(
-  spec: string,
-  claudeProjectsRoot: string,
-  index: number,
-): Promise<ExtraSessionResolution> {
-  const { path: rawPath, lane: explicitLane } = parseExtraSessionSpec(spec)
-  const lane = explicitLane ?? defaultConductorLane(index)
-
-  const directInfo = await statOrNull(rawPath)
-  if (directInfo?.isDirectory()) {
-    const entries = await readdir(rawPath).catch(() => [] as string[])
-    if (entries.some((name) => name.endsWith(JSONL_SUFFIX))) {
-      return {
-        spec,
-        dir: {
-          worktreePath: rawPath,
-          role: 'conductor',
-          sessionDirOverride: rawPath,
-          laneOverride: lane,
-        },
-      }
-    }
-  }
-
-  const fallbackProjectDir = path.join(claudeProjectsRoot, worktreePathToProjectSlug(rawPath))
-  const fallbackInfo = await statOrNull(fallbackProjectDir)
-  if (fallbackInfo?.isDirectory()) {
-    return {
-      spec,
-      dir: { worktreePath: rawPath, role: 'conductor', laneOverride: lane },
-    }
-  }
-
-  return {
-    spec,
-    dir: null,
-    reason:
-      `--extra-sessions "${rawPath}" is not a readable session directory: ` +
-      `no *.jsonl found directly, and no project dir at ${fallbackProjectDir}`,
-  }
 }
 
 async function tailProjectDir(

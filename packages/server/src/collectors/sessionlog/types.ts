@@ -71,10 +71,18 @@ export interface SessionlogSnapshot {
   /** Keyed by absolute file path. */
   files: Record<string, TailedFileState>
   /**
-   * Keyed by the raw `--extra-sessions` spec string. Set once a spec resolves
-   * to neither a direct session dir nor a slug-inferred fallback, so the
-   * `collector.error` for it fires once, not every poll. Cleared the moment a
-   * spec resolves again, so recovery doesn't need its own bookkeeping.
+   * RETIRED — prd-57 ruling 8, kept as a field so an old snapshot still folds.
+   *
+   * It keyed the raw `--extra-sessions` specs that failed to resolve, so the
+   * collector could emit one `collector.error` per bad spec rather than one per
+   * tick. With the flag gone there are no specs to fail: the conductor's
+   * session directory is DISCOVERED from the dialect's own user-level root
+   * (`harness-roster.ts`), and a root that holds nothing is not an error — it
+   * is a repo where `claude` has not run yet, which the ladder already says.
+   *
+   * The key stays and is always written empty. A snapshot persisted before this
+   * wave still parses, and a reader that looks for it still finds it — the same
+   * additive posture ADR-0011 takes for the wire.
    */
   erroredExtraSessionDirs: Record<string, true>
   /**

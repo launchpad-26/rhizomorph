@@ -224,7 +224,7 @@ export function isPathContained(root: string, candidate: string): boolean {
 /**
  * Every place a lane's session file could be LIVE, in preference order — the
  * same two the collector itself tails: the slug-inferred project dir under
- * `~/.claude/projects`, and (for an `--extra-sessions` dir passed directly) the
+ * `~/.claude/projects`, and (for a discovered conductor dir tailed directly) the
  * declared directory itself.
  *
  * Refuses the shape of `attribution.sessionId` (via {@link isSafeSessionId})

@@ -67,6 +67,54 @@
  */
 export type RosterHarnessId = 'claude' | 'codex' | 'openclaw' | 'pi' | 'shell'
 
+/**
+ * WHERE EACH DIALECT KEEPS ITS SESSION LOGS, under the user's own home —
+ * prd-57 ruling 8, and the thing `--extra-sessions` retires in favour of.
+ *
+ * ## What the flag was actually for
+ *
+ * Not foreign filesystems, though its own help text led with that. Its real
+ * job was one sentence the instrument could not otherwise be told: **the main
+ * worktree is my conductor.** Without it, `collectors/sessionlog/collector.ts`
+ * booked the main tree `unattributed` — deliberately, because #62 ruled that
+ * silently counting a conductor's spend as worker spend is worse than an
+ * honest gap. So the gap was real, and filling it needed an operator to type a
+ * path.
+ *
+ * A conductor's session logs are not somewhere only the operator knows. They
+ * are where the HARNESS puts them, which is a fact about the dialect. Claude
+ * Code writes `~/.claude/projects/<slug>` whoever is running it. So the
+ * instrument can find them, and the flag was asking a person for something the
+ * roster already knows.
+ *
+ * ## Why segments, and why no IO here
+ *
+ * Path fragments rather than a resolved directory, because this module is data
+ * — the same reason nothing else in this file touches a filesystem. The caller
+ * joins them against a home it was given, which is what lets a test point the
+ * whole mechanism at a temp dir without mocking `os.homedir()`.
+ *
+ * ## Why only claude has an entry
+ *
+ * The same posture as {@link DECLARED_HARNESSES}: an entry is a claim this repo
+ * can back. Codex has a built adapter and a captured launch, and **no captured
+ * session-log location** — inventing a plausible one would make the collector
+ * confidently watch a directory nobody verified, which is the "absent about a
+ * spelling nobody checked" failure the roster already refuses one field above.
+ * A dialect with no entry is discovered for nothing and costs nothing.
+ */
+export interface DialectSessionLogs {
+  id: RosterHarnessId
+  /** Under the user's home. Joined by the caller — this module performs no IO. */
+  readonly segments: readonly string[]
+  /** What a session discovered here is attributed to when its own content names no lane. */
+  readonly lane: string
+}
+
+export const USER_LEVEL_SESSION_LOGS: readonly DialectSessionLogs[] = [
+  { id: 'claude', segments: ['.claude', 'projects'], lane: 'conductor' },
+]
+
 /** One declared-not-implemented harness, as the roster records it. */
 export interface DeclaredHarnessEntry {
   id: RosterHarnessId

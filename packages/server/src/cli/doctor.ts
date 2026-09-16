@@ -445,7 +445,7 @@ function isPortFree(port: number): Promise<boolean> {
 
 /** One line always safe to repeat in a warn message — never assumes which rung (slug dir vs global root) is the one to fix. */
 const NO_HISTORY_REMEDY =
-  'per-agent history stays empty until `claude` has run at least once here (or point elsewhere with --extra-sessions)'
+  'per-agent history stays empty until `claude` has run at least once here'
 
 /**
  * `~/.claude/projects` existing at all used to be the whole check (#284
@@ -1235,7 +1235,7 @@ export async function checkEnrichmentLadder(
       ? SESSIONLOG_CAPABILITIES
       : absentCapabilities(
           'no Claude Code session logs found for this repo yet',
-          'run `claude` at least once here, or point --extra-sessions elsewhere',
+          'run `claude` at least once here',
         ),
     // The rig contributes what it has and says nothing when it is not there.
     // No remedy, deliberately: a remedy is an instruction, and there is nothing

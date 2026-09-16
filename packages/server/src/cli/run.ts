@@ -3,13 +3,13 @@ import { fileURLToPath } from 'node:url'
 import { createEvent, createIdFactory, selectBranches, selectWorktreeViews } from '@rhizomorph/core'
 import { recordSessionBootMeta } from '../api/meta.js'
 import { defaultDataRoot, sessionDirFor, sessionFileName, snapshotDirFor } from '../log/paths.js'
+import { LOCK_HEARTBEAT_INTERVAL_MS, removeSessionLock, writeSessionLock } from '../log/session-lock.js'
 import {
   decideSessionBoot,
   formatBootDuration,
   recordResume,
   type SessionBootDecision,
 } from '../log/session-log.js'
-import { LOCK_HEARTBEAT_INTERVAL_MS, removeSessionLock, writeSessionLock } from '../log/session-lock.js'
 import { buildApp } from '../server/build-app.js'
 import { loadCollectors } from '../server/collector-loader.js'
 import type { ServerContext } from '../server/context.js'
@@ -17,7 +17,7 @@ import { exec as realExec } from '../server/exec.js'
 import { createPollLoop } from '../server/poll-loop.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { createFileSnapshotStore } from '../server/snapshot-store.js'
-import { helpText, parseArgs, type CliArgs } from './args.js'
+import { type CliArgs, helpText, parseArgs } from './args.js'
 import type { CliHandle, RunCliOptions } from './types.js'
 import { readPackageVersion } from './version.js'
 
@@ -108,7 +108,6 @@ export async function runServerCommand(
     options.collectors ??
     (await loadCollectors(log, resumed?.events, {
       claudeProjectsRoot: options.claudeProjectsRoot,
-      extraSessionDirs: args.extraSessionDirs,
       backfill: args.backfill,
     }))
   const pollLoop = createPollLoop({

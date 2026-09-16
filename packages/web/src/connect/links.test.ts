@@ -174,7 +174,7 @@ describe('buildLinks — the chain ruling 3 names', () => {
       },
     )
     const slugOk: DoctorFact = { id: 'session-logs', status: 'ok', message: 'session logs found at /home/x/.claude/projects', assumed: false, lastAckAt: null }
-    const slugMissing: DoctorFact = { id: 'session-logs', status: 'warn', message: 'no session logs — point elsewhere with --extra-sessions', assumed: false, lastAckAt: null }
+    const slugMissing: DoctorFact = { id: 'session-logs', status: 'warn', message: 'no session logs — run `claude` at least once here', assumed: false, lastAckAt: null }
 
     return [
       build(reduceAll([])),
@@ -214,10 +214,10 @@ describe('buildLinks — the chain ruling 3 names', () => {
     expect(row(build(reduceAll([]), { meta }), 'repo-git').command).toBe('npm start -- /home/x/repo --port 4317')
   })
 
-  it('names --extra-sessions for a slug directory that does not resolve', () => {
+  it('names a plain restart for a slug directory that does not resolve — never a retired flag (prd-57 ruling 8)', () => {
     const doctor = checksOf({ id: 'session-logs', status: 'warn', message: 'no session logs at /home/x/.claude/projects', assumed: false, lastAckAt: null })
     expect(row(build(reduceAll([]), { doctor, meta: metaWith() }), 'transcripts-slug').command).toBe(
-      'npm start -- /home/x/repo --port 4317 --extra-sessions <session-log-dir>',
+      'npm start -- /home/x/repo --port 4317',
     )
   })
 

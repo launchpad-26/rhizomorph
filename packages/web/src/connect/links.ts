@@ -644,12 +644,12 @@ function transcriptSlug(input: ConnectInputs): ChainLink {
   if (check.status === 'ok') return verified(base, check.message, provenNow(input.now), doctorNote(input.doctor, 'session-boundary'))
 
   // Doctor's own message carries both halves of the remedy — run `claude`
-  // here once, or point elsewhere with `--extra-sessions`. The second is the
+  // here once. The second is the
   // one that is a command, and the conductor-on-a-foreign-filesystem case
   // (`args.ts`: a mounted `/mnt/c/…/.claude/projects/<slug>`) is exactly the
   // one this row goes BROKEN for.
   return broken(base, check.message, {
-    command: restartCommand(input.meta?.repoPath ?? null, input.port, ['--extra-sessions <session-log-dir>']),
+    command: restartCommand(input.meta?.repoPath ?? null, input.port),
     notes: doctorNote(input.doctor, 'session-boundary'),
   })
 }
