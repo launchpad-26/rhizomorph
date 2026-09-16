@@ -1201,9 +1201,16 @@ describe('#564 — the seam, end to end and as shipped', () => {
       'onBatch: () => worker.wake(),',
     )
     expect(serve, 'serve.ts must drain the journal at boot').toContain('await worker.drain()')
-    // Whitespace-insensitive: the previous spelling pinned six spaces of indentation, so a
-    // formatter could redden a law about wiring (review of #574).
-    expect(serve.replace(/\s+/g, ' '), 'shutdown must stop the worker').toContain('worker .stop()')
+    /**
+     * Whitespace-insensitive, and this is the SECOND attempt at that.
+     *
+     * The first spelling pinned six spaces of indentation. The repair —
+     * `serve.replace(/\s+/g, ' ')` then `toContain('worker .stop()')` — was insensitive to HOW
+     * MUCH whitespace, not to whether there is any: `worker.stop()` collapses to itself and does
+     * not contain `worker .stop()`, so a formatter putting the chain on one line still reddened a
+     * law about wiring. Same failure, one size smaller, found in the review of #574.
+     */
+    expect(serve, 'shutdown must stop the worker').toMatch(/worker\s*\.stop\(\)/)
 
     /**
      * The ORDER is the ADR-0056 claim: the boot drain follows `startTeamServer`, because that
