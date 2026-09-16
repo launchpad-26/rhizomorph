@@ -1661,7 +1661,7 @@ describe("the README's outbound-fetch recipe names exactly the real call sites, 
     expect(stated.reduce((sum, entry) => sum + entry.count, 0)).toBe(EXPECTED_TOTAL)
   })
 
-  it('README states the same seventeen-across-fourteen the sweep above finds — every occurrence, not just the first', () => {
+  it('README states the same eighteen-across-fifteen the sweep above finds — every occurrence, not just the first', () => {
     const README_MD = readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8')
     // Two anchors over the same sentence rather than one two-group match, so
     // each number goes through the same every-occurrence rule the mutating-
