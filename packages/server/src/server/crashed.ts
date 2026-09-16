@@ -31,7 +31,7 @@ import type { SummonsCondition } from './summons.js'
  * `PathologyKind` for the vocabulary that route already speaks — rank, word,
  * reason, remedy, sigil, hue. Nothing about that union is `diagnose`-only.
  *
- * ## Why there is no `diffCrashed`
+ * ## Why there is no second edge-trigger
  *
  * The issue asks for a raiser shaped exactly like `summons.ts`'s, and the most
  * faithful reading of that is not a second copy of `diffSummons`. The edge
@@ -39,8 +39,8 @@ import type { SummonsCondition } from './summons.js'
  * that are easy to get wrong — a condition still true this tick raises nothing,
  * and a condition whose raise predates a restart still clears exactly once.
  *
- * A `diffCrashed` would be that logic again, drifting from the first copy the
- * moment either changed. This file answers the only question `diffSummons`
+ * A crash-specific copy of it would be that logic again, drifting from the
+ * first the moment either changed. This file answers the only question `diffSummons`
  * cannot: **which lanes are crashed right now.** `poll-loop.ts` appends the
  * answer to the conditions it already collects, and one edge-trigger serves
  * both — which is also what makes a crashed lane's summons clear the same way

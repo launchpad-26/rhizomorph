@@ -589,7 +589,7 @@ function agentsPanes(input: ConnectInputs): ChainLink {
    *
    * A fourth `LinkState` would say this more precisely than `unproven` does,
    * and is deliberately not minted here: it would fan out to every renderer of
-   * `LINK_STATE_WORD`, none of which this issue's fence reaches. Recorded as
+   * `STATE_WORD`, none of which this issue's fence reaches. Recorded as
    * owed rather than done.
    */
   return unproven(base, notes)
