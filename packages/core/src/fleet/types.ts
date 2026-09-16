@@ -7,6 +7,7 @@ import type {
   BeaconAttentionKind,
   SpanDecision,
 } from '../events/index.js'
+import type { AgentProcess } from '../state.js'
 import type { LaneManifest, Trespass } from './fences.js'
 import type { LadderRank, Pathology, PathologyKind } from './pathology.js'
 
@@ -92,6 +93,20 @@ export interface Lane {
    */
   declared: { kind: BeaconAttentionKind; at: number; writer: string } | null
   activity: LaneActivity
+  /**
+   * prd-57 ruling 1: the agent processes the process witness placed HERE — a
+   * lane is a place, and these are what is in it.
+   *
+   * Empty on every platform with no process leg built, and empty on every lane
+   * the witness has said nothing about. Empty is therefore never evidence of
+   * absence: `collectors/sessionlog/process-probe.ts`'s third law, that unknown
+   * is never death, is the same rule one layer up. A lane with no actors is a
+   * lane nobody looked at, not a lane nobody is working in.
+   *
+   * One lane may hold several: a conductor and its subagents are separate
+   * actors related by `parentPid`.
+   */
+  actors: AgentProcess[]
 
   // work
   tokens: TokenTotals

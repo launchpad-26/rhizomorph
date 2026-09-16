@@ -53,7 +53,7 @@
 #   A member that becomes ours, or becomes renamed-away, reddens.
 #     <symbol>  <a file that cites it>
 #
-# measured: 2026-09-13 tree=aaf9a50c candidates=2187 renamed-away=40 historical=1 not-ours=70
+# measured: 2026-09-13 tree=aaf9a50c candidates=2187 renamed-away=40 historical=1 not-ours=72
 #   Re-derived at the review of #369, on the tree this actually lands on. The
 #   previous stamp read `a3c5b305`, a tree two rebases old — a stale provenance
 #   claim inside the artefact built to catch stale claims.
@@ -157,6 +157,9 @@ orgId                         docs/user-guide/sessions.md
 orgUuid                       docs/user-guide/sessions.md
 organizationUuid              docs/user-guide/sessions.md
 machineId                     docs/user-guide/sessions.md
+# --- Claude Code's own HOOK names, same reason: its vocabulary, not our shapes ---
+PreToolUse                    packages/core/src/events/workmux.ts
+SessionEnd                    packages/core/src/events/workmux.ts
 # --- spellings this repo's own prose names WITHOUT ever having had them:
 #     hypothetical names a law warns about, or a rejected alternative spelling.
 #     These are the reason arm 2 matches a DECLARATION and not a raw pickaxe —

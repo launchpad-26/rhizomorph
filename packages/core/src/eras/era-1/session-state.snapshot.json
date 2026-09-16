@@ -731,6 +731,7 @@
       "worktreePath": "/repo/rhizomorph__worktrees/194"
     }
   },
+  "processes": {},
   "rd": {
     "overrides": [],
     "overridesByLane": {},

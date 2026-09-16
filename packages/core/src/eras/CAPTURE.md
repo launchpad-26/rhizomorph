@@ -81,6 +81,15 @@ indexed. Era-1 predates the laboratory, so both fold empty and no other key move
 arm; the new fold is the correct meaning of the old log because that log contains
 no measurement, and now says so where a measurement would go.
 
+**Re-blessed 2026-09-15 (prd-57 ruling 1, wave 1).** `SessionState` gained the
+`processes` slice — the process witness's actors, keyed `pid:startedAt`. Both
+eras predate the process collector entirely (it lands in wave 2), so each folds
+to `processes: {}` and no other key moved. Checked by diff, and the diff is
+exactly one line per era. The reducer change is the three new `process.*` arms
+in `reduce.ts`; the new fold is the correct meaning of the old log because
+neither recording contains a process sighting, and now says so where one would
+go.
+
 **Re-blessed 2026-09-10 (prd-55 wave 5, #407).** `SessionState` gained the `rd`
 slice — the R&D hand's patterns, proposals, refusals and overrides (prd55
 rulings 1–4). Era-1 predates the R&D hand, so it folds to `rd`'s empty initial

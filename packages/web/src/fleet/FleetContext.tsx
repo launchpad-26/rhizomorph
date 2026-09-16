@@ -81,6 +81,12 @@ export const FLEET_INPUT_SLICES = [
   // slice the fleet reads has to be a key, or a declared WAITING would not
   // reach the strip until the next beat happened to rebuild for another reason.
   'declared',
+  // prd-57 ruling 1: `buildFleet` reads `state.processes` to place a lane's
+  // actors, so a process sighting is a fact the fleet can read — and a slice
+  // the fleet reads has to be a key, or an agent appearing would not reach the
+  // scene until the next beat rebuilt for some other reason. Same argument as
+  // `declared` above, one witness over.
+  'processes',
 ] as const
 
 export interface FleetProviderProps {
@@ -121,7 +127,7 @@ export function FleetProvider({ children, now, fetchLanes }: FleetProviderProps)
     () => buildFleet(session, { now: clock, manifest }),
     // Spread rather than eleven hand-written lines so the key cannot drift from
     // the list above: FLEET_INPUT_SLICES *is* the key. Constant length by
-    // construction (11 + 2), which is all React requires of a dep array — and
+    // construction (13 + 2), which is all React requires of a dep array — and
     // `FleetContext.test.tsx` pins that length.
     [...FLEET_INPUT_SLICES.map((slice) => session[slice]), clock, manifest],
   )

@@ -1,5 +1,5 @@
 import { createEvent, createIdFactory, type RhizomorphEvent } from '../events/index.js'
-import { createEventFactory } from '../fixtures.js'
+import { createEventFactory, FIXTURE_REPO_PATH } from '../fixtures.js'
 import { reduceAll } from '../reduce.js'
 import { describe, expect, it } from 'vitest'
 import {
@@ -1867,5 +1867,134 @@ describe('Lane.dirtyStatusFailedSince (#606)', () => {
     const fleet = buildFleet(state, { now: NOW })
     expect(laneIn(fleet, 'a').dirtyStatusFailedSince).toBeNull()
     expect(laneIn(fleet, 'a').dirtyStatusFailedForMs).toBeNull()
+  })
+})
+
+// ── a lane carries its actors (prd-57 ruling 1, #516) ─────────────────────────
+
+/**
+ * Review of #553, B4. `actors:` on the lane had NO test: replacing the whole
+ * expression with `[]` left `packages/core` 1375/1375 and `packages/web`
+ * 3541/3541 green. Three decisions live in that one line, each with a reason
+ * written beside it in `buildFleet.ts`, and none of the three was covered.
+ *
+ * Every case below is folded from real events through the real reducer, so the
+ * index is exercised rather than the shape of the object it produces.
+ */
+describe('a lane carries its actors, folded from process events', () => {
+  const WT = `${FIXTURE_REPO_PATH}-wt/feature`
+
+  function fleetWith(events: RhizomorphEvent[]): Fleet {
+    return buildFleet(reduceAll(events), { now: NOW })
+  }
+
+  function laneWithWorktree(f: ReturnType<typeof createEventFactory>) {
+    return f.worktreeDiscovered({ path: WT, branch: 'feature', isMain: false })
+  }
+
+  it('an actor placed in a lane\'s worktree appears on that lane', () => {
+    const f = createEventFactory()
+    const fleet = fleetWith([
+      laneWithWorktree(f),
+      f.processSeen({ pid: 4321, worktreePath: WT, dialect: 'claude', placement: 'rooted' }),
+    ])
+
+    const lane = laneIn(fleet, 'feature')
+    expect(lane.actors.map((actor) => actor.pid)).toEqual([4321])
+    expect(lane.actors[0]?.dialect).toBe('claude')
+  })
+
+  it('two actors in one worktree both land on it — a conductor and its worker', () => {
+    // The bucket branch: the second actor pushes rather than replacing. A map
+    // written `set(path, [actor])` unconditionally keeps only the last one, and
+    // a swarm lane is exactly where more than one actor is normal.
+    const f = createEventFactory()
+    const fleet = fleetWith([
+      laneWithWorktree(f),
+      f.processSeen({ pid: 100, worktreePath: WT, parentPid: null }),
+      f.processSeen({ pid: 200, worktreePath: WT, parentPid: 100 }),
+    ])
+
+    expect(laneIn(fleet, 'feature').actors.map((actor) => actor.pid).sort()).toEqual([100, 200])
+  })
+
+  it('an actor in ANOTHER worktree does not appear on this lane', () => {
+    const f = createEventFactory()
+    const fleet = fleetWith([
+      laneWithWorktree(f),
+      f.worktreeDiscovered({ path: `${FIXTURE_REPO_PATH}-wt/other`, branch: 'other', isMain: false }),
+      f.processSeen({ pid: 4321, worktreePath: `${FIXTURE_REPO_PATH}-wt/other` }),
+    ])
+
+    expect(laneIn(fleet, 'feature').actors).toEqual([])
+    expect(laneIn(fleet, 'other').actors.map((actor) => actor.pid)).toEqual([4321])
+  })
+
+  it('an actor with a NULL worktreePath reaches no lane at all — and crashes nothing', () => {
+    // Windows reaches this for every process: `Win32_Process` exposes no
+    // working directory. The skip is a `continue` in the index loop, and the
+    // failure it prevents is a `null` key bucketing every unplaceable actor
+    // together and handing that bucket to whichever lane also has no path.
+    const f = createEventFactory()
+    const fleet = fleetWith([
+      laneWithWorktree(f),
+      f.processSeen({ pid: 4321, worktreePath: null, placement: 'unknown' }),
+    ])
+
+    expect(laneIn(fleet, 'feature').actors).toEqual([])
+    for (const lane of fleet.lanes) expect(lane.actors).toEqual([])
+  })
+
+  it('a placeless actor does not land on a PLACELESS LANE — the null bucket the guard exists to prevent', () => {
+    // The case above asserts the right behaviour and does not exercise the
+    // guard: its only lane has a path, so a placeless actor misses it whether
+    // the `continue` is there or not. Certified — replacing BOTH guards with a
+    // `String(...)` key leaves `fleet` + `selectors` 553/553 green (review of
+    // #553, round 2).
+    //
+    // This is the failure the comment beside the skip actually names, and it
+    // needs the other half: a lane whose own `worktreePath` is null. That is
+    // not hypothetical — `Lane.worktreePath` is `string | null`, and a lane
+    // built from telemetry the git collector never found a home for keeps it
+    // null (`buildFleet.ts`, the `claim` step). Pair that with Windows, where
+    // EVERY actor is placeless, and a single orphan lane collects the entire
+    // fleet's processes.
+    const f = createEventFactory()
+    const fleet = fleetWith([
+      laneWithWorktree(f),
+      f.llmUsage({ lane: 'orphan', branch: null, worktreePath: null, sessionId: 'sess-orphan' }),
+      f.processSeen({ pid: 4321, worktreePath: null, placement: 'unknown' }),
+    ])
+
+    const placeless = fleet.lanes.filter((lane) => lane.worktreePath === null)
+    // The control: without a placeless lane this test asserts nothing, which is
+    // exactly how the case above passes while its guard is gone.
+    expect(placeless.length, 'no placeless lane was built — this test would be vacuous').toBeGreaterThan(0)
+    for (const lane of placeless) expect(lane.actors).toEqual([])
+  })
+
+  it('a GONE actor STAYS on its lane — dropping it would destroy half of ruling 5\'s pair', () => {
+    // The deliberate retention, and the one most likely to be "tidied up" by a
+    // later reader. `crashed` is reached from a `gone` that FOLLOWS a `seen`;
+    // an index that dropped gone actors would remove the first half of that
+    // pair before the raiser ever ran.
+    const f = createEventFactory()
+    const fleet = fleetWith([
+      laneWithWorktree(f),
+      f.processSeen({ pid: 4321, worktreePath: WT }),
+      f.processGone({ pid: 4321, reason: 'absent' }),
+    ])
+
+    const actors = laneIn(fleet, 'feature').actors
+    expect(actors.map((actor) => actor.pid)).toEqual([4321])
+    // And it says so, rather than hiding it: a reader wanting only live actors
+    // filters on `goneAt`, which is a fact this object states.
+    expect(actors[0]?.goneAt).not.toBeNull()
+  })
+
+  it('a lane with no actors carries an empty list, never undefined', () => {
+    const f = createEventFactory()
+    const fleet = fleetWith([laneWithWorktree(f)])
+    expect(laneIn(fleet, 'feature').actors).toEqual([])
   })
 })
