@@ -604,12 +604,22 @@ is native and complete for Linux-side processes and Node reports the platform as
 `linux`. A Windows-side `claude.exe` is not visible from inside WSL, which is the
 row below rather than this one.
 
-**macOS — not built.** The strategy is named and unimplemented: `ps` for the
-command line, and `lsof` for the working directory, which macOS exposes only
-through libproc. Until a real capture of both exists under
-`packages/server/src/collectors/process/fixtures/`, this platform produces no
-process events at all and `doctor` says so, with the capture command as the
-remedy.
+**macOS — built, and it places as well as identifies.** Three base-system
+reads: `ps -o …comm=` for argv[0] and every numeric field, `ps -o …command=`
+for the rest of argv, and `lsof -d cwd` for the working directory, which macOS
+exposes only through libproc. The open question was whether that last one works
+without privilege; the capture settled it — `lsof` answers for every process
+the reader owns, and an agent is always the reader's own user. So this leg has
+Linux's shape rather than Windows', and `doctor` reports `provided` once an
+actor has been seen.
+
+Two things the capture taught that no man page does. `ps -o command=` is argv
+joined by spaces with **no quoting**, and argv[0] of a real session contains a
+space, so a whitespace split reads it as `…/Library/Application` and matches
+nothing — which is why argv[0] comes from `comm`. And because there is no
+quoting, argv[1..] cannot be recovered faithfully at all; only argv[0] is
+exact. See `collectors/process/read-table-macos.ts` and
+[the verification pass](docs/review/2026-09-16-prd57-macos-witness.md).
 
 **Windows (native) — built, and it identifies agents without placing them.**
 `Get-CimInstance Win32_Process` yields the command line, so identification ports
@@ -617,7 +627,8 @@ directly. The working directory does **not**: Windows does not expose another
 process's cwd without native calls into the target. So this leg matches agents
 and declines to place them — and since a lane is a place, a Windows actor reaches
 no lane in this wave. `doctor` reports it `partial` with that reason, which is
-neither the `provided` a built leg usually earns nor the `absent` macOS gets.
+neither the `provided` a complete leg earns nor the `absent` a platform with no
+leg at all would get.
 Placement arrives with the transcript and hook join
 ([prd-57](docs/prds/prd-57-the-universal-witness.md) ruling 3).
 
