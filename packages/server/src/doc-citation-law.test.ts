@@ -2289,14 +2289,55 @@ describe('citation ceiling law: a #NNN citation above the live maximum cannot en
     expect(issueCitationEntries().length).toBeGreaterThan(100)
   })
 
-  it('every excluded directory still trips the detector when the exclusion is bypassed — the exclusion is doing real work, not vacuous', () => {
-    const liveMax = liveMaximum()
+  /**
+   * An exclusion is justified by what the directory IS, not by what it currently holds
+   * (#583; `docs/design-notes/exclusion-vacuity.md` carries the reasoning).
+   *
+   * This assertion used to demand that each excluded directory CURRENTLY absorb a
+   * ceiling violation — `ceilingViolationsIn(...).length > 0`. That claim rots by
+   * construction, and it did: `liveMaximum()` climbs with every merged PR, the highest
+   * citation under `docs/review/` is 579, and when the ceiling passed it the exclusion
+   * stopped absorbing anything and this test went red on an unmodified `main`. Nothing
+   * about the exclusion had changed. The sibling guard one law up is the same shape and
+   * is CORRECT there, because a broken path citation does not depend on a climbing
+   * number — which is exactly how the pattern was borrowed into a place its premise does
+   * not hold.
+   *
+   * What replaces it is the durable half of the same question. An exclusion is
+   * load-bearing when the sweep's own pattern REACHES the directory and the exclusion is
+   * what removes it — so deleting the entry would widen the swept set. That is stable
+   * against a climbing ceiling and still fails for every reason the old form was written
+   * to catch: a directory that was renamed or deleted, and a sweep pattern narrowed until
+   * it no longer reaches one.
+   *
+   * It does NOT assert that a violation is currently absorbed, and deliberately: the
+   * mechanism is already proven non-vacuous against a rigged corpus in the
+   * `ceilingViolationsIn` test above, which cannot rot because it supplies its own input.
+   */
+  it('every excluded directory is still tracked, the sweep reaches it, and the exclusion is what removes it — load-bearing, not vacuous', () => {
+    // Pinned so the loop below cannot pass vacuously (#186 item 6): with EXCLUDED_DIRS
+    // emptied to `[]`, the `for` loop's body never runs and this test still reports
+    // green — 0 iterations is 0 failing assertions.
+    expect(EXCLUDED_DIRS).toEqual(['docs/research/', 'docs/review/', 'docs/prds/'])
+
+    // The sweep's OWN pattern, not one re-derived here. `issueCitationEntries()` walks
+    // `trackedFiles('*.md')` and drops `isExcludedCitingFile`; a pin that re-derives what
+    // it is pinning is not a pin (review of #16, the lesson one law up).
+    const reachedByTheSweep = trackedFiles('*.md')
+    const actuallySwept = new Set(issueCitationEntries().map(({ file }) => file))
+
     for (const dir of EXCLUDED_DIRS) {
-      const files = [...new Set([...trackedFiles(`${dir}*.md`), ...trackedFiles(`${dir}**/*.md`)])]
-      expect(files.length, `${dir} has no markdown files to check`).toBeGreaterThan(0)
-      const entries = files.map((file) => ({ file, text: stripFencedCodeBlocks(readSweptFile(file) ?? '') }))
-      const violations = ceilingViolationsIn(entries, liveMax, new Set())
-      expect(violations.length, `${dir} would trip nothing if scanned — the exclusion is stale`).toBeGreaterThan(0)
+      const under = reachedByTheSweep.filter((file) => file.startsWith(dir))
+      expect(
+        under.length,
+        `${dir} is not reached by the sweep's own file pattern — the exclusion is stale: the directory was renamed or deleted, or the pattern was narrowed until it no longer sees it`,
+      ).toBeGreaterThan(0)
+
+      const leaked = under.filter((file) => actuallySwept.has(file))
+      expect(
+        leaked,
+        `${dir} is reached by the sweep and NOT removed by the exclusion — the exclusion is declared but not wired`,
+      ).toEqual([])
     }
   })
 
