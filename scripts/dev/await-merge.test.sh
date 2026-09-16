@@ -173,7 +173,16 @@ took_under 20
 # left of the deadline, so `--interval` cannot overshoot it. Asserted by the
 # clock, since that is the only channel it has — an unclamped sleep still exits
 # 2 with the same output, thirty seconds later.
-run "the interval never overshoots the deadline" 2 open 377 --wait --timeout 1 --interval 30
+#
+# `--timeout 5`, not 1, and the margin is the whole reason (#394). The loop re-reads
+# the deadline AFTER the poll returns, so at `--timeout 1` this case's entire headroom
+# is one `gh` poll completing inside one second; a loaded box exceeds that, the loop
+# exits after a single poll, and `polled 2` fails having proven nothing about the clamp.
+# Measured with a stub that sleeps: at a 1.2s poll `--timeout 1` polls once and fails,
+# `--timeout 5` polls twice and passes. This buys margin, it does not remove the clock
+# dependency — a poll slower than ~5s fails it again. `took_under 15` still separates
+# clamped (~5s) from unclamped (~30s), so nothing below is weakened.
+run "the interval never overshoots the deadline" 2 open 377 --wait --timeout 5 --interval 30
 saw "deadline reached"
 polled 2
 took_under 15

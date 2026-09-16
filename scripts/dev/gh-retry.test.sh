@@ -89,7 +89,7 @@ esac
 MOCK
 chmod +x "$tmp/bin/gh"
 
-fresh() { GH_LOG="$tmp/log.$1"; export GH_LOG; : >"$GH_LOG"; calls() { wc -l <"$GH_LOG"; }; }
+fresh() { GH_LOG="$tmp/log.$1"; export GH_LOG; : >"$GH_LOG"; calls() { wc -l <"$GH_LOG" | tr -d ' '; }; }
 
 echo "── gh-retry.sh: the transient fault ──"
 
@@ -186,11 +186,11 @@ echo "── gh-retry.sh: output fidelity — bytes out must equal bytes in ─�
 
 fresh newlines; export GH_MODE=multi-trailing-newline
 "$SCRIPT" api rate_limit >"$tmp/raw.newlines" 2>/dev/null
-is  "ALL trailing newlines survive, not just one" 4 "$(wc -c <"$tmp/raw.newlines")"
+is  "ALL trailing newlines survive, not just one" 4 "$(wc -c <"$tmp/raw.newlines" | tr -d ' ')"
 
 fresh nul; export GH_MODE=has-nul-byte
 "$SCRIPT" api rate_limit >"$tmp/raw.nul" 2>/dev/null
-is  "an embedded NUL byte survives, not dropped" 4 "$(wc -c <"$tmp/raw.nul")"
+is  "an embedded NUL byte survives, not dropped" 4 "$(wc -c <"$tmp/raw.nul" | tr -d ' ')"
 
 fresh order; export GH_MODE=out-then-err
 out=$("$SCRIPT" api rate_limit 2>&1)
