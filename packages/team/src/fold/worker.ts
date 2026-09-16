@@ -250,3 +250,212 @@ export async function runOnce(deps: FoldDeps): Promise<FoldResult> {
     }
   }
 }
+
+/**
+ * THE SUPERVISOR — what actually calls {@link runOnce} in the deployment (#564).
+ *
+ * `runOnce` shipped complete in #373 and **nothing called it**. The ingest route journalled
+ * durably, `startTeamServer` exposed an `onBatch` seam documented as *"Wakes the fold worker"*,
+ * and `deploy/serve.ts` passed no `onBatch` — so every batch was accepted, fsynced, acked, and
+ * never folded. Measured on the real host by #514's drill: two 202s with incrementing
+ * `journalSeq`, 572 bytes in `/data/journal/ingest.log`, and `select count(*) from events` = 0
+ * after an 8 s wait. Unfolded, not lost — which is why a drain from position 0 recovers it.
+ *
+ * ## ONE WORKER, IN THE APP PROCESS (prd-51's 2026-09-16 amendment)
+ *
+ * The amendment rules that the fold runs on the in-process seam and that #564 does not get
+ * `compose.yml`. The mechanical reason is in `cursor.ts`: `writeCursor` is tmp-then-rename with
+ * **no lock of any kind** — no `flock`, no O_EXCL, no pid file. Two processes folding the same
+ * journal would each compute a low-water mark from its own read and rename over the other's, so
+ * a second compose service is not a scaling knob, it is a cursor corruption. `ADR-0056` carries
+ * the decision and the consequence: **this deployment may not run two app replicas** until
+ * something elects a leader.
+ *
+ * ## THE DRAIN LOOPS ON THE CURSOR, NEVER ON THE RECORD COUNT
+ *
+ * `runOnce` returns `ok: true` with `records > 0` and the cursor **unmoved** when every group
+ * refuses at its first new record — that is its documented `refused` state, not an error. So a
+ * loop written `while (result.records > 0)` spins forever on one malformed line, which is the
+ * exact input `worker.test.ts` already keeps around. The loop condition is therefore **strict
+ * advance of the cursor**, and the case that would otherwise hang is a test below.
+ *
+ * ## WHY IT COALESCES
+ *
+ * `wake()` is wired to `notify`, which fires on the ingest hot path once per accepted batch. A
+ * burst of batches must not start a fold each: they would read the same journal concurrently and
+ * race the cursor exactly as two processes would. At most one pass runs; a wake arriving during
+ * one sets `dirty` and is satisfied by a single follow-up pass, however many wakes arrived.
+ *
+ * `wake()` also never throws and never returns a promise. A fold failure must not become a
+ * refused batch — that would invert ruling 4, which puts durability at the journal and lets the
+ * fold be retried.
+ */
+
+export interface FoldWorkerDeps extends FoldDeps {
+  /** Injected so tests never sleep on a real timer. Defaults to `setTimeout`. */
+  readonly setTimer?: ((fn: () => void, ms: number) => unknown) | undefined
+  readonly clearTimer?: ((handle: unknown) => void) | undefined
+  /** Every pass's result, in order — the operator's log, and the tests' pass counter. */
+  readonly onResult?: ((result: FoldResult) => void) | undefined
+  /** Re-armed after each drain settles. `0` disables the tick: wake and boot drain only. */
+  readonly tickMs?: number | undefined
+}
+
+export interface FoldWorker {
+  /** Fold until the cursor stops moving. Safe to call concurrently — it coalesces. */
+  drain(): Promise<void>
+  /** Wake the worker. Never throws and never returns a promise: it is a `notify` callback. */
+  wake(): void
+  /** Stop the tick and await whatever is in flight. */
+  stop(): Promise<void>
+}
+
+export function startFoldWorker(deps: FoldWorkerDeps): FoldWorker {
+  /**
+   * `Number.isFinite`, not just `> 0` (#564, found at verification).
+   *
+   * `Number('5s')` is `NaN`, `NaN <= 0` is **false**, and `setTimeout(fn, NaN)` is clamped by
+   * Node to 1 ms — so a plausible operator typo in `RZ_TEAM_FOLD_TICK_MS` turned the safety tick
+   * into a ~1 ms loop re-walking the WHOLE journal from byte 0 each time, on a file ADR-0046
+   * already records as growing without bound. Measured: 145 drains in 200 ms. The runbook invites
+   * operators to set this variable, so the guard belongs here rather than only at the caller.
+   */
+  const requested = deps.tickMs ?? 0
+  const tickMs = Number.isFinite(requested) ? requested : 0
+  const setTimer = deps.setTimer ?? ((fn: () => void, ms: number): unknown => setTimeout(fn, ms))
+  const clearTimer = deps.clearTimer ?? ((handle: unknown): void => clearTimeout(handle as ReturnType<typeof setTimeout>))
+
+  /**
+   * ONE LOOP, A DIRTY FLAG, AND A LIST OF WAITERS.
+   *
+   * The first version of this coalesced by chaining onto the in-flight promise and re-entering
+   * `drain()`. It spun: the re-entry set `dirty` unconditionally, so each follow-up pass
+   * scheduled another one and the suite pinned a core. The `while (dirty)` loop below cannot do
+   * that — `dirty` is cleared at the TOP of each iteration, so N wakes arriving during one pass
+   * buy exactly one more pass, and a pass during which nothing wakes ends the loop.
+   */
+  let running = false
+  let dirty = false
+  let waiters: (() => void)[] = []
+  let stopped = false
+  let timer: unknown = null
+  let loop: Promise<void> = Promise.resolve()
+
+  /**
+   * A SUBSCRIBER THAT THROWS MUST NOT STOP THE FOLD.
+   *
+   * `runOnce` catches its own failures and returns `ok: false`, so nothing INSIDE a pass
+   * rejects — but `onResult` is the caller's code, called outside it, and `deploy/serve.ts`
+   * passes one that writes to the console. Unguarded, its exception escapes the pass, rejects
+   * the loop promise and surfaces at `stop()`, taking the worker down over a log line. Found by
+   * the test below, which was vacuous until it was pointed at this path instead of at a
+   * storage failure.
+   */
+  function report(result: FoldResult): void {
+    if (deps.onResult === undefined) return
+    try {
+      deps.onResult(result)
+    } catch {
+      // Deliberately swallowed, and deliberately not logged: the thing that failed IS the log.
+    }
+  }
+
+  /** One pass: fold until the cursor stops advancing. Never throws — `runOnce` never does. */
+  async function pass(): Promise<void> {
+    let previous = readCursor(deps.cursorPath).seq
+    for (;;) {
+      const result = await runOnce(deps)
+      report(result)
+      // A journal-level failure ends this pass. The worker stays alive: the next wake or tick
+      // retries, and the cursor has not moved, so nothing is skipped.
+      if (!result.ok) return
+      if (result.cursor <= previous) return
+      previous = result.cursor
+    }
+  }
+
+  async function run(): Promise<void> {
+    running = true
+    try {
+      do {
+        dirty = false
+        await pass()
+      } while (dirty)
+    } finally {
+      running = false
+      const settled = waiters
+      waiters = []
+      for (const resolve of settled) resolve()
+      // ARMED HERE, which is the only place that cannot precede a drain. See `arm()`.
+      arm()
+    }
+  }
+
+  function drain(): Promise<void> {
+    // STOPPED IS FINAL (#564, found at verification). `stopped` used to be read only by `arm()`,
+    // so a `wake()` arriving after `stop()` resolved started a fresh pass — reachable from
+    // `serve.ts`, whose shutdown stops the worker BEFORE closing the server, then ends the sql
+    // connection underneath it.
+    if (stopped) return Promise.resolve()
+    // Set BEFORE the running check, so a wake landing in the last microtask of a pass is not lost.
+    dirty = true
+    const waited = new Promise<void>((resolve) => waiters.push(resolve))
+    if (!running) {
+      // The returned promise is `waited`, not `loop`, so `loop` needs its own rejection handler:
+      // an unhandled rejection kills the process, and `run()` is not as total as it looks —
+      // `runOnce` writes the cursor outside its own try/catch.
+      loop = run()
+      loop.catch(() => undefined)
+    }
+    return waited
+  }
+
+  /**
+   * THE TICK IS ARMED AFTER THE FIRST DRAIN, NEVER AT CONSTRUCTION (#564, found at verification).
+   *
+   * It used to be armed in this function's body. `deploy/serve.ts` constructs the worker BEFORE
+   * `startTeamServer`, and that call re-runs the migration preflight and tops up the monthly
+   * partitions before it listens — so with the production default of 5000 ms, any startup slower
+   * than five seconds fired a full fold pass before the partitions existed. On the first boot of
+   * a new month that pass inserts rows with no partition to land in, fails closed and logs. It
+   * self-heals, but it makes the boot-drain ordering ADR-0056 calls load-bearing a thing the code
+   * defeated on its own, with no refactor required.
+   *
+   * Arming from the drain's completion path instead means the first tick cannot precede the first
+   * drain — which is the boot drain — and the steady-state behaviour is unchanged.
+   */
+  function arm(): void {
+    if (stopped || tickMs <= 0) return
+    // Never two timers: `run()` arms on every completion, and a tick-triggered drain completes
+    // like any other, so without this a tick would leave its own timer behind each round.
+    if (timer !== null) clearTimer(timer)
+    timer = setTimer(() => {
+      timer = null
+      void drain().catch(() => undefined)
+    }, tickMs)
+  }
+
+  return {
+    drain,
+    wake(): void {
+      dirty = true
+      void drain().catch(() => undefined)
+    },
+    async stop(): Promise<void> {
+      stopped = true
+      if (timer !== null) clearTimer(timer)
+      timer = null
+      /**
+       * ONE await, and the reason it is enough is `stopped` rather than luck.
+       *
+       * This was `while (running) await loop`, guarding against `drain()` reassigning `loop`
+       * mid-stop. It cannot: `drain()` returns early once `stopped` is set, and `loop` is only
+       * assigned when nothing is running — so the value captured here is the last `run()` there
+       * will be. Delta verification showed the loop form untestable, reverting it to a single
+       * await left 95/95 green, and machinery whose necessity cannot be demonstrated is worse
+       * than none: it reads as a guarded race to the next person and guards nothing.
+       */
+      await loop.catch(() => undefined)
+    },
+  }
+}

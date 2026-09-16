@@ -235,7 +235,7 @@ describe('case 16 — atomicity is per migration, and a run resumes', () => {
 })
 
 describe('case 17 — the walk really reads a directory', () => {
-  it('reads the five tracked migrations that ship with this package', () => {
+  it('reads the six tracked migrations that ship with this package', () => {
     const files = readMigrationDir()
     expect(Array.isArray(files)).toBe(true)
     expect(Array.isArray(files) ? files.map((f) => f.id) : []).toEqual([
@@ -244,6 +244,7 @@ describe('case 17 — the walk really reads a directory', () => {
       '0003_roles_rls',
       '0004_events_dedup',
       '0005_ingest_keys',
+      '0006_viewer_role_membership',
     ])
     // Not a glob that matched nothing: the bodies are real SQL from real files.
     expect(Array.isArray(files) ? files[0]?.sql : '').toContain('PARTITION BY RANGE (ts)')

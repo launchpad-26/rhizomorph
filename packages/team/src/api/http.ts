@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Fetch } from '../auth/github-app.js'
 import { type CallbackRequest, type SignInResponse, handleGithubCallback, handleSignInStart } from '../auth/signin.js'
 import type { TeamConfig } from '../config/config.js'
+import { type Question, handleQuestion } from '../view/questions.js'
 import { INGEST_KEY_HEADER, handleIngest } from '../ingest/handle.js'
 import type { Journal } from '../journal/journal.js'
 import { type IngestKeyVerdict, resolveIngestKeyCheck } from '../keys/verify.js'
@@ -112,6 +113,15 @@ import { type RouteDeclaration, matchRoute, methodNotAllowedBody, notFoundBody }
  */
 
 export const INGEST_PATH = '/v1/rhizomorph/ingest'
+/**
+ * The three questions (#557). Fixed paths and `?project=`, not a path parameter:
+ * `matchRoute` is exact-string and `INGEST_PATH`'s middle segment is the product
+ * name rather than a project, so a `:project` segment would be a new grammar for
+ * one feature. The project is named the same way ingest names it — explicitly.
+ */
+export const WHERE_PATH = '/v1/rhizomorph/where'
+export const COST_PATH = '/v1/rhizomorph/cost'
+export const STUCK_PATH = '/v1/rhizomorph/stuck'
 export const SIGNIN_START_PATH = '/auth/github/start'
 export const CALLBACK_PATH = '/auth/github/callback'
 
@@ -131,6 +141,9 @@ export const TABLE = [
   { method: 'POST', path: INGEST_PATH, methodHint: 'a batch is POSTed' },
   { method: 'GET', path: SIGNIN_START_PATH, methodHint: 'a member starts sign-in by GET' },
   { method: 'GET', path: CALLBACK_PATH, methodHint: 'GitHub returns a member here by GET' },
+  { method: 'GET', path: WHERE_PATH, methodHint: 'a member reads where work is by GET' },
+  { method: 'GET', path: COST_PATH, methodHint: 'a member reads what it costs by GET' },
+  { method: 'GET', path: STUCK_PATH, methodHint: 'a member reads who is stuck by GET' },
 ] as const satisfies readonly RouteDeclaration[]
 
 export interface TeamListenerDeps {
@@ -138,10 +151,34 @@ export interface TeamListenerDeps {
   /** Wakes the fold worker. Called AFTER the fsync and BEFORE the 202, exactly once per accepted batch. */
   readonly notify: (seq: number) => void
   readonly now: () => number
-  readonly storage: Pick<TeamStorage, 'findIngestKey'>
+  readonly storage: Pick<TeamStorage, 'findIngestKey' | 'readSpendByDay' | 'readLaneState' | 'readCollisions'>
   readonly config: TeamConfig
   readonly fetch: Fetch
   readonly onError?: ((message: string) => void) | undefined
+}
+
+/**
+ * The three questions' writer. HTML, not JSON, so it cannot go through {@link send}.
+ *
+ * The operator note never reaches the wire, matching `serveIngest`'s discipline: a membership
+ * failure's text names a token endpoint and a host, and the caller it refuses is by definition
+ * someone this server has not established is a member.
+ */
+async function writeView(
+  deps: TeamListenerDeps,
+  response: ServerResponse,
+  question: Question,
+  request: IncomingMessage,
+  query: URLSearchParams,
+): Promise<void> {
+  const view = await handleQuestion(
+    { storage: deps.storage, config: deps.config, fetch: deps.fetch, now: deps.now },
+    question,
+    { cookieHeader: request.headers.cookie, project: query.get('project') ?? undefined },
+  )
+  if (view.operatorNote !== undefined) deps.onError?.(view.operatorNote)
+  response.writeHead(view.status, view.headers)
+  response.end(view.html)
 }
 
 function send(response: ServerResponse, status: number, body: unknown): void {
@@ -293,6 +330,15 @@ export function createTeamListener(deps: TeamListenerDeps) {
         return
       case SIGNIN_START_PATH:
         writeSignIn(deps, response, handleSignInStart(signInDeps))
+        return
+      case WHERE_PATH:
+        await writeView(deps, response, 'where', request, query)
+        return
+      case COST_PATH:
+        await writeView(deps, response, 'cost', request, query)
+        return
+      case STUCK_PATH:
+        await writeView(deps, response, 'stuck', request, query)
         return
       case CALLBACK_PATH: {
         const callback: CallbackRequest = {
