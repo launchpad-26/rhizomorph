@@ -362,6 +362,27 @@ describe('shell suite law: every scripts/dev/*.test.sh runs in the vitest suite 
     expect(discoverShellTests('scripts/dev/this-pattern-matches-nothing-*.test.sh')).toEqual([])
   })
 
+  // A floor of "more than zero" constrains SHELL_TESTS from below and nothing constrains it
+  // from above, so every check downstream of discovery — the per-file `it()`s, `results.size`,
+  // the totals — agrees with whatever discovery returned rather than with the tree. Mutation
+  // (review of #575): `.slice(1)` on the REGISTRATION loop reddens (`results.size` 7 vs 8), but
+  // `.slice(1)` on `discoverShellTests` itself goes green at 19 tests instead of 20 — a script
+  // drops out of the suite entirely and nothing says so, which is the #209 "fell out of the
+  // pass silently" class this law exists to close, reappearing one level up. So the pathspec is
+  // cross-checked against a SECOND, independent derivation: list everything tracked under
+  // scripts/dev/ and filter by suffix in JS. Two mechanisms that can only agree by both being
+  // right.
+  it('the glob agrees with an independent listing of scripts/dev/ — discovery itself cannot quietly shrink', () => {
+    const independently = execFileSync('git', ['ls-files', 'scripts/dev/'], { cwd: REPO_ROOT, encoding: 'utf8' })
+      .split('\n')
+      .filter((line) => line.endsWith('.test.sh'))
+      .sort()
+    expect(
+      SHELL_TESTS,
+      `git ls-files '${SHELL_TEST_GLOB}' and an independent suffix filter over scripts/dev/ disagree — the glob constant has been narrowed, or discovery is dropping entries`,
+    ).toEqual(independently)
+  })
+
   it(`discovers at least one shell test under '${SHELL_TEST_GLOB}'`, () => {
     expect(
       SHELL_TESTS.length,
