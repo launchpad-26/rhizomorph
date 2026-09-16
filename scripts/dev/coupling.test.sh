@@ -18,6 +18,11 @@
 # coupling section still work, using the file's own parsing rules — the same
 # `${line%%#*}` / `${line#*#}` split fence-lint.sh does, so a divergence there
 # shows up here rather than in a dispatch.
+#
+# This is the fast, hand-run path (prd-54 ruling 1). The check that runs without
+# anyone remembering it — every quoted assertion literal and every backticked
+# path citation, over every entry — is packages/server/src/coupling-registry-law.test.ts,
+# which this script's presence checks are ported into and must agree with exactly.
 set -uo pipefail
 
 root=$(git rev-parse --show-toplevel) || exit 2

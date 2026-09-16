@@ -401,7 +401,8 @@ do-not-approve.
 ## Before you commit
 
 Run, in your own worktree: `npm run typecheck`, `npm run lint`, and
-`VITEST_MAX_WORKERS=6 npm test`. That is the whole of what a lane runs. Do
+`VITEST_MAX_WORKERS=6 npm test` — plus, when you have touched one of them, the
+`scripts/dev/*.test.sh` suites directly, which no other gate runs. Do
 **not** run `scripts/gate.sh` — see below for what it actually does.
 
 **Nothing you commit may name a real machine or a real person's home.** This
@@ -495,9 +496,24 @@ local checkout of pushing unreviewed work to `origin/main` — the push was
 rejected only because `main` happened to be 13 commits behind (#408). The lane
 was not being careless; it was doing what this file said.
 
-So: the operator runs it. A lane never does, and never needs to — the three
-commands above are what a lane's work is gated on, and the operator's review is
+So: the operator runs it. A lane never does, and never needs to — the commands
+named above are what a lane's work is gated on, and the operator's review is
 what everything else is gated on.
+
+**Reading the gate is fine. Executing it is landing.** `scripts/gate.sh`'s name
+reads like a test runner. It is not one — it is the landing gate, and running
+it merges to local `main` and pushes. A lane that wants to know how the gate
+invokes something — how it calls a suite, in what order it runs a check — has
+a sanctioned way to find out: read the script, don't run it. `grep -n
+'<thing>' scripts/gate.sh` finds the line, `sed -n '<start>,<end>p'
+scripts/gate.sh` reads the surrounding context. Either one only tells you what
+the script does; neither runs a check, merges a branch, or pushes anything.
+
+What a lane runs instead, in one place: `npm run typecheck`, `npm run lint`,
+`VITEST_MAX_WORKERS=6 npm test`, and the `scripts/dev/*.test.sh` suites
+directly. That answers both of the questions a lane actually has — "does my
+change work" and "how does this get invoked" — without ever executing
+`scripts/gate.sh` itself.
 
 ### A green gate on a branch whose base is not `main` has landed nothing
 

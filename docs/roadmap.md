@@ -369,6 +369,27 @@
   lane canvas paints with the scene's six pure brushes. Left unfiled, described but not numbered:
   atomic launch (prd-53's own open item), recursive forking, and a scoring measure — the R&D
   hand's proposals are judged by the gate, not scored.
+- **prd57 — the universal witness** (`docs/prds/prd-57-the-universal-witness.md`, proposed
+  2026-09-15, *Kind: specifying*): an agent is a process, and a harness may say so itself. The
+  process table becomes the witness that exists before any configuration, so a lane no longer needs
+  a pane ([ADR-0052](adr/0052-the-observer-reads-the-operators-own-agent-processes.md)); the
+  concierge gains a third power, enlisting a harness's user-level configuration once and reversibly
+  ([ADR-0053](adr/0053-the-fourth-hand-may-enlist-a-harness.md)); a harness's own lifecycle hook
+  becomes the third witness of `agent.status`
+  ([ADR-0054](adr/0054-the-hook-is-the-third-witness.md)), which is what finally gives `gone`
+  somewhere to land as `crashed`; and the beacon door moves to one per installation with its
+  anti-fold guarantee restated as a routing rule
+  ([ADR-0055](adr/0055-the-beacon-door-is-per-installation.md)). Re-cuts prd-15 ruling 5's five-rung
+  enrichment ladder into three levels plus enrichments. One instrument, one repo throughout — what
+  is watched does not change here, only how it is seen.
+- **prd58 — the watched machine** (`docs/prds/prd-58-the-watched-machine.md`, proposed 2026-09-15,
+  *Kind: specifying*): the instrument watches the operator, the client shows one repo. Colonies are
+  discovered from where actors actually are rather than chosen at boot, with one recorder per
+  colony under its own slug; the client composes exactly one of them, so
+  `packages/web/src/scene/tripwire-law.test.ts`'s one-colony assertion stays green and untouched and
+  prd-52 ruling 3's supported-size question stays closed. `retarget` narrows to a selector over the
+  watched set rather than being deleted. Depends on prd-57 and is groomed only after its last wave
+  lands.
 
 ## Unclaimed candidates (cohort-facing)
 
