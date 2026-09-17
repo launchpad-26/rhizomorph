@@ -147,16 +147,39 @@ it guards is broken.
 **Wave 2 — the gate says whose failure it is.** Ruling 3, in `scripts/gate.sh`. Blocked on
 wave 1 only in the sense that wave 1 removes the live instance; no shared path.
 
-**Unfiled work implied, described not numbered:** whether any other file is within a small factor
-of the default under the probe, which would make this a class rather than an instance; and
-whether the probe should report each run's slowest tests, so the next one is seen before it
-blocks a landing.
+**Wave 3 — the ledger perf law runs where its clock assertion means something.** Ruling 1, in
+`packages/web/src/panels/ledger/perf.test.ts`. Declared 2026-09-18, after the census below
+answered open question 2: this file asserts a sub-millisecond median and runs inside the load
+batches, which is ruling 1's original ground rather than wave 1's. No shared path with either
+earlier wave.
+
+**Unfiled work implied, described not numbered:** whether the probe should report each run's
+slowest tests, so the next one is seen before it blocks a landing.
 
 ## Open questions
 
 1. **Should the timing set's serial pass have a cost ceiling?** It runs alone and once, so it is
    the cheapest place to put an expensive test — which is also an argument for it growing without
    anyone noticing. **Open, not ruled.**
-2. **Is one file an instance or a class?** Only `tripwire-law.test.ts` blocks the probe today.
-   The margin distribution across the rest of the suite has not been measured, and ruling before
-   measuring is what this corpus keeps recording as the expensive mistake. **Open, not ruled.**
+2. **Is one file an instance or a class?** **ANSWERED 2026-09-18 — an instance, plus one
+   unrelated member of ruling 1's other ground.** The margin census this question asked for was
+   taken after wave 1 landed, alone at `--maxWorkers=1`, worst case per file against the 5000ms
+   default: `panels/ledger/perf.test.ts` 6005-10063ms, `doc-citation-law.test.ts` 1294ms,
+   `world.test.ts` 1084ms, `view/useFrameLoop.test.ts` 526ms, `api/route-class-law.test.ts`
+   under 1000ms — against the 1993ms of `tripwire-law.test.ts`, the file that actually blocked
+   the probe. So the timeout-overrun class has exactly one member and it is fixed; nothing else
+   is within a small factor, and the probe runs green.
+
+   The census did surface something the question did not anticipate, which is why this is not a
+   plain "no": `panels/ledger/perf.test.ts` asserts `rows.every(row => row.afterMs < 1)` — a
+   genuine wall-clock claim — while running inside the load batches under its own 300s budget.
+   Contention cannot time it out; it invalidates what it measures instead. That is ruling 1's
+   ORIGINAL ground, not wave 1's, and it qualifies under the criterion this PRD replaced as
+   readily as under the one it wrote. It is wave 3 above.
+
+   One measurement is recorded as refuted rather than dropped: a review seat reported
+   `view/useFrameLoop.test.ts` failing the probe 2 of 4 runs. It was not reproducible — the
+   probe ran 4/4 green, and that file's slowest case is 526ms, a ~10x margin. The seat's own
+   report put its box at loadavg ~50 with a second seat running, which is far past the probe's
+   ~1.7x. Recorded because a margin that large failing under enough load is still a fact about
+   the machine, and the next census should expect it.
