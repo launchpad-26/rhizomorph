@@ -86,6 +86,49 @@ describe('createColonySupervisor', () => {
     expect(new Set(recorders.map((r) => r.filePath)).size).toBe(2)
   })
 
+  it('does NOT start the ADOPTED colony — the boot already runs it', async () => {
+    /**
+     * The defect the Linux gate caught, kept as a permanent case.
+     *
+     * The boot opens the pinned colony's recorder, collectors and loop before
+     * discovery has run once, and discovery reports that colony every tick
+     * because the pin is always in the watched set. Without the adoption the
+     * supervisor starts a SECOND loop against the same recorder — two writers,
+     * one log, every event recorded twice. It surfaced as a rotated session
+     * whose fresh file held three events where one was expected.
+     */
+    const started: Colony[] = []
+    const bootLoop = fakeLoop()
+    const recorders = createColonyRecorders({
+      dataRoot,
+      pinned: {
+        colony: PINNED,
+        recorder: new SessionRecorder('boot', path.join(sessionDirFor(PINNED_PATH, dataRoot), 'boot.jsonl')),
+      },
+      now: () => 7_000_000,
+    })
+    const bootRecorder = recorders.forColony(PINNED)
+    const supervisor = createColonySupervisor({
+      recorders,
+      adopt: { colony: PINNED, recorder: bootRecorder, pollLoop: bootLoop },
+      startColony: async (c) => {
+        started.push(c)
+        return fakeLoop()
+      },
+      onStartFailed: () => {},
+    })
+
+    await supervisor.sync([PINNED, OTHER])
+
+    expect(started.map((c) => c.id)).toEqual([OTHER.id])
+    expect(supervisor.running().map((e) => e.colony.id).sort()).toEqual([PINNED.id, OTHER.id].sort())
+
+    // And shutdown does not stop a loop it never started: the boot owns that
+    // one, and stopping it here would make `stop()` mean two different things.
+    await supervisor.stop()
+    expect(bootLoop.stopped).toBe(0)
+  })
+
   it('does NOT restart a colony it already runs', async () => {
     // Re-starting drops every collector back to `initialSnapshot()`, which
     // re-emits the whole world as freshly discovered. Discovery reports the

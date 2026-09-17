@@ -151,6 +151,11 @@ export async function runServerCommand(
   })
   const colonies = createColonySupervisor({
     recorders: colonyRecorders,
+    // The pinned colony is already running: this boot opened its recorder, its
+    // collectors and its loop above, and discovery reports it every tick.
+    // Without this the supervisor starts a second loop on the same recorder and
+    // every event is written twice.
+    adopt: { colony: pinnedColony, recorder, pollLoop },
     startColony: async (colony, colonyRecorder) => {
       // One collector SET per colony, not one shared: a collector holds its own
       // snapshots, and two repos sharing one would make each look like the

@@ -63,11 +63,30 @@ export interface ColonySupervisorOptions {
    * — silence here would be indistinguishable from a repo with no agents.
    */
   readonly onStartFailed: (colony: Colony, cause: unknown) => void
+  /**
+   * A colony that is ALREADY running, adopted rather than started.
+   *
+   * The boot path opens the pinned colony's recorder, collectors and loop
+   * before discovery has run once — and discovery then reports that colony
+   * every tick, because the pin is always in the watched set. Without this the
+   * supervisor would start a SECOND loop against the same recorder: two writers
+   * on one log, every event recorded twice.
+   *
+   * Measured, not reasoned: the Linux gate caught it as a rotated session whose
+   * fresh log held three events instead of one.
+   */
+  readonly adopt?: RunningColony
 }
 
 export function createColonySupervisor(options: ColonySupervisorOptions): ColonySupervisor {
   const { recorders, startColony, onStartFailed } = options
   const running = new Map<string, RunningColony>()
+  // Adopted before the first `sync`, so the pinned colony is never started a
+  // second time. Its loop is the boot's own and this never stops it: shutdown
+  // order is the boot's business, and stopping a loop this did not start would
+  // make `stop()` mean two different things.
+  const adopted = options.adopt?.colony.id
+  if (options.adopt !== undefined) running.set(options.adopt.colony.id, options.adopt)
   /** In-flight starts, so two ticks cannot race into two loops for one colony. */
   const starting = new Map<string, Promise<void>>()
 
@@ -110,7 +129,11 @@ export function createColonySupervisor(options: ColonySupervisorOptions): Colony
       // In parallel: each `stop()` awaits its own in-flight tick, and stopping
       // N colonies one after another would take N tick budgets on a shutdown
       // path an operator is watching.
-      const loops = [...running.values()].map((entry) => entry.pollLoop)
+      // Everything this supervisor started — never the adopted loop, which the
+      // boot owns and stops itself.
+      const loops = [...running.values()]
+        .filter((entry) => entry.colony.id !== adopted)
+        .map((entry) => entry.pollLoop)
       running.clear()
       await Promise.all(loops.map((loop) => loop.stop()))
     },
