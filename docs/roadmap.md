@@ -369,8 +369,8 @@
   lane canvas paints with the scene's six pure brushes. Left unfiled, described but not numbered:
   atomic launch (prd-53's own open item), recursive forking, and a scoring measure — the R&D
   hand's proposals are judged by the gate, not scored.
-- **prd57 — the universal witness** (`docs/prds/prd-57-the-universal-witness.md`, proposed
-  2026-09-15, *Kind: specifying*): an agent is a process, and a harness may say so itself. The
+- **prd57 — the universal witness** (`docs/prds/done/prd-57-the-universal-witness.md`, shipped
+  2026-09-17, *Kind: specifying*): an agent is a process, and a harness may say so itself. The
   process table becomes the witness that exists before any configuration, so a lane no longer needs
   a pane ([ADR-0052](adr/0052-the-observer-reads-the-operators-own-agent-processes.md)); the
   concierge gains a third power, enlisting a harness's user-level configuration once and reversibly
