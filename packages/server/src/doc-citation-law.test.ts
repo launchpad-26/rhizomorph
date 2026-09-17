@@ -2289,14 +2289,76 @@ describe('citation ceiling law: a #NNN citation above the live maximum cannot en
     expect(issueCitationEntries().length).toBeGreaterThan(100)
   })
 
-  it('every excluded directory still trips the detector when the exclusion is bypassed — the exclusion is doing real work, not vacuous', () => {
-    const liveMax = liveMaximum()
+  /**
+   * An exclusion is justified by what the directory IS, not by what it currently holds
+   * (#583; `docs/design-notes/exclusion-vacuity.md` carries the reasoning).
+   *
+   * This assertion used to demand that each excluded directory CURRENTLY absorb a
+   * ceiling violation — `ceilingViolationsIn(...).length > 0`. That claim rots by
+   * construction, and it did: `liveMaximum()` rises whenever a newly HIGHEST-numbered PR
+   * merges (it is a `Math.max`, so a later merge of a lower number leaves it unchanged).
+   * The highest citation under `docs/review/` is 579, and when the ceiling passed it the
+   * exclusion stopped absorbing anything and this test went red on an unmodified `main`. Nothing
+   * about the exclusion had changed. The sibling guard one law up is the same shape and
+   * is CORRECT there, because a broken path citation does not depend on a climbing
+   * number — which is exactly how the pattern was borrowed into a place its premise does
+   * not hold.
+   *
+   * What replaces it is the durable half of the same question. An exclusion is
+   * load-bearing when the sweep's own pattern REACHES the directory and the exclusion is
+   * what removes it — so deleting the entry would widen the swept set. That is stable
+   * against a climbing ceiling and fails for a renamed or deleted directory, and for a
+   * sweep pattern narrowed until it no longer reaches one.
+   *
+   * It does NOT assert that a violation is currently absorbed, and deliberately — that is
+   * the property proven unstable above.
+   *
+   * ONE REASON THE OLD FORM CAUGHT IS NOT COVERED BY REACHABILITY ALONE, and the third
+   * assertion below exists for it. Because the old form ran the DETECTOR over each
+   * excluded directory's real files, a detector that silently skipped one excluded prefix
+   * reddened it. Reachability never calls the detector, so it cannot. EXECUTED during the
+   * review of this change: making `ceilingViolationsIn` skip `docs/research/` entries left
+   * the reach/removal assertions green at 75/75 while the old form went red. An earlier
+   * draft of this comment claimed the replacement "still fails for every reason the old
+   * form was written to catch"; that claim was false, and it is the defect class this
+   * PRD is about, written inside the repair for it.
+   *
+   * The control uses a SYNTHETIC entry per directory rather than the corpus, so it proves
+   * the detector reaches each prefix without inheriting the instability that made the old
+   * form rot: it supplies its own input and its own ceiling.
+   */
+  it('every excluded directory is still tracked, the sweep reaches it, and the exclusion is what removes it — load-bearing, not vacuous', () => {
+    // Pinned so the loop below cannot pass vacuously (#186 item 6): with EXCLUDED_DIRS
+    // emptied to `[]`, the `for` loop's body never runs and this test still reports
+    // green — 0 iterations is 0 failing assertions.
+    expect(EXCLUDED_DIRS).toEqual(['docs/research/', 'docs/review/', 'docs/prds/'])
+
+    // The sweep's OWN pattern, not one re-derived here. `issueCitationEntries()` walks
+    // `trackedFiles('*.md')` and drops `isExcludedCitingFile`; a pin that re-derives what
+    // it is pinning is not a pin (review of #16, the lesson one law up).
+    const reachedByTheSweep = trackedFiles('*.md')
+    const actuallySwept = new Set(issueCitationEntries().map(({ file }) => file))
+
     for (const dir of EXCLUDED_DIRS) {
-      const files = [...new Set([...trackedFiles(`${dir}*.md`), ...trackedFiles(`${dir}**/*.md`)])]
-      expect(files.length, `${dir} has no markdown files to check`).toBeGreaterThan(0)
-      const entries = files.map((file) => ({ file, text: stripFencedCodeBlocks(readSweptFile(file) ?? '') }))
-      const violations = ceilingViolationsIn(entries, liveMax, new Set())
-      expect(violations.length, `${dir} would trip nothing if scanned — the exclusion is stale`).toBeGreaterThan(0)
+      const under = reachedByTheSweep.filter((file) => file.startsWith(dir))
+      expect(
+        under.length,
+        `${dir} is not reached by the sweep's own file pattern — the exclusion is stale: the directory was renamed or deleted, or the pattern was narrowed until it no longer sees it`,
+      ).toBeGreaterThan(0)
+
+      const leaked = under.filter((file) => actuallySwept.has(file))
+      expect(
+        leaked,
+        `${dir} is reached by the sweep and NOT removed by the exclusion — the exclusion is declared but not wired`,
+      ).toEqual([])
+
+      // The detector must actually reach this prefix. Synthetic input, synthetic ceiling:
+      // a citation of #2 against a ceiling of 1 is a violation under any correct detector,
+      // so this stays true no matter where the live ceiling has climbed to.
+      expect(
+        ceilingViolationsIn([{ file: `${dir}sentinel.md`, text: 'see #2' }], 1, new Set()),
+        `the detector returns nothing for a synthetic violation under ${dir} — it is blind to this prefix, which the reach/removal checks above cannot see`,
+      ).toEqual([{ file: `${dir}sentinel.md`, num: 2 }])
     }
   })
 
