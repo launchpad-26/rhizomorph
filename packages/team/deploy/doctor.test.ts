@@ -11,19 +11,24 @@ import {
   ENV_GITHUB_CLIENT_SECRET,
   ENV_GITHUB_INSTALLATION_ID,
   ENV_GITHUB_ORG,
+  ENV_MIGRATIONS_DIR,
   resolveTeamConfig,
 } from '../src/config/config.js'
 import { writeCursor } from '../src/fold/cursor.js'
 import { encodeFrame } from '../src/journal/format.js'
 import { ENV_INGEST_KEY_SHA256, ENV_PROJECT } from '../src/keys/seed.js'
-import type { AppliedMigration, IngestKeyRow } from '../src/storage/contract.js'
+import type { AppliedMigration, IngestKeyRow, RlsTable, RoleMembership } from '../src/storage/contract.js'
+import { HEALTHY_RLS_TABLES } from '../src/storage/ports/catalog/fake.js'
 import { readMigrationDir } from '../src/migrations/runner.js'
 import {
   type DoctorCheck,
   type DoctorReport,
   type DoctorStorage,
   FOLD_LAG_WARN_RECORDS,
+  ownerMembershipsGranted,
+  reapplyRemedy,
   renderDoctorReport,
+  rolesCreatedByMigrations,
   runDoctor,
 } from './doctor.js'
 import { ENV_FOLD_TICK_MS, ENV_GITHUB_APP_PRIVATE_KEY_PATH, ENV_JOURNAL_DIR } from './report.js'
@@ -61,6 +66,21 @@ function appliedRows(): AppliedMigration[] {
   return discovered.map((f) => ({ id: f.id, checksum: f.checksum, appliedAt: '2026-09-01T00:00:00.000Z' }))
 }
 
+/** The owner a healthy compose deployment connects as. Superuser, as POSTGRES_USER is. */
+const OWNER = 'rzowner'
+
+/**
+ * Every role a live PostgreSQL 18.4 holds with the tracked migrations applied —
+ * the sixteen predefined `pg_*` roles are ELIDED to one here only because this
+ * file needs a realistic non-empty baseline, not a catalogue.
+ *
+ * It matters that this is non-empty and wider than the `rz_` set: the doctor
+ * treats an EMPTY `pg_roles` as an unreliable reading rather than as "every role
+ * is missing", and a default of exactly the three would make that arm
+ * indistinguishable from the healthy one.
+ */
+const HEALTHY_ROLES = ['pg_monitor', 'pg_read_all_data', OWNER, 'rz_ingest', 'rz_readonly', 'rz_viewer']
+
 interface FakeOptions {
   readonly applied?: AppliedMigration[]
   readonly key?: IngestKeyRow | null
@@ -68,6 +88,10 @@ interface FakeOptions {
   readonly listThrows?: boolean
   readonly partitionThrows?: boolean
   readonly findThrows?: boolean
+  readonly roles?: string[]
+  readonly rlsTables?: RlsTable[]
+  readonly membership?: Partial<RoleMembership>
+  readonly catalogThrows?: string
 }
 
 function fakeStorage(options: FakeOptions = {}): DoctorStorage & { months: string[] } {
@@ -92,6 +116,18 @@ function fakeStorage(options: FakeOptions = {}): DoctorStorage & { months: strin
         return { keyHash: KEY_HASH, projectId: PROJECT, createdAtMs: Date.UTC(2026, 8, 1), revokedAtMs: null }
       }
       return options.key
+    },
+    async listCatalogRoles(): Promise<string[]> {
+      if (options.catalogThrows !== undefined) throw new Error(options.catalogThrows)
+      return options.roles ?? HEALTHY_ROLES
+    },
+    async listRlsTables(): Promise<RlsTable[]> {
+      if (options.catalogThrows !== undefined) throw new Error(options.catalogThrows)
+      return options.rlsTables ?? [...HEALTHY_RLS_TABLES]
+    },
+    async readRoleMembership(): Promise<RoleMembership> {
+      if (options.catalogThrows !== undefined) throw new Error(options.catalogThrows)
+      return { currentUser: OWNER, isMember: true, isSuperuser: true, ...options.membership }
     },
   }
 }
@@ -147,7 +183,7 @@ function writeJournal(count: number): void {
 }
 
 describe('runDoctor — the happy path', () => {
-  it('eight checks, no FAIL, exit 0', async () => {
+  it('eleven checks, no FAIL, exit 0', async () => {
     writeJournal(3)
     writeCursor(path.join(dir, 'ingest.cursor'), { seq: 3, actors: {} })
     const report = await doctor(fullEnv())
@@ -155,6 +191,9 @@ describe('runDoctor — the happy path', () => {
     expect(report.checks.map((c) => c.id)).toEqual([
       'database',
       'migrations',
+      'catalog-roles',
+      'rls-policies',
+      'viewer-membership',
       'partitions',
       'ingest-key',
       'github-app',
@@ -227,13 +266,13 @@ describe('runDoctor — the happy path', () => {
   }
 })
 
-describe('the database check gates the three that need it', () => {
-  it('an unopenable connection fails once and marks the other three NOT MEASURED', async () => {
+describe('the database check gates the six that need it', () => {
+  it('an unopenable connection fails once and marks the other six NOT MEASURED', async () => {
     const report = await doctor(fullEnv(), null, 'getaddrinfo ENOTFOUND postgres')
 
     expect(byId(report, 'database').status).toBe('fail')
     expect(byId(report, 'database').message).toContain('getaddrinfo ENOTFOUND postgres')
-    for (const id of ['migrations', 'partitions', 'ingest-key']) {
+    for (const id of ['migrations', 'catalog-roles', 'rls-policies', 'viewer-membership', 'partitions', 'ingest-key']) {
       expect(byId(report, id).status).toBe('warn')
       expect(byId(report, id).message).toContain('not measured')
     }
@@ -256,6 +295,9 @@ describe('the database check gates the three that need it', () => {
      * review of #558.
      */
     expect(byId(report, 'migrations').message).toMatch(/^migrations: not measured/)
+    expect(byId(report, 'catalog-roles').message).toMatch(/^role catalog: not measured/)
+    expect(byId(report, 'rls-policies').message).toMatch(/^row level security: not measured/)
+    expect(byId(report, 'viewer-membership').message).toMatch(/^viewer membership: not measured/)
     expect(byId(report, 'partitions').message).toMatch(/^partition window: not measured/)
     expect(byId(report, 'ingest-key').message).toMatch(/^ingest key: not measured/)
     expect(report.checks.filter((c) => c.status === 'fail')).toHaveLength(1)
@@ -654,16 +696,23 @@ describe('the fold cursor', () => {
 })
 
 /**
- * THE EFFECTIVE TICK — and `compose.yml` is why the remedy does not say `.env`.
+ * THE EFFECTIVE TICK — and `compose.yml` is why the remedy is allowed to say `.env`.
  *
- * `RZ_TEAM_FOLD_TICK_MS` is not in the `app` service's `environment:` block, so a `.env` line
- * is a knob connected to nothing. That fact is read out of `compose.yml` here rather than
- * asserted from memory.
+ * This assertion used to be its own negation: `RZ_TEAM_FOLD_TICK_MS` was absent from the `app`
+ * service's `environment:` block, a `.env` line was a knob connected to nothing, and the remedy
+ * had to send the operator into `compose.yml` first. Reading the fact out of `compose.yml`
+ * rather than asserting it from memory is what made #584 redden this file the moment it
+ * forwarded the variable, instead of leaving the advice to rot — which is the whole reason
+ * `report.ts`'s docblock said to read it from there.
+ *
+ * It is kept pointing at `compose.yml` in the new direction for the same reason: if the forward
+ * is ever dropped, the remedy goes back to being advice that cannot be followed, and this is
+ * what notices.
  */
 describe('the fold tick', () => {
-  it('compose does not forward the variable, which is what the remedy is allowed to say', () => {
+  it('compose forwards the variable, which is what the remedy is allowed to say', () => {
     expect(APP_SERVICE).toContain('RZ_TEAM_DATABASE_URL:')
-    expect(APP_SERVICE).not.toMatch(/^\s+RZ_TEAM_FOLD_TICK_MS:/m)
+    expect(APP_SERVICE).toMatch(/^\s+RZ_TEAM_FOLD_TICK_MS:/m)
   })
 
   it('unset: the built-in default, armed', async () => {
@@ -686,7 +735,9 @@ describe('the fold tick', () => {
     expect(check.message).toContain('effective tick is 0ms')
     expect(check.message).toContain('DISABLED')
     expect(check.message).toContain('packages/team/deploy/compose.yml')
-    expect(check.message).toContain('Setting it in deploy/.env ALONE does nothing')
+    expect(check.message).toContain('set RZ_TEAM_FOLD_TICK_MS to a whole number of MILLISECONDS in deploy/.env')
+    // The half of the remedy an operator loses their edit to: `restart` does not re-read `.env`.
+    expect(check.message).toContain('NOT docker compose restart')
   })
 
   it('an explicit 0 is a supported setting, distinguished from the typo', async () => {
@@ -749,6 +800,572 @@ describe('renderDoctorReport', () => {
  * would notice: the sweep laws check that cited PATHS exist, not that quoted OUTPUT is still
  * what the code prints.
  */
+/**
+ * THE LIVE CATALOG CHECKS (#581).
+ *
+ * The state every case here is written against was **measured on a scratch PostgreSQL 18.4** with
+ * all seven tracked migrations applied, not composed from the DDL — including the one that broke
+ * the issue's own wording: `ingest_keys` and `retention_ceilings` enable row level security and
+ * carry ZERO policies on a healthy schema, deliberately, so "every RLS table has a policy" is red
+ * on this deployment and cannot be the check. `HEALTHY_RLS_TABLES` is that measurement.
+ */
+/**
+ * A synthetic migration directory, so a case can state exactly what the derivations have to read.
+ * Module scope because three describes need it: the role derivation, the membership derivation
+ * and the policy derivation are the same mechanism and are exercised the same way.
+ */
+const syntheticDirs: string[] = []
+afterEach(() => {
+  for (const at of syntheticDirs.splice(0)) rmSync(at, { recursive: true, force: true })
+})
+
+function withMigrations(files: Record<string, string>): Record<string, string | undefined> {
+  const at = mkdtempSync(path.join(tmpdir(), 'rz-migrations-'))
+  for (const [name, sql] of Object.entries(files)) writeFileSync(path.join(at, name), sql)
+  syntheticDirs.push(at)
+  return fullEnv({ [ENV_MIGRATIONS_DIR]: at })
+}
+
+describe('role catalog — every rz_ role the migrations create exists', () => {
+  it('is ok when every derived role is present, and names how many it checked', async () => {
+    const report = await doctor(fullEnv())
+    expect(byId(report, 'catalog-roles').status).toBe('ok')
+    expect(byId(report, 'catalog-roles').message).toContain('all 3 rz_ roles')
+    expect(byId(report, 'catalog-roles').message).toContain('rz_ingest, rz_readonly, rz_viewer')
+  })
+
+  /**
+   * #514'S STATE, EXACTLY — and the assertion that the remedy is not the wrong one.
+   *
+   * `_migrations` records `0003_roles_rls` as applied, so "re-run the migrations" is advice that
+   * does nothing. The line has to tell an operator what they actually type, and the negative
+   * assertion is the one that would catch a future edit softening it back.
+   */
+  it('fails naming every absent role, the migration that creates them, and a remedy that is not "re-run the migrations"', async () => {
+    const report = await doctor(fullEnv(), fakeStorage({ roles: ['pg_monitor', 'pg_read_all_data', OWNER] }))
+    const line = byId(report, 'catalog-roles')
+
+    expect(line.status).toBe('fail')
+    expect(line.message).toContain('3 of 3 rz_ roles')
+    expect(line.message).toContain('rz_ingest, rz_readonly, rz_viewer')
+    expect(line.message).toContain('ABSENT from pg_roles')
+    expect(line.message).toContain('0003_roles_rls')
+    expect(line.message).toContain('will NOT re-run')
+    expect(line.message).toContain('0003_roles_rls.sql')
+    expect(line.message).not.toMatch(/Remedy:[\s\S]*docker compose up -d app\b(?!.*changes nothing)/)
+    expect(report.exitCode).toBe(1)
+  })
+
+  /**
+   * THE ISSUE'S "a fourth role added later is covered without editing this", ASSERTED.
+   *
+   * A synthetic migration creating `rz_auditor` beside the three real ones, with the catalog still
+   * holding only the three. Nothing in `doctor.ts` names `rz_auditor`; if the expectation were a
+   * hand-written list this case would be green and the claim would be false.
+   */
+  it('derives the expected roles from the migrations, so a fourth role needs no edit here', async () => {
+    const env = withMigrations({
+      '0001_roles.sql': 'DO $$ BEGIN CREATE ROLE rz_ingest NOLOGIN; CREATE ROLE rz_viewer NOLOGIN; END $$;\nGRANT rz_viewer TO CURRENT_USER;',
+      '0002_auditor.sql': 'DO $$ BEGIN CREATE ROLE rz_auditor NOLOGIN; END $$;',
+    })
+    const report = await doctor(env, fakeStorage({ applied: [] }))
+    const line = byId(report, 'catalog-roles')
+
+    expect(line.status).toBe('fail')
+    expect(line.message).toContain('rz_auditor')
+    expect(line.message).toContain('1 of 3 rz_ roles')
+    expect(line.message).toContain('0002_auditor')
+  })
+
+  /**
+   * A COMMENT IS NOT A DECLARATION. `0003_roles_rls.sql`'s own header contains the words
+   * "CREATE ROLE has no IF NOT EXISTS before PG 16", and `0006`'s quotes `0003`'s prose back at
+   * it. Without the comment strip the derivation reads the argument about the schema as the
+   * schema.
+   */
+  it('ignores CREATE ROLE inside a comment, and says so rather than checking a ghost', async () => {
+    const env = withMigrations({
+      '0001_ghost.sql': '-- CREATE ROLE rz_ghost NOLOGIN, one day\n/* GRANT rz_ghost TO CURRENT_USER */\nCREATE TABLE t (id int);',
+    })
+    const report = await doctor(env, fakeStorage({ applied: [] }))
+    const line = byId(report, 'catalog-roles')
+
+    expect(line.status).toBe('fail')
+    expect(line.message).toContain('no CREATE ROLE rz_* statement was found')
+    expect(line.message).not.toContain('rz_ghost')
+    expect(byId(report, 'viewer-membership').message).toContain('no GRANT rz_* TO CURRENT_USER was found')
+  })
+
+  /**
+   * THE FALSIFIER, PINNED. The issue required this be answered either way: can the check tell
+   * "roles absent" from "roles present but unreadable by this connection"?
+   *
+   * It can, and mechanically rather than by inference. Measured on PostgreSQL 18.4: `pg_roles`,
+   * `pg_policy`, `pg_class` and `pg_auth_members` all carry `=r/` in `relacl` — a SELECT grant to
+   * PUBLIC — and a plain non-superuser with nothing but CONNECT read all four and saw all three
+   * `rz_` roles. So an absent role is a SUCCESSFUL query that does not name it. Revoking that
+   * grant and re-reading gave `permission denied for view pg_roles` — a THROW, not a short list.
+   *
+   * The two findings must therefore be distinguishable in the output, and the `not.toContain`
+   * pairs are what hold that: a future edit that routed the throw into the roles-absent message
+   * would make this red.
+   */
+  it('reports an unreadable catalog as its own finding, never as a missing role', async () => {
+    const report = await doctor(fullEnv(), fakeStorage({ catalogThrows: 'permission denied for view pg_roles' }))
+    const unreadable = byId(report, 'catalog-roles')
+    const absent = await doctor(fullEnv(), fakeStorage({ roles: [OWNER] }))
+
+    expect(unreadable.status).toBe('fail')
+    expect(unreadable.message).toContain('permission denied for view pg_roles')
+    expect(unreadable.message).toContain('UNREADABLE by this connection')
+    expect(unreadable.message).not.toContain('ABSENT from pg_roles')
+    expect(byId(absent, 'catalog-roles').message).not.toContain('UNREADABLE')
+    // …and the other two catalog lines take the same arm rather than reporting a healthy database.
+    expect(byId(report, 'rls-policies').message).toContain('UNREADABLE by this connection')
+    expect(byId(report, 'viewer-membership').message).toContain('UNREADABLE by this connection')
+  })
+
+  /**
+   * AN EMPTY `pg_roles` IS NOT "every role is missing". initdb creates sixteen predefined `pg_*`
+   * roles before anything else exists, so no live cluster is in that state and the honest verdict
+   * is that the reading cannot be trusted.
+   */
+  it('refuses to conclude anything from an empty catalog', async () => {
+    const report = await doctor(fullEnv(), fakeStorage({ roles: [] }))
+    const line = byId(report, 'catalog-roles')
+
+    expect(line.status).toBe('fail')
+    expect(line.message).toContain('returned no rows at all')
+    expect(line.message).toContain('cannot be trusted')
+    expect(line.message).not.toContain('ABSENT from pg_roles')
+  })
+})
+
+describe('row level security — the runtime twin of the law #565 shipped', () => {
+  const forced = (table: string, readers: string[] = []): RlsTable => ({ table, forced: true, policies: 0, readers })
+
+  it('is ok on the measured healthy schema, and names the deny-all tables rather than hiding them', async () => {
+    const line = byId(await doctor(fullEnv()), 'rls-policies')
+    expect(line.status).toBe('ok')
+    expect(line.message).toContain('6 tables enable it')
+    expect(line.message).toContain('4 carry a policy')
+    // The two that legitimately carry none are NAMED, so a green line does not read as
+    // "nothing to see": an operator can tell they were known rather than missed.
+    expect(line.message).toContain('ingest_keys and retention_ceilings')
+    expect(line.message).toContain('deny-all')
+  })
+
+  /**
+   * CLAUSE A ONLY — a FORCEd table with no policy and no grants. The static law's own
+   * `audit_log` case, and EXECUTED against the live catalog: clause A names it, clause B
+   * cannot, because there is no reader to inspect.
+   */
+  it('clause A alone catches a FORCEd table nobody may read, the owner included', async () => {
+    const report = await doctor(
+      fullEnv(),
+      fakeStorage({ rlsTables: [...HEALTHY_RLS_TABLES, forced('audit_log')] }),
+    )
+    const line = byId(report, 'rls-policies')
+
+    expect(line.status).toBe('fail')
+    expect(line.message).toContain('1 table FORCEs row level security and carries NO policy')
+    expect(line.message).toContain('(audit_log)')
+    expect(line.message).toContain('not even the owner')
+    // Clause B has no reader to inspect here, so it must contribute nothing.
+    expect(line.message).not.toContain('SELECT-able by')
+    expect(line.message).not.toContain('reads nothing, forever')
+  })
+
+  /**
+   * CLAUSE B ONLY — `ingest_keys`, unFORCEd with no policy, granted a read to `rz_viewer`.
+   * EXECUTED against the live catalog: exactly the state the static law uses, caught by exactly
+   * the clause it is caught by there. These two cases are what prove the clauses are not
+   * redundant — drop either and one of these ships green.
+   */
+  it('clause B alone catches a grant that reads nothing, forever', async () => {
+    const rlsTables = HEALTHY_RLS_TABLES.map((row) =>
+      row.table === 'ingest_keys' ? { ...row, readers: ['rz_viewer'] } : row,
+    )
+    const line = byId(await doctor(fullEnv(), fakeStorage({ rlsTables })), 'rls-policies')
+
+    expect(line.status).toBe('fail')
+    expect(line.message).toContain('1 table has it enabled with no policy')
+    expect(line.message).toContain('ingest_keys SELECT-able by rz_viewer')
+    expect(line.message).toContain('reads nothing, forever')
+    // Clause A cannot see an unFORCEd table, so its sentence must be absent.
+    expect(line.message).not.toContain('FORCE row level security')
+  })
+
+  /**
+   * BOTH CLAUSES, ONE FINDING. Dropping `events`' policy trips A and B together — EXECUTED. A
+   * naive concatenation would name the table twice under two remedies, which is the four-identical
+   * -ECONNREFUSED-lines failure #558 already fixed one layer up.
+   */
+  it('names a table tripping both clauses once, not twice', async () => {
+    const rlsTables = HEALTHY_RLS_TABLES.map((row) =>
+      row.table === 'events' ? { ...row, policies: 0 } : row,
+    )
+    const line = byId(await doctor(fullEnv(), fakeStorage({ rlsTables })), 'rls-policies')
+
+    expect(line.status).toBe('fail')
+    // Once, under clause A, with its dead grant noted there — never twice under two remedies.
+    expect(line.message.match(/\bevents\b/g) ?? []).toHaveLength(1)
+    expect(line.message).toContain('1 table FORCEs row level security')
+    expect(line.message).toContain('rz_readonly, rz_viewer')
+    expect(line.message).toContain('returns nothing, forever')
+    expect(line.message).not.toContain('it enabled with no policy')
+  })
+
+  /**
+   * THE FLOOR. Both clauses are vacuously satisfied by a database where RLS is enabled nowhere,
+   * which is one step past #514's state — and a check that passes hardest on the emptiest input
+   * is the shape this repo names as its worst.
+   */
+  /**
+   * THE REMEDY NAMES THE MIGRATIONS THAT CREATE A POLICY, NOT THE ONES THAT ENABLE RLS.
+   *
+   * Caught by running this against the live #514 state rather than by reading it. Deriving from
+   * `ENABLE ROW LEVEL SECURITY` named `0005_ingest_keys` and `0007_retention_ceilings` beside
+   * `0003_roles_rls` — both of which enable RLS on their own table and deliberately declare no
+   * policy — so the line sent an operator to run two files that recreate nothing that went
+   * missing. Asserted from both sides, because a `toContain` alone would not have caught it.
+   */
+  it("clause A's remedy names only the migration that creates the policies, not every one that enables RLS", async () => {
+    const line = byId(
+      await doctor(fullEnv(), fakeStorage({ rlsTables: [...HEALTHY_RLS_TABLES, forced('audit_log')] })),
+      'rls-policies',
+    )
+
+    expect(line.message).toContain('0003_roles_rls.sql')
+    expect(line.message).not.toContain('0005_ingest_keys')
+    expect(line.message).not.toContain('0007_retention_ceilings')
+  })
+
+  /**
+   * THE FLOOR'S REMEDY IS THE UNION, AND DELIBERATELY WIDER THAN CLAUSE A'S.
+   *
+   * With nothing RLS-enabled at all, what is gone is the `ENABLE` as well as the policies — so
+   * the file that enables RLS on its own table and declares no policy IS part of the fix here,
+   * where under clause A it was noise. Two arms, two remedies, and this is the case that stops
+   * them being collapsed back into one.
+   */
+  it("the floor's remedy adds the migrations that merely ENABLE, because the ENABLE is gone too", async () => {
+    const line = byId(await doctor(fullEnv(), fakeStorage({ rlsTables: [] })), 'rls-policies')
+
+    expect(line.message).toContain('NO table in this database has it enabled')
+    expect(line.message).toContain('0003_roles_rls.sql')
+    expect(line.message).toContain('0005_ingest_keys.sql')
+    expect(line.message).toContain('0007_retention_ceilings.sql')
+  })
+
+  /**
+   * FINDING 2 — CLAUSE B'S REMEDY MUST NOT BE CLAUSE A'S, because clause A's is FALSE here.
+   *
+   * Measured in verification against the live database: `GRANT SELECT ON ingest_keys TO
+   * rz_viewer` printed *"0003_roles_rls … re-apply that file by hand"*, and
+   * `0003_roles_rls.sql` contains no REVOKE — so the operator runs a file that cannot undo a
+   * stray grant and nothing changes. The same line also claimed *"this is #514's state
+   * exactly"*, which a grant somebody ADDED is not.
+   *
+   * Asserted from both sides. The `not.toContain` pair is the half that reddens if the two
+   * arms are ever collapsed back into one string.
+   */
+  it("clause B's remedy is a decision, not a migration — re-applying one cannot undo a grant", async () => {
+    const rlsTables = HEALTHY_RLS_TABLES.map((row) =>
+      row.table === 'ingest_keys' ? { ...row, readers: ['rz_viewer'] } : row,
+    )
+    const line = byId(await doctor(fullEnv(), fakeStorage({ rlsTables })), 'rls-policies')
+
+    expect(line.status).toBe('fail')
+    expect(line.message).toContain("This is NOT #514's state and no migration fixes it")
+    expect(line.message).toContain('take that SELECT back where it was granted')
+    expect(line.message).toContain('NNNN_slug.sql')
+    expect(line.message).toContain('append-only')
+    // Clause A's remedy must not appear: there is no tracked file to re-apply for this arm.
+    expect(line.message).not.toContain('Re-apply that file by hand')
+    expect(line.message).not.toContain("This is #514's state exactly")
+  })
+
+  /**
+   * BOTH ARMS AT ONCE CARRY BOTH REMEDIES — the case that proves the split is per-finding and
+   * not a single branch that happens to pick one string.
+   */
+  it('a database in both states carries both remedies, each attached to its own finding', async () => {
+    const rlsTables = [
+      ...HEALTHY_RLS_TABLES.map((row) => (row.table === 'ingest_keys' ? { ...row, readers: ['rz_viewer'] } : row)),
+      forced('audit_log'),
+    ]
+    const line = byId(await doctor(fullEnv(), fakeStorage({ rlsTables })), 'rls-policies')
+
+    expect(line.message).toContain('Re-apply that file by hand')
+    expect(line.message).toContain("This is #514's state exactly")
+    expect(line.message).toContain("This is NOT #514's state and no migration fixes it")
+    expect(line.message).toContain('take that SELECT back where it was granted')
+  })
+
+  /**
+   * FINDING 1 — THE EMPTY ARM THIS DERIVATION DID NOT HAVE, and the concrete harm it did.
+   *
+   * With no tracked file containing `CREATE POLICY`, the remedy builder was handed `[]` and
+   * emitted an empty subject and a bare `cat` with NO FILE ARGUMENT — which reads stdin, so an
+   * operator pasting the line gets a pipeline that HANGS. The module header claimed every
+   * derivation had an explicit failing empty arm; this was the one that did not.
+   *
+   * The `not.toMatch` is the assertion that actually pins the harm rather than the wording:
+   * it fails on a `cat` whose next token is a pipe or the end of the string.
+   */
+  it('fails when no tracked migration creates a policy, rather than emitting a cat that hangs', async () => {
+    const env = withMigrations({
+      '0001_tables.sql': 'CREATE TABLE t (id int);\nALTER TABLE t ENABLE ROW LEVEL SECURITY;',
+    })
+    const line = byId(await doctor(env, fakeStorage({ applied: [] })), 'rls-policies')
+
+    expect(line.status).toBe('fail')
+    expect(line.message).toContain('no CREATE POLICY statement was found')
+    expect(line.message).toContain('rebuild the image')
+    expect(line.message, 'a cat with no file argument reads stdin and hangs').not.toMatch(/\bcat\s*(?:\||$)/)
+  })
+
+  it('fails when NO table enables row level security at all', async () => {
+    const line = byId(await doctor(fullEnv(), fakeStorage({ rlsTables: [] })), 'rls-policies')
+
+    expect(line.status).toBe('fail')
+    expect(line.message).toContain('NO table in this database has it enabled')
+    expect(line.message).toContain('0003_roles_rls.sql')
+  })
+})
+
+describe('viewer membership — the owner may become the viewer role', () => {
+  it('is ok when the membership is held, and names the migration that granted it', async () => {
+    const line = byId(await doctor(fullEnv()), 'viewer-membership')
+    expect(line.status).toBe('ok')
+    expect(line.message).toContain(`${OWNER} is a member of rz_viewer`)
+    expect(line.message).toContain('0006_viewer_role_membership')
+  })
+
+  /**
+   * A NON-SUPERUSER NON-MEMBER IS BROKEN NOW. EXECUTED as a plain role:
+   * `ERROR: permission denied to set role "rz_viewer"` — and every signed-in read begins with
+   * that statement (`ports/questions/sql.ts`), so all three view routes fail.
+   */
+  it('fails when the connection is not a member and not a superuser', async () => {
+    const report = await doctor(fullEnv(), fakeStorage({ membership: { isMember: false, isSuperuser: false } }))
+    const line = byId(report, 'viewer-membership')
+
+    expect(line.status).toBe('fail')
+    expect(line.message).toContain('permission denied to set role "rz_viewer"')
+    expect(line.message).toContain('0006_viewer_role_membership.sql')
+    expect(report.exitCode).toBe(1)
+  })
+
+  /**
+   * THE ROLE IS GONE — WHICH A SUPERUSER DOES NOT RESCUE, AND THE LIVE RUN IS WHAT FOUND IT.
+   *
+   * Running the real doctor against the real #514 state (rz_ roles dropped, `_migrations` intact)
+   * reached the superuser arm below and reported *"reads still work TODAY"*. They do not.
+   * EXECUTED on PostgreSQL 18.4: `SET LOCAL ROLE rz_nope` raises `role "rz_nope" does not exist`
+   * for a SUPERUSER too — being allowed to become anybody is not being allowed to become nobody.
+   * A `warn` there was a false reassurance on the exact state this issue exists to catch.
+   *
+   * The `not.toContain` is the half that would redden if the arms were ever reordered back.
+   */
+  it('fails, not warns, when the role itself is absent — even as a superuser', async () => {
+    const report = await doctor(
+      fullEnv(),
+      fakeStorage({ roles: ['pg_monitor', OWNER], membership: { isMember: false, isSuperuser: true } }),
+    )
+    const line = byId(report, 'viewer-membership')
+
+    expect(line.status).toBe('fail')
+    expect(line.message).toContain('does not exist in pg_roles at all')
+    expect(line.message).toContain('a superuser is no exception')
+    expect(line.message).not.toContain('Reads still work TODAY')
+    expect(report.exitCode).toBe(1)
+  })
+
+  /**
+   * FINDING 3 — EVERY DERIVED MEMBERSHIP IS CHECKED, NOT ONLY THE FIRST.
+   *
+   * `ownerMembershipsGranted` sorts by role NAME, and the check read `granted[0]` and stopped.
+   * So a second migration granting `rz_auditor` pushed `rz_viewer` — the role the label names
+   * and the one every view route depends on — out of the only slot ever examined, and the line
+   * reported honestly about `rz_auditor` under the heading "viewer membership". It was an
+   * asymmetry with `checkCatalogRoles` one screen up, which has always checked EVERY derived
+   * role.
+   *
+   * The owner here holds `rz_viewer` and not `rz_auditor`, which is the arrangement that made
+   * the old code look right: it named a real missing membership. The assertion that bites is
+   * the second one — `rz_viewer` must be examined too, and a run that stops at `rz_auditor`
+   * cannot say it is held.
+   */
+  it('checks every derived membership, not just the first by role name', async () => {
+    const env = withMigrations({
+      '0001_roles.sql': 'CREATE ROLE rz_viewer NOLOGIN;\nCREATE ROLE rz_auditor NOLOGIN;',
+      '0002_grants.sql': 'GRANT rz_auditor TO CURRENT_USER;\nGRANT rz_viewer TO CURRENT_USER;',
+    })
+    const storage = fakeStorage({
+      applied: [],
+      roles: ['pg_monitor', OWNER, 'rz_viewer', 'rz_auditor'],
+      membership: {},
+    })
+    // `rz_viewer` is held, `rz_auditor` is not — so a check that stopped at the first sorted
+    // name reports only rz_auditor and never looks at rz_viewer.
+    const held: Record<string, boolean> = { rz_viewer: true, rz_auditor: false }
+    const asked: string[] = []
+    const line = byId(
+      await doctor(env, {
+        ...storage,
+        async readRoleMembership(roleName: string): Promise<RoleMembership> {
+          asked.push(roleName)
+          return { currentUser: OWNER, isMember: held[roleName] === true, isSuperuser: false }
+        },
+      }),
+      'viewer-membership',
+    )
+
+    expect(asked.sort()).toEqual(['rz_auditor', 'rz_viewer'])
+    expect(line.status).toBe('fail')
+    expect(line.message).toContain('rz_auditor')
+    expect(line.message).not.toContain('rz_viewer')
+  })
+
+  it('is ok only when EVERY derived membership is held, and names each with its migration', async () => {
+    const env = withMigrations({
+      '0001_roles.sql': 'CREATE ROLE rz_viewer NOLOGIN;\nCREATE ROLE rz_auditor NOLOGIN;',
+      '0002_grants.sql': 'GRANT rz_auditor TO CURRENT_USER;\nGRANT rz_viewer TO CURRENT_USER;',
+    })
+    const line = byId(
+      await doctor(env, fakeStorage({ applied: [], roles: ['pg_monitor', OWNER, 'rz_viewer', 'rz_auditor'] })),
+      'viewer-membership',
+    )
+
+    expect(line.status).toBe('ok')
+    expect(line.message).toContain('rz_auditor (granted by 0002_grants)')
+    expect(line.message).toContain('rz_viewer (granted by 0002_grants)')
+  })
+
+  /**
+   * A SUPERUSER NON-MEMBER IS LATENT, NOT BROKEN — measured, not conceded.
+   *
+   * EXECUTED: `REVOKE rz_viewer FROM <superuser owner>` and then `SET LOCAL ROLE rz_viewer`
+   * STILL SUCCEEDED. A superuser may SET ROLE to anything whatever its memberships, and
+   * `0006`'s own header names that as the dependence it exists to remove. A `fail` here would be
+   * a line an operator can disprove by using the product, and then stop trusting the other ten.
+   */
+  it('warns rather than fails when the role EXISTS and only superuser is carrying it', async () => {
+    const report = await doctor(fullEnv(), fakeStorage({ membership: { isMember: false, isSuperuser: true } }))
+    const line = byId(report, 'viewer-membership')
+
+    expect(line.status).toBe('warn')
+    expect(line.message).toContain('only because this connection is a superuser')
+    expect(line.message).toContain('latent rather than broken')
+    // A warn is a thing to know, not a thing to block on — and the distinction is the whole point.
+    expect(report.exitCode).toBe(0)
+  })
+})
+
+/**
+ * THE DERIVATIONS THEMSELVES, against the REAL tracked migrations rather than a fixture.
+ *
+ * `doctor.test.ts` already reads the real migration directory for `appliedRows()`, and these two
+ * are the facts every catalog check rests on. If `0003` or `0006` is ever rewritten in a way the
+ * patterns cannot read, this goes red here — beside the migration — rather than silently making
+ * three checks pass on any database at all.
+ */
+describe('the derivations read the shipped migrations', () => {
+  function trackedFiles(): { id: string; sql: string }[] {
+    const discovered = readMigrationDir()
+    if (!Array.isArray(discovered)) throw new Error(discovered.error)
+    return discovered.map((f) => ({ id: f.id, sql: f.sql }))
+  }
+
+  it('derives exactly the three rz_ roles 0003 creates', () => {
+    expect(rolesCreatedByMigrations(trackedFiles())).toEqual([
+      { name: 'rz_ingest', migrationId: '0003_roles_rls' },
+      { name: 'rz_readonly', migrationId: '0003_roles_rls' },
+      { name: 'rz_viewer', migrationId: '0003_roles_rls' },
+    ])
+  })
+
+  it('derives the one membership 0006 grants the owner', () => {
+    expect(ownerMembershipsGranted(trackedFiles())).toEqual([
+      { name: 'rz_viewer', migrationId: '0006_viewer_role_membership' },
+    ])
+  })
+})
+
+/**
+ * THE REMEDY BUILDER'S OWN EMPTY ARM — the belt behind the three braces.
+ *
+ * Every caller has an empty arm that fails before reaching `reapplyRemedy`, so this is
+ * unreachable in a healthy build. It is tested directly rather than left as an untestable
+ * guard, because the cost of its absence was measured and is specific: `cat` with NO FILE
+ * ARGUMENT reads stdin, so an operator pasting the remedy gets a pipeline that HANGS instead of
+ * a fix. A remedy that hangs is worse than one that is merely unhelpful.
+ */
+describe('the remedy builder never emits a command that waits on stdin', () => {
+  const config = resolveTeamConfig({})
+
+  it('an empty migration list yields an image-fault remedy, not a bare cat', () => {
+    const remedy = reapplyRemedy(config, [])
+
+    expect(remedy).toContain('could not name the migration')
+    expect(remedy).toContain('rebuild it')
+    expect(remedy, 'a cat with no file argument reads stdin and hangs').not.toMatch(/\bcat\s*(?:\||$)/)
+    expect(remedy).not.toContain('cat |')
+  })
+
+  it('a non-empty list still names every file, deduplicated and sorted', () => {
+    const remedy = reapplyRemedy(config, ['0006_b', '0003_a', '0003_a'])
+
+    expect(remedy.indexOf('0003_a.sql')).toBeLessThan(remedy.indexOf('0006_b.sql'))
+    expect(remedy.match(/0003_a\.sql/g) ?? []).toHaveLength(1)
+    expect(remedy).toMatch(/cat \S+0003_a\.sql \S+0006_b\.sql \|/)
+  })
+})
+
+/**
+ * REPETITION. Idempotence bugs are invisible to a single-shot test, and every catalog check reads
+ * a collection the fake hands back — a port double that returned its own seed, or a check that
+ * accumulated findings across runs, would pass every case above and drift on the second call.
+ */
+describe('running the doctor three times over one fake does not drift', () => {
+  it('returns the same eleven lines each time', async () => {
+    writeJournal(1)
+    writeCursor(path.join(dir, 'ingest.cursor'), { seq: 1, actors: {} })
+    const storage = fakeStorage()
+    const first = renderDoctorReport(await doctor(fullEnv(), storage))
+    const second = renderDoctorReport(await doctor(fullEnv(), storage))
+    const third = renderDoctorReport(await doctor(fullEnv(), storage))
+
+    expect(second).toBe(first)
+    expect(third).toBe(first)
+    expect(labelsOf(first)).toHaveLength(11)
+  })
+})
+
+const labelsOf = (text: string): string[] =>
+  [...text.matchAll(/^\[(?:ok {2}|warn|FAIL)\] ([a-zA-Z ]+):/gm)].map((m) => m[1] as string)
+
+/**
+ * THE THREE CHECKS #581 SHIPS THAT THE RUNBOOK DOES NOT DOCUMENT — and why this list exists
+ * rather than an edit to `docs/team-server-runbook.md`.
+ *
+ * That file was **removed from #581's fence at regroom**: #584 claims it this wave, and ruling 12
+ * gives a file to the lane that makes an existing string false-or-true rather than to the lane
+ * that wants to add to it. So the three catalog checks ship with no operator-facing prose, the gap
+ * is named on the issue instead of absorbed, and the law above is **restated rather than
+ * weakened**: the runbook's eight labels must still equal the code's, both ways, once the three
+ * exempted ones are set aside. The two cases below then hold the exemption from both ends — every
+ * entry must be a check the doctor emits, and none may already be documented — so the moment #584
+ * or #171 writes one of these into the runbook, this list must shrink or the suite goes red.
+ *
+ * Labels, not ids, because the runbook block carries the rendered line. They are letters and
+ * spaces only: `labelsOf`'s pattern is `[a-zA-Z ]+`, so a hyphen in a check's label would drop the
+ * line from the comparison entirely and the law would pass having compared nothing.
+ */
+const UNDOCUMENTED_CHECK_LABELS = ['role catalog', 'row level security', 'viewer membership']
+
 describe('the runbook block is the output this code produces', () => {
   it('carries the exact invocation, which is the CMD interpreter and this file\'s sibling', () => {
     expect(RUNBOOK).toContain('docker compose exec app node_modules/.bin/tsx packages/team/deploy/doctor.ts')
@@ -766,14 +1383,40 @@ describe('the runbook block is the output this code produces', () => {
     writeCursor(path.join(dir, 'ingest.cursor'), { seq: 1, actors: {} })
     const emitted = renderDoctorReport(await doctor(fullEnv()))
 
-    const labelsOf = (text: string): string[] =>
-      [...text.matchAll(/^\[(?:ok {2}|warn|FAIL)\] ([a-zA-Z ]+):/gm)].map((m) => m[1] as string)
-
     const fenced = RUNBOOK.slice(RUNBOOK.indexOf('[ok  ] database:'))
     const block = fenced.slice(0, fenced.indexOf('```'))
 
-    expect(labelsOf(block)).toEqual(labelsOf(emitted))
+    expect(labelsOf(block)).toEqual(labelsOf(emitted).filter((l) => !UNDOCUMENTED_CHECK_LABELS.includes(l)))
     expect(labelsOf(block)).toHaveLength(8)
+  })
+
+  /**
+   * THE EXEMPTION IS A RATCHET, NOT A HOLE — and these two cases are what make it one.
+   *
+   * The case above used to be a flat `toEqual`, and it is still the law: a ninth check that
+   * lands unmentioned is in `emitted`, in neither the block nor the exemption list, and
+   * reddens. What changed is only which labels the exemption covers, and that set is held
+   * from both sides here so it cannot quietly outlive its reason.
+   */
+  it('every exempted label is a check the doctor actually emits — a stale exemption reddens', async () => {
+    writeJournal(1)
+    writeCursor(path.join(dir, 'ingest.cursor'), { seq: 1, actors: {} })
+    const emitted = labelsOf(renderDoctorReport(await doctor(fullEnv())))
+
+    expect(UNDOCUMENTED_CHECK_LABELS.length).toBeGreaterThan(0)
+    for (const label of UNDOCUMENTED_CHECK_LABELS) {
+      expect(emitted, `${label} is exempted from the runbook law but is not a check`).toContain(label)
+    }
+  })
+
+  it('the runbook does not yet mention them — so documenting one forces the exemption to shrink', () => {
+    const fenced = RUNBOOK.slice(RUNBOOK.indexOf('[ok  ] database:'))
+    const block = fenced.slice(0, fenced.indexOf('```'))
+    for (const label of UNDOCUMENTED_CHECK_LABELS) {
+      expect(block, `${label} IS in the runbook block now — remove it from UNDOCUMENTED_CHECK_LABELS`).not.toContain(
+        label,
+      )
+    }
   })
 
   it('carries no real host, home path or captured machine name', () => {

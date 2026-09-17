@@ -1,3 +1,4 @@
+import type { CatalogPort } from './ports/catalog/port.js'
 import type { EventsPort } from './ports/events/port.js'
 import type { IngestKeysPort } from './ports/ingest-keys/port.js'
 import type { LifecyclePort } from './ports/lifecycle/port.js'
@@ -68,6 +69,7 @@ export type StorageResult<T> = { ok: true; value: T } | { ok: false; error: stri
 // The port surfaces, re-exported at the names every consumer already imports.
 // Alphabetical, one port per line: a wave-9 lane adds one line here and a
 // cherry-pick collision is a both-sides-add resolved mechanically.
+export type { CatalogPort, RlsTable, RoleMembership } from './ports/catalog/port.js'
 export type {
   CollisionDelta,
   EventQuery,
@@ -101,6 +103,7 @@ export type { SettingsPort } from './ports/settings/port.js'
  */
 export type TeamStorage = SettingsPort &
   MigrationsPort &
+  CatalogPort &
   EventsPort &
   IngestKeysPort &
   LifecyclePort &
