@@ -697,8 +697,13 @@ function placeByPid(
   // agent in a subdirectory already produces that subdirectory, and a `cwd`
   // containing an actor's path names an ancestor the actor is not in.
   if (cwd !== undefined) {
+    // `onePath`, not `{ key: cwd }`: the key has to be the WITNESS's path,
+    // because `buildFleet` resolves it against `draft.worktreePath`. Here they
+    // are equal by construction, so it is the same answer — but saying `cwd`
+    // made the containment mutation below unobservable, and it would be an
+    // outright bug the moment the filter stopped being equality.
     const exact = placed.filter((actor) => actor.worktreePath === cwd)
-    if (exact.length > 0) return { key: cwd, joinedBy: 'pid' }
+    if (exact.length > 0) return onePath(exact)
 
     // NO MATCH, and the two things that cause it need opposite answers.
     //
