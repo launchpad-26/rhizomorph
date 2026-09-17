@@ -10,6 +10,7 @@ import {
   recordResume,
   type SessionBootDecision,
 } from '../log/session-log.js'
+import { canonicalize } from '../paths/containment.js'
 import { createRepoRootResolver } from '../paths/repo-root.js'
 import { createColonyRecorders } from '../recorder/colony-recorders.js'
 import { buildApp } from '../server/build-app.js'
@@ -63,7 +64,29 @@ export async function runServerCommand(
     exit(0)
   }
 
-  const repoPath = path.resolve(args.path ?? process.cwd())
+  /**
+   * CANONICAL, not merely absolute — prd-58 ruling 1's identity, at the one
+   * place it is decided.
+   *
+   * `path.resolve` does not follow symlinks and `canonicalize` does, so a raw
+   * `repoPath` here and a canonical root from `createRepoRootResolver` are two
+   * spellings of one repo. Discovery keys the watched set on the resolver's
+   * answer, so the pin would never match the colony its own agents resolve to
+   * and the SAME repository would become two colonies — two recorders, two
+   * poll loops, two recordings, two rows in the selector. That is the exact
+   * disagreement between the selector and the recording that
+   * `colonies.ts`'s "The identity is not new" exists to refuse.
+   *
+   * It is decided here rather than inside discovery because `repoSlug`,
+   * `sessionDirFor` and the stream's frame tag all read this value: canonical
+   * in one of them and raw in another is the same defect one layer down.
+   *
+   * Reached through a symlink on Linux and unconditionally on macOS, where
+   * `os.tmpdir()` is `/var/...` → `/private/var/...`. Falls back to the
+   * resolved spelling when the path cannot be canonicalised at all — a boot
+   * that refused here would refuse a repo `git` is perfectly happy with.
+   */
+  const repoPath = canonicalizeRepoPath(path.resolve(args.path ?? process.cwd()))
   const repoName = path.basename(repoPath)
   const sessionDir = sessionDirFor(repoPath, options.dataRoot ?? defaultDataRoot())
   const ts = now()
@@ -406,4 +429,20 @@ function renderBootLine(decision: SessionBootDecision, sessionId: string, resume
 function defaultWebDistDir(): string {
   const here = path.dirname(fileURLToPath(import.meta.url))
   return path.resolve(here, '..', '..', '..', 'web', 'dist')
+}
+
+/**
+ * The boot's repo path, in the spelling every other reader of it uses.
+ *
+ * `canonicalize` throws on anything that is not `ENOENT` — a permission error
+ * part-way up the tree, an `ELOOP`. A boot must not die for that: the answer is
+ * then simply the resolved path, which is what this value was before prd-58 and
+ * is still correct for every layout without a symlink in it.
+ */
+export function canonicalizeRepoPath(resolved: string): string {
+  try {
+    return canonicalize(resolved)
+  } catch {
+    return resolved
+  }
 }

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { AgentProcess } from '@rhizomorph/core'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { canonicalize } from '../paths/containment.js'
 import { createRepoRootResolver } from '../paths/repo-root.js'
 import { createColonyDiscovery } from './colonies.js'
 import { exec as realExec } from './exec.js'
@@ -57,7 +58,13 @@ function actorAt(pid: number, worktreePath: string): AgentProcess {
 }
 
 beforeAll(async () => {
-  root = await mkdtemp(path.join(tmpdir(), 'prd58-soak-'))
+  // CANONICAL, like the pin `cli/run.ts` hands discovery. `os.tmpdir()` is a
+  // symlink on macOS (`/var/...` → `/private/var/...`), and the root resolver
+  // canonicalises — so a raw spelling here makes `alpha` both the pin and a
+  // separately discovered colony, and the grouping assertion below sees FOUR.
+  // Green on Linux, red on macOS, for a reason that is not about this bench.
+  // `repo-root.test.ts` and `e2e-prd5758.test.ts` already do this.
+  root = canonicalize(await mkdtemp(path.join(tmpdir(), 'prd58-soak-')))
   for (const name of ['alpha', 'beta', 'gamma']) {
     const dir = path.join(root, name)
     await mkdir(dir, { recursive: true })
