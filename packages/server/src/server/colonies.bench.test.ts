@@ -110,7 +110,8 @@ describe('colony discovery — the per-tick cost of watching N repos (prd-58 rul
     const at = (q: number) => warm[Math.min(warm.length - 1, Math.floor(warm.length * q))] ?? 0
 
     const INTERVAL_MS = 2_000
-    // biome-ignore lint/suspicious/noConsole: a bench reports; this is its output.
+    // A bench reports; this is its output. `noConsole` is not enabled for test
+    // files, so a suppression here is one biome itself flags as having no effect.
     console.log(
       [
         `prd-58 discovery · ${colonies.length} colonies from ${dirs.length} placed actors (one linked worktree)`,
