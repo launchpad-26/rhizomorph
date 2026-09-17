@@ -1,5 +1,6 @@
 import type { TeamStorage } from './contract.js'
 import type { SqlLike } from './driver.js'
+import { createCatalogSql } from './ports/catalog/sql.js'
 import { createEventsSql } from './ports/events/sql.js'
 import { createIngestKeysSql } from './ports/ingest-keys/sql.js'
 import { createLifecycleSql } from './ports/lifecycle/sql.js'
@@ -41,7 +42,7 @@ export { toTimestamptz } from './coerce.js'
 export { bindLine, buildMonthlyPartitionDdl, partitionNameFor } from './ports/events/sql.js'
 
 /**
- * The seven ports, spread into one object.
+ * The eight ports, spread into one object.
  *
  * The declared return type is what makes each spread load-bearing: drop one and
  * `tsc` reports TS2322 naming the first method that went missing. Alphabetical,
@@ -50,6 +51,7 @@ export { bindLine, buildMonthlyPartitionDdl, partitionNameFor } from './ports/ev
  */
 export function createPostgresStorage(sql: SqlLike): TeamStorage {
   return {
+    ...createCatalogSql(sql),
     ...createEventsSql(sql),
     ...createIngestKeysSql(sql),
     ...createLifecycleSql(sql),
