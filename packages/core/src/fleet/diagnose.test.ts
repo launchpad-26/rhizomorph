@@ -281,6 +281,26 @@ describe('detectWaiting through diagnose() — the declared voice, byte-exact (p
     expect(found?.since).toBe(NOW - 40_000)
   })
 
+  /**
+   * THE PID JOIN IS VOICED, and this test exists because its absence proved
+   * invisible: with only `joinedBy: 'lane'` fixtures above, collapsing
+   * `joinVoice` to a constant `' (joined by lane)'` left the whole suite green.
+   * Every assertion here read a well-formed input rather than a rendered
+   * difference — the shape prd-57 met five times and then shipped a sixth.
+   *
+   * Both answers are DECLARED. The line does not rank them; it says which key
+   * carried the declaration, because a reader who cannot tell a hook-placed
+   * lane from a writer-named one cannot tell the third witness from the first.
+   */
+  it('(a2) a declaration the hook placed by pid says so — the same fact, a different key', () => {
+    const found = waiting(declaredLane({ declared: { kind: 'waiting', at: NOW - 40_000, writer: WRITER, joinedBy: 'pid' } }))
+    expect(found?.evidence).toBe('beacon (claude-hook) declares waiting 40s ago (joined by pid — the hook named no lane)')
+    // Still certain, and still since the beacon: the join is how it arrived,
+    // never how much it is believed.
+    expect(found?.inferred).toBe(false)
+    expect(found?.since).toBe(NOW - 40_000)
+  })
+
   it('(c1) an organ inferring working never suppresses it — the disagreement is voiced', () => {
     const found = waiting(
       declaredLane({

@@ -376,6 +376,28 @@ describe('selectLaneCondition — the declared voice (prd-27, #283)', () => {
     expect(selectLaneCondition(lane, NOW).why.evidence.fact).toBe(DECLARED_WITH_DISSENT)
   })
 
+  /**
+   * The card's half of the same pin. `condition.ts` renders the declaration
+   * clause for EVERY kind, not just the waiting detector's, so the pid voice
+   * has to be asserted on this surface too — a constant `joinVoice` would
+   * otherwise pass here on every `'lane'` fixture above.
+   */
+  it('a declaration the hook placed by pid reads that way on the card too', () => {
+    const lane = baseLane({
+      activity: 'idle',
+      pathologies: [],
+      declared: { kind: 'working', at: NOW - 40_000, writer: 'claude-hook', joinedBy: 'pid' },
+    })
+    const condition = selectLaneCondition(lane, NOW)
+    expect(condition.label).toBe('idle')
+    expect(
+      condition.why.evidence.fact.endsWith(
+        ' · beacon (claude-hook) declares working 40s ago (joined by pid — the hook named no lane)',
+      ),
+    ).toBe(true)
+    expectHonest(condition)
+  })
+
   it('IDLE with a fresh declared working: the card names the declaration', () => {
     const lane = baseLane({
       activity: 'idle',
