@@ -102,7 +102,7 @@ describe('createColonyRecorders', () => {
   })
 
   it('opening one colony does not touch another', () => {
-    const { recorders, pinnedColony, pinnedRecorder } = make()
+    const { recorders, pinnedRecorder } = make()
     const beforeSession = pinnedRecorder.sessionId
     const beforeFile = pinnedRecorder.filePath
 
