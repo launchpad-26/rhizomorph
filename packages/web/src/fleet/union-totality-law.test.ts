@@ -106,13 +106,21 @@ function unionMembers(file: string, type: string): string[] {
 /**
  * Every string literal in a `const NAME … = [ … ]` array literal.
  *
- * Used for the one list that is not exported. Stops at the first `]` at the
- * start of a line, which is how every array in this tree is formatted, and
- * ignores comment text because the literals it collects are quoted.
+ * Used for the lists that are not exported. Stops at the first `]`, wherever it
+ * falls, and ignores comment text because the literals it collects are quoted.
+ *
+ * It used to require the `]` at the START of a line — "which is how every array
+ * in this tree is formatted", which is not true: `ALARM_RANKS` is one line, and
+ * the counter-example pin below was passing on a read that returned NOTHING
+ * (review of #588). Worse than nothing, on a one-line array that has another
+ * array after it: the old shape ran past the end and returned `LADDER_ORDER` as
+ * 21 members collected from the three declarations following it. A parser that
+ * answers plausibly for a shape it cannot read is the exact vacuity the module
+ * doc above refuses, so it is fixed here rather than in the caller.
  */
 function arrayMembers(file: string, name: string): string[] {
   const source = readFileSync(file, 'utf8')
-  const declaration = new RegExp(`const ${name}[^=]*= \\[([\\s\\S]*?)\\n\\]`, 'm').exec(source)
+  const declaration = new RegExp(`const ${name}[^=]*= \\[([^\\]]*)\\]`, 'm').exec(source)
   if (declaration === null) return []
   return [...(declaration[1] ?? '').matchAll(/'([^']+)'/g)].map((match) => match[1] as string)
 }
@@ -228,12 +236,20 @@ describe('union totality law: a list meant to be total over a closed union cover
     expect(names.some((name) => name.startsWith('ALARM_RANKS'))).toBe(false)
     expect(names.some((name) => name.startsWith('DIAGNOSED_KINDS'))).toBe(false)
 
+    // NON-EMPTY FIRST, both of them: `0 < 4` is true of a list that was never
+    // read, so a partial-ness pin whose read fails reports success having
+    // checked nothing. That is not hypothetical — it is how this test passed
+    // for `ALARM_RANKS` before `arrayMembers` could parse a one-line array
+    // (review of #588), which is the same shape as `fence-lint`'s empty
+    // `## Fence` heading cited in the control above.
     const ladder = unionMembers(CORE_PATHOLOGY, 'LadderRank')
     const alarms = arrayMembers(path.join(WEB_SRC, 'scene', 'salience.ts'), 'ALARM_RANKS')
+    expect(alarms, 'ALARM_RANKS was not read at all — the pin below would pass vacuously').not.toHaveLength(0)
     expect(alarms.length, 'ALARM_RANKS is no longer partial — the module doc argues from it').toBeLessThan(ladder.length)
 
     const kinds = unionMembers(CORE_PATHOLOGY, 'PathologyKind')
     const diagnosed = arrayMembers(CORE_PATHOLOGY, 'DIAGNOSED_KINDS')
+    expect(diagnosed, 'DIAGNOSED_KINDS was not read at all').not.toHaveLength(0)
     expect(diagnosed.length, 'DIAGNOSED_KINDS is no longer partial').toBeLessThan(kinds.length)
   })
 })
