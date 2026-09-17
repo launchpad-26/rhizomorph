@@ -2444,6 +2444,19 @@ describe('reduce — beacon.received folds declared attention per lane (prd-27 w
 
     expect(after.declared['/repo/wt-a/packages/core']).toMatchObject({ joinedBy: 'pid' })
     expect(after.declared['/repo/wt-a']).toBeUndefined()
+
+    // And the OTHER direction, because one fixture only catches one of them:
+    // here the cwd is the shorter path, so `actor.worktreePath.startsWith(cwd)`
+    // would match both and decline where equality answers.
+    const other = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 4321, cwd: '/repo/wt-a', writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 6_000 },
+      ),
+    )
+    expect(other.declared['/repo/wt-a']).toMatchObject({ joinedBy: 'pid' })
+    expect(other.declared['/repo/wt-a/packages/core']).toBeUndefined()
   })
 
   it('with no cwd, a LIVE run beats a dead one that merely went absent', () => {
