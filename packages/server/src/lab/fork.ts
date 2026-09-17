@@ -646,6 +646,33 @@ async function dispatchArm(ctx: DispatchArmContext): Promise<DispatchedArm> {
    */
   void ctx.launchExec
 
+  /**
+   * **`--launch` IS ANSWERED, never silently ignored** (review of #579,
+   * finding 1).
+   *
+   * The first version of this change left `options.launch` read nowhere. An
+   * operator who passed it got `launched: false` with no `headlessRefusal`
+   * beside it — which is the one shape {@link DispatchedArm.headlessRefusal}'s
+   * own docblock forbids: *"'nothing refused' and 'the refusal was lost' must
+   * not look alike."* Worse, passing it SUPPRESSED the CLI's explanatory
+   * paragraph, so taking the flag's own advice returned strictly less
+   * information than not taking it.
+   *
+   * The flag keeps its meaning — *authorise the laboratory to start these
+   * arms* — and the laboratory answers it. It will not, it says why, and it
+   * hands over the command. That is the same shape every other refusal in this
+   * repo takes (`enlist` declining a foreign endpoint by name, the roster
+   * declining a harness it has no capture for), and it is why the flag is not
+   * retired: a flag that exists is a surface, and the wave that lands a
+   * detached spawn should find it here with its meaning intact rather than
+   * re-add it.
+   */
+  const declined =
+    options.launch === true && !isHeadlessRefusal(launchPlan)
+      ? 'a headless run is a whole turn, not a start — the laboratory will not hold your arms in a queue while ' +
+        'each one finishes, so it restores them and hands you the command instead'
+      : undefined
+
   const event = createEvent(
     'fork.dispatched',
     {
@@ -681,7 +708,16 @@ async function dispatchArm(ctx: DispatchArmContext): Promise<DispatchedArm> {
     // prd-20 ruling 7's floor, reached whenever the dialect declares no
     // captured headless launch: the arm is restored and ready, and the command
     // is handed back to be run by hand rather than guessed at.
-    ...(isHeadlessRefusal(launchPlan) ? { headlessRefusal: launchPlan.reason } : {}),
+    // Set whenever nothing started AND there is something to explain: the
+    // dialect has no capture, the fork has no prompt, or the operator asked and
+    // the laboratory declined. Absent when `--launch` was never passed and a
+    // command exists — nothing was refused there, and the command line is the
+    // whole answer.
+    ...(isHeadlessRefusal(launchPlan)
+      ? { headlessRefusal: launchPlan.reason }
+      : declined === undefined
+        ? {}
+        : { headlessRefusal: declined }),
     event,
   }
 }
