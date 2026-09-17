@@ -637,6 +637,46 @@ part that lives in this tree, so it is the part a law can reach.
 publishes a document about this project at all, what it costs, and the bound that
 makes it free — it is free and uncredentialed only while this repo is public.
 
+## Watched-repo envelope
+
+Rhizomorph watches **every repository an agent is working in**, discovered from
+the process table rather than chosen at boot ([prd-58](docs/prds/prd-58-the-watched-machine.md)
+ruling 1). The client still draws one colony at a time; the others are counted,
+listed and — when a lane in them needs a person — surfaced on the tray.
+
+**The stated ceiling is the number of instruments you would otherwise run.**
+Each watched repo gets its own poll loop and its own recorder, because a
+recording's genesis hash contains the repo slug and `mergeRecords` refuses
+across it — so N repos has always meant N recorders, and this feature removes
+the need to run N *processes*, not the per-repo cost of watching. A colony costs
+what one rhizomorph has always cost.
+
+What this PRD adds on top of that is **discovery**, and it is measured rather
+than reasoned (ruling 7, Success 7). On Linux, over three real repositories and
+one linked worktree, `packages/server/src/server/colonies.bench.test.ts`:
+
+```
+3 colonies from 4 placed actors (one linked worktree)
+  cold (first sighting, 4 git calls): 11.78 ms
+  warm, 200 ticks: p50 0.0145 ms · p95 0.0318 ms · max 0.1146 ms
+  warm p95 as a share of the 2000 ms interval: 0.0016%
+```
+
+The cold number is paid once per directory, ever: the resolver caches each
+answer, negatives included, so a steady machine spawns no `git` at all after the
+first sighting of each agent. The warm p95 is **0.0016% of one poll interval**,
+which is why the envelope is not bounded by discovery.
+
+**Two honest limits**, neither of them a number:
+
+- **On Windows the process leg reports no working directory for any process**, so
+  no colony can be discovered there and the instrument watches only the repo it
+  was started in. `rhizomorph doctor` says so, counting the agents it could not
+  place rather than presenting a short list as complete.
+- **A repo with no agent in it is not a colony.** There is no act that adds one:
+  a repository nothing is running in produces no facts this design would call a
+  colony's, and the way to start watching one is to start working in it.
+
 ## Support matrix
 
 **Nothing in this table is verified by CI any more.** GitHub Actions was retired
