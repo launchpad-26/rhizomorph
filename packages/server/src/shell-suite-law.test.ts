@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -554,6 +554,39 @@ describe('shell suite law: every scripts/dev/*.test.sh runs in the vitest suite 
       }
     }
     expect(bad).toEqual([])
+  })
+
+  // WINDOWS_CAUSE_CLASSES above is the THIRD hand-written copy of ruling 3's seven classes in
+  // this tree. The other two — `.windows-known-failures`'s own header table and
+  // `windows-suite-law.test.ts`'s `RULING_3_CLASSES` — are already pinned to each other and to
+  // the script, by that file's "the classes in the list's own header are exactly the ones the
+  // script enforces" test. This copy was pinned to nothing. EXECUTED in review of this PR:
+  // renaming `procfs` to `proc-filesystem` in it left this file at 23/23,
+  // `windows-suite-law.test.ts` at its full count and `npm run typecheck` at 0 — so the
+  // docblock's claim that these are "`.windows-known-failures`'s header ... the same seven"
+  // was prose that no check could falsify, inside a PRD whose subject is that an unenforced
+  // check is not a check.
+  //
+  // Pinned to the header itself rather than to `RULING_3_CLASSES`, because the header is the
+  // artefact the vocabulary lives in and `RULING_3_CLASSES` is another transcription of it;
+  // chaining copy to copy would leave the same drift one link further along. Order-sensitive,
+  // like the sibling assertion in `windows-suite-law.test.ts`.
+  it("the cause classes are exactly .windows-known-failures' own header — a third hand-copy cannot drift", () => {
+    const header = readFileSync(path.join(REPO_ROOT, '.windows-known-failures'), 'utf8')
+    const declared = header
+      .split(/\r?\n/)
+      .map((raw) => raw.replace(/\s+$/, '').match(/^# {3}([a-z][a-z-]*) {2,}\S/)?.[1])
+      .filter((cls): cls is string => cls !== undefined)
+    // Without this, a header whose shape moved would parse to [] and the comparison below would
+    // still redden — but blaming the wrong side. This says which of the two moved.
+    expect(
+      declared.length,
+      ".windows-known-failures' header parsed to zero cause classes — the header's class table moved, not this file's list",
+    ).toBeGreaterThan(0)
+    expect(
+      [...WINDOWS_CAUSE_CLASSES],
+      "this file's cause-class list and .windows-known-failures' header disagree — a ruling 3 class was renamed, added or removed without both copies moving",
+    ).toEqual(declared)
   })
 
   for (const relPath of SHELL_TESTS) {
