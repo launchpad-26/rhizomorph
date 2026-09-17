@@ -1,4 +1,5 @@
 import path from 'node:path'
+import type { RunningColony } from './colony-supervisor.js'
 import type { PollLoop } from './poll-loop.js'
 import type { SessionRecorder } from './recorder.js'
 
@@ -29,6 +30,20 @@ export interface ServerContext {
    * can reach it without a new plumbing seam of its own.
    */
   pollLoop?: PollLoop
+  /**
+   * Every colony this instrument is watching — prd-58 rulings 1 and 2.
+   *
+   * Absent on a replay server, and on any boot that has not discovered yet, so
+   * a reader gets `undefined` rather than an empty list it would have to guess
+   * the meaning of. `[]` would say "watching nothing", which is never true: the
+   * pinned colony is always in the set.
+   *
+   * A FUNCTION rather than a snapshot, because the set grows while the server
+   * runs — a colony appears the first tick after an agent starts working in a
+   * repo, and a route holding a boot-time copy would report the machine as it
+   * was at start-up forever.
+   */
+  colonies?: () => RunningColony[]
   /** Path to the built web app (packages/web/dist), if it should be served statically. */
   webDistDir?: string
   /** Flatline threshold in ms, for routes/selectors that derive agent liveness. Defaults to the core selector's own default. */

@@ -203,6 +203,10 @@ export async function runServerCommand(
     flatlineMs,
     now,
     pollLoop,
+    // prd-58 ruling 1: a function, not a snapshot — the watched set grows while
+    // the server runs, and a boot-time copy would report the machine as it was
+    // at start-up forever.
+    colonies: () => colonies.running(),
     port: args.port,
   }
 

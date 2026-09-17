@@ -4,7 +4,7 @@ import { createServer, type Server } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Exec, ExecResult } from '@rhizomorph/core'
+import type { AgentProcess, Exec, ExecResult } from '@rhizomorph/core'
 import {
   BEACON_LAPSE_MS,
   CONFIGURED_SILENT_REASON,
@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CAPABILITY_TOKEN_HEADER } from '../api/security.js'
 import { processWitnessCapabilitiesFor } from '../collectors/process/doctor-row.js'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/worktree-slug.js'
-import { sessionDirFor } from '../log/paths.js'
+import { repoSlug, sessionDirFor } from '../log/paths.js'
 import { writeSessionLock } from '../log/session-lock.js'
 import { RESUME_WINDOW_MS, readResumedCount, recordResume, sessionFilePath } from '../log/session-log.js'
 import { SessionLogWriter } from '../recorder/index.js'
@@ -32,6 +32,7 @@ import {
   checkEnrichmentLadder,
   checkHarnessRoster,
   checkTelemetryEnv,
+  checkWatchedColonies,
   type DoctorCheck,
   declaredAttentionChecks,
   doctorHelpText,
@@ -189,6 +190,11 @@ describe('runDoctor', () => {
       'harness-roster',
       'attention',
       'ladder',
+      // prd-58 ruling 1 (#610): the watched set, and one row per colony. The
+      // pinned colony is always present, so there is always at least one row
+      // and a reader never has to decide what an empty list meant.
+      'colonies',
+      `colony:${repoSlug(repoPath)}`,
     ])
   })
 
@@ -1928,5 +1934,105 @@ describe('only enrichments go through checkOptionalTool (prd-57 ruling 8)', () =
     // below pass vacuously, which is how a law like this stops biting.
     expect(calls.length).toBeGreaterThanOrEqual(4)
     expect([...new Set(calls)].sort()).toEqual(['tmux', 'workmux'])
+  })
+})
+
+describe('checkWatchedColonies — doctor names every colony (prd-58 ruling 1, #610)', () => {
+  // `path.resolve`d, because `canonicalize` resolves before it walks: on
+  // Windows a bare '/repo/main' becomes 'C:\repo\main', so an unresolved pin
+  // and a resolved discovery would be two different colonies and this whole
+  // suite would count one too many.
+  const R = (p: string) => path.resolve(p)
+  const PINNED = R('/repo/main')
+
+  function actor(pid: number, worktreePath: string | null): AgentProcess {
+    return {
+      pid,
+      dialect: 'claude',
+      startedAt: 1_000,
+      worktreePath,
+      placement: worktreePath === null ? 'unknown' : 'rooted',
+      parentPid: null,
+      cpuMsDelta: null,
+      rssBytes: null,
+      seenAt: 1_000,
+      goneAt: null,
+      goneReason: null,
+    }
+  }
+
+  /** A `git rev-parse --git-common-dir` that answers from a fixed table. */
+  function execOver(table: Record<string, string>): Exec {
+    return async (_cmd, _args, options) => {
+      const root = table[options?.cwd ?? '']
+      if (root === undefined) return { stdout: '', stderr: 'not a git repo', code: 128, failed: true }
+      return { stdout: `${root}/.git`, stderr: '', code: 0, failed: false }
+    }
+  }
+
+  it('names THREE colonies when agents are in three repos — Success 1 falsifier', async () => {
+    // The whole criterion: "not met while any agent facts are discarded for
+    // being outside a chosen repo". An operator cannot tell "watching three"
+    // from "watching one and dropping two" except by a report that names them.
+    const processes = {
+      a: actor(1, R('/repo/main')),
+      b: actor(2, R('/work/beta')),
+      c: actor(3, R('/work/gamma')),
+    }
+    const checks = await checkWatchedColonies(
+      processes,
+      PINNED,
+      execOver({ [R('/repo/main')]: R('/repo/main'), [R('/work/beta')]: R('/work/beta'), [R('/work/gamma')]: R('/work/gamma') }),
+    )
+
+    expect(checks[0]?.message).toBe('watching 3 colonies')
+    const named = checks.filter((c) => c.id.startsWith('colony:')).map((c) => c.message)
+    expect(named).toHaveLength(3)
+    expect(named.join(' ')).toContain(R('/work/beta'))
+    expect(named.join(' ')).toContain(R('/work/gamma'))
+  })
+
+  it('groups several worktrees of one repo into ONE colony', async () => {
+    // A resolver answering with the worktree root would report three here, and
+    // every other assertion in this file would still pass.
+    const processes = { a: actor(1, R('/work/beta')), b: actor(2, R('/work/beta-wt/x')), c: actor(3, R('/work/beta-wt/y')) }
+    const checks = await checkWatchedColonies(
+      processes,
+      PINNED,
+      execOver({ [R('/work/beta')]: R('/work/beta'), [R('/work/beta-wt/x')]: R('/work/beta'), [R('/work/beta-wt/y')]: R('/work/beta') }),
+    )
+
+    // The pin, plus one for beta.
+    expect(checks[0]?.message).toBe('watching 2 colonies')
+  })
+
+  it('names the pinned colony even with no agents anywhere', async () => {
+    const checks = await checkWatchedColonies({}, PINNED, execOver({}))
+    expect(checks[0]?.message).toBe('watching 1 colony')
+    expect(checks[1]?.message).toContain('pinned')
+    expect(checks[1]?.message).toContain('no agent placed here right now')
+  })
+
+  it('an agent in NO repository yields no colony, and is counted rather than dropped', async () => {
+    // ADR-0010: the gap is declared. A shorter list with no explanation is the
+    // reading that hides it.
+    const checks = await checkWatchedColonies({ a: actor(1, R('/home/operator')) }, PINNED, execOver({}))
+    expect(checks[0]?.message).toBe('watching 1 colony')
+    expect(checks.some((c) => c.id === 'colonies:unplaced')).toBe(false)
+  })
+
+  it('states the WINDOWS gap when the witness could place nothing', async () => {
+    // The platform yields a command line and not a working directory, so every
+    // actor is unplaced and only the pin is found. Said out loud rather than
+    // left as a short list nobody can account for.
+    const checks = await checkWatchedColonies({ a: actor(1, null), b: actor(2, null) }, PINNED, execOver({}))
+    const gap = checks.find((c) => c.id === 'colonies:unplaced')
+    expect(gap?.message).toContain('2 agents')
+    expect(gap?.message).toContain('could not place')
+  })
+
+  it('never fails the run — a colony report is a reading, not a gate', async () => {
+    const checks = await checkWatchedColonies({ a: actor(1, null) }, PINNED, execOver({}))
+    expect(checks.every((c) => c.status === 'ok')).toBe(true)
   })
 })
