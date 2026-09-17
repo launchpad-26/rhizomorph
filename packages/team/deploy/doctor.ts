@@ -1302,15 +1302,52 @@ export async function runDoctor(deps: DoctorDeps): Promise<DoctorReport> {
 
 const STATUS_LABEL: Record<CheckStatus, string> = { ok: 'ok  ', warn: 'warn', fail: 'FAIL' }
 
-/** Renders a {@link runDoctor} report as the lines the doctor prints. */
+/**
+ * THE LAST LINE SPEAKS FOR EVERY CHECK, SO IT COUNTS EVERY CHECK THAT WAS FLAGGED (#592).
+ *
+ * It used to count `fail` alone, which made `All checks passed.` the closing line of a
+ * run that had just reported six missing GitHub App values and a sign-in plane
+ * answering 503. EXECUTED on the team host, 2026-09-17, immediately after a rotation
+ * wiped that configuration: seven `ok`, one `warn`, and a summary an operator would
+ * quote into a handover as *healthy*. The eight lines scroll; this one gets carried.
+ *
+ * The complaint is not that the sentence was false — it is that it read IDENTICALLY
+ * for a clean deployment and for that one. So the fix is the count rather than a
+ * reword: a hedge (`nothing failed`) is true and still cannot tell the two apart.
+ *
+ * WHAT IS DELIBERATELY NOT CHANGED: the `warn` stays a `warn` and the exit code stays
+ * 0. An unconfigured App is a valid deployment, not a fault (#169) — ingest is
+ * unaffected and `/auth/github/start` answers 503 and says why. `exitCode` is
+ * {@link runDoctor}'s, is `fail`-only, and this function has no part in it.
+ */
 export function renderDoctorReport(report: DoctorReport): string {
   const lines = report.checks.map((c) => `[${STATUS_LABEL[c.status]}] ${c.message}`)
   const failing = report.checks.filter((c) => c.status === 'fail').length
-  const summary =
-    failing > 0
-      ? `${failing} check${failing === 1 ? '' : 's'} failed — this deployment is not healthy. Each FAIL line above carries its remedy.`
-      : 'All checks passed.'
-  return [...lines, '', summary].join('\n')
+  const warning = report.checks.filter((c) => c.status === 'warn').length
+  return [...lines, '', summarise(failing, warning)].join('\n')
+}
+
+/**
+ * Three arms, and each is a report shape this tree actually produces.
+ *
+ * The `fail` arm keeps its wording to the letter and gains the warn clause, because
+ * the commonest failing report — an unreachable database — is a `fail` beside SIX
+ * `not measured` warns, and naming only the failure there is the same silence one
+ * size smaller.
+ */
+function summarise(failing: number, warning: number): string {
+  const checks = (n: number): string => `${n} check${n === 1 ? '' : 's'}`
+  if (failing > 0) {
+    const also = warning > 0 ? ` and ${checks(warning)} warned` : ''
+    return `${checks(failing)} failed${also} — this deployment is not healthy. Each FAIL line above carries its remedy.`
+  }
+  if (warning > 0) {
+    return (
+      `No check failed, but ${checks(warning)} warned — that is not the same as all checks passing. ` +
+      'Each [warn] line above says what was flagged and whether it needs action.'
+    )
+  }
+  return 'All checks passed.'
 }
 
 /**

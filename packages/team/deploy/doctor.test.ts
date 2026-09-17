@@ -21,6 +21,7 @@ import type { AppliedMigration, IngestKeyRow, RlsTable, RoleMembership } from '.
 import { HEALTHY_RLS_TABLES } from '../src/storage/ports/catalog/fake.js'
 import { readMigrationDir } from '../src/migrations/runner.js'
 import {
+  type CheckStatus,
   type DoctorCheck,
   type DoctorReport,
   type DoctorStorage,
@@ -789,6 +790,119 @@ describe('renderDoctorReport', () => {
     expect(byId(report, 'fold-tick').status).toBe('warn')
     expect(report.exitCode).toBe(0)
   })
+
+  /**
+   * THE SUMMARY OVER A WARN-CARRYING REPORT (#592) — and the assertion is the NEGATIVE.
+   *
+   * Measured on the team host: seven `ok`, one `warn` naming six missing GitHub App
+   * values, and `All checks passed.` underneath it. Nothing here caught it because the
+   * one summary assertion in this file ran against an all-`ok` report — the single
+   * state in which the old expression could not be wrong.
+   *
+   * `not.toContain('All checks passed.')` rather than `toContain(<the new string>)`,
+   * because the two fail for different reasons and only the first one fails for the
+   * reason this issue is about: the wording assertion reddens on a REWORD, while this
+   * one reddens on the summary regressing to SILENCE, which is the defect. Both are
+   * here; this is the one that must not be traded for the other.
+   */
+  function warnCount(report: DoctorReport): number {
+    return report.checks.filter((c) => c.status === 'warn').length
+  }
+
+  it('a report with one warn and no fail does not claim every check passed', async () => {
+    writeJournal(1)
+    writeCursor(path.join(dir, 'ingest.cursor'), { seq: 1, actors: {} })
+    const report = await doctor(fullEnv({ [ENV_FOLD_TICK_MS]: '5s' }))
+
+    // The premise, stated rather than assumed: this is a warn-without-fail report.
+    expect(warnCount(report)).toBe(1)
+    expect(report.checks.some((c) => c.status === 'fail')).toBe(false)
+
+    expect(renderDoctorReport(report)).not.toContain('All checks passed.')
+  })
+
+  it('…and says how many were flagged, so the last line carries the finding', async () => {
+    writeJournal(1)
+    writeCursor(path.join(dir, 'ingest.cursor'), { seq: 1, actors: {} })
+    const report = await doctor(fullEnv({ [ENV_FOLD_TICK_MS]: '5s' }))
+    expect(renderDoctorReport(report)).toContain('No check failed, but 1 check warned')
+  })
+
+  /**
+   * The same shape from the OTHER end of the file: #581's `viewer-membership` warn, which
+   * a superuser deployment reaches with every other check green. A summary that only knew
+   * about the fold tick would be a fix for one warn rather than for warns.
+   */
+  it('a catalog warn with no failure is covered too — the superuser missing the grant', async () => {
+    const report = await doctor(fullEnv(), fakeStorage({ membership: { isMember: false, isSuperuser: true } }))
+    const rendered = renderDoctorReport(report)
+
+    expect(byId(report, 'viewer-membership').status).toBe('warn')
+    expect(report.exitCode).toBe(0)
+    expect(rendered).not.toContain('All checks passed.')
+    expect(rendered).toContain('No check failed, but 1 check warned')
+  })
+
+  it('two warns are counted as two, so the count is not a hard-coded one', async () => {
+    const report = await doctor(
+      fullEnv({ [ENV_FOLD_TICK_MS]: '5s' }),
+      fakeStorage({ membership: { isMember: false, isSuperuser: true } }),
+    )
+
+    expect(warnCount(report)).toBe(2)
+    expect(renderDoctorReport(report)).toContain('No check failed, but 2 checks warned')
+  })
+
+  /**
+   * THE SIBLING THE FAIL BRANCH HAD: an unreachable database is ONE failure beside SIX
+   * `not measured` warns, and the old summary named only the failure there too. The
+   * warn count is read off the report rather than retyped, so this states that the
+   * summary agrees with the checks above it rather than with a literal.
+   */
+  it('a report carrying both failures and warnings says both', async () => {
+    chmodSync(dir, 0o500)
+    const report = await doctor(fullEnv(), null)
+    const warns = warnCount(report)
+
+    expect(warns).toBeGreaterThan(1)
+    expect(renderDoctorReport(report)).toContain(`2 checks failed and ${warns} checks warned`)
+    expect(report.exitCode).toBe(1)
+  })
+
+  /**
+   * THE FALSE BRANCH OF THE WARN CLAUSE, WHICH HAD NO WITNESS ANYWHERE IN THIS FILE.
+   *
+   * Every other `fail` case here drives the no-database report, and that one carries six
+   * `not measured` warns — so ` and ${n} warned` was exercised only when there WAS one, and
+   * making it unconditional left all 95 cases green. The claim "the old wording is preserved
+   * exactly when nothing warned" was true of the code and asserted by nothing, which is this
+   * issue's own defect class committed one level up.
+   *
+   * An unwritable journal directory over a HEALTHY database is the shape that reaches it:
+   * one `fail`, no `warn`. The premise is asserted rather than assumed, so a future check
+   * that starts warning here cannot quietly turn this into a second copy of the case above.
+   */
+  it('a failure with nothing warning keeps the summary the doctor has always printed', async () => {
+    chmodSync(dir, 0o500)
+    const report = await doctor(fullEnv())
+
+    expect(warnCount(report)).toBe(0)
+    expect(report.checks.filter((c) => c.status === 'fail')).toHaveLength(1)
+
+    expect(renderDoctorReport(report).split('\n').at(-1)).toBe(
+      '1 check failed — this deployment is not healthy. Each FAIL line above carries its remedy.',
+    )
+    expect(report.exitCode).toBe(1)
+  })
+
+  it('a clean report still ends in exactly "All checks passed."', async () => {
+    writeJournal(1)
+    writeCursor(path.join(dir, 'ingest.cursor'), { seq: 1, actors: {} })
+    const report = await doctor(fullEnv())
+
+    expect(report.checks.every((c) => c.status === 'ok')).toBe(true)
+    expect(renderDoctorReport(report).split('\n').at(-1)).toBe('All checks passed.')
+  })
 })
 
 /**
@@ -1417,6 +1531,40 @@ describe('the runbook block is the output this code produces', () => {
         label,
       )
     }
+  })
+
+  /**
+   * THE BLOCK'S LAST LINE, DERIVED FROM THE BLOCK'S OWN STATUSES (#592).
+   *
+   * This capture is where the defect was published: a run carrying a `[warn]` GitHub App
+   * line, signed off `All checks passed.` The label law above compares LABELS, so it was
+   * green over that the whole time — the summary is the one line in the block that speaks
+   * for the others and the only one nothing checked.
+   *
+   * The expected sentence is RENDERED from a report built out of the block's own statuses
+   * rather than retyped, which is what makes this a law rather than a second copy of the
+   * string: reword the summary and this reddens, and paste a block whose closing line
+   * disagrees with the lines above it and this reddens too. Ruling 12's principle, applied
+   * to output instead of to the README — the words change in the commit that falsifies them.
+   */
+  it('the block ends in the summary this code produces for its own status mix', () => {
+    const fenced = RUNBOOK.slice(RUNBOOK.indexOf('[ok  ] database:'))
+    const block = fenced.slice(0, fenced.indexOf('```')).trimEnd()
+
+    const BY_LABEL: Record<string, CheckStatus> = { 'ok  ': 'ok', warn: 'warn', FAIL: 'fail' }
+    const statuses = [...block.matchAll(/^\[(ok {2}|warn|FAIL)\] /gm)].map(
+      (m) => BY_LABEL[m[1] as string] as CheckStatus,
+    )
+
+    expect(statuses).toHaveLength(8)
+    expect(statuses, 'the premise: this block is a healthy run that still carries a warning').toContain('warn')
+    expect(statuses).not.toContain('fail')
+
+    const asReport: DoctorReport = {
+      checks: statuses.map((status, i) => ({ id: `line-${i}`, status, message: 'x' })),
+      exitCode: 0,
+    }
+    expect(block.split('\n').at(-1)).toBe(renderDoctorReport(asReport).split('\n').at(-1))
   })
 
   it('carries no real host, home path or captured machine name', () => {
