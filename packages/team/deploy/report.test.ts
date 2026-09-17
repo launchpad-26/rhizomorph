@@ -12,10 +12,16 @@ import {
   resolveTeamConfig,
 } from '../src/config/config.js'
 import {
+  DEFAULT_FOLD_TICK_MS,
+  DEFAULT_JOURNAL_DIR,
+  ENV_FOLD_TICK_MS,
   ENV_GITHUB_APP_PRIVATE_KEY_PATH,
+  ENV_JOURNAL_DIR,
   formatBootReport,
   formatConfigReport,
   formatKeyFaultAdvice,
+  resolveFoldTickMs,
+  resolveJournalDir,
 } from './report.js'
 
 describe('formatBootReport', () => {
@@ -179,5 +185,83 @@ describe('formatKeyFaultAdvice', () => {
     expect(new Set(named)).toEqual(
       new Set([ENV_GITHUB_APP_PRIVATE_KEY_PATH, ENV_GITHUB_APP_PRIVATE_KEY_FILE, ENV_GITHUB_APP_PRIVATE_KEY]),
     )
+  })
+})
+
+/**
+ * THE DEPLOYMENT'S OWN KNOBS — one resolution, two readers.
+ *
+ * `deploy/serve.ts` runs the fold at whatever this returns and `deploy/doctor.ts` PRINTS it as
+ * the effective value. A second copy of the arithmetic in either file drifts silently, which is
+ * why the resolution lives here; `deploy/doctor.test.ts` greps `serve.ts` to keep it that way.
+ *
+ * Neither variable is a `TeamConfig` value, so neither moves the `unsetCount` pinned above.
+ */
+describe('resolveFoldTickMs', () => {
+  it('unset: the built-in default, armed', () => {
+    expect(resolveFoldTickMs({})).toEqual({
+      raw: undefined,
+      effectiveMs: DEFAULT_FOLD_TICK_MS,
+      armed: true,
+      notANumber: false,
+    })
+  })
+
+  it('a number: that number, armed', () => {
+    expect(resolveFoldTickMs({ [ENV_FOLD_TICK_MS]: '250' })).toEqual({
+      raw: '250',
+      effectiveMs: 250,
+      armed: true,
+      notANumber: false,
+    })
+  })
+
+  it('an explicit 0 disables the tick, and is not a typo', () => {
+    const tick = resolveFoldTickMs({ [ENV_FOLD_TICK_MS]: '0' })
+    expect(tick.effectiveMs).toBe(0)
+    expect(tick.armed).toBe(false)
+    expect(tick.notANumber).toBe(false)
+  })
+
+  it('"5s" is NaN — the runbook\'s documented typo — and reads as DISABLED, not as five seconds', () => {
+    const tick = resolveFoldTickMs({ [ENV_FOLD_TICK_MS]: '5s' })
+    expect(tick.effectiveMs).toBe(0)
+    expect(tick.armed).toBe(false)
+    expect(tick.notANumber).toBe(true)
+    // The whole point: it is NOT 5000, and it is NOT 5.
+    expect(tick.effectiveMs).not.toBe(DEFAULT_FOLD_TICK_MS)
+    expect(tick.effectiveMs).not.toBe(5)
+  })
+
+  it('a negative value disables the tick but is not called a typo', () => {
+    const tick = resolveFoldTickMs({ [ENV_FOLD_TICK_MS]: '-1' })
+    expect(tick.effectiveMs).toBe(0)
+    expect(tick.notANumber).toBe(false)
+  })
+
+  it('an empty string — what compose\'s `${VAR:-}` yields — disables rather than defaults', () => {
+    const tick = resolveFoldTickMs({ [ENV_FOLD_TICK_MS]: '' })
+    expect(tick.effectiveMs).toBe(0)
+    expect(tick.notANumber).toBe(false)
+  })
+
+  it('repetition', () => {
+    const env = { [ENV_FOLD_TICK_MS]: '750' }
+    expect(resolveFoldTickMs(env)).toEqual(resolveFoldTickMs(env))
+  })
+})
+
+describe('resolveJournalDir', () => {
+  it('unset: the volume compose mounts', () => {
+    expect(resolveJournalDir({})).toBe(DEFAULT_JOURNAL_DIR)
+    expect(DEFAULT_JOURNAL_DIR).toBe('/data/journal')
+  })
+
+  it('set: exactly what was set, with no normalisation', () => {
+    expect(resolveJournalDir({ [ENV_JOURNAL_DIR]: '/srv/journal/' })).toBe('/srv/journal/')
+  })
+
+  it('repetition', () => {
+    expect(resolveJournalDir({})).toBe(resolveJournalDir({}))
   })
 })

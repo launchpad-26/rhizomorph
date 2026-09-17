@@ -8,6 +8,7 @@ import { createIngestKeysSql } from './ports/ingest-keys/sql.js'
 import { createLifecycleSql } from './ports/lifecycle/sql.js'
 import { createMigrationsSql } from './ports/migrations/sql.js'
 import { createQuestionsSql } from './ports/questions/sql.js'
+import { createRetentionSql } from './ports/retention/sql.js'
 import { createSettingsSql } from './ports/settings/sql.js'
 import { createPostgresStorage } from './postgres.js'
 import { createRecordingSql } from './recording-sql.js'
@@ -44,7 +45,7 @@ import { createRecordingSql } from './recording-sql.js'
  * statement is ever sent because no method is called — only the shape of the
  * returned object is read.
  *
- * Case 5 imports the five `sql.ts` modules directly, which
+ * Case 5 imports each port's `sql.ts` module directly, which
  * `no-sql-outside-storage-law.test.ts`'s clause 5 restricts to `postgres.ts`.
  * There is no contradiction and no exception was added for it: that law sweeps
  * **non-test** `.ts` only, and this is a `.test.ts`.
@@ -144,6 +145,7 @@ describe('the composition law (#509, prd-51 wave 8)', () => {
       createLifecycleSql(sql),
       createMigrationsSql(sql),
       createQuestionsSql(sql),
+      createRetentionSql(sql),
       createSettingsSql(sql),
     ].map((port) => Object.keys(port))
 

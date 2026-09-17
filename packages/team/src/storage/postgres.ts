@@ -5,6 +5,7 @@ import { createIngestKeysSql } from './ports/ingest-keys/sql.js'
 import { createLifecycleSql } from './ports/lifecycle/sql.js'
 import { createMigrationsSql } from './ports/migrations/sql.js'
 import { createQuestionsSql } from './ports/questions/sql.js'
+import { createRetentionSql } from './ports/retention/sql.js'
 import { createSettingsSql } from './ports/settings/sql.js'
 
 /**
@@ -40,7 +41,7 @@ export { toTimestamptz } from './coerce.js'
 export { bindLine, buildMonthlyPartitionDdl, partitionNameFor } from './ports/events/sql.js'
 
 /**
- * The six ports, spread into one object.
+ * The seven ports, spread into one object.
  *
  * The declared return type is what makes each spread load-bearing: drop one and
  * `tsc` reports TS2322 naming the first method that went missing. Alphabetical,
@@ -54,6 +55,7 @@ export function createPostgresStorage(sql: SqlLike): TeamStorage {
     ...createLifecycleSql(sql),
     ...createMigrationsSql(sql),
     ...createQuestionsSql(sql),
+    ...createRetentionSql(sql),
     ...createSettingsSql(sql),
   }
 }
