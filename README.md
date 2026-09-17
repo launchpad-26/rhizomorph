@@ -2,12 +2,21 @@
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/launchpad-26/rhizomorph)
 
-An instrument you point at a repo full of git worktrees: it shows what a
-swarm of coding agents is doing, live, and can replay the session
-afterward. Watching is read-only, absolutely; there are separate, opt-in
-hands for recording, for running experiments, and for setting a repo up in
-the first place — see [Trust](#trust) below for exactly what each does and
-how that's enforced.
+An instrument that watches **wherever your coding agents are working** — every
+repository one of them is running in, not a path you chose at startup. It shows
+what a swarm is doing, live, and can replay the session afterward.
+
+It **draws one repository at a time**, and that is a decision rather than a
+limit: the scene composes a single colony so its supported size stays a
+question with a measured answer. Nothing is hidden by it. Every other watched
+repository is counted, its lanes are listed, and a lane anywhere that needs a
+person reaches the tray — so choosing what to look at never changes what you are
+told. Starting inside a repo puts that one first, which is why the
+zero-configuration case looks exactly like it always did.
+
+Watching is read-only, absolutely; there are separate, opt-in hands for
+recording, for running experiments, and for setting a repo up in the first place
+— see [Trust](#trust) below for exactly what each does and how that's enforced.
 
 ![The scene as the centerpiece — a busy 20-lane fleet, every thread live green but visibly different widths for visibly different output, ALL CLEAR above it](docs/screenshots/fixture-20-lane.png)
 
@@ -834,9 +843,11 @@ Neither tmux nor workmux is required to see a working dashboard — `doctor`
 
 ## First run, nothing else set up
 
-Point it at a fresh clone of some other repo — no worktrees beyond `main`,
+Start it inside a fresh clone of some other repo — no worktrees beyond `main`,
 no tmux session, no telemetry configured — and here's exactly what you get,
-not a placeholder:
+not a placeholder. (That repo becomes the pinned colony: the one this run starts
+in, first in the selector, watched on exactly the same terms as any other it
+discovers later.)
 
 - The **attention strip** at the top reads `ALL CLEAR`, with an evidence
   line ("0 lanes · 0 branches · 0 files checked · collisions 0") rather than
