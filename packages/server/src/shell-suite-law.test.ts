@@ -486,6 +486,102 @@ const WINDOWS_UNRUNNABLE: Record<string, WindowsDeclaration> = {
   },
 }
 
+/**
+ * A THIRD derivation, and the only one that does not look at a name (#594).
+ *
+ * The two above both key on `.test.sh`: the glob constant, and the independent suffix filter
+ * added in review of #394 to catch discovery shrinking. So renaming `foo.test.sh` to
+ * `foo-test.sh` removes it from BOTH at once — they agree, and they are wrong together. The
+ * script stops running in the suite and nothing says so, which is the `#209` "fell out of the
+ * pass silently" class and #394's own Definition of done (*"a renamed one must not silently
+ * drop out"*) surviving the repair written for it.
+ *
+ * So this one asks what a file IS: does it write a summary line? That is AGENTS.md's own rule
+ * — scope a guard by what a file is, not by what it is called — and the tell is coextensive
+ * with membership BY CONSTRUCTION, because the aggregate below already requires exactly one
+ * summary line from every discovered script. @ciaran-slow measured the split during the review
+ * of #394 and declined to push it, because it changes what the law guarantees.
+ *
+ * RE-DERIVED on this head, because the set grows and the issue says not to trust its own
+ * figure: **8 of 8** `scripts/dev/*.test.sh` write a summary line; **0 of 8** non-test
+ * `scripts/dev/*.sh` do.
+ *
+ * It is a STATIC proxy for a RUNTIME property, and that is deliberate rather than a shortcut.
+ * Executing every non-test script to see what it prints is not available — several talk to
+ * `gh` and to the project board. So discovery reads the CLAIM out of the source, and the
+ * per-script tests below confirm the claim by execution. Two mechanisms, and a file has to
+ * satisfy both.
+ *
+ * The pattern is its own, not `SUMMARY_LINE_RE`. That regex parses emitted OUTPUT and is
+ * anchored to a whole line of digits; source carries the format string — `echo "$pass passed,
+ * $fail failed"` or `printf '…: %d passed, %d failed\n'` — so one pattern cannot serve both.
+ * Stated because a second hand-written pattern is exactly the drift this repo keeps recording;
+ * what keeps the two honest is that a file admitted by this one must then EMIT something the
+ * other one parses, or its own `it()` fails.
+ *
+ * WHAT THIS DOES NOT CLOSE, stated because two verify rounds proved it and a first attempt at
+ * closing it did not work. The hole is bounded, not sealed:
+ *
+ *   a PLAIN rename, nothing else changed                     CAUGHT (both seats, via git mv)
+ *   a summary refactored across two writes, NO rename        CAUGHT, and this is the ONLY
+ *                                                              assertion in the file that
+ *                                                              reddens for it
+ *   a rename AND its summary refactored into two writes,
+ *     in one change                                          NOT caught
+ *   a NEW test written off-convention with an assembled
+ *     summary                                                NOT caught, and never was
+ *
+ * No static pattern survives string assembly: `printf '%s passed,' "$p"` then
+ * `printf ' %s failed\n' "$f"` emits a valid summary this never matches. When a file leaves the
+ * NAME set and the TELL set in the same change, both derivations shrink consistently and the
+ * equality above holds — nothing is left to disagree.
+ *
+ * A guard asserting the tell still held for every DISCOVERED script was written for this and
+ * REMOVED on review: set equality already implies that subset, so it could not fail without the
+ * equality assertion failing first. It added a second message, not a second detection, and a
+ * guard implying coverage it does not provide is this PRD's own subject.
+ *
+ * THE THIRD SOURCE OF TRUTH ALREADY EXISTS, and naming it is how this wave closes (operator
+ * ruling, 2026-09-18). `WINDOWS_UNRUNNABLE` is a COMMITTED RECORD asserted to equal the
+ * discovered set, and it depends on neither the name nor the tell — it is a hand-written list of
+ * keys. So a file that leaves both derivations together still leaves the record behind, and the
+ * record disagrees.
+ *
+ * EXECUTED: rename `prd-reconcile.test.sh` off the convention AND assemble its summary across
+ * two writes, touching nothing else — RED, on the Windows declaration's equality assertion, not
+ * on anything here. Both verify seats had to delete the key as a third edit before they could
+ * demonstrate a green suite, and each of them said so.
+ *
+ * EXECUTED (review of #625, macOS darwin 25.6.0, node 22.23.2): assemble `coupling.test.sh`'s
+ * summary across two LINES and rename NOTHING — the script still runs, still exits 0, still
+ * emits a valid `11 passed, 0 failed` — and the whole file goes 1 failed / 24 passed, this
+ * assertion alone. `WINDOWS_UNRUNNABLE` cannot see it: the NAME set never moved. That is the
+ * detection this adds over the record, and it is why the message below has to name the
+ * direction rather than only the two rename-shaped causes it first listed.
+ *
+ * Note the pattern is loose ON PURPOSE and survives SAME-line assembly: `printf '%s passed, '
+ * "$p"; printf '%s failed\n' "$f"` still matches, because `.*` spans the statement break.
+ * Only a genuine line break defeats it.
+ *
+ * So the residual costs THREE deliberate edits — rename, refactor, and delete the declaration —
+ * which is removing a test on purpose while updating its records to match, not the silent drift
+ * this issue was filed for. The tell narrows the window; the record closes it.
+ *
+ * It arrived here incidentally, via #586's Windows opt-out, which is worth stating plainly: the
+ * protection is real but it is not this file's on purpose, and a later change that legitimately
+ * retires the Windows declaration would take it away. If that happens, the replacement is a
+ * committed record of its own — and #394's rejection of "a hardcoded list" does not forbid one,
+ * because it rejected a list as the DISCOVERY MECHANISM ("discovered by glob rather than a
+ * hardcoded list"), not a record checked AGAINST discovery. That distinction is the whole reason
+ * this file can have both.
+ *
+ * FALSE-POSITIVE DIRECTION, declared: a non-test script that grows the phrase — in a comment,
+ * or by genuinely reporting counts — joins this set and reddens the law. That is the honest
+ * verdict rather than a defect: the two derivations disagree, and which one is wrong is a
+ * judgement a human makes. It fails loudly and names both sides.
+ */
+const SUMMARY_EMITTER_RE = /passed, .*failed/
+
 describe('shell suite law: every scripts/dev/*.test.sh runs in the vitest suite (prd-54 wave 3, #394)', () => {
   it('a pattern matching nothing discovers nothing — proves the count check below is not vacuous', () => {
     expect(discoverShellTests('scripts/dev/this-pattern-matches-nothing-*.test.sh')).toEqual([])
@@ -510,6 +606,20 @@ describe('shell suite law: every scripts/dev/*.test.sh runs in the vitest suite 
       SHELL_TESTS,
       `git ls-files '${SHELL_TEST_GLOB}' and an independent suffix filter over scripts/dev/ disagree — the glob constant has been narrowed, or discovery is dropping entries`,
     ).toEqual(independently)
+  })
+
+  it('a shell test renamed off the .test.sh convention is caught by what it WRITES', () => {
+    const allShell = execFileSync('git', ['ls-files', 'scripts/dev/*.sh'], { cwd: REPO_ROOT, encoding: 'utf8' })
+      .split('\n')
+      .filter((line) => line.length > 0)
+    const byTell = allShell
+      .filter((file) => SUMMARY_EMITTER_RE.test(readFileSync(path.join(REPO_ROOT, file), 'utf8')))
+      .sort()
+
+    expect(
+      byTell,
+      `the shell tests discovered by NAME and the ones that WRITE a summary line disagree — either a test was renamed off the '.test.sh' convention (it still writes a summary, so it is in this set and not in the glob's), or a non-test script grew the phrase (it is in this set and should not be), or — the direction the doc above records as NOT caught — a correctly-named shell test still in the glob's set stopped carrying the phrase as ONE source literal, by assembling its summary across two writes (it is in the glob's set and not in this one; read WHICH side is short before checking for a rename that did not happen). Both sides are listed; the name-based set is ${JSON.stringify(SHELL_TESTS)}`,
+    ).toEqual([...SHELL_TESTS].sort())
   })
 
   it(`discovers at least one shell test under '${SHELL_TEST_GLOB}'`, () => {
