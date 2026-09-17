@@ -583,6 +583,21 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **`rhizomorph doctor`'s last line now counts the warnings it just printed (#603).** The
+  summary counted failures and nothing else, so any run without a failure closed with
+  `All required checks passed.` — however many `[warn]` lines had scrolled past above it.
+  Seventeen code sites in that command can warn, and the run pasted in
+  [the getting-started guide](docs/user-guide/getting-started.md) was itself an example:
+  a `[warn] no lane manifest …` line signed off as an all-clear. The sentence was never
+  false — the warnings really are not *required* checks — but it was the same sentence for
+  a clean machine and for a flagged one, and it is the line people quote. A warn-carrying
+  run now reads `No check failed, but 1 check warned — that is not the same as a clean
+  run. Each [warn] line above says what is degraded and how to fix it.`, a failing run
+  names the warnings beside the failures, and a genuinely clean run still ends in exactly
+  `All required checks passed.`
+  **The exit code has not moved.** Only `target-path`, `web-build` and `port` can make it
+  non-zero, exactly as before; a warning never could and still cannot.
+
 - **The attention strip names only the chips that fit, and the `+N` marker can no longer be
   pushed off screen (prd-30 wave 5).** The marker was the clipping row's last child, so
   an overflowing row pushed out the one element whose job is to say something is hidden:

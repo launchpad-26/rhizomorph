@@ -215,15 +215,67 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
 
 const STATUS_LABEL: Record<CheckStatus, string> = { ok: 'ok  ', warn: 'warn', fail: 'FAIL' }
 
-/** Renders a `runDoctor` report as the lines `rhizomorph doctor` prints. */
+/**
+ * THE LAST LINE SPEAKS FOR EVERY CHECK, SO IT COUNTS EVERY CHECK THAT WAS FLAGGED (#603).
+ *
+ * It used to count `fail` alone, which made `All required checks passed.` the closing
+ * line of any run without a failure — however many warnings scrolled past above it.
+ * Seventeen sites in this file can emit a `warn`, and the report the CLI's own
+ * end-to-end case builds carries FOUR of them (`session-logs`, `telemetry`,
+ * `lane-manifest`, `cli-version-drift`) under a test that was named *"exits 0 when
+ * healthy"*. The report's lines scroll; this one gets quoted.
+ *
+ * `All required checks passed.` is not FALSE over an optional-check warning — the hedge
+ * is real. The defect is that it was emitted, byte for byte, for a fully clean report
+ * and for that four-warning one: one state-independent sentence for the whole
+ * `failing === 0` class, so the line that claims to speak for all the others could not
+ * tell the two apart. A count splits the class; no reword can. That is #592's ruling in
+ * the team deploy doctor, and the hedge does not exempt this renderer from it.
+ *
+ * WHAT IS DELIBERATELY NOT CHANGED: the exit code. {@link runDoctor} gates it on
+ * `FAILING_CHECK_IDS` and a `warn` has never moved it. This function has no part in
+ * that and does not claim one — which is why the warn clause below is appended as its
+ * OWN sentence rather than folded into `fix these`, so nothing here says a warning
+ * blocks the app.
+ */
 export function renderDoctorReport(report: DoctorReport): string {
   const lines = report.checks.map((check) => `[${STATUS_LABEL[check.status]}] ${check.message}`)
   const failing = report.checks.filter((check) => check.status === 'fail').length
-  const summary =
-    failing > 0
-      ? `${failing} check${failing === 1 ? '' : 's'} failed — fix these before rhizomorph can run.`
-      : 'All required checks passed.'
-  return [...lines, '', summary].join('\n')
+  const warning = report.checks.filter((check) => check.status === 'warn').length
+  return [...lines, '', summarise(failing, warning)].join('\n')
+}
+
+/**
+ * Three arms, and each is a report shape {@link runDoctor} actually produces.
+ *
+ * The `fail` arm keeps its sentence to the letter and gains the warn clause after it,
+ * because a failing report usually carries warnings too — a missing web build beside an
+ * absent lane manifest — and naming only the failures there is the same silence one
+ * size smaller.
+ *
+ * The word "required" in the clean arm stays informal, and binding it to
+ * `FAILING_CHECK_IDS` was rejected rather than overlooked: {@link checkShipper} can
+ * return `fail` and `shipper` is not in that set, so a summary scoped to "no REQUIRED
+ * check failed" would sign a real `[FAIL]` line off as an all-clear. That trades a
+ * missed warning for a missed failure. The adjective is simply no longer load-bearing —
+ * the summary states counts, so nobody has to infer scope from it.
+ */
+function summarise(failing: number, warning: number): string {
+  const checks = (n: number): string => `${n} check${n === 1 ? '' : 's'}`
+  if (failing > 0) {
+    const also =
+      warning > 0
+        ? ` ${checks(warning)} also warned — each [warn] line above says what is degraded and how to fix it.`
+        : ''
+    return `${checks(failing)} failed — fix these before rhizomorph can run.${also}`
+  }
+  if (warning > 0) {
+    return (
+      `No check failed, but ${checks(warning)} warned — that is not the same as a clean run. ` +
+      'Each [warn] line above says what is degraded and how to fix it.'
+    )
+  }
+  return 'All required checks passed.'
 }
 
 /**

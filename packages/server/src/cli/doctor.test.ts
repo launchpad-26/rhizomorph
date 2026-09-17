@@ -1744,6 +1744,218 @@ describe('renderDoctorReport', () => {
   })
 })
 
+type Report = Awaited<ReturnType<typeof runDoctor>>
+
+const countOf = (report: Report, status: DoctorCheck['status']): number =>
+  report.checks.filter((check) => check.status === status).length
+
+/**
+ * THE SUMMARY OVER A WARN-CARRYING REPORT (#603).
+ *
+ * The case directly above is the whole reason this defect survived: it is the only
+ * assertion of the all-clear string in this file and it builds a report of exactly one
+ * `ok` check — the single state in which the old `fail`-only count could not be wrong.
+ * Seventeen sites in `doctor.ts` can emit a `warn`, and none of them was ever rendered
+ * into a summary here without a failure standing beside it.
+ *
+ * So every case below goes through `runDoctor` rather than a hand-built report — the
+ * status mix is one the CLI actually produces — and **every case asserts its own
+ * premise**, the warn count and the fail count read off the report. A case that passes
+ * because it accidentally built an all-ok report is this exact defect one level in.
+ *
+ * Assertions are on the FINAL LINE, not `toContain`: a substring assertion lets an
+ * appended clause hide inside it, which #592 proved on its own sibling.
+ */
+describe('the summary speaks for every check it prints (#603)', () => {
+  let repoPath: string
+  let webDistDir: string
+  let claudeProjectsRoot: string
+  let dataRoot: string
+
+  beforeEach(async () => {
+    repoPath = await mkdtemp(path.join(tmpdir(), 'rhizomorph-doctor-summary-repo-'))
+    webDistDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-doctor-summary-web-'))
+    claudeProjectsRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-doctor-summary-claude-'))
+    dataRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-doctor-summary-data-'))
+    await writeFile(path.join(webDistDir, 'index.html'), '<html></html>')
+    const slugDir = path.join(claudeProjectsRoot, worktreePathToProjectSlug(repoPath))
+    await mkdir(slugDir, { recursive: true })
+    await writeFile(path.join(slugDir, 'session-1.jsonl'), '')
+  })
+
+  afterEach(async () => {
+    await Promise.all([
+      rm(repoPath, { recursive: true, force: true }),
+      rm(webDistDir, { recursive: true, force: true }),
+      rm(claudeProjectsRoot, { recursive: true, force: true }),
+      rm(dataRoot, { recursive: true, force: true }),
+    ])
+  })
+
+  /**
+   * The options that make every check `ok` — the same set the "fully healthy machine"
+   * case at the top of this file uses. Each test below moves exactly one lever off it,
+   * so the status mix it produces is stated by the test rather than inherited.
+   */
+  const options = (overrides: Partial<Parameters<typeof runDoctor>[0]> = {}) => ({
+    path: repoPath,
+    port: 0,
+    exec: healthyExec,
+    webDistDir,
+    claudeProjectsRoot,
+    dataRoot,
+    nodeVersion: 'v22.5.0',
+    rootPackageJsonPath: path.join(repoPath, 'does-not-exist.json'),
+    env: { CLAUDE_CODE_ENABLE_TELEMETRY: '1' },
+    ...overrides,
+  })
+
+  /** Present: `lane-manifest` is `ok`. Absent: it is the one `warn`. */
+  const writeLaneManifest = async (): Promise<void> => {
+    await mkdir(path.join(repoPath, '.swarm'), { recursive: true })
+    await writeFile(path.join(repoPath, '.swarm', 'lanes.json'), JSON.stringify({ version: 1, lanes: [] }))
+  }
+
+  /** Removes the built `index.html`, which is the one lever here that reaches a `fail`. */
+  const breakWebBuild = (): Promise<void> => rm(path.join(webDistDir, 'index.html'))
+
+  const WARN_ONLY_SUFFIX =
+    ' warned — that is not the same as a clean run. Each [warn] line above says what is degraded and how to fix it.'
+
+  /**
+   * THE ASSERTION THE ISSUE CALLS THE ONE THAT MATTERS, AND IT IS THE NEGATIVE.
+   *
+   * `not.toContain('All required checks passed.')` reddens when the summary regresses to
+   * SILENCE; asserting the new sentence reddens only on a REWORD. Both are here — the case
+   * below is the positive — and the negative is not to be traded for it.
+   */
+  it('a report carrying a warning does not claim all required checks passed', async () => {
+    const report = await runDoctor(options())
+
+    expect(countOf(report, 'warn')).toBe(1)
+    expect(countOf(report, 'fail')).toBe(0)
+
+    expect(renderDoctorReport(report)).not.toContain('All required checks passed.')
+    // The exit code is not this renderer's business and does not move (`FAILING_CHECK_IDS`).
+    expect(report.exitCode).toBe(0)
+  })
+
+  it('…and names how many were flagged, as the final line', async () => {
+    const report = await runDoctor(options())
+
+    expect(countOf(report, 'warn')).toBe(1)
+    expect(renderDoctorReport(report).split('\n').at(-1)).toBe(`No check failed, but 1 check${WARN_ONLY_SUFFIX}`)
+  })
+
+  it('two warns are counted as two, so the count is not a hard-coded one', async () => {
+    const report = await runDoctor(options({ env: {} }))
+
+    expect(countOf(report, 'warn')).toBe(2)
+    expect(countOf(report, 'fail')).toBe(0)
+    expect(renderDoctorReport(report).split('\n').at(-1)).toBe(`No check failed, but 2 checks${WARN_ONLY_SUFFIX}`)
+  })
+
+  /**
+   * THE FALSE BRANCH OF THE WARN CLAUSE, WHICH IS WHERE #592's ONE SURVIVING MUTANT LIVED.
+   *
+   * Every failing case in that file drove a report carrying warns, so making the clause
+   * unconditional left the whole suite green and "the old wording is preserved exactly"
+   * was true of the code and asserted by nothing. A broken web build over an otherwise
+   * healthy machine is the shape that reaches it here: one `fail`, no `warn`.
+   */
+  it('a failure with nothing warning keeps the line the doctor has always printed', async () => {
+    await writeLaneManifest()
+    await breakWebBuild()
+    const report = await runDoctor(options())
+
+    expect(countOf(report, 'fail')).toBe(1)
+    expect(countOf(report, 'warn')).toBe(0)
+
+    expect(renderDoctorReport(report).split('\n').at(-1)).toBe('1 check failed — fix these before rhizomorph can run.')
+    expect(report.exitCode).toBe(1)
+  })
+
+  /**
+   * The `fail` arm had the same silence the clean arm did, and it is the commoner report:
+   * a machine that has never built the web bundle has usually never dispatched either. The
+   * warn count is read off the report rather than retyped, so this asserts the summary
+   * agrees with the lines above it rather than with a literal.
+   */
+  it('a report carrying both failures and warnings says both', async () => {
+    await breakWebBuild()
+    const report = await runDoctor(options())
+    const warns = countOf(report, 'warn')
+
+    expect(countOf(report, 'fail')).toBe(1)
+    expect(warns).toBe(1)
+
+    expect(renderDoctorReport(report).split('\n').at(-1)).toBe(
+      `1 check failed — fix these before rhizomorph can run. ${warns} check also warned — ` +
+        'each [warn] line above says what is degraded and how to fix it.',
+    )
+    expect(report.exitCode).toBe(1)
+  })
+
+  it('a clean report still ends in exactly "All required checks passed."', async () => {
+    await writeLaneManifest()
+    const report = await runDoctor(options())
+
+    expect(report.checks.every((check) => check.status === 'ok')).toBe(true)
+    expect(renderDoctorReport(report).split('\n').at(-1)).toBe('All required checks passed.')
+  })
+})
+
+/**
+ * THE SAMPLE RUN IN THE USER GUIDE IS WHERE THIS DEFECT WAS PUBLISHED (#603).
+ *
+ * `docs/user-guide/getting-started.md` pastes an elided run against this repo. It carries
+ * a `[warn] no lane manifest …` line and used to close with `All required checks passed.`,
+ * so the one page a stranger reads first taught them that a warning still means a clean
+ * run. Nothing pinned that line, so nothing would have gone red.
+ *
+ * The expected sentence is RENDERED from a report built out of the block's own status
+ * labels rather than retyped, which is what makes this a law rather than a second copy of
+ * the string: reword the summary and this reddens, and paste a block whose closing line
+ * disagrees with the lines above it and this reddens too. #592 did the same for the team
+ * server runbook, under prd-51 ruling 12.
+ */
+describe('the getting-started sample block is the output this code produces', () => {
+  const GUIDE = readFileSync(
+    path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '..',
+      '..',
+      '..',
+      '..',
+      'docs',
+      'user-guide',
+      'getting-started.md',
+    ),
+    'utf8',
+  ).replace(/\r\n/g, '\n')
+
+  it('ends in the summary this code produces for its own status mix', () => {
+    const start = GUIDE.indexOf('[ok  ] Node ')
+    expect(start).toBeGreaterThan(-1)
+    const block = GUIDE.slice(start, GUIDE.indexOf('```', start)).trimEnd()
+
+    const BY_LABEL: Record<string, DoctorCheck['status']> = { 'ok  ': 'ok', warn: 'warn', FAIL: 'fail' }
+    const statuses = [...block.matchAll(/^\[(ok {2}|warn|FAIL)\] /gm)].map(
+      (match) => BY_LABEL[match[1] as string] as DoctorCheck['status'],
+    )
+
+    expect(statuses.length).toBeGreaterThan(1)
+    expect(statuses, 'the premise: the sample is a run with no failure that still carries a warning').toContain('warn')
+    expect(statuses).not.toContain('fail')
+
+    const asReport: Report = {
+      checks: statuses.map((status, index) => ({ id: `line-${index}`, status, message: 'x' })),
+      exitCode: 0,
+    }
+    expect(block.split('\n').at(-1)).toBe(renderDoctorReport(asReport).split('\n').at(-1))
+  })
+})
+
 describe('parseDoctorArgs', () => {
   const doctorDefaults = { path: undefined, port: 4321, help: false }
 
