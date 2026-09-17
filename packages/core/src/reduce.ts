@@ -707,35 +707,11 @@ function placeByPid(
       actor.pid === pid && actor.worktreePath !== null,
   )
 
-
-  // THE LINE'S OWN `cwd`, WHEN IT MATCHES — and a DECLINE when it does not.
-  //
-  // Plain string equality against a path the collector already canonicalised:
-  // no containment test, so no `node:fs`, so ADR-0003 holds, and no prefix
-  // compare, which is a defect this repo has already fixed twice by name. A
-  // prefix compare would also be WRONG here rather than merely forbidden —
-  // `placementOf` sets `worktreePath` to the actor's own canonical cwd, so a
-  // `cwd` containing an actor's path names an ancestor that actor is not in.
-  //
-  // **A draft of this believed a LIVE actor over a mismatch**, reasoning that
-  // the only cause was cosmetic: two pipelines spelling one directory
-  // differently, a repo reached through a symlink. The fourth review of this
-  // function found the second cause, and it is documented in the tree rather
-  // than speculative. `process.seen` is emitted ONLY on first sighting
-  // (`collector.ts`: `if (before === undefined)`), and no later event carries a
-  // path — so a live actor's `worktreePath` is frozen at the cwd it had when it
-  // was first seen. An agent launched at the repo root and then working in a
-  // worktree is recorded at the root, permanently.
-  //
-  // The collector accepts that deliberately, and says why: *"a fleet can show
-  // an actor on a lane it has walked out of. That is a stale fact rather than a
-  // false death, and only one of those wakes a human at 3am."* Believing it
-  // here converts the stale fact into a declared `waiting` — which is exactly
-  // the one that wakes a human, on a lane nobody is working in. The collector's
-  // own reasoning forbids the fallback.
-  //
-  // So: no match, no lane. ADR-0010 — a gap declared beats a lane invented, and
-  // the gap is counted by #617.
+  // THE LINE'S OWN `cwd`, WHEN IT MATCHES — and a DECLINE when it does not. The
+  // docblock above carries the argument and the two reviews that reversed each
+  // other over it; it is deliberately NOT restated here, because the first copy
+  // of this block kept two sentences the docblock had already retracted, and a
+  // reader landing on the body got the withdrawn version.
   if (cwd !== undefined) {
     // `onePath`, not `{ key: cwd }`: the key has to be the WITNESS's path,
     // because `buildFleet` resolves it against `draft.worktreePath`. Here they

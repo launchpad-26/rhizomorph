@@ -216,8 +216,11 @@ describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
       const [beacon] = ofType(result.events, 'beacon.received')
 
       expect(beacon?.payload.cwd).toBe(canonicalize(gone))
-      // And it is a real canonicalisation, not the raw string passed through:
-      // the temp root itself resolves on this platform.
+      // NOT a pin on the canonicalisation itself: `os.tmpdir()` resolves to
+      // itself on Linux and on most Windows hosts, so `canonicalize(gone)`
+      // equals `gone` there and this passes with the canonicalisation removed.
+      // The case above is what pins that. This one pins the gone-directory
+      // behaviour, which is what it is named for.
       expect(beacon?.payload.cwd?.endsWith('vanished')).toBe(true)
     })
   })

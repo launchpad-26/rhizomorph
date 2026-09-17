@@ -126,13 +126,18 @@ export function beaconCapabilitiesFor(declared: Readonly<Record<string, Declared
  *
  * **A deleted directory is not a failure here.** `canonicalize` walks up to the
  * nearest existing ancestor and re-joins the tail, so a worktree removed since
- * the hook fired still yields a canonical, comparable path. It throws only on
- * ELOOP or EACCES, and the `catch` keeps the string AS WRITTEN for those: it is
- * still the writer's own account of where it was, the digest still covers the
- * original bytes, and the join declines on an unmatched path as it does on any
- * other. That branch is **defensive and untested** — neither condition is
- * portably reproducible — and saying so is better than a test that names it and
- * exercises something else, which is what the first attempt at one did.
+ * the hook fired still yields a canonical, comparable path. It rethrows any
+ * resolution error that is NOT `ENOENT` — `EACCES`, `ENOTDIR`, `ELOOP`,
+ * `ENAMETOOLONG`, `EIO`, and `EINVAL` on Windows — and the bare `catch` keeps
+ * the string AS WRITTEN for all of them: it is still the writer's own account
+ * of where it was, the digest still covers the original bytes, and the join
+ * declines on an unmatched path as it does on any other. The `catch` is
+ * deliberately bare rather than enumerating, which is why getting the list
+ * wrong (an earlier draft said "only ELOOP or EACCES") cost nothing
+ * operationally. That branch is **defensive and untested** — none of those
+ * conditions is portably reproducible — and saying so is better than a test
+ * that names it and exercises something else, which is what the first attempt
+ * at one did.
  */
 function canonicalCwd(cwd: string | undefined): string | undefined {
   if (cwd === undefined) return undefined
@@ -247,7 +252,11 @@ export function createBeaconCollector(config: BeaconCollectorConfig = {}): Colle
                 'beacon.received',
                 {
                   ...parsed.payload,
-                  cwd: canonicalCwd(parsed.payload.cwd),
+                  // Spread-or-omit, never `cwd: undefined`, matching the shape
+                  // `parse-beacon-line.ts` builds and states an ADR for: "a
+                  // present-but-undefined key is a different shape from an
+                  // absent one on the wire."
+                  ...(parsed.payload.cwd === undefined ? {} : { cwd: canonicalCwd(parsed.payload.cwd) }),
                   digest: createHash('sha256').update(line.text, 'utf8').digest('hex'),
                   file: path.basename(file),
                   offset: line.offset,
