@@ -1,5 +1,5 @@
 import { LADDER_WORD, type LadderRank } from '@rhizomorph/core'
-import { RANK_SHAPE, type IconShape } from './tray-icon.js'
+import { type IconShape, RANK_SHAPE } from './tray-icon.js'
 
 /**
  * THE LADDER, PROMOTED TO THE OPERATING SYSTEM (#564; ruling 8's "the tray
@@ -40,6 +40,19 @@ export interface TrayBadge {
   tooltip: string
   /** True for the two rungs that want a person — what a platform's own "attention" affordance keys off. */
   wantsAttention: boolean
+  /**
+   * How many lanes across EVERY watched colony need a person — prd-58 ruling 5.
+   *
+   * `undefined` when the shell is talking to a server that does not report
+   * colonies (one that predates prd-58, or a replay server), which is a
+   * different fact from zero and is rendered as no count rather than as "0".
+   *
+   * **This is where ruling 5 matters most.** The tray is visible when the app
+   * is not, so a badge counting only the RENDERED colony would make ruling 1
+   * unsafe in exactly the way ruling 5 exists to prevent: the operator sees
+   * calm and has three lanes waiting in a repo they are not looking at.
+   */
+  needsYouAcrossColonies?: number
 }
 
 /** Shape, not hue: a rising ladder, and nothing at rest. */
@@ -50,14 +63,27 @@ const MARK: Record<LadderRank, string> = {
   broken: '■',
 }
 
-export function badgeFor(rank: LadderRank): TrayBadge {
+export function badgeFor(rank: LadderRank, needsYouAcrossColonies?: number): TrayBadge {
+  const across = needsYouAcrossColonies
+  // The count joins the tooltip only when there is something to say AND more
+  // than the rendered colony could account for it. A tooltip that repeated the
+  // rung as a number would be two spellings of one fact, which is the shape
+  // this repo already refuses between a card and a check.
+  const tooltip =
+    across === undefined || across === 0
+      ? `rhizomorph — ${LADDER_WORD[rank]}`
+      : `rhizomorph — ${LADDER_WORD[rank]} · ${across} lane${across === 1 ? '' : 's'} need you`
   return {
     rank,
     word: LADDER_WORD[rank],
     mark: MARK[rank],
     shape: RANK_SHAPE[rank],
-    tooltip: `rhizomorph — ${LADDER_WORD[rank]}`,
-    wantsAttention: rank === 'needs-you' || rank === 'broken',
+    tooltip,
+    // **Across every colony, not just the rendered one.** A rung is a fact
+    // about what the scene is showing; this is a fact about the machine. An
+    // operator whose only waiting lane is off-screen still gets the affordance.
+    wantsAttention: rank === 'needs-you' || rank === 'broken' || (across ?? 0) > 0,
+    ...(across === undefined ? {} : { needsYouAcrossColonies: across }),
   }
 }
 

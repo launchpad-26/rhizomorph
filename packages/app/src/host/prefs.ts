@@ -127,7 +127,13 @@ export const HOST_PREFS: readonly PrefDeclaration[] = [
  * - the threshold **null** — "a threshold you set", and an invented number
  *   would fire on somebody's ordinary Tuesday;
  * - launch-on-login **off** — ruling 2's "offered, never imposed" is a default,
- *   not a dialog;
+ *   not a dialog. **Re-ruled the same way by prd-58 wave 0 (2026-09-17)**, on
+ *   the house's own precedent rather than taste: prd-44 #38 on retention
+ *   ("there is no default age, and that is the ruling") and ADR-0010 rejecting
+ *   a silent default for adapter capabilities by name. An instrument that
+ *   starts itself because it was installed is making a decision the operator
+ *   did not make — and prd-58 makes that heavier, because an instrument that
+ *   autostarts now watches every repo on the machine rather than one;
  * - close-to-tray **on** — ruling 2's whole point, and the one default a person
  *   is most likely to want to change;
  * - automatic downloads **on** — ruling 3's convergent stake, and harmless

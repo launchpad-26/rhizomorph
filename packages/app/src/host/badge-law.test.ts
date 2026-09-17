@@ -55,10 +55,30 @@ describe('a muted condition still moves the badge (#564)', () => {
   it('produces an identical badge with every notification silenced', () => {
     for (const rank of LADDER_ORDER) {
       expect(badgeFor(rank)).toEqual(badgeFor(rank))
+      // And identical for the same FACTS, however they are supplied.
+      expect(badgeFor(rank, 3)).toEqual(badgeFor(rank, 3))
     }
-    // Said the way the mechanism actually works: the function that decides the
-    // badge takes one argument, and it is not a preference.
-    expect(badgeFor.length).toBe(1)
+
+    /**
+     * **Amended by prd-58 ruling 5 (#615): two arguments, both facts.**
+     *
+     * This read `expect(badgeFor.length).toBe(1)`, and the sentence beside it
+     * said what it was really for: *"it is not a preference."* The arity was a
+     * proxy for that, and the proxy stopped being true before the property did
+     * — the second argument is how many lanes across every watched colony need
+     * a person, which is a fact about the machine exactly as the rung is.
+     *
+     * So the law now asserts the property directly. A preference reaching this
+     * function would have to arrive as a third argument or as a read of some
+     * ambient state, and both of those move this number.
+     */
+    expect(badgeFor.length).toBe(2)
+    // The real property: nothing but its arguments decides the badge. Called
+    // twice in different orders, with nothing else changed, it answers the
+    // same — which a function reading a preference could not promise.
+    const forward = LADDER_ORDER.map((rank) => badgeFor(rank, 1))
+    const backward = [...LADDER_ORDER].reverse().map((rank) => badgeFor(rank, 1)).reverse()
+    expect(forward).toEqual(backward)
   })
 
   it('silences the notification and moves the badge, in the same transition', () => {
@@ -102,5 +122,52 @@ describe('no reading is not a calm reading (S2)', () => {
   it('wears a form no rung wears, so it cannot be misread as one', () => {
     const shapes = LADDER_ORDER.map((rank) => badgeFor(rank).shape)
     expect(shapes).not.toContain(unreachableBadge('x').shape)
+  })
+})
+
+describe('the badge counts every colony (prd-58 ruling 5, #615)', () => {
+  it('a waiting lane in a colony the scene is NOT showing still wants attention', () => {
+    // The case ruling 5 exists for, at the surface where it matters most: the
+    // tray is visible when the app is not. A badge counting only the rendered
+    // colony would make ruling 1 unsafe in exactly the way ruling 5 prevents —
+    // calm on screen, three lanes waiting in a repo nobody is looking at.
+    const badge = badgeFor('calm', 3)
+    expect(badge.rank).toBe('calm')
+    expect(badge.wantsAttention).toBe(true)
+    expect(badge.needsYouAcrossColonies).toBe(3)
+    expect(badge.tooltip).toContain('3 lanes need you')
+  })
+
+  it('says "lane" for one and "lanes" for more', () => {
+    expect(badgeFor('calm', 1).tooltip).toContain('1 lane need you')
+    expect(badgeFor('calm', 2).tooltip).toContain('2 lanes need you')
+  })
+
+  it('a count of ZERO speaks like the rung alone, but is still REPORTED', () => {
+    // Zero is a fact — "I looked at every colony and nothing needs you" — and
+    // absent is a gap. They render the same and they are not the same, so the
+    // count survives on the badge while the tooltip and the affordance stay
+    // exactly what the rung says on its own.
+    const zero = badgeFor('calm', 0)
+    const none = badgeFor('calm')
+    expect(zero.tooltip).toBe(none.tooltip)
+    expect(zero.wantsAttention).toBe(none.wantsAttention)
+    expect(zero.needsYouAcrossColonies).toBe(0)
+    expect(none.needsYouAcrossColonies).toBeUndefined()
+  })
+
+  it('NO count is different from a count of zero, and is not rendered as 0', () => {
+    // A server that predates prd-58, or a replay server, reports no colonies.
+    // That is a gap, not a quiet machine, and the badge says nothing rather
+    // than claiming nothing needs you.
+    const badge = badgeFor('calm')
+    expect(badge.needsYouAcrossColonies).toBeUndefined()
+    expect(badge.tooltip).not.toContain('need you')
+  })
+
+  it('the rung still speaks on its own when the count is absent', () => {
+    expect(badgeFor('broken').wantsAttention).toBe(true)
+    expect(badgeFor('needs-you').wantsAttention).toBe(true)
+    expect(badgeFor('calm').wantsAttention).toBe(false)
   })
 })
