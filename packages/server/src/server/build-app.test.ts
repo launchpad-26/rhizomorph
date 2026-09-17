@@ -1,17 +1,17 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { createEvent } from '@rhizomorph/core'
+import { API_VERSION, createEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GIT_CAPABILITIES } from '../collectors/git/index.js'
+import { capabilityHeaders } from '../api/test-support.js'
 import { BEACON_CAPABILITIES } from '../collectors/beacon/index.js'
+import { GIT_CAPABILITIES } from '../collectors/git/index.js'
 import { JUDGE_CAPABILITIES } from '../collectors/judge/index.js'
 import { PI_CAPABILITIES } from '../collectors/pi/index.js'
 import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
 import { TMUX_CAPABILITIES } from '../collectors/tmux/index.js'
 import { WORKMUX_CAPABILITIES } from '../collectors/workmux/index.js'
-import { readSessionEvents, RESUME_WINDOW_MS, sessionFilePath } from '../log/session-log.js'
-import { capabilityHeaders } from '../api/test-support.js'
+import { RESUME_WINDOW_MS, readSessionEvents, sessionFilePath } from '../log/session-log.js'
 import { buildApp } from './build-app.js'
 import { SessionRecorder } from './recorder.js'
 
@@ -42,6 +42,8 @@ describe('buildApp integration', () => {
     const response = await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })
     expect(response.statusCode).toBe(200)
     expect(response.json()).toEqual({
+      // prd-58 ruling 8 (#614): the version the client compares on boot.
+      apiVersion: API_VERSION,
       repoPath: '/repo',
       repoName: 'repo',
       sessionId: '1000',

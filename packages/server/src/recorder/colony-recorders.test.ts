@@ -139,7 +139,7 @@ describe('createColonyRecorders', () => {
     expect(ids).toEqual([...ids].sort())
   })
 
-  it('no event reaches two recorders — a recording holds ONE colony', async () => {
+  it('no event reaches two recorders — a recording holds ONE colony', () => {
     // The genesis hash makes this a correctness property rather than a tidiness
     // one: a recording carrying two colonies' events could not verify.
     const { recorders, pinnedColony } = make()
