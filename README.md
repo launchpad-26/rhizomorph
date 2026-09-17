@@ -753,11 +753,11 @@ no lane in this wave. `doctor` reports it `partial` with that reason, which is
 neither the `provided` a complete leg earns nor the `absent` a platform with no
 leg at all would get.
 Placement arrives with the transcript and hook join
-([prd-57](docs/prds/prd-57-the-universal-witness.md) ruling 3).
+([prd-57](docs/prds/done/prd-57-the-universal-witness.md) ruling 3).
 
 Why the rule is *capture first* rather than *write it from the documentation*:
 a reader written from a man page proves we read the man page. prd-15 ruling 7
-and [prd-57](docs/prds/prd-57-the-universal-witness.md) ruling 2 both draw that
+and [prd-57](docs/prds/done/prd-57-the-universal-witness.md) ruling 2 both draw that
 line, and `fixtures/CAPTURE.md` is the recipe — including what to sanitise before
 committing, since a capture emits your username and home directory by
 construction.

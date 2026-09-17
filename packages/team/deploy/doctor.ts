@@ -414,8 +414,29 @@ async function checkIngestKey(storage: DoctorStorage, env: DoctorDeps['env']): P
   // shows exactly once. Following it took the live deployment down on
   // 2026-09-17. A remedy is printed at the moment an operator is already in
   // trouble, which is the worst place to keep a destructive recipe.
+  //
+  // AND IT IS RUN FROM WHERE THE READER IS ALREADY STANDING — no `cd` (#623).
+  //
+  // This string used to open `cd packages/team/deploy && ./init.sh …`. Measured, that `cd` could
+  // only ever fail. `compose.yml` exists at `packages/team/deploy/compose.yml` alone; Compose
+  // searches the cwd and its ANCESTORS, never its descendants; and there is no `docker compose -f`
+  // or COMPOSE_FILE anywhere in this repo. So `docker compose exec app … doctor.ts` — the
+  // runbook's one invocation of this script — resolves from `packages/team/deploy` and nowhere
+  // else, and from THERE `cd packages/team/deploy` exits 1 with "no such file or directory".
+  // `&&` short-circuits, so the rotation would never have run.
+  //
+  // EXECUTED, Docker Compose v5.4.0: `docker compose config --services` prints "no configuration
+  // file provided: not found" at the repo root, and `postgres app caddy` one directory in. The
+  // operator who can READ this line is already standing where it has to be run.
+  //
+  // COUNT THE RENDERINGS, NOT THE LITERALS. The agreement law compares SIX remedies — three shared
+  // states across two surfaces — but they come from FIVE literals, because this one serves two of
+  // the doctor's arms. It is printed by a third, the revoked-key arm below, which the law does not
+  // compare because the seed cannot reach that state. So the `cd` strip moved SEVEN renderings, not
+  // six. Same literal and correct either way; worth knowing before editing this string, since the
+  // arm the law does not watch changes with it.
   const reseed =
-    'Remedy: cd packages/team/deploy && ./init.sh --rotate-ingest-key (it mints a key and prints it once, ' +
+    'Remedy: ./init.sh --rotate-ingest-key (it mints a key and prints it once, ' +
     'rewriting only RZ_TEAM_INGEST_KEY_SHA256 — the Postgres password and the GitHub App values are untouched), ' +
     'then docker compose up -d — NOT docker compose restart, which does not re-read .env.'
 
@@ -423,6 +444,15 @@ async function checkIngestKey(storage: DoctorStorage, env: DoctorDeps['env']): P
     // Not `reseed`: rotation reads the project OUT OF `.env` and refuses when it
     // names none, so pointing at it from here would be a remedy that cannot run.
     // A wrong pointer to a real command is worse than no pointer.
+    //
+    // THIS ARM WAS THE ONLY ONE ALREADY RIGHT ABOUT THE `cd`, AND #623 NEARLY "FIXED" IT.
+    //
+    // It is the one remedy in this file written by hand rather than by reusing `reseed`, and it
+    // was alone among all six across this file and `seed.ts` in naming NO `cd`. #623's first pass
+    // read that as the defect and added one, which would have turned the single runnable remedy
+    // into an unrunnable one. The measurement is in `reseed`'s comment above; the other five moved
+    // to match THIS one instead. `../src/keys/agreement-law.test.ts` is what compares them, and it
+    // now also holds all six to naming no `cd` at all.
     return check(
       'ingest-key',
       'fail',
@@ -1302,15 +1332,52 @@ export async function runDoctor(deps: DoctorDeps): Promise<DoctorReport> {
 
 const STATUS_LABEL: Record<CheckStatus, string> = { ok: 'ok  ', warn: 'warn', fail: 'FAIL' }
 
-/** Renders a {@link runDoctor} report as the lines the doctor prints. */
+/**
+ * THE LAST LINE SPEAKS FOR EVERY CHECK, SO IT COUNTS EVERY CHECK THAT WAS FLAGGED (#592).
+ *
+ * It used to count `fail` alone, which made `All checks passed.` the closing line of a
+ * run that had just reported six missing GitHub App values and a sign-in plane
+ * answering 503. EXECUTED on the team host, 2026-09-17, immediately after a rotation
+ * wiped that configuration: seven `ok`, one `warn`, and a summary an operator would
+ * quote into a handover as *healthy*. The eight lines scroll; this one gets carried.
+ *
+ * The complaint is not that the sentence was false — it is that it read IDENTICALLY
+ * for a clean deployment and for that one. So the fix is the count rather than a
+ * reword: a hedge (`nothing failed`) is true and still cannot tell the two apart.
+ *
+ * WHAT IS DELIBERATELY NOT CHANGED: the `warn` stays a `warn` and the exit code stays
+ * 0. An unconfigured App is a valid deployment, not a fault (#169) — ingest is
+ * unaffected and `/auth/github/start` answers 503 and says why. `exitCode` is
+ * {@link runDoctor}'s, is `fail`-only, and this function has no part in it.
+ */
 export function renderDoctorReport(report: DoctorReport): string {
   const lines = report.checks.map((c) => `[${STATUS_LABEL[c.status]}] ${c.message}`)
   const failing = report.checks.filter((c) => c.status === 'fail').length
-  const summary =
-    failing > 0
-      ? `${failing} check${failing === 1 ? '' : 's'} failed — this deployment is not healthy. Each FAIL line above carries its remedy.`
-      : 'All checks passed.'
-  return [...lines, '', summary].join('\n')
+  const warning = report.checks.filter((c) => c.status === 'warn').length
+  return [...lines, '', summarise(failing, warning)].join('\n')
+}
+
+/**
+ * Three arms, and each is a report shape this tree actually produces.
+ *
+ * The `fail` arm keeps its wording to the letter and gains the warn clause, because
+ * the commonest failing report — an unreachable database — is a `fail` beside SIX
+ * `not measured` warns, and naming only the failure there is the same silence one
+ * size smaller.
+ */
+function summarise(failing: number, warning: number): string {
+  const checks = (n: number): string => `${n} check${n === 1 ? '' : 's'}`
+  if (failing > 0) {
+    const also = warning > 0 ? ` and ${checks(warning)} warned` : ''
+    return `${checks(failing)} failed${also} — this deployment is not healthy. Each FAIL line above carries its remedy.`
+  }
+  if (warning > 0) {
+    return (
+      `No check failed, but ${checks(warning)} warned — that is not the same as all checks passing. ` +
+      'Each [warn] line above says what was flagged and whether it needs action.'
+    )
+  }
+  return 'All checks passed.'
 }
 
 /**

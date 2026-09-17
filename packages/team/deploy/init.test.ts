@@ -520,6 +520,53 @@ async function envNamesServeReads(): Promise<ServeEnvReads> {
 
 const SERVE_READS = await envNamesServeReads()
 
+/**
+ * THE DERIVED SET ITSELF, WRITTEN OUT BY HAND — because counting the source cannot see a name
+ * leave it (#596).
+ *
+ * `classified === occurrences` below is an aggregate over CALL SITES, and one call site is one
+ * number however many names come out of it: `resolveTeamConfig(process.env)` is a single
+ * occurrence contributing nine. So when such a resolver stops reading one of its names — a
+ * renamed constant, a field dropped in a refactor, a read moved behind a condition the Proxy
+ * walk in `keysReadBy` does not enter — `seen` shrinks, both counts hold, the fold-tick anchor
+ * still matches, and `it.each` quietly runs one fewer case. EXECUTED at the verification of
+ * #584: one name dropped from the collection with the counts untouched left 47/47 green.
+ *
+ * WHY THE SORTED LIST AND NOT A PINNED COUNT. A count of the derived names does redden on a
+ * pure drop, and it is the cheaper pin to maintain — but it is the same move one layer up, an
+ * aggregate guarding a derivation, and it is blind to the sibling of the defect it was chosen
+ * to fix: rename one variable inside a multi-name resolver and the set loses a name and gains a
+ * name while the cardinality never moves. `compose.yml` would then forward a variable nothing
+ * reads, fail to forward the one that is read, and this law would be green through both.
+ * `toEqual` over the list catches the drop, the rename and the swap, and its diff NAMES the
+ * entry that moved, which a count cannot.
+ *
+ * THE COST IS THE FEATURE. Every legitimate new read in `serve.ts` must edit this literal, in
+ * the same commit — prd-51 ruling 12's rule applied to a law. If you are here because the pin
+ * went red, the fix is to add or remove the name deliberately and say why in the commit, never
+ * to loosen this to a length or a `toContain`.
+ *
+ * Typed out by hand, never pasted from a failure message: a pin re-derived from the thing it
+ * pins is not a pin.
+ */
+const SERVE_READS_PINNED: readonly string[] = [
+  'HOST',
+  'PORT',
+  'RZ_TEAM_DATABASE_URL',
+  'RZ_TEAM_FOLD_TICK_MS',
+  'RZ_TEAM_GITHUB_APP_ID',
+  'RZ_TEAM_GITHUB_APP_PRIVATE_KEY',
+  'RZ_TEAM_GITHUB_APP_PRIVATE_KEY_FILE',
+  'RZ_TEAM_GITHUB_CLIENT_ID',
+  'RZ_TEAM_GITHUB_CLIENT_SECRET',
+  'RZ_TEAM_GITHUB_INSTALLATION_ID',
+  'RZ_TEAM_GITHUB_ORG',
+  'RZ_TEAM_INGEST_KEY_SHA256',
+  'RZ_TEAM_JOURNAL_DIR',
+  'RZ_TEAM_MIGRATIONS_DIR',
+  'RZ_TEAM_PROJECT',
+]
+
 /** A line in the `app` service that hands this variable to the container. */
 function forwards(name: string): boolean {
   return new RegExp(`^\\s+${name}:`, 'm').test(APP_SERVICE)
@@ -546,6 +593,20 @@ describe('every variable deploy/serve.ts reads is accounted for in compose.yml',
     expect({ classified: SERVE_READS.classified }).toEqual({ classified: SERVE_READS.occurrences })
     expect(SERVE_READS.occurrences).toBeGreaterThan(0)
     expect(SERVE_READS.names).toContain(ENV_FOLD_TICK_MS)
+  })
+
+  /**
+   * THE GUARD ABOVE COUNTS CALL SITES; THIS ONE PINS THE SET THEY PRODUCE.
+   *
+   * They are a pair and neither subsumes the other. The count answers "did the derivation
+   * recognise every `process.env` in the file", which is what catches a brand-new reading idiom
+   * producing no names at all. This one answers "is the set of names still the set of names",
+   * which is what catches a name falling out of — or swapping inside — an idiom the derivation
+   * already recognises. `SERVE_READS_PINNED`'s docblock carries why this is a list and not a
+   * count.
+   */
+  it('the derived set of names is exactly the pinned list, so a name that falls out reddens here', () => {
+    expect(SERVE_READS.names).toEqual([...SERVE_READS_PINNED])
   })
 
   it.each(SERVE_READS.names)('%s is forwarded to the app container, or excused there by name', (name) => {

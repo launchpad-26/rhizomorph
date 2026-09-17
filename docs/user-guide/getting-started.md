@@ -125,7 +125,7 @@ not-implemented).
 [warn] no lane manifest at /home/…/220/.swarm/lanes.json — dispatch has not written .swarm/lanes.json yet; off-fence detection stays unavailable until a dispatch runs
 [ok  ] this repo sits at L4 — tmux/workmux — top rung — nothing further to climb
 
-All required checks passed.
+No check failed, but 1 check warned — that is not the same as a clean run. Each [warn] line above says what is degraded and how to fix it.
 ```
 
 Note the session-logs line: it names the **per-repo** slug directory under

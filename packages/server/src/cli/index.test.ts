@@ -627,7 +627,21 @@ describe('runCli --version', () => {
 })
 
 describe('runCli doctor subcommand', () => {
-  it('runs a read-only preflight (no server boot) and exits 0 when healthy', async () => {
+  /**
+   * THIS CASE WAS THE DEFECT, WRITTEN DOWN AS A PASSING TEST (#603).
+   *
+   * It was named *"exits 0 when healthy"* and asserted `All required checks passed.` —
+   * over a report that carries FOUR warnings, because nothing here overrides
+   * `claudeProjectsRoot`, `dataRoot` or `env`, and a fresh temp directory has no lane
+   * manifest. Exiting 0 and being healthy are different facts and this ran them together;
+   * it was the only end-to-end assertion of that string in the repo.
+   *
+   * The warn count is DERIVED from the printed output rather than fixed, because that mix
+   * genuinely depends on the machine this runs on — a hard-coded `4` would be a fixture
+   * pinned to one laptop. What is fixed is the relationship: the summary names exactly as
+   * many warnings as there are `[warn]` lines above it.
+   */
+  it('runs a read-only preflight (no server boot) and exits 0, naming the warnings that do not block it', async () => {
     const log = { log: vi.fn(), warn: vi.fn() }
     const exit = fakeExit()
     const repoPath = await mkdtemp(path.join(tmpdir(), 'rhizomorph-doctor-cli-'))
@@ -653,7 +667,17 @@ describe('runCli doctor subcommand', () => {
       expect((thrown as FakeExit).code).toBe(0)
       const output = log.log.mock.calls.map((call) => String(call[0])).join('\n')
       expect(output).toContain('[ok  ]')
-      expect(output).toContain('All required checks passed.')
+
+      // The premise, stated rather than assumed: this is a warn-carrying report.
+      const warned = output.split('\n').filter((line) => line.startsWith('[warn]')).length
+      expect(warned).toBeGreaterThan(0)
+      expect(output).not.toContain('[FAIL]')
+
+      expect(output).not.toContain('All required checks passed.')
+      expect(output.trimEnd().split('\n').at(-1)).toBe(
+        `No check failed, but ${warned} check${warned === 1 ? '' : 's'} warned — that is not the same as a ` +
+          'clean run. Each [warn] line above says what is degraded and how to fix it.',
+      )
     } finally {
       await rm(repoPath, { recursive: true, force: true })
       await rm(webDistDir, { recursive: true, force: true })
