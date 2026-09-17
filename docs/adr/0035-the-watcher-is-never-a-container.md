@@ -51,7 +51,10 @@ is exactly the kind of fact that survives in an image and dies in a runbook.
 
 ## Consequences
 
-**Good.** "Install the team server" has one meaning and one timed drill (prd-51 wave 4).
+**Good.** "Install the team server" has one meaning and one timed drill (#171, captured at
+`docs/research/2026-09-17-prd51-vps-upgrade-drill.md`). This sentence cited a wave digit until
+2026-09-17 and the digit was wrong twice — prd-51 renumbered its waves five times, moving the drill
+from wave 4 to wave 5+ to wave 13. It names the issue now, which does not move when the waves do.
 
 **Good.** The Trust section can keep saying the local instrument runs on your machine and reads
 your files, because it does.
