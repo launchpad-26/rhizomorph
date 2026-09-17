@@ -14,6 +14,8 @@ import { type IngestKeysFake, type IngestKeysFakeOptions, createIngestKeysFake }
 import type { IngestKeyRow } from './ports/ingest-keys/port.js'
 import { type LifecycleFake, createLifecycleFake } from './ports/lifecycle/fake.js'
 import { type MigrationsFake, type MigrationsFakeOptions, createMigrationsFake } from './ports/migrations/fake.js'
+import { type RetentionFake, type RetentionFakeOptions, createRetentionFake } from './ports/retention/fake.js'
+import type { RetentionCeiling } from './ports/retention/port.js'
 import type { AppliedMigration } from './ports/migrations/port.js'
 import { type SettingsFakeOptions, createSettingsFake } from './ports/settings/fake.js'
 import type { SettingsPort } from './ports/settings/port.js'
@@ -45,7 +47,10 @@ import type { SettingsPort } from './ports/settings/port.js'
  * The intersection of the per-port option types, so a wave-9 port declares its
  * own options in its own file rather than editing this one.
  */
-export type FakeTeamStorageOptions = SettingsFakeOptions & MigrationsFakeOptions & IngestKeysFakeOptions
+export type FakeTeamStorageOptions = SettingsFakeOptions &
+  MigrationsFakeOptions &
+  IngestKeysFakeOptions &
+  RetentionFakeOptions
 
 export class FakeTeamStorage implements TeamStorage {
   /** Every port call, in order. `applyMigration` records its id. */
@@ -57,6 +62,7 @@ export class FakeTeamStorage implements TeamStorage {
   private readonly keysPort: IngestKeysFake
   private readonly lifecyclePort: LifecycleFake
   private readonly questionsPort: QuestionsFake
+  private readonly retentionPort: RetentionFake
 
   // The port fakes' own objects, aliased rather than copied: tests mutate and
   // read them through that identity (`fake.failApply.clear()`,
@@ -79,6 +85,12 @@ export class FakeTeamStorage implements TeamStorage {
   readonly spendRows: SpendRow[]
   readonly laneRows: LaneRow[]
   readonly collisionRows: CollisionRow[]
+  /** `retention_ceilings`, keyed by project. Empty means nothing is ever dropped (ruling 10). */
+  readonly ceilings: Map<string, RetentionCeiling>
+  /** The `events_YYYY_MM` partitions this database still has. A drop removes one. */
+  readonly eventPartitions: string[]
+  /** Every partition `dropEventPartition` was called with, in order — including the no-ops. */
+  readonly droppedPartitions: string[]
 
   constructor(options: FakeTeamStorageOptions = {}) {
     this.settingsPort = createSettingsFake(this.calls, options)
@@ -87,6 +99,7 @@ export class FakeTeamStorage implements TeamStorage {
     this.keysPort = createIngestKeysFake(this.calls, options)
     this.lifecyclePort = createLifecycleFake(this.calls)
     this.questionsPort = createQuestionsFake(this.calls)
+    this.retentionPort = createRetentionFake(this.calls, options)
 
     this.events = this.eventsPort.events
     this.partitions = this.eventsPort.partitions
@@ -99,6 +112,9 @@ export class FakeTeamStorage implements TeamStorage {
     this.spendRows = this.questionsPort.spendRows
     this.laneRows = this.questionsPort.laneRows
     this.collisionRows = this.questionsPort.collisionRows
+    this.ceilings = this.retentionPort.ceilings
+    this.eventPartitions = this.retentionPort.eventPartitions
+    this.droppedPartitions = this.retentionPort.droppedPartitions
   }
 
   /** Migration ids `applyMigration` was called with, in order — including the ones that threw. */
@@ -181,6 +197,26 @@ export class FakeTeamStorage implements TeamStorage {
 
   revokeIngestKeys(request: { projectId: string; exceptKeyHash?: string | undefined; atMs: number }): Promise<number> {
     return this.keysPort.revokeIngestKeys(request)
+  }
+
+  readCeilings(): Promise<RetentionCeiling[]> {
+    return this.retentionPort.readCeilings()
+  }
+
+  nameCeiling(ceiling: RetentionCeiling): Promise<void> {
+    return this.retentionPort.nameCeiling(ceiling)
+  }
+
+  clearCeiling(projectId: string): Promise<boolean> {
+    return this.retentionPort.clearCeiling(projectId)
+  }
+
+  listEventPartitions(): Promise<string[]> {
+    return this.retentionPort.listEventPartitions()
+  }
+
+  dropEventPartition(partition: string): Promise<void> {
+    return this.retentionPort.dropEventPartition(partition)
   }
 
   close(): Promise<void> {

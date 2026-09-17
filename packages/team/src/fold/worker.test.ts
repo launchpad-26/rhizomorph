@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,11 +11,21 @@ import { openJournal } from '../journal/journal.js'
 import { hashIngestKey } from '../keys/hash.js'
 import { mintIngestKey } from '../keys/mint.js'
 import { grants, stripSqlComments } from '../migrations/schema-law.test.js'
+import type { RetentionCeiling } from '../storage/contract.js'
+import { NO_CEILING_SOURCE } from '../storage/contract.js'
 import { FakeTeamStorage } from '../storage/fake.js'
 import { createPostgresStorage } from '../storage/postgres.js'
 import { createRecordingSql } from '../storage/recording-sql.js'
 import { readCursor } from './cursor.js'
-import { type FoldResult, runOnce, startFoldWorker } from './worker.js'
+import {
+  type FoldResult,
+  MS_PER_DAY,
+  type RetentionSweep,
+  planRetention,
+  runOnce,
+  startFoldWorker,
+  sweepRetention,
+} from './worker.js'
 
 /**
  * ORDERING 2's FAULT-POINT HARNESS (prd-51 ruling 4, F6–F9).
@@ -1201,9 +1211,16 @@ describe('#564 — the seam, end to end and as shipped', () => {
       'onBatch: () => worker.wake(),',
     )
     expect(serve, 'serve.ts must drain the journal at boot').toContain('await worker.drain()')
-    // Whitespace-insensitive: the previous spelling pinned six spaces of indentation, so a
-    // formatter could redden a law about wiring (review of #574).
-    expect(serve.replace(/\s+/g, ' '), 'shutdown must stop the worker').toContain('worker .stop()')
+    /**
+     * Whitespace-insensitive, and this is the SECOND attempt at that.
+     *
+     * The first spelling pinned six spaces of indentation. The repair —
+     * `serve.replace(/\s+/g, ' ')` then `toContain('worker .stop()')` — was insensitive to HOW
+     * MUCH whitespace, not to whether there is any: `worker.stop()` collapses to itself and does
+     * not contain `worker .stop()`, so a formatter putting the chain on one line still reddened a
+     * law about wiring. Same failure, one size smaller, found in the review of #574.
+     */
+    expect(serve, 'shutdown must stop the worker').toMatch(/worker\s*\.stop\(\)/)
 
     /**
      * The ORDER is the ADR-0056 claim: the boot drain follows `startTeamServer`, because that
@@ -1218,5 +1235,518 @@ describe('#564 — the seam, end to end and as shipped', () => {
     expect(drainAt, 'the boot drain must be present to be ordered').toBeGreaterThan(-1)
     expect(startAt, 'startTeamServer must be present to be ordered').toBeGreaterThan(-1)
     expect(drainAt).toBeGreaterThan(startAt)
+  })
+})
+
+/**
+ * ============================================================================
+ * #559 — RETENTION: A NAMED CEILING DROPS THE PARTITION, AND NO CEILING DROPS
+ * NOTHING (prd-51 rulings 9, 10 and B)
+ * ============================================================================
+ *
+ * The falsifier is in the issue's own title, and it is the first block below: a
+ * default that silently discards is the defect, so BOTH halves are tested — a
+ * named ceiling drops past it, and an absent one drops nothing at all.
+ */
+
+const CEILING = (over: Partial<RetentionCeiling> = {}): RetentionCeiling => ({
+  projectId: 'acme-widgets',
+  maxAgeDays: 30,
+  archiveBeforeDrop: false,
+  archiveDir: null,
+  setBy: 'operator',
+  source: 'packages/team/deploy/ceiling.ts',
+  setAtMs: Date.UTC(2026, 8, 1),
+  ...over,
+})
+
+/** 2026-09-17T00:00Z. Every age below is arithmetic against this, never against the wall clock. */
+const NOW = Date.UTC(2026, 8, 17)
+
+describe('#559 — no ceiling drops nothing', () => {
+  it('every partition is kept, and the reason names the DEFAULT setter and where it lives', () => {
+    const verdicts = planRetention({
+      partitions: ['events_2020_01', 'events_2024_06', 'events_2026_09'],
+      ceilings: [],
+      nowMs: NOW,
+    })
+
+    expect(verdicts.map((v) => v.drop)).toEqual([false, false, false])
+    for (const verdict of verdicts) {
+      expect(verdict.reason).toContain('no ceiling is named')
+      expect(verdict.reason).toContain('ruling 10')
+      // Ruling 9 applies to a default too: WHO set it (`default`) and WHERE.
+      expect(verdict.reason).toContain('Set by default')
+      expect(verdict.reason).toContain(NO_CEILING_SOURCE)
+    }
+  })
+
+  it('the sweep issues no drop at all against a six-year-old partition', async () => {
+    const storage = new FakeTeamStorage({ eventPartitions: ['events_2020_01', 'events_2026_09'] })
+
+    const sweep = await sweepRetention({ storage, nowMs: NOW })
+
+    expect(sweep.dropped).toEqual([])
+    expect(storage.droppedPartitions).toEqual([])
+    expect(await storage.listEventPartitions()).toEqual(['events_2020_01', 'events_2026_09'])
+  })
+
+  it('REPETITION — three sweeps with nothing named still drop nothing', async () => {
+    const storage = new FakeTeamStorage({ eventPartitions: ['events_2020_01'] })
+    for (let run = 0; run < 3; run += 1) await sweepRetention({ storage, nowMs: NOW })
+    expect(storage.droppedPartitions).toEqual([])
+  })
+})
+
+describe('#559 — under a named ceiling the whole partition goes', () => {
+  it('a month wholly past the ceiling drops, and the reason names WHO set it and WHERE', () => {
+    const [verdict] = planRetention({
+      partitions: ['events_2026_06'],
+      ceilings: [CEILING({ maxAgeDays: 30 })],
+      nowMs: NOW,
+    })
+
+    expect(verdict?.drop).toBe(true)
+    expect(verdict?.reason).toContain('30 day(s)')
+    expect(verdict?.reason).toContain('set by operator')
+    expect(verdict?.reason).toContain('packages/team/deploy/ceiling.ts')
+  })
+
+  it('the CURRENT month is never dropped, however small the ceiling', () => {
+    const verdicts = planRetention({
+      partitions: ['events_2026_09'],
+      ceilings: [CEILING({ maxAgeDays: 1 })],
+      nowMs: NOW,
+    })
+    expect(verdicts[0]?.drop).toBe(false)
+  })
+
+  /**
+   * THE BOUNDARY, BOTH WAYS.
+   *
+   * The rule is `partitionEnd <= now - days * MS_PER_DAY`, i.e. the NEWEST row the
+   * partition can hold must be past the ceiling. A `<` or a rounded month would
+   * discard rows still inside the ceiling; a `>=` would hold a partition whose
+   * last possible row is exactly at the cutoff forever. Both edges are asserted
+   * because only one of them can be wrong at a time.
+   */
+  it('drops at exactly the cutoff and keeps one millisecond short of it', () => {
+    const endOfAugust = Date.UTC(2026, 8, 1)
+    const days = 16
+    const exactly = endOfAugust + days * MS_PER_DAY
+
+    expect(planRetention({ partitions: ['events_2026_08'], ceilings: [CEILING({ maxAgeDays: days })], nowMs: exactly })[0]?.drop).toBe(true)
+    expect(planRetention({ partitions: ['events_2026_08'], ceilings: [CEILING({ maxAgeDays: days })], nowMs: exactly - 1 })[0]?.drop).toBe(false)
+  })
+
+  it('a December partition rolls into the next YEAR rather than into month 13', () => {
+    // `events_2025_12` ends 2026-01-01. With a 365-day ceiling at 2026-09-17 the
+    // cutoff is 2025-09-17, so it is NOT past it; at 3000 days it is.
+    expect(planRetention({ partitions: ['events_2025_12'], ceilings: [CEILING({ maxAgeDays: 365 })], nowMs: NOW })[0]?.drop).toBe(false)
+    expect(planRetention({ partitions: ['events_2025_12'], ceilings: [CEILING({ maxAgeDays: 3000 })], nowMs: NOW })[0]?.drop).toBe(false)
+    expect(planRetention({ partitions: ['events_2025_12'], ceilings: [CEILING({ maxAgeDays: 200 })], nowMs: NOW })[0]?.drop).toBe(true)
+  })
+
+  it('a name that is not events_YYYY_MM is never dropped, and says why', () => {
+    const verdicts = planRetention({
+      partitions: ['events_default', 'spend_by_project_day', 'events_2026_13'],
+      ceilings: [CEILING({ maxAgeDays: 1 })],
+      nowMs: NOW,
+    })
+    expect(verdicts.map((v) => v.drop)).toEqual([false, false, false])
+    for (const verdict of verdicts) expect(verdict.reason).toContain('not an events_YYYY_MM partition')
+  })
+
+  it('the sweep drops the old months, keeps the recent ones, and reports both', async () => {
+    const storage = new FakeTeamStorage({
+      eventPartitions: ['events_2026_01', 'events_2026_06', 'events_2026_08', 'events_2026_09'],
+      ceilings: [CEILING({ maxAgeDays: 30 })],
+    })
+
+    const sweep = await sweepRetention({ storage, nowMs: NOW })
+
+    expect(sweep.dropped).toEqual(['events_2026_01', 'events_2026_06'])
+    expect(await storage.listEventPartitions()).toEqual(['events_2026_08', 'events_2026_09'])
+    expect(sweep.failed).toEqual([])
+    expect(sweep.verdicts.length).toBe(4)
+  })
+
+  it('REPETITION — a second and third sweep over the same state drop nothing more', async () => {
+    const storage = new FakeTeamStorage({
+      eventPartitions: ['events_2026_01', 'events_2026_09'],
+      ceilings: [CEILING({ maxAgeDays: 30 })],
+    })
+
+    expect((await sweepRetention({ storage, nowMs: NOW })).dropped).toEqual(['events_2026_01'])
+    expect((await sweepRetention({ storage, nowMs: NOW })).dropped).toEqual([])
+    expect((await sweepRetention({ storage, nowMs: NOW })).dropped).toEqual([])
+    expect(storage.droppedPartitions).toEqual(['events_2026_01'])
+  })
+})
+
+describe('#559 — the effective age is the MOST GENEROUS ceiling, and that is a per-partition fact', () => {
+  it('a 365-day ceiling beside a 30-day one keeps the 40-day-old partition', () => {
+    const verdicts = planRetention({
+      partitions: ['events_2026_06'],
+      ceilings: [CEILING({ projectId: 'strict', maxAgeDays: 30 }), CEILING({ projectId: 'generous', maxAgeDays: 365 })],
+      nowMs: NOW,
+    })
+    expect(verdicts[0]?.drop).toBe(false)
+    // …and the reason names the ceiling that actually decided, not the first one read.
+    expect(verdicts[0]?.reason).toContain('project generous')
+  })
+
+  it('the order the ceilings are read in does not change the verdict', () => {
+    const strict = CEILING({ projectId: 'strict', maxAgeDays: 30 })
+    const generous = CEILING({ projectId: 'generous', maxAgeDays: 365 })
+    const forwards = planRetention({ partitions: ['events_2026_06'], ceilings: [strict, generous], nowMs: NOW })
+    const backwards = planRetention({ partitions: ['events_2026_06'], ceilings: [generous, strict], nowMs: NOW })
+    expect(forwards).toEqual(backwards)
+  })
+})
+
+describe("#559 — the admin's archive choice is made once at ceiling time, and withholds the drop", () => {
+  it('a ceiling asking to archive first drops NOTHING, and names the project and the directory', async () => {
+    const storage = new FakeTeamStorage({
+      eventPartitions: ['events_2020_01'],
+      ceilings: [CEILING({ maxAgeDays: 30, archiveBeforeDrop: true, archiveDir: '/data/archive' })],
+    })
+
+    const sweep = await sweepRetention({ storage, nowMs: NOW })
+
+    expect(sweep.dropped).toEqual([])
+    expect(storage.droppedPartitions).toEqual([])
+    expect(sweep.verdicts[0]?.reason).toContain('withheld')
+    expect(sweep.verdicts[0]?.reason).toContain('acme-widgets -> /data/archive')
+    // WHO chose it and WHERE (ruling 9), on the withheld verdict as much as on a drop.
+    expect(sweep.verdicts[0]?.reason).toContain('by operator (packages/team/deploy/ceiling.ts)')
+    // The control: the SAME ceiling with the choice the other way drops it.
+    const dropping = new FakeTeamStorage({
+      eventPartitions: ['events_2020_01'],
+      ceilings: [CEILING({ maxAgeDays: 30 })],
+    })
+    expect((await sweepRetention({ storage: dropping, nowMs: NOW })).dropped).toEqual(['events_2020_01'])
+  })
+
+  it("one project's archive choice withholds every partition, because a partition is shared", async () => {
+    const storage = new FakeTeamStorage({
+      eventPartitions: ['events_2020_01'],
+      ceilings: [
+        CEILING({ projectId: 'archiving', archiveBeforeDrop: true, archiveDir: '/data/archive' }),
+        CEILING({ projectId: 'not-archiving', maxAgeDays: 30 }),
+      ],
+    })
+    expect((await sweepRetention({ storage, nowMs: NOW })).dropped).toEqual([])
+  })
+})
+
+describe('#559 — one failing drop does not cost the sweep the rest', () => {
+  it('the others still go, and `failed` names the one that did not', async () => {
+    const storage = new FakeTeamStorage({
+      eventPartitions: ['events_2020_01', 'events_2020_02', 'events_2020_03'],
+      ceilings: [CEILING({ maxAgeDays: 30 })],
+    })
+    const real = storage.dropEventPartition.bind(storage)
+    storage.dropEventPartition = async (partition: string): Promise<void> => {
+      if (partition === 'events_2020_02') throw new Error('lock timeout on events_2020_02')
+      return real(partition)
+    }
+
+    const sweep = await sweepRetention({ storage, nowMs: NOW })
+
+    expect(sweep.dropped).toEqual(['events_2020_01', 'events_2020_03'])
+    expect(sweep.failed).toEqual([{ partition: 'events_2020_02', error: 'lock timeout on events_2020_02' }])
+  })
+})
+
+/**
+ * THE CONTRACT THE DOCBLOCK USED TO GET WRONG (review of #585).
+ *
+ * `sweepRetention` said "Never throws" in two places. A failing DROP is indeed contained — the
+ * test above proves it — but the two READS that open the pass are not caught, so the function
+ * rejects when the ceiling table or the partition list cannot be answered. That behaviour is the
+ * deliberate one (`startFoldWorker`'s `sweep()` records why the guard was measured and removed);
+ * what was wrong was the sentence describing it. These two cases pin the real contract, so a
+ * future guard added here has to redden a test rather than quietly contradict a comment.
+ */
+describe('#585 — a failing READ rejects, and that is the contract', () => {
+  it.each([['readCeilings'], ['listEventPartitions']] as const)(
+    'a %s that cannot answer rejects rather than returning a sweep that reports nothing',
+    async (method) => {
+      const storage = new FakeTeamStorage({
+        eventPartitions: ['events_2020_01'],
+        ceilings: [CEILING({ maxAgeDays: 30 })],
+      })
+      const boom = new Error(`${method} is unavailable`)
+      ;(storage as any)[method] = async (): Promise<never> => {
+        throw boom
+      }
+
+      await expect(sweepRetention({ storage, nowMs: NOW })).rejects.toThrow(`${method} is unavailable`)
+    },
+  )
+
+  it('a drop that fails is still contained, so the two are genuinely different arms', async () => {
+    const storage = new FakeTeamStorage({
+      eventPartitions: ['events_2020_01'],
+      ceilings: [CEILING({ maxAgeDays: 30 })],
+    })
+    storage.dropEventPartition = async (): Promise<void> => {
+      throw new Error('lock timeout')
+    }
+    const sweep = await sweepRetention({ storage, nowMs: NOW })
+    expect(sweep.dropped).toEqual([])
+    expect(sweep.failed).toEqual([{ partition: 'events_2020_01', error: 'lock timeout' }])
+  })
+})
+
+describe('#559 — the worker sweeps after it drains, and the fold is untouched', () => {
+  it('a drain drops the partition the ceiling names', async () => {
+    writeBatch(2)
+    const storage = new FakeTeamStorage({
+      eventPartitions: ['events_2020_01', 'events_2026_09'],
+      ceilings: [CEILING({ maxAgeDays: 30 })],
+    })
+    const sweeps: RetentionSweep[] = []
+    const worker = startFoldWorker({ ...deps(storage), now: () => NOW, onRetention: (s) => sweeps.push(s) })
+
+    await worker.drain()
+    await worker.stop()
+
+    expect(storage.events.length).toBe(2)
+    expect(storage.droppedPartitions).toEqual(['events_2020_01'])
+    expect(sweeps.length).toBeGreaterThan(0)
+    expect(sweeps[0]?.dropped).toEqual(['events_2020_01'])
+  })
+
+  it('…and with no ceiling, three drains drop nothing — the shipped default', async () => {
+    writeBatch(1)
+    const storage = new FakeTeamStorage({ eventPartitions: ['events_2020_01'] })
+    const worker = startFoldWorker({ ...deps(storage), now: () => NOW })
+
+    await worker.drain()
+    await worker.drain()
+    await worker.drain()
+    await worker.stop()
+
+    expect(storage.droppedPartitions).toEqual([])
+    expect(await storage.listEventPartitions()).toEqual(['events_2020_01'])
+  })
+
+  it('a throwing onRetention does not take the worker down, exactly as a throwing onResult does not', async () => {
+    writeBatch(1)
+    const storage = new FakeTeamStorage({ eventPartitions: ['events_2020_01'], ceilings: [CEILING()] })
+    const worker = startFoldWorker({
+      ...deps(storage),
+      now: () => NOW,
+      onRetention: () => {
+        throw new Error('the retention log line failed')
+      },
+    })
+
+    await expect(worker.drain()).resolves.toBeUndefined()
+    // The drop still happened: the subscriber threw AFTER the sweep, not instead of it.
+    expect(storage.droppedPartitions).toEqual(['events_2020_01'])
+    // …and the worker is not wedged: it takes another drain and folds what arrived.
+    writeBatch(1, 2)
+    await worker.drain()
+    expect(storage.events.map((e) => e.n)).toEqual([1, 2])
+    await expect(worker.stop()).resolves.toBeUndefined()
+  })
+
+  it('a storage that cannot even read its ceilings does not stop the fold', async () => {
+    writeBatch(2)
+    const storage = new FakeTeamStorage()
+    storage.readCeilings = async (): Promise<RetentionCeiling[]> => {
+      throw new Error('retention_ceilings is unreadable')
+    }
+    const worker = startFoldWorker({ ...deps(storage), now: () => NOW })
+
+    await expect(worker.drain()).resolves.toBeUndefined()
+    expect(storage.events.length).toBe(2)
+    // …and the worker still works afterwards: the sweep failing is not terminal.
+    writeBatch(1, 3)
+    await worker.drain()
+    expect(storage.events.map((e) => e.n)).toEqual([1, 2, 3])
+    await worker.stop()
+  })
+
+  /**
+   * THE FOLD ITSELF IS NOT TOUCHED, and this is the case that says so.
+   *
+   * `runOnce` is the function ruling 4's ordering and ruling 16's per-actor
+   * isolation live in. The sweep is a second pass in `startFoldWorker`, so
+   * `runOnce` must issue NO retention statement at all — otherwise the grant law
+   * above (which checks one real fold against `rz_ingest`'s grants) would be
+   * checking a statement the role cannot make, and the F6–F9 tape would grow a
+   * step.
+   */
+  it('runOnce issues no retention call and no DROP, whatever ceiling is named', async () => {
+    writeBatch(2)
+    const storage = new FakeTeamStorage({ eventPartitions: ['events_2020_01'], ceilings: [CEILING()] })
+    const tape: string[] = []
+
+    await runOnce(deps(storage, undefined, tape))
+
+    expect(tape).toEqual(['fold.read', 'fold.begin', 'fold.insert', 'fold.commit', 'cursor.write', 'cursor.rename'])
+    expect(storage.calls).not.toContain('readCeilings')
+    expect(storage.calls).not.toContain('listEventPartitions')
+    expect(storage.calls).not.toContain('dropEventPartition')
+    expect(storage.droppedPartitions).toEqual([])
+  })
+
+  it('and the adapter behind a real fold sends no DROP either', async () => {
+    writeBatch(2)
+    const recorder = createRecordingSql()
+    await runOnce(deps(createPostgresStorage(recorder.sql)))
+    expect(recorder.queries.length).toBeGreaterThan(0)
+    for (const query of recorder.queries) expect(query.sql).not.toMatch(/\bDROP\b/i)
+  })
+})
+
+/**
+ * THE SIBLING CASE OF THE DROP: WHAT A REPLAY DOES AFTER ONE.
+ *
+ * `worker.ts`'s retention header carries the verdict in full. These are the two
+ * halves of it that can be executed.
+ */
+describe('#559 — a replay after a drop is a re-ingest or a refusal, never a duplicate', () => {
+  it('the same (project, actor, n) routes to the SAME partition on every replay, and dedups there', async () => {
+    writeBatch(1)
+
+    const first = createRecordingSql()
+    await runOnce(deps(createPostgresStorage(first.sql)))
+    const second = createRecordingSql()
+    await runOnce({ ...deps(createPostgresStorage(second.sql)), cursorPath: path.join(dir, 'other.cursor') })
+
+    const inserts = (recorded: typeof first) =>
+      recorded.queries.map((q) => /INSERT INTO (events_\d{4}_\d{2})/.exec(q.sql)?.[1]).filter((name) => name)
+
+    // The 2026-09-08 dedup amendment's invariant, made executable: `ts` alone
+    // decides the partition, and the same position always carries the same `ts`.
+    expect(inserts(first)).toEqual(['events_2026_08'])
+    expect(inserts(second)).toEqual(inserts(first))
+    // …and landing in that same partition is a no-op, because the per-partition
+    // unique index is what the targeted ON CONFLICT infers against.
+    expect(first.queries.some((q) => q.sql.includes('ON CONFLICT (project_id, actor_instance, n) DO NOTHING'))).toBe(true)
+  })
+
+  it('a replay into a partition that is GONE fails closed: nothing lands, the cursor does not move', async () => {
+    writeBatch(3)
+    const storage = new FakeTeamStorage()
+    let partitionMissing = true
+    storage.appendEvents = async (): Promise<number> => {
+      if (partitionMissing) {
+        throw new Error('no partition of relation "events" found for row')
+      }
+      return 3
+    }
+
+    const refused = await runOnce(deps(storage))
+
+    expect(refused.ok).toBe(false)
+    expect(refused.ok ? '' : refused.error).toContain('no partition of relation')
+    expect(storage.events).toEqual([])
+    expect(existsSync(cursorPath())).toBe(false)
+
+    // …and once the partition is back, the SAME journal folds and the cursor moves.
+    partitionMissing = false
+    const recovered = await runOnce(deps(storage))
+    expect(recovered.ok).toBe(true)
+    expect(recovered.ok && recovered.rows).toBe(3)
+    expect(readCursor(cursorPath()).seq).toBe(1)
+  })
+})
+
+/**
+ * SUCCESS 6'S FALSIFIER, AS A SWEEP: **no default age exists anywhere that
+ * nobody typed**.
+ *
+ * *"Not met while … a 30-day anything exists that nobody typed."* This reads the
+ * package's own sources rather than trusting that nobody added one, and it is
+ * scoped by what a file IS — every non-test `.ts` under `src/`, every `.ts` and
+ * `.sh` under `deploy/`, and every tracked `.sql` — and not by what a file is
+ * called. A guard scoped by a naming convention misses the files that predate it.
+ *
+ * `MS_PER_DAY` is a UNIT, not an age, and the exemption is derived from the shape
+ * rather than written down as a name to skip: the patterns below require a COUNT
+ * OF DAYS beside the milliseconds, so a bare `86_400_000` is invisible to them
+ * and `30 * 86400000` is not.
+ */
+describe('#559 — no default retention age exists anywhere in this package that nobody typed', () => {
+  /** `packages/team` — three levels up from `src/fold/worker.test.ts`. */
+  const PACKAGE_DIR = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))))
+
+  /** A hard-coded age, in the four shapes one can be written in this package. */
+  const DEFAULT_AGE_PATTERNS: readonly { name: string; re: RegExp }[] = [
+    { name: 'a day count multiplied out', re: /\b\d+\s*\*\s*24\s*\*\s*60\s*\*\s*60\b/ },
+    { name: 'a day count times a milliseconds-per-day constant', re: /\b\d+\s*\*\s*(?:86_?400_?000|MS_PER_DAY)\b/ },
+    {
+      name: 'a named retention default',
+      re: /\b(?:max_?Age_?Days|retention_?Days|age_?Days|DEFAULT_RETENTION\w*|RETENTION_\w*DAYS)\s*[:=]\s*\d/i,
+    },
+    { name: 'a SQL column default on the ceiling', re: /max_age_days\s+integer[^,)]*\bDEFAULT\b/i },
+  ]
+
+  function strip(text: string, file: string): string {
+    if (file.endsWith('.sql')) return text.replace(/--[^\n]*/g, ' ')
+    if (file.endsWith('.sh')) return text.replace(/#[^\n]*/g, ' ')
+    return text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ')
+  }
+
+  function swept(): { file: string; text: string }[] {
+    const out: { file: string; text: string }[] = []
+    for (const root of ['src', 'deploy']) {
+      for (const entry of readdirSync(path.join(PACKAGE_DIR, root), { recursive: true, encoding: 'utf8' })) {
+        const file = `${root}/${entry}`.replace(/\\/g, '/')
+        if (file.endsWith('.test.ts') || file.endsWith('.test.sh')) continue
+        if (!/\.(?:ts|sh|sql)$/.test(file)) continue
+        out.push({ file, text: strip(readFileSync(path.join(PACKAGE_DIR, root, entry), 'utf8'), file) })
+      }
+    }
+    return out.sort((a, b) => (a.file < b.file ? -1 : 1))
+  }
+
+  it('the sweep really reads this package, including the file that would carry such a default', () => {
+    const files = swept().map((f) => f.file)
+    expect(files.length).toBeGreaterThan(30)
+    expect(files).toContain('src/fold/worker.ts')
+    expect(files).toContain('src/migrations/0007_retention_ceilings.sql')
+    expect(files).toContain('deploy/ceiling.ts')
+    expect(files).toContain('deploy/init.sh')
+  })
+
+  it('finds no default age in any of them', () => {
+    const offenders: string[] = []
+    for (const { file, text } of swept()) {
+      for (const pattern of DEFAULT_AGE_PATTERNS) {
+        const hit = pattern.re.exec(text)
+        if (hit) offenders.push(`${file}: ${pattern.name} — ${hit[0].trim()}`)
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('every pattern BITES — a planted default of each shape is found', () => {
+    const planted = [
+      'const RETENTION = 30 * 24 * 60 * 60 * 1000',
+      'const cutoff = now - 30 * MS_PER_DAY',
+      'const maxAgeDays = 30',
+      'max_age_days integer NOT NULL DEFAULT 30,',
+    ]
+    for (const [at, pattern] of DEFAULT_AGE_PATTERNS.entries()) {
+      expect(pattern.re.test(planted[at] as string), `${pattern.name} must match its own planted default`).toBe(true)
+    }
+    // …and the unit alone is NOT an age: nobody typed a number of days beside it.
+    for (const pattern of DEFAULT_AGE_PATTERNS) {
+      expect(pattern.re.test('export const MS_PER_DAY = 86_400_000'), pattern.name).toBe(false)
+    }
+  })
+
+  it('the comment strippers do not hide a default by eating the code', () => {
+    expect(strip('const a = 1 // 30 * 24 * 60 * 60', 'x.ts')).toContain('const a = 1')
+    expect(strip('const a = 1 // 30 * 24 * 60 * 60', 'x.ts')).not.toContain('24')
+    expect(strip('DEFAULT 30 -- 30 * 24 * 60 * 60', 'x.sql')).toContain('DEFAULT 30')
+    expect(strip('days=30 # 30 * 24 * 60 * 60', 'x.sh')).toContain('days=30')
   })
 })

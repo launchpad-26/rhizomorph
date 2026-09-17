@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CALLBACK_PATH, INGEST_PATH, SIGNIN_START_PATH, TABLE, COST_PATH, STUCK_PATH, WHERE_PATH } from './http.js'
+import { CALLBACK_PATH, INGEST_PATH, MINT_PATH, SIGNIN_START_PATH, TABLE, COST_PATH, STUCK_PATH, WHERE_PATH } from './http.js'
 import { type RouteDeclaration, matchRoute, methodNotAllowedBody, notFoundBody } from './router.js'
 
 /**
@@ -65,7 +65,7 @@ describe('matchRoute', () => {
     // enumeration compared to the table it came from is true whatever the table
     // says, and would survive a row whose path had drifted.
     expect(error).toBe(
-      `no route "/nope"; this server serves POST ${INGEST_PATH}, GET ${SIGNIN_START_PATH}, GET ${CALLBACK_PATH}, GET ${WHERE_PATH}, GET ${COST_PATH}, GET ${STUCK_PATH}`,
+      `no route "/nope"; this server serves POST ${INGEST_PATH}, GET ${SIGNIN_START_PATH}, GET ${CALLBACK_PATH}, GET ${WHERE_PATH}, GET ${COST_PATH}, GET ${STUCK_PATH}, GET ${MINT_PATH}, POST ${MINT_PATH}`,
     )
     // Today's sentence ended "…serves /v1/rhizomorph/ingest only", which this
     // commit makes false by adding routes. Ruling 12 forbids shipping that.
@@ -96,7 +96,34 @@ describe('matchRoute', () => {
     // Against the declared order, not just against a snapshot: a matcher that
     // sorts or memoises the shared table is invisible to a snapshot taken after
     // an earlier test in this file already triggered it.
-    expect(TABLE.map((route) => route.path)).toEqual([INGEST_PATH, SIGNIN_START_PATH, CALLBACK_PATH, WHERE_PATH, COST_PATH, STUCK_PATH])
+    expect(TABLE.map((route) => route.path)).toEqual([INGEST_PATH, SIGNIN_START_PATH, CALLBACK_PATH, WHERE_PATH, COST_PATH, STUCK_PATH, MINT_PATH, MINT_PATH])
+  })
+
+  /**
+   * THE FIRST PATH WITH TWO ROWS (#560).
+   *
+   * The mint is a GET page and a POST that writes, on one address. `matchRoute` already had this
+   * grammar — `allow` is every method declared for that path, in table order — so this case is
+   * what proves the two rows were declared as two rows rather than as one that answers both.
+   */
+  it('A10 — the mint path matches GET and POST to DIFFERENT rows, and any other method is a 405 allowing both', () => {
+    const get = matchRoute(TABLE, 'GET', MINT_PATH)
+    expect(get.kind === 'matched' && get.route.method).toBe('GET')
+    expect(get.kind === 'matched' && get.route.methodHint).toBe('a member opens the mint page by GET')
+
+    const post = matchRoute(TABLE, 'POST', MINT_PATH)
+    expect(post.kind === 'matched' && post.route.method).toBe('POST')
+    expect(post.kind === 'matched' && post.route.methodHint).toBe('a key is minted by POST')
+
+    // Two rows, not one that answers both: the hints differ, so a single row could not produce
+    // both of the assertions above.
+    expect(get.kind === 'matched' && post.kind === 'matched' && get.route.methodHint).not.toBe(
+      post.kind === 'matched' ? post.route.methodHint : '',
+    )
+
+    const put = matchRoute(TABLE, 'PUT', MINT_PATH)
+    expect(put.kind).toBe('method-not-allowed')
+    expect(put.kind === 'method-not-allowed' && put.allow).toEqual(['GET', 'POST'])
   })
 
   it('A9 — no duplicate (method, path) pair, and no empty path', () => {

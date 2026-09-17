@@ -120,10 +120,20 @@ describe('#557 — the member gate on the three questions', () => {
 
   it('every refusal maps to its own status — no two collapse into one', () => {
     /**
-     * `satisfies` makes the list DERIVE from the union rather than track it by hand. Review of
-     * #574 found `wrong-project` missing here — added in the same commit that introduced it, and
-     * invisible because a hand-written list cannot be incomplete in a way the compiler sees.
-     * Drop a member below and `tsc` fails; add one to the union and `tsc` fails.
+     * DERIVED FROM `REFUSAL_TEXT`'S KEYS, not from a type-level assertion.
+     *
+     * The first version of this used `satisfies readonly ViewRefusal[]` plus an
+     * `Exclude`-and-empty-array trick and claimed "drop a member below and `tsc` fails". **The
+     * first half was false.** An empty array is assignable to `Missing[]` whatever `Missing` is,
+     * and `satisfies` checks that each element IS a refusal, never that all of them are present —
+     * so dropping `'wrong-project'`, the exact member the review before it found missing, left
+     * `tsc` at exit 0 and this file at 19 passed.
+     *
+     * `REFUSAL_TEXT` is a `Readonly<Record<ViewRefusal, string>>`, so the COMPILER already forces
+     * its keys to be the whole union and nothing here has to restate that. Comparing against
+     * those keys is a runtime assertion that can actually fail, which the type-level one could
+     * not. Found in the review of #574 — a guard standing exactly where the previous round's
+     * defect was.
      */
     const ALL = [
       'no-session',
@@ -134,9 +144,10 @@ describe('#557 — the member gate on the three questions', () => {
       'wrong-project',
       'storage-error',
     ] as const satisfies readonly ViewRefusal[]
-    type Missing = Exclude<ViewRefusal, (typeof ALL)[number]>
-    const _exhaustive: Missing[] = []
-    expect(_exhaustive).toEqual([])
+
+    // The assertion that bites: every refusal `REFUSAL_TEXT` must carry is listed, and nothing
+    // else is. Drop one from `ALL` and this reddens.
+    expect([...ALL].sort()).toEqual(Object.keys(REFUSAL_TEXT).sort())
 
     /**
      * STATUSES MAY COLLIDE; MESSAGES MAY NOT.

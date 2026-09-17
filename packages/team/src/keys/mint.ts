@@ -24,9 +24,15 @@ import { INGEST_KEY_PREFIX, INGEST_KEY_RANDOM_BYTES } from './shape.js'
  * column. `migrations/schema-law.test.ts` case 31 holds the same claim from the
  * schema's side.
  *
- * The viewer that a member mints from is wave 7's — ruling 8's *"a member mints
- * a key in the viewer"* defers with it. What this module serves today is
- * `deploy/init.sh`'s first key and the tests.
+ * The viewer that a member mints from is `../view/mint/mint.ts`, reached at
+ * `POST /v1/rhizomorph/keys` — ruling 8's *"a member mints a key in the
+ * viewer"*, shipped by #560. That surface and `deploy/init.sh`'s first key are
+ * this module's two callers.
+ *
+ * This sentence used to say that viewer *"is wave 7's"* and defer with it. The
+ * wave number had been invalidated by the 2026-09-09 renumbering and the
+ * deferral by the commit that carries this edit, so both halves were false at
+ * once — ruling 12 forbids shipping either.
  */
 
 /** What `randomBytes(n).toString('hex')` does, as a seam a test can drive deterministically. */
