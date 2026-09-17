@@ -17,6 +17,32 @@ import {
 } from '../fleet/index.js'
 import { layoutScene } from './geometry.js'
 
+// @gate-timing — invalidated by contention, not a wall-clock assertion (#593,
+// prd-59 ruling 1). scripts/gate.sh greps for this exact marker to route the
+// file into its serial, alone timing pass instead of the 4x load batches.
+// Carry this comment with the file if you rename or move it; a file without
+// it is invisible to that pass (#209).
+//
+// The two "law bites" cases below run a synthetic fixture through
+// reduceAll -> buildFleet -> layoutScene to get a thread count — real work,
+// not a stopwatch. The first builds a fixture past TRIPWIRE_THREADS; the
+// second builds one exactly at it, the boundary case. That crosses vitest's
+// default 5000ms per-test timeout under the gate's load probe (4 concurrent
+// suites at --maxWorkers=5, ~1.7x oversubscription on a 12-core box):
+// reproduced on `main` at `a53f7dd8` failing 3 of 4 runs, cases at
+// 5270-6403ms. Measured alone, serially — the condition this marker routes
+// it into — on the same tree, even under this box's own ambient contention
+// from other lanes: 2295-3161ms, comfortably inside the 5000ms default with
+// no per-test timeout declared (prd-59 ruling 2: a default is not a budget,
+// but nothing here calls for raising it). Re-derive rather than trust these
+// numbers; they move with the machine.
+//
+// Mutation proof (reverted before commit): `oversizedSpec(TRIPWIRE_THREADS +
+// 1)` in the first "law bites" case changed to `oversizedSpec(1)` reddened
+// it at `expect(count).toBeGreaterThan(TRIPWIRE_THREADS)` — the case still
+// exercises the real count, it is not passing vacuously once excluded from
+// the load batches.
+
 /**
  * THE TRIPWIRE, MADE MECHANICAL (prd-49 ruling 3, 2026-09-12) — issue #452.
  *
