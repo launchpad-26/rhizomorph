@@ -1016,6 +1016,42 @@ the drift `scripts/dev/prd-reconcile.sh` reports and which wave 5 was itself ame
 for [#583][i583]. Filing it as `w5` and correcting it to `w6` is in the issue's own history
 rather than smoothed away.
 
+**Wave 7 — a law does not report a false violation against its own parse.** One issue,
+[#595][i595], declared 2026-09-17 with operator sign-off in session. Found while building wave
+5's [#586][i586]: adding an ordinary docblock to `packages/server/src/shell-suite-law.test.ts`
+turned `doc-citation-law.test.ts`'s symbol arm red against a symbol that is declared, used four
+times and untouched by the diff.
+
+The cause is that law's comment stripper, two regexes with no string-literal awareness. A `/*`
+bigram **inside a string** opens a phantom comment. That file carries its own glob as a string,
+so its comment markers do not balance: **12 openers against 5 closers** on `main` at
+`a53f7dd8`, the tree this wave was measured on, and **18 against 11** on `main` after wave 6
+landed in the same file. The counts move with the file and the pin is what makes them
+checkable; what does not move is the **7 unpaired openers**, which is the defect. The phantom
+opened in the `describe` title never closes, and the unstripped tail is what supplies the
+symbol. **The law passes on
+`main` by accident**, and any `*/` added below that line flips it red on correct code while
+naming the author as the offender.
+
+It belongs to this PRD rather than to prd-17, which shipped — *"every wave this PRD sequenced
+has landed"*, zero open issues — so nothing live owns that file. And it is this document's own
+thesis one level in: every other wave here answers *an unenforced check is not a check*; this is
+a check whose verdict is about its own parse rather than about the tree. Wave 5 landed in the
+same file two screens away.
+
+**What the wave cost is worth recording, because it is this PRD's argument in miniature.** Three
+designs were tried. A string-aware scanner replacing the stripper derailed on an apostrophe
+inside a regex literal and was abandoned. A first diagnosis fired on the symptom — *is this
+symbol declared anywhere in raw text* — which is true of a name inside an ordinary balanced
+comment, so it **replaced a correct verdict with an incorrect one** and told the reader not to
+fix a citation that really was dead. A second fired on the opener's *line* rather than the opener
+itself, reintroducing the same fault one spelling over. Each was caught by an independent seat,
+never by the author, and the later findings were siblings of the repairs written for the earlier
+ones. What shipped requires positive evidence of the failure mode and declares the case it still
+does not cover.
+
+This wave shares no path with wave 6 and does not wait on it.
+
 **Unfiled work implied, described not numbered:** whether an entry's reason should be
 generated from the law it describes rather than written beside it; a sweep of the other
 entries' un-backticked prose claims, which no ruling here makes checkable — and which
@@ -1074,4 +1110,6 @@ yet" look identical in a list of open items, and only one of them is a gap.*
 [i583]: https://github.com/launchpad-26/rhizomorph/issues/583
 [i586]: https://github.com/launchpad-26/rhizomorph/issues/586
 [i594]: https://github.com/launchpad-26/rhizomorph/issues/594
+
+[i595]: https://github.com/launchpad-26/rhizomorph/issues/595
 [i546]: https://github.com/launchpad-26/rhizomorph/issues/546
