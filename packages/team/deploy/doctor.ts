@@ -405,15 +405,31 @@ function checkGithubApp(config: TeamConfig): DoctorCheck {
 async function checkIngestKey(storage: DoctorStorage, env: DoctorDeps['env']): Promise<DoctorCheck> {
   const projectId = (env[ENV_PROJECT] ?? '').trim()
   const keyHash = (env[ENV_INGEST_KEY_SHA256] ?? '').trim().toLowerCase()
+  // THE REMEDY IS IN-PLACE ROTATION, AND THE ONE IT REPLACES IS WHY (#591).
+  //
+  // This string used to open by deleting `.env` and re-running first boot. That
+  // recreates the file: it mints a Postgres password the existing volume cannot
+  // accept (the image applies POSTGRES_PASSWORD only at initdb) and writes the
+  // six hand-entered RZ_TEAM_GITHUB_* values back empty, one of which GitHub
+  // shows exactly once. Following it took the live deployment down on
+  // 2026-09-17. A remedy is printed at the moment an operator is already in
+  // trouble, which is the worst place to keep a destructive recipe.
   const reseed =
-    'Remedy: cd packages/team/deploy && rm .env && RZ_TEAM_PROJECT=<project-id> ./init.sh (it mints a key and ' +
-    'prints it once), then docker compose up -d — NOT docker compose restart, which does not re-read .env.'
+    'Remedy: cd packages/team/deploy && ./init.sh --rotate-ingest-key (it mints a key and prints it once, ' +
+    'rewriting only RZ_TEAM_INGEST_KEY_SHA256 — the Postgres password and the GitHub App values are untouched), ' +
+    'then docker compose up -d — NOT docker compose restart, which does not re-read .env.'
 
   if (projectId === '') {
+    // Not `reseed`: rotation reads the project OUT OF `.env` and refuses when it
+    // names none, so pointing at it from here would be a remedy that cannot run.
+    // A wrong pointer to a real command is worse than no pointer.
     return check(
       'ingest-key',
       'fail',
-      `ingest key: ${ENV_PROJECT} is empty, so there is no project to scope a key to and every batch is refused. ${reseed}`,
+      `ingest key: ${ENV_PROJECT} is empty, so there is no project to scope a key to and every batch is refused. ` +
+        `Remedy: set ${ENV_PROJECT} in packages/team/deploy/.env to this deployment's project id, then ` +
+        './init.sh --rotate-ingest-key to mint a key scoped to it, then docker compose up -d — NOT docker compose ' +
+        'restart, which does not re-read .env.',
     )
   }
   if (!isIngestKeyHash(keyHash)) {

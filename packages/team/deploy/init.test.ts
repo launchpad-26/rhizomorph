@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -19,17 +19,48 @@ function freshDir(): string {
   return dir
 }
 
-function runInit(dir: string, env: Record<string, string> = {}): { stdout: string } {
+function runInit(dir: string, env: Record<string, string> = {}, args: string[] = []): { stdout: string } {
   // `RZ_TEAM_PROJECT` is deleted rather than merely not set: it is a real
   // variable an operator may have exported, and a default asserted against an
   // inherited value is a test that passes for the wrong reason on one machine.
   const inherited = { ...process.env }
   delete inherited.RZ_TEAM_PROJECT
-  const stdout = execFileSync('bash', [INIT_SH], {
+  const stdout = execFileSync('bash', [INIT_SH, ...args], {
     env: { ...inherited, RZ_TEAM_DEPLOY_DIR: dir, ...env },
     encoding: 'utf8',
   })
   return { stdout }
+}
+
+/**
+ * A run that is expected to refuse: BOTH its streams, and the fact that it exited non-zero.
+ *
+ * stdout matters as much as stderr on this path — a refusal that still printed a key would have
+ * announced a credential the deployment is not getting, which is exactly the defect the duplicate
+ * `RZ_TEAM_PROJECT` case below exists for.
+ */
+function refusalRun(
+  dir: string,
+  env: Record<string, string> = {},
+  args: string[] = [],
+): { stdout: string; stderr: string } {
+  const inherited = { ...process.env }
+  delete inherited.RZ_TEAM_PROJECT
+  try {
+    execFileSync('bash', [INIT_SH, ...args], {
+      env: { ...inherited, RZ_TEAM_DEPLOY_DIR: dir, ...env },
+      encoding: 'utf8',
+    })
+  } catch (error) {
+    const failed = error as { stdout?: string; stderr?: string }
+    return { stdout: failed.stdout ?? '', stderr: failed.stderr ?? '' }
+  }
+  throw new Error(`init.sh ${args.join(' ')} was expected to refuse and exited 0`)
+}
+
+/** The same, when only the refusal's reasoning is under test. */
+function refusal(dir: string, env: Record<string, string> = {}, args: string[] = []): string {
+  return refusalRun(dir, env, args).stderr
 }
 
 /** The plaintext `init.sh` printed, from the one line that carries it. */
@@ -542,5 +573,392 @@ describe("init.sh writes the fold tick into .env, with the server's own default"
     expect(block).toMatch(/0 disables the periodic tick/)
     expect(block).toMatch(/NOT A NUMBER also reads as 0/)
     expect(block).toContain(`${ENV_FOLD_TICK_MS}=5s`)
+  })
+})
+
+/**
+ * ROTATION, AGAINST THE STATE A ROTATION ACTUALLY RUNS AGAINST (#591).
+ *
+ * Every test above this line runs `init.sh` against a FRESH directory, and that is the one state
+ * in which the two defects #591 records are both invisible: there is no Postgres volume for a
+ * regenerated password to mismatch, and there are no hand-entered values for a recreated file to
+ * lose. The documented procedure was `rm .env` then first boot, and on 2026-09-17 it took the live
+ * deployment down twice over — a DSN the database had never heard of, and six `RZ_TEAM_GITHUB_*`
+ * values wiped, one of which GitHub shows exactly once.
+ *
+ * So these fixtures are deliberately NOT fresh. Each one boots, fills the App values in by hand
+ * the way an operator does, and only then rotates.
+ *
+ * ## The assertion that does the work is derived, not enumerated
+ *
+ * `changedLines` diffs the whole file and returns which line numbers moved. The claim is
+ * "exactly one line changed, and it is the digest" — which covers the Postgres password, the six
+ * App values, the project id, the fold tick, every comment, and any variable a later PRD adds to
+ * this file, with no edit here. The named assertions below it are kept because #591's Definition
+ * of done names those values specifically; they are the enumeration, and they would each pass on
+ * their own against a rewrite that lost something nobody listed.
+ */
+const ROTATE = ['--rotate-ingest-key']
+
+/**
+ * What an operator types in after first boot. Synthetic by construction — no value here is a real
+ * credential, and the private-key path is the one `docs/team-server-runbook.md` uses as its
+ * example. The client secret's value says what it is, because THAT is the one GitHub will not show
+ * a second time and the one a recreated `.env` destroyed unrecoverably.
+ */
+const HAND_ENTERED: ReadonlyArray<readonly [string, string]> = [
+  ['RZ_TEAM_GITHUB_ORG', 'example-org'],
+  ['RZ_TEAM_GITHUB_APP_ID', '123456'],
+  ['RZ_TEAM_GITHUB_INSTALLATION_ID', '87654321'],
+  ['RZ_TEAM_GITHUB_CLIENT_ID', 'Iv1.0123456789abcdef'],
+  ['RZ_TEAM_GITHUB_CLIENT_SECRET', 'shown-once-by-github-and-never-again'],
+  ['RZ_TEAM_GITHUB_APP_PRIVATE_KEY_PATH', '/srv/rhizomorph/github-app-private-key.pem'],
+]
+
+/** Fill the six App values in, the way an operator does, and prove each one landed. */
+function fillInByHand(envPath: string): void {
+  let content = readFileSync(envPath, 'utf8')
+  for (const [name, value] of HAND_ENTERED) {
+    const before = content
+    content = content.replace(new RegExp(`^${name}=$`, 'm'), `${name}=${value}`)
+    // Without this the whole fixture could silently become "rotate an .env whose App values are
+    // still empty", which is the fresh-directory case again wearing a different name.
+    expect({ name, filled: content !== before }).toEqual({ name, filled: true })
+  }
+  writeFileSync(envPath, content, { mode: 0o600 })
+}
+
+/** A booted, hand-filled deployment: the `.env` path, and its bytes before anything rotates. */
+function deployedDir(project = 'acme-widgets'): { dir: string; envPath: string; before: string } {
+  const dir = freshDir()
+  runInit(dir, { RZ_TEAM_PROJECT: project })
+  const envPath = path.join(dir, '.env')
+  fillInByHand(envPath)
+  return { dir, envPath, before: readFileSync(envPath, 'utf8') }
+}
+
+/** The line numbers at which two versions of a file disagree, plus each side's text. */
+function changedLines(before: string, after: string): Array<{ at: number; from: string; to: string }> {
+  const a = before.split('\n')
+  const b = after.split('\n')
+  const changed: Array<{ at: number; from: string; to: string }> = []
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    const from = a[i] ?? '<absent>'
+    const to = b[i] ?? '<absent>'
+    if (from !== to) changed.push({ at: i, from, to })
+  }
+  return changed
+}
+
+/** Any `.env.tmp.*` the atomic write left behind. A refusal must leave none. */
+function strayTempFiles(dir: string): string[] {
+  return readdirSync(dir).filter((name) => name.startsWith('.env.tmp.'))
+}
+
+describe('init.sh --rotate-ingest-key: the rotation path, against live state', () => {
+  it('rewrites EXACTLY ONE line — the digest — and every other byte of .env survives', () => {
+    const { dir, envPath, before } = deployedDir()
+
+    runInit(dir, {}, ROTATE)
+
+    const after = readFileSync(envPath, 'utf8')
+    const changed = changedLines(before, after)
+    expect(changed).toHaveLength(1)
+    expect(changed[0]?.from).toMatch(/^RZ_TEAM_INGEST_KEY_SHA256=[0-9a-f]{64}$/)
+    expect(changed[0]?.to).toMatch(/^RZ_TEAM_INGEST_KEY_SHA256=[0-9a-f]{64}$/)
+    expect(changed[0]?.to).not.toBe(changed[0]?.from)
+    // The file did not gain or lose lines either, which a one-line diff over an
+    // index-aligned compare would otherwise report as a long run of changes.
+    expect(after.split('\n')).toHaveLength(before.split('\n').length)
+  })
+
+  it("the DoD's named survivors, asserted by name: six App values, the Postgres password, the DSN and the project", () => {
+    const { dir, envPath, before } = deployedDir()
+
+    runInit(dir, {}, ROTATE)
+    const after = readFileSync(envPath, 'utf8')
+
+    for (const [name, value] of HAND_ENTERED) {
+      expect({ name, value: envValue(after, name) }).toEqual({ name, value })
+    }
+    // THE DEFECT THAT TOOK THE DEPLOYMENT DOWN. The postgres image applies
+    // POSTGRES_PASSWORD only at initdb, so a rotation that mints a new one hands
+    // the app a DSN the database has never accepted and the stack never returns.
+    expect(envValue(after, 'POSTGRES_PASSWORD')).toBe(envValue(before, 'POSTGRES_PASSWORD'))
+    expect(envValue(after, 'RZ_TEAM_DATABASE_URL')).toBe(envValue(before, 'RZ_TEAM_DATABASE_URL'))
+    // …and the two agree with each other, so neither could have been rewritten alone.
+    expect(envValue(after, 'RZ_TEAM_DATABASE_URL')).toContain(envValue(after, 'POSTGRES_PASSWORD') as string)
+    expect(envValue(after, 'RZ_TEAM_PROJECT')).toBe('acme-widgets')
+    expect(envValue(after, ENV_FOLD_TICK_MS)).toBe(String(DEFAULT_FOLD_TICK_MS))
+  })
+
+  it('mints a new key, prints it once, and stores only its digest — the same agreement first boot keeps', () => {
+    const { dir, envPath, before } = deployedDir()
+    const oldKeyDigest = envValue(before, 'RZ_TEAM_INGEST_KEY_SHA256')
+
+    const { stdout } = runInit(dir, {}, ROTATE)
+    const newKey = printedKey(stdout)
+    const after = readFileSync(envPath, 'utf8')
+
+    expect(isWellFormedIngestKey(newKey)).toBe(true)
+    expect(envValue(after, 'RZ_TEAM_INGEST_KEY_SHA256')).toBe(hashIngestKey(newKey))
+    expect(envValue(after, 'RZ_TEAM_INGEST_KEY_SHA256')).not.toBe(oldKeyDigest)
+    // The plaintext reaches stdout and nothing else, on this path as on first boot.
+    expect(after).not.toContain(newKey)
+    expect(after).not.toContain(newKey.slice(0, 20))
+    expect(after).not.toMatch(/=rzk_/)
+    // Rotation is not a first boot wearing a hat: it says which project it rotated,
+    // read out of the file rather than out of the environment.
+    expect(stdout).toContain('ingest key for project acme-widgets')
+    expect(statSync(envPath).mode & 0o777).toBe(0o600)
+    expect(strayTempFiles(dir)).toEqual([])
+  })
+
+  it('rotating twice gives three distinct digests, each the hash of that run’s printed key, App values intact throughout', () => {
+    const { dir, envPath, before } = deployedDir()
+
+    const first = printedKey(runInit(dir, {}, ROTATE).stdout)
+    const afterFirst = readFileSync(envPath, 'utf8')
+    const second = printedKey(runInit(dir, {}, ROTATE).stdout)
+    const afterSecond = readFileSync(envPath, 'utf8')
+
+    const digests = [
+      envValue(before, 'RZ_TEAM_INGEST_KEY_SHA256'),
+      envValue(afterFirst, 'RZ_TEAM_INGEST_KEY_SHA256'),
+      envValue(afterSecond, 'RZ_TEAM_INGEST_KEY_SHA256'),
+    ]
+    expect(new Set(digests).size).toBe(3)
+    expect(digests[1]).toBe(hashIngestKey(first))
+    expect(digests[2]).toBe(hashIngestKey(second))
+    expect(first).not.toBe(second)
+
+    // Repetition is where a rewrite that drifts shows up: the second rotation reads
+    // what the first one wrote, so a lost value would compound rather than recur.
+    expect(changedLines(before, afterSecond)).toHaveLength(1)
+    for (const [name, value] of HAND_ENTERED) {
+      expect({ name, value: envValue(afterSecond, name) }).toEqual({ name, value })
+    }
+  })
+
+  it('an exported RZ_TEAM_PROJECT that AGREES with the file is accepted', () => {
+    const { dir, envPath, before } = deployedDir()
+    runInit(dir, { RZ_TEAM_PROJECT: 'acme-widgets' }, ROTATE)
+    expect(changedLines(before, readFileSync(envPath, 'utf8'))).toHaveLength(1)
+  })
+})
+
+describe('init.sh --rotate-ingest-key refuses rather than guessing, and leaves the file alone', () => {
+  it('refuses when there is no .env at all, and writes nothing', () => {
+    const dir = freshDir()
+
+    const stderr = refusal(dir, {}, ROTATE)
+
+    expect(stderr).toContain('nothing to rotate')
+    expect(stderr).toContain(dir)
+    expect(stderr).toContain('./init.sh with no arguments')
+    expect(() => statSync(path.join(dir, '.env'))).toThrow()
+    expect(strayTempFiles(dir)).toEqual([])
+  })
+
+  it.each(['RZ_TEAM_INGEST_KEY_SHA256', 'RZ_TEAM_PROJECT'])(
+    'refuses an .env with no %s line, and the file is byte-identical afterwards',
+    (name) => {
+      const { dir, envPath, before } = deployedDir()
+      writeFileSync(envPath, before.replace(new RegExp(`^${name}=.*$`, 'm'), '# removed by hand'), { mode: 0o600 })
+      const mangled = readFileSync(envPath, 'utf8')
+
+      const stderr = refusal(dir, {}, ROTATE)
+
+      expect(stderr).toContain(`has no ${name} line`)
+      expect(readFileSync(envPath, 'utf8')).toBe(mangled)
+      expect(strayTempFiles(dir)).toEqual([])
+    },
+  )
+
+  /**
+   * ONE GUARD, BOTH NAMES — AND THE SECOND IS HERE BECAUSE IT WAS MISSING (verify of #591).
+   *
+   * The first cut of this change guarded the digest line's count and then read the project with
+   * `sed … | head -n 1`, which is the guard's own argument applied to one name and not to its
+   * structurally identical sibling. Executed against that build: an `.env` carrying
+   * `RZ_TEAM_PROJECT` twice **rotated successfully** and announced the FIRST value, while compose's
+   * last-wins parsing hands the container the SECOND — so the operator wrote down a key they were
+   * told was scoped to a project the boot would never seed it for.
+   *
+   * Both names are one loop now, and each is asserted in its OWN case rather than as a set, so a
+   * failure prints which name stopped being guarded.
+   */
+  it.each([
+    ['RZ_TEAM_INGEST_KEY_SHA256', `RZ_TEAM_INGEST_KEY_SHA256=${'0'.repeat(64)}`],
+    ['RZ_TEAM_PROJECT', 'RZ_TEAM_PROJECT=second-project'],
+  ])('refuses an .env carrying two %s lines rather than acting on the one compose will not use', (name, duplicate) => {
+    const { dir, envPath, before } = deployedDir()
+    writeFileSync(envPath, `${before}${duplicate}\n`, { mode: 0o600 })
+    const doubled = readFileSync(envPath, 'utf8')
+
+    const stderr = refusal(dir, {}, ROTATE)
+
+    expect(stderr).toContain(`has 2 ${name} lines, not 1`)
+    expect(stderr).toContain('last-wins')
+    expect(readFileSync(envPath, 'utf8')).toBe(doubled)
+    expect(strayTempFiles(dir)).toEqual([])
+  })
+
+  /**
+   * The consequence, asserted rather than inferred. The defect was not that rotation wrote the
+   * wrong bytes — it wrote none of them wrong — but that it PRINTED a scope the deployment does not
+   * use. So this reads stdout of the refused run and proves no key was announced at all.
+   */
+  it('announces no key at all when the file names two projects — the printed scope was the whole defect', () => {
+    const { dir, envPath, before } = deployedDir('first-project')
+    writeFileSync(envPath, `${before}RZ_TEAM_PROJECT=second-project\n`, { mode: 0o600 })
+
+    const { stdout, stderr } = refusalRun(dir, {}, ROTATE)
+
+    expect(stdout).not.toContain('first-project')
+    expect(stdout).not.toMatch(PRINTED_KEY_RE)
+    expect(stdout).not.toMatch(/rzk_/)
+    expect(stderr).toContain('RZ_TEAM_PROJECT')
+    // …and the hazard was real: last-wins is the second value, not the one a
+    // `head -n 1` read announces.
+    const projectLines = readFileSync(envPath, 'utf8')
+      .split('\n')
+      .filter((line) => line.startsWith('RZ_TEAM_PROJECT='))
+    expect(projectLines).toEqual(['RZ_TEAM_PROJECT=first-project', 'RZ_TEAM_PROJECT=second-project'])
+  })
+
+  it('refuses when the file names no project, naming what to set', () => {
+    const { dir, envPath, before } = deployedDir()
+    writeFileSync(envPath, before.replace(/^RZ_TEAM_PROJECT=.*$/m, 'RZ_TEAM_PROJECT='), { mode: 0o600 })
+    const emptied = readFileSync(envPath, 'utf8')
+
+    const stderr = refusal(dir, {}, ROTATE)
+
+    expect(stderr).toContain('names no project')
+    expect(stderr).toContain('scoped to one project')
+    expect(readFileSync(envPath, 'utf8')).toBe(emptied)
+  })
+
+  /**
+   * An exported `RZ_TEAM_PROJECT` that disagrees is REFUSED, not ignored. Ignoring it would be a
+   * knob an operator sets that silently does nothing — the shape #584 closed for
+   * `RZ_TEAM_FOLD_TICK_MS` one issue earlier — and the old procedure's own hazard was exactly this
+   * value being wrong: it minted for the other project and left the original key live.
+   */
+  it('refuses an exported RZ_TEAM_PROJECT that disagrees with the file, naming both', () => {
+    const { dir, envPath, before } = deployedDir()
+
+    const stderr = refusal(dir, { RZ_TEAM_PROJECT: 'some-other-project' }, ROTATE)
+
+    expect(stderr).toContain('some-other-project')
+    expect(stderr).toContain('acme-widgets')
+    expect(readFileSync(envPath, 'utf8')).toBe(before)
+    expect(strayTempFiles(dir)).toEqual([])
+  })
+
+  it('refuses an unknown argument with a usage that names both modes, and writes nothing', () => {
+    const dir = freshDir()
+
+    const stderr = refusal(dir, {}, ['--rotate'])
+
+    expect(stderr).toContain('unknown argument: --rotate')
+    expect(stderr).toContain('--rotate-ingest-key')
+    expect(stderr).toContain('FIRST BOOT')
+    expect(() => statSync(path.join(dir, '.env'))).toThrow()
+  })
+
+  /**
+   * THE FLAG IS THE ONLY DOOR, AND THE GUARD IT SITS BESIDE IS NOT WEAKENED.
+   *
+   * The early return on an existing `.env` is what made `init.sh` safe to re-run; the failure
+   * #591 records came from the documented workaround for it (`rm .env`), not from the guard. So
+   * rotation is its MIRROR — it requires the file the guard refuses to overwrite — and a bare run
+   * must still change nothing at all.
+   */
+  it('a bare ./init.sh against an existing .env still refuses to touch it, and points at the flag', () => {
+    const { dir, envPath, before } = deployedDir()
+
+    const { stdout } = runInit(dir)
+
+    expect(stdout).toContain('not regenerating, ingest key not re-printed')
+    expect(stdout).toContain('--rotate-ingest-key')
+    expect(readFileSync(envPath, 'utf8')).toBe(before)
+  })
+})
+
+/**
+ * NO SHIPPED INSTRUCTION TELLS AN OPERATOR TO DELETE `.env` (#591).
+ *
+ * The destructive procedure was written down in two places, and only one of them is a document.
+ * `packages/team/deploy/doctor.ts` carried it as a remedy string — printed at the exact moment an
+ * operator is already in trouble, which is the worse of the two positions. Fixing the runbook and
+ * leaving the doctor saying it is the sibling-case defect `AGENTS.md` names, so this law reads
+ * both sources at once.
+ *
+ * It is scoped to what an operator TYPES: the runbook's fenced command blocks, and `doctor.ts`'s
+ * source. Prose explaining what the old procedure did is not the hazard and is not caught here —
+ * the runbook's rotation section deliberately still describes it, because an operator with the old
+ * recipe in their shell history needs to know why it broke.
+ *
+ * Both halves of the vacuity guard matter: the sources must be non-empty, and each must carry the
+ * NEW command, so a law that silently stopped reading the right file (a renamed heading, a moved
+ * path) goes red rather than green.
+ */
+const RUNBOOK = readFileSync(path.join(HERE, '..', '..', '..', 'docs', 'team-server-runbook.md'), 'utf8')
+const DOCTOR_TS = readFileSync(path.join(HERE, 'doctor.ts'), 'utf8')
+
+/** The contents of every ``` fenced block in a markdown document. */
+export function fencedBlocks(markdown: string): string[] {
+  const blocks: string[] = []
+  const lines = markdown.split('\n')
+  let open: string[] | null = null
+  for (const line of lines) {
+    if (line.trimStart().startsWith('```')) {
+      if (open === null) open = []
+      else {
+        blocks.push(open.join('\n'))
+        open = null
+      }
+      continue
+    }
+    if (open !== null) open.push(line)
+  }
+  return blocks
+}
+
+/** A command that deletes the deployment's `.env`, in whatever spelling. */
+export function deletesEnvFile(text: string): boolean {
+  return /\brm\b[^\n]*(?<![\w.-])\.env\b/.test(text)
+}
+
+describe('no shipped instruction tells an operator to delete .env', () => {
+  it('the law read the files it claims to read, and both carry the rotation command', () => {
+    expect(RUNBOOK.length).toBeGreaterThan(0)
+    expect(DOCTOR_TS.length).toBeGreaterThan(0)
+    expect(RUNBOOK).toContain('--rotate-ingest-key')
+    expect(DOCTOR_TS).toContain('--rotate-ingest-key')
+    expect(fencedBlocks(RUNBOOK).length).toBeGreaterThan(0)
+    expect(fencedBlocks(RUNBOOK).some((block) => block.includes('./init.sh --rotate-ingest-key'))).toBe(true)
+  })
+
+  it('no fenced command block in the runbook removes .env', () => {
+    const offending = fencedBlocks(RUNBOOK).filter(deletesEnvFile)
+    expect(offending).toEqual([])
+  })
+
+  it("no remedy in the doctor's source removes .env", () => {
+    const offending = DOCTOR_TS.split('\n').filter(deletesEnvFile)
+    expect(offending).toEqual([])
+  })
+
+  it('THE LAW BITES — the procedure as it actually shipped fails it', () => {
+    expect(deletesEnvFile('cd packages/team/deploy\nrm .env\n./init.sh')).toBe(true)
+    expect(deletesEnvFile('rm -f .env')).toBe(true)
+    expect(deletesEnvFile('cd packages/team/deploy && rm .env && RZ_TEAM_PROJECT=<id> ./init.sh')).toBe(true)
+    // …and does not fire on what a runbook legitimately says.
+    expect(deletesEnvFile('./init.sh --rotate-ingest-key')).toBe(false)
+    expect(deletesEnvFile('docker compose up -d')).toBe(false)
+    expect(deletesEnvFile('rm /srv/rhizomorph/old.env.bak')).toBe(false)
+    expect(fencedBlocks('a\n```\none\n```\nb\n```\ntwo\n```\n')).toEqual(['one', 'two'])
   })
 })
