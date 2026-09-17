@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -367,6 +367,125 @@ describe('the runner: a non-zero exit is a failure with its output attached, zer
   })
 })
 
+/**
+ * ROUTE B — the Windows position, asserted rather than filed (#586; ruled by the operator on
+ * 2026-09-17 on #394).
+ *
+ * WHY NOT A `.windows-known-failures` ENTRY, mechanically rather than by preference.
+ * `packages/server/src/windows-suite-law.test.ts` requires every entry to match
+ * `/^packages\/.+\.test\.tsx?$/` AND be tracked, so the shell tests under `scripts/dev/` cannot
+ * be listed at
+ * all — they are not vitest files and never appear in a vitest result. The only listable
+ * artefact is THIS file, one entry masking all of its tests, of which the runner, parser and
+ * discovery cases are platform-clean and would go dark on Windows with it. prd-25 ruling 3 also
+ * allows exactly one cause class per entry, and the measured causes span at least two.
+ *
+ * WHAT IS DECLARED INSTEAD. Per script, why it cannot run under this law on native Windows, and
+ * — the part that matters — on what BASIS. `evidence` is what was actually observed;
+ * `cause` is a prd-25 ruling 3 class, and is `null` where a script was measured red without its
+ * cause being named. A script never run on Windows says so.
+ *
+ * THE SELF-CHECK, AND IT RUNS ON EVERY PLATFORM. The declaration is asserted to equal the
+ * DISCOVERED set below, so a shell script added to `scripts/dev/` cannot join the skipped set
+ * unnoticed — the law reddens on Linux, where the author is, rather than silently skipping one
+ * more file on a platform nobody here runs. That is the property that makes an opt-out worth
+ * having: without it, a skip list is a place for things to disappear into.
+ *
+ * WHAT THIS DOES NOT CLAIM. That the scripts would fail today. KelliherL's measurement on #394
+ * ran the standalone `.sh` files directly, not through this law's subprocess wrapper, and
+ * covered six of the eight. Two rows below are `unmeasured` and say so. A Windows box that runs
+ * this file should replace the inferred rows with observations — that is a strictly better
+ * state than this table, not a contradiction of it.
+ */
+const IS_WINDOWS = process.platform === 'win32'
+
+/** prd-25 ruling 3's classes, exactly — `.windows-known-failures`'s header carries the same seven. */
+const WINDOWS_CAUSE_CLASSES = [
+  'path-separator',
+  'drive-letter',
+  'procfs',
+  'line-endings',
+  'process-signalling',
+  'temp-dir',
+  'fs-semantics',
+] as const
+
+/**
+ * A DISCRIMINATED UNION, not a `basis` field beside a free-text `evidence` string, and the
+ * review of this issue is why. The first version carried both as independent fields, so a row
+ * could say `basis: 'measured'` while its evidence read "never run on native Windows" — and
+ * every check passed. EXECUTED during that review: flipping one row's basis and nothing else
+ * left the file at 23/23 and typecheck at 0. That is a declaration able to lie about its own
+ * basis, inside an opt-out whose whole worth is that it cannot.
+ *
+ * The shapes are now mutually exclusive by TYPE. A `measured` row must carry the run it came
+ * from; an `unmeasured` row has nowhere to put one and cannot name a cause. Flipping a basis
+ * without rewriting the row is a compile error, which is the check that cannot be forgotten.
+ */
+type WindowsDeclaration =
+  | {
+      readonly basis: 'measured'
+      /** `null` where the run was red but its cause was not named per file. */
+      readonly cause: (typeof WINDOWS_CAUSE_CLASSES)[number] | null
+      readonly observed: {
+        readonly by: string
+        readonly platform: string
+        readonly passed: number
+        /** Asserted > 0 below: a `measured` row with nothing failing is not evidence of unrunnability. */
+        readonly failed: number
+        readonly detail: string
+      }
+    }
+  | {
+      readonly basis: 'unmeasured'
+      /** Structurally `null`: a cause nobody observed is a guess wearing evidence's clothes. */
+      readonly cause: null
+      readonly why: string
+    }
+
+const WINDOWS_UNRUNNABLE: Record<string, WindowsDeclaration> = {
+  'scripts/dev/await-merge.test.sh': {
+    basis: 'measured',
+    cause: 'process-signalling',
+    observed: { by: 'KelliherL, #394', platform: 'native Windows / Git Bash', passed: 11, failed: 45, detail: "'wanted 3, got 1' — exit-status truncation" },
+  },
+  'scripts/dev/coupling.test.sh': {
+    basis: 'measured',
+    cause: null,
+    observed: { by: 'KelliherL, #394', platform: 'native Windows / Git Bash', passed: 10, failed: 1, detail: 'cause not named per file' },
+  },
+  'scripts/dev/fence-lint.test.sh': {
+    basis: 'unmeasured',
+    cause: null,
+    why: 'added 2026-09-15, after KelliherL measured #394 on 2026-09-14; never run on native Windows in any shape',
+  },
+  'scripts/dev/gh-retry.test.sh': {
+    basis: 'unmeasured',
+    cause: null,
+    why: 'added 2026-09-15, after KelliherL measured #394 on 2026-09-14; never run on native Windows in any shape',
+  },
+  'scripts/dev/issues.test.sh': {
+    basis: 'measured',
+    cause: null,
+    observed: { by: 'KelliherL, #394', platform: 'native Windows / Git Bash', passed: 40, failed: 2, detail: 'cause not named per file' },
+  },
+  'scripts/dev/lane-guard.test.sh': {
+    basis: 'measured',
+    cause: null,
+    observed: { by: 'KelliherL, #394', platform: 'native Windows / Git Bash', passed: 12, failed: 11, detail: 'cause not named per file' },
+  },
+  'scripts/dev/prd-milestones.test.sh': {
+    basis: 'measured',
+    cause: 'temp-dir',
+    observed: { by: 'KelliherL, #394', platform: 'native Windows / Git Bash', passed: 11, failed: 11, detail: "'manifest file created' — mktemp -d behaving differently" },
+  },
+  'scripts/dev/prd-reconcile.test.sh': {
+    basis: 'measured',
+    cause: null,
+    observed: { by: 'KelliherL, #394', platform: 'native Windows / Git Bash', passed: 4, failed: 15, detail: 'cause not named per file' },
+  },
+}
+
 describe('shell suite law: every scripts/dev/*.test.sh runs in the vitest suite (prd-54 wave 3, #394)', () => {
   it('a pattern matching nothing discovers nothing — proves the count check below is not vacuous', () => {
     expect(discoverShellTests('scripts/dev/this-pattern-matches-nothing-*.test.sh')).toEqual([])
@@ -402,8 +521,76 @@ describe('shell suite law: every scripts/dev/*.test.sh runs in the vitest suite 
 
   const results = new Map<string, ShellRunResult>()
 
+  it('the Windows declaration covers exactly the discovered set — a new shell test cannot join the skipped set unnoticed', () => {
+    expect(
+      Object.keys(WINDOWS_UNRUNNABLE).sort(),
+      'the declared Windows opt-out and the discovered shell tests disagree — a script was added, renamed or removed without its declaration moving with it',
+    ).toEqual([...SHELL_TESTS].sort())
+  })
+
+  it('every Windows declaration carries a basis its own content can support', () => {
+    const bad: string[] = []
+    for (const [file, d] of Object.entries(WINDOWS_UNRUNNABLE)) {
+      if (d.basis === 'measured') {
+        if (d.observed.by.trim().length === 0) bad.push(`${file}: measured by nobody`)
+        if (d.observed.platform.trim().length === 0) bad.push(`${file}: measured on no platform`)
+        if (d.observed.detail.trim().length === 0) bad.push(`${file}: measured with no detail`)
+        // The row exists to say the script cannot run here. A run in which nothing failed is
+        // evidence of the opposite, and would leave the declaration resting on a green run.
+        // `Number.isInteger` FIRST, and both seats of the fix re-review found why: `NaN <= 0`
+        // is false, so a bare `<= 0` bound admitted `failed: NaN` — a row declaring a measured
+        // red run while carrying no valid failure count at all, which is the one thing the
+        // `measured` shape exists to require. A fractional count passed for the same reason.
+        if (!Number.isInteger(d.observed.failed) || d.observed.failed <= 0) {
+          bad.push(
+            `${file}: declared measured, but the run it cites reports ${d.observed.failed} failures — a measured row needs a whole count greater than zero, or it is evidence the script RUNS`,
+          )
+        }
+        if (!Number.isInteger(d.observed.passed) || d.observed.passed < 0) {
+          bad.push(`${file}: pass count ${d.observed.passed} is not a whole number of tests`)
+        }
+      } else if (d.why.trim().length === 0) {
+        bad.push(`${file}: declared unmeasured with no reason`)
+      }
+    }
+    expect(bad).toEqual([])
+  })
+
+  // WINDOWS_CAUSE_CLASSES above is the THIRD hand-written copy of ruling 3's seven classes in
+  // this tree. The other two — `.windows-known-failures`'s own header table and
+  // `windows-suite-law.test.ts`'s `RULING_3_CLASSES` — are already pinned to each other and to
+  // the script, by that file's "the classes in the list's own header are exactly the ones the
+  // script enforces" test. This copy was pinned to nothing. EXECUTED in review of this PR:
+  // renaming `procfs` to `proc-filesystem` in it left this file at 23/23,
+  // `windows-suite-law.test.ts` at its full count and `npm run typecheck` at 0 — so the
+  // docblock's claim that these are "`.windows-known-failures`'s header ... the same seven"
+  // was prose that no check could falsify, inside a PRD whose subject is that an unenforced
+  // check is not a check.
+  //
+  // Pinned to the header itself rather than to `RULING_3_CLASSES`, because the header is the
+  // artefact the vocabulary lives in and `RULING_3_CLASSES` is another transcription of it;
+  // chaining copy to copy would leave the same drift one link further along. Order-sensitive,
+  // like the sibling assertion in `windows-suite-law.test.ts`.
+  it("the cause classes are exactly .windows-known-failures' own header — a third hand-copy cannot drift", () => {
+    const header = readFileSync(path.join(REPO_ROOT, '.windows-known-failures'), 'utf8')
+    const declared = header
+      .split(/\r?\n/)
+      .map((raw) => raw.replace(/\s+$/, '').match(/^# {3}([a-z][a-z-]*) {2,}\S/)?.[1])
+      .filter((cls): cls is string => cls !== undefined)
+    // Without this, a header whose shape moved would parse to [] and the comparison below would
+    // still redden — but blaming the wrong side. This says which of the two moved.
+    expect(
+      declared.length,
+      ".windows-known-failures' header parsed to zero cause classes — the header's class table moved, not this file's list",
+    ).toBeGreaterThan(0)
+    expect(
+      [...WINDOWS_CAUSE_CLASSES],
+      "this file's cause-class list and .windows-known-failures' header disagree — a ruling 3 class was renamed, added or removed without both copies moving",
+    ).toEqual(declared)
+  })
+
   for (const relPath of SHELL_TESTS) {
-    it(
+    it.skipIf(IS_WINDOWS)(
       `${relPath} exits clean, with its own stdout and stderr attached on failure`,
       { timeout: SHELL_TEST_TIMEOUT_MS + 5_000 },
       () => {
@@ -422,6 +609,14 @@ describe('shell suite law: every scripts/dev/*.test.sh runs in the vitest suite 
   }
 
   it('proves it ran everything: a per-file pass/fail count, and the totals are not zero', () => {
+    if (IS_WINDOWS) {
+      // The per-script executions are declared unrunnable here (route B, above). The positive
+      // claim that replaces them: nothing ran, and the declaration accounts for every script —
+      // so a Windows run cannot pass by having quietly executed a subset.
+      expect(results.size, 'a shell test executed on Windows despite the declared opt-out').toBe(0)
+      expect(Object.keys(WINDOWS_UNRUNNABLE).sort()).toEqual([...SHELL_TESTS].sort())
+      return
+    }
     expect(
       results.size,
       'not every discovered shell test recorded a result — one of the tests above did not run to completion',
