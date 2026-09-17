@@ -21,6 +21,19 @@ export const eventSourceSchema = z.enum([
   // can name itself without widening this enum per harness.
   'sessionlog',
   'otel',
+  // prd-57 ruling 5, licensed by ADR-0054: the harness's OWN hook, invoked by
+  // the lifecycle entries `rhizomorph enlist` installs.
+  //
+  // ADR-0037 refused `beacon` as a witness for `agent.status`, and ADR-0054
+  // records why that refusal does not reach here: every clause of it was about
+  // the ORGAN'S INFERENCE — a reader watching a pane and deciding what the
+  // state must be. A hook fires inside the agent's own process and reports
+  // what that process is doing. It is a declaration, not a reading, which is
+  // the same property that admitted `workmux`.
+  //
+  // Like `process` above and unlike `operator`, this widens nothing about what
+  // the enum MEANS: it runs unattended and reports what it was told.
+  'hook',
   // prd-57 ruling 1, licensed by ADR-0052: the operating system's process
   // table, read through `collectors/process/`.
   //

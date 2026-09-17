@@ -4,16 +4,17 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Collector, CollectorContext, Exec, RhizomorphEvent, PollResult } from '@rhizomorph/core'
+import type { Collector, CollectorContext, Exec, PollResult, RhizomorphEvent } from '@rhizomorph/core'
 import { sha256Hex } from '@rhizomorph/core/src/record/index.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
-import { sessionDirFor } from '../log/paths.js'
-import { listSessions, readSessionEvents, RESUME_WINDOW_MS, sessionFilePath } from '../log/session-log.js'
-import { readSessionLock, writeSessionLock } from '../log/session-lock.js'
 import { capabilityHeaders } from '../api/test-support.js'
+import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
+import { readOrMintInstallationId } from '../log/installation-id.js'
+import { DATA_ROOT_ENV_VAR, sessionDirFor } from '../log/paths.js'
+import { readSessionLock, writeSessionLock } from '../log/session-lock.js'
+import { listSessions, RESUME_WINDOW_MS, readSessionEvents, sessionFilePath } from '../log/session-log.js'
 import type { SessionRecorder } from '../server/recorder.js'
-import { runCli, type CliHandle } from './index.js'
+import { type CliHandle, runCli } from './index.js'
 
 /** Thrown by the fake `exit` so a would-be `process.exit` unwinds the async call instead of killing the test runner. */
 class FakeExit extends Error {
@@ -359,6 +360,16 @@ describe('runCli env subcommand', () => {
     await rm(webDistDir, { recursive: true, force: true })
   })
 
+  /**
+   * Boots a server on this test's data root and reports the id an env block
+   * DECLARES — the installation id since prd-57 ruling 7, not the recorder's
+   * session id, which is what this returned before.
+   *
+   * The two are different values with different lifetimes: the session id is
+   * still the record's identity and still what `/api/meta` publishes, and the
+   * inbox no longer accepts it. `cli/telemetry-env.test.ts` holds that contrast
+   * directly; here it is only the id the three assertions below compare against.
+   */
   async function bootServer(): Promise<{ port: number; instance: string }> {
     server = await runCli([path.join(tmpdir(), 'env-repo'), '--port', '0'], {
       dataRoot,
@@ -366,17 +377,34 @@ describe('runCli env subcommand', () => {
       log: silentLog,
       webDistDir,
     })
-    return { port: Number(new URL(server.url).port), instance: server.recorder.sessionId }
+    return { port: Number(new URL(server.url).port), instance: readOrMintInstallationId({ dataRoot }).id }
+  }
+
+  /**
+   * Runs the CLI with `RHIZOMORPH_DATA_DIR` pointed at this test's data root.
+   *
+   * The CLI and the server agree on the installation id because they resolve
+   * the same data root, never because a test can inject the server's into a
+   * command a real operator runs in another process. An in-process `runCli`
+   * could cheat that; reproducing the environment is what the real invocation
+   * actually has.
+   */
+  async function runEnvCli(argv: readonly string[], log: Pick<Console, 'log' | 'warn'>) {
+    const previous = process.env[DATA_ROOT_ENV_VAR]
+    process.env[DATA_ROOT_ENV_VAR] = dataRoot
+    try {
+      return await runCli(argv, { log, exit: fakeExit() }).catch((err: unknown) => err)
+    } finally {
+      if (previous === undefined) delete process.env[DATA_ROOT_ENV_VAR]
+      else process.env[DATA_ROOT_ENV_VAR] = previous
+    }
   }
 
   it('prints the telemetry env block for a lane and exits 0', async () => {
     const { port, instance } = await bootServer()
     const log = { log: vi.fn(), warn: vi.fn() }
-    const exit = fakeExit()
 
-    const thrown = await runCli(['env', 'test-lane', '--port', String(port)], { log, exit }).catch(
-      (err: unknown) => err,
-    )
+    const thrown = await runEnvCli(['env', 'test-lane', '--port', String(port)], log)
 
     expect(thrown).toBeInstanceOf(FakeExit)
     expect((thrown as FakeExit).code).toBe(0)
@@ -391,12 +419,8 @@ describe('runCli env subcommand', () => {
   it('honours --role and --port', async () => {
     const { port, instance } = await bootServer()
     const log = { log: vi.fn(), warn: vi.fn() }
-    const exit = fakeExit()
 
-    const thrown = await runCli(
-      ['env', 'conductor', '--role', 'conductor', '--port', String(port)],
-      { log, exit },
-    ).catch((err: unknown) => err)
+    const thrown = await runEnvCli(['env', 'conductor', '--role', 'conductor', '--port', String(port)], log)
 
     expect(thrown).toBeInstanceOf(FakeExit)
     expect((thrown as FakeExit).code).toBe(0)
@@ -410,12 +434,8 @@ describe('runCli env subcommand', () => {
   it('honours --shell, rendering the PowerShell form end to end', async () => {
     const { port, instance } = await bootServer()
     const log = { log: vi.fn(), warn: vi.fn() }
-    const exit = fakeExit()
 
-    const thrown = await runCli(
-      ['env', 'test-lane', '--port', String(port), '--shell', 'powershell'],
-      { log, exit },
-    ).catch((err: unknown) => err)
+    const thrown = await runEnvCli(['env', 'test-lane', '--port', String(port), '--shell', 'powershell'], log)
 
     expect(thrown).toBeInstanceOf(FakeExit)
     expect((thrown as FakeExit).code).toBe(0)

@@ -1,7 +1,8 @@
 import { createEvent, createIdFactory } from '@rhizomorph/core'
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { parseMetricsExport, parseTracesExport, validateLogsExport } from '../collectors/otel/index.js'
-import type { ServerContext } from '../server/context.js'
+import { readOrMintInstallationId } from '../log/installation-id.js'
+import { dataRootFor, type ServerContext } from '../server/context.js'
 
 /**
  * OTLP/HTTP JSON receiver — prd1's authority collector. Lanes are dispatched
@@ -19,11 +20,29 @@ import type { ServerContext } from '../server/context.js'
  * surfaced as a setup gap, never silently merged and never silently dropped.
  *
  * So every accepted export must declare our instance id in its resource
- * attributes, and the instance id is the *session* id (`recorder.sessionId`):
- * minted when the session starts, persisted with it, and carried across a
- * restart by the resumed run (#58) — which is exactly the lifetime a lane's env
- * block needs. It is already published on `/api/meta`, where
- * `rhizomorph env <lane>` reads it.
+ * attributes.
+ *
+ * **Which id that is changed in prd-57 ruling 7: it is the INSTALLATION id
+ * now, not the session id.**
+ *
+ * It was `recorder.sessionId` — minted when the session starts, persisted with
+ * it, carried across a restart by the resumed run (#58). That is exactly the
+ * lifetime a *lane's env block* needs, because the block is pasted per launch
+ * and a launch belongs to a session. prd2 wave B's ruling above is untouched by
+ * this and remains the reason the check exists at all: one repo, one Rhizomorph.
+ *
+ * What changed is that ruling 4 now writes telemetry configuration into a
+ * harness's USER-LEVEL file, once, for every future session in every repo. That
+ * configuration has no session. Keyed on a session id it would be correct until
+ * the next fresh boot and then silently wrong — this instrument would refuse its
+ * own agents' telemetry and book it as a foreign export, which is precisely the
+ * invisible failure prd-19 exists to end.
+ *
+ * `log/installation-id.ts` holds the id and the argument for it. **The two ids
+ * are not interchangeable and nothing here treats them as such**: the
+ * recorder's session id remains the record's identity, unchanged, and is what
+ * every recorded event is written under. This is a second key for a second
+ * lifetime.
  */
 export function registerOtelRoutes(
   app: FastifyInstance,
@@ -32,6 +51,21 @@ export function registerOtelRoutes(
 ): void {
   const nextId = createIdFactory('otel')
   const now = options.now ?? Date.now
+  /**
+   * Resolved ONCE, at registration.
+   *
+   * `server/context.ts` warns that `repoPath`, `repoName` and `sessionDir` are
+   * re-pointable and must never be captured into a closure. This value is the
+   * exception, and it is the exception BY CONSTRUCTION rather than by
+   * exemption: the installation id is stable across every boot, resume,
+   * rotation and repo — that stability is the whole of what ruling 7 mints it
+   * for. A retarget changes which repo this server watches; it cannot change
+   * which installation it is.
+   *
+   * Reading it per request would also put a synchronous filesystem read on the
+   * hot path of every OTLP export, which arrives every few seconds per lane.
+   */
+  const expectedInstance = options.installationId ?? readOrMintInstallationId({ dataRoot: dataRootFor(ctx) }).id
   const refusals = createFaultThrottle(now)
   const collectorFaults = createFaultThrottle(now)
 
@@ -93,7 +127,6 @@ export function registerOtelRoutes(
      * 403. Returns the reply so a route can `return refuse(...)`.
      */
     const refuse = async (reply: FastifyReply, declared: string | null) => {
-      const expectedInstance = ctx.recorder.sessionId
       const count = refusals.register(declared)
       if (count !== null) {
         await ctx.recorder.record(
@@ -126,7 +159,7 @@ export function registerOtelRoutes(
         return reply.code(400).send({ error: 'malformed OTLP metrics export request' })
       }
 
-      const declared = foreignInstance(request.body, ctx.recorder.sessionId)
+      const declared = foreignInstance(request.body, expectedInstance)
       if (declared !== ACCEPTED) return await refuse(reply, declared)
 
       for (const event of result.events) {
@@ -149,7 +182,7 @@ export function registerOtelRoutes(
       // Logs carry the same resource attributes as metrics, so a foreign
       // exporter is refused here too — otherwise the misconfiguration only
       // half-shows, and the 403 the exporter needs to see never arrives.
-      const declared = foreignInstance(request.body, ctx.recorder.sessionId)
+      const declared = foreignInstance(request.body, expectedInstance)
       if (declared !== ACCEPTED) return await refuse(reply, declared)
 
       // Log records themselves are the sessionlog collector's territory; this
@@ -175,7 +208,7 @@ export function registerOtelRoutes(
         return reply.code(400).send({ error: 'malformed OTLP traces export request' })
       }
 
-      const declared = foreignInstance(request.body, ctx.recorder.sessionId)
+      const declared = foreignInstance(request.body, expectedInstance)
       if (declared !== ACCEPTED) return await refuse(reply, declared)
 
       for (const event of result.events) {
@@ -235,6 +268,14 @@ export function registerOtelRoutes(
 export interface OtelRouteOptions {
   /** Injectable clock, so the fault throttles are testable without fake timers. */
   now?: () => number
+  /**
+   * The installation id an accepted export must declare (prd-57 ruling 7).
+   *
+   * Resolved from this boot's own data root when absent, which is what every
+   * real boot does. Injectable so a test states the id it is asserting about
+   * instead of minting one into whatever directory it happened to be given.
+   */
+  installationId?: string
 }
 
 /** The resource attribute an accepted export declares. See `cli/telemetry-env.ts`. */
@@ -363,9 +404,19 @@ function classifyBareBody(body: unknown): BareBodyShape {
   return { signal }
 }
 
+/**
+ * Names BOTH ids — what arrived and what was expected — because a refusal an
+ * operator cannot act on is the invisible failure wearing a 403.
+ *
+ * The remedy names two commands now, not one: `enlist` writes the id into the
+ * harness's own configuration, which is the path ruling 4 added, and `env`
+ * renders the per-lane block for anyone still pasting it. A stale env block
+ * carrying a SESSION id is the expected shape of this refusal from prd-57
+ * onward, and either command replaces it.
+ */
 function refusalMessage(declared: string | null, expected: string): string {
   const who = declared === null ? 'declared no instance' : `declared instance "${declared}"`
-  return `refused: this Rhizomorph is instance ${expected}, and this export ${who} — one repo, one Rhizomorph. Re-generate the lane's env with \`rhizomorph env <lane> --port <port>\` against the server you meant to export to.`
+  return `refused: this Rhizomorph is instance ${expected}, and this export ${who} — one repo, one Rhizomorph. Re-enlist the harness with \`rhizomorph enlist <harness>\`, or re-generate the lane's env with \`rhizomorph env <lane> --port <port>\`, against the server you meant to export to.`
 }
 
 interface FaultThrottle {

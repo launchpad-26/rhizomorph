@@ -1,4 +1,5 @@
 import type { AgentRole } from '@rhizomorph/core'
+import { readOrMintInstallationId } from '../log/installation-id.js'
 
 /**
  * Renders the exact env block a lane (or the conductor) needs so its `claude`
@@ -16,8 +17,8 @@ import type { AgentRole } from '@rhizomorph/core'
  * the lane, its role, and — since #60 — the **instance** the telemetry belongs
  * to. The receiver refuses any export that does not carry its own instance id,
  * so an env block generated without one is telemetry that will be thrown away.
- * That is why {@link fetchInstanceId} reads it from the live server rather than
- * guessing: the running Rhizomorph is the only authority on which run this is.
+ *
+ * **Which id that is changed in prd-57 ruling 7 — see {@link installationInstanceId}.**
  */
 /**
  * The shells `rhizomorph env` can render for (#140): a Windows conductor has
@@ -33,8 +34,9 @@ export interface TelemetryEnvOptions {
   role: AgentRole
   port: number
   /**
-   * The receiving Rhizomorph's instance id — its session id, as published on
-   * `/api/meta`. Required, not defaulted: a block without it is refused.
+   * The receiving Rhizomorph's instance id — the INSTALLATION id since prd-57
+   * ruling 7 ({@link installationInstanceId}), where it used to be the session
+   * id. Required, not defaulted: a block without it is refused.
    */
   instance: string
   /** Which shell's assignment syntax to render. Defaults to `sh` (today's only form). */
@@ -149,9 +151,42 @@ export async function fetchInstanceMeta(
 }
 
 /**
- * The instance id of the Rhizomorph listening on `port`, read from its
+ * THE ID AN ENV BLOCK DECLARES — prd-57 ruling 7.
+ *
+ * It was the session id, fetched from the running server, and the module doc
+ * above used to say why in as many words: *inventing an id locally is precisely
+ * the guessed identity prd2 exists to remove.* That sentence was right about a
+ * session id and is not right about this one, and the difference is worth
+ * stating rather than quietly dropping.
+ *
+ * A session id is known only to the process holding it — minted at boot, never
+ * written anywhere a second process could read, so a caller that did not ask
+ * the server would be GUESSING. An installation id is the opposite kind of
+ * thing: one file under the data root, minted once, and the server reads that
+ * same file rather than owning the value (`api/otel.ts`). Two processes reading
+ * one file cannot disagree, so there is nothing left to guess and nothing to
+ * ask for.
+ *
+ * **The bound, stated:** they agree when they resolve the same data root, which
+ * is the same `RHIZOMORPH_DATA_DIR`-or-default resolution both run
+ * (`log/paths.ts`). An operator who deliberately pointed one of them elsewhere
+ * gets two ids and a refusal that names both — which is the loud failure, not
+ * the invisible one.
+ *
+ * Minting here is correct and not a side effect to apologise for: whichever of
+ * the CLI or the server touches it first mints it, the create is atomic, and a
+ * loser re-reads the winner's id (`log/installation-id.ts`).
+ */
+export function installationInstanceId(options: { dataRoot?: string } = {}): string {
+  return readOrMintInstallationId({ dataRoot: options.dataRoot }).id
+}
+
+/**
+ * The SESSION id of the Rhizomorph listening on `port`, read from its
  * `/api/meta`. A thin wrapper over {@link fetchInstanceMeta} for callers that
- * only need the session id.
+ * need to know which run this is — which, since ruling 7, is no longer what an
+ * env block declares. Not the same value as {@link installationInstanceId} and
+ * never interchangeable with it.
  */
 export async function fetchInstanceId(
   port: number,

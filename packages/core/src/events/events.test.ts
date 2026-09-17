@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { reduceAll } from '../reduce.js'
 import {
   createEvent,
   createIdFactory,
@@ -11,6 +12,7 @@ import {
   rhizomorphEventSchema,
   sourceOf,
 } from './index.js'
+import { AGENT_STATUS_RANK, AGENT_STATUS_SOURCES } from './workmux.js'
 
 describe('event envelope', () => {
   it('stamps source from type', () => {
@@ -156,6 +158,21 @@ describe('agent.status names its witness (ADR-0037)', () => {
     payload: { handle: 'h', status: 'waiting' },
   })
 
+  /** The shape above through the REAL parser — `reduceAll` takes events, not object literals. */
+  const parsedStatus = (raw: Record<string, unknown>) => {
+    const parsed = parseEvent(raw)
+    if (!parsed.ok) throw new Error(`fixture does not parse: ${JSON.stringify(raw)}`)
+    return parsed.event
+  }
+
+  /** Every ordering of the items. Three speakers, six orders. */
+  const permutations = <T,>(items: readonly T[]): T[][] =>
+    items.length <= 1
+      ? [[...items]]
+      : items.flatMap((item, i) =>
+          permutations([...items.slice(0, i), ...items.slice(i + 1)]).map((rest) => [item, ...rest]),
+        )
+
   it('accepts both witnesses and refuses every other source', () => {
     expect(parseEvent(statusEvent('workmux')).ok).toBe(true)
     expect(parseEvent(statusEvent('sessionlog')).ok).toBe(true)
@@ -165,13 +182,27 @@ describe('agent.status names its witness (ADR-0037)', () => {
     expect(parseEvent(statusEvent('otel')).ok).toBe(false)
   })
 
-  it('still has exactly two witnesses — the third arrives with the hook that can speak it (prd-57 ruling 5, as amended)', () => {
-    // Stated so the wave that widens this finds a test rather than an absence.
-    // `hook` is NOT accepted yet, and that is deliberate: a third source
-    // literal with no emitter is a literal whose precedence arm no test can
-    // exercise. prd-57's 2026-09-15 amendment moves the union and the
-    // precedence to the wave where a hook runner exists.
-    expect(parseEvent(statusEvent('hook')).ok).toBe(false)
+  it('has THREE witnesses now — the hook arrived with the runner that can speak it (prd-57 ruling 5, ADR-0054)', () => {
+    // This test read `expect(parseEvent(statusEvent('hook')).ok).toBe(false)`
+    // and said so on purpose: a third source literal with no emitter is a
+    // literal whose precedence arm no test could exercise, so prd-57's
+    // 2026-09-15 amendment moved the union to the wave where a hook runner
+    // exists. This is that wave, and the pin flips rather than disappearing —
+    // which is what it was left here for.
+    expect(parseEvent(statusEvent('hook')).ok).toBe(true)
+    // And the union is exactly three. A fourth needs its own ADR, the way
+    // `hook` needed ADR-0054 to answer ADR-0037's refusal of `beacon`.
+    expect([...AGENT_STATUS_SOURCES].sort()).toEqual(['hook', 'sessionlog', 'workmux'])
+  })
+
+  it('ranks the three, and the order IS the precedence rule', () => {
+    // hook > workmux roster > transcript inference. Asserted as an order rather
+    // than as three magnitudes, so the numbers can change and the rule cannot.
+    expect(AGENT_STATUS_RANK.hook).toBeGreaterThan(AGENT_STATUS_RANK.workmux)
+    expect(AGENT_STATUS_RANK.workmux).toBeGreaterThan(AGENT_STATUS_RANK.sessionlog)
+    // Total over the union: a witness with no rank would silently sort to the
+    // bottom in `reduce.ts` and be overruled by everything.
+    for (const source of AGENT_STATUS_SOURCES) expect(AGENT_STATUS_RANK[source], source).toBeGreaterThan(0)
   })
 
   it('carries seven words, and the four new ones parse under both existing witnesses', () => {
@@ -190,6 +221,87 @@ describe('agent.status names its witness (ADR-0037)', () => {
     const parsed = parseEvent(era)
     expect(parsed.ok).toBe(true)
     expect(parsed.ok && parsed.event.payload).toEqual({ handle: '2-core', status: 'waiting' })
+  })
+
+  /**
+   * THE PRECEDENCE, EXERCISED IN A FOLD — prd-57 ruling 5, and the first point
+   * at which it is testable at all.
+   *
+   * The tests above pin the vocabulary and the ORDER of the ranks; this one
+   * pins that `reduce.ts` obeys them. Both are needed: a rank table nothing
+   * reads is the exact shape this PRD has now hit four times — an assertion
+   * that the input is well-formed standing in for one that something acts on
+   * it.
+   *
+   * Driven through `reduceAll` from the event vocabulary's own test file
+   * because that is what #529's fence names, and the law belongs with the
+   * literals whose meaning it is.
+   */
+  describe('the fold obeys the ranks (prd-57 ruling 5, ADR-0054)', () => {
+    const word = (source: string, status: string, ts: number) =>
+      parsedStatus({ ...statusEvent(source), id: `evt-${source}-${ts}`, ts, payload: { handle: 'lane', status } })
+
+    it('the same three speakers in EVERY order settle on the same winner', () => {
+      // The issue's own mutation note: three speakers in one fixed order would
+      // pass an implementation that simply took the last event. Every
+      // permutation would not.
+      const speakers = [
+        ['hook', 'tool-running'],
+        ['workmux', 'waiting'],
+        ['sessionlog', 'working'],
+      ] as const
+
+      for (const order of permutations([0, 1, 2])) {
+        const events = order.map((i, n) => word(speakers[i]![0], speakers[i]![1], 10 + n * 10))
+        const agent = reduceAll(events).agents['lane']
+        expect(agent?.witness, `order ${order.join('')}`).toBe('hook')
+        expect(agent?.status, `order ${order.join('')}`).toBe('tool-running')
+      }
+    })
+
+    it("a hook withdraws its OWN word — a declarer may always change its mind", () => {
+      // The obvious half of prd-27 ruling 4's asymmetry, and the one an
+      // implementation that compared ranks with `<=` instead of `<` would break:
+      // the hook would be unable to speak twice.
+      const state = reduceAll([word('hook', 'waiting-permission', 10), word('hook', 'working', 20)])
+      expect(state.agents['lane']).toMatchObject({ status: 'working', witness: 'hook', dissent: null })
+    })
+
+    it("an inference arriving later does NOT withdraw a hook's word, and is kept as dissent", () => {
+      // The half ruling 4 exists for, now one rung higher than the case it was
+      // written for. The transcript organ reads a permission prompt as
+      // `working`; the hook fired inside the agent's own process and said
+      // otherwise. The refused word is kept so it still renders (ADR-0037).
+      const state = reduceAll([word('hook', 'waiting-permission', 10), word('sessionlog', 'working', 20)])
+      expect(state.agents['lane']).toMatchObject({ status: 'waiting-permission', witness: 'hook' })
+      expect(state.agents['lane']?.dissent).toMatchObject({ witness: 'sessionlog', status: 'working', ts: 20 })
+    })
+
+    it("a ROSTER does not withdraw a hook's word either — the new rung, not just the old one", () => {
+      // The case that distinguishes a rank table from the two-source `if` this
+      // replaced: under the old code `workmux` was the top, so this would have
+      // been last-wins.
+      const state = reduceAll([word('hook', 'waiting-permission', 10), word('workmux', 'done', 20)])
+      expect(state.agents['lane']).toMatchObject({ status: 'waiting-permission', witness: 'hook' })
+      expect(state.agents['lane']?.dissent).toMatchObject({ witness: 'workmux', status: 'done' })
+    })
+
+    it('the OLD pair still behaves exactly as prd-27 ruling 4 ruled — nothing beneath the new rung moved', () => {
+      // ADR-0011's additive claim, at the level that matters: the two-witness
+      // world is untouched by the arrival of a third.
+      const state = reduceAll([word('workmux', 'waiting', 10), word('sessionlog', 'working', 20)])
+      expect(state.agents['lane']).toMatchObject({ status: 'waiting', witness: 'workmux' })
+      expect(state.agents['lane']?.dissent).toMatchObject({ witness: 'sessionlog', status: 'working' })
+    })
+
+    it('a declared `working` still yields to an inference, at every rung', () => {
+      // The one declared word the organ may legitimately improve on — the
+      // asymmetry is about withdrawing a SUMMONS, not about outranking in
+      // general, and a rank comparison that ignored `prev.status !== 'working'`
+      // would break exactly here.
+      const state = reduceAll([word('hook', 'working', 10), word('sessionlog', 'waiting', 20)])
+      expect(state.agents['lane']).toMatchObject({ status: 'waiting', witness: 'sessionlog', dissent: null })
+    })
   })
 
   it('defaults to workmux, its primary, when createEvent is given no source', () => {

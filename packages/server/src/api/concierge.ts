@@ -9,9 +9,19 @@ import {
   runClone,
 } from '../concierge/clone.js'
 import {
+  applyEnlistment,
+  type EnlistContext,
+  EnlistmentRefusedError,
+  EnlistmentStaleError,
+  EnlistmentUnknownHarnessError,
+  isKnownHarness,
+  planEnlistment,
+} from '../concierge/enlist.js'
+import type { EnlistmentPlan, HarnessEnlistContext, HarnessId } from '../concierge/harness/types.js'
+import {
+  ConciergeLaunchValidationError,
   HarnessNotAvailableError,
   LaunchContinuityUnavailableError,
-  ConciergeLaunchValidationError,
   parseConciergeLaunchRequestBody,
   planLaunch,
   runLaunch,
@@ -24,20 +34,11 @@ import {
   runMigration,
   SessionUnknownError,
 } from '../concierge/migrate.js'
-import {
-  applyEnlistment,
-  EnlistmentRefusedError,
-  EnlistmentStaleError,
-  EnlistmentUnknownHarnessError,
-  isKnownHarness,
-  planEnlistment,
-  type EnlistContext,
-} from '../concierge/enlist.js'
-import type { EnlistmentPlan, HarnessEnlistContext, HarnessId } from '../concierge/harness/types.js'
 import { CloneFenceError, MigrationFenceError } from '../concierge/paths.js'
 import { type DiscoverReposResult, discoverRepos } from '../concierge/repos.js'
+import { readOrMintInstallationId } from '../log/installation-id.js'
 import { defaultClaudeProjectsRoot } from '../log/paths.js'
-import type { ServerContext } from '../server/context.js'
+import { dataRootFor, type ServerContext } from '../server/context.js'
 import { requireCapabilityToken } from './security.js'
 
 /**
@@ -50,9 +51,7 @@ import { requireCapabilityToken } from './security.js'
  * exists to catch (it does not exempt test files; the original `repos.test.ts`
  * comment already flags this for a type-only import of `concierge/repos.js`).
  */
-export { CloneDestinationExistsError, CloneValidationError, CloneFenceError }
-export { HarnessNotAvailableError, LaunchContinuityUnavailableError, ConciergeLaunchValidationError }
-export { MigrationFenceError, MigrationSourceNotFoundError, MigrationSourceNotResumableError, SessionUnknownError }
+export { CloneDestinationExistsError, CloneFenceError, CloneValidationError, ConciergeLaunchValidationError, HarnessNotAvailableError, LaunchContinuityUnavailableError, MigrationFenceError, MigrationSourceNotFoundError, MigrationSourceNotResumableError, SessionUnknownError }
 
 /**
  * The one thing this route can answer with when it should not run
@@ -357,7 +356,13 @@ export function registerConciergeLaunchRoute(
         plan = await planLaunch(
           body.harness,
           body.mode,
-          { watchedRepoPath: ctx.repoPath, port: ctx.port, instance: ctx.recorder.sessionId },
+          // prd-57 ruling 7: the INSTALLATION id, not this run's session id.
+          // A launch env block declaring a session id would be refused by this
+          // server's own inbox from the moment the inbox flipped — the launched
+          // agent's telemetry silently thrown away, which is the invisible
+          // failure prd-19 exists to end. Every writer of an env block moves
+          // together or the change is worse than not making it.
+          { watchedRepoPath: ctx.repoPath, port: ctx.port, instance: installationId(ctx) },
           body.sessionId,
         )
       } catch (err) {
@@ -585,7 +590,15 @@ export function registerConciergeEnlistRoute(app: FastifyInstance, ctx: ServerCo
           lane: ctx.repoName,
           role: 'conductor',
           port: ctx.port,
-          instance: ctx.recorder.sessionId,
+          /**
+           * **Ruling 7's whole reason to exist**, at the one call site that
+           * proves it. This file is written ONCE and read by every future
+           * session in every repo. A session id here is correct until the next
+           * fresh boot and then silently wrong forever — the instrument
+           * refusing its own agents' telemetry and booking it as a foreign
+           * export. The installation id has the lifetime the file does.
+           */
+          instance: installationId(ctx),
           runnerPath: runner,
         }
       }
@@ -652,6 +665,18 @@ export function registerConciergeEnlistRoute(app: FastifyInstance, ctx: ServerCo
       }
     },
   )
+}
+
+/**
+ * This installation's id, from this boot's own data root (prd-57 ruling 7).
+ *
+ * Read through `dataRootFor(ctx)` rather than the default so a server started
+ * with `--data-root` or `RHIZOMORPH_DATA_DIR` writes the id its own inbox will
+ * check against — the two must resolve the same file or an enlistment would
+ * configure a harness to be refused.
+ */
+function installationId(ctx: ServerContext): string {
+  return readOrMintInstallationId({ dataRoot: dataRootFor(ctx) }).id
 }
 
 /** What `packages/server/package.json` calls its `bin`. The one name a hook command may invoke. */

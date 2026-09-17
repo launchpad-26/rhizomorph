@@ -1,9 +1,15 @@
 import path from 'node:path'
-import { AGENT_ROLES, BEACON_LINE_VERSION, type AgentRole, type BeaconAttentionKind } from '@rhizomorph/core'
-import { DEFAULT_PORT, parseFlags, type FlagSpec } from './args.js'
+import { AGENT_ROLES, type AgentRole, BEACON_LINE_VERSION, type BeaconAttentionKind } from '@rhizomorph/core'
 import { BEACON_FILE_SUFFIX, beaconDirFor } from '../collectors/beacon/paths.js'
+import { DEFAULT_PORT, type FlagSpec, parseFlags } from './args.js'
 import { capabilityAwareFetch } from './rotate.js'
-import { ENV_SHELLS, fetchInstanceMeta, renderTelemetryEnv, type EnvShell } from './telemetry-env.js'
+import {
+  ENV_SHELLS,
+  type EnvShell,
+  fetchInstanceMeta,
+  installationInstanceId,
+  renderTelemetryEnv,
+} from './telemetry-env.js'
 
 const DEFAULT_ROLE: AgentRole = 'worker'
 const DEFAULT_SHELL: EnvShell = 'sh'
@@ -217,6 +223,10 @@ export async function runEnvCommand(
     log.log(renderClaudeHooks({ lane: envArgs.lane, beaconDir: beaconDirFor(meta.repoPath) }))
     exit(0)
   }
-  log.log(renderTelemetryEnv({ ...envArgs, instance: meta.sessionId }))
+  // prd-57 ruling 7: the block declares the INSTALLATION id, not this run's
+  // session id. The `/api/meta` scrape above is still made and still required —
+  // `--hooks` reads `repoPath` off it, and reaching the server at all is what
+  // proves the port in the block has something listening on it.
+  log.log(renderTelemetryEnv({ ...envArgs, instance: installationInstanceId() }))
   exit(0)
 }
