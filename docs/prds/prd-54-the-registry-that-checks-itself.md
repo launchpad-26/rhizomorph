@@ -988,6 +988,34 @@ platform-clean.
 
 **Wave 4 shares no path with wave 3 and does not wait on it.**
 
+**Wave 6 — a shell test is discovered by what it IS.** One issue, [#594][i594], declared
+2026-09-17 with operator sign-off in session. Wave 5's own review produced it: the
+cross-check added to #394 in review closes the case where discovery returns FEWER entries
+than the tree holds, and leaves open the case where the tree stops matching the name.
+`foo.test.sh` renamed to `foo-test.sh` leaves the glob and the independent suffix filter at
+the same moment — they agree, and they are wrong together — so the script stops running in
+the suite and nothing says so. That is the `#209` class and #394's own Definition of done
+(*"a renamed one must not silently drop out"*) surviving the repair written for it.
+
+@ciaran-slow measured the discriminator during that review and deliberately did not push it,
+because it changes what the law guarantees: **8 of 8** `scripts/dev/*.test.sh` carry a
+`passed, … failed` summary line and **0 of 8** non-test scripts do, and the tell is
+coextensive with membership by construction, since the law's aggregate already requires
+exactly one summary line from every discovered script. It is AGENTS.md's own rule — scope a
+guard by what a file *is*, not by what it is called.
+
+**It is a wave of its own rather than part of wave 5, and the fence audit is why.** #594 and
+[#586][i586] both claim `packages/server/src/shell-suite-law.test.ts`, and
+`scripts/fence-lint.sh 586 594` hard-fails on the overlap: a wave is a set that can all be
+built at once, and two issues on one path are a rebase conflict already scheduled. Each lints
+clean alone. So the order is #575 landing, then #586, then #594 — sequential by shared path,
+not by dependency.
+
+Recorded here because the tracker briefly held a wave this document did not declare, which is
+the drift `scripts/dev/prd-reconcile.sh` reports and which wave 5 was itself amended to fix
+for [#583][i583]. Filing it as `w5` and correcting it to `w6` is in the issue's own history
+rather than smoothed away.
+
 **Unfiled work implied, described not numbered:** whether an entry's reason should be
 generated from the law it describes rather than written beside it; a sweep of the other
 entries' un-backticked prose claims, which no ruling here makes checkable — and which
@@ -1045,4 +1073,5 @@ yet" look identical in a list of open items, and only one of them is a gap.*
 [i394]: https://github.com/launchpad-26/rhizomorph/issues/394
 [i583]: https://github.com/launchpad-26/rhizomorph/issues/583
 [i586]: https://github.com/launchpad-26/rhizomorph/issues/586
+[i594]: https://github.com/launchpad-26/rhizomorph/issues/594
 [i546]: https://github.com/launchpad-26/rhizomorph/issues/546
