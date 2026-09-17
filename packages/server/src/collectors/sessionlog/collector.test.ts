@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { CollectorContext, Exec, ExecResult } from '@rhizomorph/core'
-import { UNATTRIBUTED_LANE, createEvent } from '@rhizomorph/core'
+import { createEvent, UNATTRIBUTED_LANE } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createSessionlogCollector, SESSIONLOG_CAPABILITIES } from './collector.js'
 import { TRANSCRIPT_STALL_MS, TURN_SETTLE_MS } from './lane-state.js'
@@ -50,10 +50,17 @@ const missingBinary = (): ExecResult => ({
 const success = (stdout: string): ExecResult => ({ stdout, stderr: '', code: 0, failed: false })
 
 describe('createSessionlogCollector', () => {
+  let home: string
   let root: string
 
   beforeEach(async () => {
-    root = await mkdtemp(path.join(tmpdir(), 'sessionlog-collector-'))
+    // `home` and `root` in the production relationship: `claudeProjectsRoot`
+    // IS `<home>/.claude/projects`. Discovery reads `home`, tailing reads
+    // `root`, and a fixture that let them diverge would be testing a machine
+    // nobody has (prd-57 ruling 8).
+    home = await mkdtemp(path.join(tmpdir(), 'sessionlog-collector-'))
+    root = path.join(home, '.claude', 'projects')
+    await mkdir(root, { recursive: true })
   })
 
   afterEach(async () => {
@@ -124,7 +131,7 @@ describe('createSessionlogCollector', () => {
 
   it('reads a newly discovered file from byte 0 when backfill: true is set', async () => {
     const worktreePath = '/fake/worktrees/alpha'
-    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, home, backfill: true })
     const gitExec: Exec = async () => success(worktreeListOutput([worktreePath]))
 
     const projectDir = path.join(root, worktreePathToProjectSlug(worktreePath))
@@ -150,7 +157,7 @@ describe('createSessionlogCollector', () => {
       'utf8',
     )
 
-    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, home, backfill: true })
     // '/repo' is the main working tree (first porcelain entry); listing it
     // ahead of `worktreePath` here is what makes alpha a genuine *linked*
     // worktree instead of accidentally being read as the root.
@@ -239,7 +246,7 @@ describe('createSessionlogCollector', () => {
       'utf8',
     )
 
-    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, home, backfill: true })
     const gitExec: Exec = async () => success(worktreeListOutput([worktreePath]))
     const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
 
@@ -260,7 +267,7 @@ describe('createSessionlogCollector', () => {
       'utf8',
     )
 
-    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, home, backfill: true })
     const gitExec: Exec = async () => success(worktreeListOutput([worktreePath]))
     const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
 
@@ -289,7 +296,7 @@ describe('createSessionlogCollector', () => {
       'utf8',
     )
 
-    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, home, backfill: true })
     const gitExec: Exec = async () => success(worktreeListOutput([worktreePath]))
     const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
 
@@ -301,7 +308,26 @@ describe('createSessionlogCollector', () => {
     expect(tools[0]?.payload).toMatchObject({ thread: 'subagent' })
   })
 
-  it('books the main working tree as unattributed while a linked worktree stays worker (#62)', async () => {
+  /**
+   * #62's RULE, ONE LAYER ON — prd-57 ruling 8.
+   *
+   * This asserted `role: 'unattributed'` for the main tree, and #62 was right:
+   * booking a conductor's spend as worker spend is worse than an honest gap, so
+   * the main tree stayed unattributed until an operator declared it with
+   * `--extra-sessions`.
+   *
+   * The gap existed because nothing could tell the instrument whose transcript
+   * that was. It can now: the transcript is sitting under the dialect's own
+   * user-level root, which is where Claude Code puts a conductor's session
+   * whoever is running it. Discovering it is not a guess — it is reading the
+   * one place the harness itself writes.
+   *
+   * So the main tree reads `conductor` here, and the linked worktree still
+   * reads `worker` from its own log content. Nothing about the linked half
+   * moved, which is what makes this a change to one rule rather than to the
+   * attribution model.
+   */
+  it('books a DISCOVERED main working tree as the conductor while a linked worktree stays worker (#62, prd-57 ruling 8)', async () => {
     const rootPath = '/repo'
     const linkedPath = '/fake/worktrees/alpha'
     const rootProjectDir = path.join(root, worktreePathToProjectSlug(rootPath))
@@ -321,7 +347,7 @@ describe('createSessionlogCollector', () => {
       'utf8',
     )
 
-    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, home, backfill: true })
     // '/repo' is listed first — git worktree list --porcelain always puts the
     // main working tree first, then linked worktrees in creation order.
     const gitExec: Exec = async () => success(worktreeListOutput([rootPath, linkedPath]))
@@ -335,239 +361,67 @@ describe('createSessionlogCollector', () => {
     const rootUsage = usage.find((e) => e.payload.worktreePath === rootPath)
     const linkedUsage = usage.find((e) => e.payload.worktreePath === linkedPath)
 
-    expect(rootUsage?.payload).toMatchObject({ role: 'unattributed', lane: 'unattributed' })
+    expect(rootUsage?.payload).toMatchObject({ role: 'conductor', lane: 'conductor' })
     // The linked worktree's lane is still inferred from the log's own gitBranch/cwd.
     expect(linkedUsage?.payload).toMatchObject({ role: 'worker', lane: '2-core' })
   })
 
-  it('keeps a root worktree declared via --extra-sessions at its declared role/lane, never falling back to unattributed, and tails it exactly once (#62)', async () => {
+  /**
+   * THE FLAG'S GRAMMAR IS GONE, and so are the seven cases that described it —
+   * prd-57 ruling 8.
+   *
+   * They covered a direct dir, slug fallback, default lane numbering
+   * (`conductor-2`, `conductor-3`…), an explicit `:<lane>` suffix, a mix, and
+   * the `collector.error` a bad spec produced. Every one was a way of typing a
+   * path, and there is no longer a path to type.
+   *
+   * The test above is what replaces the useful half of them — a discovered
+   * conductor — and this is the other half: what discovery refuses to claim.
+   */
+  it('claims NOTHING for a main tree whose dialect root holds no session dir — the honest gap #62 ruled for', async () => {
+    // The half of #62 that survives, and the reason discovery is not a licence
+    // to guess. An empty root means `claude` has not run here, which is a setup
+    // gap the ladder already reports; booking the main tree as a conductor on
+    // no evidence would be #62's silent mis-attribution reached from the other
+    // direction.
     const rootPath = '/repo'
-    const rootProjectDir = path.join(root, worktreePathToProjectSlug(rootPath))
-    await mkdir(rootProjectDir, { recursive: true })
+    const linkedPath = '/fake/worktrees/alpha'
+    // Only the LINKED worktree has a session dir. The main tree's is absent.
+    const linkedProjectDir = path.join(root, worktreePathToProjectSlug(linkedPath))
+    await mkdir(linkedProjectDir, { recursive: true })
     await writeFile(
-      path.join(rootProjectDir, '85649f6d-2f7d-43aa-a23e-10c9c1c0d2bc.jsonl'),
-      await readFixture('conductor-root.jsonl'),
+      path.join(linkedProjectDir, '95f42357-058c-4ea2-84d4-de7b1eb58635.jsonl'),
+      await readFixture('worker-2-core.jsonl'),
       'utf8',
     )
 
-    const collector = createSessionlogCollector({
-      claudeProjectsRoot: root,
-      extraSessionDirs: [`${rootPath}:conductor`],
-      backfill: true,
-    })
-    // Only the root is listed — a single-entry porcelain output is still the
-    // main working tree, and the operator's declaration must win over it.
-    const gitExec: Exec = async () => success(worktreeListOutput([rootPath]))
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, home, backfill: true })
+    const gitExec: Exec = async () => success(worktreeListOutput([rootPath, linkedPath]))
     const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
 
-    const usage = result.events.filter((e) => e.type === 'llm.usage')
-    // Exactly one event, not two: the auto-discovered root entry must not
-    // also tail the same project dir alongside the declared extra-session one.
-    expect(usage).toHaveLength(1)
-    expect(usage[0]?.payload).toMatchObject({
-      role: 'conductor',
-      lane: 'conductor',
-      worktreePath: rootPath,
-    })
-  })
-
-  it('attributes role: conductor and the default "conductor" lane for sessions under an extra session dir with no explicit lane', async () => {
-    const conductorPath = '/fake/conductor/cwd'
-    const projectDir = path.join(root, worktreePathToProjectSlug(conductorPath))
-    await mkdir(projectDir, { recursive: true })
-    await writeFile(
-      path.join(projectDir, '85649f6d-2f7d-43aa-a23e-10c9c1c0d2bc.jsonl'),
-      await readFixture('conductor-root.jsonl'),
-      'utf8',
+    const usage = result.events.filter(
+      (e): e is typeof e & { payload: { worktreePath: string } } => e.type === 'llm.usage',
     )
-
-    const collector = createSessionlogCollector({
-      claudeProjectsRoot: root,
-      extraSessionDirs: [conductorPath],
-      backfill: true,
-    })
-    const gitExec: Exec = async () => success(worktreeListOutput(['/fake/worktrees/alpha']))
-    const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
-
-    const usage = result.events.filter((e) => e.type === 'llm.usage')
-    expect(usage).toHaveLength(1)
-    expect(usage[0]?.payload).toMatchObject({
-      role: 'conductor',
-      lane: 'conductor',
-      worktreePath: conductorPath,
-    })
+    // The linked worktree still reports; the main tree contributes nothing at
+    // all rather than contributing something mis-attributed.
+    expect(usage.map((e) => e.payload.worktreePath)).toEqual([linkedPath])
   })
 
-  it('tails an --extra-sessions path directly when it contains *.jsonl, no slugification, lane defaults to "conductor" (not the dir basename)', async () => {
-    const conductorSessionDir = path.join(root, 'agenticlaunchpad')
-    await mkdir(conductorSessionDir, { recursive: true })
-    await writeFile(
-      path.join(conductorSessionDir, '85649f6d-2f7d-43aa-a23e-10c9c1c0d2bc.jsonl'),
-      await readFixture('conductor-root.jsonl'),
-      'utf8',
-    )
 
-    const collector = createSessionlogCollector({
-      claudeProjectsRoot: root,
-      extraSessionDirs: [conductorSessionDir],
-      backfill: true,
-    })
-    const gitExec: Exec = async () => success(worktreeListOutput(['/fake/worktrees/alpha']))
-    const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
 
-    expect(result.events.some((e) => e.type === 'collector.error')).toBe(false)
-    const usage = result.events.filter((e) => e.type === 'llm.usage')
-    expect(usage).toHaveLength(1)
-    expect(usage[0]?.payload).toMatchObject({
-      role: 'conductor',
-      lane: 'conductor',
-      worktreePath: conductorSessionDir,
-    })
-  })
-
-  it('numbers the default lane conductor-2, conductor-3… for the second and third extra dir with no explicit lane', async () => {
-    const dirs = await Promise.all(
-      ['first', 'second', 'third'].map(async (name) => {
-        const dir = path.join(root, name)
-        await mkdir(dir, { recursive: true })
-        await writeFile(
-          path.join(dir, '85649f6d-2f7d-43aa-a23e-10c9c1c0d2bc.jsonl'),
-          await readFixture('conductor-root.jsonl'),
-          'utf8',
-        )
-        return dir
-      }),
-    )
-
-    const collector = createSessionlogCollector({
-      claudeProjectsRoot: root,
-      extraSessionDirs: dirs,
-      backfill: true,
-    })
-    const gitExec: Exec = async () => success(worktreeListOutput([]))
-    const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
-
-    expect(result.events.some((e) => e.type === 'collector.error')).toBe(false)
-    const usage = result.events.filter((e) => e.type === 'llm.usage')
-    expect(usage).toHaveLength(3)
-    expect(usage.map((e) => (e.payload as { lane: string }).lane)).toEqual([
-      'conductor',
-      'conductor-2',
-      'conductor-3',
-    ])
-  })
-
-  it('mixes an explicit :<lane> with default-numbered lanes across multiple extra dirs', async () => {
-    const namedDir = path.join(root, 'named')
-    const defaultedDir = path.join(root, 'defaulted')
-    for (const dir of [namedDir, defaultedDir]) {
-      await mkdir(dir, { recursive: true })
-      await writeFile(
-        path.join(dir, '85649f6d-2f7d-43aa-a23e-10c9c1c0d2bc.jsonl'),
-        await readFixture('conductor-root.jsonl'),
-        'utf8',
-      )
-    }
-
-    const collector = createSessionlogCollector({
-      claudeProjectsRoot: root,
-      extraSessionDirs: [`${namedDir}:my-conductor`, defaultedDir],
-      backfill: true,
-    })
-    const gitExec: Exec = async () => success(worktreeListOutput([]))
-    const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
-
-    const usage = result.events.filter((e) => e.type === 'llm.usage')
-    expect(usage).toHaveLength(2)
-    expect(usage.map((e) => (e.payload as { lane: string }).lane)).toEqual([
-      'my-conductor',
-      'conductor-2',
-    ])
-  })
-
-  it('honours an explicit :<lane> suffix on a direct --extra-sessions path, overriding the dir basename', async () => {
-    const conductorSessionDir = path.join(root, 'agenticlaunchpad')
-    await mkdir(conductorSessionDir, { recursive: true })
-    await writeFile(
-      path.join(conductorSessionDir, '85649f6d-2f7d-43aa-a23e-10c9c1c0d2bc.jsonl'),
-      await readFixture('conductor-root.jsonl'),
-      'utf8',
-    )
-
-    const collector = createSessionlogCollector({
-      claudeProjectsRoot: root,
-      extraSessionDirs: [`${conductorSessionDir}:my-conductor`],
-      backfill: true,
-    })
-    const gitExec: Exec = async () => success(worktreeListOutput([]))
-    const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
-
-    const usage = result.events.filter((e) => e.type === 'llm.usage')
-    expect(usage).toHaveLength(1)
-    expect(usage[0]?.payload).toMatchObject({ role: 'conductor', lane: 'my-conductor' })
-  })
-
-  it('emits one collector.error, not silence, when an --extra-sessions path resolves neither directly nor as a cwd slug', async () => {
-    const bogusPath = path.join(root, 'never-created', 'bogus-conductor-dir')
-    const collector = createSessionlogCollector({
-      claudeProjectsRoot: root,
-      extraSessionDirs: [bogusPath],
-    })
-    const gitExec: Exec = async () => success(worktreeListOutput([]))
-
-    const first = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
-    expect(first.nextSnapshot.disabled).toBe(false) // a bogus extra dir must not disable the whole collector
-    expect(first.events).toHaveLength(1)
-    expect(first.events[0]).toMatchObject({
-      source: 'system',
-      type: 'collector.error',
-      payload: { collector: 'sessionlog' },
-    })
-    expect((first.events[0]?.payload as { message: string }).message).toContain(bogusPath)
-
-    // Second poll: the same bogus path must not spam another error.
-    const second = await collector.poll(first.nextSnapshot, makeContext(gitExec))
-    expect(second.events).toEqual([])
-  })
-
-  it('resolves the foreign-slug basename case without leaking the raw project-dir slug as the lane (Windows-shaped dir name a POSIX slug function could never produce)', async () => {
-    // Mimics a Windows conductor mounted at a WSL path — e.g.
-    // /mnt/c/Users/operator/.claude/projects/C--Users-operator-agenticlaunchpad.
-    // This is issue #49's exact bug: the raw slug used to leak as the lane.
-    //
-    // The comment path and the directory name below are **one edit** (#649):
-    // the second is the slug encoding of the first, so changing either alone
-    // leaves a comment that no longer explains the value it sits above. The
-    // shape is what this test is about — a Windows-produced slug a POSIX slug
-    // function could never emit — and `C--Users-…` preserves it exactly.
-    const foreignSessionDir = path.join(root, 'foreign', 'C--Users-operator-agenticlaunchpad')
-    await mkdir(foreignSessionDir, { recursive: true })
-    await writeFile(
-      path.join(foreignSessionDir, '85649f6d-2f7d-43aa-a23e-10c9c1c0d2bc.jsonl'),
-      await readFixture('conductor-root.jsonl'),
-      'utf8',
-    )
-
-    // claudeProjectsRoot is a bare empty dir: if this test only passed because
-    // of a slug-inferred fallback under it, there would be nothing there to find.
-    const emptyProjectsRoot = await mkdtemp(path.join(tmpdir(), 'sessionlog-empty-root-'))
-    const collector = createSessionlogCollector({
-      claudeProjectsRoot: emptyProjectsRoot,
-      extraSessionDirs: [foreignSessionDir],
-      backfill: true,
-    })
-    const gitExec: Exec = async () => success(worktreeListOutput(['/fake/worktrees/alpha']))
-    const result = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
-    await rm(emptyProjectsRoot, { recursive: true, force: true })
-
-    const usage = result.events.filter((e) => e.type === 'llm.usage')
-    expect(usage).toHaveLength(1)
-    expect(usage[0]?.payload).toMatchObject({
-      role: 'conductor',
-      lane: 'conductor',
-      worktreePath: foreignSessionDir,
-    })
-  })
+  /**
+   * THE LEAK THIS GUARDED IS NOW STRUCTURAL — prd-57 ruling 8.
+   *
+   * A test lived here proving that a directly-tailed `--extra-sessions` dir did
+   * not leak its raw basename as the lane — a Windows-shaped project-dir name a
+   * POSIX slug function could never produce, used as the lane label.
+   *
+   * It guarded a path that no longer exists. Discovery never reads a basename:
+   * it joins `worktreePathToProjectSlug(mainWorktreePath)` under the dialect's
+   * root and sets the lane from the ROSTER's own `lane` field, so there is no
+   * spelling for a directory name to leak through. The guarantee moved from a
+   * test to the shape of the code, which is the better place for it.
+   */
 
   it('only parses new lines across polls, and dedupes usage for a reply split across polls', async () => {
     const worktreePath = '/fake/worktrees/alpha'
@@ -579,7 +433,7 @@ describe('createSessionlogCollector', () => {
     // First poll only sees the reply's text block (no newline yet on the second line).
     await writeFile(filePath, `${fixtureLines[0]}\n`, 'utf8')
 
-    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, home, backfill: true })
     const gitExec: Exec = async () => success(worktreeListOutput([worktreePath]))
 
     const first = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
@@ -606,7 +460,7 @@ describe('createSessionlogCollector', () => {
       'utf8',
     )
 
-    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, home, backfill: true })
     const gitExec: Exec = async () => success(worktreeListOutput([worktreePath]))
     const first = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
     expect(first.events.filter((e) => e.type === 'llm.usage')).toHaveLength(1)
@@ -627,7 +481,7 @@ describe('createSessionlogCollector', () => {
     const filePath = path.join(projectDir, 'session.jsonl')
     await writeFile(filePath, await readFixture('claude-code-2.1.222-tail-pending-tool.jsonl'), 'utf8')
 
-    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, home, backfill: true })
     // '/repo' as the main worktree so `worktreePath` is a linked ('worker')
     // one — lane comes from `facts.gitBranch` there, not the fixed
     // `unattributed` laneOverride the main worktree always carries (#62).
@@ -681,7 +535,7 @@ describe('createSessionlogCollector', () => {
     const filePath = path.join(projectDir, 'session.jsonl')
     await writeFile(filePath, await readFixture('claude-code-2.1.222-tail-pending-tool.jsonl'), 'utf8')
 
-    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, home, backfill: true })
     const gitExec: Exec = async () => success(worktreeListOutput(['/repo', worktreePath]))
 
     const first = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
@@ -750,7 +604,7 @@ describe('createSessionlogCollector', () => {
 
     await writeFile(filePath, assistantLine('lane-a', 'req_SHARED'), 'utf8')
 
-    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, home, backfill: true })
     const gitExec: Exec = async () => success(worktreeListOutput([worktreePath]))
 
     const first = await collector.poll(collector.initialSnapshot(), makeContext(gitExec))
@@ -838,7 +692,7 @@ describe('createSessionlogCollector', () => {
     const filePath = path.join(projectDir, '95f42357-058c-4ea2-84d4-de7b1eb58635.jsonl')
     await writeFile(filePath, await readFixture('worker-2-core.jsonl'), 'utf8')
 
-    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, home, backfill: true })
 
     // First poll: the worktree is live, git lists it, the lane's own content
     // is tailed and correctly attributed with its worktreePath/role.
@@ -875,17 +729,28 @@ describe('createSessionlogCollector', () => {
     })
   })
 
-  it('remembers a folded main worktree as unattributed, not worker, and keeps its lane override (#165)', async () => {
+  /**
+   * #165 still holds, and retiring the flag is what makes the FIRST poll here
+   * read `conductor` where it used to read `unattributed` — the tree is live
+   * and its session dir is discovered. The second poll folds it, so there is no
+   * live main tree to discover, and the remembered role is all that is left.
+   * That is the case this test was always about.
+   */
+  it('remembers a folded main worktree by its remembered role, not as worker (#165)', async () => {
     const rootPath = '/repo'
     const rootProjectDir = path.join(root, worktreePathToProjectSlug(rootPath))
     await mkdir(rootProjectDir, { recursive: true })
     const filePath = path.join(rootProjectDir, '95f42357-058c-4ea2-84d4-de7b1eb58635.jsonl')
     await writeFile(filePath, await readFixture('worker-2-core.jsonl'), 'utf8')
 
-    const collector = createSessionlogCollector({ claudeProjectsRoot: root, backfill: true })
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, home, backfill: true })
     const liveExec: Exec = async () => success(worktreeListOutput([rootPath]))
     const first = await collector.poll(collector.initialSnapshot(), makeContext(liveExec))
-    expect(first.events.filter((e) => e.type === 'llm.usage')).toHaveLength(1)
+    const firstUsage = first.events.filter((e) => e.type === 'llm.usage')
+    expect(firstUsage).toHaveLength(1)
+    // Live and discovered on the first poll — prd-57 ruling 8. It read
+    // `unattributed` before, because nothing could say whose session it was.
+    expect(firstUsage[0]?.payload).toMatchObject({ role: 'conductor' })
 
     // The root worktree itself "folds" (a pathological case, but the
     // reconstruction from remembered role must still be honest about it).
@@ -899,10 +764,15 @@ describe('createSessionlogCollector', () => {
 
     const usage = second.events.filter((e) => e.type === 'llm.usage')
     expect(usage).toHaveLength(1)
-    expect(usage[0]?.payload).toMatchObject({ worktreePath: rootPath, role: 'unattributed', lane: 'unattributed' })
+    // The remembered role AND its lane come back — prd-57 ruling 8. It was
+    // `unattributed` on both counts before, because the first poll could not
+    // say whose session this was; now the first poll discovers it and the fold
+    // keeps what the first poll established. #165's claim is unchanged: a
+    // folded worktree is never silently demoted to `worker`.
+    expect(usage[0]?.payload).toMatchObject({ worktreePath: rootPath, role: 'conductor', lane: 'conductor' })
   })
 
-  it('does not double-tail a worktree that is both remembered-folded and declared via --extra-sessions', async () => {
+  it('does not double-tail a worktree that is both remembered-folded and discovered as the conductor', async () => {
     const rootPath = '/repo'
     const rootProjectDir = path.join(root, worktreePathToProjectSlug(rootPath))
     await mkdir(rootProjectDir, { recursive: true })
@@ -912,21 +782,24 @@ describe('createSessionlogCollector', () => {
       'utf8',
     )
 
-    const collector = createSessionlogCollector({
-      claudeProjectsRoot: root,
-      extraSessionDirs: [`${rootPath}:conductor`],
-      backfill: true,
-    })
+    const collector = createSessionlogCollector({ claudeProjectsRoot: root, home, backfill: true })
     // The worktree starts out remembered as folded-worker from a prior run
-    // (simulated via a hand-built prevSnapshot), then is also declared via
-    // --extra-sessions this run — the declared role/lane must win, once.
+    // (simulated via a hand-built prevSnapshot), and is ALSO the discovered
+    // conductor this run — the discovered role/lane must win, once. The two
+    // routes to the same worktree are what this test exists for, and retiring
+    // the flag changed which second route it is, not that there is one.
     const prevSnapshot = {
       disabled: false,
       files: {},
       erroredExtraSessionDirs: {},
       knownWorktrees: { [rootPath]: 'worker' as const },
     }
-    const gitExec: Exec = async () => success(worktreeListOutput([]))
+    // LIVE, not folded — that is the one setup change retiring the flag forced
+    // here. Discovery keys off the live main tree (`git worktree list` names it
+    // first), where the flag could declare a path whether or not git still knew
+    // about it. The claim under test is unchanged: two routes reach this
+    // worktree, and it is tailed ONCE.
+    const gitExec: Exec = async () => success(worktreeListOutput([rootPath]))
     const result = await collector.poll(prevSnapshot, makeContext(gitExec))
 
     const usage = result.events.filter((e) => e.type === 'llm.usage')
@@ -984,6 +857,7 @@ describe('createSessionlogCollector', () => {
 
     const collector = createSessionlogCollector({
       claudeProjectsRoot: root,
+      home,
       backfill: true,
       turnGrammar: fakeGrammar,
     })
@@ -1040,10 +914,13 @@ describe('the organ publishes agent.status, edge-triggered and signed (#281, ADR
   const TURN_COMPLETE = `${CAPTURED_VERSION}-tail-turn-complete.jsonl`
   const PENDING_TOOL = `${CAPTURED_VERSION}-tail-pending-tool.jsonl`
 
+  let home: string
   let root: string
 
   beforeEach(async () => {
-    root = await mkdtemp(path.join(tmpdir(), 'sessionlog-organ-'))
+    home = await mkdtemp(path.join(tmpdir(), 'sessionlog-organ-'))
+    root = path.join(home, '.claude', 'projects')
+    await mkdir(root, { recursive: true })
   })
 
   afterEach(async () => {
@@ -1102,7 +979,7 @@ describe('the organ publishes agent.status, edge-triggered and signed (#281, ADR
   }
 
   function organCollector(probe: ProcessProbe = stubProbe({})) {
-    return createSessionlogCollector({ claudeProjectsRoot: root, backfill: true, processProbe: probe })
+    return createSessionlogCollector({ claudeProjectsRoot: root, home, backfill: true, processProbe: probe })
   }
 
   const gitFor =
@@ -1216,13 +1093,30 @@ describe('the organ publishes agent.status, edge-triggered and signed (#281, ADR
     expect(emitted.every((e) => e.source === 'sessionlog')).toBe(true)
   })
 
-  it('the unattributed main tree publishes no agent.status', async () => {
-    // `deriveLanes` gives the main working tree's session the lane
-    // `unattributed` — a setup gap, never worker spend (#62). Minting an
-    // agent record for it would hand the fleet a lane it deliberately does
-    // not have.
+  it('an unattributed lane publishes no agent.status', async () => {
+    // `deriveLanes` gives an undiscovered main working tree the lane
+    // `unattributed` — a setup gap, never worker spend (#62). Minting an agent
+    // record for it would hand the fleet a lane it deliberately does not have.
+    //
+    // WHAT `unattributed` MEANS NOW, and this test is the only place the two
+    // can be told apart. It used to mean "nobody declared this tree with
+    // `--extra-sessions`". Since prd-57 ruling 8 it means the DIALECT's own
+    // user-level root holds nothing for it — so the transcript is readable and
+    // still unclaimed, which is a rarer state and a more honest one.
+    //
+    // Reproduced by pointing `home` at a directory with no `.claude/projects`
+    // while the transcript stays readable under `claudeProjectsRoot`. That
+    // separation is exactly why discovery reads `home` and tailing reads
+    // `claudeProjectsRoot`: collapsing them would make this state unreachable
+    // and this guard untestable.
     await plant('/repo', null, TURN_COMPLETE, 5_000)
-    const collector = organCollector()
+    const bareHome = await mkdtemp(path.join(tmpdir(), 'sessionlog-no-dialect-'))
+    const collector = createSessionlogCollector({
+      claudeProjectsRoot: root,
+      home: bareHome,
+      backfill: true,
+      processProbe: stubProbe({}),
+    })
     const exec: Exec = async () => success(worktreeListOutput(['/repo']))
 
     const result = await collector.poll(collector.initialSnapshot(), makeContext(exec, '/repo', ORGAN_NOW))

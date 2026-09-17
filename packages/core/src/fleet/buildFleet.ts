@@ -1,6 +1,7 @@
 import {
-  DEFAULT_SPEND_WINDOW_MS,
   compareStrings,
+  DEFAULT_SPEND_WINDOW_MS,
+  type LaneSpend,
   selectActiveSecondsByLaneIndex,
   selectCollisions,
   selectLaneSpend,
@@ -10,10 +11,9 @@ import {
   selectSubagentActivityIndex,
   selectTouchesByBranch,
   selectWorktreeViews,
-  type LaneSpend,
 } from '../selectors/index.js'
-import type { AgentProcess, SessionState } from '../state.js'
 import { bucketizeSeries } from '../spark/index.js'
+import type { AgentProcess, SessionState } from '../state.js'
 import {
   EXPENSIVE_FLOOR_PER_MIN,
   EXPENSIVE_MULTIPLE,
@@ -27,10 +27,11 @@ import { diagnose, isTerminalDone } from './diagnose.js'
 import { findTrespasses } from './fences.js'
 import { buildGaps } from './gaps.js'
 import { buildLadder, calmEvidenceOf, errorCountsOf } from './ladder.js'
-import { worseRank, type LadderRank } from './pathology.js'
+import { type LadderRank, worseRank } from './pathology.js'
 import {
   activityOf,
   byAttentionThenSize,
+  type Draft,
   dominantRole,
   emptyDraft,
   fenceFor,
@@ -52,56 +53,56 @@ import {
   sumActiveSeconds,
   waitedOnHumanFor,
   ZERO_TOKEN_TOTALS,
-  type Draft,
 } from './plumbing.js'
 import type { BuildFleetOptions, Fleet, Lane } from './types.js'
 
 export {
-  SPARK_WINDOW_MS,
-  SPARK_BUCKET_COUNT,
-  LOOP_WINDOW_MS,
-  LOOP_MIN_PERIOD,
-  LOOP_MAX_PERIOD,
-  LOOP_MIN_REPEATS,
-  FROZEN_AFTER_MS,
-  SPAN_WITNESS_WINDOW_MS,
-  WAITING_QUIET_MS,
-  WAITING_PANE_FRESH_MS,
-  EXPENSIVE_MULTIPLE,
   EXPENSIVE_FLOOR_PER_MIN,
+  EXPENSIVE_MULTIPLE,
+  FROZEN_AFTER_MS,
   IDLE_AFTER_MS,
+  LOOP_MAX_PERIOD,
+  LOOP_MIN_PERIOD,
+  LOOP_MIN_REPEATS,
+  LOOP_WINDOW_MS,
+  SPAN_WITNESS_WINDOW_MS,
+  SPARK_BUCKET_COUNT,
+  SPARK_WINDOW_MS,
+  WAITING_PANE_FRESH_MS,
+  WAITING_QUIET_MS,
 } from './constants.js'
+export { findCycle, isTerminalDone } from './diagnose.js'
 export {
+  DIAGNOSED_KINDS,
+  evidenceLine,
+  INFERRED_MARK,
   LADDER_ORDER,
   LADDER_WORD,
-  rankIndex,
-  worseRank,
+  type LadderRank,
   PATHOLOGY_KINDS,
   PATHOLOGY_RANK,
   PATHOLOGY_WORD,
-  INFERRED_MARK,
-  evidenceLine,
-  type LadderRank,
-  type PathologyKind,
   type Pathology,
+  type PathologyKind,
+  rankIndex,
+  worseRank,
 } from './pathology.js'
-export {
-  type LaneActivity,
-  type Filament,
-  type LaneWaitedOnHuman,
-  type Lane,
-  type RootMass,
-  type AttentionKind,
-  type AttentionItem,
-  type CalmEvidence,
-  type Ladder,
-  type Gap,
-  type Burn,
-  type Fleet,
-  type BuildFleetOptions,
-} from './types.js'
-export { findCycle, isTerminalDone } from './diagnose.js'
 export { formatSpan } from './plumbing.js'
+export {
+  type AttentionItem,
+  type AttentionKind,
+  type BuildFleetOptions,
+  type Burn,
+  type CalmEvidence,
+  type Filament,
+  type Fleet,
+  type Gap,
+  type Ladder,
+  type Lane,
+  type LaneActivity,
+  type LaneWaitedOnHuman,
+  type RootMass,
+} from './types.js'
 
 /**
  * THE ONE DERIVED FLEET OBJECT.

@@ -204,7 +204,10 @@ describe('remedy reachability law: a gap remedy names something a reader can rea
       'your dispatch tooling — writes .swarm/lanes.json, not part of this repo (see docs/user-guide/troubleshooting.md)',
       'your dispatch tooling — writes .swarm/lanes.json, not part of this repo (see docs/user-guide/troubleshooting.md)',
       'eval "$(rhizomorph env <lane> --role worker)"',
-      'rhizomorph --extra-sessions <dir>:conductor',
+      // prd-57 ruling 8 retired the flag; `enlist` is the command that now
+      // makes a conductor's sessions reach this instrument, and the law's own
+      // reachability arm is what proves it is a real one.
+      'rhizomorph enlist claude',
       'rhizomorph doctor',
       'rhizomorph doctor',
     ])

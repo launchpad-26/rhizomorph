@@ -11,10 +11,17 @@ how that's enforced.
 
 ![The scene as the centerpiece — a busy 20-lane fleet, every thread live green but visibly different widths for visibly different output, ALL CLEAR above it](docs/screenshots/fixture-20-lane.png)
 
-It discovers worktrees and branches (git), agent panes (tmux), and
-[workmux](https://github.com/raine/workmux) state if present — each source
-optional, each degrading gracefully — and reflects reality within a couple
-of seconds via polling. This watching hand — collectors, receiver, server,
+It works on a bare machine and needs no multiplexer. There are **three
+levels**, and `rhizomorph doctor` names which one you are at and the single
+command that climbs: **L0** is git and your own session logs, with no
+cooperation from anything; **L1** adds dollars and traces; **L2** adds attention
+that was *declared* rather than inferred, which `rhizomorph enlist claude`
+reaches in one act. Agent panes (tmux) and
+[workmux](https://github.com/raine/workmux) state are read when present —
+enrichments that add pane previews and one-keystroke ATTACH, never requirements,
+and their absence is never reported as something missing. It discovers worktrees
+and branches from git and reflects reality within a couple of seconds via
+polling. This watching hand — collectors, receiver, server,
 UI — never sends a keystroke, launches an agent, or merges anything; only
 the separate, explicitly-invoked laboratory can do any of that, and only on
 your own command. If you're deciding whether to run this on the machine
@@ -48,7 +55,6 @@ flags, forward them the same way: `npm start -- <path-to-repo> --port 5000`.
 | `--port <n>` | `4321` | Port to listen on |
 | `--flatline-minutes <n>` | `5` | Minutes of silence before an agent is flatlined |
 | `--poll-interval <ms>` | `2000`, minimum `250` | Collector poll cadence in ms |
-| `--extra-sessions <path>[:<lane>]` | — | Foreign Claude session-log dir to tail as a conductor (repeatable). `<path>` is the dir of `*.jsonl` itself; `<lane>` defaults to `conductor`, `conductor-2`, … |
 | `--fresh` | — | Start a new session instead of resuming the most recent one for this repo (default: resume if its newest event is under 4h old) |
 | `--resume-window <ms>` | 4h | Override the resume boundary above. `--resume-window 0` behaves exactly like `--fresh`. The boot line and `rhizomorph doctor` both say which way this decided and why |
 | `--backfill` | — | Read session logs from the beginning instead of end-of-file — ingest history on purpose; expect a large first tick |
@@ -63,9 +69,11 @@ npm start -- doctor <path-to-repo>
 
 It checks the Node version, that the target path exists and is a git repo,
 that the web build is present, that the port is free, Claude Code session
-logs, tmux/workmux on `PATH`, the telemetry env, the lane manifest, whether
-this boot found a live writer already holding the session (the pid+heartbeat
-lock, see [Trust](#trust) below), and each lane's own enrichment rung — one
+logs, tmux/workmux on `PATH` (as enrichments — present or absent, both read
+`ok`), the telemetry env, the lane manifest, whether this boot found a live
+writer already holding the session (the pid+heartbeat lock, see
+[Trust](#trust) below), and which of the three levels this machine stands at
+with the one command that climbs to the next — one
 `ok`/`warn`/`FAIL` line per check, each with its exact remedy. It exits
 non-zero only when the app genuinely cannot run at all (bad path, not a git
 repo, no web build, port already taken); everything else is a `warn` that
@@ -841,7 +849,7 @@ scar in its own comments, which is why the wrapper exists. A conductor, or any l
 Code session-log directory lives outside the worktrees this repo's
 `sessionlog` collector would otherwise discover (a cross-filesystem or
 cross-machine conductor, say), is picked up with the repeatable
-`--extra-sessions <dir>` flag and attributed `role: conductor` automatically.
+dialect's own user-level session directory and attributed `role: conductor` automatically.
 Full walkthrough — the cross-machine note, the subscription-dollars honesty
 note, live proof of the `OTEL_RESOURCE_ATTRIBUTES` lane tag — lives in
 [`docs/telemetry.md`](docs/telemetry.md).

@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createEventFactory, type RhizomorphEvent } from '@rhizomorph/core'
@@ -12,7 +12,7 @@ import type { EventSourceLike } from '../hooks/useEventStream.js'
 import { CAPABILITY_META_NAME } from '../recordings/capability.js'
 import type { FetchLike as ReplayFetchLike } from '../replay/api.js'
 import { ConnectPage, type ConnectPageProps, DEFAULT_REFRESH_MS, STATE_GLYPH, STATE_WORD } from './index.js'
-import { DOCTOR_URL, META_URL, REPOS_URL, type FetchLike } from './meta.js'
+import { DOCTOR_URL, type FetchLike, META_URL, REPOS_URL } from './meta.js'
 
 /**
  * THE HANDSHAKE CHECKLIST, AS A PAGE.
@@ -787,7 +787,7 @@ describe('the poll interval (#344)', () => {
       fireEvent.change(screen.getByTestId('wizard-repo-select'), { target: { value: '/home/x/other' } })
     })
     await act(async () => {
-      fireEvent.click(screen.getByTestId('wizard-step-conductor'))
+      fireEvent.click(screen.getByTestId('wizard-step-enlist'))
     })
     await act(async () => {
       fireEvent.click(screen.getByTestId('wizard-retarget'))
@@ -799,7 +799,7 @@ describe('the poll interval (#344)', () => {
     expect(metaCalls).toBe(2)
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('wizard-step-repo'))
+      fireEvent.click(screen.getByTestId('wizard-step-enlist'))
     })
     expect(screen.getByTestId('wizard-watched').textContent).toBe('/home/x/other')
   })

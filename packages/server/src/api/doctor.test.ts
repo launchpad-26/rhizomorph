@@ -12,15 +12,15 @@ import { describe, expect, it, vi } from 'vitest'
 // exactly as it would a source file. A declared importer BOUNDS the walk, so
 // this import adds no edge that law can see.
 import { enableShipper, shipperCursorPath, shipperKeyPath } from '../cli/connect-team.js'
-import { checkClaudeProjects, runDoctor, type DoctorCheck } from '../cli/doctor.js'
+import { checkClaudeProjects, type DoctorCheck, runDoctor } from '../cli/doctor.js'
 import { sessionDirFor } from '../log/paths.js'
 import { readResumedCount, sessionFilePath } from '../log/session-log.js'
 import { SessionLogWriter } from '../recorder/index.js'
 import { buildApp } from '../server/build-app.js'
+import type * as ExecModule from '../server/exec.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { createRouteDoctorProbe, PROBE_CACHE_TTL_MS, ROUTE_EXEC_TIMEOUT_MS, runServerDoctor } from './doctor.js'
 import { capabilityHeaders } from './test-support.js'
-import type * as ExecModule from '../server/exec.js'
 
 function okResult(stdout = ''): ExecResult {
   return { stdout, stderr: '', code: 0, failed: false }
@@ -163,7 +163,7 @@ describe('runServerDoctor (prd-19 ruling 5)', () => {
     }
   })
 
-  it('still climbs the enrichment ladder to L4 on an otherwise-healthy machine — the implied target-path does not stall it at L0', async () => {
+  it('still climbs the enrichment ladder to L2 on an otherwise-healthy machine — the implied target-path does not stall it at L0', async () => {
     await setup()
     try {
       const checks = await runServerDoctor(repoPath, {
@@ -175,7 +175,7 @@ describe('runServerDoctor (prd-19 ruling 5)', () => {
 
       const ladder = checkFor(checks, 'ladder')
       expect(ladder.status).toBe('ok')
-      expect(ladder.message).toContain('L4')
+      expect(ladder.message).toContain('L2')
       expect(ladder.message).toContain('nothing further to climb')
     } finally {
       await teardown()
@@ -666,7 +666,7 @@ describe('runServerDoctor (prd-19 ruling 5)', () => {
         expect(ladder.status).toBe('ok')
         expect(ladder.message).toContain('not applicable')
         expect(ladder.message).not.toContain('L0')
-        expect(ladder.message).not.toContain('L4')
+        expect(ladder.message).not.toContain('L2')
         expect(ladder.assumed).toBeUndefined()
 
         // The rest of the checks are still real, general facts about this
@@ -1397,7 +1397,11 @@ describe('declared attention and the L2 rung reach the route (#307)', () => {
 
       const ladder = checkFor(body, 'ladder')
       expect(ladder.message).toContain('L2')
-      expect(ladder.message).toContain('beacon')
+      // The line no longer names WHICH witness declared it — prd-57 ruling 8.
+      // `deriveRung` still does, and `/api/meta` still publishes it (the two
+      // vocabularies, below); the level answers a person's question, and "is
+      // attention declared or guessed" has the same answer either way.
+      expect(ladder.message).not.toContain('L4')
 
       const lane = checkFor(body, 'attention:2-core')
       expect(lane.status).toBe('ok')
@@ -1408,7 +1412,7 @@ describe('declared attention and the L2 rung reach the route (#307)', () => {
     }
   })
 
-  it('…and L4 when workmux is present — the rig still wins the tie (ADR-0039)', async () => {
+  it('…and STILL L2 when workmux is present — the level does not split the witnesses (prd-57 ruling 8)', async () => {
     await setup()
     try {
       const recorder = await recorderWith({ declaredAt: Date.now() - 30_000 })
@@ -1416,14 +1420,34 @@ describe('declared attention and the L2 rung reach the route (#307)', () => {
 
       const body = (await app.inject({ method: 'GET', url: '/api/doctor', headers: capabilityHeaders(app) })).json()
 
-      expect(checkFor(body, 'ladder').message).toContain('L4')
+      expect(checkFor(body, 'ladder').message).toContain('L2')
       expect(checkFor(body, 'attention:2-core').message).toContain('declared waiting')
     } finally {
       await teardown()
     }
   })
 
-  it('the route and /api/meta derive the same rung from the same recorder, on both machines', async () => {
+  /**
+   * THE TWO VOCABULARIES, and why they no longer have to agree — prd-57 ruling 8.
+   *
+   * This asserted that the doctor line and `/api/meta` name the SAME rung, and
+   * they did, because both read `deriveRung`. They deliberately do not any more,
+   * and the difference is the ruling rather than a drift:
+   *
+   * - **`/api/meta` publishes a RUNG.** Five of them, L0–L4, and it is a
+   *   capability fact for the fold: *what is providing attention*, with the rig
+   *   and the beacon split because a reader downstream cares which.
+   *   `core/collector.ts` is untouched, which is what keeps ADR-0037's "L2
+   *   versus L0" citation resolving.
+   * - **`doctor` reports a LEVEL.** Three of them, and it answers a person's
+   *   question: *is attention declared or guessed*. Both witnesses answer that
+   *   the same way, so both reach L2.
+   *
+   * So the law is no longer "the two agree" — it is "the two map", and the
+   * mapping is stated here so a reader meeting an L4 in one place and an L2 in
+   * the other knows it is designed.
+   */
+  it('the route reports a LEVEL and /api/meta a RUNG, and the two map — on both machines', async () => {
     for (const machine of [{ beaconOnly: true }, { beaconOnly: false }]) {
       await setup()
       try {
@@ -1439,8 +1463,10 @@ describe('declared attention and the L2 rung reach the route (#307)', () => {
         ).json()
         const metaBody = (await app.inject({ method: 'GET', url: '/api/meta', headers: capabilityHeaders(app) })).json()
 
-        expect(rungIn(checkFor(doctorBody, 'ladder').message)).toBe(metaBody.rung)
+        // The rung still splits the two witnesses, exactly as before.
         expect(metaBody.rung).toBe(machine.beaconOnly ? 'L2' : 'L4')
+        // The level does not: declared attention is declared attention.
+        expect(rungIn(checkFor(doctorBody, 'ladder').message)).toBe('L2')
       } finally {
         await teardown()
       }
@@ -1456,7 +1482,7 @@ describe('declared attention and the L2 rung reach the route (#307)', () => {
       const body = (await app.inject({ method: 'GET', url: '/api/doctor', headers: capabilityHeaders(app) })).json()
 
       expect(checkFor(body, 'attention:2-core').message).toContain('never declared')
-      expect(checkFor(body, 'ladder').message).toContain('L4')
+      expect(checkFor(body, 'ladder').message).toContain('L2')
     } finally {
       await teardown()
     }
@@ -1498,7 +1524,7 @@ describe('declared attention and the L2 rung reach the route (#307)', () => {
       })
 
       expect(checks.some((check) => check.id.startsWith('attention'))).toBe(false)
-      expect(checkFor(checks, 'ladder').message).toContain('L4')
+      expect(checkFor(checks, 'ladder').message).toContain('L2')
     } finally {
       await teardown()
     }

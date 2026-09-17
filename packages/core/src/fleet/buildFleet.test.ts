@@ -1,29 +1,29 @@
+import { describe, expect, it } from 'vitest'
 import { createEvent, createIdFactory, type RhizomorphEvent } from '../events/index.js'
 import { createEventFactory, FIXTURE_REPO_PATH } from '../fixtures.js'
 import { reduceAll } from '../reduce.js'
-import { describe, expect, it } from 'vitest'
 import {
+  type AttentionItem,
   buildFleet,
+  DIAGNOSED_KINDS,
   evidenceLine,
+  type Fleet,
   findCycle,
   INFERRED_MARK,
   isTerminalDone,
-  PATHOLOGY_KINDS,
-  type AttentionItem,
-  type Fleet,
-  type Lane,
   type Ladder,
+  type Lane,
   type PathologyKind,
 } from './buildFleet.js'
 import type { LaneManifest } from './fences.js'
 import {
+  type FixtureSpec,
   finishedSpec,
   fixtureHistory,
   fleet20Spec,
   manifestFor,
   offFenceHonestySpec,
   pathologySpec,
-  type FixtureSpec,
 } from './fixtures.js'
 
 /**
@@ -64,7 +64,7 @@ describe('the staged-pathology fixture', () => {
     expect(fleet.lanes).toHaveLength(pathologySpec().lanes.length)
   })
 
-  it('finds exactly one lane per pathology, and no sixth kind', () => {
+  it('finds exactly one lane per DIAGNOSABLE pathology, and no sixth kind', () => {
     const counts = new Map<PathologyKind, number>()
     for (const lane of fleet.lanes) {
       for (const pathology of lane.pathologies) {
@@ -78,7 +78,12 @@ describe('the staged-pathology fixture', () => {
       expensive: 1,
       'off-fence': 1,
     })
-    expect([...counts.keys()].sort()).toEqual([...PATHOLOGY_KINDS].sort())
+    // `DIAGNOSED_KINDS`, not `PATHOLOGY_KINDS`. The two differ by `crashed`
+    // (prd-57 ruling 5), which `diagnose` cannot produce at all: it turns on a
+    // recorded process death in the fold, raised by `server/crashed.ts` from
+    // the tick, and no staged fixture can stage one. Comparing against the full
+    // vocabulary would assert something this fixture cannot be made to satisfy.
+    expect([...counts.keys()].sort()).toEqual([...DIAGNOSED_KINDS].sort())
   })
 
   it('flags the right lane for each', () => {
@@ -153,7 +158,9 @@ describe('the staged-pathology fixture', () => {
     const ladder = fleet.ladder
     expect(ladder.rank).toBe('broken')
     if (ladder.rank === 'calm') throw new Error('unreachable: the staged fleet is not calm')
-    expect(ladder.items.map((item) => item.kind).sort()).toEqual([...PATHOLOGY_KINDS].sort())
+    // Same reason as the count pin above: the ladder can only carry what the
+    // fixture's lanes actually carry, and `crashed` is not diagnosable.
+    expect(ladder.items.map((item) => item.kind).sort()).toEqual([...DIAGNOSED_KINDS].sort())
     // Every item can be jumped to: a lane fault names the lane it belongs to.
     for (const item of ladder.items) expect(item.laneId).not.toBeNull()
   })

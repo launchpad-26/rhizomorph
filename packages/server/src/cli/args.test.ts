@@ -7,7 +7,6 @@ const defaults = {
   port: 4321,
   flatlineMinutes: 5,
   pollIntervalMs: 2000,
-  extraSessionDirs: [],
   fresh: false,
   resumeWindowMs: RESUME_WINDOW_MS,
   backfill: false,
@@ -141,44 +140,29 @@ describe('parseArgs', () => {
     expect(() => parseArgs(['--foo', '--', 'some-path'])).toThrow(/unknown option.*"--foo"/is)
   })
 
-  it('defaults --extra-sessions to an empty list', () => {
-    expect(parseArgs([]).extraSessionDirs).toEqual([])
+  /**
+   * THE FLAG IS RETIRED — prd-57 ruling 8.
+   *
+   * Eight cases lived here: the default, a single value, repeats, `=` form,
+   * `<dir>:<lane>`, a mix, and two refusals. Every one of them described a way
+   * of typing a path that the instrument now discovers for itself
+   * (`harness-roster.ts`'s `USER_LEVEL_SESSION_LOGS`), so they are replaced by
+   * the one fact that outlives them rather than retitled.
+   *
+   * A retired flag must fail LOUDLY, not be ignored. `parseFlags` refuses any
+   * unrecognised `-`-prefixed token by name, which is what turns a stale
+   * `.workmux.yaml` or a copied shell alias into an error the operator can read
+   * instead of a boot that silently drops the argument it was given.
+   */
+  it('is gone, and a boot that still passes it says so rather than ignoring it', () => {
+    expect(() => parseArgs(['--extra-sessions', '/one'])).toThrow(/unknown option: "--extra-sessions"/)
+    expect(() => parseArgs(['--extra-sessions=/one'])).toThrow(/unknown option: "--extra-sessions"/)
   })
 
-  it('parses a single --extra-sessions', () => {
-    expect(parseArgs(['--extra-sessions', '/mnt/c/Users/operator/.claude/projects/foo']).extraSessionDirs).toEqual([
-      '/mnt/c/Users/operator/.claude/projects/foo',
-    ])
-  })
-
-  it('accumulates repeated --extra-sessions flags in order', () => {
-    expect(
-      parseArgs(['--extra-sessions', '/one', '--extra-sessions', '/two']).extraSessionDirs,
-    ).toEqual(['/one', '/two'])
-  })
-
-  it('parses --extra-sessions=<dir>', () => {
-    expect(parseArgs(['--extra-sessions=/one']).extraSessionDirs).toEqual(['/one'])
-  })
-
-  it('passes a <dir>:<lane> value through untouched, for the sessionlog collector to split', () => {
-    expect(
-      parseArgs(['--extra-sessions', '/mnt/c/Users/operator/.claude/projects/foo:conductor']).extraSessionDirs,
-    ).toEqual(['/mnt/c/Users/operator/.claude/projects/foo:conductor'])
-  })
-
-  it('accumulates a mix of plain and <dir>:<lane> --extra-sessions values in order', () => {
-    expect(
-      parseArgs(['--extra-sessions', '/one:conductor', '--extra-sessions', '/two']).extraSessionDirs,
-    ).toEqual(['/one:conductor', '/two'])
-  })
-
-  it('throws on a missing --extra-sessions value', () => {
-    expect(() => parseArgs(['--extra-sessions'])).toThrow(/invalid --extra-sessions/)
-  })
-
-  it('throws on an empty --extra-sessions value', () => {
-    expect(() => parseArgs(['--extra-sessions=  '])).toThrow(/invalid --extra-sessions/)
+  it('leaves no trace on the parsed shape', () => {
+    // The field went with the flag. Asserted because a parser that kept an
+    // always-empty field would let a reader downstream keep branching on it.
+    expect(parseArgs([])).not.toHaveProperty('extraSessionDirs')
   })
 
   it('defaults to resuming: --fresh and --backfill are both off', () => {
@@ -240,8 +224,8 @@ describe('helpText', () => {
     expect(text).toContain('--poll-interval')
     expect(text).toContain('2000')
     expect(text).toContain('250')
-    expect(text).toContain('--extra-sessions')
-    expect(text).toContain('[:<lane>]')
+    // `--extra-sessions` is deliberately absent — prd-57 ruling 8.
+    expect(text).not.toContain('--extra-sessions')
     expect(text).toContain('--fresh')
     expect(text).toContain('--backfill')
     expect(text).toContain('--version')

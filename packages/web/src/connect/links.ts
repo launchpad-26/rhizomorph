@@ -2,7 +2,7 @@ import { AGENT_ROLES, type AgentRole, type Connection, type RefusalState, type S
 import { shellQuote } from '../drawer/attach.js'
 import { formatSpan } from '../fleet/index.js'
 import type { ConnectionStatus } from '../hooks/useEventStream.js'
-import { doctorCheck, type CollectorFacts, type DoctorReading, type MetaFacts } from './meta.js'
+import { type CollectorFacts, type DoctorReading, doctorCheck, type MetaFacts } from './meta.js'
 
 /**
  * THE HANDSHAKE CHECKLIST'S ROWS (prd19 ruling 3, wave 3, #258).
@@ -570,21 +570,28 @@ function agentsPanes(input: ConnectInputs): ChainLink {
     return verified(base, proved, provenAt(maxTs(tmux.lastEventTs, workmux.lastEventTs), input.now), notes)
   }
 
-  const tmuxDisabled = disabledReason(input.meta, 'tmux')
-  const workmuxDisabled = disabledReason(input.meta, 'workmux')
-  // BROKEN only when BOTH are disabled with a reason: either one alone still
-  // leaves a live mechanism that simply has not reported yet, which is
-  // UNPROVEN, not dead.
-  if (tmuxDisabled !== null && workmuxDisabled !== null) {
-    return broken(base, `tmux: ${tmuxDisabled.reason} · workmux: ${workmuxDisabled.reason}`, {
-      // Each reason names its own tool; installing it is that tool's own
-      // business and has no portable command. What this page can name
-      // exactly is the one thing that makes the instrument look again once
-      // it is there.
-      command: restartCommand(input.meta?.repoPath ?? null, input.port),
-      notes,
-    })
-  }
+  const _tmuxDisabled = disabledReason(input.meta, 'tmux')
+  const _workmuxDisabled = disabledReason(input.meta, 'workmux')
+  /**
+   * NOT BROKEN — prd-57 ruling 8.
+   *
+   * Both disabled used to read `broken`, with a reason naming each tool and a
+   * restart command beside it. On a machine that simply has no multiplexer —
+   * which the ruling makes the ordinary case rather than the deficient one —
+   * that painted the connect page red over an enrichment the operator never
+   * chose to install and never has to.
+   *
+   * `broken` is reserved for a mechanism that was supposed to work and does
+   * not. A rig that is not installed is not a broken rig; there is nothing to
+   * fix, no command to run, and the instrument is complete without it. So the
+   * row stays `unproven` — nothing has proved this link, which is exactly
+   * true — and carries the doctor's own enrichment note rather than a remedy.
+   *
+   * A fourth `LinkState` would say this more precisely than `unproven` does,
+   * and is deliberately not minted here: it would fan out to every renderer of
+   * `STATE_WORD`, none of which this issue's fence reaches. Recorded as
+   * owed rather than done.
+   */
   return unproven(base, notes)
 }
 
@@ -637,12 +644,12 @@ function transcriptSlug(input: ConnectInputs): ChainLink {
   if (check.status === 'ok') return verified(base, check.message, provenNow(input.now), doctorNote(input.doctor, 'session-boundary'))
 
   // Doctor's own message carries both halves of the remedy — run `claude`
-  // here once, or point elsewhere with `--extra-sessions`. The second is the
+  // here once. The second is the
   // one that is a command, and the conductor-on-a-foreign-filesystem case
   // (`args.ts`: a mounted `/mnt/c/…/.claude/projects/<slug>`) is exactly the
   // one this row goes BROKEN for.
   return broken(base, check.message, {
-    command: restartCommand(input.meta?.repoPath ?? null, input.port, ['--extra-sessions <session-log-dir>']),
+    command: restartCommand(input.meta?.repoPath ?? null, input.port),
     notes: doctorNote(input.doctor, 'session-boundary'),
   })
 }
