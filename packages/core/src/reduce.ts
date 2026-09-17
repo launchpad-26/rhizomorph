@@ -643,9 +643,14 @@ function beaconReceived(state: SessionState, event: EventOf<'beacon.received'>):
  * which is the direction this tree is going.
  *
  * With no `cwd` at all the witness is all there is: a live run over a dead one.
- * And a `recycled` run is never a candidate in EITHER branch — it is the
+ * And in THAT branch a `recycled` run is never a candidate — it is the
  * collector's word for *this number came back*, so it is definitionally not the
- * process that just fired a hook.
+ * process that just fired a hook, and there the actor IS the key. The `cwd`
+ * branch admits one deliberately: the filter is `worktreePath === cwd`, so the
+ * only key it can return is `cwd` itself, and excluding a run whose recorded
+ * path the line already names would discard a true join without being able to
+ * prevent a wrong one. An earlier draft of this sentence said "either branch",
+ * which the code beneath it had already stopped doing.
  *
  * And when runs still disagree about the worktree, **DECLINE**. The newest
  * `startedAt` would be a plausible guess, and a guess on this exact question is
