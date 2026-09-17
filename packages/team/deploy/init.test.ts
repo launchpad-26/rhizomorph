@@ -402,8 +402,28 @@ describe("init.sh's secrets are ignored by git AND by docker", () => {
  */
 const COMPOSE = readFileSync(path.join(HERE, 'compose.yml'), 'utf8')
 
-/** The `app` service's own block: what THIS container is given, and nothing another service is. */
-const APP_SERVICE = COMPOSE.slice(COMPOSE.indexOf('\n  app:'), COMPOSE.indexOf('\n  caddy:'))
+/**
+ * The `app` service's own block: what THIS container is given, and nothing another service is.
+ *
+ * THE END OF THE BLOCK IS DERIVED FROM INDENTATION, NOT FROM THE NAME OF THE SERVICE BELOW IT.
+ * This slice used to run from `\n  app:` to `\n  caddy:`, and `indexOf` returns -1 for a marker
+ * that is not there — so renaming `caddy` widened this window to the whole rest of the file and
+ * the law then read every other service's `environment:` block as the app's. EXECUTED at review
+ * of #599: with `caddy` renamed and the fold-tick line moved into that service, the app container
+ * received nothing and all 68 cases stayed green — #584's own defect, restored, with its law
+ * silent. A boundary anchored at one end is the sibling case this file names elsewhere.
+ */
+function serviceBlock(compose: string, name: string): string {
+  const lines = compose.split('\n')
+  const start = lines.indexOf(`  ${name}:`)
+  if (start < 0) {
+    throw new Error(`compose.yml declares no \`${name}:\` service, so this law has no block to read`)
+  }
+  const after = lines.findIndex((line, at) => at > start && /^ {0,2}\S/.test(line))
+  return lines.slice(start, after < 0 ? lines.length : after).join('\n')
+}
+
+const APP_SERVICE = serviceBlock(COMPOSE, 'app')
 
 /**
  * Comments stripped before anything is read out of the source — `serve.ts`'s docblocks discuss
