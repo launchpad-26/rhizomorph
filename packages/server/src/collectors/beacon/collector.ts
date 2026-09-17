@@ -124,11 +124,15 @@ export function beaconCapabilitiesFor(declared: Readonly<Record<string, Declared
  * trade the join was agonising over — believe a stale path, or lose the symlink
  * case — was a false one, because this cause can simply be removed.
  *
- * A cwd that will not resolve (ENOENT on a directory since deleted, EACCES) is
- * kept AS WRITTEN rather than dropped. It is still the writer's own account of
- * where it was, the digest still covers the original bytes, and a line that
- * reaches nothing is better than a line that reaches the wrong thing — the join
- * will simply decline, which is what it does with any unmatched path.
+ * **A deleted directory is not a failure here.** `canonicalize` walks up to the
+ * nearest existing ancestor and re-joins the tail, so a worktree removed since
+ * the hook fired still yields a canonical, comparable path. It throws only on
+ * ELOOP or EACCES, and the `catch` keeps the string AS WRITTEN for those: it is
+ * still the writer's own account of where it was, the digest still covers the
+ * original bytes, and the join declines on an unmatched path as it does on any
+ * other. That branch is **defensive and untested** — neither condition is
+ * portably reproducible — and saying so is better than a test that names it and
+ * exercises something else, which is what the first attempt at one did.
  */
 function canonicalCwd(cwd: string | undefined): string | undefined {
   if (cwd === undefined) return undefined

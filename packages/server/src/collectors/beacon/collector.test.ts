@@ -191,10 +191,19 @@ describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
       expect(beacon?.payload.cwd).not.toBe(written)
     })
 
-    it('keeps a cwd it cannot resolve exactly as written, rather than dropping the line', async () => {
-      // A directory deleted since the hook fired. The writer's own account of
-      // where it was is still the honest record, the digest still covers the
-      // original bytes, and the join simply declines on an unmatched path.
+    it('resolves a cwd whose directory is GONE, through the ancestor that is still there', async () => {
+      /**
+       * A worktree removed since the hook fired. `canonicalize` handles this
+       * itself — it walks up to the nearest existing ancestor and re-joins the
+       * tail — so the value is still canonical and still comparable against a
+       * `worktreePath` recorded while the directory existed.
+       *
+       * The first version of this case was titled "keeps a cwd it cannot
+       * resolve", which is not what a missing directory is: `canonicalize`
+       * throws only on ELOOP or EACCES. It passed while exercising nothing of
+       * the sort — the same shape this PRD keeps meeting, a test naming a
+       * behaviour it does not reach.
+       */
       await mkdir(dir, { recursive: true })
       const gone = path.join(root, 'vanished')
       await writeFile(
@@ -206,7 +215,10 @@ describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
       const result = await collector.poll(collector.initialSnapshot(), context())
       const [beacon] = ofType(result.events, 'beacon.received')
 
-      expect(beacon?.payload.cwd).toBe(gone)
+      expect(beacon?.payload.cwd).toBe(canonicalize(gone))
+      // And it is a real canonicalisation, not the raw string passed through:
+      // the temp root itself resolves on this platform.
+      expect(beacon?.payload.cwd?.endsWith('vanished')).toBe(true)
     })
   })
 
