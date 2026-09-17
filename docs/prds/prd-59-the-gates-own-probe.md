@@ -144,14 +144,27 @@ stated in the file with what they were measured against. Proven by re-running th
 probe on a clean trunk, and by a mutation showing the tripwire case still fails when the count
 it guards is broken.
 
-**Wave 2 — the gate says whose failure it is.** Ruling 3, in `scripts/gate.sh`. Blocked on
-wave 1 only in the sense that wave 1 removes the live instance; no shared path.
+**Wave 2 — the gate says whose failure it is, and the ledger perf law runs where its clock
+assertion means something.** Two issues, #627 and #628. Blocked on wave 1 only in the sense
+that wave 1 removes the live instance.
 
-**Wave 3 — the ledger perf law runs where its clock assertion means something.** Ruling 1, in
-`packages/web/src/panels/ledger/perf.test.ts`. Declared 2026-09-18, after the census below
-answered open question 2: this file asserts a sub-millisecond median and runs inside the load
-batches, which is ruling 1's original ground rather than wave 1's. No shared path with either
-earlier wave.
+- **#627, ruling 3, in `scripts/gate.sh`** — plus `packages/server/src/gate-honesty-law.test.ts`,
+  the law that pins the gate's own text and encodes the load-flake path this changes, fenced
+  with it up front rather than discovered at landing.
+- **#628, ruling 1, in `packages/web/src/panels/ledger/perf.test.ts`** — this file asserts a
+  sub-millisecond median and runs inside the load batches, which is ruling 1's ORIGINAL ground
+  rather than wave 1's.
+
+**Why one wave and not two, recorded because the first draft had it the other way.** These were
+declared as waves 2 and 3 on 2026-09-18 and merged the same day, at the operator's decision.
+The case for splitting them was reviewability — a change to the landing gate and an unrelated
+test marker in one diff is the grab-bag shape the working agreement warns about. The case for
+merging won on the agreement's own arithmetic: nothing in either issue depends on the other,
+their fences are disjoint (proven by `scripts/fence-lint.sh 627 628`), and the queue is a fixed
+per-PR toll of about 21 hours against a review cost that two commits in one PR barely move.
+Wave membership is a claim about DEPENDENCY, not about topic; these are independent, so they are
+one wave. The commit rule carries the reviewability half — one commit per issue, reviewed
+commit by commit.
 
 **Unfiled work implied, described not numbered:** whether the probe should report each run's
 slowest tests, so the next one is seen before it blocks a landing.
@@ -175,7 +188,7 @@ slowest tests, so the next one is seen before it blocks a landing.
    genuine wall-clock claim — while running inside the load batches under its own 300s budget.
    Contention cannot time it out; it invalidates what it measures instead. That is ruling 1's
    ORIGINAL ground, not wave 1's, and it qualifies under the criterion this PRD replaced as
-   readily as under the one it wrote. It is wave 3 above.
+   readily as under the one it wrote. It is #628, in wave 2 above.
 
    One measurement is recorded as refuted rather than dropped: a review seat reported
    `view/useFrameLoop.test.ts` failing the probe 2 of 4 runs. It was not reproducible — the
