@@ -51,9 +51,13 @@ const doorFile = () => path.join(installationBeaconDir(root), 'claude-hook.jsonl
  *
  * Fixing the fold closed it by assertion. This closes it by CONSTRUCTION: the
  * real runner writes the real file, the real parser reads it, the real
- * collector's envelope is built around it, `reduceAll` folds it and `buildFleet`
- * resolves it. Nothing in the chain is stubbed except the collector's own
- * file-tailing loop, which is covered in its own suite. Break any link — stop
+ * collector reads it, `reduceAll` folds what that collector emits and
+ * `buildFleet` resolves it. The tailing loop is real too — an earlier version of
+ * this comment said it was the one thing stubbed, and that stopped being true
+ * when the hand-built envelope was replaced by a real `poll()`. What IS
+ * injected: the parent pid, the clock, the event ids, and the `process.seen`
+ * and `worktree.discovered` facts a live machine would supply. Break any link
+ * — stop
  * writing `pid`, discard lane-less lines again, drop the worktree resolution —
  * and this reddens where the shape assertions do not.
  */
