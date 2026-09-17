@@ -687,14 +687,29 @@ lane did not perform — it is never a synonym for met.
    keeps every line of its logic, so a stalled-but-alive lane still publishes
    only its inference word.
 
-6. **Declared state exists, and inferred state says so — PARTLY MET.** The
-   declared half is done: `hook` is the third witness, outranks both readings,
-   and the fold keeps every overruled word as `dissent` (#529). The precedence
-   is exercised in all six speaker orders. **What is owed:** the disclosure card
-   does not yet state the join kind in its why line, and the affordance test
-   #532's DoD pairs with it is unwritten. Both need a field in
-   `disclosure/vocabulary.ts` and a producer that knows which keys the join
-   used — recorded in #532's commit, not skipped quietly.
+6. **Declared state exists, and inferred state says so — NOT MET.** Corrected
+   2026-09-17, from "partly met", on evidence rather than on reading.
+
+   **A hook firing reaches no lane.** `cli/hook.ts` writes `sessionId`,
+   `transcriptPath`, `cwd` and `pid`; `reduce.ts`'s `beaconReceived` joins by
+   the line's `lane` label and returns the state unchanged when it is null. The
+   hook cannot write a lane — it fires inside the agent's own process and does
+   not know what this instrument calls the lane — which is exactly what ruling
+   3's DECLARED join exists to solve, and that join was never built. Measured
+   end to end through the real `beaconLineFor`, the real `parseBeaconLine` and
+   the real `reduceAll`: `lane: null`, `state.declared: {}`.
+
+   So `hook` is admitted, ranked and obeyed by the fold (#529) — and nothing
+   emits a hook-sourced `agent.status` and nothing folds a hook beacon. The
+   vocabulary is real and inert.
+
+   **This is a fifth instance of the shape named under "what the plan got
+   wrong"**, and the most expensive: #529's tests assert the fold obeys the
+   ranks WHEN HANDED a hook-sourced event, which is a true statement about a
+   function nothing calls. An assertion that the input is well-formed standing
+   in for one that something reads it.
+
+   Owed as the declared join itself, not as a card's why line.
 
 7. **tmux is an enrichment — MET.** Absent and present both read `ok`; the whole
    doctor report is diffed between the two configurations and only the rig's own
@@ -771,6 +786,13 @@ a dependency.
   fire-and-forget versus run-to-completion, which no reading of either surfaced
   — the suite HANGING is what surfaced it. Ruling 8's launch half lands at its
   own fallback rather than its main clause.
+
+- **The third witness was built and never connected, and the closeout said
+  "partly met" until someone ran it.** Wave 1's amendment moved `hook` out of
+  that wave precisely because *"a third source literal with no emitter is a
+  literal whose precedence arm no test could exercise"* — and wave 3 built the
+  emitter's WRITER while nothing was taught to read what it writes. The
+  amendment's own reasoning was right and the wave it moved to did half of it.
 
 - **Retiring a flag broke three tests on Linux that Windows could not show.**
   One of them was the end-to-end wiring test for the flag itself — a known
