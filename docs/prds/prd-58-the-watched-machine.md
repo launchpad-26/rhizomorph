@@ -1,8 +1,10 @@
 # prd-58 — the watched machine: the instrument watches the operator, the client shows one repo
 
-> **Status:** proposed — drafted 2026-09-15, filed 2026-09-15 alongside prd-57. Awaiting the
-> operator's blessing. **Even once blessed, its waves are groomed only after prd-57's last wave
-> lands**, against the tree prd-57 actually produced rather than the one this document predicts.
+> **Status:** ACCEPTED — drafted 2026-09-15, filed 2026-09-15 alongside prd-57, blessed by the
+> operator 2026-09-17. prd-57's last wave landed as #579, so the gate this document set on its own
+> grooming is spent and waves 1–5 are groomed against the tree prd-57 actually produced. Two of
+> its debts came with it: **#597** (a `Notification` hook reaches no lane) and **#590** (a lab fork
+> starts its arms concurrently).
 > **Kind:** specifying.
 > **Milestone:** `prd58`, opened at filing so `prd-location-law` has a manifest row for this
 > document from its first commit (`.swarm/prd-milestones.txt`; coupling lines 171-173).
@@ -242,13 +244,96 @@ fleet list showing every colony including unrooted actors (ruling 6) · the roun
 Success assessed, what was measured versus reasoned, and an explicit statement of whether the
 one-colony composition still holds or whether the multi-colony PRD is now owed.
 
+## Wave 0 — the operator's rulings, 2026-09-17
+
+Recorded as an amendment rather than by editing the rulings above, which stand as filed.
+
+**The stream shape (ruling 3) — ONE stream, a colony tag per frame, the client filtering.**
+
+Ruled on a reading of `streamState.ts` rather than argued, as ruling 3 asks. The reading changes
+the size of the question: `foldStreamEvents` checks `opensNewSession` **inside** its loop and, on a
+boundary, resets `events`, `news`, `newsCount` and `session` wholesale (`:224-230`) — and
+`StreamContext.tsx` holds exactly one **live** `StreamState` (`:225`; the replay scrub composes its
+own through `replayStreamState`, which is a separate fold and not a second colony). So a recording
+rotation in one colony
+would wipe every other colony's state.
+
+**The client therefore holds one `StreamState` per colony under either transport.** That is forced
+by the fold, not by the stream, so the choice was only ever about connections — and one connection
+keeps one reconnect path, one backoff and one handshake, against N of each. The fan-in moves to the
+server, where the collectors already are.
+
+Two obligations this creates, both wave 1's:
+
+- `MAX_EVENTS` (75,000) and `MAX_NEWS` (256) become **per-colony** ceilings, so the raw window is
+  N times what it was. `MAX_EVENTS` was chosen against measured 46k–55k-event sessions; whether it
+  is still the right number per colony is a measurement, not an assumption.
+- The `opensNewSession` reset must scope to the colony whose frame carried the boundary. A reset
+  hoisted out of the per-colony map would be the same defect the comment at `:204-210` already
+  warns about, one level up.
+
+**The pinning act (wave 3) — there is no new act; a watched repo is one an agent is in.**
+
+Ruled the way the question itself suggests: *"watching an idle repo writes nothing at all, so it may
+need no hand."* It writes nothing because there is nothing to write — ruling 1 discovers a colony
+when an actor is placed in it, so a repo with no agent is a repo this design never learns about. A
+pin would create a colony that exists only in a preference file, with an empty fleet and a row in
+the selector that never changes. That is a thing to explain rather than a thing to use.
+
+**Stated precisely, because a draft of this overstated it** (caught in review of the PR that filed
+these rulings): *"a repo with no agent produces no facts for any collector"* is false. Point the git
+collector at any repo and it emits `worktree.discovered`, branches and dirty state, agent or no
+agent. The honest form is narrower and is a **policy** rather than a fact about the collectors:
+ruling 1 makes an actor the thing that constitutes a colony, so an agent-free repo yields nothing
+this PRD would call a colony's facts — not nothing at all.
+
+The case the operator actually has — *"I want something running in that repo"* — is already an act
+this instrument offers: the concierge clones and launches, and the colony appears the moment the
+agent does. So wave 3 builds **no pinning primitive**, and the selector's empty state says what to
+do instead.
+
+What ruling 1's "an operator may still pin one" keeps meaning: **pinning is ordering, not
+watching.** Starting inside a repo puts that colony first in the selector. That is a preference
+about presentation and it is all it is.
+
+*Overturnable in review.* If the operator wants a repo watched before anything runs in it, that is a
+different feature with a different cost — a colony with no actor needs a reason to exist in every
+selector, every count and every recording decision — and it should be its own issue rather than a
+clause inside wave 3.
+
+**The tray autostart default (wave 4) — OFF.**
+
+The house has ruled this shape before and in this direction: prd-44 #38 on retention, *"there is no
+default age, and that is the ruling"*, and ADR-0010 rejecting a silent default for adapter
+capabilities by name. An instrument that starts itself because it was installed is making a
+decision the operator did not make. Wave 4 ships the preference and the off position; turning it on
+is one click and an explicit one.
+
+## The groomed waves
+
+Filed 2026-09-17 against `prd58`, fence-linted clean wave by wave.
+
+| wave | issues |
+|---|---|
+| 1 — the fold takes a colony | #605 (colony identity), #606 (the frame carries it), #607 (one stream, N fold states) |
+| 2 — N recorders | #608 (N recorders), #609 (the measurement and the envelope — README claimant), #610 (doctor and the shipper) |
+| 3 — the selector, retarget narrowed | #611 (retarget), #612 (counts, the list, unrooted actors), #613 (README claimant) |
+| 4 — the shell and the version | #614 (apiVersion and the refusal), #615 (tray, autostart, badge — README claimant) |
+| 5 — words and closeout | #616 |
+
+**Inherited from prd-57**, because they are debts its closeout named rather than
+new work: **#597** (a `Notification` hook reaches no lane — the other half of
+prd-57's Success 6), **#590** (a lab fork starts its arms concurrently) and
+**#617** (a declined beacon is counted and named).
+
+One README claimant per wave, as `.swarm/coupling.txt` requires, and no two
+issues in a wave claim a common path.
+
 ## Open questions
 
-- **The stream shape** (ruling 3). Gates wave 1.
-- **Pinning a repo with nothing running** — a distinct act, and whose hand it is. The concierge
-  clones; watching an idle repo writes nothing at all, so it may need no hand.
+- ~~**The stream shape** (ruling 3).~~ **Ruled 2026-09-17** — see wave 0 above.
+- ~~**Pinning a repo with nothing running.**~~ **Ruled 2026-09-17** — no such act; see wave 0.
+- ~~**Tray autostart default.**~~ **Ruled 2026-09-17** — off; see wave 0.
 - **Watched-set ceiling** — a number from wave 2's measurement, and what the instrument does at it:
   refuse, or watch and say so.
-- **Tray autostart default** — off is the conservative read of no-silent-defaults; on is the product
-  read.
 - **Whether the selector remembers** across restarts, and where that preference lives.
