@@ -143,7 +143,16 @@ Every subcommand `rhizomorph` dispatches on (`packages/server/src/cli/index.ts`)
 
 This is a tool that reads your machine's own record of what your coding
 agents have been doing, so here is plainly what it does and doesn't do —
-not a footnote, the second thing in this file. There are **five** hands here,
+not a footnote, the second thing in this file.
+
+**It now reads that record for every repository your agents are working in**,
+not only the one you started it in. That widens what it READS and changes
+nothing about what it may WRITE: every fence below is per hand, and each one
+holds in every watched repository exactly as it held in one. The observer writes
+to none of them; the recorder writes only under its own data directory, one
+recording per repository under that repository's own slug; and nothing is
+watched because it was named — a repository enters only by an agent of yours
+working in it. There are **five** hands here,
 not one, each with its own reach and its own enforcing test — a single
 blanket "read-only, never" claim would be weaker than this, not stronger,
 because it would erase the hands that are allowed to write anything and
@@ -151,9 +160,10 @@ leave the rest looking like they need no fence at all.
 
 ### The observer — everything below, absolutely read-only
 
-Collectors, receiver, server and UI. This hand never writes to the repo
-you're watching, never sends a keystroke to an agent, never starts or stops
-one, and never merges or otherwise acts on what it shows you — enforced by
+Collectors, receiver, server and UI. This hand never writes to any repository
+it is watching — the one you started in or any it discovered — never sends a
+keystroke to an agent, never starts or stops one, and never merges or otherwise
+acts on what it shows you — enforced by
 this repo's own readonly law tests, not just stated: the lane drawer's
 [`packages/web/src/drawer/readonly.test.ts`](packages/web/src/drawer/readonly.test.ts)
 greps its own source for any HTTP verb but GET, any way to build a request
