@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { LADDER_ORDER, LADDER_WORD } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import { badgeFor, unreachableBadge } from './badge.js'
@@ -169,5 +171,38 @@ describe('the badge counts every colony (prd-58 ruling 5, #615)', () => {
     expect(badgeFor('broken').wantsAttention).toBe(true)
     expect(badgeFor('needs-you').wantsAttention).toBe(true)
     expect(badgeFor('calm').wantsAttention).toBe(false)
+  })
+})
+
+describe('the colony count has a CALLER (review of #621)', () => {
+  /**
+   * The review's finding, kept as a permanent case.
+   *
+   * `badgeFor` gained the parameter and `entry.ts` called it with one argument,
+   * so `needsYouAcrossColonies` was always `undefined` and `wantsAttention` was
+   * byte-for-byte what it had been. A capability with no caller — the shape
+   * prd-57's closeout names as its own most expensive defect, shipped three
+   * times in prd-58.
+   *
+   * A source law rather than an Electron boot: the whole defect is one call
+   * site, and reading it is exact where booting a tray is slow and flaky.
+   */
+  const ENTRY = path.join(import.meta.dirname, '..', 'main', 'entry.ts')
+  const NEWLINE = String.fromCharCode(10)
+
+  it('the shell passes the cross-colony count to badgeFor, not just a rank', () => {
+    const source = readFileSync(ENTRY, 'utf8')
+    const calls = source.split(NEWLINE).filter((line) => line.includes('badgeFor('))
+    expect(calls.length, 'entry.ts no longer calls badgeFor — this law has lost its subject').toBeGreaterThan(0)
+    // EVERY call site, not just one: a second that forgot the count would put
+    // the tray back to rank-only on whichever path reached it first.
+    for (const call of calls) expect(call).toContain('colonyNeedsYou')
+  })
+
+  it('the feed has somewhere to report it from', () => {
+    // The other half of the seam. A call site that reads a variable nothing
+    // ever assigns is the same defect wearing a different hat.
+    const source = readFileSync(ENTRY, 'utf8')
+    expect(source).toContain('onColonies:')
   })
 })

@@ -1,7 +1,9 @@
 import {
   type AdapterCapabilities,
   API_VERSION,
+  buildFleet,
   type Connection,
+  colonyAttention,
   deriveRung,
   honestCapabilities,
   mergeCapabilities,
@@ -256,6 +258,45 @@ function buildConnection(folded: SessionState): MetaConnection {
   return { ...selectConnection(folded), refusals: summarizeRefusals(folded.refusals) }
 }
 
+/**
+ * EVERY WATCHED COLONY'S ATTENTION — prd-58 ruling 5, and the surface it was
+ * missing.
+ *
+ * Ruling 5 makes ruling 1 safe: rendering one colony is only acceptable if not
+ * rendering the others hides nothing that needs you. `colonyAttention` counted
+ * it and `badgeFor` could show it, and **nothing carried it between them** —
+ * `/api/stream` subscribes to the pinned recorder alone, so no colony but the
+ * pinned one reached a client at all. Three capabilities with no caller, which
+ * is the shape prd-57's closeout names as its own most expensive defect, found
+ * in review of #621.
+ *
+ * Served here rather than from a new route, deliberately. `/api/meta` is
+ * already "what is this instrument", the shell already reads it, and a new
+ * route would move `route-class-law`'s three pinned numbers, six prose counts
+ * and ADR-0008's enumeration — the very things ruling 4 narrowed `retarget`
+ * rather than deleting it to avoid moving.
+ *
+ * Each colony's counts come from its OWN recorder's fold through the same
+ * `buildFleet` the dashboard uses, so a colony's row and its lanes cannot
+ * disagree.
+ */
+function buildColonyAttention(ctx: ServerContext, now: number): unknown[] {
+  const running = ctx.colonies?.()
+  if (running === undefined) return []
+  return running.map((entry) => {
+    const counts = colonyAttention(entry.colony.id, buildFleet(entry.recorder.foldSoFar(), { now }))
+    return {
+      id: entry.colony.id,
+      path: entry.colony.path,
+      pinned: entry.colony.pinned,
+      waiting: counts.waiting,
+      crashed: counts.crashed,
+      frozen: counts.frozen,
+      needsYou: counts.needsYou,
+    }
+  })
+}
+
 export function registerMetaRoute(app: FastifyInstance, ctx: ServerContext): void {
   app.get('/api/meta', { preHandler: requireCapabilityToken(ctx.capabilityToken ?? '') }, async () => {
     const bootMeta = bootMetaByRecorder.get(ctx.recorder) ?? fallbackBootMeta()
@@ -264,6 +305,11 @@ export function registerMetaRoute(app: FastifyInstance, ctx: ServerContext): voi
       // prd-58 ruling 8. First field on purpose: a client that cannot read the
       // rest of this object should still be able to find out why.
       apiVersion: API_VERSION,
+      // prd-58 ruling 5. Empty on a replay server and on any boot that has not
+      // discovered yet — the pinned colony is always in a live watched set, so
+      // an empty array means "this server does not report colonies", which the
+      // client reads as a gap rather than as a quiet machine.
+      colonies: buildColonyAttention(ctx, (ctx.now ?? Date.now)()),
       repoPath: ctx.repoPath,
       repoName: ctx.repoName,
       sessionId: ctx.recorder.sessionId,

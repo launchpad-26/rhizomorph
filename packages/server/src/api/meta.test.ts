@@ -484,7 +484,7 @@ describe('GET /api/meta', () => {
      * It caught this one on the first run, which is the law doing its job
      * rather than an obstacle to route around.
      */
-    it('law: every pre-existing meta field is byte-identical to before — `connection` and `apiVersion` are the only new keys', async () => {
+    it('law: every pre-existing meta field is byte-identical to before — `connection`, `apiVersion` and `colonies` are the only new keys', async () => {
       await setup()
       try {
         const recorder = new SessionRecorder('8000', sessionFilePath(sessionDir, '8000'))
@@ -514,6 +514,10 @@ describe('GET /api/meta', () => {
             'rung',
             'connection',
             'apiVersion',
+            // prd-58 ruling 5 (#612): every watched colony's attention, which
+            // had no carrier at all until review of #621 found three
+            // capabilities with no caller between them.
+            'colonies',
           ].sort(),
         )
         expect(body).toMatchObject({
@@ -897,6 +901,9 @@ function metaBodyFromRefold(recorder: SessionRecorder, repoPath: string, repoNam
       // than snapshotted, so this stays a comparison against the route's own
       // inputs rather than against a copy of its output.
       apiVersion: API_VERSION,
+      // A replay server and a bare recorder report none: `ctx.colonies` is
+      // absent, which is a gap rather than a quiet machine.
+      colonies: [],
       repoPath,
       repoName,
       sessionId: recorder.sessionId,

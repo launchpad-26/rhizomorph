@@ -44,6 +44,9 @@ describe('buildApp integration', () => {
     expect(response.json()).toEqual({
       // prd-58 ruling 8 (#614): the version the client compares on boot.
       apiVersion: API_VERSION,
+      // prd-58 ruling 5 (#612). Empty here because this app has no colony
+      // supervisor — a gap, not a machine with nothing on it.
+      colonies: [],
       repoPath: '/repo',
       repoName: 'repo',
       sessionId: '1000',
