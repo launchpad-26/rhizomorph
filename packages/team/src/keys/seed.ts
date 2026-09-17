@@ -42,6 +42,22 @@ import { isIngestKeyHash } from './hash.js'
  * that names no project, so the other order would be a second no-op pointer.
  * `deploy/doctor.ts` prints the same sequence for the same three states, so the
  * boot refusal and the doctor line no longer disagree (prd-51 rulings 12, 13).
+ * **That sentence is a law now** — `./agreement-law.test.ts` drives both surfaces
+ * and compares the commands each names. It was a claim in a comment with nothing
+ * holding it until #623.
+ *
+ * **AND NO REMEDY NAMES A `cd`, BECAUSE THE READER IS ALREADY THERE (#623).**
+ * All three used to put `cd packages/team/deploy &&` in front of the rotation.
+ * These sentences are read through `docker compose logs app`, and `compose.yml` exists
+ * at `packages/team/deploy/compose.yml` alone — Compose searches the cwd and its
+ * ANCESTORS, never its descendants, and this repo has no `docker compose -f` and
+ * no COMPOSE_FILE. So the only cwd from which these lines can be SEEN is the
+ * one from which `cd packages/team/deploy` exits 1, and `&&` would then
+ * short-circuit the rotation away. EXECUTED with Docker Compose v5.4.0:
+ * `docker compose config --services` answers "no configuration file provided" at
+ * the repo root and `postgres app caddy` one directory in. The `cd` was the same
+ * defect as the bare `init.sh` #598 removed — a pointer that reports something
+ * other than the fix — one level further in.
  *
  * No `process.env` here: this takes plain values, and `deploy/serve.ts` is where
  * the environment is read, beside the other three variables it already reads.
@@ -73,7 +89,7 @@ export async function seedProjectIngestKey(
       error:
         `no ${ENV_PROJECT} in the environment, so there is no project to scope an ingest key to. ` +
         `Remedy: set ${ENV_PROJECT} in packages/team/deploy/.env to this deployment's project id, then ` +
-        'cd packages/team/deploy && ./init.sh --rotate-ingest-key to mint a key scoped to it, then ' +
+        './init.sh --rotate-ingest-key to mint a key scoped to it, then ' +
         'docker compose up -d — NOT docker compose restart, which does not re-read .env.',
     }
   }
@@ -83,7 +99,7 @@ export async function seedProjectIngestKey(
       ok: false,
       error:
         `${ENV_INGEST_KEY_SHA256} is not a sha-256 digest (64 lowercase hex characters), so this server ` +
-        `has no key to seed for project ${JSON.stringify(projectId)}. Remedy: cd packages/team/deploy && ` +
+        `has no key to seed for project ${JSON.stringify(projectId)}. Remedy: ` +
         './init.sh --rotate-ingest-key, which mints a key, prints it once and rewrites only the ' +
         `${ENV_INGEST_KEY_SHA256} line of the .env this deployment already has, then docker compose up -d — ` +
         'NOT docker compose restart, which does not re-read .env.',
@@ -101,7 +117,7 @@ export async function seedProjectIngestKey(
       error:
         `that ingest key digest is already held for project ${JSON.stringify(existing.projectId)}, so it ` +
         `cannot also be seeded for ${JSON.stringify(projectId)}. A key is scoped to exactly one project ` +
-        '(prd-51 ruling 8). Remedy: cd packages/team/deploy && ./init.sh --rotate-ingest-key to mint a key ' +
+        '(prd-51 ruling 8). Remedy: ./init.sh --rotate-ingest-key to mint a key ' +
         'for this project, then docker compose up -d — NOT docker compose restart, which does not re-read .env.',
     }
   }

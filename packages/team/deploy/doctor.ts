@@ -414,8 +414,29 @@ async function checkIngestKey(storage: DoctorStorage, env: DoctorDeps['env']): P
   // shows exactly once. Following it took the live deployment down on
   // 2026-09-17. A remedy is printed at the moment an operator is already in
   // trouble, which is the worst place to keep a destructive recipe.
+  //
+  // AND IT IS RUN FROM WHERE THE READER IS ALREADY STANDING — no `cd` (#623).
+  //
+  // This string used to open `cd packages/team/deploy && ./init.sh …`. Measured, that `cd` could
+  // only ever fail. `compose.yml` exists at `packages/team/deploy/compose.yml` alone; Compose
+  // searches the cwd and its ANCESTORS, never its descendants; and there is no `docker compose -f`
+  // or COMPOSE_FILE anywhere in this repo. So `docker compose exec app … doctor.ts` — the
+  // runbook's one invocation of this script — resolves from `packages/team/deploy` and nowhere
+  // else, and from THERE `cd packages/team/deploy` exits 1 with "no such file or directory".
+  // `&&` short-circuits, so the rotation would never have run.
+  //
+  // EXECUTED, Docker Compose v5.4.0: `docker compose config --services` prints "no configuration
+  // file provided: not found" at the repo root, and `postgres app caddy` one directory in. The
+  // operator who can READ this line is already standing where it has to be run.
+  //
+  // COUNT THE RENDERINGS, NOT THE LITERALS. The agreement law compares SIX remedies — three shared
+  // states across two surfaces — but they come from FIVE literals, because this one serves two of
+  // the doctor's arms. It is printed by a third, the revoked-key arm below, which the law does not
+  // compare because the seed cannot reach that state. So the `cd` strip moved SEVEN renderings, not
+  // six. Same literal and correct either way; worth knowing before editing this string, since the
+  // arm the law does not watch changes with it.
   const reseed =
-    'Remedy: cd packages/team/deploy && ./init.sh --rotate-ingest-key (it mints a key and prints it once, ' +
+    'Remedy: ./init.sh --rotate-ingest-key (it mints a key and prints it once, ' +
     'rewriting only RZ_TEAM_INGEST_KEY_SHA256 — the Postgres password and the GitHub App values are untouched), ' +
     'then docker compose up -d — NOT docker compose restart, which does not re-read .env.'
 
@@ -423,6 +444,15 @@ async function checkIngestKey(storage: DoctorStorage, env: DoctorDeps['env']): P
     // Not `reseed`: rotation reads the project OUT OF `.env` and refuses when it
     // names none, so pointing at it from here would be a remedy that cannot run.
     // A wrong pointer to a real command is worse than no pointer.
+    //
+    // THIS ARM WAS THE ONLY ONE ALREADY RIGHT ABOUT THE `cd`, AND #623 NEARLY "FIXED" IT.
+    //
+    // It is the one remedy in this file written by hand rather than by reusing `reseed`, and it
+    // was alone among all six across this file and `seed.ts` in naming NO `cd`. #623's first pass
+    // read that as the defect and added one, which would have turned the single runnable remedy
+    // into an unrunnable one. The measurement is in `reseed`'s comment above; the other five moved
+    // to match THIS one instead. `../src/keys/agreement-law.test.ts` is what compares them, and it
+    // now also holds all six to naming no `cd` at all.
     return check(
       'ingest-key',
       'fail',
