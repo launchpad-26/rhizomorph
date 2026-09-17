@@ -107,7 +107,24 @@ function unionMembers(file: string, type: string): string[] {
  * Every string literal in a `const NAME … = [ … ]` array literal.
  *
  * Used for the lists that are not exported. Stops at the first `]`, wherever it
- * falls, and ignores comment text because the literals it collects are quoted.
+ * falls.
+ *
+ * **It does NOT count a commented-out member, and the sentence that used to sit
+ * here claimed the opposite outcome from the same premise**: *"ignores comment
+ * text because the literals it collects are quoted."* The literals in a comment
+ * are quoted too. So commenting out `'crashed',` in `PATHOLOGY_PRIORITY` left
+ * this parser returning the identical six members while the runtime array had
+ * five — and every check below kept its passing input. That is exactly the
+ * regression #587 was filed to catch, defeated by the law written to catch it.
+ * Found by a blind adversarial pass over #618 and reproduced against the real
+ * file before this was written.
+ *
+ * The scanner is STRING-AWARE rather than a comment-stripping regex, which is
+ * the other half of the same lesson: #595 is open on `doc-citation-law` for a
+ * stripper that has no string-literal awareness, so a `/*` bigram inside a
+ * string opens a phantom comment and the law judges a file against a mangled
+ * view of its own source. A parser that fixes one vacuity by introducing
+ * another is not a fix.
  *
  * It used to require the `]` at the START of a line — "which is how every array
  * in this tree is formatted", which is not true: `ALARM_RANKS` is one line, and
@@ -127,10 +144,54 @@ function unionMembers(file: string, type: string): string[] {
  * constant that acquires an `_ORDER`, `_LEGEND` or `_BY_KIND` sibling.
  */
 function arrayMembers(file: string, name: string): string[] {
-  const source = readFileSync(file, 'utf8')
+  return arrayMembersIn(readFileSync(file, 'utf8'), name)
+}
+
+/**
+ * The reading half, over a source STRING rather than a path — so the controls
+ * below can hand it a shape that does not exist in the tree. A control that can
+ * only use real files cannot test the case nothing has hit yet, which is the
+ * case a law is for.
+ */
+export function arrayMembersIn(source: string, name: string): string[] {
   const declaration = new RegExp(`const ${name}(?![A-Za-z0-9_$])[^=]*= \\[([^\\]]*)\\]`, 'm').exec(source)
   if (declaration === null) return []
-  return [...(declaration[1] ?? '').matchAll(/'([^']+)'/g)].map((match) => match[1] as string)
+  return quotedOutsideComments(declaration[1] ?? '')
+}
+
+/**
+ * Every single-quoted literal in `body` that is not inside a comment.
+ *
+ * One left-to-right pass with three states, because the three ways to get this
+ * wrong are all live in this repo: collect from inside a comment (the defect
+ * above), treat a `//` or `/*` inside a STRING as opening one (#595), or strip
+ * with a regex that cannot tell the two apart.
+ */
+function quotedOutsideComments(body: string): string[] {
+  const out: string[] = []
+  let i = 0
+  while (i < body.length) {
+    const two = body.slice(i, i + 2)
+    if (two === '//') {
+      const nl = body.indexOf('\n', i)
+      i = nl === -1 ? body.length : nl + 1
+      continue
+    }
+    if (two === '/*') {
+      const end = body.indexOf('*/', i + 2)
+      i = end === -1 ? body.length : end + 2
+      continue
+    }
+    if (body[i] === "'") {
+      const end = body.indexOf("'", i + 1)
+      if (end === -1) break // unterminated: collect nothing rather than guess
+      out.push(body.slice(i + 1, end))
+      i = end + 1
+      continue
+    }
+    i += 1
+  }
+  return out
 }
 
 /**
@@ -204,6 +265,33 @@ describe('union totality law: a list meant to be total over a closed union cover
     // something plausible — which is why a composed union names its parts in
     // the table instead of relying on the parser.
     expect(unionMembers(path.join(WEB_SRC, 'fleet', 'sigils.tsx'), 'SigilKind')).toEqual([])
+
+    /**
+     * CONTROL: a COMMENTED-OUT member is not a member.
+     *
+     * The blocking finding of #618's blind review, reproduced against the real
+     * `PATHOLOGY_PRIORITY` before it was fixed: the parser returned the same six
+     * members with `'crashed',` commented out, so this law passed while the
+     * runtime list was missing the kind it was written for.
+     *
+     * Fabricated rather than mutated in place, because the tree contains no such
+     * comment today and a control that waits for one is not a control.
+     */
+    const commented = [
+      "const FIXTURE_LIST: readonly string[] = [",
+      "  'alpha',",
+      "  // 'beta',",
+      "  /* 'gamma', */",
+      "  'delta', // not 'epsilon' either",
+      ']',
+    ].join('\n')
+    expect(arrayMembersIn(commented, 'FIXTURE_LIST')).toEqual(['alpha', 'delta'])
+
+    // CONTROL: and a `//` INSIDE a literal does not open a comment — the
+    // failure #595 is open on for `doc-citation-law`'s stripper. Fixing one
+    // vacuity by introducing another is not a fix.
+    const urlish = "const URL_LIST: readonly string[] = ['http://a', 'b/*c', 'd']"
+    expect(arrayMembersIn(urlish, 'URL_LIST')).toEqual(['http://a', 'b/*c', 'd'])
 
     // CONTROL: a name that is a PREFIX of another constant does not capture it.
     // `arrayMembers` used to read `const NAME[^=]*=`, and `[^=]*` swallows the
