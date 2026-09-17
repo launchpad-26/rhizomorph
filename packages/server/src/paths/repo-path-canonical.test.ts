@@ -5,10 +5,10 @@ import path from 'node:path'
 import type { AgentProcess } from '@rhizomorph/core'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { repoSlug } from '../log/paths.js'
-import { canonicalize, canonicalizeRepoPath } from './containment.js'
-import { createRepoRootResolver } from './repo-root.js'
 import { createColonyDiscovery } from '../server/colonies.js'
 import { exec as realExec } from '../server/exec.js'
+import { canonicalize, canonicalizeRepoPath } from './containment.js'
+import { createRepoRootResolver } from './repo-root.js'
 
 /**
  * THE PIN IS CANONICAL — prd-58 ruling 1's identity, and the review finding
