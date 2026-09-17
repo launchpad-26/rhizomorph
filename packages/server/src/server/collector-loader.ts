@@ -1,6 +1,6 @@
 import type { AnyCollector, Collector, RhizomorphEvent } from '@rhizomorph/core'
 import { reduceAll } from '@rhizomorph/core'
-import { createBeaconCollector } from '../collectors/beacon/index.js'
+import { type BeaconCollectorConfig, createBeaconCollector } from '../collectors/beacon/index.js'
 import { gitCollector } from '../collectors/git/index.js'
 import { createJudgeCollector, DEFAULT_JUDGE_CADENCE_MS } from '../collectors/judge/index.js'
 import { createPiCollector, type PiCollectorConfig } from '../collectors/pi/index.js'
@@ -70,6 +70,7 @@ export async function loadCollectors(
   priorEvents: readonly RhizomorphEvent[] = [],
   sessionlogConfig: SessionlogCollectorConfig = {},
   piConfig: PiCollectorConfig = {},
+  beaconConfig: BeaconCollectorConfig = {},
 ): Promise<AnyCollector[]> {
   const folded = reduceAll(priorEvents)
   function wrap<S extends DisableableSnapshot>(collector: Collector<S>): AnyCollector {
@@ -128,7 +129,7 @@ export async function loadCollectors(
     wrap(createJudgeCollector({ cadenceMs: judgeCadenceMs() })),
     wrap(createSessionlogCollector(sessionlogConfig)),
     wrap(createPiCollector(piConfig)),
-    wrap(createBeaconCollector()),
+    wrap(createBeaconCollector(beaconConfig)),
     // prd-57 ruling 1, licensed by ADR-0052. Registered here by STATIC
     // import like every sibling — a variable dynamic specifier cannot be
     // bundled, which is what this file's own comment records. Its reader

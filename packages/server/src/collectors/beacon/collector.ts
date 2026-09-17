@@ -20,6 +20,21 @@ export const BEACON_COLLECTOR_NAME = 'beacon'
 export interface BeaconCollectorConfig {
   /** Where `<repoSlug>/beacons/` lives; defaults to the instrument's data root at each tick, exactly as the pi collector defaults its own. Tests point it at a temp dir. */
   dataRoot?: string
+  /**
+   * Every worktree of the watched repo, for the shared door's routing rule.
+   *
+   * A hook fires where the agent is, and an agent works in a LANE — a linked
+   * worktree, which `git worktree add` normally puts outside the repo
+   * directory. Containment in `repoPath` alone therefore drops every hook line
+   * from every lane, which is what an end-to-end test over a real worktree
+   * found.
+   *
+   * A function, because worktrees appear and vanish while the server runs and a
+   * boot-time list would route by the machine as it was at start-up. Omitted,
+   * routing is exactly what it was — containment in the repo and nothing else —
+   * so no existing caller changes behaviour.
+   */
+  worktreePaths?: () => readonly string[]
 }
 
 /**
@@ -246,7 +261,7 @@ export function createBeaconCollector(config: BeaconCollectorConfig = {}): Colle
              * ever written by the existing hooks, which is not a rule change
              * but a regression wearing one.
              */
-            if (shared && !beaconLineBelongsTo(context.repoPath, parsed.payload.cwd)) continue
+            if (shared && !beaconLineBelongsTo(context.repoPath, parsed.payload.cwd, config.worktreePaths?.())) continue
             events.push(
               context.emit(
                 'beacon.received',

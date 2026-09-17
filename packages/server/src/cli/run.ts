@@ -110,11 +110,16 @@ export async function runServerCommand(
 
   const collectors =
     options.collectors ??
-    (await loadCollectors(log, resumed?.events, {
-      claudeProjectsRoot: options.claudeProjectsRoot,
-      home: options.home,
-      backfill: args.backfill,
-    }))
+    (await loadCollectors(
+      log,
+      resumed?.events,
+      { claudeProjectsRoot: options.claudeProjectsRoot, home: options.home, backfill: args.backfill },
+      {},
+      // The pinned colony needs this as much as a discovered one: its lanes are
+      // linked worktrees too, and until now every hook line from every lane was
+      // being dropped by the shared door's containment check.
+      { worktreePaths: () => Object.keys(recorder.foldSoFar().worktrees) },
+    ))
   const pollLoop = createPollLoop({
     repoPath,
     collectors,
@@ -160,11 +165,16 @@ export async function runServerCommand(
       // One collector SET per colony, not one shared: a collector holds its own
       // snapshots, and two repos sharing one would make each look like the
       // other's discoveries had already happened.
-      const colonyCollectors = await loadCollectors(log, undefined, {
-        claudeProjectsRoot: options.claudeProjectsRoot,
-        home: options.home,
-        backfill: false,
-      })
+      const colonyCollectors = await loadCollectors(
+        log,
+        undefined,
+        { claudeProjectsRoot: options.claudeProjectsRoot, home: options.home, backfill: false },
+        {},
+        // The shared beacon door is routed by where a hook fired, and an agent
+        // fires from a LANE — a linked worktree, which git normally puts outside
+        // the repo directory. Containment in the repo alone drops every one.
+        { worktreePaths: () => Object.keys(colonyRecorder.foldSoFar().worktrees) },
+      )
       const loop = createPollLoop({
         repoPath: colony.path,
         collectors: colonyCollectors,

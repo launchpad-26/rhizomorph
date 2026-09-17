@@ -152,11 +152,17 @@ describe('prd-57 + prd-58 end to end, on real repositories', () => {
     // 3. prd-57's routing rule admits it for BETA and refuses it for ALPHA.
     //    This is the seam: one shared door, two colonies, and the line belongs
     //    to exactly one of them.
-    expect(beaconLineBelongsTo(beta, parsed.payload.cwd)).toBe(true)
-    expect(beaconLineBelongsTo(alpha, parsed.payload.cwd)).toBe(false)
+    // Containment in the repo ALONE says no, because `git worktree add` put the
+    // lane outside beta's directory. That is the defect this test found: every
+    // hook line from every lane was dropped by it.
+    expect(beaconLineBelongsTo(beta, parsed.payload.cwd)).toBe(false)
+    // With beta's own worktrees — the fact the instrument already holds — it
+    // belongs to beta, and still not to alpha.
+    expect(beaconLineBelongsTo(beta, parsed.payload.cwd, [betaWt])).toBe(true)
+    expect(beaconLineBelongsTo(alpha, parsed.payload.cwd, [alphaWt])).toBe(false)
 
     // 4. prd-57's real collector, ticked over beta's own door.
-    const collector = createBeaconCollector({ dataRoot })
+    const collector = createBeaconCollector({ dataRoot, worktreePaths: () => [betaWt] })
     let next = 0
     const result = await collector.poll(
       collector.initialSnapshot(),

@@ -73,15 +73,44 @@ export function installationBeaconDir(dataRoot: string = defaultDataRoot()): str
  * would be the fold ADR-0036 refuses. Such a line stays in the file and is
  * attributed to nobody, which is what ruling 6 asks for.
  *
- * Containment rather than equality, because an agent runs in a worktree or a
- * subdirectory far more often than at the repo root — and through `isInside`,
- * which canonicalises both sides, because a repo reached through a symlink is
- * the standing macOS case (#217).
+ * Containment rather than equality, because an agent runs in a subdirectory far
+ * more often than at the repo root — and through `isInside`, which canonicalises
+ * both sides, because a repo reached through a symlink is the standing macOS
+ * case (#217).
+ *
+ * **Containment in `repoPath` is NOT enough for a linked worktree**, which this
+ * comment used to claim it covered. `git worktree add` puts the tree wherever
+ * it is told and the normal answer is OUTSIDE the repo directory — this
+ * repository's own lab worktrees live under
+ * `~/.local/share/rhizomorph/lab/worktrees/`, and its lanes are siblings of the
+ * checkout. So a hook firing in a lane writes a `cwd` that is not inside
+ * `repoPath`, and containment alone dropped **every one of them**.
+ *
+ * Found end to end rather than by reading. prd-57's own end-to-end test put the
+ * worktree INSIDE the repo — a fixture chosen, by me, so that `isInside` would
+ * pass — and the defect sat under it through a green suite. The first test to
+ * lay a worktree out the way `git` actually does found it immediately.
+ *
+ * So `worktreePaths` joins the question, and they come from the instrument's
+ * own fold: the git collector emits `worktree.discovered` for every worktree of
+ * the watched repo. That asks something the server has already answered instead
+ * of spawning `git` inside a collector whose own tests assert it never execs —
+ * a law worth keeping, and the reason the first fix for this was wrong.
  */
-export function beaconLineBelongsTo(repoPath: string, cwd: string | undefined): boolean {
+export function beaconLineBelongsTo(
+  repoPath: string,
+  cwd: string | undefined,
+  worktreePaths: readonly string[] = [],
+): boolean {
   if (cwd === undefined || cwd.length === 0) return false
   try {
-    return isInside(repoPath, cwd)
+    if (isInside(repoPath, cwd)) return true
+    // A linked worktree of this repo counts, and containment in `repoPath`
+    // cannot see one. The paths come from the instrument's own fold — the git
+    // collector emits `worktree.discovered` for every worktree of the watched
+    // repo — so this asks a question the server has already answered rather
+    // than spawning `git` inside a collector whose own tests forbid it.
+    return worktreePaths.some((worktree) => isInside(worktree, cwd))
   } catch {
     // A cwd that cannot be canonicalised (ELOOP, EACCES, a path that no longer
     // exists) is a placement this cannot state. Refused, never guessed — the
