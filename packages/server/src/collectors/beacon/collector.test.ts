@@ -594,6 +594,7 @@ describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
     const declared: DeclaredAttention = {
       kind: 'waiting',
       at: 1_000,
+      joinedBy: 'lane',
       writer: 'claude-hook',
       digest: 'a'.repeat(64),
       file: 'claude-hook.jsonl',

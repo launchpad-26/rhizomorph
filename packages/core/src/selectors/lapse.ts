@@ -45,12 +45,6 @@ export type AttentionReading =
   | { kind: 'lapsed'; declared: DeclaredAttention; lapsedForMs: number }
 
 /**
- * prd-27 ruling 3's three readings for one lane. "Configured" is the only
- * fact the fold can know without a new slice: some lane in this session has
- * been declared for. A beacon directory holding only foreign kinds reads as
- * never-declared here — known limit, stated in the design note.
- */
-/**
  * THE DECLARED JOIN, RESOLVED — the one place `state.declared` becomes a lane's
  * declaration, and the reason it is a function rather than two lookups.
  *
@@ -80,12 +74,25 @@ export function resolveDeclared(
   worktreePath: string | null,
 ): DeclaredAttention | undefined {
   const byLane = declared[laneId]
+  // `worktreePath === laneId` changes no answer — both lookups would return the
+  // same record and the comparison below is reflexive — but a lane whose id IS
+  // its path is a real shape in this tree, and reading it as "two keys" would
+  // send the next reader hunting for a collision that cannot happen.
   const byPlacement = worktreePath === null || worktreePath === laneId ? undefined : declared[worktreePath]
   if (byLane === undefined) return byPlacement
   if (byPlacement === undefined) return byLane
+  // Strictly newer, so an exact tie yields to the lane id. A tie means one
+  // writer named the lane and another was placed into it within the same
+  // millisecond; the named one is the one that knew where it was.
   return byPlacement.at > byLane.at ? byPlacement : byLane
 }
 
+/**
+ * prd-27 ruling 3's three readings for one lane. "Configured" is the only fact
+ * the fold can know without a new slice: some lane in this session has been
+ * declared for. A beacon directory holding only foreign kinds reads as
+ * never-declared here — known limit, stated in the design note.
+ */
 export function attentionReading(
   declared: Readonly<Record<string, DeclaredAttention>>,
   laneId: string,

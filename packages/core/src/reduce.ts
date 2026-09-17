@@ -591,7 +591,7 @@ function beaconReceived(state: SessionState, event: EventOf<'beacon.received'>):
  * The actor this pid belongs to, and the worktree it was placed in.
  *
  * **A pid is not an identity, and this function's first draft pretended it
- * was.** Fifty lines up, {@link actorKey} says so in as many words — *"an
+ * was.** {@link actorKey}, in this file, says so in as many words — *"an
  * actor's identity is the RUN, not the pid … it would be careless to un-refuse
  * it one layer up"* — and the first draft of this returned the first actor
  * whose number matched. That is not a theoretical hole: `processGone` KEEPS a
@@ -602,29 +602,47 @@ function beaconReceived(state: SessionState, event: EventOf<'beacon.received'>):
  * landed its declaration on the dead run's worktree, deterministically. Found
  * in adversarial review, before this branch merged.
  *
- * So the run is resolved rather than the number, in this order, and each step
- * is a FACT rather than a preference:
+ * So the run is resolved rather than the number. **The line's own `cwd` decides
+ * it in BOTH directions when it is present** — `actor.worktreePath` IS the
+ * actor's canonical cwd, and the hook writes the same process's cwd, so the
+ * ordinary case is an exact string match; and a `cwd` matching nothing means
+ * every actor answering to this number contradicts the firing process's own
+ * account of where it was, which is a decline rather than a tie to break.
  *
- * 1. The line's own `cwd`, when it equals a canonical `worktreePath` exactly.
- * 2. A live actor over a dead one — and a `recycled` one is never preferred,
- *    because `recycled` is the collector's word for *this number came back*.
- * 3. Survivors that agree about the worktree, since then the ambiguity never
- *    reaches the answer.
+ * That second half was the second review's finding, and it is the one that
+ * matters: a run which exited and had its number recycled minutes later carries
+ * `goneReason: 'absent'`, not `'recycled'` — the collector says `'recycled'`
+ * only when the pid is live in the same tick. So a lone dead actor in the wrong
+ * worktree survived every filter of the first fix and was returned, which is a
+ * false summons on a lane nobody is in.
  *
- * And when runs still disagree, **DECLINE**. The newest `startedAt` would be a
- * plausible guess, and a guess on this exact question is what the join exists
- * to avoid (ADR-0010).
+ * With no `cwd` the witness is all there is: a live run over a dead one, and a
+ * `recycled` run never, because `recycled` is the collector's word for *this
+ * number came back*. There is no final fallback that re-admits it.
+ *
+ * And when runs still disagree about the worktree, **DECLINE**. The newest
+ * `startedAt` would be a plausible guess, and a guess on this exact question is
+ * what the join exists to avoid (ADR-0010).
  *
  * `null` for every case that is not a match, and they are different facts worth
  * keeping apart in a reader's head even though they collapse to one answer
  * here: no pid on the line, no actor with that pid, no actor with a worktree
- * the witness could resolve, or two runs that cannot be told apart. Each is a
- * gap; none is a lane.
+ * the witness could resolve, a `cwd` no actor sits at, or two runs that cannot
+ * be told apart. Each is a gap; none is a lane.
  *
  * A GONE actor still counts, when it is the only run. The hook fired while the
  * process was alive — that is the only time a hook can fire — and a
  * `process.gone` arriving first on a busy tick must not lose the word the agent
  * said before it died.
+ *
+ * **The key this returns is only as good as ruling 1's own placement**, and
+ * that is a limit worth stating rather than discovering. `placementOf` sets
+ * `worktreePath` to the actor's canonical **cwd**, not to the worktree root, so
+ * an agent sitting in a subdirectory produces a key `buildFleet` matches to no
+ * lane — exactly as ruling 1's own `lane.actors` bucket already fails to match
+ * it. This join inherits that limit; it does not introduce it, and it cannot
+ * fix it here, because narrowing a cwd to its worktree root is a containment
+ * question and containment needs `node:fs` (ADR-0003).
  *
  * **Two agents in ONE worktree share one key**, and that is the lane's shape
  * rather than a collision: a lane holds one declared attention, and the fold's
@@ -655,25 +673,61 @@ function placeByPid(
   // so no `node:fs`, so ADR-0003 holds. When the agent's cwd is a SUBdirectory
   // of the worktree this simply does not match, which is why it is a
   // discriminator and never a requirement.
-  const exact = cwd === undefined ? [] : placed.filter((actor) => actor.worktreePath === cwd)
+  // THE LINE'S OWN `cwd` IS DECISIVE WHEN IT IS PRESENT, in both directions.
+  //
+  // `actor.worktreePath` IS the actor's canonical cwd (`placementOf` in the
+  // process collector), and the hook writes the same process's cwd, so in the
+  // ordinary case these are the same string and the match is exact — plain
+  // equality, no containment test, so no `node:fs` and ADR-0003 holds.
+  //
+  // And when it matches NOTHING, that is not a tie to break: every actor
+  // answering to this number contradicts the firing process's own account of
+  // where it was. DECLINE. The second review of this function found the first
+  // draft doing the opposite — a run that exited and had its number recycled
+  // minutes later is `goneReason: 'absent'` (the collector only says
+  // `'recycled'` when the pid is live in the SAME tick), so a single dead
+  // actor in the wrong worktree survived every filter and was returned. A false
+  // summons on a lane nobody is working in, which is worse than none.
+  //
+  // The cost is real and is the right way round: a repo reached through a
+  // symlink canonicalises to a different string than the hook wrote (#217's
+  // standing macOS case), and that now declines instead of guessing.
+  if (cwd !== undefined) {
+    const exact = placed.filter((actor) => actor.worktreePath === cwd)
+    if (exact.length === 0) return null
+    // Live over dead even here: two runs at one path is a restart, and the
+    // living one is the one that just fired.
+    return onePath(exact.filter((actor) => actor.goneAt === null)) ?? onePath(exact)
+  }
 
+  // No `cwd` on the line. Only the witness can tell the runs apart now.
+  //
   // A recycled pid is, by the collector's own definition, the OLD run of a
-  // number that came back (`goneReason: 'recycled'`, set when the pid is still
-  // live under a different `startedAt`). It is never the process that just
-  // fired a hook.
+  // number that came back — `goneReason: 'recycled'` is set when the pid is
+  // live under a different `startedAt`. It is never the process that just fired
+  // a hook, so it is not a weaker candidate, it is a WRONG one: there is no
+  // final fallback that re-admits it.
   const live = placed.filter((actor) => actor.goneAt === null)
-  const notRecycled = placed.filter((actor) => actor.goneReason !== 'recycled')
+  if (live.length > 0) return onePath(live)
 
-  const candidates =
-    exact.length > 0 ? exact : live.length > 0 ? live : notRecycled.length > 0 ? notRecycled : placed
+  // All dead. A gone actor still counts — the hook fires only from a live
+  // process, and a `process.gone` arriving first on a busy tick must not lose
+  // the word the agent said before it died.
+  return onePath(placed.filter((actor) => actor.goneReason !== 'recycled'))
+}
 
-  // One answer, however many runs produced it: if every survivor agrees about
-  // the worktree, the ambiguity never reaches the answer, so there is none.
-  // Otherwise DECLINE — the newest `startedAt` would be a plausible guess, and
-  // a guess on this exact question is what the join was built to avoid.
-  // ADR-0010: a gap declared beats a lane invented.
-  const paths = new Set(candidates.map((actor) => actor.worktreePath))
-  const only = paths.size === 1 ? [...paths][0] : undefined
+/**
+ * The one worktree these actors agree on, or `null`.
+ *
+ * If every candidate names the same path the ambiguity never reaches the
+ * answer, so there is none. If they disagree, DECLINE: the newest `startedAt`
+ * would be a plausible guess, and a guess on this exact question is what the
+ * join was built to avoid. ADR-0010 — a gap declared beats a lane invented.
+ */
+function onePath(actors: readonly { worktreePath: string }[]): { key: string; joinedBy: 'pid' } | null {
+  const paths = new Set(actors.map((actor) => actor.worktreePath))
+  if (paths.size !== 1) return null
+  const [only] = [...paths]
   return only === undefined ? null : { key: only, joinedBy: 'pid' }
 }
 

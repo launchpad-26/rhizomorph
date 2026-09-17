@@ -362,13 +362,7 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
               kind: declaredRecord.kind,
               at: declaredRecord.at,
               writer: declaredRecord.writer,
-              // Defaulted on READ, never written as undefined. Not for old
-              // recordings — those refold through today's `beaconReceived`,
-              // which always writes a join — but for a fleet payload built by
-              // a server that predates the field. Every beacon such a server
-              // folded named its own lane, so `'lane'` is the truth and not a
-              // placeholder. See `DeclaredAttention.joinedBy`.
-              joinedBy: declaredRecord.joinedBy ?? 'lane',
+              joinedBy: declaredRecord.joinedBy,
             },
       activity: 'unknown',
       // prd-57 ruling 1. Placement is compared, never normalised: the collector

@@ -748,17 +748,23 @@ lane did not perform — it is never a synonym for met.
    > two clauses. The amendment answers the second. **The first is still true
    > today**: *"nothing emits a hook-sourced `agent.status`"*.
    >
-   > `cli/hook.ts` writes five words. `BEACON_ATTENTION_KINDS` holds three of
-   > them, so `PostToolUse`, `Stop` and `SessionEnd` now reach the fold — and
+   > `cli/hook.ts` maps five hook events to four distinct words, and
+   > `BEACON_ATTENTION_KINDS` holds **two** of them — so `PostToolUse`, `Stop`
+   > and `SessionEnd` now reach the fold as `working` or `stopped`, and
    > `PreToolUse`'s `tool-running` and **`Notification`'s `waiting-permission`
    > reach nothing at all.** Those two belong to the `agent.status` vocabulary,
    > `AGENT_STATUS_SOURCES` has named `'hook'` as its third source since #529,
    > and the only two emitters are `sessionlog` and `workmux`.
    >
    > So the most valuable hook of the five — the harness saying it has stopped
-   > for a human — is written correctly, parsed correctly, joined to its lane
-   > correctly, and discarded. And the `waiting` this criterion reads on is a
-   > word **the hook never writes**. Ruling 5's precedence arms remain what this
+   > for a human — is written correctly, parsed correctly, and then **discarded
+   > before the join is reached**: `beaconReceived` runs `isAttentionKind`
+   > before `placeByPid`, so that line is never joined to anything. (An earlier
+   > draft of this amendment said "joined to its lane correctly, and discarded",
+   > which overstated what landed; corrected in review.)
+   >
+   > And the `waiting` this criterion reads on is the third declared word — one
+   > **the hook never writes**. Ruling 5's precedence arms remain what this
    > closeout already called them: a true statement about a function nothing
    > calls.
    >

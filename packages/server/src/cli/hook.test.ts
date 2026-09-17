@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { BEACON_ATTENTION_KINDS, buildFleet, createEvent, reduceAll } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { parseBeaconLine } from '../collectors/beacon/parse-beacon-line.js'
-import { installationBeaconDir } from '../collectors/beacon/paths.js'
+import { beaconLineBelongsTo, installationBeaconDir } from '../collectors/beacon/paths.js'
+import { canonicalize } from '../paths/containment.js'
 import { beaconLineFor, DECLARED_KEYS, MESSAGE_MAX, readStdin, runHookCommand } from './hook.js'
 
 /**
@@ -56,8 +57,28 @@ const doorFile = () => path.join(installationBeaconDir(root), 'claude-hook.jsonl
  * and this reddens where the shape assertions do not.
  */
 describe('the line reaches a lane — writer, parser, fold and fleet, end to end (#589)', () => {
-  const WT = '/repo-wt/2-core'
   const AT = Date.UTC(2026, 8, 17, 12, 0, 0)
+
+  /**
+   * REAL directories, because the routing rule below canonicalises both sides
+   * through `node:fs` and a string literal would make it unanswerable — and
+   * because the worktree has to be genuinely INSIDE the repo for the rule to
+   * admit the line. The first version of this test used `/repo` and
+   * `/repo-wt/2-core`, siblings, which `isInside` rejects: it proved the chain
+   * on a fixture the chain drops. Caught in the second review.
+   */
+  let repoPath: string
+  let wt: string
+
+  beforeEach(async () => {
+    repoPath = canonicalize(await mkdtemp(path.join(tmpdir(), 'rhizo-e2e-')))
+    wt = path.join(repoPath, 'wt', '2-core')
+    await mkdir(wt, { recursive: true })
+  })
+
+  afterEach(async () => {
+    await rm(repoPath, { recursive: true, force: true })
+  })
 
   let evtId = 0
   function evt(type: Parameters<typeof createEvent>[0], payload: never, ts: number) {
@@ -68,7 +89,7 @@ describe('the line reaches a lane — writer, parser, fold and fleet, end to end
   it("a hook firing in a placed actor becomes that lane's declared attention", async () => {
     // 1. THE WRITER. The real runner, the real door, no lane anywhere in sight.
     expect(
-      await runHookCommand(JSON.stringify({ ...FIRING, hook_event_name: 'Stop', cwd: WT }), {
+      await runHookCommand(JSON.stringify({ ...FIRING, hook_event_name: 'Stop', cwd: wt }), {
         dataRoot: root,
         parentPid: 4321,
         now: () => AT,
@@ -85,16 +106,22 @@ describe('the line reaches a lane — writer, parser, fold and fleet, end to end
     expect(parsed.payload.lane).toBeNull()
     expect(parsed.payload.pid).toBe(4321)
 
-    // 3. THE FOLD, through the collector's envelope — the three fields it adds
+    // 3. THE ROUTING RULE, which is not the tailing loop and is the gate that
+    // decides whether a hook line reaches any session at all. `rhizomorph hook`
+    // writes to the SHARED installation door, so every line it writes is routed
+    // by this (ADR-0055). Run for real.
+    expect(beaconLineBelongsTo(repoPath, parsed.payload.cwd)).toBe(true)
+
+    // 4. THE FOLD, through the collector's envelope — the three fields it adds
     // around the parsed payload, spelled as `collectors/beacon/collector.ts`
     // spells them.
     const log = [
-      evt('session.started', { sessionId: 's1', repoPath: '/repo', repoName: 'repo' } as never, AT - 900_000),
-      evt('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true } as never, AT - 900_000),
-      evt('worktree.discovered', { path: WT, branch: '2-core', head: 'sha-2', isMain: false } as never, AT - 900_000),
+      evt('session.started', { sessionId: 's1', repoPath, repoName: 'repo' } as never, AT - 900_000),
+      evt('worktree.discovered', { path: repoPath, branch: 'main', head: 'sha-0', isMain: true } as never, AT - 900_000),
+      evt('worktree.discovered', { path: wt, branch: '2-core', head: 'sha-2', isMain: false } as never, AT - 900_000),
       evt(
         'process.seen',
-        { pid: 4321, dialect: 'claude', startedAt: AT - 300_000, worktreePath: WT, placement: 'rooted', parentPid: null } as never,
+        { pid: 4321, dialect: 'claude', startedAt: AT - 300_000, worktreePath: wt, placement: 'rooted', parentPid: null } as never,
         AT - 300_000,
       ),
       evt(
@@ -109,7 +136,7 @@ describe('the line reaches a lane — writer, parser, fold and fleet, end to end
       ),
     ]
 
-    // 4. THE FLEET. The lane the operator actually looks at.
+    // 5. THE FLEET. The lane the operator actually looks at.
     const fleet = buildFleet(reduceAll(log), { now: AT + 40_000 })
     const lane = fleet.lanes.find((candidate) => candidate.id === '2-core')
     expect(lane?.declared).toMatchObject({ kind: 'working', joinedBy: 'pid', writer: 'claude-hook' })
@@ -119,26 +146,44 @@ describe('the line reaches a lane — writer, parser, fold and fleet, end to end
    * AND THE GAP THIS TEST FOUND, pinned so it cannot be closed silently or
    * forgotten quietly — #597.
    *
-   * `KIND_BY_EVENT` writes five words and only three of them are declared
-   * attention. `BEACON_ATTENTION_KINDS` is `waiting | working | stopped`, so
-   * `PostToolUse`, `Stop` and `SessionEnd` reach the fold — and `PreToolUse`'s
-   * `tool-running` and **`Notification`'s `waiting-permission` reach nothing at
-   * all.** Those two belong to the `agent.status` vocabulary
-   * (`events/workmux.ts`), `AGENT_STATUS_SOURCES` has listed `'hook'` as its
-   * third source since #529, and **no emitter anywhere produces one.**
+   * `KIND_BY_EVENT` maps five events to four distinct words, and
+   * `BEACON_ATTENTION_KINDS` (`waiting | working | stopped`) holds **two** of
+   * them. So `PostToolUse`, `Stop` and `SessionEnd` reach the fold as `working`
+   * or `stopped` — and `PreToolUse`'s `tool-running` and **`Notification`'s
+   * `waiting-permission` reach nothing at all.** Those two belong to the
+   * `agent.status` vocabulary (`events/workmux.ts`), `AGENT_STATUS_SOURCES` has
+   * listed `'hook'` as its third source since #529, and **no emitter anywhere
+   * produces one.**
+   *
+   * The third declared word, `waiting`, the hook never writes at all.
    *
    * So the single most valuable hook — `Notification`, the harness saying it
-   * has stopped for a human — is written correctly, parsed correctly, joined
-   * correctly, and then discarded. The join was necessary and is not
-   * sufficient.
+   * has stopped for a human — is written correctly, parsed correctly, and then
+   * **discarded before the join is even reached**: `beaconReceived` runs
+   * `isAttentionKind` BEFORE `placeByPid`, so this line is never joined to
+   * anything. The join was necessary and is not sufficient.
    *
-   * This test asserts the CURRENT behaviour, deliberately. It is the declared
-   * gap (ADR-0010), and when #597 lands it reddens — which is the point: the
-   * thing that made this defect survive three waves was that nothing reddened.
+   * This test asserts the CURRENT behaviour, deliberately, and it asserts it at
+   * the level the OPERATOR sees rather than at the fold's.
+   *
+   * The first version of it pinned `state.declared` and `lane.declared`, and
+   * promised in three places that it would redden when #597 landed. **It would
+   * not have.** If #597 is fixed the way this repo's own vocabulary says — a
+   * hook beacon of these kinds emitting an `agent.status` signed `'hook'`,
+   * which is what `AGENT_STATUS_SOURCES` has been waiting for since #529 — then
+   * `declared` stays `{}` and `declared` stays `null` and the test stays green
+   * through the fix. Only the OTHER possible fix, widening
+   * `BEACON_ATTENTION_KINDS`, would have reddened it, and prd-57 argues that is
+   * the wrong home for those words.
+   *
+   * Asserting broken behaviour is defensible. Asserting it under a false
+   * promise about when it breaks is the same defect as the one being pinned,
+   * so the assertion is now the lane's ACTIVITY — which reddens under either
+   * route, because either route ends with this lane reading `waiting`.
    */
   it('GAP (#597): a Notification firing reaches no lane — the hook writes a word no fold reads', async () => {
     expect(
-      await runHookCommand(JSON.stringify({ ...FIRING, hook_event_name: 'Notification', cwd: WT }), {
+      await runHookCommand(JSON.stringify({ ...FIRING, hook_event_name: 'Notification', cwd: wt }), {
         dataRoot: root,
         parentPid: 4321,
         now: () => AT,
@@ -156,12 +201,12 @@ describe('the line reaches a lane — writer, parser, fold and fleet, end to end
     expect([...BEACON_ATTENTION_KINDS]).not.toContain(parsed.payload.kind)
 
     const log = [
-      evt('session.started', { sessionId: 's2', repoPath: '/repo', repoName: 'repo' } as never, AT - 900_000),
-      evt('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true } as never, AT - 900_000),
-      evt('worktree.discovered', { path: WT, branch: '2-core', head: 'sha-2', isMain: false } as never, AT - 900_000),
+      evt('session.started', { sessionId: 's2', repoPath, repoName: 'repo' } as never, AT - 900_000),
+      evt('worktree.discovered', { path: repoPath, branch: 'main', head: 'sha-0', isMain: true } as never, AT - 900_000),
+      evt('worktree.discovered', { path: wt, branch: '2-core', head: 'sha-2', isMain: false } as never, AT - 900_000),
       evt(
         'process.seen',
-        { pid: 4321, dialect: 'claude', startedAt: AT - 300_000, worktreePath: WT, placement: 'rooted', parentPid: null } as never,
+        { pid: 4321, dialect: 'claude', startedAt: AT - 300_000, worktreePath: wt, placement: 'rooted', parentPid: null } as never,
         AT - 300_000,
       ),
       evt(
@@ -177,9 +222,20 @@ describe('the line reaches a lane — writer, parser, fold and fleet, end to end
     ]
 
     const state = reduceAll(log)
-    expect(state.declared).toEqual({})
     const fleet = buildFleet(state, { now: AT + 40_000 })
-    expect(fleet.lanes.find((candidate) => candidate.id === '2-core')?.declared).toBeNull()
+    const lane = fleet.lanes.find((candidate) => candidate.id === '2-core')
+
+    // THE OPERATOR-LEVEL FACT, and the one that reddens under either fix: an
+    // agent has stopped for a human and this lane does not say so. Both routes
+    // to #597 end with `activityOf` reading `waiting` here — one through
+    // `lane.declared`, one through `lane.agentStatus`.
+    expect(lane?.activity).not.toBe('waiting')
+    expect(lane?.pathologies.map((p) => p.kind)).not.toContain('waiting')
+
+    // The fold's own silence, stated beside it so the mechanism is legible —
+    // but NOT as the thing the gap is measured by.
+    expect(state.declared).toEqual({})
+    expect(lane?.declared).toBeNull()
   })
 })
 

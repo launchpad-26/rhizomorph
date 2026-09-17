@@ -1138,25 +1138,35 @@ export interface DeclaredAttention {
   file: string
   offset: number
   /**
-   * Which key carried this declaration to its place.
+   * Which key carried this declaration to its place — `'lane'` when the writer
+   * named one, `'pid'` when the process witness placed it.
    *
-   * **Optional for the WIRE, not for the recording** — and the first version of
-   * this comment had that wrong, which review caught. A recording holds
-   * *events*, never `DeclaredAttention` records: refolding one, however old,
-   * runs today's `beaconReceived`, which always writes this field. And
-   * `SessionState` is never persisted. So no recording can produce a record
-   * without a join, and citing ADR-0011 here was a story about a case that
-   * cannot occur — an assertion about well-formedness standing in for a reader,
-   * which is the exact shape prd-57 kept meeting.
+   * **Required, and it took three tries to say why honestly.** Two earlier
+   * versions of this comment made it optional and told a story about the case
+   * that justified it; both stories described something that cannot happen, and
+   * both were caught by review rather than by a test — which is itself the
+   * shape this PRD kept meeting, an assertion about well-formedness standing in
+   * for a reader.
    *
-   * What it IS for: a `Lane` crosses an HTTP boundary between a server and a
-   * web client that update independently, so a client may read a payload built
-   * by a server that predates this field. Defaulted to `'lane'` on read, and
-   * that default is the truth rather than a placeholder — every beacon such a
-   * server folded named its own lane, because `rhizomorph env --hooks` renders
-   * the lane into the command it emits.
+   * - *"An old recording carries no join"* — false. A recording holds EVENTS.
+   *   Refolding one, however old, runs today's `beaconReceived`, which always
+   *   writes this field, and `SessionState` is never persisted.
+   * - *"A `Lane` crosses an HTTP boundary to a client that may be older"* —
+   *   false, and about the wrong type. The web client folds its own
+   *   `SessionState` with its own `reduce` and calls `buildFleet` locally
+   *   (`web/src/fleet/FleetContext.tsx`, `app/src/host/stream-fold.ts`);
+   *   `/api/lanes` serves the lane MANIFEST, not `Lane` objects. And
+   *   `DeclaredAttention` is a `SessionState` slice that reaches no wire at
+   *   all: `checkDeclaredAttention` hands it to `checkEnrichmentLadder`
+   *   in-process.
+   *
+   * There is exactly one producer — `beaconReceived` — and it always writes a
+   * join. So the field is required, `buildFleet` needs no `?? 'lane'` default
+   * for a case that cannot arise, and {@link joinVoice}'s `Record` can never be
+   * handed an `undefined` to render as the word "undefined" on a card. ADR-0011
+   * governs the EVENT schema, which stays lenient; it was never about this.
    */
-  joinedBy?: AttentionJoin
+  joinedBy: AttentionJoin
 }
 
 /**
