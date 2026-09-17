@@ -2,7 +2,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createEvent, createIdFactory, selectBranches, selectWorktreeViews } from '@rhizomorph/core'
 import { recordSessionBootMeta } from '../api/meta.js'
-import { defaultDataRoot, sessionDirFor, sessionFileName, snapshotDirFor } from '../log/paths.js'
+import { defaultDataRoot, repoSlug, sessionDirFor, sessionFileName, snapshotDirFor } from '../log/paths.js'
 import { LOCK_HEARTBEAT_INTERVAL_MS, removeSessionLock, writeSessionLock } from '../log/session-lock.js'
 import {
   decideSessionBoot,
@@ -10,8 +10,14 @@ import {
   recordResume,
   type SessionBootDecision,
 } from '../log/session-log.js'
+import { presentWorktreePaths } from '../collectors/beacon/paths.js'
+import { canonicalizeRepoPath } from '../paths/containment.js'
+import { createRepoRootResolver } from '../paths/repo-root.js'
+import { createColonyRecorders } from '../recorder/colony-recorders.js'
 import { buildApp } from '../server/build-app.js'
 import { loadCollectors } from '../server/collector-loader.js'
+import { type Colony, createColonyDiscovery } from '../server/colonies.js'
+import { createColonySupervisor } from '../server/colony-supervisor.js'
 import type { ServerContext } from '../server/context.js'
 import { exec as realExec } from '../server/exec.js'
 import { createPollLoop } from '../server/poll-loop.js'
@@ -59,7 +65,29 @@ export async function runServerCommand(
     exit(0)
   }
 
-  const repoPath = path.resolve(args.path ?? process.cwd())
+  /**
+   * CANONICAL, not merely absolute — prd-58 ruling 1's identity, at the one
+   * place it is decided.
+   *
+   * `path.resolve` does not follow symlinks and `canonicalize` does, so a raw
+   * `repoPath` here and a canonical root from `createRepoRootResolver` are two
+   * spellings of one repo. Discovery keys the watched set on the resolver's
+   * answer, so the pin would never match the colony its own agents resolve to
+   * and the SAME repository would become two colonies — two recorders, two
+   * poll loops, two recordings, two rows in the selector. That is the exact
+   * disagreement between the selector and the recording that
+   * `colonies.ts`'s "The identity is not new" exists to refuse.
+   *
+   * It is decided here rather than inside discovery because `repoSlug`,
+   * `sessionDirFor` and the stream's frame tag all read this value: canonical
+   * in one of them and raw in another is the same defect one layer down.
+   *
+   * Reached through a symlink on Linux and unconditionally on macOS, where
+   * `os.tmpdir()` is `/var/...` → `/private/var/...`. Falls back to the
+   * resolved spelling when the path cannot be canonicalised at all — a boot
+   * that refused here would refuse a repo `git` is perfectly happy with.
+   */
+  const repoPath = canonicalizeRepoPath(path.resolve(args.path ?? process.cwd()))
   const repoName = path.basename(repoPath)
   const sessionDir = sessionDirFor(repoPath, options.dataRoot ?? defaultDataRoot())
   const ts = now()
@@ -106,11 +134,22 @@ export async function runServerCommand(
 
   const collectors =
     options.collectors ??
-    (await loadCollectors(log, resumed?.events, {
-      claudeProjectsRoot: options.claudeProjectsRoot,
-      home: options.home,
-      backfill: args.backfill,
-    }))
+    (await loadCollectors(
+      log,
+      resumed?.events,
+      { claudeProjectsRoot: options.claudeProjectsRoot, home: options.home, backfill: args.backfill },
+      {},
+      // The pinned colony needs this as much as a discovered one: its lanes are
+      // linked worktrees too, and until now every hook line from every lane was
+      // being dropped by the shared door's containment check.
+      // Only worktrees that are still PRESENT. The fold never deletes a
+      // worktree key — `worktree.removed` sets `present: false` and keeps it —
+      // so `Object.keys` alone routes to a lane that no longer exists, and
+      // `git worktree add` at a reused path would hand another repo's hook
+      // lines to this one. The function form exists precisely so a worktree
+      // that VANISHES stops being routed, which keys alone do not deliver.
+      { worktreePaths: () => presentWorktreePaths(recorder.foldSoFar().worktrees) },
+    ))
   const pollLoop = createPollLoop({
     repoPath,
     collectors,
@@ -122,6 +161,75 @@ export async function runServerCommand(
     // fresh one starts with none (safe: sessionlog starts at EOF, #57). The
     // snapshots of a session nobody resumes are simply never read again.
     snapshotStore: createFileSnapshotStore(snapshotDirFor(sessionDir, sessionId)),
+  })
+
+  /**
+   * THE WATCHED SET — prd-58 rulings 1 and 2.
+   *
+   * The pinned colony is the one this boot already opened: its recorder, its
+   * collectors and its loop are the objects above, adopted rather than rebuilt,
+   * which is what keeps the one-colony case byte-identical to what it was.
+   * Everything discovered afterwards gets its own of each.
+   *
+   * Discovery reads the PINNED loop's fold rather than polling the machine
+   * itself. The process witness re-reads the table every tick anyway, so a
+   * second reading would be a second cost to answer a question the first one
+   * has already answered — and ADR-0013's budget is per tick, not per feature.
+   *
+   * It is driven by its own interval, not by the loop's fold callback. That is
+   * a weaker claim than this comment used to make ("rather than on a timer of
+   * its own") and it is the one the code below actually supports: a
+   * `setInterval` at the poll cadence, reading a fold somebody else maintains.
+   * The saving is the exec, not the clock.
+   */
+  const colonyRoots = createRepoRootResolver(options.exec ?? realExec)
+  const discovery = createColonyDiscovery({ pinnedRepoPath: repoPath, resolver: colonyRoots })
+  const pinnedColony: Colony = { id: repoSlug(repoPath), path: repoPath, pinned: true }
+  const colonyRecorders = createColonyRecorders({
+    dataRoot: options.dataRoot ?? defaultDataRoot(),
+    pinned: { colony: pinnedColony, recorder },
+    now,
+  })
+  const colonies = createColonySupervisor({
+    recorders: colonyRecorders,
+    // The pinned colony is already running: this boot opened its recorder, its
+    // collectors and its loop above, and discovery reports it every tick.
+    // Without this the supervisor starts a second loop on the same recorder and
+    // every event is written twice.
+    adopt: { colony: pinnedColony, recorder, pollLoop },
+    startColony: async (colony, colonyRecorder) => {
+      // One collector SET per colony, not one shared: a collector holds its own
+      // snapshots, and two repos sharing one would make each look like the
+      // other's discoveries had already happened.
+      const colonyCollectors = await loadCollectors(
+        log,
+        undefined,
+        { claudeProjectsRoot: options.claudeProjectsRoot, home: options.home, backfill: false },
+        {},
+        // The shared beacon door is routed by where a hook fired, and an agent
+        // fires from a LANE — a linked worktree, which git normally puts outside
+        // the repo directory. Containment in the repo alone drops every one.
+        { worktreePaths: () => presentWorktreePaths(colonyRecorder.foldSoFar().worktrees) },
+      )
+      const loop = createPollLoop({
+        repoPath: colony.path,
+        collectors: colonyCollectors,
+        recorder: colonyRecorder,
+        exec: options.exec ?? realExec,
+        now,
+        intervalMs: options.intervalMs ?? args.pollIntervalMs,
+        snapshotStore: createFileSnapshotStore(
+          snapshotDirFor(sessionDirFor(colony.path, options.dataRoot ?? defaultDataRoot()), colonyRecorder.sessionId),
+        ),
+      })
+      loop.start()
+      return loop
+    },
+    // Reported, never swallowed: silence here is indistinguishable from a repo
+    // with no agents, which is the one reading that hides the gap.
+    onStartFailed: (colony, cause) => {
+      log.log(`colony ${colony.id} (${colony.path}) could not be watched: ${cause instanceof Error ? cause.message : String(cause)}`)
+    },
   })
 
   const webDistDir = options.webDistDir ?? defaultWebDistDir()
@@ -141,6 +249,10 @@ export async function runServerCommand(
     flatlineMs,
     now,
     pollLoop,
+    // prd-58 ruling 1: a function, not a snapshot — the watched set grows while
+    // the server runs, and a boot-time copy would report the machine as it was
+    // at start-up forever.
+    colonies: () => colonies.running(),
     port: args.port,
   }
 
@@ -203,6 +315,34 @@ export async function runServerCommand(
   // counts from the first poll instead of an invented zero.
   await pollLoop.tick()
 
+  /**
+   * Discovery, reading the pinned fold, at the pinned loop's cadence.
+   *
+   * `sync` is additive and idempotent, so running it every tick costs one
+   * `Map` lookup per already-watched colony — the resolver caches per cwd, so
+   * a steady machine spawns no `git` at all after the first sighting of each.
+   *
+   * **This promise is deliberately untracked, and the supervisor is what makes
+   * that safe.** A sweep awaits `discover` — which execs `git` with a 5 s
+   * timeout — before it reaches `sync`, so a shutdown lands inside that window
+   * routinely. `colonies.stop()` is final: a `sync` arriving after it starts
+   * nothing. Without that, the late sweep rebuilt a loop for every colony, the
+   * pinned one included on the boot's own recorder, after the app had closed.
+   */
+  const syncColonies = async () => {
+    try {
+      const actors = Object.values(recorder.foldSoFar().processes)
+      await colonies.sync(await discovery.discover(actors))
+    } catch (cause) {
+      // Discovery failing must never take the pinned colony down with it: the
+      // instrument watching one repo beats the instrument watching none.
+      log.log(`colony discovery failed: ${cause instanceof Error ? cause.message : String(cause)}`)
+    }
+  }
+  await syncColonies()
+  const colonySweep = setInterval(() => void syncColonies(), options.intervalMs ?? args.pollIntervalMs)
+  colonySweep.unref()
+
   log.log(`rhizomorph running at ${url}`)
   // The recorder's maintained fold, not a re-fold of its buffer (prd-40 ruling
   // 2, and prd-44 ruling 4 / #37 makes it load-bearing rather than merely
@@ -220,6 +360,10 @@ export async function runServerCommand(
 
   const stop = async () => {
     clearInterval(lockHeartbeat)
+    clearInterval(colonySweep)
+    // Discovered colonies first: each awaits its own in-flight tick, and they
+    // stop in parallel so a shutdown costs one tick budget rather than N.
+    await colonies.stop()
     await pollLoop.stop()
     await app.close()
     try {
@@ -306,3 +450,5 @@ function defaultWebDistDir(): string {
   const here = path.dirname(fileURLToPath(import.meta.url))
   return path.resolve(here, '..', '..', '..', 'web', 'dist')
 }
+
+

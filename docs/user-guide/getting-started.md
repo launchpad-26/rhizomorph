@@ -40,13 +40,13 @@ shell [the-desktop.md](the-desktop.md) documents; the web build lands at
 `packages/web/dist/`, ends with `✓ built in 384ms` (your numbers will differ,
 the shape won't).
 
-## Point it at a repo
+## Start it where you work
 
 ```sh
 npm start -- <path-to-repo>
 ```
 
-Omit the path (just `npm start`) to watch the current directory. Either way
+Omit the path (just `npm start`) to start in the current directory. Either way
 it prints the URL it's listening on and where it's recording:
 
 ```
@@ -54,6 +54,18 @@ starting session 1785975801972 (no previous session recorded)
 rhizomorph running at http://127.0.0.1:4321
 watching <path> — N worktrees, M branches · recording to ~/.local/share/rhizomorph/<repo-slug>/session-<id>.jsonl
 ```
+
+**The path you give it is where it STARTS, not the limit of what it watches.**
+That repo becomes the pinned colony — first in the selector, and the one the
+scene draws to begin with. From then on, any other repository an agent is
+working in is discovered from the process table and watched on exactly the same
+terms: its own recording under its own slug, its lanes in the fleet list, and
+its alarms on the tray whether or not you are looking at it. `rhizomorph doctor`
+names every colony it is watching, so you can check rather than assume.
+
+There is no command that adds a repository nobody is working in. A repo with no
+agent in it produces nothing this instrument would record, so the way to start
+watching one is to start working in it.
 
 `[Ran]` against this very repo on an alternate port (4321 was already taken
 by another instance watching this build):

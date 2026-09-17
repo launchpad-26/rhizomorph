@@ -4,11 +4,20 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
 import type { AppMenuId } from '../host/app-menu.js'
-import { badgeFor, unreachableBadge, type TrayBadge } from '../host/badge.js'
+import { badgeFor, type TrayBadge, unreachableBadge } from '../host/badge.js'
 import { BRIDGE_CHANNELS, HOST_CAPABILITIES, type HostDescription } from '../host/bridge-contract.js'
+import {
+  DEMO_ATTEMPTS,
+  DEMO_RETRY_MS,
+  DEMO_VERIFY_SCRIPT,
+  type DemoSource,
+  demoDispatchScript,
+  expectSimulated,
+} from '../host/demo-mode.js'
 import type { FleetDigest } from '../host/digest.js'
 import { failurePage } from '../host/failure-page.js'
-import { fetchChunks, fetchJson, FleetFeed } from '../host/fleet-feed.js'
+import { type FirstRunPlan, firstRunPlan, type RunState, withDemoSeen, withInvitationTaken, withRepo } from '../host/first-run.js'
+import { FleetFeed, fetchChunks, fetchJson } from '../host/fleet-feed.js'
 import {
   GPU_ENV_MARKER,
   gpuAdapterLine,
@@ -18,27 +27,18 @@ import {
   WEBGL_ADAPTER_PROBE,
   WSL_LIB_DIR,
 } from '../host/gpu.js'
-import { findRepoRoot, resolveLayout, type HostLayout } from '../host/layout.js'
 import { pageHostDescriptor } from '../host/host-descriptor.js'
-import { honestCapabilities, loginItemPlan, type LoginItemPlan } from '../host/login-item.js'
-import { firstRunPlan, withDemoSeen, withInvitationTaken, withRepo, type FirstRunPlan, type RunState } from '../host/first-run.js'
+import { findRepoRoot, type HostLayout, resolveLayout } from '../host/layout.js'
+import { honestCapabilities, type LoginItemPlan, loginItemPlan } from '../host/login-item.js'
 import { decideNotifications } from '../host/notify.js'
+import { type HostPreferences, withPreference } from '../host/prefs.js'
+import { loadPreferences, savePreferences } from '../host/prefs-file.js'
 import { loadRunState, saveRunState } from '../host/run-state-file.js'
 import { signingPlan, unsignedNote } from '../host/signing.js'
-import { loadPreferences, savePreferences } from '../host/prefs-file.js'
-import { withPreference, type HostPreferences } from '../host/prefs.js'
 import { serverSpawnRequest } from '../host/spawn-contract.js'
-import { ServerSupervisor, type ChildLike, type ServerStatus } from '../host/supervisor.js'
-import {
-  DEMO_ATTEMPTS,
-  DEMO_RETRY_MS,
-  DEMO_VERIFY_SCRIPT,
-  demoDispatchScript,
-  expectSimulated,
-  type DemoSource,
-} from '../host/demo-mode.js'
-import { unavailableUpdates, type UpdateState } from '../host/update-gate.js'
-import { startsHidden, windowFrame, WINDOW_GROUNDS } from '../host/window-frame.js'
+import { type ChildLike, type ServerStatus, ServerSupervisor } from '../host/supervisor.js'
+import { type UpdateState, unavailableUpdates } from '../host/update-gate.js'
+import { startsHidden, WINDOW_GROUNDS, windowFrame } from '../host/window-frame.js'
 import { installAppMenu } from './menu.js'
 import { createTray, type TrayHandle } from './tray.js'
 import { Updater } from './updates.js'
@@ -115,6 +115,14 @@ let updater: Updater | null = null
 let lastStatus: ServerStatus = { phase: 'starting', url: null, detail: null, outputTail: [] }
 let digest: FleetDigest | null = null
 let badge: TrayBadge = unreachableBadge('the server has not started yet')
+/**
+ * How many lanes across every watched colony need a person — prd-58 ruling 5.
+ *
+ * `undefined` until a server that reports colonies has answered, which is a gap
+ * rather than a zero: the badge shows the rung alone and claims nothing about
+ * the colonies it has not been told about.
+ */
+let colonyNeedsYou: number | undefined
 let updates: UpdateState = unavailableUpdates()
 /** True only between a person choosing Quit and the process ending. Closing a window never sets it. */
 let quitting = false
@@ -608,7 +616,14 @@ function startFeed(baseUrl: string): void {
         tray?.notify(notification, () => showWindow())
       }
       digest = next
-      badge = badgeFor(next.rank)
+      badge = badgeFor(next.rank, colonyNeedsYou)
+      refreshTray()
+    },
+    // prd-58 ruling 5. Held beside the digest rather than inside it: the digest
+    // projects the RENDERED colony, and this is a fact about the machine.
+    onColonies: (needsYouAcrossColonies) => {
+      colonyNeedsYou = needsYouAcrossColonies
+      badge = digest === null ? badge : badgeFor(digest.rank, colonyNeedsYou)
       refreshTray()
     },
     onConnection: (phase, detail) => {

@@ -8,5 +8,6 @@
  */
 
 export * from './buildFleet.js'
+export * from './colony-attention.js'
 export * from './fences.js'
 export * from './fixtures.js'

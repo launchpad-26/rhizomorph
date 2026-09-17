@@ -16,7 +16,8 @@ one more thing it must never do, and it is the sibling of the keystroke clause
 above: **it never signals a process.** No kill, no stop, no continue, no
 priority change. Reading `/proc` (or the platform's equivalent) is how it knows
 an agent died; it has no way to be why. It watches git, tmux, and
-workmux state in the repo you point it at, it reads your own Claude
+workmux state in every repository it watches — the one you started it in and
+any other your agents are working in — it reads your own Claude
 Code session logs (`~/.claude/projects`) to show what your agents are
 doing, and it reads your machine's **process table** to see agent processes
 that no multiplexer and no transcript would reveal. It serves that over HTTP

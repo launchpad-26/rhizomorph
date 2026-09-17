@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { API_VERSION } from '@rhizomorph/core'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { CloneFetchLike } from '../concierge/clone.js'
@@ -46,6 +47,7 @@ const META: MetaFacts = {
   repoPath: WATCHED,
   repoName: 'repo',
   rung: 'L2',
+  apiVersion: { kind: 'ok', version: API_VERSION },
   collectors: [],
   connection: null,
   boot: null,

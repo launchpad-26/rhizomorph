@@ -1,22 +1,23 @@
+import { API_VERSION } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 import {
   DOCTOR_URL,
-  META_URL,
-  UNAVAILABLE,
   doctorCheck,
+  type FetchLike,
   fetchDoctor,
   fetchMeta,
+  fetchRepos,
   fetchSessionPreview,
   isRenderableTs,
+  isWorktreeLaneSlug,
+  META_URL,
   parseDoctor,
   parseMeta,
-  isWorktreeLaneSlug,
   parseRepos,
   parseSessionPreview,
-  fetchRepos,
   REPO_SELECT_CAP,
   REPOS_URL,
-  type FetchLike,
+  UNAVAILABLE,
 } from './meta.js'
 
 /**
@@ -680,5 +681,25 @@ describe('fetchRepos', () => {
     expect(urls).toEqual([REPOS_URL])
     expect(await fetchRepos(rejected)).toEqual({ kind: 'absent' })
     expect(await fetchRepos(refused)).toEqual({ kind: 'absent' })
+  })
+})
+
+describe('parseMeta — the API version (prd-58 ruling 8, #614)', () => {
+  it('reads a matching version as ok', () => {
+    expect(parseMeta({ apiVersion: API_VERSION })?.apiVersion).toEqual({ kind: 'ok', version: API_VERSION })
+  })
+
+  it('reads a MISSING version as unknown — a server that predates ruling 8 still works', () => {
+    // The same leniency every other field in this parser has, and the reason
+    // this page does not go blank against an older instrument.
+    expect(parseMeta({ rung: 'L2' })?.apiVersion).toEqual({ kind: 'unknown' })
+  })
+
+  it('reads a DISAGREEING version as a mismatch, naming both numbers', () => {
+    const verdict = parseMeta({ apiVersion: 424_242 })?.apiVersion
+    expect(verdict?.kind).toBe('mismatch')
+    if (verdict?.kind !== 'mismatch') return
+    expect(verdict.server).toBe(424_242)
+    expect(verdict.client).toBe(API_VERSION)
   })
 })

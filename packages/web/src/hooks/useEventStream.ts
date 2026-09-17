@@ -1,5 +1,5 @@
+import { EVENT_TYPES, parseStreamFrame, type RhizomorphEvent } from '@rhizomorph/core'
 import { useEffect, useState } from 'react'
-import { EVENT_TYPES, parseEvent, type RhizomorphEvent } from '@rhizomorph/core'
 
 export type ConnectionStatus = 'connecting' | 'open' | 'error' | 'closed'
 
@@ -115,8 +115,15 @@ export function useEventStream<S>(
     const handleMessage: MessageListener = (event) => {
       const payload = parseJson(event.data)
       if (payload === undefined) return
-      const result = parseEvent(payload)
-      if (!result.ok) return
+      // prd-58 ruling 3: `data` is a frame, and the frame names its colony.
+      // `parseStreamFrame` reads the envelope AND a bare event, so a stream
+      // from a server that predates the envelope folds exactly as it always
+      // did. The colony is read and not yet used — routing it to a per-colony
+      // fold state is #607's job, and doing it in two places would make the
+      // seam between them untestable.
+      const frame = parseStreamFrame(payload)
+      if (frame === undefined) return
+      const result = { ok: true as const, event: frame.event }
 
       if (buffer.length === 0 && !flushScheduled) {
         // Leading edge: nothing already in flight, so this one folds right

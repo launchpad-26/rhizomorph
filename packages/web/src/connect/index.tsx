@@ -1,37 +1,37 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { selectConnection } from '@rhizomorph/core'
+import { apiVersionRefusal, selectConnection } from '@rhizomorph/core'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { useMode } from '../app/ModeContext.js'
 import { Nav } from '../app/Nav.js'
 import { navigate } from '../app/router.js'
 import { useStream } from '../app/StreamContext.js'
 import type { CloneFetchLike } from '../concierge/clone.js'
-import type { InstrumentFetchLike, InstrumentOutcome } from '../concierge/instrument.js'
 import { InstrumentButton } from '../concierge/InstrumentButton.js'
+import type { InstrumentFetchLike, InstrumentOutcome } from '../concierge/instrument.js'
 import type { RetargetFetchLike } from '../concierge/retarget.js'
-import { copyToClipboard, type CopyText } from '../drawer/AttachButton.js'
+import { type CopyText, copyToClipboard } from '../drawer/AttachButton.js'
 import { formatWallClock } from '../replay/format.js'
 import {
   buildLinks,
+  type ChainLink,
+  type InstrumentableSession,
+  type LinkState,
   portFrom,
   SAME_PROCESS_WARNING,
   STATE_GLYPH,
   STATE_WORD,
   tally,
-  type ChainLink,
-  type InstrumentableSession,
-  type LinkState,
 } from './links.js'
 import {
+  type DoctorFact,
+  type DoctorReading,
+  type FetchLike,
   fetchDoctor,
   fetchMeta,
   fetchSessionPreview,
   isRenderableTs,
-  UNAVAILABLE,
-  type DoctorFact,
-  type DoctorReading,
-  type FetchLike,
   type MetaFacts,
   type SessionPreview,
+  UNAVAILABLE,
 } from './meta.js'
 import { SampleFleetControl, sampleUninstrumented } from './sample.js'
 import { SetupWizard } from './wizard.js'
@@ -363,6 +363,17 @@ function Provenance({ meta, provenance, isLive, port }: { meta: MetaFacts | null
         <p data-testid="connect-not-live" className="mb-1.5 text-read-floor text-notice">
           this checklist is reading {provenance} — not the live log. Nothing below is proof about this instrument's own
           wiring until you return to live.
+        </p>
+      )}
+      {/*
+        prd-58 ruling 8. ABOVE the facts, not among them: every `Fact` below is
+        something this view read off the server, and a version mismatch is the
+        statement that it may have read all of them wrong. Success 8 wants both
+        numbers and the remedy, which `apiVersionRefusal` spells.
+      */}
+      {meta?.apiVersion.kind === 'mismatch' && (
+        <p data-testid="connect-api-mismatch" className="mb-1.5 text-read-floor text-alarm">
+          {apiVersionRefusal(meta.apiVersion)}
         </p>
       )}
       <dl className="flex flex-wrap gap-x-6 gap-y-1 text-(--ink-dim)">

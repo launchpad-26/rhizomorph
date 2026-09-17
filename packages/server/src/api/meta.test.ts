@@ -1,20 +1,21 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import * as core from '@rhizomorph/core'
 import {
+  type AdapterCapabilities,
+  API_VERSION,
   createEvent,
   deriveRung,
   honestCapabilities,
   mergeCapabilities,
   reduceAll,
   selectConnection,
-  type AdapterCapabilities,
 } from '@rhizomorph/core'
-import * as core from '@rhizomorph/core'
 import { describe, expect, it, vi } from 'vitest'
+import { BEACON_CAPABILITIES, beaconCapabilitiesFor } from '../collectors/beacon/index.js'
 import { GIT_CAPABILITIES } from '../collectors/git/index.js'
 import { JUDGE_CAPABILITIES } from '../collectors/judge/index.js'
-import { BEACON_CAPABILITIES, beaconCapabilitiesFor } from '../collectors/beacon/index.js'
 import { PI_CAPABILITIES } from '../collectors/pi/index.js'
 import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
 import { TMUX_CAPABILITIES } from '../collectors/tmux/index.js'
@@ -469,7 +470,21 @@ describe('GET /api/meta', () => {
   })
 
   describe('prd19 ruling 2 — connection facts (additive)', () => {
-    it('law: every pre-existing meta field is byte-identical to before — `connection` is the only new key', async () => {
+    /**
+     * Amended by prd-58 ruling 8 (#614): `apiVersion` joins `connection` as a
+     * declared addition.
+     *
+     * The law's shape is unchanged and so is its point — `/api/meta` may not
+     * grow a key silently, and this test is what stops it. Two additions in the
+     * list rather than one, each of which had to be argued for: `connection`
+     * by prd-19 ruling 2, and `apiVersion` because two independently-updating
+     * clients (prd-57's CLI and the Electron shell) turn a wire change from a
+     * failure into a half-working view.
+     *
+     * It caught this one on the first run, which is the law doing its job
+     * rather than an obstacle to route around.
+     */
+    it('law: every pre-existing meta field is byte-identical to before — `connection`, `apiVersion` and `colonies` are the only new keys', async () => {
       await setup()
       try {
         const recorder = new SessionRecorder('8000', sessionFilePath(sessionDir, '8000'))
@@ -498,6 +513,11 @@ describe('GET /api/meta', () => {
             'capabilities',
             'rung',
             'connection',
+            'apiVersion',
+            // prd-58 ruling 5 (#612): every watched colony's attention, which
+            // had no carrier at all until review of #621 found three
+            // capabilities with no caller between them.
+            'colonies',
           ].sort(),
         )
         expect(body).toMatchObject({
@@ -877,6 +897,13 @@ function metaBodyFromRefold(recorder: SessionRecorder, repoPath: string, repoNam
   const latestRefusal = folded.refusals.records[folded.refusals.records.length - 1]
   return JSON.parse(
     JSON.stringify({
+      // prd-58 ruling 8 (#614). Re-derived here like every other field rather
+      // than snapshotted, so this stays a comparison against the route's own
+      // inputs rather than against a copy of its output.
+      apiVersion: API_VERSION,
+      // A replay server and a bare recorder report none: `ctx.colonies` is
+      // absent, which is a gap rather than a quiet machine.
+      colonies: [],
       repoPath,
       repoName,
       sessionId: recorder.sessionId,

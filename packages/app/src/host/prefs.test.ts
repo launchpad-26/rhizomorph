@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { loadPreferences, preferencesPath, savePreferences } from './prefs-file.js'
 import { DEFAULT_PREFERENCES, HOST_PREFS, readPreferences, withPreference } from './prefs.js'
+import { loadPreferences, preferencesPath, savePreferences } from './prefs-file.js'
 
 function scratch(): string {
   return mkdtempSync(path.join(tmpdir(), 'rhizomorph-prefs-'))
@@ -178,5 +178,29 @@ describe('the file on disk', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('autostart stays off by default (prd-58 wave 0, #615)', () => {
+  it('a FRESH profile — nothing on disk at all — does not launch on login', () => {
+    // Read off an empty profile rather than constructed explicitly: a test that
+    // passes the value in never exercises the default it exists to protect,
+    // which is the shape `AGENTS.md` names by example.
+    expect(readPreferences(undefined)['application.launchOnLogin']).toBe(false)
+    expect(readPreferences({})['application.launchOnLogin']).toBe(false)
+  })
+
+  it('and nothing else quietly turns it on — a partial file keeps the default', () => {
+    // The realistic shape: a profile written before this preference existed.
+    const merged = readPreferences({ 'application.closeToTray': false })
+    expect(merged['application.launchOnLogin']).toBe(false)
+  })
+
+  it('prd-58 makes the default heavier rather than changing it', () => {
+    // An instrument that autostarts now watches every repo on the machine
+    // rather than one, so the same ruling carries more weight than it did.
+    // Pinned as a fact so a future "it is more convenient on" cannot land
+    // without moving this.
+    expect(DEFAULT_PREFERENCES['application.launchOnLogin']).toBe(false)
   })
 })

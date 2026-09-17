@@ -6,6 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   type AdapterCapabilities,
+  type AgentProcess,
   absentCapabilities,
   attentionReading,
   buildFleet,
@@ -33,6 +34,9 @@ import { DECLARED_HARNESSES, IMPLEMENTED_HARNESS_IDS } from '../harness-roster.j
 import { formatBytes } from '../lib/format.js'
 import { defaultDataRoot, sessionDirFor } from '../log/paths.js'
 import { decideSessionBoot, formatBootDuration, listSessions, readSessionEvents } from '../log/session-log.js'
+import { canonicalizeRepoPath } from '../paths/containment.js'
+import { createRepoRootResolver } from '../paths/repo-root.js'
+import { createColonyDiscovery } from '../server/colonies.js'
 import { exec as realExec } from '../server/exec.js'
 import { DEFAULT_PORT, type FlagSpec, parseFlags } from './args.js'
 // Presence, never value (ADR-0034 clause 2) — and reached THROUGH the connect
@@ -180,10 +184,109 @@ export function parseDoctorArgs(argv: readonly string[]): DoctorArgs {
   return { path, port, help: false }
 }
 
+/**
+ * EVERY WATCHED COLONY, NAMED — prd-58 ruling 1 and Success 1's falsifier.
+ *
+ * > Started with no repo argument on a machine with agents in three repos, it
+ * > records facts for all three, each into its own recording, and `doctor`
+ * > names all three.
+ *
+ * This is the falsifier rather than a nicety. Success 1 is *not met while any
+ * agent's facts are discarded for being outside a chosen repo*, and the only
+ * way an operator can tell "watching three" from "watching one and silently
+ * dropping two" is a report that names them. Everything else about this PRD is
+ * visible only to someone who already knows to look.
+ *
+ * **It runs the SAME discovery the server runs**, over the process table the
+ * fold already holds, rather than a second implementation that agrees by
+ * coincidence. `doctor` and the running instrument disagreeing about which
+ * repos are watched would be the exact class of defect prd-27's "the condition
+ * is assembled once" exists to prevent — and this repo has already shipped one
+ * of those, in prd-57, between a lane's card and this very command.
+ */
+export async function checkWatchedColonies(
+  processes: Readonly<Record<string, AgentProcess>>,
+  repoPath: string,
+  exec: Exec,
+): Promise<DoctorCheck[]> {
+  // ONE resolver for both questions below. Discovery and the placement count
+  // must agree about which repo a cwd belongs to, and two resolvers would each
+  // hold their own cache of the same answers.
+  const resolver = createRepoRootResolver(exec)
+  const discovery = createColonyDiscovery({ pinnedRepoPath: repoPath, resolver })
+  const placed = Object.values(processes).filter((actor) => actor.worktreePath !== null)
+  const colonies = await discovery.discover(Object.values(processes))
+
+  /**
+   * WHICH COLONY EACH AGENT IS IN — the same question discovery asked, asked
+   * with the same resolver.
+   *
+   * This used to be `actor.worktreePath === colony.path`, and an agent works in
+   * a LANE: a linked worktree, which `git worktree add` normally puts OUTSIDE
+   * the repo directory. So the equality was false for every real agent, and a
+   * colony that had been discovered *because* an agent was working in it
+   * reported "no agent placed here right now". Success 1's falsifier is that an
+   * operator cannot tell "watching three" from "watching one and dropping two"
+   * except by this report, so a report that says zero everywhere does not meet
+   * it.
+   *
+   * It is the same defect `beaconLineBelongsTo` was fixed for in this very
+   * branch — containment or equality against a repo root cannot see a lane —
+   * and the resolver is the answer here for the same reason the fold was there:
+   * ask the thing that already knows.
+   *
+   * The resolver's cache makes this free: discovery has already resolved every
+   * one of these cwds on the line above, so no `git` is spawned twice.
+   */
+  const rootOf = new Map<string, string | null>()
+  for (const actor of placed) {
+    const cwd = actor.worktreePath as string
+    if (!rootOf.has(cwd)) rootOf.set(cwd, await resolver.resolve(cwd))
+  }
+
+  // The pin is always present, so the list is never empty and a reader never
+  // has to decide what an empty one meant.
+  const summary: DoctorCheck = {
+    id: 'colonies',
+    status: 'ok',
+    message: `watching ${colonies.length} ${colonies.length === 1 ? 'colony' : 'colonies'}`,
+  }
+
+  const rows = colonies.map((colony): DoctorCheck => {
+    const here = placed.filter((actor) => rootOf.get(actor.worktreePath as string) === colony.path).length
+    const pinned = colony.pinned ? ' (pinned — started here)' : ''
+    // A colony with no live actor is NAMED rather than dropped: it was
+    // discovered because an agent worked there, its recording is still a
+    // recording, and an absent reading is not a zero (ADR-0010).
+    const voice = here === 0 ? 'no agent placed here right now' : `${here} agent${here === 1 ? '' : 's'} placed here`
+    return { id: `colony:${colony.id}`, status: 'ok', message: `colony ${colony.id} — ${colony.path}${pinned}: ${voice}` }
+  })
+
+  // The Windows gap, stated rather than left as a short list nobody can
+  // account for: the process leg yields a command line and not a working
+  // directory there, so every actor is unplaced and only the pin is found.
+  const unplaced = Object.values(processes).filter((actor) => actor.worktreePath === null).length
+  const gap: DoctorCheck[] =
+    unplaced > 0
+      ? [
+          {
+            id: 'colonies:unplaced',
+            status: 'ok',
+            message: `${unplaced} agent${unplaced === 1 ? '' : 's'} the process witness could not place — no colony inferred for ${unplaced === 1 ? 'it' : 'them'} (on Windows the platform reports no working directory)`,
+          },
+        ]
+      : []
+
+  return [summary, ...rows, ...gap]
+}
+
 export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
   const exec = options.exec ?? realExec
   const fetchImpl = options.fetch ?? globalThis.fetch
-  const repoPath = path.resolve(options.path ?? process.cwd())
+  // Canonical, exactly as `cli/run.ts` pins it. `doctor` reporting a different
+  // set of colonies from the server it is diagnosing would be the disagreement
+  // this check exists to make visible.
+  const repoPath = canonicalizeRepoPath(path.resolve(options.path ?? process.cwd()))
 
   const baseChecks: DoctorCheck[] = [
     await checkNodeVersion(options),
@@ -207,6 +310,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
   const checks: DoctorCheck[] = [
     ...withAttention,
     ...(await checkEnrichmentLadder(withAttention, repoPath, attention.declared, attention.processes)),
+    ...(await checkWatchedColonies(attention.processes, repoPath, exec)),
   ]
 
   const exitCode = checks.some((check) => FAILING_CHECK_IDS.has(check.id) && check.status === 'fail') ? 1 : 0
@@ -858,7 +962,7 @@ export interface DeclaredAttentionFacts {
    * beacon row's fold-derived input was threaded through; the process row's
    * was not, which is the sibling shape one file over.
    */
-  processes: Readonly<Record<string, unknown>>
+  processes: Readonly<Record<string, AgentProcess>>
 }
 
 /**

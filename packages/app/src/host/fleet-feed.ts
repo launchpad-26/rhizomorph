@@ -1,7 +1,7 @@
-import { parseLaneManifest, type LaneManifest } from '@rhizomorph/core'
+import { type LaneManifest, parseLaneManifest } from '@rhizomorph/core'
 import { digestOf, emptyDigest, type FleetDigest } from './digest.js'
 import { SseParser } from './sse.js'
-import { emptyFold, fleetOf, foldFrames, type FoldedStream } from './stream-fold.js'
+import { emptyFold, type FoldedStream, fleetOf, foldFrames } from './stream-fold.js'
 
 /**
  * THE DAEMON'S OWN READING OF THE FLEET (#564, **S2**'s data source: "the
@@ -50,6 +50,15 @@ export interface FleetFeedOptions {
   /** How long to wait before reconnecting a dropped stream. */
   retryMs?: number
   onDigest: (digest: FleetDigest) => void
+  /**
+   * How many lanes across EVERY watched colony need a person — prd-58 ruling 5.
+   *
+   * Separate from the digest on purpose: `digestOf` projects one `Fleet`, and
+   * this is a fact about the machine rather than about the rendered colony.
+   * Folding it into the digest would make "the badge reads the rung and nothing
+   * else" stop being true of a type that says so.
+   */
+  onColonies?: (needsYouAcrossColonies: number | undefined) => void
   onConnection?: (phase: ConnectionPhase, detail: string | null) => void
 }
 
@@ -58,7 +67,8 @@ export const FLEET_TICK_MS = 1_000
 export const RECONNECT_MS = 2_000
 
 export class FleetFeed {
-  private readonly options: Required<Omit<FleetFeedOptions, 'onConnection'>> & Pick<FleetFeedOptions, 'onConnection'>
+  private readonly options: Required<Omit<FleetFeedOptions, 'onConnection' | 'onColonies'>> &
+    Pick<FleetFeedOptions, 'onConnection' | 'onColonies'>
   private controller: AbortController | null = null
   private timer: ReturnType<typeof setInterval> | null = null
   private fold: FoldedStream = emptyFold()
@@ -99,6 +109,33 @@ export class FleetFeed {
     this.timer = null
     this.controller?.abort()
     this.controller = null
+  }
+
+  /**
+   * The cross-colony count, or `undefined` when this server does not report
+   * colonies at all.
+   *
+   * An empty list and a missing field are the same answer here and both mean
+   * "no colonies reported" — a replay server, or one that predates prd-58. That
+   * is a GAP, and `undefined` is how the badge renders nothing rather than a
+   * confident zero.
+   */
+  private async readColonyNeedsYou(): Promise<number | undefined> {
+    try {
+      const body = await this.options.json(`${this.options.baseUrl}/api/meta`)
+      if (typeof body !== 'object' || body === null) return undefined
+      const colonies = (body as { colonies?: unknown }).colonies
+      if (!Array.isArray(colonies) || colonies.length === 0) return undefined
+      return colonies.reduce((total: number, entry: unknown) => {
+        const needsYou = (entry as { needsYou?: unknown }).needsYou
+        return total + (typeof needsYou === 'number' ? needsYou : 0)
+      }, 0)
+    } catch {
+      // A meta read that fails must never take the stream down with it: the
+      // shell watching a fleet without a colony count beats the shell watching
+      // nothing. The badge simply shows the rung, as it always did.
+      return undefined
+    }
   }
 
   /** Rebuilds the fleet against the current clock and publishes the digest. */
@@ -150,6 +187,11 @@ export class FleetFeed {
     this.manifestRepo = repo
     try {
       this.manifest = parseLaneManifest(await this.options.json(`${this.options.baseUrl}/api/lanes`))
+      // prd-58 ruling 5: the tray is visible when the app is not, so a badge
+      // counting only the rendered colony would make ruling 1 unsafe in exactly
+      // the way ruling 5 exists to prevent. Read beside the manifest, on the
+      // same connection, so it costs no extra round trip of its own.
+      this.options.onColonies?.(await this.readColonyNeedsYou())
     } catch {
       // A server older than #76 answers 404 and a server that is not there
       // throws. Both mean the same thing to the instrument.

@@ -2,12 +2,21 @@
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/launchpad-26/rhizomorph)
 
-An instrument you point at a repo full of git worktrees: it shows what a
-swarm of coding agents is doing, live, and can replay the session
-afterward. Watching is read-only, absolutely; there are separate, opt-in
-hands for recording, for running experiments, and for setting a repo up in
-the first place — see [Trust](#trust) below for exactly what each does and
-how that's enforced.
+An instrument that watches **wherever your coding agents are working** — every
+repository one of them is running in, not a path you chose at startup. It shows
+what a swarm is doing, live, and can replay the session afterward.
+
+It **draws one repository at a time**, and that is a decision rather than a
+limit: the scene composes a single colony so its supported size stays a
+question with a measured answer. Nothing is hidden by it. Every other watched
+repository is counted, its lanes are listed, and a lane anywhere that needs a
+person reaches the tray — so choosing what to look at never changes what you are
+told. Starting inside a repo puts that one first, which is why the
+zero-configuration case looks exactly like it always did.
+
+Watching is read-only, absolutely; there are separate, opt-in hands for
+recording, for running experiments, and for setting a repo up in the first place
+— see [Trust](#trust) below for exactly what each does and how that's enforced.
 
 ![The scene as the centerpiece — a busy 20-lane fleet, every thread live green but visibly different widths for visibly different output, ALL CLEAR above it](docs/screenshots/fixture-20-lane.png)
 
@@ -134,7 +143,16 @@ Every subcommand `rhizomorph` dispatches on (`packages/server/src/cli/index.ts`)
 
 This is a tool that reads your machine's own record of what your coding
 agents have been doing, so here is plainly what it does and doesn't do —
-not a footnote, the second thing in this file. There are **five** hands here,
+not a footnote, the second thing in this file.
+
+**It now reads that record for every repository your agents are working in**,
+not only the one you started it in. That widens what it READS and changes
+nothing about what it may WRITE: every fence below is per hand, and each one
+holds in every watched repository exactly as it held in one. The observer writes
+to none of them; the recorder writes only under its own data directory, one
+recording per repository under that repository's own slug; and nothing is
+watched because it was named — a repository enters only by an agent of yours
+working in it. There are **five** hands here,
 not one, each with its own reach and its own enforcing test — a single
 blanket "read-only, never" claim would be weaker than this, not stronger,
 because it would erase the hands that are allowed to write anything and
@@ -142,9 +160,10 @@ leave the rest looking like they need no fence at all.
 
 ### The observer — everything below, absolutely read-only
 
-Collectors, receiver, server and UI. This hand never writes to the repo
-you're watching, never sends a keystroke to an agent, never starts or stops
-one, and never merges or otherwise acts on what it shows you — enforced by
+Collectors, receiver, server and UI. This hand never writes to any repository
+it is watching — the one you started in or any it discovered — never sends a
+keystroke to an agent, never starts or stops one, and never merges or otherwise
+acts on what it shows you — enforced by
 this repo's own readonly law tests, not just stated: the lane drawer's
 [`packages/web/src/drawer/readonly.test.ts`](packages/web/src/drawer/readonly.test.ts)
 greps its own source for any HTTP verb but GET, any way to build a request
@@ -637,6 +656,46 @@ part that lives in this tree, so it is the part a law can reach.
 publishes a document about this project at all, what it costs, and the bound that
 makes it free — it is free and uncredentialed only while this repo is public.
 
+## Watched-repo envelope
+
+Rhizomorph watches **every repository an agent is working in**, discovered from
+the process table rather than chosen at boot ([prd-58](docs/prds/prd-58-the-watched-machine.md)
+ruling 1). The client still draws one colony at a time; the others are counted,
+listed and — when a lane in them needs a person — surfaced on the tray.
+
+**The stated ceiling is the number of instruments you would otherwise run.**
+Each watched repo gets its own poll loop and its own recorder, because a
+recording's genesis hash contains the repo slug and `mergeRecords` refuses
+across it — so N repos has always meant N recorders, and this feature removes
+the need to run N *processes*, not the per-repo cost of watching. A colony costs
+what one rhizomorph has always cost.
+
+What this PRD adds on top of that is **discovery**, and it is measured rather
+than reasoned (ruling 7, Success 7). On Linux, over three real repositories and
+one linked worktree, `packages/server/src/server/colonies.bench.test.ts`:
+
+```
+3 colonies from 4 placed actors (one linked worktree)
+  cold (first sighting, 4 git calls): 11.78 ms
+  warm, 200 ticks: p50 0.0145 ms · p95 0.0318 ms · max 0.1146 ms
+  warm p95 as a share of the 2000 ms interval: 0.0016%
+```
+
+The cold number is paid once per directory, ever: the resolver caches each
+answer, negatives included, so a steady machine spawns no `git` at all after the
+first sighting of each agent. The warm p95 is **0.0016% of one poll interval**,
+which is why the envelope is not bounded by discovery.
+
+**Two honest limits**, neither of them a number:
+
+- **On Windows the process leg reports no working directory for any process**, so
+  no colony can be discovered there and the instrument watches only the repo it
+  was started in. `rhizomorph doctor` says so, counting the agents it could not
+  place rather than presenting a short list as complete.
+- **A repo with no agent in it is not a colony.** There is no act that adds one:
+  a repository nothing is running in produces no facts this design would call a
+  colony's, and the way to start watching one is to start working in it.
+
 ## Support matrix
 
 **Nothing in this table is verified by CI any more.** GitHub Actions was retired
@@ -794,9 +853,11 @@ Neither tmux nor workmux is required to see a working dashboard — `doctor`
 
 ## First run, nothing else set up
 
-Point it at a fresh clone of some other repo — no worktrees beyond `main`,
+Start it inside a fresh clone of some other repo — no worktrees beyond `main`,
 no tmux session, no telemetry configured — and here's exactly what you get,
-not a placeholder:
+not a placeholder. (That repo becomes the pinned colony: the one this run starts
+in, first in the selector, watched on exactly the same terms as any other it
+discovers later.)
 
 - The **attention strip** at the top reads `ALL CLEAR`, with an evidence
   line ("0 lanes · 0 branches · 0 files checked · collisions 0") rather than

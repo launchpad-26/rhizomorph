@@ -145,3 +145,34 @@ export function isInside(parent: string, candidate: string, realpath: Realpath =
   if (to === from) return true
   return to.startsWith(from.endsWith(path.sep) ? from : from + path.sep)
 }
+
+/**
+ * A repo path in the spelling every other reader of it uses.
+ *
+ * `path.resolve` does not follow symlinks and {@link canonicalize} does, so the
+ * two are different names for one repository whenever a symlink is in the way —
+ * unconditionally on macOS, where `os.tmpdir()` is `/var/...` →
+ * `/private/var/...`. A pin in one spelling against a resolver answering in the
+ * other makes ONE repository into TWO colonies: two recorders, two poll loops,
+ * two recordings, two rows in the selector.
+ *
+ * It lives here rather than beside its callers for two reasons. `cli/run.ts`,
+ * `cli/doctor.ts` and `api/retarget.ts` all need it and must not disagree —
+ * `doctor` reporting a different watched set from the server it is diagnosing
+ * is the defect that check exists to make visible. And this file is the one
+ * place a `canonicalize*` symbol may be defined (`containment.test.ts`, #401
+ * step 5): a variant of the primitive belongs beside the primitive, so a
+ * reader grepping the name finds every spelling in one file.
+ *
+ * `canonicalize` throws on anything that is not `ENOENT` — a permission error
+ * part-way up the tree, an `ELOOP`. Neither a boot nor a diagnosis may die for
+ * that: the answer is then the resolved path, which is what this value was
+ * before prd-58 and is still correct for every layout without a symlink in it.
+ */
+export function canonicalizeRepoPath(resolved: string): string {
+  try {
+    return canonicalize(resolved)
+  } catch {
+    return resolved
+  }
+}

@@ -6,12 +6,12 @@ import type { AnyCollector, CollectorContext, Exec } from '@rhizomorph/core'
 import { createEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { repoSlug, sessionDirFor } from '../log/paths.js'
-import { decideSessionBoot, readSessionEvents, sessionFilePath } from '../log/session-log.js'
 import { writeSessionLock } from '../log/session-lock.js'
+import { decideSessionBoot, readSessionEvents, sessionFilePath } from '../log/session-log.js'
 import { buildApp } from '../server/build-app.js'
 import type { ServerContext } from '../server/context.js'
-import { createPollLoop } from '../server/poll-loop.js'
 import type { PollLoop, PollLoopResetOptions } from '../server/poll-loop.js'
+import { createPollLoop } from '../server/poll-loop.js'
 import { SessionRecorder } from '../server/recorder.js'
 import * as retargetValidationModule from '../server/retarget-validation.js'
 import { CAPABILITY_TOKEN_HEADER } from './security.js'
@@ -637,4 +637,96 @@ describe('POST /api/retarget', () => {
 
     await app.close()
   })
+
+  describe('selection: a repo already watched costs nothing (prd-58 ruling 4, Success 3)', () => {
+    /** A watched-set entry for `repoPath`, with a recorder that is not the pinned one. */
+    function watchedEntry(repoPath: string, sessionId: string) {
+      return {
+        colony: { id: repoSlug(repoPath), path: repoPath, pinned: false },
+        recorder: { sessionId } as unknown as SessionRecorder,
+        pollLoop: {
+          start: () => {},
+          stop: async () => {},
+          tick: async () => {},
+          reset: () => {},
+        } as unknown as ServerContext['pollLoop'],
+      }
+    }
+
+    it('selects it, and rotates NOTHING', async () => {
+      // Success 3: "no collector restarts, no recorder rotates, no session
+      // ends". The loop log is the witness — a retarget stops and resets it,
+      // and a selection must not touch it at all.
+      const before = recorder.sessionId
+      const app = buildApp({
+        ...ctx,
+        colonies: () => [watchedEntry(adopted, 'other-session')] as never,
+      })
+      loopLog.length = 0
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/retarget',
+        payload: { path: adopted },
+        headers: capabilityHeaders(app),
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toMatchObject({
+        mode: 'selected',
+        rotated: false,
+        colony: { path: adopted, pinned: false },
+        sessionId: 'other-session',
+      })
+      // Nothing moved: same session, same repo, and the loop was never touched.
+      expect(recorder.sessionId).toBe(before)
+      expect(ctx.repoPath).toBe(watched)
+      expect(loopLog).toEqual([])
+    })
+
+    it('an UNWATCHED path still takes the old adopt path', async () => {
+      // Ruling 4's narrowing is additive here on purpose: refusing an unwatched
+      // path would remove today's only way to point the instrument somewhere
+      // new, and wave 0 ruled there is no pinning act to replace it with.
+      // The ctx object is HELD rather than spread into `buildApp`: a retarget
+      // mutates the context in place (prd20 ruling 5 — "built once, mutated in
+      // place, never copied"), so asserting on a spread copy would watch an
+      // object the route never touched.
+      const local: ServerContext = { ...ctx, colonies: () => [] }
+      const app = buildApp(local)
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/retarget',
+        payload: { path: adopted },
+        headers: capabilityHeaders(app),
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).not.toMatchObject({ mode: 'selected' })
+      expect(local.repoPath).toBe(adopted)
+    })
+
+    it('selecting the repo already being RENDERED is still the 409, not a no-op success', async () => {
+      // "Already watching this repo" predates this and stays: answering 200 to
+      // a request that changed nothing would make the two replies
+      // indistinguishable, and the operator cannot tell a selection from a
+      // request the instrument ignored.
+      const app = buildApp({
+        ...ctx,
+        colonies: () => [watchedEntry(watched, recorder.sessionId)] as never,
+      })
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/retarget',
+        payload: { path: watched },
+        headers: capabilityHeaders(app),
+      })
+
+      expect(response.statusCode).toBe(409)
+      expect(response.json()).toMatchObject({ code: 'already-watching' })
+    })
+  })
+
 })

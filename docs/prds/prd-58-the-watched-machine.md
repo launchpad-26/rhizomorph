@@ -329,6 +329,178 @@ prd-57's Success 6), **#590** (a lab fork starts its arms concurrently) and
 One README claimant per wave, as `.swarm/coupling.txt` requires, and no two
 issues in a wave claim a common path.
 
+## Closeout — prd-58 (2026-09-18)
+
+> Written at `prd58-w1-the-colony`, with waves 1–5 built on one branch rather
+> than five. Every Success is assessed **met**, **partly met**, **not met** or
+> **not assessed**, with what decides it. "Not assessed" is used where the
+> criterion asks for a live run this lane did not perform — it is never a
+> synonym for met, and prd-57's closeout is the reason that sentence is here:
+> its Success 6 was assessed three times and was too generous twice.
+
+### The ten
+
+1. **The instrument watches the operator, not a path — PARTLY MET.** The
+   machinery is built and wired: discovery turns the process table into a
+   watched set (`server/colonies.ts`), each colony gets its own poll loop and
+   recorder (`server/colony-supervisor.ts`, `recorder/colony-recorders.ts`), and
+   the boot runs discovery on the pinned loop's cadence. The falsifier's second
+   half is met and tested — no agent's facts are discarded for being outside a
+   chosen repo, because a repo with an agent in it becomes a colony with a
+   recorder. **What is NOT assessed:** the criterion asks for an instrument
+   *started with no repo argument on a machine with agents in three repos*, and
+   no such live run happened. The bench exercises discovery over three real
+   repositories; it does not run three real agents. Reported partly met rather
+   than met, and the gap is a live run rather than a missing mechanism.
+
+2. **The client composes exactly one colony, still — MET.** Mechanically
+   verified: `git diff --name-only origin/main...HEAD` touches nothing under
+   `packages/web/src/scene/`, and the diff of
+   `scene/tripwire-law.test.ts` is **empty**. `ONE_COLONY_CALL` is unchanged,
+   unskipped and green, and `useFrameLoop.ts` still passes a single-element
+   list. `selectedStream` is the function that hands the scene its one colony.
+
+3. **Switching repos is a view change, not a restart — PARTLY MET.** The
+   selection path exists and is the cheap one: `POST /api/retarget` returns
+   before `beginRetargetBoundary` for a colony already watched, and the test's
+   witness is the poll-loop call log, which stays empty. No collector restarts,
+   no recorder rotates, no session ends. **What is owed:** *"round-trip under a
+   declared ceiling, measured"*. No round-trip measurement was taken, so the
+   ceiling is undeclared and this is not met on its own terms.
+
+4. **N recorders, N records, unchanged format — PARTLY MET.** The format does
+   not move, mechanically verified: no edit to `docs/record-format.md` or
+   `packages/core/src/wire/protocol.ts` anywhere in the range, which is what the
+   falsifier names. One recorder per colony under prd-16's own slug, each with
+   its own file and session. **What is NOT assessed:** *"each colony's recording
+   exports as a portable record that verifies, and ships over protocol v1"*. No
+   export of a discovered colony's recording was performed.
+
+5. **Colony attribution never enters an event — MET.** `colony-absence-law`
+   sweeps every schema module and every payload shape in the discriminated
+   union, proves it read them before it judges them, and carries a fabricated
+   control plus a named, staleness-checked allowance for `session.link`'s
+   pre-existing `repoSlug` (#384's run pointer, which points at another log
+   rather than attributing the event it rides on). The colony rides
+   `stream-frame.ts`, which sits beside `events/` because `no-open-payload-law`
+   put it there.
+
+6. **An unwatched colony still raises attention — NOT MET.** Corrected at
+   review on 2026-09-18; this entry read PARTLY MET and overstated two of its
+   three clauses.
+
+   What is true: the counts exist and are tested against a colony that is *not*
+   the rendered one (`core/src/fleet/colony-attention.ts`), and the fleet list
+   composes every colony as a table.
+
+   What was claimed and is not true: *"the tray badge wants attention when any
+   colony has a lane needing a person"*. `badgeFor` **can** take a cross-colony
+   count, but `app/src/main/entry.ts` calls it with one argument, so
+   `needsYouAcrossColonies` is always `undefined` and `wantsAttention` is
+   byte-for-byte what it was before this PRD. Proved by making the parameter
+   required: `src/main/entry.ts(611,15): error TS2554`.
+
+   Nor could it be wired here. `digestOf` projects **one** `Fleet`, and
+   `/api/stream` subscribes to `ctx.recorder` alone — the pinned colony's — so
+   no other colony's events reach any client at all. That is also why
+   `colonyStreamState.ts` (#607) and `colony-attention.ts` (#612) have no
+   non-test caller: there is nothing for them to read.
+
+   **What is owed** is therefore larger than this entry said: a server surface
+   carrying every watched colony's attention to a client, and only then the
+   selector UI and the badge argument. A capability nothing calls is the shape
+   prd-57 spent six review rounds on, and the correction is that this PRD
+   shipped three of them rather than one.
+
+7. **The envelope is stated — MET.** Measured on Linux over three real
+   repositories and one linked worktree: cold 11.78 ms for four `git` calls,
+   warm p50 0.0145 ms / p95 0.0318 ms over 200 ticks, **0.0016% of one 2 s
+   interval**. The README states the envelope and says the thing the number
+   alone would hide: a colony costs what one rhizomorph has always cost, so N
+   colonies cost N instruments *plus* discovery. **ADR-0056 is not filed**,
+   because ruling 7 licenses it only if the measurement shows ADR-0013's budget
+   cannot hold, and it plainly holds.
+
+8. **The API declares a version and the client refuses a mismatch by name —
+   MET.** `/api/meta` carries `apiVersion`; a mismatch renders a `/connect`-voice
+   refusal naming both versions and a remedy that differs by which side is
+   stale. A missing version reads `unknown` rather than refusing, so every
+   server that predates ruling 8 still works. **`doctor --json` is NOT built** —
+   the command renders text, and the criterion's clause about freezing a
+   machine-readable shape is owed.
+
+9. **Words true in the same commit — MET.** The README's opening framing, its
+   Trust section, `SECURITY.md` and the user guide's "point it at a repo"
+   section all moved. `docs/vision.md` needed no change: ruling 9 names its
+   "point it at a repo" framing and that framing is not in the file — it says
+   *"type `rhizomorph` in any repo"*, which is already true of the wider
+   instrument. Stated rather than silently skipped.
+
+10. **`packages/team/` carries no edit — MET.** Mechanically verified over the
+    whole range: zero files under `packages/team/`.
+
+**Zero new dependencies**, verified the same way: no `package.json` in the range
+gains a dependency line.
+
+### Measured versus reasoned
+
+**Measured.** The per-colony discovery cost, over three real repositories built
+by the bench itself. The colony grouping — four placed actors, one in a linked
+worktree, three colonies — asserted inside that same measurement rather than
+only in unit tests. Every law and every claim in this PRD was mutation-tested;
+the mutations are listed in the PR.
+
+**Asserted and later found false.** Success 6's tray clause, above. It was
+written from `badge.ts`'s new parameter rather than from its call site, which is
+the difference between a function that can do something and a program that does
+it. The lesson is the one this repo keeps relearning in a new costume: grep the
+callers before writing "the X does Y".
+
+**Reasoned.** The watched-repo ceiling. The measurement bounds *discovery*, and
+the argument that a colony costs one instrument is structural rather than
+measured — it follows from each colony having its own poll loop, which is true
+by construction, but no run has measured four instruments' worth of collectors
+on one machine.
+
+### What the plan got wrong
+
+- **A fence that could not hold its own definition of done.** #605 was groomed
+  `packages/core`-only, and its DoD needed a cwd-to-repo-root resolution — an
+  exec, which ADR-0003 keeps out of that package — and could not separate three
+  repos' events in one fold when ruling 3 forbids an event from carrying a
+  colony. Caught by reading the fence against the DoD before writing code,
+  which is the check this repo has a memory of skipping.
+
+- **The rewrite that was not one.** The registry's commit called routing
+  collectors per colony "a genuinely large rewrite". Reading `poll-loop.ts`
+  showed it already closes over one repo, one collector set and one recorder —
+  so N colonies is N loops, and `createPollLoop` needed **no edit at all**. The
+  estimate was made from the shape of the problem rather than from the code.
+
+- **Two writers on one log, and only Linux found it.** Discovery reports the
+  pinned colony every tick, and the supervisor had no way to know the boot
+  already ran it — so it started a second loop against the same recorder. Nine
+  supervisor tests passed against that, because none of them told the supervisor
+  about a colony already running: the seam between two things I built, which is
+  where this PRD's predecessor's defects lived too.
+
+- **A law's proxy outlived its property.** `badge-law` asserted
+  `badgeFor.length === 1` and explained, beside it, that the point was *"it is
+  not a preference"*. The arity was a proxy, and the proxy stopped being true
+  before the property did. Amended to assert the property.
+
+- **The vocabulary was not what the ruling called it.** Ruling 5 says
+  "flatlined"; the pathology is `frozen`. Named for the kind, with the ruling's
+  word in the docblock, rather than inventing a third spelling.
+
+### Owed, and named rather than implied
+
+**#612's selector UI**, **#614's `doctor --json`**, **#611's round-trip
+measurement**, and a **live three-repo run** for Success 1. Plus the three debts
+inherited at grooming: **#597**, **#590** and **#617**.
+
+Nothing here is reported met on the strength of another criterion being met.
+
 ## Open questions
 
 - ~~**The stream shape** (ruling 3).~~ **Ruled 2026-09-17** — see wave 0 above.
