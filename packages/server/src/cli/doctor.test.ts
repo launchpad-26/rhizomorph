@@ -1508,6 +1508,61 @@ describe('runDoctor', () => {
         message: `lane 2-core: ${lapsedVoice(60_000)} — check the lane's hooks are still installed (\`rhizomorph env 2-core --hooks claude\`)`,
       })
     })
+
+    /**
+     * DOCTOR AND THE CARD READ THE SAME DECLARATION, including one the hook
+     * placed by pid (prd-57 ruling 3, #589).
+     *
+     * `attentionReading` looked the lane up by id alone, so a lane whose only
+     * declaration arrived through `rhizomorph hook` — which cannot name a lane,
+     * and is therefore recorded under the worktree its pid resolved to — read
+     * `declares waiting (joined by pid)` on its card and `configured-silent`
+     * here, on the same tick, about the same lane. Two surfaces contradicting
+     * each other about one fact, which is exactly what prd-27's "the condition
+     * is assembled once" exists to prevent. Found in adversarial review.
+     */
+    it('a declaration the hook placed BY PID is read here too, not reported configured-silent', () => {
+      const log = [
+        ...worktrees(),
+        // Ruling 1's process witness places the actor …
+        evt(
+          'process.seen',
+          {
+            pid: 4321,
+            dialect: 'claude',
+            startedAt: NOW - 300_000,
+            worktreePath: '/repo-wt/2-core',
+            placement: 'rooted',
+            parentPid: null,
+          } as never,
+          NOW - 300_000,
+        ),
+        // … and the hook declares, naming no lane, exactly as `cli/hook.ts` writes it.
+        evt(
+          'beacon.received',
+          {
+            writer: WRITER,
+            kind: 'waiting',
+            lane: null,
+            pid: 4321,
+            detail: 'hook: Notification',
+            digest: DIGEST,
+            file: 'claude-hook.jsonl',
+            offset: 0,
+          } as never,
+          NOW - 30_000,
+        ),
+      ]
+
+      const checks = declaredAttentionChecks(reduceAll(log), NOW)
+      const core = checks.find((check) => check.id === 'attention:2-core')
+      expect(core?.message).toBe(`lane 2-core: declared waiting 30s ago (beacon ${WRITER})`)
+      expect(core?.message).not.toContain(CONFIGURED_SILENT_REASON)
+
+      // And the lane that got no declaration still reads silent — the fallback
+      // finds the declaration it should and invents none.
+      expect(checks.find((check) => check.id === 'attention:3-web')?.message).toContain(CONFIGURED_SILENT_REASON)
+    })
   })
 
   describe('the enrichment ladder (prd15 ruling 5)', () => {

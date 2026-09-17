@@ -687,14 +687,104 @@ lane did not perform — it is never a synonym for met.
    keeps every line of its logic, so a stalled-but-alive lane still publishes
    only its inference word.
 
-6. **Declared state exists, and inferred state says so — PARTLY MET.** The
-   declared half is done: `hook` is the third witness, outranks both readings,
-   and the fold keeps every overruled word as `dissent` (#529). The precedence
-   is exercised in all six speaker orders. **What is owed:** the disclosure card
-   does not yet state the join kind in its why line, and the affordance test
-   #532's DoD pairs with it is unwritten. Both need a field in
-   `disclosure/vocabulary.ts` and a producer that knows which keys the join
-   used — recorded in #532's commit, not skipped quietly.
+6. **Declared state exists, and inferred state says so — STILL NOT MET, and
+   nearer, by amendment 2026-09-17 (#589, #597).** Read the assessment below
+   first: it was written the same day, it is what the milestone closed on, and
+   the amendment at the end of this item is what changed. Recorded rather than
+   rewritten — a closeout that quietly shows the right verdict teaches nobody
+   what it cost to find the wrong one.
+
+   *(assessed at close: NOT MET. Corrected then from "partly met", on evidence
+   rather than on reading. This item has now been assessed three times and been
+   too generous twice — which is itself the finding.)*
+
+   **A hook firing reaches no lane.** `cli/hook.ts` writes `sessionId`,
+   `transcriptPath`, `cwd` and `pid`; `reduce.ts`'s `beaconReceived` joins by
+   the line's `lane` label and returns the state unchanged when it is null. The
+   hook cannot write a lane — it fires inside the agent's own process and does
+   not know what this instrument calls the lane — which is exactly what ruling
+   3's DECLARED join exists to solve, and that join was never built. Measured
+   end to end through the real `beaconLineFor`, the real `parseBeaconLine` and
+   the real `reduceAll`: `lane: null`, `state.declared: {}`.
+
+   So `hook` is admitted, ranked and obeyed by the fold (#529) — and nothing
+   emits a hook-sourced `agent.status` and nothing folds a hook beacon. The
+   vocabulary is real and inert.
+
+   **This is a fifth instance of the shape named under "what the plan got
+   wrong"**, and the most expensive: #529's tests assert the fold obeys the
+   ranks WHEN HANDED a hook-sourced event, which is a true statement about a
+   function nothing calls. An assertion that the input is well-formed standing
+   in for one that something reads it.
+
+   Owed as the declared join itself, not as a card's why line.
+
+   > **Amendment, 2026-09-17 — the join is built; the criterion still does not
+   > read MET (#589, and the gap is #597).**
+   >
+   > **What landed.** A beacon that names no lane is placed by its `pid` against
+   > the actor the process witness already found, and lands under that actor's
+   > worktree path, which `buildFleet` resolves back to a lane. So the sentence
+   > above — *"nothing folds a hook beacon"* — is no longer true of this tree.
+   >
+   > **The join is a pid lookup and not a `cwd` one, and that was forced rather
+   > than preferred.** A containment test needs `isInside`, `isInside` needs
+   > `node:fs`, and ADR-0003 keeps that out of `packages/core`. A prefix compare
+   > in its place is a defect this repo has already fixed twice by name. So a
+   > line whose pid matches no actor is **declined rather than guessed at**: a
+   > platform with no process leg sees no declared attention instead of a wrong
+   > one, which is ADR-0010's answer, not a shortfall hidden inside a met
+   > criterion.
+   >
+   > **The card's why line landed with it**, which is the half #532 recorded as
+   > owed. `DeclaredAttention.joinedBy` records which key carried the
+   > declaration, `joinVoice` spells it from one place, and both surfaces —
+   > `diagnose.ts`'s waiting evidence and `condition.ts`'s declaration clause —
+   > import it, so prd-27's *"the condition is assembled once"* stays true
+   > instead of becoming a comment above two spellings. Neither join is ranked:
+   > both are declared, and ADR-0010 asks for the gap named, not scored.
+   >
+   > **What does NOT hold, and why this is not MET.** The NOT MET text above has
+   > two clauses. The amendment answers the second. **The first is still true
+   > today**: *"nothing emits a hook-sourced `agent.status`"*.
+   >
+   > `cli/hook.ts` maps five hook events to four distinct words, and
+   > `BEACON_ATTENTION_KINDS` holds **two** of them — so `PostToolUse`, `Stop`
+   > and `SessionEnd` now reach the fold as `working` or `stopped`, and
+   > `PreToolUse`'s `tool-running` and **`Notification`'s `waiting-permission`
+   > reach nothing at all.** Those two belong to the `agent.status` vocabulary,
+   > `AGENT_STATUS_SOURCES` has named `'hook'` as its third source since #529,
+   > and the only two emitters are `sessionlog` and `workmux`.
+   >
+   > So the most valuable hook of the five — the harness saying it has stopped
+   > for a human — is written correctly, parsed correctly, and then **discarded
+   > before the join is reached**: `beaconReceived` runs `isAttentionKind`
+   > before `placeByPid`, so that line is never joined to anything. (An earlier
+   > draft of this amendment said "joined to its lane correctly, and discarded",
+   > which overstated what landed; corrected in review.)
+   >
+   > And the `waiting` this criterion reads on is the third declared word — one
+   > **the hook never writes**. Ruling 5's precedence arms remain what this
+   > closeout already called them: a true statement about a function nothing
+   > calls.
+   >
+   > **How it was found, which is the part worth keeping.** By the end-to-end
+   > test the review of #589 said was missing — nothing in the repo ran
+   > `beaconLineFor` into `parseBeaconLine` into `reduceAll` into `buildFleet`.
+   > The first thing that ever did, failed on its first run. Three assessments
+   > of this criterion were made by reading modules; the one measurement that
+   > ran the writer against the reader found the defect immediately, twice
+   > (#589, then #597). That is the whole lesson of this item, and it did not
+   > take until the third assessment to be available — only to be performed.
+   >
+   > The gap is pinned by a test that asserts today's behaviour and will redden
+   > when #597 lands (`cli/hook.test.ts`, *"GAP (#597): a Notification firing
+   > reaches no lane"*), because what let this survive three waves was that
+   > nothing reddened.
+   >
+   > **Also still owed, and not this criterion's**: the affordance test #532's
+   > DoD pairs with the why line. It is a test over a field that now exists,
+   > where before it was a test over one that did not.
 
 7. **tmux is an enrichment — MET.** Absent and present both read `ok`; the whole
    doctor report is diffed between the two configurations and only the rig's own
@@ -771,6 +861,19 @@ a dependency.
   fire-and-forget versus run-to-completion, which no reading of either surfaced
   — the suite HANGING is what surfaced it. Ruling 8's launch half lands at its
   own fallback rather than its main clause.
+
+- **The third witness was built and never connected, and the closeout said
+  "partly met" until someone ran it.** Wave 1's amendment moved `hook` out of
+  that wave precisely because *"a third source literal with no emitter is a
+  literal whose precedence arm no test could exercise"* — and wave 3 built the
+  emitter's WRITER while nothing was taught to read what it writes. The
+  amendment's own reasoning was right and the wave it moved to did half of it.
+  *(The join landed by amendment on 2026-09-17 as #589. Building it did NOT make
+  the criterion met: the first end-to-end test from writer to reader then found
+  a second, independent break — the hook writes two words the fold's vocabulary
+  does not hold, #597. See Success 6. The lesson is not retired with either fix:
+  what caught both was running the writer against the reader, and three waves of
+  green tests had never done that.)*
 
 - **Retiring a flag broke three tests on Linux that Windows could not show.**
   One of them was the end-to-end wiring test for the flag itself — a known

@@ -7,6 +7,7 @@ import { AGENT_STATUS_RANK, BEACON_ATTENTION_KINDS, totalTokens } from './events
 import { upcast } from './events/upcast.js'
 import type {
   ActiveTimeRecord,
+  AgentProcess,
   AgentState,
   AgentStatusDissent,
   BranchState,
@@ -533,10 +534,46 @@ function isAttentionKind(kind: string): kind is BeaconAttentionKind {
  * about. An older `at` never rolls a lane back; an equal `at` yields to log
  * order, which is what keeps refolding the same run idempotent.
  */
+/**
+ * THE DECLARED JOIN — prd-57 ruling 3, and the thing that makes ruling 5's third
+ * witness reach anything at all.
+ *
+ * This read `if (p.lane === null) return state` and nothing else, which was
+ * correct for every writer that existed when it was written: `rhizomorph env
+ * --hooks` renders the lane into the command it emits, so those beacons name
+ * one by construction.
+ *
+ * **`rhizomorph hook` cannot.** It fires inside the agent's own process, and the
+ * lane is a name this instrument invented — the hook has never heard it. So
+ * every line it wrote arrived with `lane: null` and was discarded here, and
+ * ruling 5's whole third witness was inert: admitted to the source union,
+ * ranked above both readings, obeyed by the fold, and fed by nothing. Measured
+ * end to end before this was written, not deduced (prd-57's closeout, Success
+ * 6).
+ *
+ * What the hook DOES know is its own parent pid — the agent's. Ruling 1's
+ * process witness has already seen that actor and placed it in a worktree the
+ * collector canonicalised. So the join is a pid lookup, and the place a
+ * declaration lands under is that actor's worktree path; `buildFleet` resolves
+ * that back to a lane, because it is the one place holding both.
+ *
+ * **No path arithmetic here.** A `cwd`-based join would be the more general one
+ * and it cannot live in this package: containment needs `isInside`, `isInside`
+ * needs `node:fs`, and ADR-0003 keeps that out of core. A prefix compare
+ * instead of it is a defect this repo has already fixed twice by name. So the
+ * pid join is what lands, and a line whose pid matches no actor is DECLINED
+ * rather than guessed at — the honest gap ADR-0010 asks for, and the reason a
+ * platform with no process leg simply sees no declared attention rather than a
+ * wrong one.
+ */
 function beaconReceived(state: SessionState, event: EventOf<'beacon.received'>): SessionState {
   const p = event.payload
-  if (p.lane === null || !isAttentionKind(p.kind)) return state
-  const prev = state.declared[p.lane]
+  if (!isAttentionKind(p.kind)) return state
+
+  const placed = p.lane === null ? placeByPid(state, p.pid, p.cwd) : { key: p.lane, joinedBy: 'lane' as const }
+  if (placed === null) return state
+
+  const prev = state.declared[placed.key]
   if (prev !== undefined && prev.at > event.ts) return state
   const record: DeclaredAttention = {
     kind: p.kind,
@@ -545,8 +582,193 @@ function beaconReceived(state: SessionState, event: EventOf<'beacon.received'>):
     digest: p.digest,
     file: p.file,
     offset: p.offset,
+    joinedBy: placed.joinedBy,
   }
-  return { ...state, declared: { ...state.declared, [p.lane]: record } }
+  return { ...state, declared: { ...state.declared, [placed.key]: record } }
+}
+
+/**
+ * The actor this pid belongs to, and the worktree it was placed in.
+ *
+ * **A pid is not an identity, and this function's first draft pretended it
+ * was.** {@link actorKey}, in this file, says so in as many words — *"an
+ * actor's identity is the RUN, not the pid … it would be careless to un-refuse
+ * it one layer up"* — and the first draft of this returned the first actor
+ * whose number matched. That is not a theoretical hole: `processGone` KEEPS a
+ * dead actor forever, the process collector emits `goneReason: 'recycled'`
+ * exactly when a pid is live again under a different `startedAt`, and
+ * `processes` is keyed `pid:startedAt`, so `Object.values` yields insertion
+ * order — the older, dead run first. A hook firing in the new run would have
+ * landed its declaration on the dead run's worktree, deterministically. Found
+ * in adversarial review, before this branch merged.
+ *
+ * So the run is resolved rather than the number, and **the line's own `cwd` is
+ * the first question when it is present.** `actor.worktreePath` IS the actor's
+ * canonical cwd, so an exact string match is the ordinary case and it settles
+ * everything.
+ *
+ * **A `cwd` matching NOTHING is a decline**, and four reviews were needed to
+ * settle that, with one of them reversing another. The draft in between
+ * believed a LIVE actor over a mismatch, on the reasoning that the only cause
+ * was cosmetic — two pipelines spelling one directory differently, a repo
+ * reached through a symlink (#217's standing macOS case).
+ *
+ * There is a second cause with the same signature, and unlike the first it is
+ * documented in the tree rather than reasoned about. `process.seen` is emitted
+ * ONLY on first sighting, and no later event carries a path — `processActivity`
+ * and `processGone` never touch `worktreePath` — so a live actor's recorded
+ * path is the cwd it had when the collector first saw it. An agent launched at
+ * the repo root and then working in a worktree is recorded at the root.
+ *
+ * Not forever: an unreadable tick clears the snapshot so *"the next successful
+ * read is treated as a first sighting"*, and a restart does the same. The
+ * staleness lasts until one of those, which can be the whole life of a run. An
+ * earlier draft of this comment said "permanently", which the collector it
+ * cites contradicts.
+ *
+ * Nothing here can tell that from a symlink. And the process collector, which
+ * accepts the staleness deliberately, says exactly why accepting it is safe
+ * THERE and not here: *"a fleet can show an actor on a lane it has walked out
+ * of. That is a stale fact rather than a false death, and only one of those
+ * wakes a human at 3am."* Reading a stale placement is the first kind; writing
+ * a declaration onto it is the second, because a declaration is what raises a
+ * summons.
+ *
+ * **Priced honestly, because a draft overstated it.** Today the hook cannot
+ * write a lane-less `waiting` at all — `KIND_BY_EVENT`'s five events yield four
+ * words, only `working` and `stopped` are attention kinds, and `isAttentionKind`
+ * runs before this function — so the harm available right now is a stale
+ * `working` on a lane nobody is in. That is real and it is not a 3am page. It
+ * becomes one the moment #597 lands and `waiting-permission` reaches the fold,
+ * which is the direction this tree is going.
+ *
+ * With no `cwd` at all the witness is all there is: a live run over a dead one.
+ * And in THAT branch a `recycled` run is never a candidate — it is the
+ * collector's word for *this number came back*, so it is definitionally not the
+ * process that just fired a hook, and there the actor IS the key. The `cwd`
+ * branch admits one deliberately: the filter is `worktreePath === cwd`, so the
+ * only key it can return is `cwd` itself, and excluding a run whose recorded
+ * path the line already names would discard a true join without being able to
+ * prevent a wrong one. An earlier draft of this sentence said "either branch",
+ * which the code beneath it had already stopped doing.
+ *
+ * And when runs still disagree about the worktree, **DECLINE**. The newest
+ * `startedAt` would be a plausible guess, and a guess on this exact question is
+ * what the join exists to avoid (ADR-0010).
+ *
+ * `null` for every case that is not a match, and they are different facts worth
+ * keeping apart in a reader's head even though they collapse to one answer
+ * here: no pid on the line, no actor with that pid, no actor with a worktree
+ * the witness could resolve, a `cwd` no non-recycled actor sits at, or two runs
+ * that cannot be told apart. Each is a gap; none is a lane.
+ *
+ * **And the gap is not declared to anyone, which is a real shortfall in an
+ * ADR-0010 argument.** A decline leaves `state.declared` untouched, so the lane
+ * reads through `attentionReading` as though no beacon had ever been written
+ * for it: `never-declared` when `state.declared` is empty, whose `doctor` line
+ * tells the operator to install hooks that are already firing several times a
+ * minute, and `configured-silent` otherwise, whose remedy — *"the first hook
+ * that fires … declares it"* — is equally false under a standing decline,
+ * because the next hook fires and still declares nothing. Counting it needs a
+ * slice this fold does not have, so it is **#617** rather than a line here —
+ * named because "the honest gap" is a claim, not a behaviour, until something
+ * says it out loud.
+ *
+ * A GONE actor still counts. The hook fired while the process was alive — that
+ * is the only time a hook can fire — and a `process.gone` arriving first on a
+ * busy tick must not lose the word the agent said before it died. In the `cwd`
+ * branch that holds even with a live sibling elsewhere, because there the path
+ * is the key and the line already named it.
+ *
+ * **The key this returns is only as good as ruling 1's own placement**, and
+ * that is a limit worth stating rather than discovering. `placementOf` sets
+ * `worktreePath` to the actor's canonical **cwd**, not to the worktree root, so
+ * an agent sitting in a subdirectory produces a key `buildFleet` matches to no
+ * lane — exactly as ruling 1's own `lane.actors` bucket already fails to match
+ * it. This join inherits that limit; it does not introduce it, and it cannot
+ * fix it here, because narrowing a cwd to its worktree root is a containment
+ * question and containment needs `node:fs` (ADR-0003).
+ *
+ * **Two agents in ONE worktree share one key**, and that is the lane's shape
+ * rather than a collision: a lane holds one declared attention, and the fold's
+ * `prev.at > event.ts` guard makes the most recent word win. It is stated here
+ * because it is invisible at the call site.
+ *
+ * A linear scan, deliberately: `processes` is keyed `pid:startedAt` so a pid
+ * alone cannot index it, and the set is the agent processes on one machine —
+ * tens, not thousands. A second index keyed by pid would have to be kept
+ * correct across `seen`/`gone`/recycle for a lookup that costs nothing at this
+ * size.
+ */
+function placeByPid(
+  state: SessionState,
+  pid: number | undefined,
+  cwd: string | undefined,
+): { key: string; joinedBy: 'pid' } | null {
+  if (pid === undefined) return null
+
+  const placed = Object.values(state.processes).filter(
+    (actor): actor is AgentProcess & { worktreePath: string } =>
+      actor.pid === pid && actor.worktreePath !== null,
+  )
+
+  // THE LINE'S OWN `cwd`, WHEN IT MATCHES — and a DECLINE when it does not. The
+  // docblock above carries the argument and the two reviews that reversed each
+  // other over it; it is deliberately NOT restated here, because the first copy
+  // of this block kept two sentences the docblock had already retracted, and a
+  // reader landing on the body got the withdrawn version.
+  if (cwd !== undefined) {
+    // `onePath`, not `{ key: cwd }`: the key has to be the WITNESS's path,
+    // because `buildFleet` resolves it against `draft.worktreePath`. Here they
+    // are equal by construction, so it is the same answer — but saying `cwd`
+    // made the containment mutation below unobservable, and it would be an
+    // outright bug the moment the filter stopped being equality.
+    // Every survivor has `worktreePath === cwd`, so `onePath` can only ever
+    // return `cwd` itself. This filter is therefore a "has the witness ever
+    // seen this path" GATE, not a choice between identities — which is why it
+    // does not exclude a `recycled` run the way the branch below does. A draft
+    // excluded one here by symmetry, and the fifth review named the category
+    // error: whichever run wrote the line, the line says it was written FROM
+    // this path, and a recycled run's recorded path is still a path the witness
+    // observed. Declining it discarded a true join and could not have prevented
+    // a wrong key, because there is no other key to return.
+    return onePath(placed.filter((actor) => actor.worktreePath === cwd))
+  }
+
+  // NO `cwd` ON THE LINE, and here the actor IS the key — so which run answers
+  // decides which lane, and a `recycled` one is a wrong candidate rather than a
+  // weak one. `recycled` is the collector's word for *this number came back*,
+  // so that run is definitionally not the process which just fired a hook.
+  //
+  // This branch is close to dead in practice, and saying so is cheaper than
+  // letting the next reader work it out: `beaconLineBelongsTo` refuses a line
+  // with no `cwd`, so one only survives through the un-routed per-repo door,
+  // whose writers are `rhizomorph env --hooks` — and those name a lane, so they
+  // never reach this function at all. It is kept because the schema permits the
+  // shape and a fold that crashed on a permitted shape would be worse.
+  const candidates = placed.filter((actor) => actor.goneReason !== 'recycled')
+  const live = candidates.filter((actor) => actor.goneAt === null)
+  if (live.length > 0) return onePath(live)
+
+  // All dead. A gone actor still counts — the hook fires only from a live
+  // process, and a `process.gone` arriving first on a busy tick must not lose
+  // the word the agent said before it died.
+  return onePath(candidates)
+}
+
+/**
+ * The one worktree these actors agree on, or `null`.
+ *
+ * If every candidate names the same path the ambiguity never reaches the
+ * answer, so there is none. If they disagree, DECLINE: the newest `startedAt`
+ * would be a plausible guess, and a guess on this exact question is what the
+ * join was built to avoid. ADR-0010 — a gap declared beats a lane invented.
+ */
+function onePath(actors: readonly { worktreePath: string }[]): { key: string; joinedBy: 'pid' } | null {
+  const paths = new Set(actors.map((actor) => actor.worktreePath))
+  if (paths.size !== 1) return null
+  const [only] = [...paths]
+  return only === undefined ? null : { key: only, joinedBy: 'pid' }
 }
 
 // --- git --------------------------------------------------------------------

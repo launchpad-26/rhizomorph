@@ -23,7 +23,7 @@ import {
 const AT = 1_000_000
 
 function beacon(kind: DeclaredAttention['kind'], at = AT): DeclaredAttention {
-  return { kind, at, writer: 'claude-hook', digest: 'd'.repeat(64), file: 'claude-hook.jsonl', offset: 0 }
+  return { kind, at, writer: 'claude-hook', digest: 'd'.repeat(64), file: 'claude-hook.jsonl', offset: 0, joinedBy: 'lane' }
 }
 
 describe('declarationStatus — the boundary', () => {

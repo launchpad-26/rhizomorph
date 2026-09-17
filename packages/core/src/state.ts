@@ -1110,6 +1110,26 @@ function indexRefusalUnder(
  * at the line, the way the event does. A lane with no record here was never
  * declared for — the fleet reads that as "nothing said", not as `stopped`.
  */
+/**
+ * How a declaration was attributed to the place it is recorded under — prd-57
+ * ruling 3's DECLARED join.
+ *
+ * - **`lane`** — the writer named the lane itself. Every beacon before prd-57
+ *   does this, because `rhizomorph env --hooks` renders the lane into the
+ *   command it writes, so the writer knows it by construction.
+ * - **`pid`** — the writer could not name a lane and did not guess. A hook
+ *   fires inside the agent's own process and has no idea what this instrument
+ *   calls the lane; what it does know is its own parent pid, and the process
+ *   witness (ruling 1) already placed that actor. The join is a pid lookup
+ *   against a worktree path the collector canonicalised — no path arithmetic
+ *   here, which is what keeps `node:fs` out of this package (ADR-0003).
+ *
+ * This is a FACT about the attribution, not a ranking of it. ADR-0010: declare
+ * the gap, never rank. A reader that wants to say "declared" versus "inferred"
+ * reads this; a reader that wants to sort by it is asking the wrong question.
+ */
+export type AttentionJoin = 'lane' | 'pid'
+
 export interface DeclaredAttention {
   kind: BeaconAttentionKind
   at: number
@@ -1117,6 +1137,36 @@ export interface DeclaredAttention {
   digest: string
   file: string
   offset: number
+  /**
+   * Which key carried this declaration to its place — `'lane'` when the writer
+   * named one, `'pid'` when the process witness placed it.
+   *
+   * **Required, and it took three tries to say why honestly.** Two earlier
+   * versions of this comment made it optional and told a story about the case
+   * that justified it; both stories described something that cannot happen, and
+   * both were caught by review rather than by a test — which is itself the
+   * shape this PRD kept meeting, an assertion about well-formedness standing in
+   * for a reader.
+   *
+   * - *"An old recording carries no join"* — false. A recording holds EVENTS.
+   *   Refolding one, however old, runs today's `beaconReceived`, which always
+   *   writes this field, and `SessionState` is never persisted.
+   * - *"A `Lane` crosses an HTTP boundary to a client that may be older"* —
+   *   false, and about the wrong type. The web client folds its own
+   *   `SessionState` with its own `reduce` and calls `buildFleet` locally
+   *   (`web/src/fleet/FleetContext.tsx`, `app/src/host/stream-fold.ts`);
+   *   `/api/lanes` serves the lane MANIFEST, not `Lane` objects. And
+   *   `DeclaredAttention` is a `SessionState` slice that reaches no wire at
+   *   all: `checkDeclaredAttention` hands it to `checkEnrichmentLadder`
+   *   in-process.
+   *
+   * There is exactly one producer — `beaconReceived` — and it always writes a
+   * join. So the field is required, `buildFleet` needs no `?? 'lane'` default
+   * for a case that cannot arise, and {@link joinVoice}'s `Record` can never be
+   * handed an `undefined` to render as the word "undefined" on a card. ADR-0011
+   * governs the EVENT schema, which stays lenient; it was never about this.
+   */
+  joinedBy: AttentionJoin
 }
 
 /**

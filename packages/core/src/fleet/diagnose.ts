@@ -1,3 +1,5 @@
+import { declarationStatus, lapsedForMs, lapsedVoice } from '../selectors/lapse.js'
+import type { AgentStatusDissent } from '../state.js'
 import {
   FROZEN_AFTER_MS,
   LOOP_MAX_PERIOD,
@@ -7,10 +9,8 @@ import {
   WAITING_PANE_FRESH_MS,
   WAITING_QUIET_MS,
 } from './constants.js'
-import { PATHOLOGY_RANK, type Pathology } from './pathology.js'
+import { joinVoice, PATHOLOGY_RANK, type Pathology } from './pathology.js'
 import { formatSpan } from './plumbing.js'
-import { declarationStatus, lapsedForMs, lapsedVoice } from '../selectors/lapse.js'
-import type { AgentStatusDissent } from '../state.js'
 import type { Lane } from './types.js'
 
 // ── the five detectors ──────────────────────────────────────────────────────
@@ -201,7 +201,9 @@ function detectWaiting(lane: Lane, ctx: DiagnoseContext): Pathology | null {
 
   // (a) the harness said so — and nothing declared has said otherwise since.
   if (declared !== null && declared.kind === 'waiting' && lane.present && declaredIsNewerThanRoster) {
-    const parts = [`beacon (${declared.writer}) declares waiting ${formatSpan(Math.max(0, ctx.now - declared.at))} ago`]
+    const parts = [
+      `beacon (${declared.writer}) declares waiting ${formatSpan(Math.max(0, ctx.now - declared.at))} ago${joinVoice(declared.joinedBy)}`,
+    ]
     for (const reading of otherReadings(lane, ctx)) if (reading.word !== 'waiting') parts.push(reading.voice)
     return {
       kind: 'waiting',

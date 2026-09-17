@@ -12,6 +12,7 @@ import {
   selectTouchesByBranch,
   selectWorktreeViews,
 } from '../selectors/index.js'
+import { resolveDeclared } from '../selectors/lapse.js'
 import { bucketizeSeries } from '../spark/index.js'
 import type { AgentProcess, SessionState } from '../state.js'
 import {
@@ -325,7 +326,21 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
     // prd-27 ruling 3 (#283): a beacon whose lane matches no draft id is simply
     // never read — no lane, no alarm (the #133 shape: a summons for a lane
     // nobody can attach to is a false summons in a new costume).
-    const declaredRecord = state.declared[draft.id]
+    /**
+     * BY LANE ID, THEN BY WORKTREE — prd-57 ruling 3's join, resolved here
+     * because this is the one place that holds both the fold and the lanes.
+     *
+     * A beacon whose writer named the lane lands under that name, as it always
+     * has. A hook beacon cannot name one, so `beaconReceived` places it under
+     * the worktree path its pid resolved to, and this is where that becomes a
+     * lane again.
+     *
+     * `resolveDeclared` is imported rather than spelled here because `doctor`
+     * asks the same question through `attentionReading`, and the two answering
+     * it differently is how a lane comes to read `waiting` on its card and
+     * `configured-silent` in the terminal on the same tick.
+     */
+    const declaredRecord = resolveDeclared(state.declared, draft.id, draft.worktreePath)
 
     lanes.push({
       id: draft.id,
@@ -343,7 +358,12 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
       declared:
         declaredRecord === undefined
           ? null
-          : { kind: declaredRecord.kind, at: declaredRecord.at, writer: declaredRecord.writer },
+          : {
+              kind: declaredRecord.kind,
+              at: declaredRecord.at,
+              writer: declaredRecord.writer,
+              joinedBy: declaredRecord.joinedBy,
+            },
       activity: 'unknown',
       // prd-57 ruling 1. Placement is compared, never normalised: the collector
       // canonicalises before the event leaves it, because `canonicalize`

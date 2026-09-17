@@ -2202,6 +2202,428 @@ describe('reduce — the fold-order law: append order is the truth (prd17 ruling
 describe('reduce — beacon.received folds declared attention per lane (prd-27 w3, #283)', () => {
   const DIGEST = 'a'.repeat(64)
 
+  /**
+   * THE DECLARED JOIN — prd-57 ruling 3, and the defect it closes.
+   *
+   * `rhizomorph hook` fires inside the agent's own process and cannot name a
+   * lane: the lane is a name this instrument invented and the hook has never
+   * heard it. Every line it wrote therefore arrived with `lane: null`, and this
+   * fold discarded all of them — so ruling 5's third witness was admitted to
+   * the source union, ranked above both readings, obeyed by the fold, and fed
+   * by nothing.
+   *
+   * Nothing caught it because every test in this file handed the fold a beacon
+   * that already named a lane. The shape this PRD kept meeting: an assertion
+   * that the input is well-formed standing in for one that something reads it.
+   */
+  it('a lane-less beacon is joined by PID to the actor the process witness placed', () => {
+    const base = reduceAll([
+      ...fixtureSession(),
+      f.processSeen({ pid: 4321, startedAt: 900, worktreePath: '/repo/wt-a', dialect: 'claude' }, { ts: 900 }),
+    ])
+
+    const after = reduce(
+      base,
+      // Exactly what `cli/hook.ts` writes: no lane, a pid, and the keys ruling
+      // 3 names. Nothing here knows what the lane is called.
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 4321, cwd: '/repo/wt-a', writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 10 },
+      ),
+    )
+
+    // Recorded under the actor's WORKTREE, which is what `buildFleet` resolves
+    // back to a lane — the fold cannot know lane ids, and a path comparison
+    // here would need `node:fs` (ADR-0003).
+    //
+    // `toEqual`, not `toMatchObject`: the pointer back at the bytes is the
+    // point of the record (ADR-0036), and a fold that dropped `writer`,
+    // `digest`, `file` or `offset` from a pid-joined record passed the looser
+    // assertion this used to carry.
+    //
+    // This is the ONE place the whole pid-joined record is pinned, on purpose.
+    // The cases below vary which RUN answers to a pid; they assert the lane the
+    // join landed on, which is the only thing that distinguishes them, and a
+    // full record in each would pin the same six fields six times and say
+    // nothing about the thing under test.
+    expect(after.declared['/repo/wt-a']).toEqual({
+      kind: 'waiting',
+      at: 10,
+      writer: 'claude-hook',
+      digest: DIGEST,
+      file: 'claude-hook.jsonl',
+      offset: 0,
+      joinedBy: 'pid',
+    })
+  })
+
+  /**
+   * A PID IS NOT AN IDENTITY, and the first version of this join forgot it.
+   *
+   * `reduce.ts`'s own {@link actorKey} says a pid is reused by the OS
+   * routinely and that keying on it alone *"would be careless to un-refuse one
+   * layer up"* — and the first `placeByPid` returned the first actor whose
+   * number matched. Deterministically the WRONG one: `processGone` keeps a dead
+   * actor forever, `processes` is keyed `pid:startedAt`, so the older run is
+   * first in insertion order. Found in adversarial review before this merged.
+   *
+   * The three cases below are the resolution, and each one is a fact rather
+   * than a preference.
+   */
+  it('a recycled pid lands on the LIVE run, never the dead one that held the number first', () => {
+    const base = reduceAll([
+      ...fixtureSession(),
+      // The dead run, inserted first — which is what made the bug deterministic.
+      f.processSeen({ pid: 4321, startedAt: 900, worktreePath: '/repo/wt-a', dialect: 'claude' }, { ts: 900 }),
+      f.processGone({ pid: 4321, startedAt: 900, reason: 'recycled' }, { ts: 4_000 }),
+      // The OS handed 4321 to a new agent, somewhere else entirely.
+      f.processSeen({ pid: 4321, startedAt: 5_000, worktreePath: '/repo/wt-b', dialect: 'claude' }, { ts: 5_000 }),
+    ])
+
+    const after = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 4321, writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 6_000 },
+      ),
+    )
+
+    expect(after.declared['/repo/wt-b']).toMatchObject({ kind: 'waiting', joinedBy: 'pid' })
+    // And the dead run's lane is left alone. A summons on a worktree nobody is
+    // working in is worse than no summons: it is a false one, in a costume.
+    expect(after.declared['/repo/wt-a']).toBeUndefined()
+  })
+
+  it("the line's own cwd settles a tie, by plain string equality — no containment test, so no node:fs", () => {
+    const base = reduceAll([
+      ...fixtureSession(),
+      f.processSeen({ pid: 4321, startedAt: 900, worktreePath: '/repo/wt-a', dialect: 'claude' }, { ts: 900 }),
+      f.processSeen({ pid: 4321, startedAt: 5_000, worktreePath: '/repo/wt-b', dialect: 'claude' }, { ts: 5_000 }),
+    ])
+
+    const after = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 4321, cwd: '/repo/wt-a', writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 6_000 },
+      ),
+    )
+
+    // Both runs are live, so liveness cannot choose; the cwd names one exactly.
+    expect(after.declared['/repo/wt-a']).toMatchObject({ joinedBy: 'pid' })
+    expect(after.declared['/repo/wt-b']).toBeUndefined()
+  })
+
+  it('two live runs of one pid in DIFFERENT worktrees, and nothing to tell them apart, is DECLINED', () => {
+    // The newest `startedAt` would be a plausible guess. A guess on this exact
+    // question is what the join was built to avoid — ADR-0010, a gap declared
+    // beats a lane invented.
+    const base = reduceAll([
+      ...fixtureSession(),
+      f.processSeen({ pid: 4321, startedAt: 900, worktreePath: '/repo/wt-a', dialect: 'claude' }, { ts: 900 }),
+      f.processSeen({ pid: 4321, startedAt: 5_000, worktreePath: '/repo/wt-b', dialect: 'claude' }, { ts: 5_000 }),
+    ])
+
+    const after = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 4321, writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 6_000 },
+      ),
+    )
+
+    expect(after.declared).toEqual(base.declared)
+  })
+
+  it('two runs of one pid that AGREE about the worktree are not ambiguous at all', () => {
+    // The ambiguity never reaches the answer, so it is not one. A restarted
+    // agent in the same lane is the ordinary case this protects.
+    const base = reduceAll([
+      ...fixtureSession(),
+      f.processSeen({ pid: 4321, startedAt: 900, worktreePath: '/repo/wt-a', dialect: 'claude' }, { ts: 900 }),
+      f.processSeen({ pid: 4321, startedAt: 5_000, worktreePath: '/repo/wt-a', dialect: 'claude' }, { ts: 5_000 }),
+    ])
+
+    const after = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 4321, writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 6_000 },
+      ),
+    )
+
+    expect(after.declared['/repo/wt-a']).toMatchObject({ joinedBy: 'pid' })
+  })
+
+  it('a cwd that matches no actor, and only DEAD candidates, is declined', () => {
+    /**
+     * The case the FIRST fix still got wrong, and the reason `cwd` decides in
+     * both directions.
+     *
+     * A run exits; the OS hands its number to a new agent elsewhere minutes
+     * later. The collector says `goneReason: 'absent'`, NOT `'recycled'` — it
+     * only says recycled when the pid is live in the same tick — and the new
+     * run has not been ticked yet, because a hook fires within seconds of a
+     * start while the collector polls on an interval. So exactly one actor
+     * answers to 4321, it is dead, and it is in the wrong worktree. Every
+     * liveness filter passed it through.
+     *
+     * The line says it came from `/repo/wt-b`. Nothing here agrees. Declining
+     * is the only honest answer, and the alternative is a summons on a lane
+     * nobody is working in.
+     */
+    const base = reduceAll([
+      ...fixtureSession(),
+      f.processSeen({ pid: 4321, startedAt: 900, worktreePath: '/repo/wt-a', dialect: 'claude' }, { ts: 900 }),
+      f.processGone({ pid: 4321, startedAt: 900, reason: 'absent' }, { ts: 4_000 }),
+    ])
+
+    const after = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 4321, cwd: '/repo/wt-b', writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 6_000 },
+      ),
+    )
+
+    expect(after.declared).toEqual(base.declared)
+  })
+
+  it('a cwd that matches no actor is DECLINED even when a live run holds that pid', () => {
+    /**
+     * THE FOURTH REVIEW'S FINDING, and it reversed a rule the third one asked
+     * for.
+     *
+     * A draft believed a live actor over a mismatch, reasoning that the only
+     * cause was cosmetic — two pipelines spelling one directory differently.
+     * There is a second cause and it is documented in the tree rather than
+     * speculative: `process.seen` fires ONLY on first sighting, and no later
+     * event carries a path, so a live actor's `worktreePath` is frozen at the
+     * cwd it had when it was first seen.
+     *
+     * Here the actor was first seen at the repo root — a conductor launching an
+     * agent before it enters a worktree — and the hook fires from `wt-a`. The
+     * believing rule lands a declared `waiting` on the MAIN lane, where nobody
+     * is working.
+     *
+     * The process collector accepts stale placement deliberately, and says
+     * exactly why it is safe to: "a fleet can show an actor on a lane it has
+     * walked out of. That is a stale fact rather than a false death, and only
+     * one of those wakes a human at 3am." Believing it here converts the stale
+     * fact into the kind that wakes a human. The collector's own reasoning
+     * forbids it.
+     */
+    const base = reduceAll([
+      ...fixtureSession(),
+      f.processSeen({ pid: 4321, startedAt: 900, worktreePath: '/repo', dialect: 'claude' }, { ts: 900 }),
+    ])
+
+    const after = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 4321, cwd: '/repo/wt-a', writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 6_000 },
+      ),
+    )
+
+    expect(after.declared).toEqual(base.declared)
+    // And emphatically not on the lane the actor was FIRST seen in.
+    expect(after.declared['/repo']).toBeUndefined()
+  })
+
+  it('an exact cwd match on a DEAD actor still joins — the hook fired before it died', () => {
+    // The gap the fourth review found in the new pins: every cwd fixture used a
+    // LIVE actor, so restricting the exact filter to live actors would have
+    // passed the whole suite — while breaking the ordinary hook line, because
+    // `rhizomorph hook` always writes a `cwd` and the shared door drops lines
+    // without one. The gone-actor rule was pinned only on the cwd-less path.
+    const base = reduceAll([
+      ...fixtureSession(),
+      f.processSeen({ pid: 4321, startedAt: 900, worktreePath: '/repo/wt-a', dialect: 'claude' }, { ts: 900 }),
+      f.processGone({ pid: 4321, startedAt: 900, reason: 'absent' }, { ts: 5_000 }),
+    ])
+
+    const after = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 4321, cwd: '/repo/wt-a', writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 6_000 },
+      ),
+    )
+
+    expect(after.declared['/repo/wt-a']).toMatchObject({ joinedBy: 'pid' })
+  })
+
+  it('a cwd naming a RECYCLED run\'s path still joins — the path is the key, not the run', () => {
+    /**
+     * The fifth review's category error, and it cost a true join.
+     *
+     * A draft excluded `recycled` runs here too, by symmetry with the branch
+     * below. But the two branches choose different things. Below, the ACTOR is
+     * the key, so which run answers decides which lane and a recycled run is a
+     * wrong candidate. Here every survivor already has `worktreePath === cwd`,
+     * so the only key this can return is `cwd` itself — the filter is a "has
+     * the witness ever seen this path" gate, not a choice between identities.
+     *
+     * Whichever run wrote the line, the line says it was written FROM `wt-a`,
+     * and the witness has seen an actor there. Declining discarded that and
+     * could not have prevented a wrong key, because there is no other key.
+     */
+    const base = reduceAll([
+      ...fixtureSession(),
+      f.processSeen({ pid: 4321, startedAt: 900, worktreePath: '/repo/wt-a', dialect: 'claude' }, { ts: 900 }),
+      f.processGone({ pid: 4321, startedAt: 900, reason: 'recycled' }, { ts: 5_000 }),
+      f.processSeen({ pid: 4321, startedAt: 5_000, worktreePath: '/repo/wt-b', dialect: 'claude' }, { ts: 5_000 }),
+    ])
+
+    const after = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 4321, cwd: '/repo/wt-a', writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 6_000 },
+      ),
+    )
+
+    expect(after.declared['/repo/wt-a']).toMatchObject({ joinedBy: 'pid' })
+    // And emphatically not the live sibling's lane, which the line never named.
+    expect(after.declared['/repo/wt-b']).toBeUndefined()
+  })
+
+  it('the cwd match is plain EQUALITY — a containing path is not a match', () => {
+    // ADR-0003 forbids containment here, and a prefix compare would also be
+    // WRONG rather than merely forbidden: `placementOf` sets `worktreePath` to
+    // the actor's own canonical cwd, so a `cwd` that CONTAINS an actor's path
+    // names an ancestor that actor is not in. Two live runs, one exact and one
+    // whose path is a prefix of the line's cwd: equality picks the exact one,
+    // and either `startsWith` direction would match both and decline.
+    const base = reduceAll([
+      ...fixtureSession(),
+      f.processSeen({ pid: 4321, startedAt: 900, worktreePath: '/repo/wt-a', dialect: 'claude' }, { ts: 900 }),
+      f.processSeen({ pid: 4321, startedAt: 5_000, worktreePath: '/repo/wt-a/packages/core', dialect: 'claude' }, { ts: 5_000 }),
+    ])
+
+    const after = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 4321, cwd: '/repo/wt-a/packages/core', writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 6_000 },
+      ),
+    )
+
+    expect(after.declared['/repo/wt-a/packages/core']).toMatchObject({ joinedBy: 'pid' })
+    expect(after.declared['/repo/wt-a']).toBeUndefined()
+
+    // And the OTHER direction, because one fixture only catches one of them:
+    // here the cwd is the shorter path, so `actor.worktreePath.startsWith(cwd)`
+    // would match both and decline where equality answers.
+    const other = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 4321, cwd: '/repo/wt-a', writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 6_000 },
+      ),
+    )
+    expect(other.declared['/repo/wt-a']).toMatchObject({ joinedBy: 'pid' })
+    expect(other.declared['/repo/wt-a/packages/core']).toBeUndefined()
+  })
+
+  it('with no cwd, a LIVE run beats a dead one that merely went absent', () => {
+    // Pins the liveness step ON ITS OWN. The recycled case above passes through
+    // the `recycled` filter too, so without this one that step could be deleted
+    // in silence — which the second review proved by enumeration.
+    const base = reduceAll([
+      ...fixtureSession(),
+      f.processSeen({ pid: 4321, startedAt: 900, worktreePath: '/repo/wt-a', dialect: 'claude' }, { ts: 900 }),
+      f.processGone({ pid: 4321, startedAt: 900, reason: 'absent' }, { ts: 4_000 }),
+      f.processSeen({ pid: 4321, startedAt: 5_000, worktreePath: '/repo/wt-b', dialect: 'claude' }, { ts: 5_000 }),
+    ])
+
+    const after = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 4321, writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 6_000 },
+      ),
+    )
+
+    expect(after.declared['/repo/wt-b']).toMatchObject({ joinedBy: 'pid' })
+    expect(after.declared['/repo/wt-a']).toBeUndefined()
+  })
+
+  it('a RECYCLED run is never the answer, even when it is the only candidate left', () => {
+    // There is no final fallback that re-admits it. `recycled` is the
+    // collector's word for "this number came back", so the run wearing it is by
+    // definition not the process that just fired a hook — it is a wrong
+    // candidate, not a weak one. The live sibling may be unrooted, or on
+    // Windows, where the leg reports no cwd for any process and every actor
+    // carries `worktreePath: null`.
+    const base = reduceAll([
+      ...fixtureSession(),
+      f.processSeen({ pid: 4321, startedAt: 900, worktreePath: '/repo/wt-a', dialect: 'claude' }, { ts: 900 }),
+      f.processGone({ pid: 4321, startedAt: 900, reason: 'recycled' }, { ts: 4_000 }),
+    ])
+
+    const after = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 4321, writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 6_000 },
+      ),
+    )
+
+    expect(after.declared).toEqual(base.declared)
+  })
+
+  it('a lane-less beacon whose pid matches NO actor is declined, never guessed', () => {
+    // The honest gap, and the half that keeps the join from being a guess: on a
+    // platform with no process leg, or for an agent the roster never matched,
+    // there is no actor to place it and nothing is recorded. ADR-0010.
+    const base = reduceAll(fixtureSession())
+    const after = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 99999, cwd: '/repo/wt-a', writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 10 },
+      ),
+    )
+
+    expect(after.declared).toEqual(base.declared)
+  })
+
+  it('a lane-less beacon with no pid at all is declined too — the key is what joins, not the writer', () => {
+    const base = reduceAll(fixtureSession())
+    const after = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 10 },
+      ),
+    )
+
+    expect(after.declared).toEqual(base.declared)
+  })
+
+  it('a GONE actor still carries the declaration — the hook fired while it was alive', () => {
+    // A `process.gone` arriving before the beacon on a busy tick must not lose
+    // the word the agent said before it died. The hook can only fire from a
+    // live process; the death is later news about the same actor.
+    const base = reduceAll([
+      ...fixtureSession(),
+      f.processSeen({ pid: 4321, startedAt: 900, worktreePath: '/repo/wt-a', dialect: 'claude' }, { ts: 900 }),
+      f.processGone({ pid: 4321, startedAt: 900, reason: 'absent' }, { ts: 950 }),
+    ])
+
+    const after = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 4321, writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 10 },
+      ),
+    )
+
+    expect(after.declared['/repo/wt-a']).toMatchObject({ joinedBy: 'pid' })
+  })
+
   it('a waiting beacon for a lane writes declared[lane] with the writer clock and the pointer', () => {
     const base = reduceAll(fixtureSession())
     const after = reduce(
@@ -2218,6 +2640,10 @@ describe('reduce — beacon.received folds declared attention per lane (prd-27 w
       digest: DIGEST,
       file: 'claude-hook.jsonl',
       offset: 0,
+      // prd-57 ruling 3: this writer NAMED the lane, which is what every beacon
+      // before the hook runner does — `rhizomorph env --hooks` renders the lane
+      // into the command it emits, so the writer knows it by construction.
+      joinedBy: 'lane',
     })
     // Nothing else moved: the declared slice and the envelope bookkeeping, and no more.
     expect({ ...after, declared: base.declared, eventCount: base.eventCount, lastEventTs: base.lastEventTs }).toEqual(base)
@@ -2230,7 +2656,11 @@ describe('reduce — beacon.received folds declared attention per lane (prd-27 w
     expect({ ...after, eventCount: base.eventCount, lastEventTs: base.lastEventTs }).toEqual(base)
   })
 
-  it('an unlaned beacon is never indexed — it has nobody to be about', () => {
+  // Retitled with the join (#589): an unlaned beacon carrying a pid the process
+  // witness placed IS indexed now. What stays true — and is what this case has
+  // always actually exercised, since its fixture carries no pid — is that a
+  // beacon with neither a lane nor a pid has nobody to be about.
+  it('a beacon with neither a lane nor a pid is never indexed — it has nobody to be about', () => {
     const base = reduceAll(fixtureSession())
     const after = reduce(base, f.beaconReceived({ kind: 'waiting', lane: null }, { ts: 10 }))
     expect(after.declared).toEqual({})

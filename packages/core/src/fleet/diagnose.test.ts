@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { BEACON_LAPSE_MS } from '../selectors/lapse.js'
-import { diagnose, NAMED_TRESPASSES, type DiagnoseContext } from './diagnose.js'
+import { type DiagnoseContext, diagnose, NAMED_TRESPASSES } from './diagnose.js'
 import type { Trespass } from './fences.js'
 import type { Lane } from './types.js'
 
@@ -275,8 +275,28 @@ describe('detectWaiting through diagnose() — the declared voice, byte-exact (p
   const PANE_FRESH: Partial<DiagnoseContext> = { paneActivityTs: NOW - 1_000 }
 
   it('(a) a declared waiting is a certain WAITING since the beacon fired', () => {
-    const found = waiting(declaredLane({ declared: { kind: 'waiting', at: NOW - 40_000, writer: WRITER } }))
-    expect(found?.evidence).toBe('beacon (claude-hook) declares waiting 40s ago')
+    const found = waiting(declaredLane({ declared: { kind: 'waiting', at: NOW - 40_000, writer: WRITER, joinedBy: 'lane' } }))
+    expect(found?.evidence).toBe('beacon (claude-hook) declares waiting 40s ago (joined by lane)')
+    expect(found?.inferred).toBe(false)
+    expect(found?.since).toBe(NOW - 40_000)
+  })
+
+  /**
+   * THE PID JOIN IS VOICED, and this test exists because its absence proved
+   * invisible: with only `joinedBy: 'lane'` fixtures above, collapsing
+   * `joinVoice` to a constant `' (joined by lane)'` left the whole suite green.
+   * Every assertion here read a well-formed input rather than a rendered
+   * difference — the shape prd-57 met five times and then shipped a sixth.
+   *
+   * Both answers are DECLARED. The line does not rank them; it says which key
+   * carried the declaration, because a reader who cannot tell a hook-placed
+   * lane from a writer-named one cannot tell the third witness from the first.
+   */
+  it('(a2) a declaration the hook placed by pid says so — the same fact, a different key', () => {
+    const found = waiting(declaredLane({ declared: { kind: 'waiting', at: NOW - 40_000, writer: WRITER, joinedBy: 'pid' } }))
+    expect(found?.evidence).toBe('beacon (claude-hook) declares waiting 40s ago (joined by pid — the hook named no lane)')
+    // Still certain, and still since the beacon: the join is how it arrived,
+    // never how much it is believed.
     expect(found?.inferred).toBe(false)
     expect(found?.since).toBe(NOW - 40_000)
   })
@@ -284,24 +304,24 @@ describe('detectWaiting through diagnose() — the declared voice, byte-exact (p
   it('(c1) an organ inferring working never suppresses it — the disagreement is voiced', () => {
     const found = waiting(
       declaredLane({
-        declared: { kind: 'waiting', at: NOW - 40_000, writer: WRITER },
+        declared: { kind: 'waiting', at: NOW - 40_000, writer: WRITER, joinedBy: 'lane' },
         agentStatus: 'working',
         agentStatusWitness: 'sessionlog',
       }),
     )
-    expect(found?.evidence).toBe('beacon (claude-hook) declares waiting 40s ago · transcript shape reads working')
+    expect(found?.evidence).toBe('beacon (claude-hook) declares waiting 40s ago (joined by lane) · transcript shape reads working')
     expect(found?.inferred).toBe(false)
   })
 
   it('(c2) recent work never suppresses it either, and says so', () => {
     const found = waiting(
       declaredLane({
-        declared: { kind: 'waiting', at: NOW - 40_000, writer: WRITER },
+        declared: { kind: 'waiting', at: NOW - 40_000, writer: WRITER, joinedBy: 'lane' },
         lastWorkTs: NOW - 5_000,
         workAgeMs: 5_000,
       }),
     )
-    expect(found?.evidence).toBe('beacon (claude-hook) declares waiting 40s ago · recent work reads working')
+    expect(found?.evidence).toBe('beacon (claude-hook) declares waiting 40s ago (joined by lane) · recent work reads working')
   })
 
   /**
@@ -314,7 +334,7 @@ describe('detectWaiting through diagnose() — the declared voice, byte-exact (p
    */
   it('(b3) a declared working OLDER than the last work quiets nothing, and the inference says why', () => {
     const found = waiting(
-      paneInferredLane({ declared: { kind: 'working', at: NOW - 170_000, writer: WRITER } }),
+      paneInferredLane({ declared: { kind: 'working', at: NOW - 170_000, writer: WRITER, joinedBy: 'lane' } }),
       PANE_FRESH,
     )
     expect(found?.evidence).toBe(
@@ -334,7 +354,7 @@ describe('detectWaiting through diagnose() — the declared voice, byte-exact (p
       paneInferredLane({
         agentStatus: 'waiting',
         agentStatusWitness: 'sessionlog',
-        declared: { kind: 'working', at: NOW - 170_000, writer: WRITER },
+        declared: { kind: 'working', at: NOW - 170_000, writer: WRITER, joinedBy: 'lane' },
       }),
     )
     expect(found?.evidence).toBe(
@@ -345,18 +365,18 @@ describe('detectWaiting through diagnose() — the declared voice, byte-exact (p
 
   it('(b1) a declared working NEWER than the last work quiets the pane inference outright', () => {
     const found = waiting(
-      paneInferredLane({ declared: { kind: 'working', at: NOW - 5_000, writer: WRITER } }),
+      paneInferredLane({ declared: { kind: 'working', at: NOW - 5_000, writer: WRITER, joinedBy: 'lane' } }),
       PANE_FRESH,
     )
     expect(found).toBeUndefined()
   })
 
   it('(d) a declared stopped alarms nothing and appends nothing to an inference that stands', () => {
-    const alone = waiting(declaredLane({ declared: { kind: 'stopped', at: NOW - 20_000, writer: WRITER } }))
+    const alone = waiting(declaredLane({ declared: { kind: 'stopped', at: NOW - 20_000, writer: WRITER, joinedBy: 'lane' } }))
     expect(alone).toBeUndefined()
 
     const beside = waiting(
-      paneInferredLane({ declared: { kind: 'stopped', at: NOW - 20_000, writer: WRITER } }),
+      paneInferredLane({ declared: { kind: 'stopped', at: NOW - 20_000, writer: WRITER, joinedBy: 'lane' } }),
       PANE_FRESH,
     )
     expect(beside?.evidence).toBe('quiet 2m40s, pane still alive')
@@ -368,7 +388,7 @@ describe('detectWaiting through diagnose() — the declared voice, byte-exact (p
       declaredLane({
         agentStatus: 'waiting',
         agentStatusWitness: 'workmux',
-        declared: { kind: 'stopped', at: NOW - 120_000, writer: WRITER },
+        declared: { kind: 'stopped', at: NOW - 120_000, writer: WRITER, joinedBy: 'lane' },
       }),
       { agentStatusTs: NOW - 90_000 },
     )
@@ -386,7 +406,7 @@ describe('detectWaiting through diagnose() — the declared voice, byte-exact (p
    * was `waiting` would raise a hand forever.
    */
   it('(a) a declared waiting on a removed worktree raises no summons — the record outlives the lane, the alarm must not', () => {
-    const found = waiting(declaredLane({ present: false, declared: { kind: 'waiting', at: NOW - 40_000, writer: WRITER } }))
+    const found = waiting(declaredLane({ present: false, declared: { kind: 'waiting', at: NOW - 40_000, writer: WRITER, joinedBy: 'lane' } }))
     expect(found).toBeUndefined()
   })
 
@@ -407,7 +427,7 @@ describe('detectWaiting through diagnose() — the declared voice, byte-exact (p
 
     it('a working declaration one minute past the interval stops suppressing, and the pane inference names the lapse', () => {
       const found = waiting(
-        quietLane({ declared: { kind: 'working', at: NOW - BEACON_LAPSE_MS - 60_000, writer: WRITER } }),
+        quietLane({ declared: { kind: 'working', at: NOW - BEACON_LAPSE_MS - 60_000, writer: WRITER, joinedBy: 'lane' } }),
         PANE_FRESH,
       )
       expect(found?.evidence).toBe(
@@ -418,7 +438,7 @@ describe('detectWaiting through diagnose() — the declared voice, byte-exact (p
 
     it('the same declaration one second inside the interval still suppresses outright', () => {
       const found = waiting(
-        quietLane({ declared: { kind: 'working', at: NOW - BEACON_LAPSE_MS + 1_000, writer: WRITER } }),
+        quietLane({ declared: { kind: 'working', at: NOW - BEACON_LAPSE_MS + 1_000, writer: WRITER, joinedBy: 'lane' } }),
         PANE_FRESH,
       )
       expect(found).toBeUndefined()
@@ -433,7 +453,7 @@ describe('detectWaiting through diagnose() — the declared voice, byte-exact (p
           // `waiting` (a human's silence never does).
           lastWorkTs: NOW - 100_000,
           workAgeMs: 100_000,
-          declared: { kind: 'waiting', at: NOW - BEACON_LAPSE_MS - 60_000, writer: WRITER },
+          declared: { kind: 'waiting', at: NOW - BEACON_LAPSE_MS - 60_000, writer: WRITER, joinedBy: 'lane' },
         }),
         { agentStatusDetail: 'assistant turn open, no tool result' },
       )
@@ -448,7 +468,7 @@ describe('detectWaiting through diagnose() — the declared voice, byte-exact (p
         quietLane({
           agentStatus: 'waiting',
           agentStatusWitness: 'workmux',
-          declared: { kind: 'stopped', at: NOW - BEACON_LAPSE_MS - 60_000, writer: WRITER },
+          declared: { kind: 'stopped', at: NOW - BEACON_LAPSE_MS - 60_000, writer: WRITER, joinedBy: 'lane' },
         }),
         { agentStatusTs: NOW - 90_000 },
       )
@@ -459,7 +479,7 @@ describe('detectWaiting through diagnose() — the declared voice, byte-exact (p
 
     it('a landed lane has not lapsed, it has finished — presence still exempts, exactly as before', () => {
       const found = waiting(
-        quietLane({ present: false, declared: { kind: 'working', at: NOW - BEACON_LAPSE_MS - 60_000, writer: WRITER } }),
+        quietLane({ present: false, declared: { kind: 'working', at: NOW - BEACON_LAPSE_MS - 60_000, writer: WRITER, joinedBy: 'lane' } }),
         PANE_FRESH,
       )
       expect(found).toBeUndefined()

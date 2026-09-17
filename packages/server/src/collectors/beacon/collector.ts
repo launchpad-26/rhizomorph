@@ -9,8 +9,9 @@ import type {
   PollResult,
   RhizomorphEvent,
 } from '@rhizomorph/core'
-import { beaconDirFor, beaconLineBelongsTo, BEACON_FILE_SUFFIX, installationBeaconDir } from './paths.js'
+import { canonicalize } from '../../paths/containment.js'
 import { parseBeaconLine } from './parse-beacon-line.js'
+import { BEACON_FILE_SUFFIX, beaconDirFor, beaconLineBelongsTo, installationBeaconDir } from './paths.js'
 import { readBeaconLines } from './read-beacon-lines.js'
 import type { BeaconSnapshot } from './types.js'
 
@@ -105,6 +106,48 @@ export function beaconCapabilitiesFor(declared: Readonly<Record<string, Declared
  * from `context.repoPath` every tick, so a retarget re-points it with nothing
  * else to thread. The collector reads: no `mkdir`, no write, no exec.
  */
+/**
+ * The line's `cwd`, canonicalised — the same obligation `placementOf` already
+ * carries for `process.seen.worktreePath`, and for the same reason.
+ *
+ * prd-57 ruling 3's declared join compares these two values for string
+ * equality, in `packages/core`, where `node:fs` cannot go (ADR-0003). So they
+ * have to be comparable BY CONSTRUCTION, and the only place that can make them
+ * so is a collector. The process leg canonicalises; this one did not, and wrote
+ * the harness's string verbatim — so on a repo reached through a symlink
+ * (#217's standing macOS case) the two could never match and every lane-less
+ * beacon declined, permanently and silently.
+ *
+ * The canonicalisation was already being computed here and thrown away:
+ * `beaconLineBelongsTo` routes the line through `isInside`, which resolves both
+ * sides. Found in the fifth review of #589, which also pointed out that the
+ * trade the join was agonising over — believe a stale path, or lose the symlink
+ * case — was a false one, because this cause can simply be removed.
+ *
+ * **A deleted directory is not a failure here.** `canonicalize` walks up to the
+ * nearest existing ancestor and re-joins the tail, so a worktree removed since
+ * the hook fired still yields a canonical, comparable path. It rethrows any
+ * resolution error that is NOT `ENOENT` — `EACCES`, `ENOTDIR`, `ELOOP`,
+ * `ENAMETOOLONG`, `EIO`, and `EINVAL` on Windows — and the bare `catch` keeps
+ * the string AS WRITTEN for all of them: it is still the writer's own account
+ * of where it was, the digest still covers the original bytes, and the join
+ * declines on an unmatched path as it does on any other. The `catch` is
+ * deliberately bare rather than enumerating, which is why getting the list
+ * wrong (an earlier draft said "only ELOOP or EACCES") cost nothing
+ * operationally. That branch is **defensive and untested** — none of those
+ * conditions is portably reproducible — and saying so is better than a test
+ * that names it and exercises something else, which is what the first attempt
+ * at one did.
+ */
+function canonicalCwd(cwd: string | undefined): string | undefined {
+  if (cwd === undefined) return undefined
+  try {
+    return canonicalize(cwd)
+  } catch {
+    return cwd
+  }
+}
+
 export function createBeaconCollector(config: BeaconCollectorConfig = {}): Collector<BeaconSnapshot> {
   const dataRoot = config.dataRoot
   return {
@@ -209,6 +252,11 @@ export function createBeaconCollector(config: BeaconCollectorConfig = {}): Colle
                 'beacon.received',
                 {
                   ...parsed.payload,
+                  // Spread-or-omit, never `cwd: undefined`, matching the shape
+                  // `parse-beacon-line.ts` builds and states an ADR for: "a
+                  // present-but-undefined key is a different shape from an
+                  // absent one on the wire."
+                  ...(parsed.payload.cwd === undefined ? {} : { cwd: canonicalCwd(parsed.payload.cwd) }),
                   digest: createHash('sha256').update(line.text, 'utf8').digest('hex'),
                   file: path.basename(file),
                   offset: line.offset,

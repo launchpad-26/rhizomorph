@@ -1,4 +1,3 @@
-import type { CollisionEntry, LaneSubagentActivity, TokenTotals, WaitingOnHumanSummary } from '../selectors/index.js'
 import type {
   AgentRole,
   AgentStatus,
@@ -7,7 +6,8 @@ import type {
   BeaconAttentionKind,
   SpanDecision,
 } from '../events/index.js'
-import type { AgentProcess } from '../state.js'
+import type { CollisionEntry, LaneSubagentActivity, TokenTotals, WaitingOnHumanSummary } from '../selectors/index.js'
+import type { AgentProcess, AttentionJoin } from '../state.js'
 import type { LaneManifest, Trespass } from './fences.js'
 import type { LadderRank, Pathology, PathologyKind } from './pathology.js'
 
@@ -85,13 +85,22 @@ export interface Lane {
   agentStatusWitness: AgentStatusWitness | null
   /**
    * prd-27 ruling 3 (#283): what the harness itself last declared for this
-   * lane, via a hook beacon (ADR-0036) — or `null` when no beacon ever named
-   * this lane's id. Joined by handle equality only: `SessionState.declared[lane.id]`
-   * (the identity join across spellings is w4's). `detectWaiting` believes a
-   * declared `waiting` outright and lets a newer declared `working` quiet an
-   * inference (ruling 4); `selectLaneCondition` voices any disagreement.
+   * lane, via a hook beacon (ADR-0036) — or `null` when nothing has.
+   *
+   * `detectWaiting` believes a declared `waiting` outright and lets a newer
+   * declared `working` quiet an inference (ruling 4); `selectLaneCondition`
+   * voices any disagreement.
+   *
+   * **`joinedBy` says HOW it was attributed** — prd-57 ruling 3. `'lane'` means
+   * the writer named this lane; `'pid'` means it could not, and the process
+   * witness placed it. Until that ruling this read *"joined by handle equality
+   * only: `SessionState.declared[lane.id]`"*, which is no longer true of either
+   * half: the lookup is `resolveDeclared`, over a namespace holding lane ids
+   * AND worktree paths, newest wins. That sentence sat here for a wave as a
+   * second docblock shadowed by this one — correct in TSDoc, wrong in the file,
+   * which is how a comment rots unseen. One block now.
    */
-  declared: { kind: BeaconAttentionKind; at: number; writer: string } | null
+  declared: { kind: BeaconAttentionKind; at: number; writer: string; joinedBy: AttentionJoin } | null
   activity: LaneActivity
   /**
    * prd-57 ruling 1: the agent processes the process witness placed HERE — a

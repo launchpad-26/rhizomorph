@@ -1,5 +1,5 @@
 import { isTerminalDone } from '../fleet/diagnose.js'
-import { evidenceLine, PATHOLOGY_WORD, type Pathology, type PathologyKind, rankIndex } from '../fleet/pathology.js'
+import { evidenceLine, joinVoice, PATHOLOGY_WORD, type Pathology, type PathologyKind, rankIndex } from '../fleet/pathology.js'
 import { formatSpan } from '../fleet/plumbing.js'
 import type { Lane, LaneActivity } from '../fleet/types.js'
 import { declarationStatus, lapsedForMs, lapsedVoice } from './lapse.js'
@@ -204,7 +204,10 @@ function declaredClause(lane: Lane, now: number): string {
   if (declarationStatus(lane.declared, now, lane.lastWorkTs) === 'lapsed') {
     return ` · ${lapsedVoice(lapsedForMs(lane.declared, now))}`
   }
-  return ` · beacon (${lane.declared.writer}) declares ${lane.declared.kind} ${formatSpan(Math.max(0, now - lane.declared.at))} ago`
+  // prd-57 ruling 3: the same voice `diagnose.ts` uses, from the one place it
+  // is spelled — a declaration rendered two ways on two surfaces is how "the
+  // condition is assembled once" stops being true.
+  return ` · beacon (${lane.declared.writer}) declares ${lane.declared.kind} ${formatSpan(Math.max(0, now - lane.declared.at))} ago${joinVoice(lane.declared.joinedBy)}`
 }
 
 function activityCondition(lane: Lane, now: number): LaneCondition {

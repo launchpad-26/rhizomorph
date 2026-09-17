@@ -18,6 +18,7 @@ import {
 } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CLAUDE_HOOK_EVENTS } from '../../cli/env.js'
+import { canonicalize } from '../../paths/containment.js'
 import { withResilience } from '../resilience.js'
 import { SESSIONLOG_CAPABILITIES } from '../sessionlog/collector.js'
 import { WORKMUX_CAPABILITIES } from '../workmux/collector.js'
@@ -150,6 +151,77 @@ describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
       const collector = createBeaconCollector({ dataRoot: root })
       await collector.poll(collector.initialSnapshot(), context())
       await expect(readdir(dir)).rejects.toMatchObject({ code: 'ENOENT' })
+    })
+  })
+
+  /**
+   * THE CWD IS CANONICALISED HERE, and the join in `packages/core` depends on
+   * it being so.
+   *
+   * prd-57 ruling 3 compares this value against `process.seen`'s
+   * `worktreePath` for plain string equality, in a package `node:fs` cannot
+   * enter (ADR-0003). `placementOf` canonicalises its side; this collector
+   * wrote the harness's string verbatim, so any spelling difference — a repo
+   * reached through a symlink, #217's standing macOS case — made every
+   * lane-less beacon decline, permanently and silently.
+   *
+   * Pinned with `..` rather than a symlink so it runs on every platform:
+   * Windows needs elevation to create one, and the point is that the value is
+   * RESOLVED, not which resolver step did it.
+   */
+  describe("the line's cwd is canonicalised before it leaves (prd-57 ruling 3, #589)", () => {
+    it('resolves a cwd written with .. to the directory it names', async () => {
+      const inner = path.join(root, 'wt-a')
+      await mkdir(inner, { recursive: true })
+      await mkdir(dir, { recursive: true })
+      // Built by concatenation, not `path.join`: join NORMALISES, so it would
+      // hand the collector an already-resolved path and the pin would prove
+      // nothing. The harness writes whatever string it has.
+      const written = `${inner}${path.sep}..${path.sep}wt-a`
+      await writeFile(
+        path.join(dir, 'claude-hook.jsonl'),
+        `${JSON.stringify({ v: 1, at: 1_000, writer: 'claude-hook', kind: 'working', cwd: written, pid: 4321 })}\n`,
+      )
+
+      const collector = createBeaconCollector({ dataRoot: root })
+      const result = await collector.poll(collector.initialSnapshot(), context())
+      const [beacon] = ofType(result.events, 'beacon.received')
+
+      expect(beacon?.payload.cwd).toBe(canonicalize(inner))
+      expect(beacon?.payload.cwd).not.toBe(written)
+    })
+
+    it('resolves a cwd whose directory is GONE, through the ancestor that is still there', async () => {
+      /**
+       * A worktree removed since the hook fired. `canonicalize` handles this
+       * itself — it walks up to the nearest existing ancestor and re-joins the
+       * tail — so the value is still canonical and still comparable against a
+       * `worktreePath` recorded while the directory existed.
+       *
+       * The first version of this case was titled "keeps a cwd it cannot
+       * resolve", which is not what a missing directory is: `canonicalize`
+       * throws only on ELOOP or EACCES. It passed while exercising nothing of
+       * the sort — the same shape this PRD keeps meeting, a test naming a
+       * behaviour it does not reach.
+       */
+      await mkdir(dir, { recursive: true })
+      const gone = path.join(root, 'vanished')
+      await writeFile(
+        path.join(dir, 'claude-hook.jsonl'),
+        `${JSON.stringify({ v: 1, at: 1_000, writer: 'claude-hook', kind: 'working', cwd: gone, pid: 4321 })}\n`,
+      )
+
+      const collector = createBeaconCollector({ dataRoot: root })
+      const result = await collector.poll(collector.initialSnapshot(), context())
+      const [beacon] = ofType(result.events, 'beacon.received')
+
+      expect(beacon?.payload.cwd).toBe(canonicalize(gone))
+      // NOT a pin on the canonicalisation itself: `os.tmpdir()` resolves to
+      // itself on Linux and on most Windows hosts, so `canonicalize(gone)`
+      // equals `gone` there and this passes with the canonicalisation removed.
+      // The case above is what pins that. This one pins the gone-directory
+      // behaviour, which is what it is named for.
+      expect(beacon?.payload.cwd?.endsWith('vanished')).toBe(true)
     })
   })
 
@@ -594,6 +666,7 @@ describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
     const declared: DeclaredAttention = {
       kind: 'waiting',
       at: 1_000,
+      joinedBy: 'lane',
       writer: 'claude-hook',
       digest: 'a'.repeat(64),
       file: 'claude-hook.jsonl',

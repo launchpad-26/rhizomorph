@@ -1,3 +1,5 @@
+import type { AttentionJoin } from '../state.js'
+
 // ── the alarm ladder (ruling 8) ─────────────────────────────────────────────
 
 export type LadderRank = 'calm' | 'notice' | 'needs-you' | 'broken'
@@ -115,4 +117,42 @@ export interface Pathology {
 /** The evidence as it should be shown: inferences wear their mark. */
 export function evidenceLine(pathology: Pathology): string {
   return pathology.inferred ? `${INFERRED_MARK} ${pathology.evidence}` : pathology.evidence
+}
+
+/**
+ * HOW a declaration reached this lane — prd-57 ruling 3, said on the evidence
+ * line because the alternative is a reader who cannot tell.
+ *
+ * Both answers are DECLARED — neither is a guess, and the line never implies
+ * one is weaker. What differs is who supplied the name:
+ *
+ * - **by lane** — the writer named this lane itself, which every beacon before
+ *   the hook runner does: `rhizomorph env --hooks` renders the lane into the
+ *   command it emits.
+ * - **by pid** — the writer could not name a lane, and did not invent one. A
+ *   hook fires inside the agent's own process and has never heard the lane's
+ *   name; the process witness placed its pid, and that is what carried it here.
+ *
+ * An INFERRED attention never reaches this line at all — it comes from the
+ * transcript organ, and `Pathology.inferred` already marks it with
+ * `INFERRED_MARK` wherever it renders. The distinction the disclosure card
+ * needed was never declared-versus-inferred, which was already visible; it was
+ * declared-by-what.
+ *
+ * **A `Record` over the union rather than a ternary, and the reason is one
+ * commit away.** A ternary asserts that anything which is not `'pid'` is a
+ * lane, so a third join — and `events/beacon.ts` openly anticipates one,
+ * *"the same join is inferred from an equal cwd and a start-time window"* —
+ * would render the false sentence "(joined by lane)" rather than fail. That is
+ * a wrong statement where ADR-0010 asks for a declared gap. This lands beside
+ * a law (#587) written for exactly this shape in LISTS; the same hole in a
+ * ternary is closed here by the compiler, which is the cheaper of the two.
+ */
+const JOIN_VOICE: Record<AttentionJoin, string> = {
+  lane: ' (joined by lane)',
+  pid: ' (joined by pid — the hook named no lane)',
+}
+
+export function joinVoice(joinedBy: AttentionJoin): string {
+  return JOIN_VOICE[joinedBy]
 }
