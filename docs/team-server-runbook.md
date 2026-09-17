@@ -420,7 +420,7 @@ notice: relation "events_2026_10_pos_uq" already exists, skipping
 [ok  ] fold cursor: at seq 1 of 1, 0 record(s) unfolded
 [ok  ] fold tick: effective 5000ms, armed (RZ_TEAM_FOLD_TICK_MS is unset, so the built-in default applies)
 
-All checks passed.
+No check failed, but 1 check warned — that is not the same as all checks passing. Each [warn] line above says what was flagged and whether it needs action.
 ```
 
 **The four `notice:` lines are expected and are not a fault.** They are the partition check
