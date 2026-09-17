@@ -58,6 +58,55 @@ services:
       # (`:+`), so an unconfigured deployment reports `<unset>` rather than a
       # fault against a file nobody meant to configure.
       RZ_TEAM_GITHUB_APP_PRIVATE_KEY_FILE: ${RZ_TEAM_GITHUB_APP_PRIVATE_KEY_PATH:+/run/secrets/github-app-private-key.pem}
+      # THE FOLD'S SAFETY TICK, and the empty VALUE below is deliberate (#584).
+      #
+      # Written as a pass-through (`VAR:` with no value) rather than as
+      # `${RZ_TEAM_FOLD_TICK_MS:-}` like the GitHub six above, because the two
+      # forms differ in the one case that matters here. EXECUTED with
+      # `docker compose config` on Compose v5.4.0, shell variable unset:
+      #
+      #   RZ_TEAM_FOLD_TICK_MS:          no .env line -> null (NOT set in the
+      #                                  container); a .env line -> that value.
+      #   RZ_TEAM_FOLD_TICK_MS: ${...:-} no .env line -> "" (SET, to empty).
+      #
+      # Neither warns. But `report.ts`'s resolveFoldTickMs computes
+      # `Number(raw ?? DEFAULT_FOLD_TICK_MS)`, and an empty string is not
+      # nullish: `Number('')` is 0, and 0 DISABLES the periodic fold. `init.sh`
+      # refuses to regenerate an existing .env, so the `:-` form would have
+      # turned the tick off on every deployment that predates this line. The
+      # pass-through leaves the variable absent and the built-in default
+      # applies, which is exactly the behaviour these deployments have today.
+      #
+      # The knob is a RZ_TEAM_FOLD_TICK_MS= line in deploy/.env (init.sh writes
+      # one, with the default), applied with `docker compose up -d` — NOT
+      # `restart`, which does not re-read .env.
+      RZ_TEAM_FOLD_TICK_MS:
+      #
+      # WHAT THIS CONTAINER DELIBERATELY DOES NOT GET. `deploy/serve.ts` reads
+      # each of these off `process.env`, and each is withheld on purpose rather
+      # than by oversight — which is the distinction #584 exists to make, since
+      # an unnoticed omission is what made the runbook document a knob that did
+      # nothing. `deploy/init.test.ts` derives the full set of variables
+      # `serve.ts` reads and requires every one of them to be forwarded above or
+      # excused here, so a fourth cannot be added in silence.
+      #
+      # NOT FORWARDED: RZ_TEAM_JOURNAL_DIR — the named volume below is mounted
+      # at the literal path /data/journal, and only the app's side would move.
+      # An operator who set this would get the journal AND its cursor written
+      # into the container's writable layer with no volume behind them, thrown
+      # away by the next `docker compose up -d` while ingest kept answering 202.
+      # Under compose the journal is the volume; outside docker the variable
+      # works as documented. `deploy/doctor.ts` says this to the operator too.
+      #
+      # NOT FORWARDED: RZ_TEAM_MIGRATIONS_DIR — it defaults to the directory of
+      # `migrations/runner.ts` INSIDE the image, i.e. the SQL this image was
+      # built from and whose checksums the `_migrations` table records. Pointing
+      # it elsewhere applies migrations the running image is not made of.
+      #
+      # NOT FORWARDED: RZ_TEAM_GITHUB_APP_PRIVATE_KEY — a compose .env truncates
+      # a multi-line value at its first newline (see the block above), so the
+      # inline form cannot survive this file. The knob is
+      # RZ_TEAM_GITHUB_APP_PRIVATE_KEY_PATH and the PEM is bind-mounted.
       PORT: "8787"
       HOST: "0.0.0.0"
     volumes:

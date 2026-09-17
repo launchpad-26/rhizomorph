@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { hashIngestKey, isIngestKeyHash } from '../src/keys/hash.js'
 import { isWellFormedIngestKey } from '../src/keys/shape.js'
+import { DEFAULT_FOLD_TICK_MS, ENV_FOLD_TICK_MS } from './report.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const INIT_SH = path.join(HERE, 'init.sh')
@@ -316,5 +317,230 @@ describe("init.sh's secrets are ignored by git AND by docker", () => {
     expect(ignores('', '.env')).toBe(false)
     expect(ignores('packages/team/deploy/.env\n', '.env')).toBe(true)
     expect(ignores('packages/team/deploy/.env\n', '.env.tmp.*')).toBe(false)
+  })
+})
+
+/**
+ * EVERY VARIABLE `deploy/serve.ts` READS IS ACCOUNTED FOR IN `compose.yml` (#584).
+ *
+ * The defect this closes was not a bug in any function. `compose.yml`'s `app` service forwarded
+ * neither `RZ_TEAM_FOLD_TICK_MS` nor `RZ_TEAM_JOURNAL_DIR` while `serve.ts` read both off
+ * `process.env`, so a `deploy/.env` line for either was inert — **including the one
+ * `docs/team-server-runbook.md` told operators to set**. Every sentence in that paragraph was true
+ * of the code and useless to an operator.
+ *
+ * That is #543's finding one layer out. #543 bound two REFUSAL STRINGS to the knobs they name;
+ * nothing bound the deployment's own wiring to them, so the same shape shipped again in the lane
+ * that cited the lesson. This is the missing binding.
+ *
+ * ## It derives the variables rather than listing them, and that is the point
+ *
+ * A list would have to be edited to cover a fourth variable, and the edit is exactly what nobody
+ * does. So the set is taken from `serve.ts`'s own text, with comments stripped, in three shapes:
+ *
+ * 1. `process.env.NAME` — the name is right there.
+ * 2. `process.env[IDENT]` — `IDENT` is resolved by importing the module `serve.ts` imports it
+ *    from and reading the exported constant, so `ENV_PROJECT` becomes `RZ_TEAM_PROJECT` without
+ *    that string appearing here.
+ * 3. `ident(process.env)` — the whole environment is handed to a function, so the FUNCTION is
+ *    asked what it reads: it is called with a `Proxy` that records every key. This is where
+ *    `resolveTeamConfig`'s database URL, migrations dir and GitHub names come from, and where a
+ *    value added to `TeamConfig` later arrives on its own.
+ *
+ * No variable name is written down in this law. A variable added to `serve.ts` tomorrow — directly
+ * or through a new resolver — is covered with no edit here.
+ *
+ * ## Forwarded, or excused BY NAME in the same file
+ *
+ * Three of the derived variables are withheld from the container on purpose, and "on purpose" has
+ * to be legible or it is indistinguishable from the oversight this law exists to catch. So each
+ * one carries a `# NOT FORWARDED: <NAME> — <reason>` clause in the `app` service's own
+ * `environment:` block, and an empty reason does not count. The falsifier on #584 asked for
+ * exactly that for `RZ_TEAM_JOURNAL_DIR`: the `team_journal` volume fixes the path, so forwarding
+ * the app's side alone would orphan the journal.
+ *
+ * Each name is asserted in its OWN case, never as a set. #543's sibling case was a list-shaped
+ * assertion that stayed green when two names were reordered while the defect was re-introduced;
+ * `it.each` over the derived names means a failure prints the variable that is unaccounted for.
+ *
+ * ## Why it lives in this file
+ *
+ * It is a law about `compose.yml`, not about `init.sh`. #584's fence carries `init.sh`,
+ * `init.test.ts`, `compose.yml` and the runbook — `serve.ts` and `report.ts` belong to other
+ * lanes — so this is the test file that could hold it. Fence, not taxonomy.
+ */
+const COMPOSE = readFileSync(path.join(HERE, 'compose.yml'), 'utf8')
+
+/** The `app` service's own block: what THIS container is given, and nothing another service is. */
+const APP_SERVICE = COMPOSE.slice(COMPOSE.indexOf('\n  app:'), COMPOSE.indexOf('\n  caddy:'))
+
+/**
+ * Comments stripped before anything is read out of the source — `serve.ts`'s docblocks discuss
+ * `process.env` at length, and counting those as reads would make the classification guard below
+ * assert nothing.
+ */
+function withoutComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+}
+
+/** Local identifier → module specifier, from the importing file's own `import { … } from '…'`. */
+function importedFrom(source: string): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const statement of source.matchAll(/import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+'([^']+)'/g)) {
+    const specifier = statement[2] as string
+    for (const piece of (statement[1] as string).split(',')) {
+      const cleaned = piece.trim().replace(/^type\s+/, '')
+      if (cleaned === '') continue
+      const parts = cleaned.split(/\s+as\s+/)
+      const local = (parts[1] ?? parts[0] ?? '').trim()
+      if (local !== '') map.set(local, specifier)
+    }
+  }
+  return map
+}
+
+async function moduleHolding(imports: Map<string, string>, identifier: string): Promise<Record<string, unknown>> {
+  const specifier = imports.get(identifier)
+  if (specifier === undefined) {
+    throw new Error(`serve.ts hands \`${identifier}\` the environment but imports it from nowhere this law can follow`)
+  }
+  return (await import(specifier)) as Record<string, unknown>
+}
+
+/** What a function reads out of an environment, asked of the function itself rather than guessed. */
+async function keysReadBy(imports: Map<string, string>, identifier: string): Promise<string[]> {
+  const resolver = (await moduleHolding(imports, identifier))[identifier]
+  if (typeof resolver !== 'function') {
+    throw new Error(`serve.ts calls \`${identifier}(process.env)\` but its module exports no such function`)
+  }
+  const seen = new Set<string>()
+  const recorder = new Proxy(
+    {},
+    {
+      get(_target, property) {
+        if (typeof property === 'string') seen.add(property)
+        return undefined
+      },
+    },
+  )
+  ;(resolver as (env: unknown) => unknown)(recorder)
+  return [...seen]
+}
+
+interface ServeEnvReads {
+  /** Every environment variable name `serve.ts` consults, however it reaches it. */
+  readonly names: string[]
+  /** `process.env` mentions in the code — the denominator of the vacuity guard. */
+  readonly occurrences: number
+  /** How many of those a rule above recognised. Anything less, and the derivation is blind. */
+  readonly classified: number
+}
+
+async function envNamesServeReads(): Promise<ServeEnvReads> {
+  const source = withoutComments(readFileSync(path.join(HERE, 'serve.ts'), 'utf8'))
+  const imports = importedFrom(source)
+  const names = new Set<string>()
+  let classified = 0
+
+  for (const read of source.matchAll(/process\.env\.([A-Za-z_][A-Za-z0-9_]*)/g)) {
+    names.add(read[1] as string)
+    classified += 1
+  }
+  for (const read of source.matchAll(/process\.env\[\s*([A-Za-z_][A-Za-z0-9_]*)\s*\]/g)) {
+    const identifier = read[1] as string
+    const value = (await moduleHolding(imports, identifier))[identifier]
+    if (typeof value !== 'string') {
+      throw new Error(`serve.ts reads process.env[${identifier}] but that export is not a string`)
+    }
+    names.add(value)
+    classified += 1
+  }
+  for (const handed of source.matchAll(/([A-Za-z_][A-Za-z0-9_]*)\(\s*process\.env\s*\)/g)) {
+    for (const key of await keysReadBy(imports, handed[1] as string)) names.add(key)
+    classified += 1
+  }
+
+  return {
+    names: [...names].sort(),
+    occurrences: (source.match(/process\.env/g) ?? []).length,
+    classified,
+  }
+}
+
+const SERVE_READS = await envNamesServeReads()
+
+/** A line in the `app` service that hands this variable to the container. */
+function forwards(name: string): boolean {
+  return new RegExp(`^\\s+${name}:`, 'm').test(APP_SERVICE)
+}
+
+/** The stated reason this variable is withheld, or `null` — an empty reason is not a reason. */
+function excuseFor(name: string): string | null {
+  const clause = new RegExp(`^\\s*#\\s*NOT FORWARDED: ${name} — (.*)$`, 'm').exec(APP_SERVICE)
+  const reason = (clause?.[1] ?? '').trim()
+  return reason === '' ? null : reason
+}
+
+describe('every variable deploy/serve.ts reads is accounted for in compose.yml', () => {
+  /**
+   * THE GUARD AGAINST THIS LAW PASSING BY READING NOTHING.
+   *
+   * `it.each([])` runs zero cases and reports success, so a derivation that silently stops
+   * matching — a new idiom like `const env = process.env`, a renamed export, a resolver that
+   * throws — would turn the whole law green rather than red. Both halves matter: the count
+   * proves every `process.env` in the file was recognised, and the anchor proves the variable
+   * this issue exists for actually came out of the derivation rather than out of a coincidence.
+   */
+  it('the derivation reads the whole of serve.ts, and the fold tick came out of it', () => {
+    expect({ classified: SERVE_READS.classified }).toEqual({ classified: SERVE_READS.occurrences })
+    expect(SERVE_READS.occurrences).toBeGreaterThan(0)
+    expect(SERVE_READS.names).toContain(ENV_FOLD_TICK_MS)
+  })
+
+  it.each(SERVE_READS.names)('%s is forwarded to the app container, or excused there by name', (name) => {
+    const accountedFor = forwards(name) || excuseFor(name) !== null
+    expect({ name, accountedFor }).toEqual({ name, accountedFor: true })
+  })
+
+  /**
+   * A stale excuse is its own defect: a `# NOT FORWARDED:` clause left beside a variable that is
+   * now forwarded reads, to the next person, as the reason it is not — which is how the runbook
+   * paragraph this issue fixes came to be wrong.
+   */
+  it.each(SERVE_READS.names)('%s is not both forwarded and excused', (name) => {
+    const contradicted = forwards(name) && excuseFor(name) !== null
+    expect({ name, contradicted }).toEqual({ name, contradicted: false })
+  })
+})
+
+describe("init.sh writes the fold tick into .env, with the server's own default", () => {
+  it('the value is DEFAULT_FOLD_TICK_MS, read out of a real run rather than out of the script', () => {
+    const dir = freshDir()
+    runInit(dir)
+    const content = readFileSync(path.join(dir, '.env'), 'utf8')
+    expect(envValue(content, ENV_FOLD_TICK_MS)).toBe(String(DEFAULT_FOLD_TICK_MS))
+  })
+
+  /**
+   * The two facts an operator cannot recover from the value: `0` is a setting rather than a
+   * fault, and a non-number is `0` rather than "immediately". `RZ_TEAM_FOLD_TICK_MS=5s` is the
+   * typo a reader of the runbook's fold section will make, and it DISABLES the tick.
+   */
+  it('and the comment above it says what 0 and a non-number do', () => {
+    const dir = freshDir()
+    runInit(dir)
+    const lines = readFileSync(path.join(dir, '.env'), 'utf8').split('\n')
+    const at = lines.findIndex((line) => line.startsWith(`${ENV_FOLD_TICK_MS}=`))
+    expect(at).toBeGreaterThan(0)
+
+    const comment: string[] = []
+    for (let i = at - 1; i >= 0 && (lines[i] as string).startsWith('#'); i -= 1) comment.unshift(lines[i] as string)
+    const block = comment.join('\n')
+
+    expect(comment.length).toBeGreaterThan(0)
+    expect(block).toContain('MILLISECONDS')
+    expect(block).toMatch(/0 disables the periodic tick/)
+    expect(block).toMatch(/NOT A NUMBER also reads as 0/)
+    expect(block).toContain(`${ENV_FOLD_TICK_MS}=5s`)
   })
 })

@@ -58,17 +58,19 @@ import {
  *
  * - `RZ_TEAM_GITHUB_APP_PRIVATE_KEY_FILE` is DERIVED under compose, so the knob
  *   is `RZ_TEAM_GITHUB_APP_PRIVATE_KEY_PATH` (`formatKeyFaultAdvice` in `report.ts`).
- * - `RZ_TEAM_FOLD_TICK_MS` is **not forwarded to the container at all**, so a
- *   `.env` line changes nothing; the knob is the `environment:` block of the
- *   `app` service in `deploy/compose.yml`.
- * - `RZ_TEAM_JOURNAL_DIR` is **not forwarded either**, so under compose the
+ * - `RZ_TEAM_FOLD_TICK_MS` **was not forwarded to the container at all**, so a
+ *   `.env` line changed nothing. #584 forwards it, and `init.sh` now writes the
+ *   line — so this remedy is an ordinary `deploy/.env` edit, and the thing it
+ *   still has to say is `up -d` rather than `restart`.
+ * - `RZ_TEAM_JOURNAL_DIR` is **not forwarded**, so under compose the
  *   journal is always `/data/journal` and a remedy that offered the variable
  *   would be advice that cannot be followed.
  *
  * `doctor.test.ts` reads all three facts out of `compose.yml` rather than from
  * memory, and binds each variable name to ITS OWN clause rather than asserting a
  * set — #543's sibling case, where reordering two names left the suite green
- * while re-introducing the exact defect.
+ * while re-introducing the exact defect. That is what made the first bullet
+ * change here rather than rot: forwarding the variable reddened this file.
  */
 
 export type CheckStatus = 'ok' | 'warn' | 'fail'
@@ -118,9 +120,6 @@ export interface DoctorDeps {
  * it means nothing has EVER been folded.
  */
 export const FOLD_LAG_WARN_RECORDS = 100
-
-/** The compose service whose `environment:` block is the knob for an unforwarded variable. */
-const COMPOSE_APP_SERVICE = 'the `app` service\'s environment: block in packages/team/deploy/compose.yml'
 
 const NOT_MEASURED = 'not measured — the database is unreachable (see the database line above).'
 
@@ -567,16 +566,19 @@ function checkFoldCursor(journalDir: string): DoctorCheck {
  * an operator it had happened to them, and a disabled tick is invisible while
  * batches keep arriving (each one wakes the fold anyway).
  *
- * The remedy names `compose.yml`, not `.env`, and says why: compose does not
- * pass this variable to the container, so a `.env` line is a knob that is not
- * connected to anything.
+ * The remedy names `deploy/.env` since #584, and that is a change of fact rather
+ * than of wording: until then `compose.yml` did not forward the variable, so the
+ * remedy had to send the operator into the compose file first. It forwards it
+ * now and `init.sh` writes the line, so the edit is an ordinary `.env` one — and
+ * the part that still has to be said is `up -d`, because `restart` does not
+ * re-read `.env` and the operator would see their edit do nothing.
  */
 function checkFoldTick(env: DoctorDeps['env']): DoctorCheck {
   const tick = resolveFoldTickMs(env)
   const wire =
-    `Remedy: add ${ENV_FOLD_TICK_MS}: \${${ENV_FOLD_TICK_MS}:-} to ${COMPOSE_APP_SERVICE} and set a whole number of ` +
-    'MILLISECONDS in deploy/.env, then docker compose up -d. Setting it in deploy/.env ALONE does nothing: compose ' +
-    'does not forward this variable to the container.'
+    `Remedy: set ${ENV_FOLD_TICK_MS} to a whole number of MILLISECONDS in deploy/.env, then docker compose up -d — ` +
+    'NOT docker compose restart, which does not re-read .env. The app service in packages/team/deploy/compose.yml ' +
+    'forwards this variable to the container.'
 
   if (tick.notANumber) {
     return check(

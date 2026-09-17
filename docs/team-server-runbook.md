@@ -296,10 +296,23 @@ alongside the HTTP server, and there is exactly one of it:
 - **Drained at boot, from the cursor.** Everything the journal already holds is folded when
   the server starts, including records written while no worker was running. Bringing the
   image up on a journal that has been accumulating will fold the backlog in one pass.
-- **Re-ticked every `RZ_TEAM_FOLD_TICK_MS`**, default `5000`. Set it to `0` to disable the
-  tick and fold only on wake and at boot. A value that is not a number is treated as `0`
-  rather than as "immediately" — `RZ_TEAM_FOLD_TICK_MS=5s` disables the tick, it does not
-  set five seconds.
+- **Re-ticked every `RZ_TEAM_FOLD_TICK_MS`**, default `5000`. **To change it:** edit the
+  `RZ_TEAM_FOLD_TICK_MS=` line in `deploy/.env` — `init.sh` writes it there with the default,
+  so on a deployment initialised after 2026-09-17 the line is already in the file — then run
+  `docker compose up -d`. **Not `docker compose restart`**, which does not re-read `.env` and
+  leaves the old value running with nothing saying so. A deployment whose `.env` predates that
+  line: add it, same command. `0` disables the tick and folds only on wake and at boot. A value
+  that is not a number is treated as `0` rather than as "immediately" —
+  `RZ_TEAM_FOLD_TICK_MS=5s` disables the tick, it does not set five seconds; `doctor.ts` reports
+  that state as a `[warn]` rather than leaving you to find it. To see the value the server is
+  actually running at, read the `fold tick:` line of the doctor (below).
+
+  This paragraph described the variable and could not be acted on until 2026-09-17: `compose.yml`
+  did not forward it to the `app` container, so a `deploy/.env` line for it was inert and the
+  tick was always `5000`. Every sentence here was true of the code and useless to an operator.
+  It now forwards it, `deploy/init.test.ts` derives the variables `deploy/serve.ts` reads and
+  requires each one to be forwarded or explicitly excused in `compose.yml`, and that law is what
+  stops this paragraph from going back to being a description.
 - **The first tick cannot precede the boot drain.** The timer is armed when a drain
   finishes, not when the server starts, so the fold never runs before the migrations and the
   monthly partitions have been brought up to date. On the first boot of a new month that
@@ -432,12 +445,19 @@ three remedies that do not fit it.
   the `notice:` lines above; on a broken one it fails with the reason. The line says "topped
   up by this run" rather than "covers" for exactly that reason.
 
-- **Two of the remedies name `compose.yml` rather than `.env`, and that is not a slip.**
+- **One remedy names `compose.yml` rather than `.env`, and that is not a slip.**
   Compose passes the `app` service only the variables listed in its `environment:` block.
-  `RZ_TEAM_FOLD_TICK_MS` and `RZ_TEAM_JOURNAL_DIR` are **not** among them, so setting either
-  in `deploy/.env` changes nothing at all. To change the fold tick you add the variable to
-  that block first. Under compose the journal is always `/data/journal`, the mount point of
-  the `team_journal` volume.
+  `RZ_TEAM_JOURNAL_DIR` is **not** among them, and deliberately so: the `team_journal` volume
+  is mounted at the literal path `/data/journal`, and forwarding the app's side of the variable
+  alone would let you point the journal and its cursor at a path with no volume behind them —
+  written into the container's writable layer and thrown away by the next
+  `docker compose up -d`, while ingest kept answering 202. Under compose the journal is always
+  `/data/journal`; the reason is written beside the omission in `compose.yml`. Outside docker
+  the variable works as documented.
+
+  **`RZ_TEAM_FOLD_TICK_MS` was in the same position until 2026-09-17 and is not any more** — it
+  is forwarded, `init.sh` writes the line, and its remedy is an ordinary `deploy/.env` edit
+  applied with `docker compose up -d`.
 
 - **The `ingest key` check is about THIS deployment's key**, not about the table having rows
   in it. A rotation followed by `docker compose restart` leaves the server seeded with the old
@@ -453,7 +473,7 @@ Each carries the command to type. Two, as examples:
 ```
 
 ```
-[warn] fold tick: RZ_TEAM_FOLD_TICK_MS="5s" is not a number, so the effective tick is 0ms and the periodic fold is DISABLED — the fold still runs on each accepted batch and at boot, so this is quiet rather than visible. Remedy: add RZ_TEAM_FOLD_TICK_MS: ${RZ_TEAM_FOLD_TICK_MS:-} to the `app` service's environment: block in packages/team/deploy/compose.yml and set a whole number of MILLISECONDS in deploy/.env, then docker compose up -d. Setting it in deploy/.env ALONE does nothing: compose does not forward this variable to the container.
+[warn] fold tick: RZ_TEAM_FOLD_TICK_MS="5s" is not a number, so the effective tick is 0ms and the periodic fold is DISABLED — the fold still runs on each accepted batch and at boot, so this is quiet rather than visible. Remedy: set RZ_TEAM_FOLD_TICK_MS to a whole number of MILLISECONDS in deploy/.env, then docker compose up -d — NOT docker compose restart, which does not re-read .env. The app service in packages/team/deploy/compose.yml forwards this variable to the container.
 ```
 
 That second one is the reason the tick is a check at all: `5s` is the typo a reader of the

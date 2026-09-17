@@ -654,16 +654,23 @@ describe('the fold cursor', () => {
 })
 
 /**
- * THE EFFECTIVE TICK — and `compose.yml` is why the remedy does not say `.env`.
+ * THE EFFECTIVE TICK — and `compose.yml` is why the remedy is allowed to say `.env`.
  *
- * `RZ_TEAM_FOLD_TICK_MS` is not in the `app` service's `environment:` block, so a `.env` line
- * is a knob connected to nothing. That fact is read out of `compose.yml` here rather than
- * asserted from memory.
+ * This assertion used to be its own negation: `RZ_TEAM_FOLD_TICK_MS` was absent from the `app`
+ * service's `environment:` block, a `.env` line was a knob connected to nothing, and the remedy
+ * had to send the operator into `compose.yml` first. Reading the fact out of `compose.yml`
+ * rather than asserting it from memory is what made #584 redden this file the moment it
+ * forwarded the variable, instead of leaving the advice to rot — which is the whole reason
+ * `report.ts`'s docblock said to read it from there.
+ *
+ * It is kept pointing at `compose.yml` in the new direction for the same reason: if the forward
+ * is ever dropped, the remedy goes back to being advice that cannot be followed, and this is
+ * what notices.
  */
 describe('the fold tick', () => {
-  it('compose does not forward the variable, which is what the remedy is allowed to say', () => {
+  it('compose forwards the variable, which is what the remedy is allowed to say', () => {
     expect(APP_SERVICE).toContain('RZ_TEAM_DATABASE_URL:')
-    expect(APP_SERVICE).not.toMatch(/^\s+RZ_TEAM_FOLD_TICK_MS:/m)
+    expect(APP_SERVICE).toMatch(/^\s+RZ_TEAM_FOLD_TICK_MS:/m)
   })
 
   it('unset: the built-in default, armed', async () => {
@@ -686,7 +693,9 @@ describe('the fold tick', () => {
     expect(check.message).toContain('effective tick is 0ms')
     expect(check.message).toContain('DISABLED')
     expect(check.message).toContain('packages/team/deploy/compose.yml')
-    expect(check.message).toContain('Setting it in deploy/.env ALONE does nothing')
+    expect(check.message).toContain('set RZ_TEAM_FOLD_TICK_MS to a whole number of MILLISECONDS in deploy/.env')
+    // The half of the remedy an operator loses their edit to: `restart` does not re-read `.env`.
+    expect(check.message).toContain('NOT docker compose restart')
   })
 
   it('an explicit 0 is a supported setting, distinguished from the typo', async () => {

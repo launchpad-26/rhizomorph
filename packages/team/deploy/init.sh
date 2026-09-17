@@ -38,6 +38,13 @@ ingest_key="rzk_$(openssl rand -hex 32)"
 ingest_key_sha256="$(printf '%s' "$ingest_key" | openssl dgst -sha256 | awk '{ print $NF }')"
 # The one project this key may ship for (ruling 8: "scoped to one project").
 project="${RZ_TEAM_PROJECT:-default}"
+# The fold tick's built-in default, written into .env so the knob an operator
+# turns is a line that is already there rather than one they have to know about.
+# This is DEFAULT_FOLD_TICK_MS in packages/team/deploy/report.ts, which is what
+# the server falls back to when the variable is absent; packages/team/deploy/
+# init.test.ts asserts the two are the same number against a real run of this
+# script, so the .env this writes cannot start lying about the default.
+fold_tick_ms="5000"
 database_url="postgres://${postgres_user}:${postgres_password}@postgres:5432/${postgres_db}"
 
 tmp_file="$ENV_FILE.tmp.$$"
@@ -49,6 +56,14 @@ POSTGRES_DB=${postgres_db}
 RZ_TEAM_DATABASE_URL=${database_url}
 RZ_TEAM_PROJECT=${project}
 RZ_TEAM_INGEST_KEY_SHA256=${ingest_key_sha256}
+
+# The fold's safety tick, in MILLISECONDS. Change it here, then run:
+# docker compose up -d  (NOT restart -- a restart does not re-read this file).
+# 0 disables the periodic tick: the fold then runs only when a batch is
+# accepted and at boot. That is a supported setting, not a fault.
+# A value that is NOT A NUMBER also reads as 0 -- RZ_TEAM_FOLD_TICK_MS=5s
+# DISABLES the tick, it does not set five seconds. Whole milliseconds only.
+RZ_TEAM_FOLD_TICK_MS=${fold_tick_ms}
 
 # --- THE GITHUB APP (the human sign-in plane) ------------------------------
 # Empty on purpose. These come from GitHub and this script neither prompts for
