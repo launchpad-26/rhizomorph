@@ -2454,11 +2454,21 @@ describe('reduce — beacon.received folds declared attention per lane (prd-27 w
     expect(after.declared['/repo/wt-a']).toMatchObject({ joinedBy: 'pid' })
   })
 
-  it('a RECYCLED run is not the answer even when the cwd names it exactly', () => {
-    // `recycled` is the collector's word for "this number came back", so that
-    // run is definitionally not the process which just fired a hook. It is a
-    // wrong candidate, not a weak one — in BOTH branches, which the earlier
-    // draft only enforced in the cwd-less one.
+  it('a cwd naming a RECYCLED run\'s path still joins — the path is the key, not the run', () => {
+    /**
+     * The fifth review's category error, and it cost a true join.
+     *
+     * A draft excluded `recycled` runs here too, by symmetry with the branch
+     * below. But the two branches choose different things. Below, the ACTOR is
+     * the key, so which run answers decides which lane and a recycled run is a
+     * wrong candidate. Here every survivor already has `worktreePath === cwd`,
+     * so the only key this can return is `cwd` itself — the filter is a "has
+     * the witness ever seen this path" gate, not a choice between identities.
+     *
+     * Whichever run wrote the line, the line says it was written FROM `wt-a`,
+     * and the witness has seen an actor there. Declining discarded that and
+     * could not have prevented a wrong key, because there is no other key.
+     */
     const base = reduceAll([
       ...fixtureSession(),
       f.processSeen({ pid: 4321, startedAt: 900, worktreePath: '/repo/wt-a', dialect: 'claude' }, { ts: 900 }),
@@ -2474,7 +2484,9 @@ describe('reduce — beacon.received folds declared attention per lane (prd-27 w
       ),
     )
 
-    expect(after.declared).toEqual(base.declared)
+    expect(after.declared['/repo/wt-a']).toMatchObject({ joinedBy: 'pid' })
+    // And emphatically not the live sibling's lane, which the line never named.
+    expect(after.declared['/repo/wt-b']).toBeUndefined()
   })
 
   it('the cwd match is plain EQUALITY — a containing path is not a match', () => {

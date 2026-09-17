@@ -18,6 +18,7 @@ import {
 } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CLAUDE_HOOK_EVENTS } from '../../cli/env.js'
+import { canonicalize } from '../../paths/containment.js'
 import { withResilience } from '../resilience.js'
 import { SESSIONLOG_CAPABILITIES } from '../sessionlog/collector.js'
 import { WORKMUX_CAPABILITIES } from '../workmux/collector.js'
@@ -150,6 +151,62 @@ describe('createBeaconCollector (ADR-0036, prd-27 w1)', () => {
       const collector = createBeaconCollector({ dataRoot: root })
       await collector.poll(collector.initialSnapshot(), context())
       await expect(readdir(dir)).rejects.toMatchObject({ code: 'ENOENT' })
+    })
+  })
+
+  /**
+   * THE CWD IS CANONICALISED HERE, and the join in `packages/core` depends on
+   * it being so.
+   *
+   * prd-57 ruling 3 compares this value against `process.seen`'s
+   * `worktreePath` for plain string equality, in a package `node:fs` cannot
+   * enter (ADR-0003). `placementOf` canonicalises its side; this collector
+   * wrote the harness's string verbatim, so any spelling difference — a repo
+   * reached through a symlink, #217's standing macOS case — made every
+   * lane-less beacon decline, permanently and silently.
+   *
+   * Pinned with `..` rather than a symlink so it runs on every platform:
+   * Windows needs elevation to create one, and the point is that the value is
+   * RESOLVED, not which resolver step did it.
+   */
+  describe("the line's cwd is canonicalised before it leaves (prd-57 ruling 3, #589)", () => {
+    it('resolves a cwd written with .. to the directory it names', async () => {
+      const inner = path.join(root, 'wt-a')
+      await mkdir(inner, { recursive: true })
+      await mkdir(dir, { recursive: true })
+      // Built by concatenation, not `path.join`: join NORMALISES, so it would
+      // hand the collector an already-resolved path and the pin would prove
+      // nothing. The harness writes whatever string it has.
+      const written = `${inner}${path.sep}..${path.sep}wt-a`
+      await writeFile(
+        path.join(dir, 'claude-hook.jsonl'),
+        `${JSON.stringify({ v: 1, at: 1_000, writer: 'claude-hook', kind: 'working', cwd: written, pid: 4321 })}\n`,
+      )
+
+      const collector = createBeaconCollector({ dataRoot: root })
+      const result = await collector.poll(collector.initialSnapshot(), context())
+      const [beacon] = ofType(result.events, 'beacon.received')
+
+      expect(beacon?.payload.cwd).toBe(canonicalize(inner))
+      expect(beacon?.payload.cwd).not.toBe(written)
+    })
+
+    it('keeps a cwd it cannot resolve exactly as written, rather than dropping the line', async () => {
+      // A directory deleted since the hook fired. The writer's own account of
+      // where it was is still the honest record, the digest still covers the
+      // original bytes, and the join simply declines on an unmatched path.
+      await mkdir(dir, { recursive: true })
+      const gone = path.join(root, 'vanished')
+      await writeFile(
+        path.join(dir, 'claude-hook.jsonl'),
+        `${JSON.stringify({ v: 1, at: 1_000, writer: 'claude-hook', kind: 'working', cwd: gone, pid: 4321 })}\n`,
+      )
+
+      const collector = createBeaconCollector({ dataRoot: root })
+      const result = await collector.poll(collector.initialSnapshot(), context())
+      const [beacon] = ofType(result.events, 'beacon.received')
+
+      expect(beacon?.payload.cwd).toBe(gone)
     })
   })
 

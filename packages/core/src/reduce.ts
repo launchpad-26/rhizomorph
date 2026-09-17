@@ -615,18 +615,32 @@ function beaconReceived(state: SessionState, event: EventOf<'beacon.received'>):
  *
  * There is a second cause with the same signature, and unlike the first it is
  * documented in the tree rather than reasoned about. `process.seen` is emitted
- * ONLY on first sighting, and no later event carries a path, so a live actor's
- * `worktreePath` is frozen at the cwd it had when the collector first saw it.
- * An agent launched at the repo root and then working in a worktree is recorded
- * at the root, for as long as it lives.
+ * ONLY on first sighting, and no later event carries a path — `processActivity`
+ * and `processGone` never touch `worktreePath` — so a live actor's recorded
+ * path is the cwd it had when the collector first saw it. An agent launched at
+ * the repo root and then working in a worktree is recorded at the root.
+ *
+ * Not forever: an unreadable tick clears the snapshot so *"the next successful
+ * read is treated as a first sighting"*, and a restart does the same. The
+ * staleness lasts until one of those, which can be the whole life of a run. An
+ * earlier draft of this comment said "permanently", which the collector it
+ * cites contradicts.
  *
  * Nothing here can tell that from a symlink. And the process collector, which
  * accepts the staleness deliberately, says exactly why accepting it is safe
  * THERE and not here: *"a fleet can show an actor on a lane it has walked out
  * of. That is a stale fact rather than a false death, and only one of those
- * wakes a human at 3am."* Believing it in this function turns the stale fact
- * into a declared `waiting` — which is the kind that wakes a human, on a lane
- * nobody is working in.
+ * wakes a human at 3am."* Reading a stale placement is the first kind; writing
+ * a declaration onto it is the second, because a declaration is what raises a
+ * summons.
+ *
+ * **Priced honestly, because a draft overstated it.** Today the hook cannot
+ * write a lane-less `waiting` at all — `KIND_BY_EVENT`'s five events yield four
+ * words, only `working` and `stopped` are attention kinds, and `isAttentionKind`
+ * runs before this function — so the harm available right now is a stale
+ * `working` on a lane nobody is in. That is real and it is not a 3am page. It
+ * becomes one the moment #597 lands and `waiting-permission` reaches the fold,
+ * which is the direction this tree is going.
  *
  * With no `cwd` at all the witness is all there is: a live run over a dead one.
  * And a `recycled` run is never a candidate in EITHER branch — it is the
@@ -646,17 +660,20 @@ function beaconReceived(state: SessionState, event: EventOf<'beacon.received'>):
  * **And the gap is not declared to anyone, which is a real shortfall in an
  * ADR-0010 argument.** A decline leaves `state.declared` untouched, so the lane
  * reads through `attentionReading` as though no beacon had ever been written
- * for it — `configured-silent` when some other lane has a declaration,
- * `never-declared` when none does, and the second of those tells the operator
- * to install hooks that are already firing several times a minute. Counting it
- * needs a slice this fold does not have, so it is **#617** rather than a line
- * here — named because "the honest gap" is a claim, not a behaviour, until
- * something says it out loud.
+ * for it: `never-declared` when `state.declared` is empty, whose `doctor` line
+ * tells the operator to install hooks that are already firing several times a
+ * minute, and `configured-silent` otherwise, whose remedy — *"the first hook
+ * that fires … declares it"* — is equally false under a standing decline,
+ * because the next hook fires and still declares nothing. Counting it needs a
+ * slice this fold does not have, so it is **#617** rather than a line here —
+ * named because "the honest gap" is a claim, not a behaviour, until something
+ * says it out loud.
  *
- * A GONE actor still counts, when it is the only run. The hook fired while the
- * process was alive — that is the only time a hook can fire — and a
- * `process.gone` arriving first on a busy tick must not lose the word the agent
- * said before it died.
+ * A GONE actor still counts. The hook fired while the process was alive — that
+ * is the only time a hook can fire — and a `process.gone` arriving first on a
+ * busy tick must not lose the word the agent said before it died. In the `cwd`
+ * branch that holds even with a live sibling elsewhere, because there the path
+ * is the key and the line already named it.
  *
  * **The key this returns is only as good as ruling 1's own placement**, and
  * that is a limit worth stating rather than discovering. `placementOf` sets
@@ -689,12 +706,7 @@ function placeByPid(
     (actor): actor is AgentProcess & { worktreePath: string } =>
       actor.pid === pid && actor.worktreePath !== null,
   )
-  if (placed.length === 0) return null
 
-  // A RECYCLED run is never a candidate, in either branch. It is the
-  // collector's word for *this number came back*, so it is definitionally not
-  // the process that just fired a hook — a wrong candidate, not a weak one.
-  const candidates = placed.filter((actor) => actor.goneReason !== 'recycled')
 
   // THE LINE'S OWN `cwd`, WHEN IT MATCHES — and a DECLINE when it does not.
   //
@@ -730,11 +742,30 @@ function placeByPid(
     // are equal by construction, so it is the same answer — but saying `cwd`
     // made the containment mutation below unobservable, and it would be an
     // outright bug the moment the filter stopped being equality.
-    return onePath(candidates.filter((actor) => actor.worktreePath === cwd))
+    // Every survivor has `worktreePath === cwd`, so `onePath` can only ever
+    // return `cwd` itself. This filter is therefore a "has the witness ever
+    // seen this path" GATE, not a choice between identities — which is why it
+    // does not exclude a `recycled` run the way the branch below does. A draft
+    // excluded one here by symmetry, and the fifth review named the category
+    // error: whichever run wrote the line, the line says it was written FROM
+    // this path, and a recycled run's recorded path is still a path the witness
+    // observed. Declining it discarded a true join and could not have prevented
+    // a wrong key, because there is no other key to return.
+    return onePath(placed.filter((actor) => actor.worktreePath === cwd))
   }
 
-  // No `cwd` on the line. Only the witness can tell the runs apart now: a live
-  // run over a dead one, and never a recycled one, which `candidates` excluded.
+  // NO `cwd` ON THE LINE, and here the actor IS the key — so which run answers
+  // decides which lane, and a `recycled` one is a wrong candidate rather than a
+  // weak one. `recycled` is the collector's word for *this number came back*,
+  // so that run is definitionally not the process which just fired a hook.
+  //
+  // This branch is close to dead in practice, and saying so is cheaper than
+  // letting the next reader work it out: `beaconLineBelongsTo` refuses a line
+  // with no `cwd`, so one only survives through the un-routed per-repo door,
+  // whose writers are `rhizomorph env --hooks` — and those name a lane, so they
+  // never reach this function at all. It is kept because the schema permits the
+  // shape and a fold that crashed on a permitted shape would be worse.
+  const candidates = placed.filter((actor) => actor.goneReason !== 'recycled')
   const live = candidates.filter((actor) => actor.goneAt === null)
   if (live.length > 0) return onePath(live)
 
