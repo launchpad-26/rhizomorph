@@ -10,6 +10,7 @@ import {
   recordResume,
   type SessionBootDecision,
 } from '../log/session-log.js'
+import { presentWorktreePaths } from '../collectors/beacon/paths.js'
 import { canonicalizeRepoPath, createRepoRootResolver } from '../paths/repo-root.js'
 import { createColonyRecorders } from '../recorder/colony-recorders.js'
 import { buildApp } from '../server/build-app.js'
@@ -140,7 +141,13 @@ export async function runServerCommand(
       // The pinned colony needs this as much as a discovered one: its lanes are
       // linked worktrees too, and until now every hook line from every lane was
       // being dropped by the shared door's containment check.
-      { worktreePaths: () => Object.keys(recorder.foldSoFar().worktrees) },
+      // Only worktrees that are still PRESENT. The fold never deletes a
+      // worktree key — `worktree.removed` sets `present: false` and keeps it —
+      // so `Object.keys` alone routes to a lane that no longer exists, and
+      // `git worktree add` at a reused path would hand another repo's hook
+      // lines to this one. The function form exists precisely so a worktree
+      // that VANISHES stops being routed, which keys alone do not deliver.
+      { worktreePaths: () => presentWorktreePaths(recorder.foldSoFar().worktrees) },
     ))
   const pollLoop = createPollLoop({
     repoPath,
@@ -201,7 +208,7 @@ export async function runServerCommand(
         // The shared beacon door is routed by where a hook fired, and an agent
         // fires from a LANE — a linked worktree, which git normally puts outside
         // the repo directory. Containment in the repo alone drops every one.
-        { worktreePaths: () => Object.keys(colonyRecorder.foldSoFar().worktrees) },
+        { worktreePaths: () => presentWorktreePaths(colonyRecorder.foldSoFar().worktrees) },
       )
       const loop = createPollLoop({
         repoPath: colony.path,
@@ -442,4 +449,5 @@ function defaultWebDistDir(): string {
   const here = path.dirname(fileURLToPath(import.meta.url))
   return path.resolve(here, '..', '..', '..', 'web', 'dist')
 }
+
 

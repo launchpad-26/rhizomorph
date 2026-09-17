@@ -8,6 +8,7 @@ import {
   performRetarget,
   RETARGET_OR_ROTATION_IN_FLIGHT_MESSAGE,
 } from '../recorder/rotate.js'
+import { canonicalizeRepoPath } from '../paths/repo-root.js'
 import type { ServerContext } from '../server/context.js'
 import { exec as realExec, withTimeout } from '../server/exec.js'
 import { describeTelemetryCost, lanesAtBoundary } from '../server/retarget-cost.js'
@@ -199,9 +200,16 @@ export function registerRetargetRoute(app: FastifyInstance, ctx: ServerContext):
        * it would pay the whole cost to do nothing.
        */
       const watched = ctx.colonies?.() ?? []
-      const requestedPath = path.resolve(requested)
+      // CANONICAL on both sides. A colony's path is `canonicalize`d by the root
+      // resolver and `ctx.repoPath` by the boot, while the operator types
+      // whatever spelling they have — so comparing a merely-resolved request
+      // against a canonical colony misses the match on any path with a symlink
+      // in it, and the request falls through to the boundary-taking branch.
+      // That is Success 3's own falsifier: switching would rotate the session
+      // and lose the lane's history for a colony already being watched.
+      const requestedPath = canonicalizeRepoPath(path.resolve(requested))
       const selected = watched.find((entry) => entry.colony.path === requestedPath)
-      if (selected !== undefined && requestedPath !== path.resolve(ctx.repoPath)) {
+      if (selected !== undefined && requestedPath !== canonicalizeRepoPath(path.resolve(ctx.repoPath))) {
         return reply.code(200).send({
           mode: 'selected' satisfies RetargetMode,
           colony: { id: selected.colony.id, path: selected.colony.path, pinned: selected.colony.pinned },

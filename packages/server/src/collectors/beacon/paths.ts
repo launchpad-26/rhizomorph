@@ -118,3 +118,29 @@ export function beaconLineBelongsTo(
     return false
   }
 }
+
+/**
+ * The worktrees a fold says are still THERE — the list {@link beaconLineBelongsTo}
+ * should be routing against.
+ *
+ * The fold never deletes a worktree key: `worktree.removed` sets
+ * `present: false` and keeps the entry (`packages/core/src/reduce.ts`). So
+ * `Object.keys(state.worktrees)` is every worktree this session has ever seen,
+ * and routing against it claims lines from lanes that no longer exist for the
+ * life of the session.
+ *
+ * That matters because the door is SHARED. `git worktree add` reuses a path
+ * readily, and a path this repo's removed lane once occupied may belong to a
+ * different repository an hour later — whose hook lines would then be folded
+ * into this colony's recording.
+ *
+ * `worktreePaths` was made a callback rather than a boot-time list *"because
+ * worktrees appear and vanish while the server runs"*. Appearing worked from
+ * the start; vanishing is what this function adds, and without it half that
+ * sentence was untrue.
+ */
+export function presentWorktreePaths(worktrees: Readonly<Record<string, { present: boolean }>>): string[] {
+  return Object.entries(worktrees)
+    .filter(([, worktree]) => worktree.present)
+    .map(([worktreePath]) => worktreePath)
+}
