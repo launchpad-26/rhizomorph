@@ -117,10 +117,18 @@ function unionMembers(file: string, type: string): string[] {
  * 21 members collected from the three declarations following it. A parser that
  * answers plausibly for a shape it cannot read is the exact vacuity the module
  * doc above refuses, so it is fixed here rather than in the caller.
+ *
+ * **The name is anchored, and that was a third instance of the same hole.** The
+ * pattern read `const ${name}[^=]*=`, where `[^=]*` happily swallows the rest
+ * of a LONGER identifier — so a `const ALARM_RANKS_LEGEND` declared above
+ * `ALARM_RANKS` would be matched first and this law would pin the wrong array,
+ * plausibly and silently. Found in adversarial review of #589. A list this law
+ * governs is one where order or totality matters, which is exactly the kind of
+ * constant that acquires an `_ORDER`, `_LEGEND` or `_BY_KIND` sibling.
  */
 function arrayMembers(file: string, name: string): string[] {
   const source = readFileSync(file, 'utf8')
-  const declaration = new RegExp(`const ${name}[^=]*= \\[([^\\]]*)\\]`, 'm').exec(source)
+  const declaration = new RegExp(`const ${name}(?![A-Za-z0-9_$])[^=]*= \\[([^\\]]*)\\]`, 'm').exec(source)
   if (declaration === null) return []
   return [...(declaration[1] ?? '').matchAll(/'([^']+)'/g)].map((match) => match[1] as string)
 }
@@ -196,6 +204,15 @@ describe('union totality law: a list meant to be total over a closed union cover
     // something plausible — which is why a composed union names its parts in
     // the table instead of relying on the parser.
     expect(unionMembers(path.join(WEB_SRC, 'fleet', 'sigils.tsx'), 'SigilKind')).toEqual([])
+
+    // CONTROL: a name that is a PREFIX of another constant does not capture it.
+    // `arrayMembers` used to read `const NAME[^=]*=`, and `[^=]*` swallows the
+    // rest of a longer identifier — so this law would have pinned a sibling
+    // array, plausibly and silently (review of #589). There is no such pair in
+    // the tree today, which is precisely why the control fabricates one: a hole
+    // nothing currently falls into is still a hole, and the lists this law
+    // governs are the kind that acquire `_ORDER` and `_LEGEND` siblings.
+    expect(arrayMembers(SCENE_LAYOUT, 'PATHOLOGY_PRIO')).toEqual([])
   })
 
   it('every declared list is non-empty and every union resolves — no entry checks nothing', () => {
@@ -244,12 +261,24 @@ describe('union totality law: a list meant to be total over a closed union cover
     // `## Fence` heading cited in the control above.
     const ladder = unionMembers(CORE_PATHOLOGY, 'LadderRank')
     const alarms = arrayMembers(path.join(WEB_SRC, 'scene', 'salience.ts'), 'ALARM_RANKS')
-    expect(alarms, 'ALARM_RANKS was not read at all — the pin below would pass vacuously').not.toHaveLength(0)
+    // EXACT members, not merely non-empty: `toBeLessThan` passes as happily on a
+    // TRUNCATED read as on a correct one — the same vacuity shape this pin
+    // exists to refuse, one size smaller (review of #589).
+    expect(alarms, 'ALARM_RANKS was not read at all — the pin below would pass vacuously').toEqual([
+      'needs-you',
+      'broken',
+    ])
     expect(alarms.length, 'ALARM_RANKS is no longer partial — the module doc argues from it').toBeLessThan(ladder.length)
 
     const kinds = unionMembers(CORE_PATHOLOGY, 'PathologyKind')
     const diagnosed = arrayMembers(CORE_PATHOLOGY, 'DIAGNOSED_KINDS')
-    expect(diagnosed, 'DIAGNOSED_KINDS was not read at all').not.toHaveLength(0)
+    expect(diagnosed, 'DIAGNOSED_KINDS was not read at all').toEqual([
+      'looping',
+      'frozen',
+      'waiting',
+      'expensive',
+      'off-fence',
+    ])
     expect(diagnosed.length, 'DIAGNOSED_KINDS is no longer partial').toBeLessThan(kinds.length)
   })
 })
