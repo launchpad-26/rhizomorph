@@ -325,7 +325,18 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
     // prd-27 ruling 3 (#283): a beacon whose lane matches no draft id is simply
     // never read — no lane, no alarm (the #133 shape: a summons for a lane
     // nobody can attach to is a false summons in a new costume).
-    const declaredRecord = state.declared[draft.id]
+    /**
+     * BY LANE ID, THEN BY WORKTREE — prd-57 ruling 3's join, resolved here
+     * because this is the one place that holds both the fold and the lanes.
+     *
+     * A beacon whose writer named the lane lands under that name, as it always
+     * has. A hook beacon cannot name one, so `beaconReceived` places it under
+     * the worktree path its pid resolved to, and this is where that becomes a
+     * lane again. Lane id first: an explicit name beats a placement, which is
+     * the same order every other declaration in this tree is read in.
+     */
+    const declaredRecord =
+      state.declared[draft.id] ?? (draft.worktreePath === null ? undefined : state.declared[draft.worktreePath])
 
     lanes.push({
       id: draft.id,
@@ -343,7 +354,15 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
       declared:
         declaredRecord === undefined
           ? null
-          : { kind: declaredRecord.kind, at: declaredRecord.at, writer: declaredRecord.writer },
+          : {
+              kind: declaredRecord.kind,
+              at: declaredRecord.at,
+              writer: declaredRecord.writer,
+              // Defaulted on READ, never written as undefined: a recording made
+              // before ruling 3 carries no join, and every beacon in one was
+              // joined by lane — so the default is the truth (ADR-0011).
+              joinedBy: declaredRecord.joinedBy ?? 'lane',
+            },
       activity: 'unknown',
       // prd-57 ruling 1. Placement is compared, never normalised: the collector
       // canonicalises before the event leaves it, because `canonicalize`

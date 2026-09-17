@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Lane, LaneActivity, Pathology } from '../fleet/index.js'
 import { INFERRED_MARK, PATHOLOGY_RANK } from '../fleet/index.js'
-import { selectLaneCondition, selectWorstPathology, type LaneCondition } from './condition.js'
+import { type LaneCondition, selectLaneCondition, selectWorstPathology } from './condition.js'
 import { BEACON_LAPSE_MS } from './lapse.js'
 
 /**
@@ -348,14 +348,14 @@ describe('selectLaneCondition — the calm activities', () => {
  * "a declaration is always named" with no alarm attached to it.
  */
 describe('selectLaneCondition — the declared voice (prd-27, #283)', () => {
-  const DECLARED_WAITING = 'beacon (claude-hook) declares waiting 40s ago'
+  const DECLARED_WAITING = 'beacon (claude-hook) declares waiting 40s ago (joined by lane)'
   const DECLARED_WITH_DISSENT = `${DECLARED_WAITING} · transcript shape reads working`
 
   it('WAITING, declared by the harness: the fact names the beacon and the remedy is an action', () => {
     const p = pathology({ kind: 'waiting', since: NOW - 40_000, evidence: DECLARED_WAITING, inferred: false })
     const lane = baseLane({
       pathologies: [p],
-      declared: { kind: 'waiting', at: NOW - 40_000, writer: 'claude-hook' },
+      declared: { kind: 'waiting', at: NOW - 40_000, writer: 'claude-hook', joinedBy: 'lane' },
     })
     const condition = selectLaneCondition(lane, NOW)
     expect(condition.why.evidence.fact).toBe(DECLARED_WAITING)
@@ -368,7 +368,7 @@ describe('selectLaneCondition — the declared voice (prd-27, #283)', () => {
     const p = pathology({ kind: 'waiting', since: NOW - 40_000, evidence: DECLARED_WITH_DISSENT, inferred: false })
     const lane = baseLane({
       pathologies: [p],
-      declared: { kind: 'waiting', at: NOW - 40_000, writer: 'claude-hook' },
+      declared: { kind: 'waiting', at: NOW - 40_000, writer: 'claude-hook', joinedBy: 'lane' },
       agentStatus: 'working',
       agentStatusWitness: 'sessionlog',
     })
@@ -380,11 +380,11 @@ describe('selectLaneCondition — the declared voice (prd-27, #283)', () => {
     const lane = baseLane({
       activity: 'idle',
       pathologies: [],
-      declared: { kind: 'working', at: NOW - 40_000, writer: 'claude-hook' },
+      declared: { kind: 'working', at: NOW - 40_000, writer: 'claude-hook', joinedBy: 'lane' },
     })
     const condition = selectLaneCondition(lane, NOW)
     expect(condition.label).toBe('idle')
-    expect(condition.why.evidence.fact.endsWith(' · beacon (claude-hook) declares working 40s ago')).toBe(true)
+    expect(condition.why.evidence.fact.endsWith(' · beacon (claude-hook) declares working 40s ago (joined by lane)')).toBe(true)
     expectHonest(condition)
   })
 
@@ -392,11 +392,11 @@ describe('selectLaneCondition — the declared voice (prd-27, #283)', () => {
     const lane = baseLane({
       activity: 'working',
       pathologies: [],
-      declared: { kind: 'stopped', at: NOW - 40_000, writer: 'claude-hook' },
+      declared: { kind: 'stopped', at: NOW - 40_000, writer: 'claude-hook', joinedBy: 'lane' },
     })
     const condition = selectLaneCondition(lane, NOW)
     expect(condition.label).toBe('working')
-    expect(condition.why.evidence.fact.endsWith(' · beacon (claude-hook) declares stopped 40s ago')).toBe(true)
+    expect(condition.why.evidence.fact.endsWith(' · beacon (claude-hook) declares stopped 40s ago (joined by lane)')).toBe(true)
     expect(condition.remedy.kind).toBe('none')
     expectHonest(condition)
   })
@@ -414,11 +414,11 @@ describe('selectLaneCondition — the declared voice (prd-27, #283)', () => {
       workAgeMs: null,
       firstSeenAt: NOW - 30_000,
       pathologies: [],
-      declared: { kind: 'waiting', at: NOW - 40_000, writer: 'claude-hook' },
+      declared: { kind: 'waiting', at: NOW - 40_000, writer: 'claude-hook', joinedBy: 'lane' },
     })
     const condition = selectLaneCondition(lane, NOW)
     expect(condition.label).toBe('unknown')
-    expect(condition.why.evidence.fact.endsWith(' · beacon (claude-hook) declares waiting 40s ago')).toBe(true)
+    expect(condition.why.evidence.fact.endsWith(' · beacon (claude-hook) declares waiting 40s ago (joined by lane)')).toBe(true)
     expectHonest(condition)
   })
 
@@ -426,11 +426,11 @@ describe('selectLaneCondition — the declared voice (prd-27, #283)', () => {
     const lane = baseLane({
       activity: 'waiting' as LaneActivity,
       pathologies: [],
-      declared: { kind: 'waiting', at: NOW - 40_000, writer: 'claude-hook' },
+      declared: { kind: 'waiting', at: NOW - 40_000, writer: 'claude-hook', joinedBy: 'lane' },
     })
     const condition = selectLaneCondition(lane, NOW)
     expect(condition.label).toBe('waiting')
-    expect(condition.why.evidence.fact.endsWith(' · beacon (claude-hook) declares waiting 40s ago')).toBe(true)
+    expect(condition.why.evidence.fact.endsWith(' · beacon (claude-hook) declares waiting 40s ago (joined by lane)')).toBe(true)
     expectHonest(condition)
   })
 
@@ -448,7 +448,7 @@ describe('selectLaneCondition — the declared voice (prd-27, #283)', () => {
   describe('a lapsed declaration replaces the clause rather than ageing inside it (#218)', () => {
     function idleWithWorkingAt(at: number): LaneCondition {
       return selectLaneCondition(
-        baseLane({ activity: 'idle', pathologies: [], declared: { kind: 'working', at, writer: 'claude-hook' } }),
+        baseLane({ activity: 'idle', pathologies: [], declared: { kind: 'working', at, writer: 'claude-hook', joinedBy: 'lane' } }),
         NOW,
       )
     }
@@ -464,7 +464,7 @@ describe('selectLaneCondition — the declared voice (prd-27, #283)', () => {
 
     it('still names the beacon exactly at the interval — the #283 clause, unchanged, to the byte', () => {
       const condition = idleWithWorkingAt(NOW - BEACON_LAPSE_MS)
-      expect(condition.why.evidence.fact.endsWith(' · beacon (claude-hook) declares working 3m00s ago')).toBe(true)
+      expect(condition.why.evidence.fact.endsWith(' · beacon (claude-hook) declares working 3m00s ago (joined by lane)')).toBe(true)
       expect(condition.why.evidence.fact).not.toContain('lapsed')
     })
   })

@@ -533,10 +533,46 @@ function isAttentionKind(kind: string): kind is BeaconAttentionKind {
  * about. An older `at` never rolls a lane back; an equal `at` yields to log
  * order, which is what keeps refolding the same run idempotent.
  */
+/**
+ * THE DECLARED JOIN — prd-57 ruling 3, and the thing that makes ruling 5's third
+ * witness reach anything at all.
+ *
+ * This read `if (p.lane === null) return state` and nothing else, which was
+ * correct for every writer that existed when it was written: `rhizomorph env
+ * --hooks` renders the lane into the command it emits, so those beacons name
+ * one by construction.
+ *
+ * **`rhizomorph hook` cannot.** It fires inside the agent's own process, and the
+ * lane is a name this instrument invented — the hook has never heard it. So
+ * every line it wrote arrived with `lane: null` and was discarded here, and
+ * ruling 5's whole third witness was inert: admitted to the source union,
+ * ranked above both readings, obeyed by the fold, and fed by nothing. Measured
+ * end to end before this was written, not deduced (prd-57's closeout, Success
+ * 6).
+ *
+ * What the hook DOES know is its own parent pid — the agent's. Ruling 1's
+ * process witness has already seen that actor and placed it in a worktree the
+ * collector canonicalised. So the join is a pid lookup, and the place a
+ * declaration lands under is that actor's worktree path; `buildFleet` resolves
+ * that back to a lane, because it is the one place holding both.
+ *
+ * **No path arithmetic here.** A `cwd`-based join would be the more general one
+ * and it cannot live in this package: containment needs `isInside`, `isInside`
+ * needs `node:fs`, and ADR-0003 keeps that out of core. A prefix compare
+ * instead of it is a defect this repo has already fixed twice by name. So the
+ * pid join is what lands, and a line whose pid matches no actor is DECLINED
+ * rather than guessed at — the honest gap ADR-0010 asks for, and the reason a
+ * platform with no process leg simply sees no declared attention rather than a
+ * wrong one.
+ */
 function beaconReceived(state: SessionState, event: EventOf<'beacon.received'>): SessionState {
   const p = event.payload
-  if (p.lane === null || !isAttentionKind(p.kind)) return state
-  const prev = state.declared[p.lane]
+  if (!isAttentionKind(p.kind)) return state
+
+  const placed = p.lane === null ? placeByPid(state, p.pid) : { key: p.lane, joinedBy: 'lane' as const }
+  if (placed === null) return state
+
+  const prev = state.declared[placed.key]
   if (prev !== undefined && prev.at > event.ts) return state
   const record: DeclaredAttention = {
     kind: p.kind,
@@ -545,8 +581,40 @@ function beaconReceived(state: SessionState, event: EventOf<'beacon.received'>):
     digest: p.digest,
     file: p.file,
     offset: p.offset,
+    joinedBy: placed.joinedBy,
   }
-  return { ...state, declared: { ...state.declared, [p.lane]: record } }
+  return { ...state, declared: { ...state.declared, [placed.key]: record } }
+}
+
+/**
+ * The actor this pid belongs to, and the worktree it was placed in.
+ *
+ * `null` for every case that is not a match, and they are different facts worth
+ * keeping apart in a reader's head even though they collapse to one answer
+ * here: no pid on the line, no actor with that pid, or an actor with no
+ * worktree the witness could resolve. Each is a gap; none is a lane.
+ *
+ * A GONE actor still counts. The hook fired while the process was alive — that
+ * is the only time a hook can fire — and a `process.gone` arriving first on a
+ * busy tick must not lose the word the agent said before it died.
+ *
+ * A linear scan, deliberately: `processes` is keyed `pid:startedAt` so a pid
+ * alone cannot index it, and the set is the agent processes on one machine —
+ * tens, not thousands. A second index keyed by pid would have to be kept
+ * correct across `seen`/`gone`/recycle for a lookup that costs nothing at this
+ * size.
+ */
+function placeByPid(
+  state: SessionState,
+  pid: number | undefined,
+): { key: string; joinedBy: 'pid' } | null {
+  if (pid === undefined) return null
+  for (const actor of Object.values(state.processes)) {
+    if (actor.pid !== pid) continue
+    if (actor.worktreePath === null) continue
+    return { key: actor.worktreePath, joinedBy: 'pid' }
+  }
+  return null
 }
 
 // --- git --------------------------------------------------------------------

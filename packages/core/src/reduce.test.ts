@@ -2202,6 +2202,92 @@ describe('reduce — the fold-order law: append order is the truth (prd17 ruling
 describe('reduce — beacon.received folds declared attention per lane (prd-27 w3, #283)', () => {
   const DIGEST = 'a'.repeat(64)
 
+  /**
+   * THE DECLARED JOIN — prd-57 ruling 3, and the defect it closes.
+   *
+   * `rhizomorph hook` fires inside the agent's own process and cannot name a
+   * lane: the lane is a name this instrument invented and the hook has never
+   * heard it. Every line it wrote therefore arrived with `lane: null`, and this
+   * fold discarded all of them — so ruling 5's third witness was admitted to
+   * the source union, ranked above both readings, obeyed by the fold, and fed
+   * by nothing.
+   *
+   * Nothing caught it because every test in this file handed the fold a beacon
+   * that already named a lane. The shape this PRD kept meeting: an assertion
+   * that the input is well-formed standing in for one that something reads it.
+   */
+  it('a lane-less beacon is joined by PID to the actor the process witness placed', () => {
+    const base = reduceAll([
+      ...fixtureSession(),
+      f.processSeen({ pid: 4321, startedAt: 900, worktreePath: '/repo/wt-a', dialect: 'claude' }, { ts: 900 }),
+    ])
+
+    const after = reduce(
+      base,
+      // Exactly what `cli/hook.ts` writes: no lane, a pid, and the keys ruling
+      // 3 names. Nothing here knows what the lane is called.
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 4321, cwd: '/repo/wt-a', writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 10 },
+      ),
+    )
+
+    // Recorded under the actor's WORKTREE, which is what `buildFleet` resolves
+    // back to a lane — the fold cannot know lane ids, and a path comparison
+    // here would need `node:fs` (ADR-0003).
+    expect(after.declared['/repo/wt-a']).toMatchObject({ kind: 'waiting', at: 10, joinedBy: 'pid' })
+  })
+
+  it('a lane-less beacon whose pid matches NO actor is declined, never guessed', () => {
+    // The honest gap, and the half that keeps the join from being a guess: on a
+    // platform with no process leg, or for an agent the roster never matched,
+    // there is no actor to place it and nothing is recorded. ADR-0010.
+    const base = reduceAll(fixtureSession())
+    const after = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 99999, cwd: '/repo/wt-a', writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 10 },
+      ),
+    )
+
+    expect(after.declared).toEqual(base.declared)
+  })
+
+  it('a lane-less beacon with no pid at all is declined too — the key is what joins, not the writer', () => {
+    const base = reduceAll(fixtureSession())
+    const after = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 10 },
+      ),
+    )
+
+    expect(after.declared).toEqual(base.declared)
+  })
+
+  it('a GONE actor still carries the declaration — the hook fired while it was alive', () => {
+    // A `process.gone` arriving before the beacon on a busy tick must not lose
+    // the word the agent said before it died. The hook can only fire from a
+    // live process; the death is later news about the same actor.
+    const base = reduceAll([
+      ...fixtureSession(),
+      f.processSeen({ pid: 4321, startedAt: 900, worktreePath: '/repo/wt-a', dialect: 'claude' }, { ts: 900 }),
+      f.processGone({ pid: 4321, startedAt: 900, reason: 'absent' }, { ts: 950 }),
+    ])
+
+    const after = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 4321, writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 10 },
+      ),
+    )
+
+    expect(after.declared['/repo/wt-a']).toMatchObject({ joinedBy: 'pid' })
+  })
+
   it('a waiting beacon for a lane writes declared[lane] with the writer clock and the pointer', () => {
     const base = reduceAll(fixtureSession())
     const after = reduce(
@@ -2218,6 +2304,10 @@ describe('reduce — beacon.received folds declared attention per lane (prd-27 w
       digest: DIGEST,
       file: 'claude-hook.jsonl',
       offset: 0,
+      // prd-57 ruling 3: this writer NAMED the lane, which is what every beacon
+      // before the hook runner does — `rhizomorph env --hooks` renders the lane
+      // into the command it emits, so the writer knows it by construction.
+      joinedBy: 'lane',
     })
     // Nothing else moved: the declared slice and the envelope bookkeeping, and no more.
     expect({ ...after, declared: base.declared, eventCount: base.eventCount, lastEventTs: base.lastEventTs }).toEqual(base)

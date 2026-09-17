@@ -125,7 +125,7 @@ describe('the staged-pathology fixture', () => {
     // roster's stale `working` voiced beside it — the race ruling 4 was
     // written for (the hook fires before workmux's next poll turns over).
     expect(evidenceFor(fleet, '43-drawer-attach', 'waiting')).toMatch(
-      /^beacon \(claude-hook\) declares waiting \S+ ago · workmux reports working$/,
+      /^beacon \(claude-hook\) declares waiting \S+ ago \(joined by lane\) · workmux reports working$/,
     )
     expect(evidenceFor(fleet, '44-scene-pulses', 'expensive')).toMatch(
       /^\d+ out-tok\/min, \d+\.\d× fleet median$/,
@@ -898,8 +898,8 @@ describe('the harness says so (prd-27 rulings 3–4, #283)', () => {
 
     expect(waiting?.inferred).toBe(false)
     expect(waiting?.since).toBe(NOW - 40_000)
-    expect(waiting?.evidence).toBe('beacon (claude-hook) declares waiting 40s ago')
-    expect(laneIn(fleet, 'q1').declared).toEqual({ kind: 'waiting', at: NOW - 40_000, writer: WRITER })
+    expect(waiting?.evidence).toBe('beacon (claude-hook) declares waiting 40s ago (joined by lane)')
+    expect(laneIn(fleet, 'q1').declared).toEqual({ kind: 'waiting', at: NOW - 40_000, writer: WRITER, joinedBy: 'lane' })
   })
 
   it('(c1) an organ inferring working never suppresses a declared waiting — and the disagreement is voiced', () => {
@@ -922,7 +922,7 @@ describe('the harness says so (prd-27 rulings 3–4, #283)', () => {
     const waiting = waitingIn(buildFleet(reduceAll(log), { now: NOW }), 'q1')
 
     expect(waiting?.inferred).toBe(false)
-    expect(waiting?.evidence).toBe('beacon (claude-hook) declares waiting 40s ago · transcript shape reads working')
+    expect(waiting?.evidence).toBe('beacon (claude-hook) declares waiting 40s ago (joined by lane) · transcript shape reads working')
   })
 
   it('(c2) recent activity never suppresses a declared waiting either', () => {
@@ -933,7 +933,7 @@ describe('the harness says so (prd-27 rulings 3–4, #283)', () => {
     ]
     const waiting = waitingIn(buildFleet(reduceAll(log), { now: NOW }), 'q1')
 
-    expect(waiting?.evidence).toBe('beacon (claude-hook) declares waiting 40s ago · recent work reads working')
+    expect(waiting?.evidence).toBe('beacon (claude-hook) declares waiting 40s ago (joined by lane) · recent work reads working')
   })
 
   it('(b1) a declared working newer than the last work quiets the pane-stillness inference', () => {

@@ -1,4 +1,3 @@
-import type { CollisionEntry, LaneSubagentActivity, TokenTotals, WaitingOnHumanSummary } from '../selectors/index.js'
 import type {
   AgentRole,
   AgentStatus,
@@ -7,7 +6,8 @@ import type {
   BeaconAttentionKind,
   SpanDecision,
 } from '../events/index.js'
-import type { AgentProcess } from '../state.js'
+import type { CollisionEntry, LaneSubagentActivity, TokenTotals, WaitingOnHumanSummary } from '../selectors/index.js'
+import type { AgentProcess, AttentionJoin } from '../state.js'
 import type { LaneManifest, Trespass } from './fences.js'
 import type { LadderRank, Pathology, PathologyKind } from './pathology.js'
 
@@ -91,7 +91,12 @@ export interface Lane {
    * declared `waiting` outright and lets a newer declared `working` quiet an
    * inference (ruling 4); `selectLaneCondition` voices any disagreement.
    */
-  declared: { kind: BeaconAttentionKind; at: number; writer: string } | null
+  /**
+   * The lane's own declared attention, and — prd-57 ruling 3 — HOW it was
+   * attributed. `joinedBy: 'lane'` means the writer named this lane;
+   * `'pid'` means it could not, and the process witness placed it.
+   */
+  declared: { kind: BeaconAttentionKind; at: number; writer: string; joinedBy: AttentionJoin } | null
   activity: LaneActivity
   /**
    * prd-57 ruling 1: the agent processes the process witness placed HERE — a

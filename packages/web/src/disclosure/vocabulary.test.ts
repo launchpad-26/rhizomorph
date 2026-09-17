@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  type Derivation,
+  type DisclosureContent,
   DisclosureError,
   disclosureLines,
   evidenceClause,
   unknownDisclosure,
-  type Derivation,
-  type DisclosureContent,
 } from './vocabulary.js'
 
 /** A whole, honest disclosure — the shape every test below mutates one field of. */
@@ -316,7 +316,7 @@ describe('evidenceClause — the age is stated once, and only when there is one'
     // `·`-joined list whose FIRST clause carries the "ago", so an appended one
     // landed on the last and asserted that workmux reported *working* 8m17s
     // ago. What the evidence says is that two witnesses disagree.
-    const fact = 'beacon (claude-hook) declares waiting 8m17s ago · workmux reports working'
+    const fact = 'beacon (claude-hook) declares waiting 8m17s ago (joined by lane) · workmux reports working'
     expect(evidenceClause(fact, 8 * 60_000 + 17_000)).toBe(fact)
   })
 

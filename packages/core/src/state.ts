@@ -1110,6 +1110,26 @@ function indexRefusalUnder(
  * at the line, the way the event does. A lane with no record here was never
  * declared for — the fleet reads that as "nothing said", not as `stopped`.
  */
+/**
+ * How a declaration was attributed to the place it is recorded under — prd-57
+ * ruling 3's DECLARED join.
+ *
+ * - **`lane`** — the writer named the lane itself. Every beacon before prd-57
+ *   does this, because `rhizomorph env --hooks` renders the lane into the
+ *   command it writes, so the writer knows it by construction.
+ * - **`pid`** — the writer could not name a lane and did not guess. A hook
+ *   fires inside the agent's own process and has no idea what this instrument
+ *   calls the lane; what it does know is its own parent pid, and the process
+ *   witness (ruling 1) already placed that actor. The join is a pid lookup
+ *   against a worktree path the collector canonicalised — no path arithmetic
+ *   here, which is what keeps `node:fs` out of this package (ADR-0003).
+ *
+ * This is a FACT about the attribution, not a ranking of it. ADR-0010: declare
+ * the gap, never rank. A reader that wants to say "declared" versus "inferred"
+ * reads this; a reader that wants to sort by it is asking the wrong question.
+ */
+export type AttentionJoin = 'lane' | 'pid'
+
 export interface DeclaredAttention {
   kind: BeaconAttentionKind
   at: number
@@ -1117,6 +1137,15 @@ export interface DeclaredAttention {
   digest: string
   file: string
   offset: number
+  /**
+   * Which key carried this declaration to its place.
+   *
+   * Optional and defaulted to `'lane'` on read, never written as `undefined`:
+   * a recording made before prd-57 carries no join and folds to exactly what it
+   * always folded to (ADR-0011), and every beacon in one of those WAS joined by
+   * lane, so the default is the truth rather than a placeholder.
+   */
+  joinedBy?: AttentionJoin
 }
 
 /**
