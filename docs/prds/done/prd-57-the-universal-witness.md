@@ -1,8 +1,15 @@
 # prd-57 — the universal witness: an agent is a process, and a harness may say so itself
 
-> **Status:** proposed — drafted 2026-09-15, revised against a read-only audit of the tree at
-> `456a72ad` which refuted sixteen premises of the first draft, then re-audited and corrected
-> against `3e4ab506` before filing. Awaiting the operator's blessing.
+> **Outcome:** shipped 2026-09-17. Milestone `prd57` closed with **21 of 21 issues done**, the
+> last being #536 — *"the documents describe the instrument that now exists, and prd-57 closes
+> out"*.
+>
+> **The Status line this replaces read "Awaiting the operator's blessing", and was never
+> updated.** No blessing is recorded in this document, though the programme was groomed, built
+> and landed in full. That is left as a stated gap rather than filled in: a blessing nobody can
+> point at is not one this shelving is entitled to invent. Shelved by prd-60's lane, which
+> regenerated `.swarm/prd-milestones.txt` and could not land a green suite while a closed
+> milestone's PRD sat on the live shelf (prd56 ruling 1).
 > **Kind:** specifying. This PRD names surfaces strangers will build without the author in the
 > room (a collector, a hand's grant, a new witness on an existing envelope), so it carries
 > specification and is long on purpose.
