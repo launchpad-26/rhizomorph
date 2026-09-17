@@ -385,13 +385,32 @@ issues in a wave claim a common path.
    `stream-frame.ts`, which sits beside `events/` because `no-open-payload-law`
    put it there.
 
-6. **An unwatched colony still raises attention — PARTLY MET.** The counts exist
-   and are tested against a colony that is *not* the rendered one
-   (`core/src/fleet/colony-attention.ts`), the fleet list composes every colony
-   as a table, and the tray badge wants attention when any colony has a lane
-   needing a person. **What is owed:** the selector UI itself. A count nothing
-   renders is the shape prd-57 spent six review rounds on, and it is named here
-   rather than implied by the criterion's other half being done.
+6. **An unwatched colony still raises attention — NOT MET.** Corrected at
+   review on 2026-09-18; this entry read PARTLY MET and overstated two of its
+   three clauses.
+
+   What is true: the counts exist and are tested against a colony that is *not*
+   the rendered one (`core/src/fleet/colony-attention.ts`), and the fleet list
+   composes every colony as a table.
+
+   What was claimed and is not true: *"the tray badge wants attention when any
+   colony has a lane needing a person"*. `badgeFor` **can** take a cross-colony
+   count, but `app/src/main/entry.ts` calls it with one argument, so
+   `needsYouAcrossColonies` is always `undefined` and `wantsAttention` is
+   byte-for-byte what it was before this PRD. Proved by making the parameter
+   required: `src/main/entry.ts(611,15): error TS2554`.
+
+   Nor could it be wired here. `digestOf` projects **one** `Fleet`, and
+   `/api/stream` subscribes to `ctx.recorder` alone — the pinned colony's — so
+   no other colony's events reach any client at all. That is also why
+   `colonyStreamState.ts` (#607) and `colony-attention.ts` (#612) have no
+   non-test caller: there is nothing for them to read.
+
+   **What is owed** is therefore larger than this entry said: a server surface
+   carrying every watched colony's attention to a client, and only then the
+   selector UI and the badge argument. A capability nothing calls is the shape
+   prd-57 spent six review rounds on, and the correction is that this PRD
+   shipped three of them rather than one.
 
 7. **The envelope is stated — MET.** Measured on Linux over three real
    repositories and one linked worktree: cold 11.78 ms for four `git` calls,
@@ -430,6 +449,12 @@ by the bench itself. The colony grouping — four placed actors, one in a linked
 worktree, three colonies — asserted inside that same measurement rather than
 only in unit tests. Every law and every claim in this PRD was mutation-tested;
 the mutations are listed in the PR.
+
+**Asserted and later found false.** Success 6's tray clause, above. It was
+written from `badge.ts`'s new parameter rather than from its call site, which is
+the difference between a function that can do something and a program that does
+it. The lesson is the one this repo keeps relearning in a new costume: grep the
+callers before writing "the X does Y".
 
 **Reasoned.** The watched-repo ceiling. The measurement bounds *discovery*, and
 the argument that a colony costs one instrument is structural rather than

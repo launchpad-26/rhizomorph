@@ -29,7 +29,7 @@
  * **The badge is not here either**, and that is the load-bearing absence:
  * ruling 8 says a muted condition still moves the badge, and the way this
  * package keeps that promise is structural rather than careful —
- * `badgeFor()` takes a rank and nothing else, so there is no argument by which
+ * `badgeFor()` takes a rank and a cross-colony count, and no argument by which
  * a preference could reach it.
  */
 
