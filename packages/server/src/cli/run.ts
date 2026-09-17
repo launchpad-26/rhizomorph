@@ -10,8 +10,7 @@ import {
   recordResume,
   type SessionBootDecision,
 } from '../log/session-log.js'
-import { canonicalize } from '../paths/containment.js'
-import { createRepoRootResolver } from '../paths/repo-root.js'
+import { canonicalizeRepoPath, createRepoRootResolver } from '../paths/repo-root.js'
 import { createColonyRecorders } from '../recorder/colony-recorders.js'
 import { buildApp } from '../server/build-app.js'
 import { loadCollectors } from '../server/collector-loader.js'
@@ -431,18 +430,3 @@ function defaultWebDistDir(): string {
   return path.resolve(here, '..', '..', '..', 'web', 'dist')
 }
 
-/**
- * The boot's repo path, in the spelling every other reader of it uses.
- *
- * `canonicalize` throws on anything that is not `ENOENT` — a permission error
- * part-way up the tree, an `ELOOP`. A boot must not die for that: the answer is
- * then simply the resolved path, which is what this value was before prd-58 and
- * is still correct for every layout without a symlink in it.
- */
-export function canonicalizeRepoPath(resolved: string): string {
-  try {
-    return canonicalize(resolved)
-  } catch {
-    return resolved
-  }
-}

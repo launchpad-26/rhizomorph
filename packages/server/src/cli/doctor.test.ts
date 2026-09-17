@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:net'
@@ -13,11 +14,13 @@ import {
   lapsedVoice,
   reduceAll,
 } from '@rhizomorph/core'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CAPABILITY_TOKEN_HEADER } from '../api/security.js'
 import { processWitnessCapabilitiesFor } from '../collectors/process/doctor-row.js'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/worktree-slug.js'
 import { repoSlug, sessionDirFor } from '../log/paths.js'
+import { canonicalize } from '../paths/containment.js'
+import { exec as realExec } from '../server/exec.js'
 import { writeSessionLock } from '../log/session-lock.js'
 import { RESUME_WINDOW_MS, readResumedCount, recordResume, sessionFilePath } from '../log/session-log.js'
 import { SessionLogWriter } from '../recorder/index.js'
@@ -2035,4 +2038,74 @@ describe('checkWatchedColonies — doctor names every colony (prd-58 ruling 1, #
     const checks = await checkWatchedColonies({ a: actor(1, null) }, PINNED, execOver({}))
     expect(checks.every((c) => c.status === 'ok')).toBe(true)
   })
+})
+
+describe('checkWatchedColonies counts agents where agents actually are (review of #621)', () => {
+  let laneRoot: string
+  let laneRepo: string
+  let lane: string
+
+  const actorInLane = (pid: number, worktreePath: string | null): AgentProcess => ({
+    pid,
+    dialect: 'claude',
+    startedAt: 1,
+    worktreePath,
+    placement: worktreePath === null ? 'unknown' : 'rooted',
+    parentPid: null,
+    cpuMsDelta: null,
+    rssBytes: null,
+    seenAt: 1,
+    goneAt: null,
+    goneReason: null,
+  })
+
+  beforeAll(async () => {
+    laneRoot = canonicalize(await mkdtemp(path.join(tmpdir(), 'rhizo-doctor-lane-')))
+    laneRepo = path.join(laneRoot, 'repo')
+    await mkdir(laneRepo, { recursive: true })
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: laneRepo })
+    execFileSync('git', ['config', 'user.email', 't@e.com'], { cwd: laneRepo })
+    execFileSync('git', ['config', 'user.name', 'T'], { cwd: laneRepo })
+    await writeFile(path.join(laneRepo, 'f.txt'), 'v1\n')
+    execFileSync('git', ['add', '.'], { cwd: laneRepo })
+    execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-qm', 'init'], { cwd: laneRepo })
+    // A LANE, laid out the way `git worktree add` normally does: OUTSIDE the
+    // repo directory. This is where every agent this instrument watches works,
+    // and it is the layout prd-57's own end-to-end fixture did not have.
+    lane = path.join(laneRoot, 'worktrees', 'lane-a')
+    execFileSync('git', ['worktree', 'add', '-q', lane, '-b', 'lane-a'], { cwd: laneRepo })
+  }, 60_000)
+
+  afterAll(async () => {
+    await rm(laneRoot, { recursive: true, force: true })
+  })
+
+  it('an agent in a linked worktree is an agent placed in its colony', async () => {
+    const checks = await checkWatchedColonies({ '1': actorInLane(1, lane) }, laneRepo, realExec)
+    const row = checks.find((check) => check.id.startsWith('colony:'))
+    // Before this fix the count was `actor.worktreePath === colony.path`, so a
+    // colony discovered BECAUSE an agent was working in it reported zero.
+    expect(row?.message).toContain('1 agent placed here')
+    expect(row?.message).not.toContain('no agent placed here')
+  }, 60_000)
+
+  it('an agent at the repo root still counts, and two agents count as two', async () => {
+    const checks = await checkWatchedColonies(
+      { '1': actorInLane(1, lane), '2': actorInLane(2, laneRepo) },
+      laneRepo,
+      realExec,
+    )
+    const row = checks.find((check) => check.id.startsWith('colony:'))
+    expect(row?.message).toContain('2 agents placed here')
+  }, 60_000)
+
+  it('an agent in no repository is still reported as unplaced, not as placed here', async () => {
+    const checks = await checkWatchedColonies(
+      { '1': actorInLane(1, lane), '2': actorInLane(2, null) },
+      laneRepo,
+      realExec,
+    )
+    expect(checks.find((check) => check.id.startsWith('colony:'))?.message).toContain('1 agent placed here')
+    expect(checks.find((check) => check.id === 'colonies:unplaced')?.message).toContain('1 agent')
+  }, 60_000)
 })

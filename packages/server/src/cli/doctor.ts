@@ -34,7 +34,7 @@ import { DECLARED_HARNESSES, IMPLEMENTED_HARNESS_IDS } from '../harness-roster.j
 import { formatBytes } from '../lib/format.js'
 import { defaultDataRoot, sessionDirFor } from '../log/paths.js'
 import { decideSessionBoot, formatBootDuration, listSessions, readSessionEvents } from '../log/session-log.js'
-import { createRepoRootResolver } from '../paths/repo-root.js'
+import { canonicalizeRepoPath, createRepoRootResolver } from '../paths/repo-root.js'
 import { createColonyDiscovery } from '../server/colonies.js'
 import { exec as realExec } from '../server/exec.js'
 import { DEFAULT_PORT, type FlagSpec, parseFlags } from './args.js'
@@ -208,11 +208,40 @@ export async function checkWatchedColonies(
   repoPath: string,
   exec: Exec,
 ): Promise<DoctorCheck[]> {
-  const discovery = createColonyDiscovery({
-    pinnedRepoPath: repoPath,
-    resolver: createRepoRootResolver(exec),
-  })
+  // ONE resolver for both questions below. Discovery and the placement count
+  // must agree about which repo a cwd belongs to, and two resolvers would each
+  // hold their own cache of the same answers.
+  const resolver = createRepoRootResolver(exec)
+  const discovery = createColonyDiscovery({ pinnedRepoPath: repoPath, resolver })
+  const placed = Object.values(processes).filter((actor) => actor.worktreePath !== null)
   const colonies = await discovery.discover(Object.values(processes))
+
+  /**
+   * WHICH COLONY EACH AGENT IS IN — the same question discovery asked, asked
+   * with the same resolver.
+   *
+   * This used to be `actor.worktreePath === colony.path`, and an agent works in
+   * a LANE: a linked worktree, which `git worktree add` normally puts OUTSIDE
+   * the repo directory. So the equality was false for every real agent, and a
+   * colony that had been discovered *because* an agent was working in it
+   * reported "no agent placed here right now". Success 1's falsifier is that an
+   * operator cannot tell "watching three" from "watching one and dropping two"
+   * except by this report, so a report that says zero everywhere does not meet
+   * it.
+   *
+   * It is the same defect `beaconLineBelongsTo` was fixed for in this very
+   * branch — containment or equality against a repo root cannot see a lane —
+   * and the resolver is the answer here for the same reason the fold was there:
+   * ask the thing that already knows.
+   *
+   * The resolver's cache makes this free: discovery has already resolved every
+   * one of these cwds on the line above, so no `git` is spawned twice.
+   */
+  const rootOf = new Map<string, string | null>()
+  for (const actor of placed) {
+    const cwd = actor.worktreePath as string
+    if (!rootOf.has(cwd)) rootOf.set(cwd, await resolver.resolve(cwd))
+  }
 
   // The pin is always present, so the list is never empty and a reader never
   // has to decide what an empty one meant.
@@ -223,8 +252,7 @@ export async function checkWatchedColonies(
   }
 
   const rows = colonies.map((colony): DoctorCheck => {
-    const actors = Object.values(processes).filter((actor) => actor.worktreePath !== null)
-    const here = actors.filter((actor) => actor.worktreePath === colony.path).length
+    const here = placed.filter((actor) => rootOf.get(actor.worktreePath as string) === colony.path).length
     const pinned = colony.pinned ? ' (pinned — started here)' : ''
     // A colony with no live actor is NAMED rather than dropped: it was
     // discovered because an agent worked there, its recording is still a
@@ -254,7 +282,10 @@ export async function checkWatchedColonies(
 export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
   const exec = options.exec ?? realExec
   const fetchImpl = options.fetch ?? globalThis.fetch
-  const repoPath = path.resolve(options.path ?? process.cwd())
+  // Canonical, exactly as `cli/run.ts` pins it. `doctor` reporting a different
+  // set of colonies from the server it is diagnosing would be the disagreement
+  // this check exists to make visible.
+  const repoPath = canonicalizeRepoPath(path.resolve(options.path ?? process.cwd()))
 
   const baseChecks: DoctorCheck[] = [
     await checkNodeVersion(options),
