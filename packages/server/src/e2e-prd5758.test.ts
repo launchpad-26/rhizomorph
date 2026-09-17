@@ -39,6 +39,7 @@ let root: string
 let alpha: string
 let alphaWt: string
 let beta: string
+let betaWt: string
 let dataRoot: string
 
 function git(cwd: string, args: string[]): void {
@@ -64,6 +65,10 @@ beforeAll(async () => {
   beta = path.join(root, 'beta')
   alphaWt = path.join(root, 'alpha-wt')
   git(alpha, ['worktree', 'add', '-q', alphaWt, '-b', 'side'])
+  // Beta gets a worktree too: the main checkout is not a LANE, and an agent
+  // working in a repo works in one of its worktrees.
+  betaWt = path.join(root, 'beta-wt')
+  git(beta, ['worktree', 'add', '-q', betaWt, '-b', 'work'])
 }, 120_000)
 
 afterAll(async () => {
@@ -129,7 +134,7 @@ describe('prd-57 + prd-58 end to end, on real repositories', () => {
           hook_event_name: 'Stop',
           session_id: '11111111-2222-4333-8444-555555555555',
           transcript_path: '/home/operator/.claude/projects/beta/session.jsonl',
-          cwd: beta,
+          cwd: betaWt,
         }),
         { dataRoot, parentPid: 4003, now: () => AT },
       ),
@@ -176,9 +181,10 @@ describe('prd-57 + prd-58 end to end, on real repositories', () => {
       reduceAll([
         evt('session.started', { sessionId: 'beta-1', repoPath: beta, repoName: 'beta' }, AT - 900_000),
         evt('worktree.discovered', { path: beta, branch: 'main', head: 'sha-b', isMain: true }, AT - 900_000),
+        evt('worktree.discovered', { path: betaWt, branch: 'work', head: 'sha-w', isMain: false }, AT - 900_000),
         evt(
           'process.seen',
-          { pid: 4003, dialect: 'claude', startedAt: AT - 300_000, worktreePath: beta, placement: 'rooted', parentPid: null },
+          { pid: 4003, dialect: 'claude', startedAt: AT - 300_000, worktreePath: betaWt, placement: 'rooted', parentPid: null },
           AT - 300_000,
         ),
         ...result.events,
@@ -188,7 +194,7 @@ describe('prd-57 + prd-58 end to end, on real repositories', () => {
 
     // THE ANSWER: a hook fired in a repo the instrument never started in
     // reaches that repo's lane, joined by pid, with the join voiced.
-    const lane = fleet.lanes.find((candidate) => candidate.worktreePath === beta)
+    const lane = fleet.lanes.find((candidate) => candidate.worktreePath === betaWt)
     expect(lane?.declared).toMatchObject({ kind: 'working', joinedBy: 'pid', writer: 'claude-hook' })
   }, 60_000)
 
@@ -236,7 +242,7 @@ describe('prd-57 + prd-58 end to end, on real repositories', () => {
     // Beta's line is in the shared door, and alpha's collector must not take it.
     const beacons = forAlpha.events.filter((e) => e.type === 'beacon.received')
     for (const beacon of beacons) {
-      expect((beacon.payload as { cwd?: string }).cwd).not.toBe(beta)
+      expect((beacon.payload as { cwd?: string }).cwd).not.toBe(betaWt)
     }
   }, 60_000)
 })
