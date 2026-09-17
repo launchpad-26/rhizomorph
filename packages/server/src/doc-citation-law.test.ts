@@ -2868,6 +2868,182 @@ function sourceTokens(): Set<string> {
   return sourceTokensCache
 }
 
+/**
+ * Declarations that the STRIPPER DELETED THROUGH A PHANTOM COMMENT — used only to diagnose a
+ * violation, never to decide one (#595).
+ *
+ * `stripCommentsFromSource` is two regexes with no idea what a string literal is, so a `/*`
+ * bigram inside a string opens a comment that runs to the next real closer. Measured on `main`
+ * at `a53f7dd8`: `packages/server/src/shell-suite-law.test.ts` carries its own glob as a string
+ * and has **12 comment openers against 5 closers**; the span declaring `discoverShellTests` is
+ * deleted, and the file passes only because a second, unterminated phantom leaves a tail that
+ * happens to carry the same name. An ordinary docblock added below that point closes the
+ * phantom, eats the tail, and this law reports a FALSE violation naming the editor's file.
+ *
+ * THE PREDICATE IS THE POINT, and the first version of it was wrong. It asked only "is this
+ * symbol declared anywhere in raw text?", which is true of a name written in DECLARATION SHAPE
+ * inside a perfectly ordinary, balanced comment — historical code, an example. Both seats of
+ * the verify round built that fixture independently and got the artefact message for a
+ * genuinely dead citation: the reader was told not to fix a citation that really was dead. A
+ * correct diagnosis replaced by an incorrect one is worse than the defect being repaired.
+ *
+ * So this requires POSITIVE EVIDENCE of the failure mode rather than of its symptom. It finds
+ * the spans the stripper removes, keeps only those whose OPENING bigram sits inside a quoted
+ * span on its own line — the phantom condition itself — and collects declarations from those
+ * spans alone. A legitimate `/** … *\/` comment's opener is not inside a quote, so what it
+ * contains is stripped correctly and stays an ordinary violation.
+ *
+ * Quote tracking is LINE-SCOPED on purpose. A four-state scanner over the whole file derails on
+ * `packages/server/src/api/route-class-law.test.ts:398`, where an apostrophe inside a regex
+ * literal opens a string that never closes; per-line, that mistake cannot escape its line.
+ */
+function openerIsPhantom(line: string, col: number): boolean {
+  // Only spans that CLOSE on the same line count as strings. That one rule is what keeps an
+  // apostrophe inside a regex literal — `/this server's (\w+) …/g`, real code at
+  // route-class-law.test.ts:398 — from being read as an unterminated string that swallows the
+  // rest of the line. A genuine single-line string closes; that apostrophe does not.
+  const spans: Array<[number, number]> = []
+  let i = 0
+  while (i < line.length) {
+    const c = line[i]
+    if (c === "'" || c === '"' || c === '`') {
+      let k = i + 1
+      let closed = -1
+      while (k < line.length) {
+        if (line[k] === '\\') {
+          k += 2
+          continue
+        }
+        if (line[k] === c) {
+          closed = k
+          break
+        }
+        k += 1
+      }
+      if (closed === -1) {
+        i += 1
+        continue
+      }
+      spans.push([i, closed])
+      i = closed + 1
+      continue
+    }
+    i += 1
+  }
+  const inSpan = (at: number): boolean => spans.some(([a, b]) => at > a && at < b)
+  if (inSpan(col)) return true
+  // A `/*` written inside a LINE comment is still a block opener to the regex stripper, while
+  // a human reads it as prose. Found by the fix re-review, and reproducible with nothing more
+  // exotic than a comment describing comment syntax.
+  //
+  // The FIRST UNQUOTED `//`, not the first `//`. A URL inside a string — `'http://x'` — is the
+  // first match and is quoted, and taking it made this return `false` without ever looking for
+  // the real line comment after it. Reported on the review of #601, reproduced, and fixed here:
+  // it is the same sibling shape the earlier rounds kept finding, one spelling further along.
+  // Fail-closed while it stood (the reader got the old wrong-blame message, never a "do not fix
+  // this" on a live dead citation) and inert on the corpus — 1,191 files scanned, 0 divergences
+  // — so this closes a class rather than a live defect.
+  let lineComment = line.indexOf('//')
+  while (lineComment !== -1 && inSpan(lineComment)) lineComment = line.indexOf('//', lineComment + 1)
+  return lineComment !== -1 && col > lineComment
+}
+
+function phantomSpans(source: string): string[] {
+  const lineStarts: number[] = [0]
+  for (let k = 0; k < source.length; k += 1) if (source[k] === '\n') lineStarts.push(k + 1)
+  const lineAndColOf = (index: number): { line: string; col: number } => {
+    let lo = 0
+    let hi = lineStarts.length - 1
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2)
+      if (lineStarts[mid]! <= index) lo = mid
+      else hi = mid - 1
+    }
+    const from = lineStarts[lo]!
+    const to = source.indexOf('\n', from)
+    return { line: source.slice(from, to === -1 ? source.length : to), col: index - from }
+  }
+  const out: string[] = []
+  for (const m of source.matchAll(/\/\*[\s\S]*?\*\//g)) {
+    if (m.index === undefined) continue
+    const { line, col } = lineAndColOf(m.index)
+    if (openerIsPhantom(line, col)) out.push(m[0])
+  }
+  return out
+}
+
+/**
+ * The symbol arm's classification, as a PURE function over its inputs (#595).
+ *
+ * It is extracted for one reason and the verify round is that reason: with the classification
+ * inline in the test body, replacing the whole artefact branch with `if (false)` left the suite
+ * green — the diagnosis had three unit tests for its detector and nothing at all holding its
+ * WIRING. A control below drives this with a rigged citation and a rigged phantom set, so the
+ * branch cannot be removed or short-circuited without a red bar.
+ */
+function partitionSymbolFindings(
+  citations: readonly SymbolCitation[],
+  verdictOf: (symbol: string) => SymbolVerdict,
+  isPhantomHidden: (symbol: string) => boolean,
+  allowed: ReadonlySet<string>,
+  notOursSet: ReadonlySet<string>,
+): { violations: string[]; stripperArtefacts: string[] } {
+  const violations: string[] = []
+  const stripperArtefacts: string[] = []
+  for (const { file, symbol } of citations) {
+    const verdict = verdictOf(symbol)
+    if (verdict === 'present') continue
+    // The artefact check runs only where a violation would OTHERWISE be reported: a symbol the
+    // baseline already accounts for needs no diagnosis, and diagnosing it first would fire on
+    // every legitimately-recorded rename.
+    const wouldReport =
+      verdict === 'not-ours' ? !notOursSet.has(symbol) : !allowed.has(`${file}\t${symbol}`)
+    if (wouldReport && isPhantomHidden(symbol)) {
+      stripperArtefacts.push(
+        `${file} cites \`${symbol}\`, which this repo declares inside a span that ` +
+          `stripCommentsFromSource DELETED because a \`/*\` or \`*/\` inside a string literal ` +
+          `opened a phantom comment. This is a defect in this law, NOT in the citing document: ` +
+          `do not "fix" the citation. See #595.`,
+      )
+      continue
+    }
+    if (verdict === 'not-ours') {
+      if (!notOursSet.has(symbol)) {
+        violations.push(
+          `${file} cites \`${symbol}\`, which this repo never declared in the paths arm 2 reads — add it to [not-ours] with its citing file`,
+        )
+      }
+      continue
+    }
+    if (!allowed.has(`${file}\t${symbol}`)) {
+      violations.push(
+        `${file} cites \`${symbol}\`, which this repo declared once and no longer has — fix the citation, record it in ` +
+          `[renamed-away], or in [historical] if the sentence names the removal on purpose`,
+      )
+    }
+  }
+  return { violations, stripperArtefacts }
+}
+
+let phantomHiddenCache: Set<string> | undefined
+function phantomHiddenDeclarations(): Set<string> {
+  if (phantomHiddenCache === undefined) {
+    const out = new Set<string>()
+    for (const pattern of SOURCE_SWEEP_PATTERNS) {
+      for (const file of sweepFiles(pattern)) {
+        if (!SOURCE_EXT_RE.test(file)) continue
+        const raw = readSweptFile(file)
+        if (raw === undefined) continue
+        for (const span of phantomSpans(raw)) {
+          for (const name of declaredNamesIn(span, '')) out.add(name)
+        }
+      }
+    }
+    phantomHiddenCache = out
+  }
+  return phantomHiddenCache
+}
+
 let everDeclaredCache: Set<string> | undefined
 let everDeclaredBuilds = 0
 
@@ -3257,6 +3433,89 @@ describe('doc symbol law: a symbol cited from a document or a comment still exis
     }
   })
 
+  /**
+   * The artefact diagnosis had NO committed test until the verify round said so: replacing the
+   * whole condition with `if (false)` left the suite green (#595, codex seat). These three are
+   * that test, and they are rigged-input unit tests rather than corpus observations — they
+   * cannot rot as the tree moves, and they fail if the diagnosis is removed or widened.
+   */
+  it('a phantom span — one opened by a bigram inside a string — is detected, and its declarations with it', () => {
+    const rigged = [
+      "const GLOB = 'scripts/dev/*.test.sh'",
+      'const AFTER = 1',
+      '/** an ordinary docblock, whose closer pairs with the phantom opener above */',
+      'function zzzHiddenByPhantom() { return 1 }',
+    ].join('\n')
+    const spans = phantomSpans(rigged)
+    expect(spans, 'the bigram inside the glob string opens a span the stripper removes').toHaveLength(1)
+    expect(declaredNamesIn(spans[0] ?? '', '')).toContain('AFTER')
+  })
+
+  it('a LEGITIMATE comment containing declaration-shaped text is NOT a phantom — the diagnosis must not claim it', () => {
+    // Both verify seats built this independently: a real, balanced docblock documenting a
+    // removed helper by pasting its old signature. The first version of the diagnosis called
+    // it a stripper artefact and told the reader not to fix a citation that really was dead —
+    // a correct diagnosis replaced by an incorrect one, which is worse than the original bug.
+    const rigged = [
+      '/**',
+      ' * This module used to expose a helper shaped like:',
+      "function zzzLegitimatelyRemoved() { return 'gone' }",
+      ' * It was deleted; this is historical colour, not a live declaration.',
+      ' */',
+      'export function zzzStillHere(): number { return 1 }',
+    ].join('\n')
+    expect(
+      phantomSpans(rigged),
+      'no bigram sits inside a string literal here, so nothing about this comment is a phantom',
+    ).toEqual([])
+  })
+
+  it('the line-scoped quote reader does not derail on an apostrophe inside a regex literal', () => {
+    // packages/server/src/api/route-class-law.test.ts:398 carries
+    // `/this server's (\w+) GATED mutating routes/g`. A whole-file scanner reads that
+    // apostrophe as opening a string that never closes and misparses everything after it;
+    // per-line, the mistake cannot leave its line.
+    const line = "      pattern: /this server's (\\w+) GATED mutating routes/g,"
+    expect(openerIsPhantom(line, line.indexOf('GATED')), 'nothing quoted is open at this point').toBe(false)
+    const quoted = "const G = 'a/*b'"
+    expect(openerIsPhantom(quoted, quoted.indexOf('/*')), 'this opener really is inside a string').toBe(true)
+    const afterLineComment = '// see the /* style used elsewhere'
+    expect(openerIsPhantom(afterLineComment, afterLineComment.indexOf('/*')), 'an opener after // is phantom too').toBe(true)
+    // A URL inside a string is the first `//` on its line and is quoted; the real line comment
+    // comes after it. Taking the first match rather than the first UNQUOTED one missed this
+    // (review of #601). Inert on the corpus, so only this test holds the fix in place.
+    const urlThenComment = "const u = 'http://x' // see /* here"
+    expect(openerIsPhantom(urlThenComment, urlThenComment.indexOf('/* here')), 'the real // comes after a quoted URL').toBe(true)
+    const realComment = '/* mentions "/*" later on the same line */'
+    expect(openerIsPhantom(realComment, 0), 'a REAL opener at column 0 is not a phantom, whatever follows it').toBe(false)
+  })
+
+  it('CONTROL: the artefact branch is WIRED, not merely defined — a rigged phantom reaches it', () => {
+    // Replacing the branch with `if (false)` left 78/78 green before this existed (#595, codex
+    // seat). Rigged inputs, so it cannot rot with the corpus.
+    const rigged = partitionSymbolFindings(
+      [{ file: 'docs/rigged.md', symbol: 'zzzRiggedPhantom' }],
+      () => 'renamed-away',
+      (sym) => sym === 'zzzRiggedPhantom',
+      new Set<string>(),
+      new Set<string>(),
+    )
+    expect(rigged.stripperArtefacts, 'a phantom-hidden symbol must be diagnosed, not reported as dead').toHaveLength(1)
+    expect(rigged.violations).toEqual([])
+
+    // And the same citation with NO phantom behind it stays an ordinary violation — the two
+    // seats' counterexample, in the wiring rather than in the detector.
+    const honest = partitionSymbolFindings(
+      [{ file: 'docs/rigged.md', symbol: 'zzzRiggedPhantom' }],
+      () => 'renamed-away',
+      () => false,
+      new Set<string>(),
+      new Set<string>(),
+    )
+    expect(honest.stripperArtefacts).toEqual([])
+    expect(honest.violations, 'a genuinely dead citation must still be reported as one').toHaveLength(1)
+  })
+
   it('both token sets are built exactly once per process, however many verdicts are asked for', () => {
     // Prime FIRST, then measure. Capturing the counters before the first verdict made this
     // test depend on an earlier test in the file having warmed both caches: run alone —
@@ -3280,25 +3539,18 @@ describe('doc symbol law: a symbol cited from a document or a comment still exis
     )
     const notOursSet = new Set(notOurs.map(({ symbol }) => symbol))
 
-    const violations: string[] = []
-    for (const { file, symbol } of symbolCitations()) {
-      const verdict = symbolVerdict(symbol)
-      if (verdict === 'present') continue
-      if (verdict === 'not-ours') {
-        if (!notOursSet.has(symbol)) {
-          violations.push(
-            `${file} cites \`${symbol}\`, which this repo never declared in the paths arm 2 reads — add it to [not-ours] with its citing file`,
-          )
-        }
-        continue
-      }
-      if (!allowed.has(`${file}\t${symbol}`)) {
-        violations.push(
-          `${file} cites \`${symbol}\`, which this repo declared once and no longer has — fix the citation, record it in ` +
-            `[renamed-away], or in [historical] if the sentence names the removal on purpose`,
-        )
-      }
-    }
+    const { violations, stripperArtefacts } = partitionSymbolFindings(
+      symbolCitations(),
+      symbolVerdict,
+      (symbol) => phantomHiddenDeclarations().has(symbol),
+      allowed,
+      notOursSet,
+    )
+
+    // Reported FIRST and separately: a stripper artefact makes every other verdict in this
+    // arm untrustworthy, and reading it as a list of dead citations is how the wrong file
+    // gets edited.
+    expect(stripperArtefacts, stripperArtefacts.join('\n')).toEqual([])
     expect(violations, violations.join('\n')).toEqual([])
   })
 })
