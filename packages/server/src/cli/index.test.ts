@@ -250,7 +250,17 @@ describe('runCli', () => {
     expect(events.length).toBeGreaterThanOrEqual(2)
   })
 
-  it('wires --extra-sessions into the default sessionlog collector, attributed role: conductor', async () => {
+  /**
+   * END TO END, through a real boot — prd-57 ruling 8.
+   *
+   * It read "wires `--extra-sessions` into the default sessionlog collector".
+   * The flag is retired, and what replaces it is worth an end-to-end test for
+   * the same reason the flag was: this is the one place the WIRING is proved
+   * rather than the collector's own unit behaviour. A `runCli` boot, a real
+   * transcript on disk under the dialect's own root, and the conductor
+   * attribution coming out the other side.
+   */
+  it('discovers the conductor transcript through a real boot, attributed role: conductor', async () => {
     const claudeProjectsRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-claude-projects-'))
     // The dot and the space are load-bearing, not incidental: `os.tmpdir()`
     // itself contains neither on ubuntu or macOS, so a plain
@@ -261,7 +271,10 @@ describe('runCli', () => {
     // `projectDir` below only matches what the collector under test actually
     // looks up because both sides call the same function, on every platform.
     const extraDir = path.join(tmpdir(), 'rhizomorph-conductor.work dir')
-    const projectDir = path.join(claudeProjectsRoot, worktreePathToProjectSlug(extraDir))
+    // `home` and `claudeProjectsRoot` in the production relationship, so this
+    // proves the real wiring rather than a fixture that moved them apart.
+    const home = await mkdtemp(path.join(tmpdir(), 'rhizomorph-conductor-home-'))
+    const projectDir = path.join(home, '.claude', 'projects', worktreePathToProjectSlug(extraDir))
     await mkdir(projectDir, { recursive: true })
 
     const line = JSON.stringify({
@@ -283,11 +296,13 @@ describe('runCli', () => {
     })
     await writeFile(path.join(projectDir, 'sess-extra-1.jsonl'), `${line}\n`)
 
-    // No real git repo behind repoPath: git worktree list is stubbed to "no worktrees",
-    // so the only session data tailed comes from --extra-sessions.
+    // `git worktree list` names ONE worktree and it is the conductor's own
+    // directory — the main working tree, which is what discovery keys off.
+    // Stubbed rather than a real repo because the fact under test is the
+    // wiring, not git.
     const fakeGitExec: Exec = async (command, cmdArgs) => {
       if (command === 'git' && cmdArgs[0] === 'worktree') {
-        return { stdout: '', stderr: '', code: 0, failed: false }
+        return { stdout: `worktree ${extraDir}\n`, stderr: '', code: 0, failed: false }
       }
       return { stdout: '', stderr: 'not stubbed', code: 1, failed: true, errorMessage: 'not stubbed' }
     }
@@ -299,17 +314,11 @@ describe('runCli', () => {
         // nothing for it. This test is about conductor attribution, not
         // first-sight semantics, so it opts into --backfill to read that
         // pre-existing line instead.
-        [
-          path.join(tmpdir(), 'conductor-repo'),
-          '--port',
-          '0',
-          '--extra-sessions',
-          extraDir,
-          '--backfill',
-        ],
+        [extraDir, '--port', '0', '--backfill'],
         {
           dataRoot,
-          claudeProjectsRoot,
+          claudeProjectsRoot: path.join(home, '.claude', 'projects'),
+          home,
           exec: fakeGitExec,
           log: { log: () => {}, warn: () => {} },
         },
@@ -319,6 +328,7 @@ describe('runCli', () => {
       expect(usage.payload).toMatchObject({ role: 'conductor', model: 'claude-opus-5' })
     } finally {
       await rm(claudeProjectsRoot, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
     }
   })
 })
@@ -1550,7 +1560,9 @@ describe('runCli lab fork + compare subcommands (prd12 phase 2)', () => {
     expect(fork.out).toContain('arm 1')
     expect(fork.out).toContain('arm 3')
     expect(fork.out).toContain('paths rewritten to this tree')
-    expect(fork.out).toContain('not run — run it yourself: workmux add')
+    // prd-57 ruling 8: no prompt file, so there is no command to hand over —
+    // the refusal says why rather than printing a launcher that is gone.
+    expect(fork.out).toContain('not run — a headless arm needs a prompt')
     expect(fork.out).toContain('rhizomorph lab compare')
     // The watched repo is untouched.
     expect(git(['status', '--porcelain'])).toBe(before)

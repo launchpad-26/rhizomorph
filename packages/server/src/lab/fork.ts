@@ -12,7 +12,6 @@ import {
   type CheckpointCoordinates,
   restoreCheckpoint,
   type SynthesizedSession,
-  synthesizeSession,
 } from './restore.js'
 
 /**
@@ -46,6 +45,13 @@ import {
  */
 
 export interface ForkTreatmentInput {
+  /**
+   * Which harness an arm runs — prd-57 ruling 8. Defaults to `claude`, the one
+   * dialect this repo has a captured headless launch for
+   * ({@link headlessLaunchFor}); anything else reaches the copyable-command
+   * floor rather than a guessed argv.
+   */
+  dialect?: string
   /** Model the arms run. Undefined means the fleet default from `.workmux.yaml`. */
   model?: string | undefined
   /** Prompt file handed to each arm. Undefined means workmux's own prompt handling. */
@@ -119,9 +125,16 @@ export interface DispatchedArm {
   session: SynthesizedSession
   /** A second session, synthesized under the launcher's worktree when it differs. */
   launcherSession: SynthesizedSession | null
-  /** The launcher argv, whether or not it was run. */
+  /** The launcher argv, whether or not it was run. Empty when nothing can be run. */
   launcherArgv: readonly string[]
   launched: boolean
+  /**
+   * Why no arm was started, when none was — prd-20 ruling 7's floor.
+   * Absent, never `null`, when a launch was possible: "nothing refused" and
+   * "the refusal was lost" must not look alike (the same rule the fork event's
+   * optional keys are spread for).
+   */
+  headlessRefusal?: string
   event: EventOf<'fork.dispatched'>
 }
 
@@ -283,6 +296,73 @@ export function workmuxAddArgv(laneHandle: string, treatment: ForkTreatmentInput
  * why). Distinct from the parent lane by construction — the schema refuses
  * otherwise.
  */
+/**
+ * THE HEADLESS LAUNCH — prd-57 ruling 8's launch half.
+ *
+ * An arm runs the harness directly, in the lab's own worktree, with no
+ * multiplexer anywhere in the path. `workmux add` is still offered (see
+ * {@link workmuxAddArgv}) and is no longer how an arm starts.
+ *
+ * ## Why the argv is declared here and not read off the adapter
+ *
+ * `concierge/harness/claude.ts` has a `launchArgv`, and the laboratory cannot
+ * reach it: `concierge/namespace-law.test.ts` grants exactly one importer
+ * (`api/concierge.ts`) and `lab/namespace-law.test.ts` grants the laboratory
+ * exactly one (`cli/index.ts`). Neither set gains a member for this — the
+ * issue says `ALLOWED_IMPORTERS` gains nothing, and a laboratory that could
+ * reach the concierge would be a second route into the fourth hand.
+ *
+ * It is not a second roster either, which is the rule that would otherwise bite
+ * (prd-26 ruling 6, "never two rosters"). The argv below is not a copy of the
+ * adapter's launch line: it is the HEADLESS one, which the adapter does not
+ * have, and it is already captured **in this directory** — `lab/rd.ts` spawns
+ * the operator's own `claude` non-interactively and records the verification in
+ * its own doc (*"the exact argv, verified against `claude --version` 2.1.266,
+ * 2026-09-10"*). The R&D hand and a fork arm want the same thing from the same
+ * binary, so the shape is stated once, here, beside the other one that uses it.
+ *
+ * ## Declared, never guessed
+ *
+ * A dialect with no captured headless launch gets no entry, and its arm falls
+ * back to the copyable command — prd-20 ruling 7's floor, which is what that
+ * ruling exists to guarantee. Inventing an argv for a binary nobody has run
+ * headless would spawn a process on the operator's machine on the strength of a
+ * spelling, which is the failure `harness-roster.ts` refuses one field at a
+ * time and ADR-0010 refuses in general.
+ */
+export interface HeadlessLaunch {
+  /** The binary, resolved on PATH by the caller's own exec. */
+  readonly command: string
+  /** Everything but the prompt, which the caller appends after `--`. */
+  readonly argv: readonly string[]
+}
+
+/**
+ * Why a dialect cannot run an arm headless, when it cannot. Never "unsupported"
+ * on its own — the shape every refusal in this repo takes.
+ */
+export interface HeadlessRefusal {
+  readonly reason: string
+}
+
+export function headlessLaunchFor(dialect: string): HeadlessLaunch | HeadlessRefusal {
+  if (dialect === 'claude') {
+    // `-p` is the non-interactive mode; `--strict-mcp-config` keeps an arm from
+    // inheriting servers the operator configured for their own work, which
+    // would make two arms differ by something the treatment never named.
+    return { command: 'claude', argv: ['-p', '--strict-mcp-config'] }
+  }
+  return {
+    reason:
+      `this repo records no captured headless launch for ${dialect} — an arm cannot be started for it without ` +
+      'inventing an argv nobody has run, so the command is handed back to be run by hand instead',
+  }
+}
+
+export function isHeadlessRefusal(launch: HeadlessLaunch | HeadlessRefusal): launch is HeadlessRefusal {
+  return 'reason' in launch
+}
+
 export function armLaneHandle(forkId: string, arm: number, run = 1): string {
   return armLeaf(forkId, arm, run)
 }
@@ -356,12 +436,15 @@ export async function dispatchFork(options: DispatchForkOptions): Promise<Dispat
   // that ends up governing — the same reason this module wraps TWICE below
   // rather than once, each wrap as close as it can get to the one call it
   // is meant to bound:
-  // `forkExec` carries the 5s plumbing ceiling for `workmux path`; `launchExec`
-  // carries the wider `FORK_LAUNCH_TIMEOUT_MS` (120s) for `workmux add` alone,
+  // `launchExec` carries the wider launch ceiling. The 5s plumbing ceiling had
+  // exactly one user in this path, `workmux path`, and prd-57 ruling 8 removed
+  // it: nothing asks a launcher where it put the arm any more, because nothing
+  // but the lab chooses. `FORK_EXEC_TIMEOUT_MS` is kept and still exported —
+  // `restore.ts` and this module's own doc reason about it — but this function
+  // no longer wraps anything in it.
   // because that spawn runs the worktree's configured setup (`npm ci`) and a
   // plumbing ceiling killed it mid-install (#408).
   const rawExec = options.exec ?? realExec
-  const forkExec = withTimeout(rawExec, FORK_EXEC_TIMEOUT_MS)
   const launchExec = withTimeout(rawExec, FORK_LAUNCH_TIMEOUT_MS)
   const now = options.now ?? Date.now
   const dataRoot = options.dataRoot ?? defaultDataRoot()
@@ -439,7 +522,6 @@ export async function dispatchFork(options: DispatchForkOptions): Promise<Dispat
           parentWorktreePath,
           dataRoot,
           restoreExec: rawExec,
-          forkExec,
           launchExec,
           now,
           recorder,
@@ -465,8 +547,6 @@ interface DispatchArmContext {
   dataRoot: string
   /** Handed to `restoreCheckpoint` UNWRAPPED — its own `RESTORE_EXEC_TIMEOUT_MS` wrap is the one that must govern. */
   restoreExec: Exec
-  /** `FORK_EXEC_TIMEOUT_MS`-bounded (5s, plumbing) — for `workmux path` only. NOT for `workmux add`; see {@link launchExec}. */
-  forkExec: Exec
   /** `FORK_LAUNCH_TIMEOUT_MS`-bounded (120s) — for the `workmux add` spawn alone, which runs the worktree's configured setup (#408). */
   launchExec: Exec
   now: () => number
@@ -492,41 +572,106 @@ async function dispatchArm(ctx: DispatchArmContext): Promise<DispatchedArm> {
     ...(options.install === undefined ? {} : { install: options.install }),
   })
 
-  const launcherArgv = workmuxAddArgv(laneHandle, { model: options.model, promptFile: options.promptFile })
+  const headless = headlessLaunchFor(options.dialect ?? 'claude')
+  /**
+   * THE ARM'S OWN COMMAND LINE — prd-57 ruling 8.
+   *
+   * It was `workmux add …`, which created a branch in the operator's own ref
+   * namespace and a worktree of workmux's choosing. Ruling 1 confines every lab
+   * write to `refs/rhizomorph/`, worktrees the lab creates itself, and
+   * artifacts outside the watched repo — and this module's own header has
+   * worried about exactly that contradiction since it was written. It is
+   * resolved by not shelling to `workmux add` at all: `restoreCheckpoint` above
+   * has already made the worktree, detached, with no ref outside the lab's
+   * namespace, so there is nothing left for a launcher to create.
+   */
+  /**
+   * A HEADLESS ARM NEEDS A PROMPT, and this is a correctness rule before it is
+   * an ergonomic one.
+   *
+   * `claude -p` with no prompt argument reads the prompt from **stdin** and
+   * blocks there forever. An arm launched that way is not a slow arm; it is a
+   * process that never returns, holding the lab worktree open until the
+   * launch ceiling kills it 120 seconds later. Found by the suite hanging
+   * rather than failing, which is the shape a blocked read always takes.
+   *
+   * So no prompt is a refusal, not a launch — the same floor a dialect with no
+   * capture reaches, for a different reason, and said in its own words.
+   */
+  const missingPrompt = options.promptFile === undefined
+  const launchPlan: HeadlessLaunch | HeadlessRefusal = missingPrompt
+    ? {
+        reason:
+          'a headless arm needs a prompt to run and this fork was given none — `claude -p` with no prompt blocks ' +
+          'reading stdin, so nothing is spawned. Pass --prompt-file, or run the restored worktree by hand',
+      }
+    : headless
+  const launcherArgv = isHeadlessRefusal(launchPlan)
+    ? []
+    : [launchPlan.command, ...launchPlan.argv, '--', options.promptFile as string]
   let launched = false
-  let worktreePath = labWorktreePath
-  let launcherSession: SynthesizedSession | null = null
+  const worktreePath = labWorktreePath
+  const launcherSession: SynthesizedSession | null = null
 
-  if (options.launch === true) {
-    // `launchExec`, not `forkExec`: this spawn runs the worktree's configured
-    // setup (`npm ci`), not a plumbing read, so it gets the wider ceiling
-    // (#408). `workmuxWorktreePath` below stays on `forkExec` — `workmux path`
-    // is a read, same shape as the git plumbing this ceiling family bounds
-    // elsewhere.
-    const result = await ctx.launchExec('workmux', launcherArgv, { cwd: ctx.parentWorktreePath })
-    if (result.failed) {
-      const detail = result.stderr.trim() || result.errorMessage || `exit ${result.code}`
-      throw new Error(`workmux ${launcherArgv.join(' ')} failed: ${detail}`)
-    }
-    launched = true
+  /**
+   * **NOTHING IS SPAWNED, and this is the finding rather than a shortfall.**
+   *
+   * The plan was to spawn the headless argv per arm. Built, it hung the suite,
+   * and the reason is a difference between the two launchers that no amount of
+   * reading would have shown: `workmux add` is fire-and-forget — it creates a
+   * pane, the agent runs inside it, the command returns at once. `claude -p`
+   * runs **to completion**. It is a turn, not a start.
+   *
+   * So spawning one per arm inside `dispatchArm` would serialise the entire
+   * experiment: arm 2 would not begin until arm 1's whole turn finished, every
+   * arm bounded by a 120s launch ceiling that a real turn routinely exceeds,
+   * with the operator's own money being spent synchronously inside a loop
+   * nobody could see progress in. A fork exists to run arms CONCURRENTLY; that
+   * is most of what it is for.
+   *
+   * Doing it properly needs a detached spawn — a new primitive, an orphaned
+   * paid process to reason about, and ADR-0048's "explicitly invoked, spends
+   * your own money" argument re-made for a process nobody is watching. That is
+   * a decision, not an implementation detail, and it is not this wave's.
+   *
+   * So the arm is restored, ready, and handed its exact command line — prd-20
+   * ruling 7's floor, which the issue names as the fallback and which is now
+   * the path every arm takes. `workmux add` remains available as an offered
+   * launcher for operators who run workmux and want a pane.
+   *
+   * What this wave DID settle is the thing ruling 8 asked for: no launch path
+   * requires a multiplexer, the branch and worktree are the laboratory's own
+   * inside `refs/rhizomorph/`, and nothing is created outside the namespaces
+   * prd-12 ruling 1 confines it to.
+   */
+  void ctx.launchExec
 
-    // Whichever tree workmux put the agent in is the tree its session must
-    // name. Ruling 5 is about the agent's cwd, not about ours.
-    const reported = await workmuxWorktreePath(ctx.forkExec, ctx.parentWorktreePath, laneHandle)
-    if (reported !== null && reported !== labWorktreePath) {
-      worktreePath = reported
-      // Session only, no workspace restore: workmux already made that tree,
-      // and it is not the lab's to create (`restoreWorkspace` would refuse it,
-      // correctly). What the lab still owes that tree is a session whose paths
-      // name IT — ruling 5 follows the agent.
-      launcherSession = await synthesizeSession({
-        checkpoint: ctx.checkpoint,
-        parentWorktreePath: ctx.parentWorktreePath,
-        forkWorktreePath: reported,
-        ...(options.claudeProjectsRoot === undefined ? {} : { claudeProjectsRoot: options.claudeProjectsRoot }),
-      })
-    }
-  }
+  /**
+   * **`--launch` IS ANSWERED, never silently ignored** (review of #579,
+   * finding 1).
+   *
+   * The first version of this change left `options.launch` read nowhere. An
+   * operator who passed it got `launched: false` with no `headlessRefusal`
+   * beside it — which is the one shape {@link DispatchedArm.headlessRefusal}'s
+   * own docblock forbids: *"'nothing refused' and 'the refusal was lost' must
+   * not look alike."* Worse, passing it SUPPRESSED the CLI's explanatory
+   * paragraph, so taking the flag's own advice returned strictly less
+   * information than not taking it.
+   *
+   * The flag keeps its meaning — *authorise the laboratory to start these
+   * arms* — and the laboratory answers it. It will not, it says why, and it
+   * hands over the command. That is the same shape every other refusal in this
+   * repo takes (`enlist` declining a foreign endpoint by name, the roster
+   * declining a harness it has no capture for), and it is why the flag is not
+   * retired: a flag that exists is a surface, and the wave that lands a
+   * detached spawn should find it here with its meaning intact rather than
+   * re-add it.
+   */
+  const declined =
+    options.launch === true && !isHeadlessRefusal(launchPlan)
+      ? 'a headless run is a whole turn, not a start — the laboratory will not hold your arms in a queue while ' +
+        'each one finishes, so it restores them and hands you the command instead'
+      : undefined
 
   const event = createEvent(
     'fork.dispatched',
@@ -558,19 +703,25 @@ async function dispatchArm(ctx: DispatchArmContext): Promise<DispatchedArm> {
     worktreePath,
     session: restored.session,
     launcherSession,
-    launcherArgv: ['workmux', ...launcherArgv],
+    launcherArgv,
     launched,
+    // prd-20 ruling 7's floor, reached whenever the dialect declares no
+    // captured headless launch: the arm is restored and ready, and the command
+    // is handed back to be run by hand rather than guessed at.
+    // Set whenever nothing started AND there is something to explain: the
+    // dialect has no capture, the fork has no prompt, or the operator asked and
+    // the laboratory declined. Absent when `--launch` was never passed and a
+    // command exists — nothing was refused there, and the command line is the
+    // whole answer.
+    ...(isHeadlessRefusal(launchPlan)
+      ? { headlessRefusal: launchPlan.reason }
+      : declined === undefined
+        ? {}
+        : { headlessRefusal: declined }),
     event,
   }
 }
 
-/** `workmux path <handle>`, or null when workmux cannot say — never a guess. */
-async function workmuxWorktreePath(exec: Exec, cwd: string, laneHandle: string): Promise<string | null> {
-  const result = await exec('workmux', ['path', laneHandle], { cwd })
-  if (result.failed) return null
-  const reported = result.stdout.trim()
-  return reported.length > 0 ? path.resolve(reported) : null
-}
 
 async function digestFile(filePath: string): Promise<string> {
   let bytes: Buffer

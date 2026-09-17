@@ -202,7 +202,7 @@ function conductorGap(events: readonly RhizomorphEvent[]): string {
   return (
     "CONDUCTOR NOT INSTRUMENTED — nothing in this session's event log was recorded against " +
     'role: conductor, so the orchestrator has no session for this drawer to read — ' +
-    'run: `rhizomorph --extra-sessions <dir>:conductor`'
+    'run: `rhizomorph enlist claude`'
   )
 }
 
@@ -532,7 +532,7 @@ export async function readTranscript(request: ReadTranscriptRequest): Promise<Tr
    * found by its declared role; a lane whose *branch* is literally `main` — the
    * root-mass's own branch, which the derived fleet books to the root rather
    * than to any worker — is the honest second chance, so an operator who runs
-   * their orchestrator in the main checkout without `--extra-sessions` still
+   * their orchestrator in the main checkout, now discovered rather than declared, still
    * gets the session that is actually there rather than a gap line.
    */
   const conductor = lane === CONDUCTOR_LANE

@@ -5,30 +5,28 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
+  type AdapterCapabilities,
   absentCapabilities,
   attentionReading,
   buildFleet,
   CONFIGURED_SILENT_REASON,
   CONFIGURED_SILENT_REMEDY,
-  deriveRung,
+  type DeclaredAttention,
+  type Exec,
+  type ExecResult,
   formatSpan,
   lapsedVoice,
   mergeCapabilities,
   reduceAll,
-  rungInfo,
-  type AdapterCapabilities,
-  type DeclaredAttention,
-  type Exec,
-  type ExecResult,
   type SessionState,
 } from '@rhizomorph/core'
 import { lanesManifestPath, readLanesManifest } from '../api/lanes.js'
 import { beaconCapabilitiesFor } from '../collectors/beacon/index.js'
 import { GIT_CAPABILITIES } from '../collectors/git/index.js'
 import { OTEL_CAPABILITIES } from '../collectors/otel/index.js'
+import { processWitnessCapabilitiesFor } from '../collectors/process/doctor-row.js'
 import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/worktree-slug.js'
-import { processWitnessCapabilitiesFor } from '../collectors/process/doctor-row.js'
 import { TMUX_CAPABILITIES } from '../collectors/tmux/index.js'
 import { WORKMUX_CAPABILITIES } from '../collectors/workmux/index.js'
 import { DECLARED_HARNESSES, IMPLEMENTED_HARNESS_IDS } from '../harness-roster.js'
@@ -36,7 +34,7 @@ import { formatBytes } from '../lib/format.js'
 import { defaultDataRoot, sessionDirFor } from '../log/paths.js'
 import { decideSessionBoot, formatBootDuration, listSessions, readSessionEvents } from '../log/session-log.js'
 import { exec as realExec } from '../server/exec.js'
-import { DEFAULT_PORT, parseFlags, type FlagSpec } from './args.js'
+import { DEFAULT_PORT, type FlagSpec, parseFlags } from './args.js'
 // Presence, never value (ADR-0034 clause 2) — and reached THROUGH the connect
 // command's own read rather than by importing `shipper/`, which would widen
 // that law's one-file `DECLARED_IMPORTERS` seam.
@@ -70,6 +68,24 @@ export interface DoctorCheck {
    * before.
    */
   assumed?: boolean
+  /**
+   * Whether an ENRICHMENT is actually on the machine — prd-57 ruling 8.
+   *
+   * Present only on an enrichment's own check (`tmux`, `workmux`), and it
+   * exists because ruling 8 made `status` unable to answer the question. Both
+   * present and absent read `ok` now, deliberately: neither is a problem. But
+   * the ladder's contributors still have to know which, and they used to read
+   * it off `status === 'ok'` — so the moment the verdict moved, an ABSENT tool
+   * began contributing its capabilities and every bare machine read as though
+   * it had a rig.
+   *
+   * Caught by a test that mocked both tools missing and still got "pane
+   * previews and ATTACH from the rig you already run". The lesson is the one
+   * this repo keeps re-learning: a reader that INFERS a fact from a verdict
+   * breaks silently the moment the verdict's meaning changes, so the fact gets
+   * carried rather than deduced.
+   */
+  present?: boolean
   /**
    * The shipper check's own fact (prd-51 ruling 12): epoch ms of the most
    * recently acknowledged batch across every session recorded in its cursor.
@@ -429,7 +445,7 @@ function isPortFree(port: number): Promise<boolean> {
 
 /** One line always safe to repeat in a warn message — never assumes which rung (slug dir vs global root) is the one to fix. */
 const NO_HISTORY_REMEDY =
-  'per-agent history stays empty until `claude` has run at least once here (or point elsewhere with --extra-sessions)'
+  'per-agent history stays empty until `claude` has run at least once here'
 
 /**
  * `~/.claude/projects` existing at all used to be the whole check (#284
@@ -590,28 +606,133 @@ async function sessionFileSize(filePath: string): Promise<string> {
 }
 
 
+/**
+ * THE THREE LEVELS — prd-57 ruling 8.
+ *
+ * A RE-CUT of prd-15 ruling 5's ladder, not a second one. That ruling's rungs
+ * keep their names and their meanings, and `core`'s `Rung`/`deriveRung` are
+ * untouched: `ADR-0037`'s option D cites "L2 versus L0" in its reasoning, and a
+ * rename would leave that citation resolving to nothing. What moves is what the
+ * rungs GROUP, and it moves here, in the one file that reports them to a person.
+ *
+ * The old ladder made **L4 (tmux/workmux) the top**, so every machine without a
+ * multiplexer was told, in the instrument's own words, that it sat two rungs
+ * below where it could be and that the way up was to install one. That is the
+ * claim ruling 8 removes. A rig is an ENRICHMENT — it adds pane previews and
+ * one-keystroke ATTACH, both real and neither a level.
+ *
+ * So the levels are cut on what the instrument can SEE, which is the axis the
+ * operator actually cares about:
+ *
+ * - **L0** — git and the transcript organ. Zero cooperation from anything.
+ * - **L1** — plus dollars and traces, because OTLP is wired.
+ * - **L2** — plus attention that was DECLARED rather than inferred.
+ *
+ * `L2` is reached by either declaring witness, which is the substantive change
+ * from `deriveRung`: it splits them (`L2` for the beacon, `L4` for the rig)
+ * because it is answering "what is providing this", and the answer matters to a
+ * fold. A person climbing is asking a different question — *is attention
+ * declared or guessed* — and both witnesses answer it the same way.
+ *
+ * `L3` (the PTY wrapper) folds to whatever its telemetry says, because its
+ * signature is a HEURISTIC attention: that is inference, so it is not L2, and
+ * `deriveRung`'s own doc says it comes with no telemetry at all, so it is L0.
+ * Nothing in this repo reaches it.
+ */
+export type DoctorLevel = 'L0' | 'L1' | 'L2'
+
+export const LEVEL_INFO: Record<DoctorLevel, { label: string; climb: string | null }> = {
+  L0: {
+    label: 'L0 — git and your own session logs',
+    // ONE command, and it is one command because ruling 4 made it one: `enlist`
+    // writes the telemetry variables AND the lifecycle hooks in a single act,
+    // so the climb out of L0 does not stop at L1. Naming two steps here would
+    // be describing the old paste-per-lane path, which still works and is not
+    // what a first-time reader should be sent to.
+    climb: 'run `rhizomorph enlist claude` — one act, and it reaches L2',
+  },
+  L1: {
+    label: 'L1 — plus dollars and traces',
+    climb: 'run `rhizomorph enlist claude` — its hooks declare attention instead of inferring it',
+  },
+  L2: { label: 'L2 — plus declared attention', climb: null },
+}
+
+/**
+ * Which level this machine stands at. Pure, total, and read top-down.
+ *
+ * Attention first because it is the higher bar, and `provided` by ANY witness —
+ * see {@link LEVEL_INFO} for why this differs from `deriveRung` exactly there.
+ */
+export function doctorLevel(capabilities: AdapterCapabilities): DoctorLevel {
+  if (capabilities.attention.level === 'provided') return 'L2'
+  if (capabilities.cost.level !== 'absent') return 'L1'
+  return 'L0'
+}
+
 /** True only when the binary itself could not be run — not for a non-zero exit with real output (same test used by the workmux collector). */
 function isMissingBinary(result: { failed: boolean; errorMessage?: string }): boolean {
   return result.failed && result.errorMessage !== undefined
 }
 
+/**
+ * An ENRICHMENT's check — prd-57 ruling 8.
+ *
+ * **Absent reads `ok`, not `warn`**, and that is the ruling rather than a
+ * softening. A `warn` says *something is wrong here that you should fix*. A
+ * machine with no tmux has nothing wrong with it: the instrument works, the
+ * fleet folds, every level below is reachable. The old wording already knew
+ * this and said it in the same breath — *"optional and will be degraded, not
+ * fatal"* — which is a `warn` apologising for itself.
+ *
+ * What it cost is the thing ruling 8 exists to end: a first run printed two
+ * warnings naming two tools the reader had never heard of, and the honest
+ * reading of a warning is that you are expected to act on it. So the answer to
+ * "what do I install to use this?" became "tmux and workmux", which was never
+ * true and is the opposite of an anywhere-instrument.
+ *
+ * **The blast radius, measured rather than assumed.** The issue's sibling case
+ * warns that this is shared and that changing its verdict changes it for every
+ * other optional tool. There is no other optional tool: all four call sites in
+ * the package are tmux and workmux (two here, two in `api/doctor.ts`), which is
+ * why the semantics could move without a second function and without touching a
+ * file outside this fence. `doctor.test.ts` holds that as a law rather than
+ * leaving it to the grep I ran once — a third tool routed through here would
+ * redden it, and whoever adds one has to decide deliberately whether it is an
+ * enrichment too.
+ *
+ * A tool that is PRESENT and erroring still warns. That is a different fact: it
+ * is on the machine, the operator installed it on purpose, and it is broken.
+ */
 export async function checkOptionalTool(id: string, command: string, args: string[], exec: Exec): Promise<DoctorCheck> {
   const result = await exec(command, args)
   if (isMissingBinary(result)) {
     return {
       id,
-      status: 'warn',
-      message: `${command} not found on PATH — its data is optional and will be degraded, not fatal`,
+      status: 'ok',
+      present: false,
+      message: `${command} is not installed — an enrichment this instrument does not require`,
     }
   }
   if (result.failed) {
     return {
       id,
       status: 'warn',
+      // On the machine, and broken. Still `present`: the operator installed it
+      // on purpose and the ladder should not pretend it is absent.
+      present: true,
       message: `${command} found but erroring: ${describeToolError(result)} — its data is optional and will be degraded, not fatal`,
     }
   }
-  return { id, status: 'ok', message: `${command} found on PATH` }
+  // Present and working. Said as an enrichment that IS here rather than as a
+  // requirement that is satisfied — the two configurations must differ in
+  // nothing but this sentence (Success 7).
+  return {
+    id,
+    status: 'ok',
+    present: true,
+    message: `${command} is installed — an enrichment this instrument does not require`,
+  }
 }
 
 /** Best available one-line reason for a present-but-failing tool: real stderr, else the exit code. */
@@ -1048,6 +1169,17 @@ function checkOk(checks: readonly DoctorCheck[], id: string): boolean {
   return checks.find((check) => check.id === id)?.status === 'ok'
 }
 
+/**
+ * Whether an enrichment is on the machine — see {@link DoctorCheck.present}.
+ *
+ * Deliberately NOT `checkOk`: since ruling 8 both present and absent read `ok`,
+ * so the verdict cannot answer this and a caller that asked it would get `true`
+ * for a tool that is not installed.
+ */
+function checkPresent(checks: readonly DoctorCheck[], id: string): boolean {
+  return checks.find((check) => check.id === id)?.present === true
+}
+
 /** `true` when the named check in an already-computed report is itself flagged `assumed` — see `DoctorCheck.assumed`'s own doc. */
 function checkAssumed(checks: readonly DoctorCheck[], id: string): boolean {
   return checks.find((check) => check.id === id)?.assumed === true
@@ -1103,14 +1235,13 @@ export async function checkEnrichmentLadder(
       ? SESSIONLOG_CAPABILITIES
       : absentCapabilities(
           'no Claude Code session logs found for this repo yet',
-          'run `claude` at least once here, or point --extra-sessions elsewhere',
+          'run `claude` at least once here',
         ),
-    checkOk(checks, 'tmux')
-      ? TMUX_CAPABILITIES
-      : absentCapabilities('tmux not found on PATH', 'install tmux for pane previews'),
-    checkOk(checks, 'workmux')
-      ? WORKMUX_CAPABILITIES
-      : absentCapabilities('workmux not found on PATH', 'install workmux for declared attention and one-keystroke ATTACH'),
+    // The rig contributes what it has and says nothing when it is not there.
+    // No remedy, deliberately: a remedy is an instruction, and there is nothing
+    // here for the operator to do (prd-57 ruling 8).
+    checkPresent(checks, 'tmux') ? TMUX_CAPABILITIES : absentCapabilities('tmux is not installed'),
+    checkPresent(checks, 'workmux') ? WORKMUX_CAPABILITIES : absentCapabilities('workmux is not installed'),
     checkOk(checks, 'telemetry')
       ? OTEL_CAPABILITIES
       : absentCapabilities(
@@ -1131,13 +1262,18 @@ export async function checkEnrichmentLadder(
     processWitnessCapabilitiesFor(Object.keys(processes).length, platform),
   ]
 
-  const rung = deriveRung(mergeCapabilities(contributors))
-  const info = rungInfo(rung)
-  const climbLine = info.climb === 'top rung — nothing further to climb' ? info.climb : `next: ${info.climb}`
-  // L2 is the one rung whose name alone does not say which witness put the
-  // fleet there (#218) — the beacon's hooks are, by construction, the only
-  // declaring witness when the rig is absent, so the line says so.
-  const label = rung === 'L2' ? `${info.label} — the harness’s hooks are the only declaring witness` : info.label
+  const merged = mergeCapabilities(contributors)
+  const level = doctorLevel(merged)
+  const info = LEVEL_INFO[level]
+  const climbLine = info.climb === null ? 'the top level — nothing further to climb' : `next: ${info.climb}`
+  // What the rig ADDS, said where it is true and nowhere else. Never "missing",
+  // never a remedy: an enrichment that is absent produces no sentence at all,
+  // which is the whole of Success 1.
+  const rig =
+    checkPresent(checks, 'tmux') || checkPresent(checks, 'workmux')
+      ? ' · pane previews and ATTACH from the rig you already run'
+      : ''
+  const label = `${info.label}${rig}`
 
   // Visible, not just a code comment (adversarial review item 3): every
   // ladder entry this call produces carries the SAME assumed-ness its own

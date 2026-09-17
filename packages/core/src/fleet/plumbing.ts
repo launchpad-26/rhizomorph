@@ -1,11 +1,3 @@
-import {
-  compareStrings,
-  selectWaitingOnHuman,
-  type LaneSpend,
-  type LaneSubagentActivity,
-  type TokenTotals,
-  type WaitingOnHumanSummary,
-} from '../selectors/index.js'
 import type {
   AgentRole,
   AgentStatus,
@@ -14,6 +6,14 @@ import type {
   SpanDecision,
   TelemetryOrigin,
 } from '../events/index.js'
+import {
+  compareStrings,
+  type LaneSpend,
+  type LaneSubagentActivity,
+  selectWaitingOnHuman,
+  type TokenTotals,
+  type WaitingOnHumanSummary,
+} from '../selectors/index.js'
 import type { AgentStatusDissent, SessionState } from '../state.js'
 import { IDLE_AFTER_MS } from './constants.js'
 import type { LaneManifest } from './fences.js'
@@ -379,12 +379,17 @@ export function activityOf(lane: Lane): LaneActivity {
   if (lane.agentStatus === 'tool-running') return 'working'
   // `crashed` is deliberately NOT mapped to an activity — and deliberately not
   // left to fall through either. prd-57's 2026-09-15 amendment rules it a
-  // `PathologyKind`, landing in wave 4: a crash is a thing WRONG with a lane,
+  // `PathologyKind`, and wave 4 landed it: a crash is a thing WRONG with a lane,
   // which is what a pathology already is, and `LaneActivity` has no honest slot
   // for it (`done` is the crash-as-success failure ruling 5 exists to remove).
-  // Until that lands the fleet says it does not know, which is weaker and true.
-  // Nothing emits this word yet; the arm is explicit so it cannot quietly take
-  // the work-age branch below and surface as `idle`.
+  //
+  // So the activity stays `unknown` and that is the final answer, not a
+  // placeholder: this function reports what a lane is DOING, and a lane whose
+  // process died is doing nothing that has a name here. The alarm is carried by
+  // the pathology (`server/crashed.ts` raises it, `PATHOLOGY_RANK` ranks it
+  // `broken`), which is the layer that says something is wrong. The arm stays
+  // explicit so this can never quietly take the work-age branch below and
+  // surface as `idle`.
   if (lane.agentStatus === 'crashed') return 'unknown'
   // Working means *doing something*, so this reads work-age too: a lane whose
   // pane is repainting a prompt it never answers is idle, not busy.

@@ -92,7 +92,27 @@ v0 event types:
 - **tmux:** `pane.discovered/closed` · `pane.activity` (content-hash delta
   per poll — never the pane's text)
 - **workmux:** `agent.status` (working/waiting/done) — since [ADR-0037](adr/0037-agent-status-names-its-witness.md) the transcript organ also signs this type as `sessionlog`; the envelope's `source` names the witness.
+- **process:** `process.seen/activity/gone` — the operating system's own
+  process table, read through `collectors/process/`
+  ([ADR-0052](adr/0052-the-observer-reads-the-operators-own-agent-processes.md),
+  prd-57 ruling 1). It is what makes a vanished agent distinguishable from a
+  quiet one: `crashed` is reached from a recorded death, never from silence.
+- **hook:** `agent.status` again, signed `hook` — the harness's own lifecycle
+  events, written by `rhizomorph hook` into the beacon door
+  ([ADR-0054](adr/0054-the-hook-is-the-third-witness.md),
+  [ADR-0055](adr/0055-the-beacon-door-is-per-installation.md), prd-57 ruling 5).
+  A declaration from inside the agent's own process, which is why it outranks
+  both readings above it.
 - **system:** `session.started` · `collector.error/disabled`
+
+**Four witnesses, two enrichments.** git, the transcript organ, the process
+table and the harness's hooks are what this instrument *sees with*; tmux and
+workmux are what it sees *better* with. That split is prd-57 ruling 8 and it is
+load-bearing rather than descriptive — `rhizomorph doctor` reports three levels
+(L0, L1, L2) counted on the witnesses, and reports an absent enrichment as `ok`
+rather than as something missing. The five-rung `Rung` vocabulary in
+`core/src/collector.ts` is unchanged and still names what PROVIDES a capability;
+the levels are what a person climbs.
 
 `core` also owns the **`Collector` interface**, so collectors and the server
 loop build against the same contract without touching each other's files.

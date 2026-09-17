@@ -272,6 +272,16 @@ export interface AgentStatusEmissionInputs {
  *   the done-vs-died call downstream where git can make it; this organ must
  *   not pre-empt it with the one word it is not allowed to be wrong about.
  *
+ *   **WHICH LAYER MAKES THAT CALL, as of prd-57 ruling 5:
+ *   `server/crashed.ts`.** Nothing here changes — this organ still withholds,
+ *   still for the reason above, and that is still right: it has only silence to
+ *   go on and silence cannot tell done from died. What changed is that the
+ *   downstream ruling 1 promised now exists. The process witness records the
+ *   actor's own death, so the raiser can ask a question this organ never could
+ *   — was there a session end before the process went — and answer `crashed`
+ *   without ever reading an age. The constraint described above is resolved
+ *   one layer up, not relaxed here.
+ *
  * Both states are still fully derived and readable in the snapshot — they are
  * withheld from *publication*, not from the operator.
  */

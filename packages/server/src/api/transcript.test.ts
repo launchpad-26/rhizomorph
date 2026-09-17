@@ -11,11 +11,11 @@ import { SessionRecorder } from '../server/recorder.js'
 import { capabilityHeaders, TEST_CAPABILITY_TOKEN } from './test-support.js'
 import {
   CONDUCTOR_LANE,
-  TOOL_RESULT_MAX_CHARS,
   parseTranscript,
   parseTranscriptEntry,
   readTranscript,
   registerTranscriptRoute,
+  TOOL_RESULT_MAX_CHARS,
   type TranscriptEntry,
 } from './transcript.js'
 
@@ -493,7 +493,7 @@ describe('readTranscript', () => {
     })
 
     it('falls back to the session booked against main itself when no role said conductor', async () => {
-      // An orchestrator driving the main checkout with no `--extra-sessions`:
+      // An orchestrator driving the main checkout with nothing discovered for it:
       // its spend is booked to the root-mass's own branch, and that session is
       // the one the root-mass's drawer should read. Still a recorded fact, not
       // a guess — the log named the branch.
@@ -526,7 +526,8 @@ describe('readTranscript', () => {
       if (result.available) return
       expect(result.reason).toContain('CONDUCTOR NOT INSTRUMENTED')
       expect(result.reason).toContain('role: conductor')
-      expect(result.reason).toContain('rhizomorph --extra-sessions <dir>:conductor')
+      // prd-57 ruling 8 retired the flag; `enlist` is the remedy now.
+      expect(result.reason).toContain('rhizomorph enlist claude')
       // Never the worker voice: "no such lane main" would send the operator
       // looking for a worktree that was never the point.
       expect(result.reason).not.toContain('NO SUCH LANE')

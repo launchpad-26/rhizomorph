@@ -9,13 +9,13 @@ import { exec as realExec } from '../server/exec.js'
 import { captureCheckpoint } from './checkpoint.js'
 import { armWorktreePath, labWorktreesRoot } from './paths.js'
 import {
+  type CheckpointCoordinates,
   RESTORE_EXEC_TIMEOUT_MS,
   restoreCheckpoint,
   restoreWorkspace,
   rewriteWorktreePaths,
   synthesizeSession,
   verifySessionPrefix,
-  type CheckpointCoordinates,
 } from './restore.js'
 
 /**

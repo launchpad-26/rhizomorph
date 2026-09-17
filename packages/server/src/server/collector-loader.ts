@@ -1,10 +1,10 @@
 import type { AnyCollector, Collector, RhizomorphEvent } from '@rhizomorph/core'
 import { reduceAll } from '@rhizomorph/core'
+import { createBeaconCollector } from '../collectors/beacon/index.js'
 import { gitCollector } from '../collectors/git/index.js'
 import { createJudgeCollector, DEFAULT_JUDGE_CADENCE_MS } from '../collectors/judge/index.js'
-import { createBeaconCollector } from '../collectors/beacon/index.js'
-import { createProcessCollector } from '../collectors/process/index.js'
 import { createPiCollector, type PiCollectorConfig } from '../collectors/pi/index.js'
+import { createProcessCollector } from '../collectors/process/index.js'
 import type { DisableableSnapshot } from '../collectors/resilience.js'
 import { withResilience } from '../collectors/resilience.js'
 import {
@@ -40,7 +40,7 @@ function judgeCadenceMs(): number {
  * `collector.disabled` at poll time, which is the collector's job, not this
  * one's. The judge (prd11 ruling 6b) self-throttles its own cadence below the
  * poll loop's tick; sessionlog (#240) and pi (#546) are the two that take
- * their own config (sessionlog: `claudeProjectsRoot`, `extraSessionDirs`,
+ * their own config (sessionlog: `claudeProjectsRoot`, `home`,
  * `backfill`; pi: `piSessionsRoot`, `backfill`), threaded through by the
  * caller instead of a zero-arg factory like their peers.
  *

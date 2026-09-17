@@ -77,7 +77,7 @@ export function buildGaps(
       'conductor-not-instrumented',
       'CONDUCTOR NOT INSTRUMENTED',
       'orchestration overhead unknowable',
-      'rhizomorph --extra-sessions <dir>:conductor',
+      'rhizomorph enlist claude',
     )
   }
 

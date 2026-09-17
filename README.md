@@ -11,10 +11,17 @@ how that's enforced.
 
 ![The scene as the centerpiece — a busy 20-lane fleet, every thread live green but visibly different widths for visibly different output, ALL CLEAR above it](docs/screenshots/fixture-20-lane.png)
 
-It discovers worktrees and branches (git), agent panes (tmux), and
-[workmux](https://github.com/raine/workmux) state if present — each source
-optional, each degrading gracefully — and reflects reality within a couple
-of seconds via polling. This watching hand — collectors, receiver, server,
+It works on a bare machine and needs no multiplexer. There are **three
+levels**, and `rhizomorph doctor` names which one you are at and the single
+command that climbs: **L0** is git and your own session logs, with no
+cooperation from anything; **L1** adds dollars and traces; **L2** adds attention
+that was *declared* rather than inferred, which `rhizomorph enlist claude`
+reaches in one act. Agent panes (tmux) and
+[workmux](https://github.com/raine/workmux) state are read when present —
+enrichments that add pane previews and one-keystroke ATTACH, never requirements,
+and their absence is never reported as something missing. It discovers worktrees
+and branches from git and reflects reality within a couple of seconds via
+polling. This watching hand — collectors, receiver, server,
 UI — never sends a keystroke, launches an agent, or merges anything; only
 the separate, explicitly-invoked laboratory can do any of that, and only on
 your own command. If you're deciding whether to run this on the machine
@@ -48,7 +55,6 @@ flags, forward them the same way: `npm start -- <path-to-repo> --port 5000`.
 | `--port <n>` | `4321` | Port to listen on |
 | `--flatline-minutes <n>` | `5` | Minutes of silence before an agent is flatlined |
 | `--poll-interval <ms>` | `2000`, minimum `250` | Collector poll cadence in ms |
-| `--extra-sessions <path>[:<lane>]` | — | Foreign Claude session-log dir to tail as a conductor (repeatable). `<path>` is the dir of `*.jsonl` itself; `<lane>` defaults to `conductor`, `conductor-2`, … |
 | `--fresh` | — | Start a new session instead of resuming the most recent one for this repo (default: resume if its newest event is under 4h old) |
 | `--resume-window <ms>` | 4h | Override the resume boundary above. `--resume-window 0` behaves exactly like `--fresh`. The boot line and `rhizomorph doctor` both say which way this decided and why |
 | `--backfill` | — | Read session logs from the beginning instead of end-of-file — ingest history on purpose; expect a large first tick |
@@ -63,9 +69,11 @@ npm start -- doctor <path-to-repo>
 
 It checks the Node version, that the target path exists and is a git repo,
 that the web build is present, that the port is free, Claude Code session
-logs, tmux/workmux on `PATH`, the telemetry env, the lane manifest, whether
-this boot found a live writer already holding the session (the pid+heartbeat
-lock, see [Trust](#trust) below), and each lane's own enrichment rung — one
+logs, tmux/workmux on `PATH` (as enrichments — present or absent, both read
+`ok`), the telemetry env, the lane manifest, whether this boot found a live
+writer already holding the session (the pid+heartbeat lock, see
+[Trust](#trust) below), and which of the three levels this machine stands at
+with the one command that climbs to the next — one
 `ok`/`warn`/`FAIL` line per check, each with its exact remedy. It exits
 non-zero only when the app genuinely cannot run at all (bad path, not a git
 repo, no web build, port already taken); everything else is a `warn` that
@@ -327,14 +335,18 @@ the worktrees directory, but into the harness's own
 is a session Claude Code itself can resume
 ([ADR-0032](docs/adr/0032-synthesized-sessions-live-in-the-harness-projects-tree.md)).
 It never pushes, never merges, and never checks out or rewrites a branch that
-already exists. The one write that lands outside those namespaces is never
-silent or automatic: pass `lab fork --launch` (or click the dashboard's
-launch button, which always sets it) and it hands the dispatch off to
-`workmux add`, the same command that starts every other worker lane in a
-workmux-driven fleet — that call is what creates an actual branch and tmux
-pane, and it only runs because you typed the flag or clicked the button.
-Without `--launch`, `fork` says so plainly: *"No tmux window was opened and
-no branch was created... Pass --launch to authorise that yourself."*
+already exists, and **nothing is created outside them at all**. The arm's
+worktree is the laboratory's own, detached, with no ref outside
+`refs/rhizomorph/` — so a fork no longer needs a multiplexer, or anything
+else, to make somewhere for an arm to run.
+
+**A fork restores arms; it does not start them.** Every arm is restored into its
+own lab worktree and handed the exact command line to run, which you run
+yourself. That is deliberate: a headless agent run is a whole turn, so starting
+one per arm from inside the fork would run your arms one after another rather
+than side by side, and spend real money while you watched a command that had not
+returned. `workmux add` remains available as a launcher you can choose, and is
+offered to nobody who does not already run workmux.
 
 Enforced twice over. At runtime,
 [`assertInsideLabWorktrees`](packages/server/src/lab/paths.ts) refuses —
@@ -841,7 +853,7 @@ scar in its own comments, which is why the wrapper exists. A conductor, or any l
 Code session-log directory lives outside the worktrees this repo's
 `sessionlog` collector would otherwise discover (a cross-filesystem or
 cross-machine conductor, say), is picked up with the repeatable
-`--extra-sessions <dir>` flag and attributed `role: conductor` automatically.
+dialect's own user-level session directory and attributed `role: conductor` automatically.
 Full walkthrough — the cross-machine note, the subscription-dollars honesty
 note, live proof of the `OTEL_RESOURCE_ATTRIBUTES` lane tag — lives in
 [`docs/telemetry.md`](docs/telemetry.md).

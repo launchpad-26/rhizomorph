@@ -10,16 +10,6 @@ export interface CliArgs {
   /** Collector poll cadence in ms. */
   pollIntervalMs: number
   /**
-   * Extra session sources to tail (`--extra-sessions <path>[:<lane>]`,
-   * repeatable) — for a conductor on a foreign filesystem, e.g.
-   * `/mnt/c/Users/<u>/.claude/projects/<slug>` (the session-log dir itself,
-   * mounted). Passed through as raw `<path>[:<lane>]` strings; the
-   * sessionlog collector resolves each dir-first (session dir directly, then
-   * cwd-slug fallback), attributes these `role: conductor`, and labels the
-   * lane `conductor`/`conductor-2`/… when no explicit `:<lane>` is given.
-   */
-  extraSessionDirs: string[]
-  /**
    * True when `--fresh` was passed: start a brand-new session even if the most
    * recent one is young enough to continue. Default (false) is to resume — see
    * `RESUME_WINDOW_MS`.
@@ -117,7 +107,7 @@ export function parseFlags(argv: readonly string[], specs: readonly FlagSpec[]):
 
 /**
  * Parses `rhizomorph [path] [--port <n>] [--flatline-minutes <n>]
- * [--poll-interval <ms>] [--extra-sessions <path>[:<lane>]]... [--fresh]
+ * [--poll-interval <ms>] [--fresh]
  * [--resume-window <ms>] [--backfill] [--version] [--help]`.
  */
 export function parseArgs(argv: readonly string[]): CliArgs {
@@ -127,7 +117,6 @@ export function parseArgs(argv: readonly string[]): CliArgs {
       port: DEFAULT_PORT,
       flatlineMinutes: DEFAULT_FLATLINE_MINUTES,
       pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
-      extraSessionDirs: [],
       fresh: false,
       resumeWindowMs: RESUME_WINDOW_MS,
       backfill: false,
@@ -142,7 +131,6 @@ export function parseArgs(argv: readonly string[]): CliArgs {
       port: DEFAULT_PORT,
       flatlineMinutes: DEFAULT_FLATLINE_MINUTES,
       pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
-      extraSessionDirs: [],
       fresh: false,
       resumeWindowMs: RESUME_WINDOW_MS,
       backfill: false,
@@ -157,13 +145,11 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   let resumeWindowArg: string | undefined
   let fresh = false
   let backfill = false
-  const extraSessionRawValues: Array<string | undefined> = []
 
   const specs: FlagSpec[] = [
     { flag: '--port', read: (v) => { portArg = v } },
     { flag: '--flatline-minutes', read: (v) => { flatlineArg = v } },
     { flag: '--poll-interval', read: (v) => { pollIntervalArg = v } },
-    { flag: '--extra-sessions', read: (v) => { extraSessionRawValues.push(v) } },
     { flag: '--fresh', boolean: true, read: () => { fresh = true } },
     { flag: '--resume-window', read: (v) => { resumeWindowArg = v } },
     { flag: '--backfill', boolean: true, read: () => { backfill = true } },
@@ -190,13 +176,6 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     )
   }
 
-  const extraSessionDirs = extraSessionRawValues.map((raw) => {
-    if (raw === undefined || raw.trim().length === 0) {
-      throw new Error('invalid --extra-sessions value: (must be a non-empty directory path)')
-    }
-    return raw
-  })
-
   // 0 is a legitimate value (`--resume-window 0` === `--fresh` — decideSessionBoot's own law).
   const resumeWindowMs = resumeWindowArg === undefined ? RESUME_WINDOW_MS : Number(resumeWindowArg)
   if (!Number.isFinite(resumeWindowMs) || resumeWindowMs < 0) {
@@ -208,7 +187,6 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     port,
     flatlineMinutes,
     pollIntervalMs,
-    extraSessionDirs,
     fresh,
     resumeWindowMs,
     backfill,
@@ -240,12 +218,6 @@ Options:
   --port <n>              Port to listen on (default: ${DEFAULT_PORT})
   --flatline-minutes <n>  Minutes of silence before an agent is flatlined (default: ${DEFAULT_FLATLINE_MINUTES})
   --poll-interval <ms>    Collector poll cadence in ms (default: ${DEFAULT_POLL_INTERVAL_MS}, minimum: ${MIN_POLL_INTERVAL_MS})
-  --extra-sessions <path>[:<lane>]
-                          Foreign session-log dir to tail as a conductor (repeatable).
-                          <path> is the dir of *.jsonl itself; if it has none, it falls
-                          back to cwd-slug inference like today. <lane> defaults to
-                          "conductor" for the first one, "conductor-2", "conductor-3"…
-                          for the rest — never the raw project-dir slug.
   --fresh                 Start a new session instead of resuming. By default a boot
                           continues the most recent session for this repo when its newest
                           event is under ${RESUME_WINDOW_HOURS}h old — same file, same collector offsets,

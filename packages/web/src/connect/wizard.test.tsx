@@ -8,7 +8,7 @@ import type { InstrumentFetchLike } from '../concierge/instrument.js'
 import { RETARGET_URL, type RetargetFetchLike } from '../concierge/retarget.js'
 import { CAPABILITY_META_NAME } from '../recordings/capability.js'
 import type { ChainLink, InstrumentableSession } from './links.js'
-import { REPO_SELECT_CAP, REPOS_URL, type FetchLike, type MetaFacts } from './meta.js'
+import { type FetchLike, type MetaFacts, REPO_SELECT_CAP, REPOS_URL } from './meta.js'
 import { HARNESSES, SetupWizard, WIZARD_STEPS } from './wizard.js'
 
 /**
@@ -180,10 +180,12 @@ function step(name: (typeof WIZARD_STEPS)[number]) {
   fireEvent.click(screen.getByTestId(`wizard-step-${name}`))
 }
 
-describe('the wizard walks repo → conductor → verify', () => {
-  it('opens on the repo step and can reach every step it declares', async () => {
+describe('the wizard walks enlist → connect', () => {
+  it('opens on the enlist step and can reach every step it declares', async () => {
     await renderWizard()
 
+    // The repo picker is still the first thing on the page — it moved INTO the
+    // enlist step rather than away (prd-57 ruling 8's collapse).
     expect(screen.getByTestId('wizard-repo')).toBeTruthy()
     for (const name of WIZARD_STEPS) {
       step(name)
@@ -191,7 +193,10 @@ describe('the wizard walks repo → conductor → verify', () => {
     }
     // Every declared step really is reachable — a step in the list with no
     // panel behind it would have thrown above rather than passing quietly.
-    expect(WIZARD_STEPS.length).toBe(3)
+    // TWO since prd-57 ruling 8: the conductor step's requirement went away
+    // with ruling 4, so it stopped being a step and became one of the things
+    // the enlist step offers.
+    expect(WIZARD_STEPS.length).toBe(2)
   })
 })
 
@@ -334,8 +339,8 @@ describe('step 1 — the repo', () => {
     await renderWizard({ fetchImpl })
 
     await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
-    step('conductor')
-    step('repo')
+    step('enlist')
+    step('enlist')
 
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
@@ -464,7 +469,7 @@ describe('step 2 — the conductor', () => {
   it('arms before it spends — the first click starts nothing at all', async () => {
     const instrumentFetchImpl = vi.fn(answering(LAUNCHED_IN_TMUX))
     await renderWizard({ instrumentFetchImpl })
-    step('conductor')
+    step('enlist')
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('wizard-launch'))
@@ -481,7 +486,7 @@ describe('step 2 — the conductor', () => {
   it('cancelling an armed launch spends nothing and puts the button back', async () => {
     const instrumentFetchImpl = vi.fn(answering(LAUNCHED_IN_TMUX))
     await renderWizard({ instrumentFetchImpl })
-    step('conductor')
+    step('enlist')
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('wizard-launch'))
@@ -497,7 +502,7 @@ describe('step 2 — the conductor', () => {
 
   it('lists every harness the registry knows, implemented and merely named alike', async () => {
     await renderWizard()
-    step('conductor')
+    step('enlist')
 
     const options = [...screen.getByTestId('wizard-harness-select').querySelectorAll('option')].map(
       (option) => option.getAttribute('value'),
@@ -509,7 +514,7 @@ describe('step 2 — the conductor', () => {
 
   it('states what a declared harness would take, and offers no way to start it', async () => {
     await renderWizard()
-    step('conductor')
+    step('enlist')
     fireEvent.change(screen.getByTestId('wizard-harness-select'), { target: { value: 'pi' } })
 
     const declared = screen.getByTestId('wizard-harness-declared').textContent ?? ''
@@ -531,7 +536,7 @@ describe('step 2 — the conductor', () => {
    */
   it('frames a claude launch as instrumented, because its adapter proves telemetry', async () => {
     await renderWizard()
-    step('conductor')
+    step('enlist')
 
     expect(screen.getByTestId('wizard-harness-telemetry').textContent).toContain('telemetry: proven for Claude Code')
     expect(screen.getByTestId('wizard-launch').textContent).toBe('start it instrumented')
@@ -544,7 +549,7 @@ describe('step 2 — the conductor', () => {
 
   it('refuses to frame a codex launch as instrumenting, and says the registry’s own reason', async () => {
     await renderWizard()
-    step('conductor')
+    step('enlist')
     fireEvent.change(screen.getByTestId('wizard-harness-select'), { target: { value: 'codex' } })
 
     const telemetry = screen.getByTestId('wizard-harness-telemetry').textContent ?? ''
@@ -580,7 +585,7 @@ describe('step 2 — the conductor', () => {
         telemetry: { level: 'absent', reason: 'codex exports into a 404', remedy: 'a bare-path OTLP route' },
       }),
     })
-    step('conductor')
+    step('enlist')
     await launch()
 
     const said = screen.getByTestId('wizard-launch-telemetry').textContent ?? ''
@@ -592,7 +597,7 @@ describe('step 2 — the conductor', () => {
 
   it('says step 3 settles it when the answer proves telemetry', async () => {
     await renderWizard({ instrumentFetchImpl: answering({ ...LAUNCHED_IN_TMUX, telemetry: { level: 'provided' } }) })
-    step('conductor')
+    step('enlist')
     await launch()
 
     expect(screen.getByTestId('wizard-launch-telemetry').textContent).toContain('watch the rows change')
@@ -601,7 +606,7 @@ describe('step 2 — the conductor', () => {
   /** An answer that said nothing is reported as itself — never read as proof either way. */
   it('says the answer was silent about telemetry rather than assuming it', async () => {
     await renderWizard({ instrumentFetchImpl: answering(LAUNCHED_IN_TMUX) })
-    step('conductor')
+    step('enlist')
     await launch()
 
     expect(screen.getByTestId('wizard-launch-telemetry').textContent).toContain('said nothing about whether telemetry')
@@ -609,7 +614,7 @@ describe('step 2 — the conductor', () => {
 
   it("reads the conductor's status off the fold's own rows, and says whose fact it is", async () => {
     await renderWizard()
-    step('conductor')
+    step('enlist')
 
     const status = screen.getByTestId('wizard-conductor-status').textContent ?? ''
     expect(status).toContain('uninstrumented')
@@ -642,7 +647,7 @@ describe('step 2 — the conductor', () => {
         : link,
     )
     await renderWizard({ links })
-    step('conductor')
+    step('enlist')
 
     expect(screen.getByTestId('wizard-conductor-status').textContent).toContain(sentence)
   })
@@ -650,7 +655,7 @@ describe('step 2 — the conductor', () => {
   it('starts the chosen harness in the chosen mode, and never sends a session id for one', async () => {
     const instrumentFetchImpl = vi.fn(answering(LAUNCHED_IN_TMUX))
     await renderWizard({ instrumentFetchImpl })
-    step('conductor')
+    step('enlist')
 
     fireEvent.click(screen.getByTestId('wizard-mode-continue'))
     await launch()
@@ -660,7 +665,7 @@ describe('step 2 — the conductor', () => {
 
   it('says WHERE a tmux launch landed — a window to attach to, not merely a pid', async () => {
     await renderWizard({ instrumentFetchImpl: answering(LAUNCHED_IN_TMUX) })
-    step('conductor')
+    step('enlist')
     await launch()
 
     const result = screen.getByTestId('wizard-launch-result').textContent ?? ''
@@ -672,7 +677,7 @@ describe('step 2 — the conductor', () => {
     await renderWizard({
       instrumentFetchImpl: answering({ ...LAUNCHED_IN_TMUX, via: 'detached', window: undefined }),
     })
-    step('conductor')
+    step('enlist')
     await launch()
 
     const result = screen.getByTestId('wizard-launch-result').textContent ?? ''
@@ -692,7 +697,7 @@ describe('step 2 — the conductor', () => {
         message: 'the process started and then exited with code 1 straight away',
       }),
     })
-    step('conductor')
+    step('enlist')
     await launch()
 
     expect(screen.getByTestId('wizard-launch-result').textContent).toContain('exited with code 1 straight away')
@@ -702,7 +707,7 @@ describe('step 2 — the conductor', () => {
     await renderWizard({
       instrumentFetchImpl: answering({ error: 'Claude Code cannot be launched on this machine' }, 409),
     })
-    step('conductor')
+    step('enlist')
     await launch()
 
     expect(screen.getByTestId('wizard-launch-error').textContent).toContain('cannot be launched on this machine')
@@ -710,7 +715,7 @@ describe('step 2 — the conductor', () => {
 
   it('withholds the launch entirely while a fixture is driving the page', async () => {
     await renderWizard({ live: false })
-    step('conductor')
+    step('enlist')
 
     expect(screen.getByTestId<HTMLButtonElement>('wizard-launch').disabled).toBe(true)
     expect(screen.getByTestId('wizard-launch-fixture')).toBeTruthy()
@@ -742,7 +747,7 @@ describe('step 2 — the conductor', () => {
   it('a live drop between arm and confirm withholds the launch, not just the arm button', async () => {
     const instrumentFetchImpl = vi.fn(answering(LAUNCHED_IN_TMUX))
     const { rerender } = await renderWizard({ instrumentFetchImpl })
-    step('conductor')
+    step('enlist')
 
     // Arm while live — the same first click every other case in this
     // describe block starts from.
@@ -814,7 +819,7 @@ describe('step 2 — the conductor', () => {
   it('changing the harness to a declared one after arming withholds the launch, not just the arm button', async () => {
     const instrumentFetchImpl = vi.fn(answering(LAUNCHED_IN_TMUX))
     await renderWizard({ instrumentFetchImpl })
-    step('conductor')
+    step('enlist')
 
     // Arm with an implemented harness — the default picker value ('claude').
     await act(async () => {
@@ -868,7 +873,7 @@ describe('step 2 — the conductor', () => {
 
     await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
     chooseRepo('/home/x/other')
-    step('conductor')
+    step('enlist')
 
     expect(screen.queryByTestId('wizard-launch')).toBeNull()
     expect(screen.getByTestId<HTMLButtonElement>('wizard-retarget').disabled).toBe(false)
@@ -890,7 +895,7 @@ describe('step 2 — the conductor', () => {
 
     await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
     chooseRepo('/home/x/other')
-    step('conductor')
+    step('enlist')
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('wizard-retarget'))
@@ -919,7 +924,7 @@ describe('step 2 — the conductor', () => {
 
     await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
     chooseRepo('/home/x/other')
-    step('conductor')
+    step('enlist')
     await armAndConfirmRetarget()
 
     expect(retargetFetchImpl).toHaveBeenCalledTimes(1)
@@ -936,7 +941,7 @@ describe('step 2 — the conductor', () => {
 
     await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
     chooseRepo('/home/x/other')
-    step('conductor')
+    step('enlist')
     await armAndConfirmRetarget()
 
     const result = screen.getByTestId('wizard-retarget-result').textContent ?? ''
@@ -963,7 +968,7 @@ describe('step 2 — the conductor', () => {
 
     await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
     chooseRepo('/home/x/other')
-    step('conductor')
+    step('enlist')
     await armAndConfirmRetarget()
 
     await act(async () => {
@@ -984,7 +989,7 @@ describe('step 2 — the conductor', () => {
     expect(screen.queryByTestId('wizard-not-watched')).toBeNull()
     expect(screen.getByTestId('wizard-retarget-result')).toBeTruthy()
 
-    step('repo')
+    step('enlist')
     expect(screen.getByTestId('wizard-watched').textContent).toBe('/home/x/other')
   })
 
@@ -997,7 +1002,7 @@ describe('step 2 — the conductor', () => {
 
     await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
     chooseRepo('/home/x/other')
-    step('conductor')
+    step('enlist')
     await armAndConfirmRetarget()
 
     const refused = screen.getByTestId('wizard-retarget-refused')
@@ -1018,7 +1023,7 @@ describe('step 2 — the conductor', () => {
 
     await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
     chooseRepo('/home/x/other')
-    step('conductor')
+    step('enlist')
     await armAndConfirmRetarget()
 
     expect(screen.getByTestId('wizard-retarget-error').textContent).toMatch(/reload this page/i)
@@ -1032,7 +1037,7 @@ describe('step 2 — the conductor', () => {
 
     await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
     chooseRepo('/home/x/other')
-    step('conductor')
+    step('enlist')
 
     expect(screen.getByTestId<HTMLButtonElement>('wizard-retarget').disabled).toBe(true)
     expect(screen.getByTestId('wizard-retarget-fixture')).toBeTruthy()
@@ -1068,7 +1073,7 @@ describe('step 2 — the conductor', () => {
 
     await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
     chooseRepo('/home/x/other')
-    step('conductor')
+    step('enlist')
 
     // Arm while live — the same first click every other case in this
     // describe block starts from.
@@ -1116,7 +1121,7 @@ describe('step 2 — the conductor', () => {
 
     await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
     chooseRepo('/home/x/other')
-    step('conductor')
+    step('enlist')
     await armAndConfirmRetarget()
 
     await act(async () => {
@@ -1134,10 +1139,10 @@ describe('step 2 — the conductor', () => {
       )
     })
 
-    step('repo')
+    step('enlist')
     await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
     chooseRepo('/home/x/code/scanned')
-    step('conductor')
+    step('enlist')
     await armAndConfirmRetarget()
 
     expect(retargetFetchImpl).toHaveBeenCalledTimes(2)
@@ -1154,7 +1159,7 @@ describe('step 2 — the conductor', () => {
 
     await waitFor(() => expect(screen.getByTestId('wizard-repo-select')).toBeTruthy())
     chooseRepo('/home/x/other')
-    step('conductor')
+    step('enlist')
     await act(async () => {
       fireEvent.click(screen.getByTestId('connect-copy-wizard-start-there'))
     })
@@ -1174,7 +1179,7 @@ describe('step 2 — the conductor', () => {
     await act(async () => {
       fireEvent.click(screen.getByTestId('wizard-clone'))
     })
-    step('conductor')
+    step('enlist')
 
     expect(screen.queryByTestId('wizard-launch')).toBeNull()
     expect(screen.getByTestId('wizard-retarget')).toBeTruthy()
@@ -1196,7 +1201,7 @@ describe('step 3 — verify', () => {
   it('shows the page’s OWN rows, one line each, in the page’s own order', async () => {
     const links = someLinks()
     await renderWizard({ links })
-    step('verify')
+    step('connect')
 
     for (const link of links) {
       expect(screen.getByTestId(`wizard-verify-${link.id}`).textContent).toContain(link.label)
@@ -1205,7 +1210,7 @@ describe('step 3 — verify', () => {
 
   it('reads each row’s state from the row itself — the three readings, not a fourth', async () => {
     await renderWizard()
-    step('verify')
+    step('connect')
 
     expect(screen.getByTestId('wizard-verify-browser-server').textContent).toContain('VERIFIED')
     expect(screen.getByTestId('wizard-verify-uninstrumented-conductor').textContent).toContain('BROKEN')
@@ -1221,7 +1226,7 @@ describe('step 3 — verify', () => {
   it('changes when the rows change, because they are the same rows', async () => {
     const links = someLinks()
     const { rerender } = renderWizardRaw(links)
-    fireEvent.click(screen.getByTestId('wizard-step-verify'))
+    fireEvent.click(screen.getByTestId('wizard-step-connect'))
     expect(screen.getByTestId('wizard-verify-repo-git').textContent).toContain('UNPROVEN')
 
     const flipped = links.map((link) =>

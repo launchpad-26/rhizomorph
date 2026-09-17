@@ -1,8 +1,8 @@
 import { isTerminalDone } from '../fleet/diagnose.js'
+import { evidenceLine, PATHOLOGY_WORD, type Pathology, type PathologyKind, rankIndex } from '../fleet/pathology.js'
 import { formatSpan } from '../fleet/plumbing.js'
-import { evidenceLine, PATHOLOGY_WORD, rankIndex, type Pathology, type PathologyKind } from '../fleet/pathology.js'
-import { declarationStatus, lapsedForMs, lapsedVoice } from './lapse.js'
 import type { Lane, LaneActivity } from '../fleet/types.js'
+import { declarationStatus, lapsedForMs, lapsedVoice } from './lapse.js'
 
 /**
  * THE CONDITION SELECTOR (prd-30 ruling 2 · #560) — one place that decides
@@ -98,6 +98,9 @@ const PATHOLOGY_REASON: Record<PathologyKind, string> = {
   waiting: 'stopped, waiting on a human to answer',
   expensive: "burning tokens far faster than the rest of the fleet",
   'off-fence': 'touching files outside its declared fence',
+  // Not "it went quiet" — the distinction this whole ruling exists for. The
+  // process witness recorded the run ending; nothing was inferred from silence.
+  crashed: 'its agent process ended without ever declaring it was finished',
 }
 
 const PATHOLOGY_REMEDY: Record<PathologyKind, ConditionRemedy> = {
@@ -120,6 +123,14 @@ const PATHOLOGY_REMEDY: Record<PathologyKind, ConditionRemedy> = {
   'off-fence': {
     kind: 'action',
     action: 'review the trespassed files and either narrow the fence or move the work inside it',
+  },
+  crashed: {
+    kind: 'action',
+    // The worktree is named first on purpose: a crash leaves work on disk, and
+    // the thing an operator most needs to know is whether any of it survived.
+    // Restarting before looking is how a half-finished change gets overwritten.
+    action:
+      'check the worktree for uncommitted work, then restart the lane — the process died without finishing, so nothing downstream knows what it was mid-way through',
   },
 }
 

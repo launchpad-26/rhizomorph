@@ -1,6 +1,6 @@
 import type { TokenTotals } from '@rhizomorph/core'
-import type { Burn } from '../../fleet/index.js'
 import type { DisclosureContent } from '../../disclosure/index.js'
+import type { Burn } from '../../fleet/index.js'
 import { formatTokenBreakdown, formatTokens, formatUsd, formatUsdPerHour } from '../../lib/format.js'
 
 /**
@@ -145,7 +145,7 @@ export function burnRateHoverDisclosure(
  * spend.ts`); this only formats it and never recomputes the division. Gated on
  * `conductorInstrumented` (cost-event based, not token based) rather than on
  * `overheadRatio === null` alone: a conductor's tokens can appear via
- * `sessionlog --extra-sessions` with no cost telemetry behind them at all
+ * a discovered conductor session with no cost telemetry behind it at all
  * (architecture.md's decisions log, issue #47), and that is the exact
  * "worse than absent" shape the gap voice exists to name instead of a number.
  */

@@ -15,6 +15,14 @@ export interface RunCliOptions {
   collectors?: readonly AnyCollector[]
   /** Overrides the sessionlog collector's Claude project-logs root; tests point this at a fixture dir instead of the real `~/.claude/projects`. */
   claudeProjectsRoot?: string
+  /**
+   * Overrides the home directory per-dialect session-log discovery reads
+   * (prd-57 ruling 8). Separate from {@link RunCliOptions.claudeProjectsRoot},
+   * which overrides where a transcript is READ from — the two coincide on a
+   * real machine and a test needs to move them apart to reach the
+   * discovered-versus-merely-readable distinction at all.
+   */
+  home?: string
   /** Overrides the root `package.json` path `--version` reads from; tests point this at a fixture file. */
   rootPackageJsonPath?: string
   exec?: Exec

@@ -6,9 +6,9 @@ import path from 'node:path'
 import type { Exec } from '@rhizomorph/core'
 import { rhizomorphEventSchema } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
 import { readSessionEvents } from '../log/session-log.js'
 import { exec as realExec } from '../server/exec.js'
-import { worktreePathToProjectSlug } from '../collectors/sessionlog/index.js'
 import { captureCheckpoint } from './checkpoint.js'
 
 /**

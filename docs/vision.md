@@ -15,7 +15,7 @@ whole orchestra from. That's the gap.
 
 ## What we want to exist
 
-Type `rhizomorph` in any repo running a worktree swarm and get a radar
+Type `rhizomorph` in any repo — a worktree swarm, or one agent in one terminal — and get a radar
 screen at localhost: worktrees as stations, the branch graph growing live,
 commits landing as pulses, agents glowing when active and dimming when they
 flatline. Instruments aimed at the day's real failure modes — a **collision
