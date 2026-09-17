@@ -163,10 +163,16 @@ export async function runServerCommand(
    * which is what keeps the one-colony case byte-identical to what it was.
    * Everything discovered afterwards gets its own of each.
    *
-   * Discovery runs off the PINNED loop's fold rather than on a timer of its
-   * own. The process witness re-reads the machine's table every tick anyway, so
-   * a second clock would be a second cost to answer a question the first one
+   * Discovery reads the PINNED loop's fold rather than polling the machine
+   * itself. The process witness re-reads the table every tick anyway, so a
+   * second reading would be a second cost to answer a question the first one
    * has already answered — and ADR-0013's budget is per tick, not per feature.
+   *
+   * It is driven by its own interval, not by the loop's fold callback. That is
+   * a weaker claim than this comment used to make ("rather than on a timer of
+   * its own") and it is the one the code below actually supports: a
+   * `setInterval` at the poll cadence, reading a fold somebody else maintains.
+   * The saving is the exec, not the clock.
    */
   const colonyRoots = createRepoRootResolver(options.exec ?? realExec)
   const discovery = createColonyDiscovery({ pinnedRepoPath: repoPath, resolver: colonyRoots })
@@ -302,11 +308,18 @@ export async function runServerCommand(
   await pollLoop.tick()
 
   /**
-   * Discovery, off the pinned fold, on the pinned loop's cadence.
+   * Discovery, reading the pinned fold, at the pinned loop's cadence.
    *
    * `sync` is additive and idempotent, so running it every tick costs one
    * `Map` lookup per already-watched colony — the resolver caches per cwd, so
    * a steady machine spawns no `git` at all after the first sighting of each.
+   *
+   * **This promise is deliberately untracked, and the supervisor is what makes
+   * that safe.** A sweep awaits `discover` — which execs `git` with a 5 s
+   * timeout — before it reaches `sync`, so a shutdown lands inside that window
+   * routinely. `colonies.stop()` is final: a `sync` arriving after it starts
+   * nothing. Without that, the late sweep rebuilt a loop for every colony, the
+   * pinned one included on the boot's own recorder, after the app had closed.
    */
   const syncColonies = async () => {
     try {

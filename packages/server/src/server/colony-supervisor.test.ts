@@ -247,3 +247,83 @@ describe('createColonySupervisor', () => {
     expect(ids).toEqual([...ids].sort())
   })
 })
+
+describe('shutdown is final (review of #621)', () => {
+  /**
+   * The boot's discovery sweep is a `setInterval` whose promise nothing awaits,
+   * and `syncColonies` awaits `discovery.discover(...)` — which execs `git`
+   * with a 5 s timeout — before it ever calls `sync`. So a `^C` landing between
+   * those two is the ordinary case rather than the unlucky one.
+   *
+   * Before this fix `stop()` cleared the running set and left `sync` open, so
+   * the late sweep found every colony absent and started it again: a fresh
+   * loop for each, the PINNED one included, on the boot's own recorder, while
+   * the boot was closing the app and releasing the session lock. Two live
+   * writers on one recording — what `adopt` exists to prevent — plus loops
+   * nothing would ever stop.
+   */
+  it('a sweep that reaches sync() after stop() starts nothing', async () => {
+    const started: Colony[] = []
+    const bootLoop = fakeLoop()
+    const recorders = createColonyRecorders({
+      dataRoot,
+      pinned: {
+        colony: PINNED,
+        recorder: new SessionRecorder('boot', path.join(sessionDirFor(PINNED_PATH, dataRoot), 'boot.jsonl')),
+      },
+      now: () => 7_000_000,
+    })
+    const bootRecorder = recorders.forColony(PINNED)
+    const supervisor = createColonySupervisor({
+      recorders,
+      adopt: { colony: PINNED, recorder: bootRecorder, pollLoop: bootLoop },
+      startColony: async (c) => {
+        started.push(c)
+        return fakeLoop()
+      },
+      onStartFailed: () => {},
+    })
+
+    await supervisor.sync([PINNED, OTHER])
+    started.length = 0
+
+    await supervisor.stop()
+    await supervisor.sync([PINNED, OTHER, THIRD]) // the sweep, arriving late
+
+    expect(started).toEqual([])
+    expect(supervisor.running()).toEqual([])
+    // Nothing was handed the boot's recorder a second time.
+    expect(supervisor.running().some((e) => e.recorder === bootRecorder)).toBe(false)
+  })
+
+  it('a start still in flight when stop() lands is awaited and then stopped', async () => {
+    // The other half: `stop()` must not return while a colony is half-built,
+    // or that loop finishes starting into a set nobody will ever stop.
+    const loops = new Map<string, PollLoop & { stopped: number }>()
+    const recorders = createColonyRecorders({
+      dataRoot,
+      pinned: {
+        colony: PINNED,
+        recorder: new SessionRecorder('boot', path.join(sessionDirFor(PINNED_PATH, dataRoot), 'boot.jsonl')),
+      },
+      now: () => 7_000_000,
+    })
+    const supervisor = createColonySupervisor({
+      recorders,
+      startColony: async (c) => {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        const loop = fakeLoop()
+        loops.set(c.id, loop)
+        return loop
+      },
+      onStartFailed: () => {},
+    })
+
+    const inFlight = supervisor.sync([OTHER])
+    await supervisor.stop()
+    await inFlight
+
+    expect(loops.get(OTHER.id)?.stopped).toBe(1)
+    expect(supervisor.running()).toEqual([])
+  })
+})

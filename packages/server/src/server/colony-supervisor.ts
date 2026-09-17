@@ -33,7 +33,17 @@ export interface ColonySupervisor {
   sync(colonies: readonly Colony[]): Promise<void>
   /** Every colony with a loop, in colony-id order. */
   running(): RunningColony[]
-  /** Stops every loop, in parallel. Idempotent. */
+  /**
+   * Stops every loop, in parallel. Idempotent, and **final**: a `sync` that
+   * arrives afterwards starts nothing.
+   *
+   * That last word is load-bearing. Discovery runs on a sweep whose promise the
+   * boot does not track, and a sweep awaits `git` before it calls `sync`, so a
+   * shutdown lands inside that window routinely. Without finality the late
+   * `sync` reads an emptied set, rebuilds a loop for every colony — the pinned
+   * one included, on the boot's own recorder — and none of them is ever
+   * stopped.
+   */
   stop(): Promise<void>
 }
 
@@ -89,9 +99,30 @@ export function createColonySupervisor(options: ColonySupervisorOptions): Colony
   if (options.adopt !== undefined) running.set(options.adopt.colony.id, options.adopt)
   /** In-flight starts, so two ticks cannot race into two loops for one colony. */
   const starting = new Map<string, Promise<void>>()
+  /**
+   * Shutdown is FINAL, and this is the flag that makes it so.
+   *
+   * `stop()` clears the running set, and without this a `sync` arriving one
+   * moment later would find every colony absent and start it again. That is not
+   * hypothetical: the boot's discovery sweep is a `setInterval` whose promise
+   * nothing awaits, and `syncColonies` awaits `discovery.discover(...)` — which
+   * execs `git` with a 5 s timeout — before it ever reaches `sync`. A `^C`
+   * inside that window is the ordinary case, not the unlucky one.
+   *
+   * What it cost, precisely: a fresh poll loop for every colony including the
+   * PINNED one, built on the boot's own recorder, while the boot was busy
+   * closing the app and releasing the session lock. Two live writers on one
+   * recording — the exact thing {@link ColonySupervisorOptions.adopt} exists to
+   * prevent — reached through a different door, plus loops nothing will ever
+   * stop.
+   */
+  let stopped = false
 
   return {
     async sync(colonies: readonly Colony[]): Promise<void> {
+      // After `stop()` there is nothing to bring up to date. A sweep that was
+      // already in flight when the operator quit must not resurrect the set.
+      if (stopped) return
       await Promise.all(
         colonies.map(async (colony) => {
           if (running.has(colony.id)) return
@@ -126,6 +157,11 @@ export function createColonySupervisor(options: ColonySupervisorOptions): Colony
     },
 
     async stop(): Promise<void> {
+      stopped = true
+      // Starts that are already in flight are awaited before their loops are
+      // stopped, so a colony cannot finish starting into a set nobody will ever
+      // stop. `sync` is closed above, so this set cannot grow again.
+      await Promise.allSettled([...starting.values()])
       // In parallel: each `stop()` awaits its own in-flight tick, and stopping
       // N colonies one after another would take N tick budgets on a shutdown
       // path an operator is watching.
