@@ -94,9 +94,22 @@ silently producing a conversation-less recording. See
   exporting a record never touches the watched repo, and replaying one never
   executes anything — no collector runs, nothing is written back into the
   record file itself.
-- **Nothing auto-transmits.** No push, no server-to-server exchange, no
-  background sync — a record only ever moves because you handed the file to
-  someone (`rhizomorph export-record`, see [`docs/record-format.md`](../record-format.md)).
+- **Nothing auto-transmits on this path.** Exporting a record reads; replaying
+  one reads. Neither pushes, neither syncs, and the record *file* still only
+  ever moves because you handed it to someone (`rhizomorph export-record`, see
+  [`docs/record-format.md`](../record-format.md)).
+
+  **This bullet used to say "nothing auto-transmits", flatly, and that is no
+  longer true of the machine — only of this path.** One other path exists: the
+  shipper sends a session's *lines* (never the record file, and never your
+  words) to one team server. It is off until you turn it on for that repo with
+  `rhizomorph connect team <url>`, it is outbound only, and it goes to that URL
+  and nowhere else. Until you run that command nothing leaves, which is where a
+  fresh install sits. [`docs/record-format.md`](../record-format.md) Law 2 and
+  its 2026-09-08 amendment are the binding text on what travels and under whose
+  act — this page does not restate them — and
+  [SECURITY.md](../../SECURITY.md#the-shipper-and-the-team-server) carries the
+  boundary in full.
 - **No field the current event schema no longer declares — and nothing else
   is taken out.** Because a record's body is re-serialized from parsed
   events, a key the schema has dropped can't ride an old log line into a new

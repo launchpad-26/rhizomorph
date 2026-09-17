@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { FakeTeamStorage } from './fake.js'
+import { createCatalogSql } from './ports/catalog/sql.js'
 import { createEventsSql } from './ports/events/sql.js'
 import { createIngestKeysSql } from './ports/ingest-keys/sql.js'
 import { createLifecycleSql } from './ports/lifecycle/sql.js'
@@ -140,6 +141,7 @@ describe('the composition law (#509, prd-51 wave 8)', () => {
     // line, and it is deliberate: the alternative is a dynamic import, which
     // would make the collision check depend on the very wiring it checks.
     const perPort = [
+      createCatalogSql(sql),
       createEventsSql(sql),
       createIngestKeysSql(sql),
       createLifecycleSql(sql),

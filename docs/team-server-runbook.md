@@ -141,6 +141,11 @@ the ingest key by accident. Append the block by hand (give it verbatim: the six 
 empty, with their comments), then `docker compose up -d` — **not**
 `docker compose restart app`, for the reason "Rotating the ingest key" already gives.
 
+Once they are filled in they stay filled in: `./init.sh --rotate-ingest-key` rewrites the
+digest line and nothing else, so rotating the ingest key does not disturb the sign-in
+plane. Do not reach for the flag to *add* these names — it rotates a key, it does not
+extend the file.
+
 **(g) What the boot report says.** `docker compose logs app` now opens with every
 effective value, one per line, each naming who set it and where — with the two secrets
 redacted:
@@ -296,10 +301,23 @@ alongside the HTTP server, and there is exactly one of it:
 - **Drained at boot, from the cursor.** Everything the journal already holds is folded when
   the server starts, including records written while no worker was running. Bringing the
   image up on a journal that has been accumulating will fold the backlog in one pass.
-- **Re-ticked every `RZ_TEAM_FOLD_TICK_MS`**, default `5000`. Set it to `0` to disable the
-  tick and fold only on wake and at boot. A value that is not a number is treated as `0`
-  rather than as "immediately" — `RZ_TEAM_FOLD_TICK_MS=5s` disables the tick, it does not
-  set five seconds.
+- **Re-ticked every `RZ_TEAM_FOLD_TICK_MS`**, default `5000`. **To change it:** edit the
+  `RZ_TEAM_FOLD_TICK_MS=` line in `deploy/.env` — `init.sh` writes it there with the default,
+  so on a deployment initialised after 2026-09-17 the line is already in the file — then run
+  `docker compose up -d`. **Not `docker compose restart`**, which does not re-read `.env` and
+  leaves the old value running with nothing saying so. A deployment whose `.env` predates that
+  line: add it, same command. `0` disables the tick and folds only on wake and at boot. A value
+  that is not a number is treated as `0` rather than as "immediately" —
+  `RZ_TEAM_FOLD_TICK_MS=5s` disables the tick, it does not set five seconds; `doctor.ts` reports
+  that state as a `[warn]` rather than leaving you to find it. To see the value the server is
+  actually running at, read the `fold tick:` line of the doctor (below).
+
+  This paragraph described the variable and could not be acted on until 2026-09-17: `compose.yml`
+  did not forward it to the `app` container, so a `deploy/.env` line for it was inert and the
+  tick was always `5000`. Every sentence here was true of the code and useless to an operator.
+  It now forwards it, `deploy/init.test.ts` derives the variables `deploy/serve.ts` reads and
+  requires each one to be forwarded or explicitly excused in `compose.yml`, and that law is what
+  stops this paragraph from going back to being a description.
 - **The first tick cannot precede the boot drain.** The timer is armed when a drain
   finishes, not when the server starts, so the fold never runs before the migrations and the
   monthly partitions have been brought up to date. On the first boot of a new month that
@@ -432,12 +450,19 @@ three remedies that do not fit it.
   the `notice:` lines above; on a broken one it fails with the reason. The line says "topped
   up by this run" rather than "covers" for exactly that reason.
 
-- **Two of the remedies name `compose.yml` rather than `.env`, and that is not a slip.**
+- **One remedy names `compose.yml` rather than `.env`, and that is not a slip.**
   Compose passes the `app` service only the variables listed in its `environment:` block.
-  `RZ_TEAM_FOLD_TICK_MS` and `RZ_TEAM_JOURNAL_DIR` are **not** among them, so setting either
-  in `deploy/.env` changes nothing at all. To change the fold tick you add the variable to
-  that block first. Under compose the journal is always `/data/journal`, the mount point of
-  the `team_journal` volume.
+  `RZ_TEAM_JOURNAL_DIR` is **not** among them, and deliberately so: the `team_journal` volume
+  is mounted at the literal path `/data/journal`, and forwarding the app's side of the variable
+  alone would let you point the journal and its cursor at a path with no volume behind them —
+  written into the container's writable layer and thrown away by the next
+  `docker compose up -d`, while ingest kept answering 202. Under compose the journal is always
+  `/data/journal`; the reason is written beside the omission in `compose.yml`. Outside docker
+  the variable works as documented.
+
+  **`RZ_TEAM_FOLD_TICK_MS` was in the same position until 2026-09-17 and is not any more** — it
+  is forwarded, `init.sh` writes the line, and its remedy is an ordinary `deploy/.env` edit
+  applied with `docker compose up -d`.
 
 - **The `ingest key` check is about THIS deployment's key**, not about the table having rows
   in it. A rotation followed by `docker compose restart` leaves the server seeded with the old
@@ -453,7 +478,7 @@ Each carries the command to type. Two, as examples:
 ```
 
 ```
-[warn] fold tick: RZ_TEAM_FOLD_TICK_MS="5s" is not a number, so the effective tick is 0ms and the periodic fold is DISABLED — the fold still runs on each accepted batch and at boot, so this is quiet rather than visible. Remedy: add RZ_TEAM_FOLD_TICK_MS: ${RZ_TEAM_FOLD_TICK_MS:-} to the `app` service's environment: block in packages/team/deploy/compose.yml and set a whole number of MILLISECONDS in deploy/.env, then docker compose up -d. Setting it in deploy/.env ALONE does nothing: compose does not forward this variable to the container.
+[warn] fold tick: RZ_TEAM_FOLD_TICK_MS="5s" is not a number, so the effective tick is 0ms and the periodic fold is DISABLED — the fold still runs on each accepted batch and at boot, so this is quiet rather than visible. Remedy: set RZ_TEAM_FOLD_TICK_MS to a whole number of MILLISECONDS in deploy/.env, then docker compose up -d — NOT docker compose restart, which does not re-read .env. The app service in packages/team/deploy/compose.yml forwards this variable to the container.
 ```
 
 That second one is the reason the tick is a check at all: `5s` is the typo a reader of the
@@ -475,17 +500,31 @@ else anywhere says it happened.
 
 ```
 cd packages/team/deploy
-rm .env
-RZ_TEAM_PROJECT=<project-id> ./init.sh   # mints a new key, prints it once, stores only its digest
-docker compose up -d                     # NOT `restart` — see below
+./init.sh --rotate-ingest-key   # mints a new key, prints it once, stores only its digest
+docker compose up -d            # NOT `restart` — see below
 ```
+
+**What it touches: one line.** `RZ_TEAM_INGEST_KEY_SHA256`, rewritten in place through the
+same atomic temp-then-`mv` first boot uses, with the file left mode 600.
+
+**What it does not touch: everything else in the file.** `POSTGRES_PASSWORD` and
+`RZ_TEAM_DATABASE_URL`, the six `RZ_TEAM_GITHUB_*` values you filled in by hand,
+`RZ_TEAM_PROJECT`, `RZ_TEAM_FOLD_TICK_MS`, every comment, and any line you added yourself.
+The script knows the name of exactly one variable on this path and copies the rest through
+unread, so a value a later release adds to `.env` survives a rotation without anyone
+having to remember it.
+
+**You no longer pass `RZ_TEAM_PROJECT`.** The rotation reads the project out of `.env` —
+it is rotating a deployment that already exists, so it already knows. An exported
+`RZ_TEAM_PROJECT` that *disagrees* with the file is refused, naming both values, rather
+than quietly minting a key for the other project.
 
 **This is revocation, and it is enforced.** The boot that follows seeds the new digest
 and revokes every other key the project held, by setting a row flag. A shipper still
 configured with the old value is refused from its next batch with a 403 naming the reason
 — *"revoked key"* — rather than silently continuing to be accepted.
 
-Three things worth knowing before you run it:
+Two things worth knowing before you run it:
 
 - **`docker compose up -d`, not `docker compose restart app`.** `restart` re-runs the
   container with the environment it was created with; it does not re-read `.env`. A
@@ -494,9 +533,57 @@ Three things worth knowing before you run it:
 - **The revocation lag is one batch interval.** The row flag is read once per batch
   (ruling 8), so a batch already in flight when the boot happens completes; every batch
   after it is refused.
-- **Pass the same `RZ_TEAM_PROJECT`.** A key is scoped to one project. Rotating under a
-  different project id mints a key for that other project and leaves the original
-  project's key live, which is not what "rotate" means.
+
+It refuses, without writing anything, when there is no `.env` to rotate (that is first
+boot — run `./init.sh` with no arguments), when `.env` names no project, and when either
+`RZ_TEAM_INGEST_KEY_SHA256` or `RZ_TEAM_PROJECT` appears there zero times or twice. The
+duplicate case is compose's rule rather than ours: **a `.env` is last-wins**, so a name
+written twice means the value the rotation acts on is not the value your container gets —
+it would rewrite the first digest while the app boots on the second, or tell you the key is
+scoped to the first project while the boot scopes it to the second.
+
+### The procedure that used to be here, and why it is gone
+
+Until 2026-09-17 this section told you to delete `.env` and re-run `./init.sh`. **Following
+it took the live deployment down**, and it is written out here rather than quietly replaced,
+because the old recipe is in shell histories and in anyone's notes who set a server up
+before that date.
+
+Deleting the file meant first boot regenerated it, and first boot generates *everything*:
+
+- **A new `POSTGRES_PASSWORD`, against a volume that ignores it.** The `postgres` image
+  applies that variable **only at initdb**. On an existing volume it is not a credential
+  change — the database never hears about it, and the app is simply handed a DSN whose
+  password is wrong. It fails on its first query, the health check never passes, and
+  compose refuses to bring the stack up: `dependency failed to start: container
+  deploy-app-1 is unhealthy`, over
+  `PostgresError: password authentication failed for user "rhizomorph"`.
+- **The six `RZ_TEAM_GITHUB_*` values written back empty.** That is correct for first boot
+  and destructive here: they are hand-entered, and
+  `RZ_TEAM_GITHUB_CLIENT_SECRET` is shown once by GitHub and cannot be read back. So
+  rotating a **machine** credential destroyed the **human** sign-in plane, and the one
+  value that had to be regenerated from scratch invalidates every other consumer of it.
+
+`init.sh`'s own guard — it refuses to regenerate an `.env` that exists — was what protected
+you from both, and `rm .env` removed exactly that guard. The flag above is that guard's
+mirror: it *requires* the file, and refuses when there is none.
+
+### If you already ran the old procedure
+
+The deployment is down and both halves are recoverable, the second one only partly. The
+Postgres password in the regenerated `.env` is the one the app is now using, so make the
+database agree with it rather than the other way round:
+
+```
+grep POSTGRES_PASSWORD packages/team/deploy/.env
+docker compose exec postgres psql -U rhizomorph -d rhizomorph
+  ALTER USER rhizomorph WITH PASSWORD '<the value printed above>';
+docker compose up -d
+```
+
+Then re-enter the six `RZ_TEAM_GITHUB_*` values under "Signing in with GitHub" above. Five
+are re-readable from GitHub's UI; the client secret is not, so generate a new one and
+expect anything else configured with the old secret to stop working.
 
 **Minting a second key is not rotation, and does not revoke anything.** The viewer's mint
 (below) adds a live key for the project — that is what lets a second machine ship without

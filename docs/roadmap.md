@@ -421,9 +421,13 @@ project rather than this week's work:
   addition: a Langfuse relay is a **second destination and a second
   credential**, and ADR-0034 clause 2 grants exactly one of each. It needs its
   own argument and its own record before anyone builds it.
-  [docs/telemetry.md](telemetry.md#coexisting-with-langfuse) still carries the
-  old sentence; the prd-51 wave-5 doc sweep owns that file and this bullet does
-  not pretend otherwise.
+  [docs/telemetry.md](telemetry.md#coexisting-with-langfuse) **no longer
+  carries the old sentence** — #561 swept it, and that section now says what
+  leaves, to where and under whose act, and gives the same reason this bullet
+  does for why the forwarder is still unbuilt. This line used to name the wave
+  that owned the sweep rather than the issue, and the digit had gone stale
+  twice under two renumberings; it names the issue now, which does not move
+  when the waves do.
 - **Dispatch-policy optimization** — the prd6-candidate research question
   above, still standing.
 

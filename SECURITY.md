@@ -21,7 +21,15 @@ Code session logs (`~/.claude/projects`) to show what your agents are
 doing, and it reads your machine's **process table** to see agent processes
 that no multiplexer and no transcript would reveal. It serves that over HTTP
 on `127.0.0.1` only — nothing binds to a public interface, and nothing it
-reads is ever sent anywhere else.
+observes goes anywhere else **by any path this paragraph describes**.
+
+That last clause used to read "nothing it reads is ever sent anywhere else",
+and it stopped being true when the shipper shipped. One outbound path now
+exists, it is off on a fresh install, and it is described in full under
+[The shipper and the team server](#the-shipper-and-the-team-server) below:
+one hand, one command that a human runs per repo, one destination, one
+credential. Nothing else here sends anything, and nothing at all listens
+except the loopback server above.
 
 What the process reader keeps, and what it never touches (ADR-0052, prd-57
 ruling 2): a process becomes an **actor** only when its command line matches a
@@ -90,8 +98,12 @@ below. See the [Trust section](README.md#trust) for the full account.
 If you find a code path that breaks either of those hands' fences — the
 observer writing to the watched repo, the laboratory writing outside its
 own namespace, anything listening on a non-loopback address, or anything
-transmitting data off the machine — that's exactly the kind of thing this
-file is for.
+transmitting data off the machine **other than the shipper described below,
+by the one act that enables it** — that's exactly the kind of thing this
+file is for. The shipper is not the exception that swallows the rule: a path
+that ships without that act, ships to somewhere other than the configured
+team server, or ships something a portable record would not carry, is a
+report worth making.
 
 ## What a shared record contains
 
@@ -135,6 +147,75 @@ the fact: the body is a hash chain, so editing any line invalidates every
 link after it. Read a record before you share it. There is no override flag
 to record the use of, because there is no scan and no gate to override —
 the boundary is the event schema, enforced at parse time.
+
+## The shipper and the team server
+
+Everything above describes a machine that keeps what it sees. Since prd-51
+there is one path off it, and this section is the boundary in full, because a
+reader who gets this far should not have to infer it.
+
+**What leaves.** Exactly the lines a portable record would carry for that
+session — the list immediately above, unchanged — re-serialized through the
+current event schema on the way out, never the log file's raw bytes
+(`packages/core/src/wire/reserialize.ts`). That equality is the veil, and it
+is the load-bearing clause: a field the current schema no longer declares
+cannot survive re-serialization, so it cannot cross, and
+`packages/server/src/shipper/veil.test.ts` plants one and watches it fail to.
+Spend and token counts are in a record and are therefore on the wire. Prompts,
+completions, transcripts and pane content are in no event, so they are on no
+wire. `docs/record-format.md` Law 2 and its 2026-09-08 amendment are the
+binding text.
+
+**To where, and under whose act.** One team server, at the single URL named
+when a human ran `rhizomorph connect team <url> --project <id>` in that repo.
+There is no flag on the server, nothing in a config file elsewhere, and no
+path from a collector, a background poll or the server's own boot —
+`packages/server/src/shipper/hand-law.test.ts` reads this repo's own import
+graph and fails the build if anything but that command can reach the hand or
+start its timer. The hand opens no listening socket: v1 is outbound only, and
+nothing comes back down to your machine. Deleting the shipper directory under
+the data root removes the destination and the credential, and with neither the
+hand cannot run.
+
+**Membership is the boundary, and it is the whole of it.** A human reaches the
+team view by signing in with GitHub, and the check is organisation membership:
+`GET /orgs/{org}/members/{user}` on an installation token, where **204 is a
+member and every non-204 is not** — including an invitation still pending,
+which is not a membership (`packages/team/src/auth/membership.ts`). There is
+no second tier, no per-project grant list and no sharing link. Being in the org
+is what it means to be allowed to see the team's work, and leaving it is what
+it means to stop.
+
+**The two identity planes never fuse.** Humans hold GitHub sessions; machines
+hold ingest keys, and neither is ever accepted where the other belongs. No
+GitHub token is accepted on the ingest route, no key is derived from a GitHub
+token, and the ingest hot path never calls GitHub at all. An ingest key is 32
+random bytes shown once at mint and stored on the server **only as a SHA-256
+hash** — a key it issued is one it cannot reproduce — scoped to one project,
+and kept on the member's machine in exactly one file at mode `0600`: never in
+argv, never in an environment variable, never in the browser, never in the
+hash-chained record and never in a log line. `doctor` reports that a credential
+is present, never its value.
+
+**A revoked key is refused within one batch.** Revocation is a row flag, and
+the flag is read **once per batch and never memoised** — a fresh read per
+request, taken before a byte of the body is read
+(`packages/team/src/api/http.ts`, `packages/team/src/keys/verify.ts`). That is
+what bounds revocation lag to one batch interval; a verdict cached between
+requests would unbound it silently, with every test still green. The check
+**fails closed**: a storage that cannot answer *"is this key revoked?"*
+produces a 503 and no journal write, rather than the tempting shape that
+accepts the batch and refuses the acknowledgement — and the storage's own error
+never reaches the wire, because a database error names a host, a port, a role
+or a relation.
+
+For the record, so a reader can check rather than trust: a shipper
+authenticates every batch by presenting its key in the `x-rz-ingest-key`
+request header on `POST /v1/rhizomorph/ingest`, and an ingest key is the
+prefix `rzk_` followed by its random body. Those three values are held to the
+team server's own declarations by
+`packages/server/src/security-doc-law.test.ts`, so a rename on that side
+reddens this document rather than quietly outdating it.
 
 ## Mutating routes and the capability token
 

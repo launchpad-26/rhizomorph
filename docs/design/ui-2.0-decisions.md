@@ -66,6 +66,18 @@ craft of its light-ground palette.
 | Stratified assignment · permanent holdout | No prior art in the repo, and structurally hard: checkpoints store *coordinates*, not content, so a held-out arm cannot be reopened later or elsewhere. |
 | Model-written step summaries | The instrument makes no model calls and speaks in no voice that is not derived from evidence. |
 
+> **The analyst-bot row cites a promise that has since been re-stated
+> (2026-09-17, #561), and its verdict is unchanged.** "Nothing leaves the
+> machine" is no longer the README's wording: prd-51 bounded the promise at the
+> team instead, and the Trust section now names what leaves, to where and under
+> whose key. That does **not** reopen this row. What leaves is record-shaped
+> lines, outbound, to one team server a human named — and an R&D analyst bot
+> would be an outbound call to a **model vendor**, a second destination and a
+> second credential where `docs/adr/0034-the-fifth-hand.md` grants one of each,
+> made by the instrument on its own initiative rather than by a person. The
+> other half of the row never depended on the promise at all: the instrument
+> still makes no model call, which is the same fact the last row states.
+
 Experiment-shaped ideas route to **prd-28 (the lab)**, whose nine issues already
 contain three of the gaps Baseline highlighted: an arm holding *r* runs, an
 outcome carrying how it was measured, and compare reading real outcomes.
@@ -303,6 +315,33 @@ text) only if that person shares them. The view is uneven by design. *(prd-37)*
 **D47 — the shared server is one machine someone on the team runs.** Collectors
 ship to it; no accounts, no cloud. "Nothing leaves the machine" becomes
 "nothing leaves the team." *(prd-37)*
+
+> **Restamped 2026-09-17 (#561), against what prd-51 actually shipped.** This
+> record's Authority line applies literally here: the PRD is right and this
+> decision is stale in two of its clauses. Recorded rather than rewritten,
+> because what it got right is the part that decided the product.
+>
+> **It holds** that the shared server is one machine someone on the team runs —
+> `docs/prds/prd-51-the-split.md` ruling 13 makes it one image plus Postgres
+> plus Caddy in one `compose.yml`, deployed by a person, and there is no
+> vendor. The reframe it predicted landed word for word: the promise is now
+> bounded by a team rather than by a machine, and `SECURITY.md` and
+> `docs/telemetry.md` say what leaves, to where and under whose act rather than
+> saying nothing does.
+>
+> **"No accounts" did not survive.** Ruling 8 gives the human plane a GitHub
+> sign-in and makes membership of one GitHub organisation the whole boundary;
+> D48's "no accounts, no auth, works offline" is still true of the *local*
+> instrument and is not true of the team view. There are two identity planes
+> now — org membership for humans, `rzk_` keys for machines — and they never
+> fuse.
+>
+> **"Collectors ship to it" is wrong about the hand.** Collectors ship nothing
+> and cannot: ruling 2 puts the outbound path in one separate hand, the
+> shipper, off until a human enables it per repo, and
+> `packages/server/src/shipper/hand-law.test.ts` fails the build if a collector
+> or a poll can reach it. The distinction is not pedantry — it is the whole
+> reason the promise can be bounded at all.
 
 **D48 — identity is git identity, declared once** — display name and colour in
 settings, on top of the author identity the log already carries. No accounts, no

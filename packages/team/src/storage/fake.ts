@@ -1,4 +1,6 @@
 import type { TeamStorage } from './contract.js'
+import { type CatalogFake, type CatalogFakeOptions, createCatalogFake } from './ports/catalog/fake.js'
+import type { RlsTable, RoleMembership } from './ports/catalog/port.js'
 import { type EventsFake, createEventsFake } from './ports/events/fake.js'
 import { type QuestionsFake, createQuestionsFake } from './ports/questions/fake.js'
 import type { CollisionRow, LaneRow, SpendRow } from './ports/questions/port.js'
@@ -49,6 +51,7 @@ import type { SettingsPort } from './ports/settings/port.js'
  */
 export type FakeTeamStorageOptions = SettingsFakeOptions &
   MigrationsFakeOptions &
+  CatalogFakeOptions &
   IngestKeysFakeOptions &
   RetentionFakeOptions
 
@@ -63,6 +66,7 @@ export class FakeTeamStorage implements TeamStorage {
   private readonly lifecyclePort: LifecycleFake
   private readonly questionsPort: QuestionsFake
   private readonly retentionPort: RetentionFake
+  private readonly catalogPort: CatalogFake
 
   // The port fakes' own objects, aliased rather than copied: tests mutate and
   // read them through that identity (`fake.failApply.clear()`,
@@ -91,6 +95,12 @@ export class FakeTeamStorage implements TeamStorage {
   readonly eventPartitions: string[]
   /** Every partition `dropEventPartition` was called with, in order — including the no-ops. */
   readonly droppedPartitions: string[]
+  /** `pg_roles`, as this connection sees it. Mutable, so one fake can lose a role between calls. */
+  readonly catalogRoles: string[]
+  /** The RLS-enabled tables `pg_class` holds, with their `pg_policy` counts. */
+  readonly rlsTables: RlsTable[]
+  /** Every role name `readRoleMembership` was asked about, in order. */
+  readonly membershipLookups: string[]
 
   constructor(options: FakeTeamStorageOptions = {}) {
     this.settingsPort = createSettingsFake(this.calls, options)
@@ -100,6 +110,7 @@ export class FakeTeamStorage implements TeamStorage {
     this.lifecyclePort = createLifecycleFake(this.calls)
     this.questionsPort = createQuestionsFake(this.calls)
     this.retentionPort = createRetentionFake(this.calls, options)
+    this.catalogPort = createCatalogFake(this.calls, options)
 
     this.events = this.eventsPort.events
     this.partitions = this.eventsPort.partitions
@@ -115,6 +126,9 @@ export class FakeTeamStorage implements TeamStorage {
     this.ceilings = this.retentionPort.ceilings
     this.eventPartitions = this.retentionPort.eventPartitions
     this.droppedPartitions = this.retentionPort.droppedPartitions
+    this.catalogRoles = this.catalogPort.catalogRoles
+    this.rlsTables = this.catalogPort.rlsTables
+    this.membershipLookups = this.catalogPort.membershipLookups
   }
 
   /** Migration ids `applyMigration` was called with, in order — including the ones that threw. */
@@ -217,6 +231,18 @@ export class FakeTeamStorage implements TeamStorage {
 
   dropEventPartition(partition: string): Promise<void> {
     return this.retentionPort.dropEventPartition(partition)
+  }
+
+  listCatalogRoles(): Promise<string[]> {
+    return this.catalogPort.listCatalogRoles()
+  }
+
+  listRlsTables(): Promise<RlsTable[]> {
+    return this.catalogPort.listRlsTables()
+  }
+
+  readRoleMembership(roleName: string): Promise<RoleMembership> {
+    return this.catalogPort.readRoleMembership(roleName)
   }
 
   close(): Promise<void> {
