@@ -687,8 +687,15 @@ lane did not perform — it is never a synonym for met.
    keeps every line of its logic, so a stalled-but-alive lane still publishes
    only its inference word.
 
-6. **Declared state exists, and inferred state says so — NOT MET.** Corrected
-   2026-09-17, from "partly met", on evidence rather than on reading.
+6. **Declared state exists, and inferred state says so — MET, by amendment
+   2026-09-17 (#589).** Read the assessment below first: it was written the same
+   day, it is what the milestone closed on, and the amendment at the end of this
+   item is what changed. Recorded rather than rewritten — a closeout that
+   quietly shows the right verdict teaches nobody what it cost to find the
+   wrong one.
+
+   *(assessed at close: NOT MET. Corrected then from "partly met", on evidence
+   rather than on reading.)*
 
    **A hook firing reaches no lane.** `cli/hook.ts` writes `sessionId`,
    `transcriptPath`, `cwd` and `pid`; `reduce.ts`'s `beaconReceived` joins by
@@ -710,6 +717,34 @@ lane did not perform — it is never a synonym for met.
    in for one that something reads it.
 
    Owed as the declared join itself, not as a card's why line.
+
+   > **Amendment, 2026-09-17 — the join is built, and this reads MET (#589).**
+   > A beacon that names no lane is placed by its `pid` against the actor the
+   > process witness already found, and lands under that actor's worktree path,
+   > which `buildFleet` resolves back to a lane. So the third witness reaches
+   > the fold, and the sentence above — *"nothing folds a hook beacon"* — is no
+   > longer true of this tree.
+   >
+   > **The join is a pid lookup and not a `cwd` one, and that was forced rather
+   > than preferred.** A containment test needs `isInside`, `isInside` needs
+   > `node:fs`, and ADR-0003 keeps that out of `packages/core`. A prefix compare
+   > in its place is a defect this repo has already fixed twice by name. So a
+   > line whose pid matches no actor is **declined rather than guessed at**: a
+   > platform with no process leg sees no declared attention instead of a wrong
+   > one, which is ADR-0010's answer, not a shortfall hidden inside a met
+   > criterion.
+   >
+   > **The card's why line landed with it**, which is the half #532 recorded as
+   > owed. `DeclaredAttention.joinedBy` records which key carried the
+   > declaration, `joinVoice` spells it from one place, and both surfaces —
+   > `diagnose.ts`'s waiting evidence and `condition.ts`'s declaration clause —
+   > import it, so prd-27's *"the condition is assembled once"* stays true
+   > instead of becoming a comment above two spellings. Neither join is ranked:
+   > both are declared, and ADR-0010 asks for the gap named, not scored.
+   >
+   > **What is still owed, and is not this criterion's**: the affordance test
+   > #532's DoD pairs with the why line. It is a test over a field that now
+   > exists, where before it was a test over one that did not.
 
 7. **tmux is an enrichment — MET.** Absent and present both read `ok`; the whole
    doctor report is diffed between the two configurations and only the rig's own
@@ -793,6 +828,9 @@ a dependency.
   literal whose precedence arm no test could exercise"* — and wave 3 built the
   emitter's WRITER while nothing was taught to read what it writes. The
   amendment's own reasoning was right and the wave it moved to did half of it.
+  *(The join landed by amendment on 2026-09-17 as #589 — see Success 6. The
+  lesson is not retired with it: what caught this was running the writer against
+  the reader, and nothing in three waves of green tests had done that.)*
 
 - **Retiring a flag broke three tests on Linux that Windows could not show.**
   One of them was the end-to-end wiring test for the flag itself — a known
