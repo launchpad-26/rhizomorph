@@ -1,6 +1,7 @@
 # prd-54 — the registry that checks itself: an unenforced check is not a check
 
-> **Status:** **BLESSED** — ciaran-slow, 2026-09-08, in session. Milestone `prd54`. Written out of the review of
+> **Outcome: SHIPPED — 2026-09-18.** All seven waves landed on `main`; nine issues closed and
+> none open. Blessed by ciaran-slow, 2026-09-08, in session. Milestone `prd54`. Written out of the review of
 > [#353][i353], which registered one coupling point and found in passing that the registry it
 > writes into is unverified prose, and that the script written to verify it is wired to nothing.
 > Four waves and a correction that has already had to run twice: the first pass
@@ -986,7 +987,11 @@ are not available — `windows-suite-law.test.ts` requires every entry to be a t
 listable artefact was the law itself, one entry masking all 20 of its tests, of which 11 are
 platform-clean.
 
-**Wave 4 shares no path with wave 3 and does not wait on it.**
+**This wave shares no path with wave 3 and does not wait on it.** (Reworded 2026-09-18 from
+"Wave 4 shares no path…": bolded prose opening with `**Wave N` reads as a DECLARATION, to
+`scripts/dev/prd-reconcile.sh` and to anyone skimming bold headings for the wave list. It
+reported wave 4 as declared twice. The sentence is a reference, not a declaration, and now
+looks like one.)
 
 **Wave 6 — a shell test is discovered by what it IS.** One issue, [#594][i594], declared
 2026-09-17 with operator sign-off in session. Wave 5's own review produced it: the

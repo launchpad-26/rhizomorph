@@ -13,7 +13,7 @@ import { isInside } from './paths/containment.js'
  * checked any of that before this file — `scripts/dev/coupling.test.sh` runs in no
  * workflow, no `package.json` script and not in `scripts/gate.sh`, and
  * `doc-citation-law.test.ts` cannot reach a `.txt`. Every ruling this law implements is in
- * `docs/prds/prd-54-the-registry-that-checks-itself.md`; only the ones that changed the
+ * `docs/prds/done/prd-54-the-registry-that-checks-itself.md`; only the ones that changed the
  * law's behaviour, not the ones that only explained why, are repeated here.
  *
  * Lives under `packages/server/` for the reason every sibling law here already gives: the

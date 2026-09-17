@@ -347,6 +347,13 @@
 - **prd49 — potential change** (`docs/prds/done/prd-49-potential-change.md`, blessed 2026-09-01): not a
   programme of work — a conditional verdict given a place to live, so the condition is watched
   rather than remembered.
+- **prd54 — the registry that checks itself** (`docs/prds/done/prd-54-the-registry-that-checks-itself.md`,
+  blessed 2026-09-08, shipped 2026-09-18): an unenforced check is not a check. `.swarm/coupling.txt`
+  was prose asserting facts about other files, and the script written to verify it was wired to
+  nothing; seven waves made the registry true, made a vitest law enforce it, put the shell tests
+  in the suite, and — in wave 7 — stopped `doc-citation-law` blaming a citing document for the
+  law's own failure to parse. Eleven rulings, three of them written after a wave had already
+  measured the previous answer wrong.
 - **prd50 — the fixed ceiling** (`docs/prds/done/prd-50-the-fixed-ceiling.md`, blessed 2026-09-02): a
   refusal an operator may not soften. The lab's CLI lock ceiling is fixed because it bounds a
   wait; prd53 ruling 6 records why the launch ceiling, which bounds load, is not.
