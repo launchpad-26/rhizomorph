@@ -523,6 +523,9 @@ const WINDOWS_UNRUNNABLE: Record<string, WindowsDeclaration> = {
  * closing it did not work. The hole is bounded, not sealed:
  *
  *   a PLAIN rename, nothing else changed                     CAUGHT (both seats, via git mv)
+ *   a summary refactored across two writes, NO rename        CAUGHT, and this is the ONLY
+ *                                                              assertion in the file that
+ *                                                              reddens for it
  *   a rename AND its summary refactored into two writes,
  *     in one change                                          NOT caught
  *   a NEW test written off-convention with an assembled
@@ -548,6 +551,17 @@ const WINDOWS_UNRUNNABLE: Record<string, WindowsDeclaration> = {
  * two writes, touching nothing else — RED, on the Windows declaration's equality assertion, not
  * on anything here. Both verify seats had to delete the key as a third edit before they could
  * demonstrate a green suite, and each of them said so.
+ *
+ * EXECUTED (review of #625, macOS darwin 25.6.0, node 22.23.2): assemble `coupling.test.sh`'s
+ * summary across two LINES and rename NOTHING — the script still runs, still exits 0, still
+ * emits a valid `11 passed, 0 failed` — and the whole file goes 1 failed / 24 passed, this
+ * assertion alone. `WINDOWS_UNRUNNABLE` cannot see it: the NAME set never moved. That is the
+ * detection this adds over the record, and it is why the message below has to name the
+ * direction rather than only the two rename-shaped causes it first listed.
+ *
+ * Note the pattern is loose ON PURPOSE and survives SAME-line assembly: `printf '%s passed, '
+ * "$p"; printf '%s failed\n' "$f"` still matches, because `.*` spans the statement break.
+ * Only a genuine line break defeats it.
  *
  * So the residual costs THREE deliberate edits — rename, refactor, and delete the declaration —
  * which is removing a test on purpose while updating its records to match, not the silent drift
@@ -583,6 +597,17 @@ describe('shell suite law: every scripts/dev/*.test.sh runs in the vitest suite 
   // cross-checked against a SECOND, independent derivation: list everything tracked under
   // scripts/dev/ and filter by suffix in JS. Two mechanisms that can only agree by both being
   // right.
+  it('the glob agrees with an independent listing of scripts/dev/ — discovery itself cannot quietly shrink', () => {
+    const independently = execFileSync('git', ['ls-files', 'scripts/dev/'], { cwd: REPO_ROOT, encoding: 'utf8' })
+      .split('\n')
+      .filter((line) => line.endsWith('.test.sh'))
+      .sort()
+    expect(
+      SHELL_TESTS,
+      `git ls-files '${SHELL_TEST_GLOB}' and an independent suffix filter over scripts/dev/ disagree — the glob constant has been narrowed, or discovery is dropping entries`,
+    ).toEqual(independently)
+  })
+
   it('a shell test renamed off the .test.sh convention is caught by what it WRITES', () => {
     const allShell = execFileSync('git', ['ls-files', 'scripts/dev/*.sh'], { cwd: REPO_ROOT, encoding: 'utf8' })
       .split('\n')
@@ -593,19 +618,8 @@ describe('shell suite law: every scripts/dev/*.test.sh runs in the vitest suite 
 
     expect(
       byTell,
-      `the shell tests discovered by NAME and the ones that WRITE a summary line disagree — either a test was renamed off the '.test.sh' convention (it still writes a summary, so it is in this set and not in the glob's), or a non-test script grew the phrase (it is in this set and should not be). Both sides are listed; the name-based set is ${JSON.stringify(SHELL_TESTS)}`,
+      `the shell tests discovered by NAME and the ones that WRITE a summary line disagree — either a test was renamed off the '.test.sh' convention (it still writes a summary, so it is in this set and not in the glob's), or a non-test script grew the phrase (it is in this set and should not be), or — the direction the doc above records as NOT caught — a correctly-named shell test still in the glob's set stopped carrying the phrase as ONE source literal, by assembling its summary across two writes (it is in the glob's set and not in this one; read WHICH side is short before checking for a rename that did not happen). Both sides are listed; the name-based set is ${JSON.stringify(SHELL_TESTS)}`,
     ).toEqual([...SHELL_TESTS].sort())
-  })
-
-  it('the glob agrees with an independent listing of scripts/dev/ — discovery itself cannot quietly shrink', () => {
-    const independently = execFileSync('git', ['ls-files', 'scripts/dev/'], { cwd: REPO_ROOT, encoding: 'utf8' })
-      .split('\n')
-      .filter((line) => line.endsWith('.test.sh'))
-      .sort()
-    expect(
-      SHELL_TESTS,
-      `git ls-files '${SHELL_TEST_GLOB}' and an independent suffix filter over scripts/dev/ disagree — the glob constant has been narrowed, or discovery is dropping entries`,
-    ).toEqual(independently)
   })
 
   it(`discovers at least one shell test under '${SHELL_TEST_GLOB}'`, () => {
