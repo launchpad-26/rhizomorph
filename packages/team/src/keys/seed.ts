@@ -24,6 +24,25 @@ import { isIngestKeyHash } from './hash.js'
  * skip, and never a seed under a made-up project id, which would create a live
  * key scoped to a project nobody ships to.
  *
+ * **AND THE SENTENCE NAMES THE MODE THAT ACTS ON AN `.env` THAT ALREADY EXISTS
+ * (#598).** All three refusals below used to say *"re-run
+ * packages/team/deploy/init.sh"*. A bare run of that script returns early when
+ * `.env` exists — and reaching any of these refusals PROVES it exists, because
+ * the boot got this far only by connecting on the `RZ_TEAM_DATABASE_URL` that
+ * file supplies, and the two values they complain about are read out of it. So
+ * the operator ran the named command, it printed *"already initialised"*, minted
+ * nothing, and the next boot failed identically. A wrong pointer to a real
+ * command is worse than no pointer: running it reports success.
+ *
+ * The mode that does act on an existing file is `./init.sh
+ * --rotate-ingest-key`, which #591 added after the procedure it replaced —
+ * delete `.env`, re-run first boot — took the live deployment down. Rotation
+ * rewrites one line and reads the project OUT of the file, which is why the
+ * empty-project remedy sets `RZ_TEAM_PROJECT` FIRST: rotation refuses an `.env`
+ * that names no project, so the other order would be a second no-op pointer.
+ * `deploy/doctor.ts` prints the same sequence for the same three states, so the
+ * boot refusal and the doctor line no longer disagree (prd-51 rulings 12, 13).
+ *
  * No `process.env` here: this takes plain values, and `deploy/serve.ts` is where
  * the environment is read, beside the other three variables it already reads.
  */
@@ -53,8 +72,9 @@ export async function seedProjectIngestKey(
       ok: false,
       error:
         `no ${ENV_PROJECT} in the environment, so there is no project to scope an ingest key to. ` +
-        `Remedy: re-run packages/team/deploy/init.sh, or set ${ENV_PROJECT} and ${ENV_INGEST_KEY_SHA256} ` +
-        'from the .env it wrote.',
+        `Remedy: set ${ENV_PROJECT} in packages/team/deploy/.env to this deployment's project id, then ` +
+        'cd packages/team/deploy && ./init.sh --rotate-ingest-key to mint a key scoped to it, then ' +
+        'docker compose up -d — NOT docker compose restart, which does not re-read .env.',
     }
   }
 
@@ -63,8 +83,10 @@ export async function seedProjectIngestKey(
       ok: false,
       error:
         `${ENV_INGEST_KEY_SHA256} is not a sha-256 digest (64 lowercase hex characters), so this server ` +
-        `has no key to seed for project ${JSON.stringify(projectId)}. Remedy: re-run ` +
-        'packages/team/deploy/init.sh, which mints a key, prints it once and writes only its digest.',
+        `has no key to seed for project ${JSON.stringify(projectId)}. Remedy: cd packages/team/deploy && ` +
+        './init.sh --rotate-ingest-key, which mints a key, prints it once and rewrites only the ' +
+        `${ENV_INGEST_KEY_SHA256} line of the .env this deployment already has, then docker compose up -d — ` +
+        'NOT docker compose restart, which does not re-read .env.',
     }
   }
 
@@ -79,7 +101,8 @@ export async function seedProjectIngestKey(
       error:
         `that ingest key digest is already held for project ${JSON.stringify(existing.projectId)}, so it ` +
         `cannot also be seeded for ${JSON.stringify(projectId)}. A key is scoped to exactly one project ` +
-        '(prd-51 ruling 8). Remedy: re-run packages/team/deploy/init.sh to mint a key for this project.',
+        '(prd-51 ruling 8). Remedy: cd packages/team/deploy && ./init.sh --rotate-ingest-key to mint a key ' +
+        'for this project, then docker compose up -d — NOT docker compose restart, which does not re-read .env.',
     }
   }
 
