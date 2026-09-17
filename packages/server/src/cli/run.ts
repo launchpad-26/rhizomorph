@@ -2,7 +2,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createEvent, createIdFactory, selectBranches, selectWorktreeViews } from '@rhizomorph/core'
 import { recordSessionBootMeta } from '../api/meta.js'
-import { defaultDataRoot, sessionDirFor, sessionFileName, snapshotDirFor } from '../log/paths.js'
+import { defaultDataRoot, repoSlug, sessionDirFor, sessionFileName, snapshotDirFor } from '../log/paths.js'
 import { LOCK_HEARTBEAT_INTERVAL_MS, removeSessionLock, writeSessionLock } from '../log/session-lock.js'
 import {
   decideSessionBoot,
@@ -10,8 +10,12 @@ import {
   recordResume,
   type SessionBootDecision,
 } from '../log/session-log.js'
+import { createRepoRootResolver } from '../paths/repo-root.js'
+import { createColonyRecorders } from '../recorder/colony-recorders.js'
 import { buildApp } from '../server/build-app.js'
 import { loadCollectors } from '../server/collector-loader.js'
+import { type Colony, createColonyDiscovery } from '../server/colonies.js'
+import { createColonySupervisor } from '../server/colony-supervisor.js'
 import type { ServerContext } from '../server/context.js'
 import { exec as realExec } from '../server/exec.js'
 import { createPollLoop } from '../server/poll-loop.js'
@@ -124,6 +128,59 @@ export async function runServerCommand(
     snapshotStore: createFileSnapshotStore(snapshotDirFor(sessionDir, sessionId)),
   })
 
+  /**
+   * THE WATCHED SET — prd-58 rulings 1 and 2.
+   *
+   * The pinned colony is the one this boot already opened: its recorder, its
+   * collectors and its loop are the objects above, adopted rather than rebuilt,
+   * which is what keeps the one-colony case byte-identical to what it was.
+   * Everything discovered afterwards gets its own of each.
+   *
+   * Discovery runs off the PINNED loop's fold rather than on a timer of its
+   * own. The process witness re-reads the machine's table every tick anyway, so
+   * a second clock would be a second cost to answer a question the first one
+   * has already answered — and ADR-0013's budget is per tick, not per feature.
+   */
+  const colonyRoots = createRepoRootResolver(options.exec ?? realExec)
+  const discovery = createColonyDiscovery({ pinnedRepoPath: repoPath, resolver: colonyRoots })
+  const pinnedColony: Colony = { id: repoSlug(repoPath), path: repoPath, pinned: true }
+  const colonyRecorders = createColonyRecorders({
+    dataRoot: options.dataRoot ?? defaultDataRoot(),
+    pinned: { colony: pinnedColony, recorder },
+    now,
+  })
+  const colonies = createColonySupervisor({
+    recorders: colonyRecorders,
+    startColony: async (colony, colonyRecorder) => {
+      // One collector SET per colony, not one shared: a collector holds its own
+      // snapshots, and two repos sharing one would make each look like the
+      // other's discoveries had already happened.
+      const colonyCollectors = await loadCollectors(log, undefined, {
+        claudeProjectsRoot: options.claudeProjectsRoot,
+        home: options.home,
+        backfill: false,
+      })
+      const loop = createPollLoop({
+        repoPath: colony.path,
+        collectors: colonyCollectors,
+        recorder: colonyRecorder,
+        exec: options.exec ?? realExec,
+        now,
+        intervalMs: options.intervalMs ?? args.pollIntervalMs,
+        snapshotStore: createFileSnapshotStore(
+          snapshotDirFor(sessionDirFor(colony.path, options.dataRoot ?? defaultDataRoot()), colonyRecorder.sessionId),
+        ),
+      })
+      loop.start()
+      return loop
+    },
+    // Reported, never swallowed: silence here is indistinguishable from a repo
+    // with no agents, which is the one reading that hides the gap.
+    onStartFailed: (colony, cause) => {
+      log.log(`colony ${colony.id} (${colony.path}) could not be watched: ${cause instanceof Error ? cause.message : String(cause)}`)
+    },
+  })
+
   const webDistDir = options.webDistDir ?? defaultWebDistDir()
   const flatlineMs = args.flatlineMinutes * 60_000
   // The one object every route AND this boot's own lock bookkeeping share
@@ -203,6 +260,27 @@ export async function runServerCommand(
   // counts from the first poll instead of an invented zero.
   await pollLoop.tick()
 
+  /**
+   * Discovery, off the pinned fold, on the pinned loop's cadence.
+   *
+   * `sync` is additive and idempotent, so running it every tick costs one
+   * `Map` lookup per already-watched colony — the resolver caches per cwd, so
+   * a steady machine spawns no `git` at all after the first sighting of each.
+   */
+  const syncColonies = async () => {
+    try {
+      const actors = Object.values(recorder.foldSoFar().processes)
+      await colonies.sync(await discovery.discover(actors))
+    } catch (cause) {
+      // Discovery failing must never take the pinned colony down with it: the
+      // instrument watching one repo beats the instrument watching none.
+      log.log(`colony discovery failed: ${cause instanceof Error ? cause.message : String(cause)}`)
+    }
+  }
+  await syncColonies()
+  const colonySweep = setInterval(() => void syncColonies(), options.intervalMs ?? args.pollIntervalMs)
+  colonySweep.unref()
+
   log.log(`rhizomorph running at ${url}`)
   // The recorder's maintained fold, not a re-fold of its buffer (prd-40 ruling
   // 2, and prd-44 ruling 4 / #37 makes it load-bearing rather than merely
@@ -220,6 +298,10 @@ export async function runServerCommand(
 
   const stop = async () => {
     clearInterval(lockHeartbeat)
+    clearInterval(colonySweep)
+    // Discovered colonies first: each awaits its own in-flight tick, and they
+    // stop in parallel so a shutdown costs one tick budget rather than N.
+    await colonies.stop()
     await pollLoop.stop()
     await app.close()
     try {
