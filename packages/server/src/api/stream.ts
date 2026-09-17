@@ -1,5 +1,6 @@
 import type { RhizomorphEvent } from '@rhizomorph/core'
 import type { FastifyInstance } from 'fastify'
+import { repoSlug } from '../log/paths.js'
 import type { ServerContext } from '../server/context.js'
 import { requireCapabilityToken } from './security.js'
 
@@ -15,11 +16,27 @@ export interface EventSink {
   readonly destroyed: boolean
 }
 
-/** Writes one event's three SSE lines. Returns the last write's own result — `false` means the sink's internal buffer is now full (Node's own backpressure signal). */
-function writeEvent(sink: EventSink, event: RhizomorphEvent): boolean {
+/**
+ * Writes one event's three SSE lines. Returns the last write's own result —
+ * `false` means the sink's internal buffer is now full (Node's own backpressure
+ * signal).
+ *
+ * **`data` is an ENVELOPE when a colony is named** — prd-58 ruling 3: *"an
+ * event says what happened; the frame says which colony it happened in."* The
+ * colony has to ride inside `data` because a browser `EventSource` exposes only
+ * `data`, `event`, `id` and `retry`; `event` is the type, `id` is the resume
+ * contract the reconnect path depends on, and any other field name is simply
+ * invisible to the client.
+ *
+ * `colony: null` writes the BARE event, exactly as every version before this
+ * did. `parseStreamFrame` reads both, so the two halves of this wave can land
+ * without a version handshake three waves early.
+ */
+function writeEvent(sink: EventSink, event: RhizomorphEvent, colony: string | null): boolean {
   sink.write(`id: ${event.id}\n`)
   sink.write(`event: ${event.type}\n`)
-  return sink.write(`data: ${JSON.stringify(event)}\n\n`)
+  const payload = colony === null ? event : { colony, event }
+  return sink.write(`data: ${JSON.stringify(payload)}\n\n`)
 }
 
 /**
@@ -81,12 +98,13 @@ export async function flushBacklog(
   sink: EventSink,
   backlog: readonly RhizomorphEvent[],
   batchSize: number = REPLAY_BATCH_SIZE,
+  colony: string | null = null,
 ): Promise<void> {
   for (let i = 0; i < backlog.length; i++) {
     if (sink.writableEnded || sink.destroyed) return
     const event = backlog[i]
     if (event === undefined) continue
-    const ok = writeEvent(sink, event)
+    const ok = writeEvent(sink, event, colony)
     if (!ok) {
       await onceDrained(sink)
     } else if ((i + 1) % batchSize === 0) {
@@ -109,16 +127,17 @@ export function streamBacklogThenLive(
   backlog: readonly RhizomorphEvent[],
   subscribe: (onEvent: (event: RhizomorphEvent) => void) => () => void,
   batchSize: number = REPLAY_BATCH_SIZE,
+  colony: string | null = null,
 ): () => void {
   let replaying = true
   const queued: RhizomorphEvent[] = []
 
   const unsubscribe = subscribe((event) => {
     if (replaying) queued.push(event)
-    else writeEvent(sink, event)
+    else writeEvent(sink, event, colony)
   })
 
-  void flushBacklog(sink, backlog, batchSize).then(() => {
+  void flushBacklog(sink, backlog, batchSize, colony).then(() => {
     replaying = false
     // The client may have disconnected while events were queuing behind the
     // backlog flush — writing to an already-ended sink here (rather than
@@ -126,7 +145,7 @@ export function streamBacklogThenLive(
     // caller asked for.
     for (const event of queued) {
       if (sink.writableEnded || sink.destroyed) break
-      writeEvent(sink, event)
+      writeEvent(sink, event, colony)
     }
     queued.length = 0
   })
@@ -168,7 +187,19 @@ export function registerStreamRoute(app: FastifyInstance, ctx: ServerContext): v
       const lastEventId = Array.isArray(lastEventIdHeader) ? lastEventIdHeader[0] : lastEventIdHeader
       const backlog = resumeBacklog(ctx.recorder.eventsSoFar(), lastEventId)
 
-      const unsubscribe = streamBacklogThenLive(res, backlog, (onEvent) => ctx.recorder.subscribe(onEvent))
+      // prd-58 ruling 3: every frame names its colony. One server watches one
+      // repo today, so that is `repoSlug(ctx.repoPath)` for all of them — and
+      // the same slug the recorder writes under, because ruling 2 records each
+      // colony "under its own slug, exactly as prd-16 writes it" and a second
+      // identity here would let the frame and the recording disagree.
+      const colony = repoSlug(ctx.repoPath)
+      const unsubscribe = streamBacklogThenLive(
+        res,
+        backlog,
+        (onEvent) => ctx.recorder.subscribe(onEvent),
+        REPLAY_BATCH_SIZE,
+        colony,
+      )
       request.raw.on('close', unsubscribe)
     },
   )
