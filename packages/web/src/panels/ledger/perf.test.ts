@@ -1,6 +1,41 @@
 import { createEventFactory, reduceAll, type RhizomorphEvent } from '@rhizomorph/core'
 import { describe, expect, it } from 'vitest'
 
+// @gate-timing — this file's own execution cost, not a clock the load
+// conditions could invalidate (#628, prd-59 ruling 1). The same ground
+// `scene/tripwire-law.test.ts` (wave 1) opts in on: real work that crosses
+// vitest's default per-test timeout even running alone, and multiplies
+// further under the gate's 4x concurrent load probe. scripts/gate.sh greps
+// for this exact marker to route the file into its serial, alone timing
+// pass instead of those load batches. Carry this comment with the file if
+// you rename or move it; a file without it is invisible to that pass (#209).
+//
+// Measured on this box (2026-09-18, node 22.22.2): alone, serially, at
+// --maxWorkers=1, the suite's one test took 5473ms and 5883ms across two
+// runs — already past vitest's 5000ms default with no per-test timeout
+// declared. Under the gate's real load probe (the whole suite at
+// --maxWorkers=5, four copies running at once), the same test took
+// 23149-26528ms across the four concurrent runs: a genuine multiplication
+// of wall-clock cost, not a flake — every run still passed. Both conditions
+// stay well inside the file's own declared bench budget below
+// (`BENCH_TIMEOUT_MS`, left unchanged: even the slowest measured run here is
+// more than 11x under it). Re-derive rather than trust these numbers; they
+// move with the machine.
+//
+// The assertion `expect(rows.every((row) => row.afterMs < 1)).toBe(true)`
+// is NOT this file's reason for being here, despite being a millisecond
+// bound: it is a median of three samples either side of a single property
+// read, and across four concurrent copies of this file under load every
+// row's `afterMs` held at the performance.now() resolution floor (0.001ms)
+// — contention never came close to moving it. It is a live guard (see the
+// mutation proof below), just not a load-sensitive one.
+//
+// Mutation proof (reverted before commit): a 2ms busy-wait spliced into the
+// "after" measurement, between where it takes its first timestamp and where
+// it records the elapsed sample, left `afterMs` at ~2.00ms and reddened
+// `rows.every((row) => row.afterMs < 1)` with `expected false to be true` —
+// the guard is exercised, not merely carried.
+
 /**
  * THE BEFORE/AFTER, MEASURED (#171, the audit's P1).
  *
