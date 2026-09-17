@@ -1478,7 +1478,6 @@ describe('#585 — a failing READ rejects, and that is the contract', () => {
         ceilings: [CEILING({ maxAgeDays: 30 })],
       })
       const boom = new Error(`${method} is unavailable`)
-      // biome-ignore lint/suspicious/noExplicitAny: replacing one method on the fake, as the test above does.
       ;(storage as any)[method] = async (): Promise<never> => {
         throw boom
       }

@@ -594,6 +594,29 @@ describe('the fold cursor', () => {
   })
 
   /**
+   * THE BOUNDARY ITSELF, which the three cases above do not pin.
+   *
+   * They all use a gap of 497 or more, so the arm's comparison could be `>=`, `>` or `> tail + 1`
+   * and every one of them stays green. EXECUTED at review of the fix: mutating the shipped
+   * `cursor.seq > tail` by exactly one survived all 57 cases in this file. The code is right; the
+   * suite did not hold it there, which is the shape this whole wave keeps finding.
+   *
+   * One record either side is the whole test:
+   *   cursor === tail      the fold is caught up — ok
+   *   cursor === tail + 1  the fold reads nothing that arrives — fail
+   */
+  it.each([
+    [500, 500, 'ok' as const],
+    [501, 500, 'fail' as const],
+  ])('a cursor at %d against a journal of %d is %s', async (cursorSeq, records, expected) => {
+    writeJournal(records)
+    writeCursor(path.join(dir, 'ingest.cursor'), { seq: cursorSeq, actors: {} })
+
+    const check = byId(await doctor(fullEnv()), 'fold-cursor')
+    expect(check.status).toBe(expected)
+  })
+
+  /**
    * THE REMEDY IS TYPED BACK IN, which is the issue's own standard for a printed remedy: it
    * names removing the cursor, so removing the cursor must turn the check green.
    */
