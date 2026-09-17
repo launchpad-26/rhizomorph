@@ -8,7 +8,7 @@ import {
   performRetarget,
   RETARGET_OR_ROTATION_IN_FLIGHT_MESSAGE,
 } from '../recorder/rotate.js'
-import { canonicalizeRepoPath } from '../paths/repo-root.js'
+import { canonicalizeRepoPath } from '../paths/containment.js'
 import type { ServerContext } from '../server/context.js'
 import { exec as realExec, withTimeout } from '../server/exec.js'
 import { describeTelemetryCost, lanesAtBoundary } from '../server/retarget-cost.js'

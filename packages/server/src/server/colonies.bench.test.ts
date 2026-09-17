@@ -110,8 +110,9 @@ describe('colony discovery — the per-tick cost of watching N repos (prd-58 rul
     const at = (q: number) => warm[Math.min(warm.length - 1, Math.floor(warm.length * q))] ?? 0
 
     const INTERVAL_MS = 2_000
-    // A bench reports; this is its output. `noConsole` is not enabled for test
-    // files, so a suppression here is one biome itself flags as having no effect.
+    // A bench reports; this is its output, and it is deliberate. Biome's console
+    // rule is not enabled for test files, so a suppression comment here is one
+    // biome itself flags as having no effect — do not restore one.
     console.log(
       [
         `prd-58 discovery · ${colonies.length} colonies from ${dirs.length} placed actors (one linked worktree)`,

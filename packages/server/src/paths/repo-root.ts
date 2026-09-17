@@ -88,30 +88,3 @@ async function resolveOnce(exec: Exec, cwd: string): Promise<string | null> {
   }
 }
 
-/**
- * A repo path in the spelling every other reader of it uses.
- *
- * `path.resolve` does not follow symlinks and {@link canonicalize} does, so the
- * two are different names for one repository whenever a symlink is in the way —
- * unconditionally on macOS, where `os.tmpdir()` is `/var/...` →
- * `/private/var/...`. A pin in one spelling against a resolver answering in the
- * other makes ONE repository into TWO colonies: two recorders, two poll loops,
- * two recordings, two rows in the selector.
- *
- * It lives here rather than at either call site because `cli/run.ts` and
- * `cli/doctor.ts` both need it and must not disagree — `doctor` reporting a
- * different watched set from the server it is diagnosing is the defect that
- * check exists to make visible.
- *
- * `canonicalize` throws on anything that is not `ENOENT` — a permission error
- * part-way up the tree, an `ELOOP`. Neither a boot nor a diagnosis may die for
- * that: the answer is then the resolved path, which is what this value was
- * before prd-58 and is still correct for every layout without a symlink in it.
- */
-export function canonicalizeRepoPath(resolved: string): string {
-  try {
-    return canonicalize(resolved)
-  } catch {
-    return resolved
-  }
-}

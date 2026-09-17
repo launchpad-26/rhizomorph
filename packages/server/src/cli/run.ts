@@ -11,7 +11,8 @@ import {
   type SessionBootDecision,
 } from '../log/session-log.js'
 import { presentWorktreePaths } from '../collectors/beacon/paths.js'
-import { canonicalizeRepoPath, createRepoRootResolver } from '../paths/repo-root.js'
+import { canonicalizeRepoPath } from '../paths/containment.js'
+import { createRepoRootResolver } from '../paths/repo-root.js'
 import { createColonyRecorders } from '../recorder/colony-recorders.js'
 import { buildApp } from '../server/build-app.js'
 import { loadCollectors } from '../server/collector-loader.js'
