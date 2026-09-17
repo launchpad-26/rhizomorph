@@ -602,23 +602,32 @@ function beaconReceived(state: SessionState, event: EventOf<'beacon.received'>):
  * landed its declaration on the dead run's worktree, deterministically. Found
  * in adversarial review, before this branch merged.
  *
- * So the run is resolved rather than the number. **The line's own `cwd` decides
- * it in BOTH directions when it is present** — `actor.worktreePath` IS the
- * actor's canonical cwd, and the hook writes the same process's cwd, so the
- * ordinary case is an exact string match; and a `cwd` matching nothing means
- * every actor answering to this number contradicts the firing process's own
- * account of where it was, which is a decline rather than a tie to break.
+ * So the run is resolved rather than the number, and **the line's own `cwd` is
+ * the first question when it is present.** `actor.worktreePath` IS the actor's
+ * canonical cwd, so an exact string match is the ordinary case and it settles
+ * everything.
  *
- * That second half was the second review's finding, and it is the one that
- * matters: a run which exited and had its number recycled minutes later carries
- * `goneReason: 'absent'`, not `'recycled'` — the collector says `'recycled'`
- * only when the pid is live in the same tick. So a lone dead actor in the wrong
- * worktree survived every filter of the first fix and was returned, which is a
- * false summons on a lane nobody is in.
+ * A `cwd` matching NOTHING has two causes that need opposite answers, and three
+ * reviews were needed to get this right:
  *
- * With no `cwd` the witness is all there is: a live run over a dead one, and a
- * `recycled` run never, because `recycled` is the collector's word for *this
- * number came back*. There is no final fallback that re-admits it.
+ * - **Different pipelines, same directory.** The hook writes the harness's
+ *   `cwd` verbatim; `placementOf` writes `canonicalize()` of a kernel-resolved
+ *   path. A repo reached through a symlink is #217's standing macOS case, and
+ *   declining it would lose every beacon on such a machine, permanently and
+ *   silently. A LIVE actor is this case — it fired the hook.
+ * - **A number handed out again.** A run that exited and was recycled minutes
+ *   later reads `goneReason: 'absent'`, not `'recycled'`, because the collector
+ *   says `'recycled'` only when the pid is live in the same tick. A lone DEAD
+ *   actor in the wrong worktree is this case, and returning it is a false
+ *   summons on a lane nobody is in.
+ *
+ * `goneReason` cannot separate them. **Liveness can**, and it is the right
+ * question: the process that fired a hook was alive when it did. So a live
+ * actor is believed over a string mismatch, and a dead one is DECLINED.
+ *
+ * With no `cwd` at all the witness is all there is: a live run over a dead one,
+ * and a `recycled` run never, because `recycled` is the collector's word for
+ * *this number came back*. There is no final fallback that re-admits it.
  *
  * And when runs still disagree about the worktree, **DECLINE**. The newest
  * `startedAt` would be a plausible guess, and a guess on this exact question is
@@ -627,8 +636,16 @@ function beaconReceived(state: SessionState, event: EventOf<'beacon.received'>):
  * `null` for every case that is not a match, and they are different facts worth
  * keeping apart in a reader's head even though they collapse to one answer
  * here: no pid on the line, no actor with that pid, no actor with a worktree
- * the witness could resolve, a `cwd` no actor sits at, or two runs that cannot
- * be told apart. Each is a gap; none is a lane.
+ * the witness could resolve, a `cwd` no LIVE actor sits at, or two runs that
+ * cannot be told apart. Each is a gap; none is a lane.
+ *
+ * **And the gap is not yet declared to anyone, which is a real shortfall in an
+ * ADR-0010 argument.** A decline leaves `state.declared` untouched, so
+ * `attentionReading` reads `never-declared` and `doctor` tells the operator to
+ * install hooks that are already firing. Counting it needs a slice this fold
+ * does not have, so it is **#617** rather than a line here — named because the
+ * third review of this function was right that "the honest gap" is a claim, not
+ * a behaviour, until something says it out loud.
  *
  * A GONE actor still counts, when it is the only run. The hook fired while the
  * process was alive — that is the only time a hook can fire — and a
@@ -668,36 +685,42 @@ function placeByPid(
   )
   if (placed.length === 0) return null
 
-  // The line's own `cwd` settles it when it settles it. Plain string equality
-  // against a path the collector already canonicalised — no containment test,
-  // so no `node:fs`, so ADR-0003 holds. When the agent's cwd is a SUBdirectory
-  // of the worktree this simply does not match, which is why it is a
-  // discriminator and never a requirement.
-  // THE LINE'S OWN `cwd` IS DECISIVE WHEN IT IS PRESENT, in both directions.
+  const live = placed.filter((actor) => actor.goneAt === null)
+
+  // THE LINE'S OWN `cwd`, WHEN IT MATCHES. Plain string equality against a path
+  // the collector already canonicalised — no containment test, so no `node:fs`,
+  // so ADR-0003 holds, and no prefix compare, which is a defect this repo has
+  // already fixed twice by name.
   //
-  // `actor.worktreePath` IS the actor's canonical cwd (`placementOf` in the
-  // process collector), and the hook writes the same process's cwd, so in the
-  // ordinary case these are the same string and the match is exact — plain
-  // equality, no containment test, so no `node:fs` and ADR-0003 holds.
-  //
-  // And when it matches NOTHING, that is not a tie to break: every actor
-  // answering to this number contradicts the firing process's own account of
-  // where it was. DECLINE. The second review of this function found the first
-  // draft doing the opposite — a run that exited and had its number recycled
-  // minutes later is `goneReason: 'absent'` (the collector only says
-  // `'recycled'` when the pid is live in the SAME tick), so a single dead
-  // actor in the wrong worktree survived every filter and was returned. A false
-  // summons on a lane nobody is working in, which is worse than none.
-  //
-  // The cost is real and is the right way round: a repo reached through a
-  // symlink canonicalises to a different string than the hook wrote (#217's
-  // standing macOS case), and that now declines instead of guessing.
+  // A prefix compare would also be WRONG here rather than merely forbidden:
+  // `placementOf` sets `worktreePath` to the actor's own canonical cwd, so an
+  // agent in a subdirectory already produces that subdirectory, and a `cwd`
+  // containing an actor's path names an ancestor the actor is not in.
   if (cwd !== undefined) {
     const exact = placed.filter((actor) => actor.worktreePath === cwd)
-    if (exact.length === 0) return null
-    // Live over dead even here: two runs at one path is a restart, and the
-    // living one is the one that just fired.
-    return onePath(exact.filter((actor) => actor.goneAt === null)) ?? onePath(exact)
+    if (exact.length > 0) return { key: cwd, joinedBy: 'pid' }
+
+    // NO MATCH, and the two things that cause it need opposite answers.
+    //
+    // The strings come from different pipelines and can differ cosmetically
+    // while naming the same directory: the hook writes the harness's `cwd`
+    // verbatim, and `placementOf` writes `canonicalize()` of a kernel-resolved
+    // path. A repo reached through a symlink is #217's standing macOS case. A
+    // LIVE actor that just fired a hook is that case, and declining it would
+    // lose every beacon on such a machine, permanently and silently — which the
+    // third review of this function caught the previous draft doing.
+    //
+    // A DEAD one is the other cause: a run that exited and had its number
+    // handed out again. `goneReason` cannot separate them, because the
+    // collector says `'recycled'` only when the pid is live in the SAME tick,
+    // and a number reused minutes later reads `'absent'`. Liveness can, and it
+    // is the right question: the process that fired a hook was alive when it
+    // did.
+    //
+    // So a live actor is believed over a string mismatch, and a dead one is
+    // DECLINED rather than guessed at. A false summons on a lane nobody is
+    // working in is worse than no summons (ADR-0010).
+    return live.length > 0 ? onePath(live) : null
   }
 
   // No `cwd` on the line. Only the witness can tell the runs apart now.
@@ -707,7 +730,6 @@ function placeByPid(
   // live under a different `startedAt`. It is never the process that just fired
   // a hook, so it is not a weaker candidate, it is a WRONG one: there is no
   // final fallback that re-admits it.
-  const live = placed.filter((actor) => actor.goneAt === null)
   if (live.length > 0) return onePath(live)
 
   // All dead. A gone actor still counts — the hook fires only from a live

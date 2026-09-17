@@ -2355,7 +2355,7 @@ describe('reduce — beacon.received folds declared attention per lane (prd-27 w
     expect(after.declared['/repo/wt-a']).toMatchObject({ joinedBy: 'pid' })
   })
 
-  it('a cwd that matches NO actor with that pid is declined — the line contradicts every candidate', () => {
+  it('a cwd that matches no actor, and only DEAD candidates, is declined', () => {
     /**
      * The case the FIRST fix still got wrong, and the reason `cwd` decides in
      * both directions.
@@ -2387,6 +2387,63 @@ describe('reduce — beacon.received folds declared attention per lane (prd-27 w
     )
 
     expect(after.declared).toEqual(base.declared)
+  })
+
+  it('a cwd that matches no actor is BELIEVED when the actor is live — the symlink case, not a reuse', () => {
+    /**
+     * The two causes of a non-matching `cwd` need opposite answers, and the
+     * draft before this one declined both.
+     *
+     * The strings come from different pipelines: the hook writes the harness's
+     * `cwd` verbatim, `placementOf` writes `canonicalize()` of a kernel-resolved
+     * path. A repo reached through a symlink makes them differ while naming the
+     * same directory — #217's standing macOS case — and declining THAT loses
+     * every beacon on such a machine, permanently and silently.
+     *
+     * `goneReason` cannot tell it from a pid reuse. Liveness can: the process
+     * that fired a hook was alive when it did.
+     */
+    const base = reduceAll([
+      ...fixtureSession(),
+      f.processSeen({ pid: 4321, startedAt: 900, worktreePath: '/private/repo/wt-a', dialect: 'claude' }, { ts: 900 }),
+    ])
+
+    const after = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 4321, cwd: '/repo/wt-a', writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 6_000 },
+      ),
+    )
+
+    // The witness's canonical path wins, because the witness is what `buildFleet`
+    // resolves against. The line's string is evidence, not the key.
+    expect(after.declared['/private/repo/wt-a']).toMatchObject({ joinedBy: 'pid' })
+  })
+
+  it('the cwd match is plain EQUALITY — a containing path is not a match', () => {
+    // ADR-0003 forbids containment here, and a prefix compare would also be
+    // WRONG rather than merely forbidden: `placementOf` sets `worktreePath` to
+    // the actor's own canonical cwd, so a `cwd` that CONTAINS an actor's path
+    // names an ancestor that actor is not in. Two live runs, one exact and one
+    // whose path is a prefix of the line's cwd: equality picks the exact one,
+    // and either `startsWith` direction would match both and decline.
+    const base = reduceAll([
+      ...fixtureSession(),
+      f.processSeen({ pid: 4321, startedAt: 900, worktreePath: '/repo/wt-a', dialect: 'claude' }, { ts: 900 }),
+      f.processSeen({ pid: 4321, startedAt: 5_000, worktreePath: '/repo/wt-a/packages/core', dialect: 'claude' }, { ts: 5_000 }),
+    ])
+
+    const after = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 4321, cwd: '/repo/wt-a/packages/core', writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 6_000 },
+      ),
+    )
+
+    expect(after.declared['/repo/wt-a/packages/core']).toMatchObject({ joinedBy: 'pid' })
+    expect(after.declared['/repo/wt-a']).toBeUndefined()
   })
 
   it('with no cwd, a LIVE run beats a dead one that merely went absent', () => {

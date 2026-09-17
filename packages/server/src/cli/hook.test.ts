@@ -1,9 +1,11 @@
-import { createHash } from 'node:crypto'
+
 import { mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { BEACON_ATTENTION_KINDS, buildFleet, createEvent, reduceAll } from '@rhizomorph/core'
+import type { RhizomorphEvent } from '@rhizomorph/core'
+import { BEACON_ATTENTION_KINDS, buildFleet, createCollectorContext, createEvent, reduceAll } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { createBeaconCollector } from '../collectors/beacon/collector.js'
 import { parseBeaconLine } from '../collectors/beacon/parse-beacon-line.js'
 import { beaconLineBelongsTo, installationBeaconDir } from '../collectors/beacon/paths.js'
 import { canonicalize } from '../paths/containment.js'
@@ -86,6 +88,35 @@ describe('the line reaches a lane — writer, parser, fold and fleet, end to end
     return createEvent(type, payload, { id: `evt-${evtId}`, ts })
   }
 
+  /**
+   * THE REAL COLLECTOR, ticked once over the real door.
+   *
+   * Hand-building the `beacon.received` envelope was the last stub in this
+   * chain, and it was load-bearing in a way that only showed up under the
+   * question *"would this redden when #597 lands?"* — #597's fix goes in the
+   * collector, so a test that skips the collector cannot see it, however
+   * carefully it asserts the fold. Third review's finding.
+   *
+   * So: the runner writes, THIS reads, and whatever it emits is what gets
+   * folded. Nothing in between is spelled twice.
+   */
+  async function collectorEvents(): Promise<readonly RhizomorphEvent[]> {
+    const collector = createBeaconCollector({ dataRoot: root })
+    let next = 0
+    const result = await collector.poll(
+      collector.initialSnapshot(),
+      createCollectorContext({
+        repoPath,
+        now: AT,
+        exec: async () => {
+          throw new Error('the beacon collector must never exec')
+        },
+        nextId: () => `beacon-${(next += 1)}`,
+      }),
+    )
+    return result.events
+  }
+
   it("a hook firing in a placed actor becomes that lane's declared attention", async () => {
     // 1. THE WRITER. The real runner, the real door, no lane anywhere in sight.
     expect(
@@ -124,16 +155,9 @@ describe('the line reaches a lane — writer, parser, fold and fleet, end to end
         { pid: 4321, dialect: 'claude', startedAt: AT - 300_000, worktreePath: wt, placement: 'rooted', parentPid: null } as never,
         AT - 300_000,
       ),
-      evt(
-        'beacon.received',
-        {
-          ...parsed.payload,
-          digest: createHash('sha256').update(line, 'utf8').digest('hex'),
-          file: 'claude-hook.jsonl',
-          offset: 0,
-        } as never,
-        parsed.at,
-      ),
+      // Whatever the real collector emits, verbatim. If #597 teaches it to emit
+      // an `agent.status` beside the beacon, this picks that up with no edit.
+      ...(await collectorEvents()),
     ]
 
     // 5. THE FLEET. The lane the operator actually looks at.
@@ -209,16 +233,9 @@ describe('the line reaches a lane — writer, parser, fold and fleet, end to end
         { pid: 4321, dialect: 'claude', startedAt: AT - 300_000, worktreePath: wt, placement: 'rooted', parentPid: null } as never,
         AT - 300_000,
       ),
-      evt(
-        'beacon.received',
-        {
-          ...parsed.payload,
-          digest: createHash('sha256').update(line, 'utf8').digest('hex'),
-          file: 'claude-hook.jsonl',
-          offset: 0,
-        } as never,
-        parsed.at,
-      ),
+      // Whatever the real collector emits, verbatim. If #597 teaches it to emit
+      // an `agent.status` beside the beacon, this picks that up with no edit.
+      ...(await collectorEvents()),
     ]
 
     const state = reduceAll(log)
