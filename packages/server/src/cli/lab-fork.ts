@@ -34,7 +34,7 @@ export interface LabForkArgs {
   proposal: string | undefined
   /** The parent lane's worktree; undefined defaults to the current directory. */
   path: string | undefined
-  /** Run the workmux launcher too. Off by default — see `lab/fork.ts`'s module doc. */
+  /** Authorise the laboratory to start each arm. Currently answered with a refusal — see `lab/fork.ts`. */
   launch: boolean
   help: boolean
 }
@@ -78,12 +78,15 @@ Options:
                           experiment can be read back to what suggested it. Absent means
                           nobody proposed it — which is not the same as a proposal lost
   --path <dir>            The lane's worktree (default: current directory)
-  --launch                Also run 'workmux add' for each arm. OFF by default: that
-                          creates a refs/heads/ branch and a worktree of workmux's
-                          own, neither of which is a namespace prd12 ruling 1 lets
-                          the laboratory write to on its own authority. Without it
-                          the arms are fully restored and the exact command line for
-                          each is printed for you to run.
+  --launch                Authorise the laboratory to start each arm itself.
+                          It will REFUSE, and say why: a headless run is a whole
+                          turn, so starting one per arm would run your arms one
+                          after another rather than side by side, and spend real
+                          money inside a command that had not returned. Either
+                          way the arms are fully restored and the exact command
+                          line for each is printed for you to run (prd-20 ruling
+                          7's floor). A detached launcher is owed; until it
+                          lands this flag changes nothing but the sentence.
   --help, -h              Show this help and exit
 `
 }

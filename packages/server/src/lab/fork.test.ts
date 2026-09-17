@@ -635,6 +635,66 @@ describe('dispatchFork', () => {
     expect(arm?.headlessRefusal).toBeUndefined()
   })
 
+  /**
+   * `--launch` IS ANSWERED — review of #579, finding 1.
+   *
+   * The defect this catches: `options.launch` was read nowhere, so an operator
+   * who passed the flag got `launched: false` with NO reason beside it — the
+   * one shape `DispatchedArm.headlessRefusal`'s docblock forbids ("'nothing
+   * refused' and 'the refusal was lost' must not look alike"). Every other test
+   * here passed, because none of them asked what happens when the flag is used
+   * on the path where a launch is otherwise possible.
+   */
+  it('records WHY it declined when --launch is passed and the adapter could otherwise run', async () => {
+    await capture()
+    const calls: string[][] = []
+    const result = await dispatchFork({
+      parentLane: 'parent-lane',
+      parentWorktreePath: repoDir,
+      arms: 1,
+      forkId: 'fork-declined',
+      launch: true,
+      promptFile: await promptFixture(dataRoot),
+      dataRoot,
+      claudeProjectsRoot,
+      install: false,
+      now: () => 1_000_100,
+      exec: execWithStubs(calls, (command) => (command === 'claude' ? OK : null)),
+    })
+
+    const arm = result.arms[0]
+    expect(arm?.launched).toBe(false)
+    // The reason, and the command, TOGETHER. Either alone is the bug: a reason
+    // with no command strands the operator, a command with no reason makes
+    // `--launch` look like it silently did nothing.
+    expect(arm?.headlessRefusal).toContain('a headless run is a whole turn')
+    expect(arm?.launcherArgv.slice(0, 2)).toEqual(['claude', '-p'])
+    expect(calls.map((call) => call[0])).not.toContain('claude')
+  })
+
+  it('records NO refusal when --launch was never passed — nothing was refused there', async () => {
+    // The control that keeps the rule honest in the other direction. An arm
+    // nobody asked to start has nothing to explain; the command line is the
+    // whole answer, and a refusal printed there would be answering a question
+    // the operator did not ask.
+    await capture()
+    const result = await dispatchFork({
+      parentLane: 'parent-lane',
+      parentWorktreePath: repoDir,
+      arms: 1,
+      forkId: 'fork-unasked',
+      promptFile: await promptFixture(dataRoot),
+      dataRoot,
+      claudeProjectsRoot,
+      install: false,
+      exec: realExec,
+      now: () => 1_000_100,
+    })
+
+    expect(result.arms[0]?.headlessRefusal).toBeUndefined()
+    expect(result.arms[0]?.launcherArgv.slice(0, 2)).toEqual(['claude', '-p'])
+  })
+
   it('refuses to launch with no prompt — `claude -p` would block on stdin forever', async () => {
     // Found by the suite HANGING rather than failing, which is the shape a
     // blocked read always takes. An arm launched with no prompt is not a slow

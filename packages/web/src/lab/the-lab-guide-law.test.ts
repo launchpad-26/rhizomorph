@@ -178,10 +178,14 @@ const CLAIMS: Readonly<Record<string, Claim>> = {
   'walkthrough-no-launch-default': {
     says: /bare .?fork.? dispatches nothing[\s\S]*off by[\s\S]*default/,
     check: () => {
-      expect(server.labFork(), 'grep: --launch is off by default').toMatch(/--launch\s+Also run 'workmux add'[^\n]*OFF by default/)
+      // prd-57 ruling 8: `--launch` no longer runs `workmux add`, and the
+      // laboratory no longer starts arms at all — it refuses and says why.
+      expect(server.labFork(), 'grep: --launch is answered with a refusal').toMatch(
+        /--launch\s+Authorise the laboratory to start each arm itself\.[\s\S]*It will REFUSE/,
+      )
       const cli = server.cli()
-      expect(cli, 'grep: a bare fork says what it did not do').toContain('No tmux window was opened and no branch was created')
-      expect(cli, 'grep: and names the flag that would authorise it').toContain('Pass --launch to authorise that yourself.')
+      expect(cli, 'grep: a fork says what it did not do').toContain('No branch was created and nothing was started')
+      expect(cli, 'grep: and hands the arm over instead').toContain('run its command yourself')
     },
   },
   /**
@@ -207,8 +211,12 @@ const CLAIMS: Readonly<Record<string, Claim>> = {
     says: /refs\/rhizomorph\/[\s\S]*--ignore-scripts[\s\S]*--launch/,
     check: () => {
       expect(server.restore(), 'grep: the install never runs scripts').toContain("'--ignore-scripts'")
-      expect(server.cli(), 'grep: without --launch the CLI says so and stops').toContain('Pass --launch to authorise that yourself.')
-      expect(server.labFork(), 'grep: --launch is off by default').toMatch(/--launch\s+Also run 'workmux add'[^\n]*OFF by default/)
+      // Said EITHER way now — the sentence used to be gated on `!--launch`,
+      // so the operator who passed the flag stopped being told any of it.
+      expect(server.cli(), 'grep: the CLI says what it did not do, launch or no launch').toContain(
+        'No branch was created and nothing was started',
+      )
+      expect(server.labFork(), 'grep: --launch is answered with a refusal').toMatch(/--launch\s+Authorise the laboratory/)
     },
   },
   'checkpoint-coordinates': {
@@ -239,11 +247,11 @@ const CLAIMS: Readonly<Record<string, Claim>> = {
     },
   },
   'no-launch-message': {
-    says: /Without `--launch`, nothing runs/,
+    says: /A fork restores arms; it does not start them/,
     check: () => {
       const cli = server.cli()
-      expect(cli, 'grep: the message opens by naming what did not happen').toMatch(/No tmux window was opened/)
-      expect(cli, 'grep: and closes with the flag').toContain('Pass --launch to authorise that yourself.')
+      expect(cli, 'grep: the message opens by naming what did not happen').toMatch(/No branch was created and nothing was started/)
+      expect(cli, 'grep: and closes by handing the arm over').toContain('run its command yourself')
     },
   },
   'cli-shares-treatment': {
@@ -750,14 +758,28 @@ const CLAIMS: Readonly<Record<string, Claim>> = {
       )
     },
   },
+  /**
+   * prd-57 ruling 8: the flag is answered rather than ignored. Checked on BOTH
+   * surfaces a reader meets it on — its own help text, and the arm line where
+   * the refusal is actually printed.
+   */
+  'launch-refusal': {
+    says: /refuses/,
+    check: () => {
+      expect(server.labFork(), 'grep: the flag documents its own refusal').toMatch(/It will REFUSE/)
+      expect(server.fork(), 'grep: the engine records a reason rather than a silent launched:false').toContain(
+        'a headless run is a whole turn, not a start',
+      )
+    },
+  },
   'no-launch-quote': {
-    says: /No tmux window was opened and no branch was created/,
+    says: /No branch was created and nothing was started/,
     check: (text) => {
       const cli = server.cli()
       const pieces = [
-        'No tmux window was opened and no branch was created: prd12 ruling 1 confines the',
-        "laboratory's writes to refs/rhizomorph/, its own worktrees and its data dir, and",
-        "'workmux add' writes outside all three. Pass --launch to authorise that yourself.",
+        'No branch was created and nothing was started: prd12 ruling 1 confines the',
+        "laboratory's writes to refs/rhizomorph/, its own worktrees and its data dir.",
+        'Each arm above is fully restored and ready; run its command yourself.',
       ]
       for (const piece of pieces) expect(cli, `grep: the CLI prints "${piece.slice(0, 30)}…"`).toContain(piece)
       expect(quotedText(text), 'the guide quotes the CLI verbatim').toBe(pieces.join(' '))

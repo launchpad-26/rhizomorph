@@ -278,23 +278,39 @@ async function runLabForkCommand(
             ? ''
             : `\n    session   ${arm.launcherSession.filePath} (the launcher's own tree)`) +
           // prd-57 ruling 8: an arm is restored and handed its command rather
-          // than started. A refusal carries its own reason, which is what to
-          // print when there is no command to hand over at all.
+          // than started. BOTH halves are printed when both exist — the reason
+          // nothing ran, and the command to run (review of #579, finding 1).
+          // Printing only one of them is how an operator who passed `--launch`
+          // ended up with less information than one who did not.
+          //
+          // `api/lab.ts`'s `parseForkStdout` reads `launch    (ran|not run)` off
+          // the head of this line, so whatever follows the verdict is free and
+          // the continuation line below is invisible to it.
           `
-    launch    ${
-            arm.headlessRefusal !== undefined
-              ? `not run — ${arm.headlessRefusal}`
-              : `${arm.launched ? 'ran: ' : 'not run — run it yourself: '}${arm.launcherArgv.join(' ')}`
+    launch    ${arm.launched ? 'ran: ' : 'not run'}${
+            arm.launched
+              ? arm.launcherArgv.join(' ')
+              : arm.headlessRefusal === undefined
+                ? ''
+                : ` — ${arm.headlessRefusal}`
+          }${
+            arm.launched || arm.launcherArgv.length === 0
+              ? ''
+              : `\n              run it yourself: ${arm.launcherArgv.join(' ')}`
           }`,
       )
     }
-    if (!args.launch) {
-      log.log(
-        '\nNo tmux window was opened and no branch was created: prd12 ruling 1 confines the\n' +
-          "laboratory's writes to refs/rhizomorph/, its own worktrees and its data dir, and\n" +
-          "'workmux add' writes outside all three. Pass --launch to authorise that yourself.",
-      )
-    }
+    // Printed either way now (review of #579, finding 1). It used to be gated
+    // on `!args.launch` and to end "Pass --launch to authorise that yourself" —
+    // a pointer at a flag that authorises nothing, explained in terms of the
+    // `workmux add` shelling-out prd-57 ruling 8 removed. Both halves were
+    // stale, and the gate meant the operator who followed the advice was the
+    // one who stopped being told any of this.
+    log.log(
+      '\nNo branch was created and nothing was started: prd12 ruling 1 confines the\n' +
+        "laboratory's writes to refs/rhizomorph/, its own worktrees and its data dir.\n" +
+        'Each arm above is fully restored and ready; run its command yourself.',
+    )
     log.log(`\nCompare them with: rhizomorph lab compare ${result.forkId} --path ${parentWorktreePath}`)
   } catch (err) {
     process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)

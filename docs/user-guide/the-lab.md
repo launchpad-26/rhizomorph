@@ -164,15 +164,24 @@ in this page: <!-- claim: launch-ceiling -->
 > this many; the override is recorded on every fork.dispatched it produces
 > (prd53 ruling 6)` <!-- claim: ceiling-refusal-quote -->
 
-Without `--launch`, nothing runs — the exact message: <!-- claim: no-launch-message -->
+**A fork restores arms; it does not start them** — the exact message, printed
+with or without `--launch`: <!-- claim: no-launch-message -->
 
-> "No tmux window was opened and no branch was created: prd12 ruling 1
-> confines the laboratory's writes to refs/rhizomorph/, its own worktrees
-> and its data dir, and 'workmux add' writes outside all three. Pass
-> --launch to authorise that yourself." <!-- claim: no-launch-quote -->
+> "No branch was created and nothing was started: prd12 ruling 1 confines
+> the laboratory's writes to refs/rhizomorph/, its own worktrees and its
+> data dir. Each arm above is fully restored and ready; run its command
+> yourself." <!-- claim: no-launch-quote -->
 
-— followed by the exact command line to run each arm yourself, and a hint
-for comparing them once they have.
+— preceded by the exact command line for each arm, and followed by a hint for
+comparing them once they have run.
+
+`--launch` asks the laboratory to start the arms itself, and it **refuses,
+saying why**: a headless run is a whole turn, so starting one per arm would run
+your arms one after another rather than side by side, and spend real money
+inside a command that had not returned. The refusal is printed on the arm's own
+`launch` line beside the command (prd-57 ruling 8, prd-20 ruling 7's floor). A
+detached launcher is owed; until it lands the flag changes nothing but the
+sentence. <!-- claim: launch-refusal -->
 
 ## Comparing arms
 
