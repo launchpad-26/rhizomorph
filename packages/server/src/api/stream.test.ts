@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { sessionFilePath } from '../log/session-log.js'
 import { buildApp } from '../server/build-app.js'
 import { SessionRecorder } from '../server/recorder.js'
+import { type EventSink, flushBacklog, REPLAY_BATCH_SIZE, resumeBacklog, streamBacklogThenLive } from './stream.js'
 import { capabilityHeaders } from './test-support.js'
-import { flushBacklog, REPLAY_BATCH_SIZE, resumeBacklog, streamBacklogThenLive, type EventSink } from './stream.js'
 
 function event(id: string, ts: number): RhizomorphEvent {
   return createEvent('collector.error', { collector: 'git', message: `evt ${id}` }, { id, ts })
@@ -196,6 +196,58 @@ describe('streamBacklogThenLive', () => {
     expect(idsWritten(written)).toEqual(['evt-1', 'evt-2'])
   })
 })
+
+// the frame names its colony (prd-58 ruling 3, #606)
+
+/** Every `data:` line's parsed payload, in write order. */
+function dataWritten(written: readonly string[]): unknown[] {
+  return written
+    .join('')
+    .split('\n')
+    .filter((line) => line.startsWith('data: '))
+    .map((line) => JSON.parse(line.slice('data: '.length)))
+}
+
+describe('the frame carries the colony, and the event does not', () => {
+  it('writes an ENVELOPE when a colony is named', async () => {
+    // Without this, reverting the envelope to a bare event reddens nothing at
+    // all - measured by mutation before this test was written, which is the
+    // shape this PRD has now been caught by five times.
+    const { sink, written } = fakeSink()
+    await flushBacklog(sink, [event('evt-1', 1)], 10, 'repo-abc12345')
+
+    const [payload] = dataWritten(written) as [{ colony?: string; event?: { id?: string } }]
+    expect(payload.colony).toBe('repo-abc12345')
+    expect(payload.event?.id).toBe('evt-1')
+  })
+
+  it('writes the BARE event when no colony is named - the shape every earlier server wrote', async () => {
+    const { sink, written } = fakeSink()
+    await flushBacklog(sink, [event('evt-1', 1)], 10)
+
+    const [payload] = dataWritten(written) as [{ colony?: string; id?: string }]
+    expect(payload.colony).toBeUndefined()
+    expect(payload.id).toBe('evt-1')
+  })
+
+  it('tags the LIVE half too, not only the backlog', async () => {
+    // Both halves go through the same writer by different paths, and a colony
+    // threaded into one and not the other would surface only after a client had
+    // been connected long enough to leave the replay.
+    const { sink, written } = fakeSink()
+    const live = fakeSubscribe()
+
+    streamBacklogThenLive(sink, [], live.subscribe, 10, 'repo-abc12345')
+    await waitUntil(() => true)
+    live.emit(event('evt-live', 100))
+    await waitUntil(() => dataWritten(written).length === 1)
+
+    const payloads = dataWritten(written) as { colony?: string; event?: { id?: string } }[]
+    expect(payloads.at(-1)?.colony).toBe('repo-abc12345')
+    expect(payloads.at(-1)?.event?.id).toBe('evt-live')
+  })
+})
+
 
 // ── resumeBacklog: the pure decision, unit-tested directly ─────────────────
 
