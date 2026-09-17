@@ -153,7 +153,8 @@ describe("security-doc law: SECURITY.md's team-server boundary quotes the team s
        * what follows it — a real quote is followed by a backtick or punctuation, an appended
        * corruption by another identifier character.
        */
-      const boundary = new RegExp(`${declared.replace(/[.*+?^${}()|[\]\\/-]/g, '\\$&')}(?![A-Za-z0-9_-])`)
+      const escaped = declared.replace(/[.*+?^${}()|[\]\\/-]/g, '\\$&')
+      const boundary = new RegExp(`(?<![A-Za-z0-9_/-])${escaped}(?![A-Za-z0-9_/-])`)
       expect(
         readNormalised(SECURITY_DOC),
         `${SECURITY_DOC} does not contain "${declared}" as a whole token, the value ${source} ` +
