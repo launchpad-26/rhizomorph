@@ -86,6 +86,23 @@ export interface RetargetRequestBody {
   path: string
 }
 
+/**
+ * Which of the two things this route did — prd-58 ruling 4.
+ *
+ * `selected` is the narrowed meaning: the target was already watched, so the
+ * rendered colony moved and nothing else did. `adopted` is what the route has
+ * always done, kept for a path this instrument has never seen an agent in.
+ *
+ * Ruling 4 says the honest long-term answer for an unwatched path is a distinct
+ * act rather than a stretched retarget, and wave 0 ruled there is no pinning
+ * act — the concierge clones and launches, and the colony appears when the
+ * agent does. Refusing the `adopted` branch outright is therefore owed, and is
+ * deliberately NOT taken here: it would remove today's only way to point the
+ * instrument somewhere new before that path exists, which is a regression
+ * wearing a ruling's clothes.
+ */
+export type RetargetMode = 'selected' | 'adopted'
+
 export function parseRetargetRequestBody(body: unknown): RetargetRequestBody {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     throw new RetargetRequestError('body must be a JSON object with a `path`, e.g. {"path":"/home/you/code/other-repo"}')
@@ -163,6 +180,39 @@ export function registerRetargetRoute(app: FastifyInstance, ctx: ServerContext):
       //    synchronous acquisition below holds it for validation AND the
       //    close/open, so the other is refused immediately, before it does
       //    anything — including reading `from`.
+      /**
+       * SELECTION FIRST — prd-58 ruling 4, and Success 3.
+       *
+       * > `POST /api/retarget` keeps its name, its `gated-mutation` class and
+       * > its `ROUTE_CLASSES` row, and changes meaning: it selects the rendered
+       * > colony from the watched set rather than re-pointing the instrument at
+       * > a path.
+       *
+       * A repo this instrument is ALREADY watching needs none of what follows.
+       * Its collectors are running, its recorder is open and its facts are
+       * already folded — so switching to it is a view change, and Success 3 is
+       * *not met while switching requires a boot, or while it loses a lane's
+       * history*. No boundary is taken, no session closes, no snapshot resets.
+       *
+       * This returns before `beginRetargetBoundary` deliberately: taking the
+       * boundary is what makes a retarget expensive, and a selection that took
+       * it would pay the whole cost to do nothing.
+       */
+      const watched = ctx.colonies?.() ?? []
+      const requestedPath = path.resolve(requested)
+      const selected = watched.find((entry) => entry.colony.path === requestedPath)
+      if (selected !== undefined && requestedPath !== path.resolve(ctx.repoPath)) {
+        return reply.code(200).send({
+          mode: 'selected' satisfies RetargetMode,
+          colony: { id: selected.colony.id, path: selected.colony.path, pinned: selected.colony.pinned },
+          sessionId: selected.recorder.sessionId,
+          // Said explicitly, because the whole point of the narrowing is that
+          // none of it happened: an operator reading this reply should not have
+          // to infer from a missing field that nothing was rotated.
+          rotated: false,
+        })
+      }
+
       const boundary = beginRetargetBoundary(ctx.recorder)
       if (boundary === null) {
         return reply.code(409).send({
