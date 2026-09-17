@@ -5,6 +5,7 @@
  * them. One event log in, one SessionState and a pile of selectors out.
  */
 
+export * from './api-version.js'
 export * from './collector.js'
 export * from './events/index.js'
 export * from './fixtures.js'

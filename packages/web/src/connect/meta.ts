@@ -1,4 +1,13 @@
-import { CONNECTION_SOURCES, RUNGS, SIGNALS, type ConnectionSource, type Rung, type Signal } from '@rhizomorph/core'
+import {
+  type ApiVersionVerdict,
+  CONNECTION_SOURCES,
+  type ConnectionSource,
+  compareApiVersion,
+  RUNGS,
+  type Rung,
+  SIGNALS,
+  type Signal,
+} from '@rhizomorph/core'
 import { capabilityRead } from '../recordings/capabilityRead.js'
 
 /**
@@ -101,6 +110,14 @@ export interface MetaFacts {
   collectors: CollectorFacts[]
   connection: ConnectionFacts | null
   boot: BootFacts | null
+  /**
+   * prd-58 ruling 8: what this view should do about the version it was handed.
+   *
+   * A fact like every other field here, not a thrown error — `/connect` exists
+   * to state what it found, and "the server speaks a different dialect" is a
+   * finding about the instrument exactly as an absent collector is.
+   */
+  apiVersion: ApiVersionVerdict
 }
 
 export type DoctorStatus = 'ok' | 'warn' | 'fail'
@@ -301,6 +318,10 @@ export function parseMeta(body: unknown): MetaFacts | null {
     collectors: parseCollectors(body.capabilities),
     connection: parseConnection(body.connection),
     boot: parseBoot(body),
+    // A server that predates ruling 8 sends no version, which reads `unknown`
+    // and changes nothing — the same leniency every other field here already
+    // has, and the reason this page still works against an older instrument.
+    apiVersion: compareApiVersion(body.apiVersion),
   }
 }
 

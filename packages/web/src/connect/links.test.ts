@@ -1,18 +1,18 @@
-import { createEventFactory, reduceAll, selectConnection, type SessionState } from '@rhizomorph/core'
+import { API_VERSION, createEventFactory, reduceAll, type SessionState, selectConnection } from '@rhizomorph/core'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { ConnectionStatus } from '../hooks/useEventStream.js'
 import {
   buildLinks,
+  type ChainLink,
+  type ConnectInputs,
   envCommand,
   FIRST_EXPORT_GRACE_MS,
   mergeUninstrumented,
   portFrom,
   resumeCommand,
   SAME_PROCESS_WARNING,
-  tally,
   TEAM_SERVER_ENABLE_COMMAND,
-  type ChainLink,
-  type ConnectInputs,
+  tally,
 } from './links.js'
 import type { ConnectionFacts, DoctorFact, DoctorReading, MetaFacts } from './meta.js'
 
@@ -65,6 +65,7 @@ function metaWith(connection: Partial<ConnectionFacts> = {}, overrides: Partial<
     repoPath: '/home/x/repo',
     repoName: 'repo',
     rung: 'L1',
+    apiVersion: { kind: 'ok', version: API_VERSION },
     collectors: [],
     connection: { sources: {}, uninstrumentedSessions: [], refusals: null, ...connection },
     boot: null,

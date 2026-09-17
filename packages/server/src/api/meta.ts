@@ -1,25 +1,26 @@
-import type { FastifyInstance } from 'fastify'
 import {
+  type AdapterCapabilities,
+  API_VERSION,
+  type Connection,
   deriveRung,
   honestCapabilities,
   mergeCapabilities,
-  selectConnection,
-  type AdapterCapabilities,
-  type Connection,
   type RefusalState,
   type Rung,
   type SessionState,
+  selectConnection,
 } from '@rhizomorph/core'
+import type { FastifyInstance } from 'fastify'
+import { BEACON_CAPABILITIES, beaconCapabilitiesFor } from '../collectors/beacon/index.js'
 import { GIT_CAPABILITIES } from '../collectors/git/index.js'
+import { JUDGE_CAPABILITIES } from '../collectors/judge/index.js'
 import { PI_CAPABILITIES } from '../collectors/pi/index.js'
 import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
 import { TMUX_CAPABILITIES } from '../collectors/tmux/index.js'
 import { WORKMUX_CAPABILITIES } from '../collectors/workmux/index.js'
-import { JUDGE_CAPABILITIES } from '../collectors/judge/index.js'
-import { BEACON_CAPABILITIES, beaconCapabilitiesFor } from '../collectors/beacon/index.js'
 import { RESUME_WINDOW_MS, type SessionBootReason } from '../log/session-log.js'
-import type { SessionRecorder } from '../server/recorder.js'
 import type { ServerContext } from '../server/context.js'
+import type { SessionRecorder } from '../server/recorder.js'
 import { requireCapabilityToken } from './security.js'
 
 /**
@@ -260,6 +261,9 @@ export function registerMetaRoute(app: FastifyInstance, ctx: ServerContext): voi
     const bootMeta = bootMetaByRecorder.get(ctx.recorder) ?? fallbackBootMeta()
     const ladder = buildLadderManifest(ctx.recorder)
     return {
+      // prd-58 ruling 8. First field on purpose: a client that cannot read the
+      // rest of this object should still be able to find out why.
+      apiVersion: API_VERSION,
       repoPath: ctx.repoPath,
       repoName: ctx.repoName,
       sessionId: ctx.recorder.sessionId,
