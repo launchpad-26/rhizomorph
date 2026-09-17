@@ -687,15 +687,16 @@ lane did not perform — it is never a synonym for met.
    keeps every line of its logic, so a stalled-but-alive lane still publishes
    only its inference word.
 
-6. **Declared state exists, and inferred state says so — MET, by amendment
-   2026-09-17 (#589).** Read the assessment below first: it was written the same
-   day, it is what the milestone closed on, and the amendment at the end of this
-   item is what changed. Recorded rather than rewritten — a closeout that
-   quietly shows the right verdict teaches nobody what it cost to find the
-   wrong one.
+6. **Declared state exists, and inferred state says so — STILL NOT MET, and
+   nearer, by amendment 2026-09-17 (#589, #597).** Read the assessment below
+   first: it was written the same day, it is what the milestone closed on, and
+   the amendment at the end of this item is what changed. Recorded rather than
+   rewritten — a closeout that quietly shows the right verdict teaches nobody
+   what it cost to find the wrong one.
 
    *(assessed at close: NOT MET. Corrected then from "partly met", on evidence
-   rather than on reading.)*
+   rather than on reading. This item has now been assessed three times and been
+   too generous twice — which is itself the finding.)*
 
    **A hook firing reaches no lane.** `cli/hook.ts` writes `sessionId`,
    `transcriptPath`, `cwd` and `pid`; `reduce.ts`'s `beaconReceived` joins by
@@ -718,12 +719,13 @@ lane did not perform — it is never a synonym for met.
 
    Owed as the declared join itself, not as a card's why line.
 
-   > **Amendment, 2026-09-17 — the join is built, and this reads MET (#589).**
-   > A beacon that names no lane is placed by its `pid` against the actor the
-   > process witness already found, and lands under that actor's worktree path,
-   > which `buildFleet` resolves back to a lane. So the third witness reaches
-   > the fold, and the sentence above — *"nothing folds a hook beacon"* — is no
-   > longer true of this tree.
+   > **Amendment, 2026-09-17 — the join is built; the criterion still does not
+   > read MET (#589, and the gap is #597).**
+   >
+   > **What landed.** A beacon that names no lane is placed by its `pid` against
+   > the actor the process witness already found, and lands under that actor's
+   > worktree path, which `buildFleet` resolves back to a lane. So the sentence
+   > above — *"nothing folds a hook beacon"* — is no longer true of this tree.
    >
    > **The join is a pid lookup and not a `cwd` one, and that was forced rather
    > than preferred.** A containment test needs `isInside`, `isInside` needs
@@ -742,9 +744,41 @@ lane did not perform — it is never a synonym for met.
    > instead of becoming a comment above two spellings. Neither join is ranked:
    > both are declared, and ADR-0010 asks for the gap named, not scored.
    >
-   > **What is still owed, and is not this criterion's**: the affordance test
-   > #532's DoD pairs with the why line. It is a test over a field that now
-   > exists, where before it was a test over one that did not.
+   > **What does NOT hold, and why this is not MET.** The NOT MET text above has
+   > two clauses. The amendment answers the second. **The first is still true
+   > today**: *"nothing emits a hook-sourced `agent.status`"*.
+   >
+   > `cli/hook.ts` writes five words. `BEACON_ATTENTION_KINDS` holds three of
+   > them, so `PostToolUse`, `Stop` and `SessionEnd` now reach the fold — and
+   > `PreToolUse`'s `tool-running` and **`Notification`'s `waiting-permission`
+   > reach nothing at all.** Those two belong to the `agent.status` vocabulary,
+   > `AGENT_STATUS_SOURCES` has named `'hook'` as its third source since #529,
+   > and the only two emitters are `sessionlog` and `workmux`.
+   >
+   > So the most valuable hook of the five — the harness saying it has stopped
+   > for a human — is written correctly, parsed correctly, joined to its lane
+   > correctly, and discarded. And the `waiting` this criterion reads on is a
+   > word **the hook never writes**. Ruling 5's precedence arms remain what this
+   > closeout already called them: a true statement about a function nothing
+   > calls.
+   >
+   > **How it was found, which is the part worth keeping.** By the end-to-end
+   > test the review of #589 said was missing — nothing in the repo ran
+   > `beaconLineFor` into `parseBeaconLine` into `reduceAll` into `buildFleet`.
+   > The first thing that ever did, failed on its first run. Three assessments
+   > of this criterion were made by reading modules; the one measurement that
+   > ran the writer against the reader found the defect immediately, twice
+   > (#589, then #597). That is the whole lesson of this item, and it did not
+   > take until the third assessment to be available — only to be performed.
+   >
+   > The gap is pinned by a test that asserts today's behaviour and will redden
+   > when #597 lands (`cli/hook.test.ts`, *"GAP (#597): a Notification firing
+   > reaches no lane"*), because what let this survive three waves was that
+   > nothing reddened.
+   >
+   > **Also still owed, and not this criterion's**: the affordance test #532's
+   > DoD pairs with the why line. It is a test over a field that now exists,
+   > where before it was a test over one that did not.
 
 7. **tmux is an enrichment — MET.** Absent and present both read `ok`; the whole
    doctor report is diffed between the two configurations and only the rig's own
@@ -828,9 +862,12 @@ a dependency.
   literal whose precedence arm no test could exercise"* — and wave 3 built the
   emitter's WRITER while nothing was taught to read what it writes. The
   amendment's own reasoning was right and the wave it moved to did half of it.
-  *(The join landed by amendment on 2026-09-17 as #589 — see Success 6. The
-  lesson is not retired with it: what caught this was running the writer against
-  the reader, and nothing in three waves of green tests had done that.)*
+  *(The join landed by amendment on 2026-09-17 as #589. Building it did NOT make
+  the criterion met: the first end-to-end test from writer to reader then found
+  a second, independent break — the hook writes two words the fold's vocabulary
+  does not hold, #597. See Success 6. The lesson is not retired with either fix:
+  what caught both was running the writer against the reader, and three waves of
+  green tests had never done that.)*
 
 - **Retiring a flag broke three tests on Linux that Windows could not show.**
   One of them was the end-to-end wiring test for the flag itself — a known

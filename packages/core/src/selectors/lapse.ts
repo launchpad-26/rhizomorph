@@ -1,5 +1,5 @@
-import { formatSpan } from '../fleet/plumbing.js'
 import type { BeaconAttentionKind } from '../events/index.js'
+import { formatSpan } from '../fleet/plumbing.js'
 import type { DeclaredAttention } from '../state.js'
 
 /**
@@ -50,13 +50,56 @@ export type AttentionReading =
  * been declared for. A beacon directory holding only foreign kinds reads as
  * never-declared here — known limit, stated in the design note.
  */
+/**
+ * THE DECLARED JOIN, RESOLVED — the one place `state.declared` becomes a lane's
+ * declaration, and the reason it is a function rather than two lookups.
+ *
+ * `state.declared` is a flat namespace holding two kinds of key. A beacon whose
+ * writer named the lane lands under that lane id, as it always has. A hook
+ * beacon cannot name one (prd-57 ruling 3), so `beaconReceived` places it under
+ * the worktree path its pid resolved to. One lane can therefore have a record
+ * under BOTH.
+ *
+ * **Newest wins, and that is not a taste.** The first draft read the lane id
+ * first and fell back — *"an explicit name beats a placement"* — which silently
+ * inverted the law every other declaration in this tree is read by: the fold's
+ * own `prev.at > event.ts` guard, and `reduce.test.ts`'s *"the latest by writer
+ * clock wins"*. A lane instrumented BOTH by `rhizomorph env --hooks` and by the
+ * hook runner would have shown an hour-old `working` over a fresh `waiting`,
+ * and never raised the summons. Found in adversarial review.
+ *
+ * Exported and imported rather than re-spelled, because `buildFleet` and
+ * `doctor` both answer this question and a lane that reads `waiting` on the
+ * card while `doctor` calls it `configured-silent` is two surfaces
+ * contradicting each other about one fact — which is the thing prd-27's *"the
+ * condition is assembled once"* exists to prevent.
+ */
+export function resolveDeclared(
+  declared: Readonly<Record<string, DeclaredAttention>>,
+  laneId: string,
+  worktreePath: string | null,
+): DeclaredAttention | undefined {
+  const byLane = declared[laneId]
+  const byPlacement = worktreePath === null || worktreePath === laneId ? undefined : declared[worktreePath]
+  if (byLane === undefined) return byPlacement
+  if (byPlacement === undefined) return byLane
+  return byPlacement.at > byLane.at ? byPlacement : byLane
+}
+
 export function attentionReading(
   declared: Readonly<Record<string, DeclaredAttention>>,
   laneId: string,
   now: number,
   lastWorkTs: number | null,
+  /**
+   * The lane's worktree, so a pid-joined declaration is found here too.
+   * Optional so a caller that has no lane in hand keeps working; a caller that
+   * HAS one and omits it gets the pre-prd-57 answer, which for a hook-only lane
+   * is `configured-silent` — the contradiction this argument exists to close.
+   */
+  worktreePath: string | null = null,
 ): AttentionReading {
-  const own = declared[laneId]
+  const own = resolveDeclared(declared, laneId, worktreePath)
   if (own === undefined) {
     return Object.keys(declared).length === 0 ? { kind: 'never-declared' } : { kind: 'configured-silent' }
   }

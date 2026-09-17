@@ -1140,10 +1140,21 @@ export interface DeclaredAttention {
   /**
    * Which key carried this declaration to its place.
    *
-   * Optional and defaulted to `'lane'` on read, never written as `undefined`:
-   * a recording made before prd-57 carries no join and folds to exactly what it
-   * always folded to (ADR-0011), and every beacon in one of those WAS joined by
-   * lane, so the default is the truth rather than a placeholder.
+   * **Optional for the WIRE, not for the recording** — and the first version of
+   * this comment had that wrong, which review caught. A recording holds
+   * *events*, never `DeclaredAttention` records: refolding one, however old,
+   * runs today's `beaconReceived`, which always writes this field. And
+   * `SessionState` is never persisted. So no recording can produce a record
+   * without a join, and citing ADR-0011 here was a story about a case that
+   * cannot occur — an assertion about well-formedness standing in for a reader,
+   * which is the exact shape prd-57 kept meeting.
+   *
+   * What it IS for: a `Lane` crosses an HTTP boundary between a server and a
+   * web client that update independently, so a client may read a payload built
+   * by a server that predates this field. Defaulted to `'lane'` on read, and
+   * that default is the truth rather than a placeholder — every beacon such a
+   * server folded named its own lane, because `rhizomorph env --hooks` renders
+   * the lane into the command it emits.
    */
   joinedBy?: AttentionJoin
 }

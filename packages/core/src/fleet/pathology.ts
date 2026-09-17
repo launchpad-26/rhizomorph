@@ -138,7 +138,21 @@ export function evidenceLine(pathology: Pathology): string {
  * `INFERRED_MARK` wherever it renders. The distinction the disclosure card
  * needed was never declared-versus-inferred, which was already visible; it was
  * declared-by-what.
+ *
+ * **A `Record` over the union rather than a ternary, and the reason is one
+ * commit away.** A ternary asserts that anything which is not `'pid'` is a
+ * lane, so a third join — and `events/beacon.ts` openly anticipates one,
+ * *"the same join is inferred from an equal cwd and a start-time window"* —
+ * would render the false sentence "(joined by lane)" rather than fail. That is
+ * a wrong statement where ADR-0010 asks for a declared gap. This lands beside
+ * a law (#587) written for exactly this shape in LISTS; the same hole in a
+ * ternary is closed here by the compiler, which is the cheaper of the two.
  */
+const JOIN_VOICE: Record<AttentionJoin, string> = {
+  lane: ' (joined by lane)',
+  pid: ' (joined by pid — the hook named no lane)',
+}
+
 export function joinVoice(joinedBy: AttentionJoin): string {
-  return joinedBy === 'pid' ? ' (joined by pid — the hook named no lane)' : ' (joined by lane)'
+  return JOIN_VOICE[joinedBy]
 }

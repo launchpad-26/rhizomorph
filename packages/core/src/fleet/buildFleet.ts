@@ -12,6 +12,7 @@ import {
   selectTouchesByBranch,
   selectWorktreeViews,
 } from '../selectors/index.js'
+import { resolveDeclared } from '../selectors/lapse.js'
 import { bucketizeSeries } from '../spark/index.js'
 import type { AgentProcess, SessionState } from '../state.js'
 import {
@@ -332,11 +333,14 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
      * A beacon whose writer named the lane lands under that name, as it always
      * has. A hook beacon cannot name one, so `beaconReceived` places it under
      * the worktree path its pid resolved to, and this is where that becomes a
-     * lane again. Lane id first: an explicit name beats a placement, which is
-     * the same order every other declaration in this tree is read in.
+     * lane again.
+     *
+     * `resolveDeclared` is imported rather than spelled here because `doctor`
+     * asks the same question through `attentionReading`, and the two answering
+     * it differently is how a lane comes to read `waiting` on its card and
+     * `configured-silent` in the terminal on the same tick.
      */
-    const declaredRecord =
-      state.declared[draft.id] ?? (draft.worktreePath === null ? undefined : state.declared[draft.worktreePath])
+    const declaredRecord = resolveDeclared(state.declared, draft.id, draft.worktreePath)
 
     lanes.push({
       id: draft.id,
@@ -358,9 +362,12 @@ export function buildFleet(state: SessionState, options: BuildFleetOptions): Fle
               kind: declaredRecord.kind,
               at: declaredRecord.at,
               writer: declaredRecord.writer,
-              // Defaulted on READ, never written as undefined: a recording made
-              // before ruling 3 carries no join, and every beacon in one was
-              // joined by lane — so the default is the truth (ADR-0011).
+              // Defaulted on READ, never written as undefined. Not for old
+              // recordings — those refold through today's `beaconReceived`,
+              // which always writes a join — but for a fleet payload built by
+              // a server that predates the field. Every beacon such a server
+              // folded named its own lane, so `'lane'` is the truth and not a
+              // placeholder. See `DeclaredAttention.joinedBy`.
               joinedBy: declaredRecord.joinedBy ?? 'lane',
             },
       activity: 'unknown',

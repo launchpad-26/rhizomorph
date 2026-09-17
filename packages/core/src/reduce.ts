@@ -7,6 +7,7 @@ import { AGENT_STATUS_RANK, BEACON_ATTENTION_KINDS, totalTokens } from './events
 import { upcast } from './events/upcast.js'
 import type {
   ActiveTimeRecord,
+  AgentProcess,
   AgentState,
   AgentStatusDissent,
   BranchState,
@@ -569,7 +570,7 @@ function beaconReceived(state: SessionState, event: EventOf<'beacon.received'>):
   const p = event.payload
   if (!isAttentionKind(p.kind)) return state
 
-  const placed = p.lane === null ? placeByPid(state, p.pid) : { key: p.lane, joinedBy: 'lane' as const }
+  const placed = p.lane === null ? placeByPid(state, p.pid, p.cwd) : { key: p.lane, joinedBy: 'lane' as const }
   if (placed === null) return state
 
   const prev = state.declared[placed.key]
@@ -589,14 +590,46 @@ function beaconReceived(state: SessionState, event: EventOf<'beacon.received'>):
 /**
  * The actor this pid belongs to, and the worktree it was placed in.
  *
+ * **A pid is not an identity, and this function's first draft pretended it
+ * was.** Fifty lines up, {@link actorKey} says so in as many words — *"an
+ * actor's identity is the RUN, not the pid … it would be careless to un-refuse
+ * it one layer up"* — and the first draft of this returned the first actor
+ * whose number matched. That is not a theoretical hole: `processGone` KEEPS a
+ * dead actor forever, the process collector emits `goneReason: 'recycled'`
+ * exactly when a pid is live again under a different `startedAt`, and
+ * `processes` is keyed `pid:startedAt`, so `Object.values` yields insertion
+ * order — the older, dead run first. A hook firing in the new run would have
+ * landed its declaration on the dead run's worktree, deterministically. Found
+ * in adversarial review, before this branch merged.
+ *
+ * So the run is resolved rather than the number, in this order, and each step
+ * is a FACT rather than a preference:
+ *
+ * 1. The line's own `cwd`, when it equals a canonical `worktreePath` exactly.
+ * 2. A live actor over a dead one — and a `recycled` one is never preferred,
+ *    because `recycled` is the collector's word for *this number came back*.
+ * 3. Survivors that agree about the worktree, since then the ambiguity never
+ *    reaches the answer.
+ *
+ * And when runs still disagree, **DECLINE**. The newest `startedAt` would be a
+ * plausible guess, and a guess on this exact question is what the join exists
+ * to avoid (ADR-0010).
+ *
  * `null` for every case that is not a match, and they are different facts worth
  * keeping apart in a reader's head even though they collapse to one answer
- * here: no pid on the line, no actor with that pid, or an actor with no
- * worktree the witness could resolve. Each is a gap; none is a lane.
+ * here: no pid on the line, no actor with that pid, no actor with a worktree
+ * the witness could resolve, or two runs that cannot be told apart. Each is a
+ * gap; none is a lane.
  *
- * A GONE actor still counts. The hook fired while the process was alive — that
- * is the only time a hook can fire — and a `process.gone` arriving first on a
- * busy tick must not lose the word the agent said before it died.
+ * A GONE actor still counts, when it is the only run. The hook fired while the
+ * process was alive — that is the only time a hook can fire — and a
+ * `process.gone` arriving first on a busy tick must not lose the word the agent
+ * said before it died.
+ *
+ * **Two agents in ONE worktree share one key**, and that is the lane's shape
+ * rather than a collision: a lane holds one declared attention, and the fold's
+ * `prev.at > event.ts` guard makes the most recent word win. It is stated here
+ * because it is invisible at the call site.
  *
  * A linear scan, deliberately: `processes` is keyed `pid:startedAt` so a pid
  * alone cannot index it, and the set is the agent processes on one machine —
@@ -607,14 +640,41 @@ function beaconReceived(state: SessionState, event: EventOf<'beacon.received'>):
 function placeByPid(
   state: SessionState,
   pid: number | undefined,
+  cwd: string | undefined,
 ): { key: string; joinedBy: 'pid' } | null {
   if (pid === undefined) return null
-  for (const actor of Object.values(state.processes)) {
-    if (actor.pid !== pid) continue
-    if (actor.worktreePath === null) continue
-    return { key: actor.worktreePath, joinedBy: 'pid' }
-  }
-  return null
+
+  const placed = Object.values(state.processes).filter(
+    (actor): actor is AgentProcess & { worktreePath: string } =>
+      actor.pid === pid && actor.worktreePath !== null,
+  )
+  if (placed.length === 0) return null
+
+  // The line's own `cwd` settles it when it settles it. Plain string equality
+  // against a path the collector already canonicalised — no containment test,
+  // so no `node:fs`, so ADR-0003 holds. When the agent's cwd is a SUBdirectory
+  // of the worktree this simply does not match, which is why it is a
+  // discriminator and never a requirement.
+  const exact = cwd === undefined ? [] : placed.filter((actor) => actor.worktreePath === cwd)
+
+  // A recycled pid is, by the collector's own definition, the OLD run of a
+  // number that came back (`goneReason: 'recycled'`, set when the pid is still
+  // live under a different `startedAt`). It is never the process that just
+  // fired a hook.
+  const live = placed.filter((actor) => actor.goneAt === null)
+  const notRecycled = placed.filter((actor) => actor.goneReason !== 'recycled')
+
+  const candidates =
+    exact.length > 0 ? exact : live.length > 0 ? live : notRecycled.length > 0 ? notRecycled : placed
+
+  // One answer, however many runs produced it: if every survivor agrees about
+  // the worktree, the ambiguity never reaches the answer, so there is none.
+  // Otherwise DECLINE — the newest `startedAt` would be a plausible guess, and
+  // a guess on this exact question is what the join was built to avoid.
+  // ADR-0010: a gap declared beats a lane invented.
+  const paths = new Set(candidates.map((actor) => actor.worktreePath))
+  const only = paths.size === 1 ? [...paths][0] : undefined
+  return only === undefined ? null : { key: only, joinedBy: 'pid' }
 }
 
 // --- git --------------------------------------------------------------------

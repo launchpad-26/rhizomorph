@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto'
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { BEACON_ATTENTION_KINDS, buildFleet, createEvent, reduceAll } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { parseBeaconLine } from '../collectors/beacon/parse-beacon-line.js'
 import { installationBeaconDir } from '../collectors/beacon/paths.js'
@@ -33,6 +35,153 @@ const FIRING = {
 }
 
 const doorFile = () => path.join(installationBeaconDir(root), 'claude-hook.jsonl')
+
+/**
+ * THE WRITER RUN AGAINST THE READER — the test whose absence cost this PRD its
+ * most expensive defect, and which the fix for that defect still did not add.
+ *
+ * `rhizomorph hook` was built in wave 3 and every test of it stopped at the
+ * line: the shape was asserted, the parser round-trip was asserted, and nothing
+ * ever handed what it wrote to the fold. So `beaconReceived` discarded every
+ * one of those lines for months of waves while three suites stayed green — the
+ * shape prd-57's closeout names, *an assertion that the input is well-formed
+ * standing in for one that something reads it.*
+ *
+ * Fixing the fold closed it by assertion. This closes it by CONSTRUCTION: the
+ * real runner writes the real file, the real parser reads it, the real
+ * collector's envelope is built around it, `reduceAll` folds it and `buildFleet`
+ * resolves it. Nothing in the chain is stubbed except the collector's own
+ * file-tailing loop, which is covered in its own suite. Break any link — stop
+ * writing `pid`, discard lane-less lines again, drop the worktree resolution —
+ * and this reddens where the shape assertions do not.
+ */
+describe('the line reaches a lane — writer, parser, fold and fleet, end to end (#589)', () => {
+  const WT = '/repo-wt/2-core'
+  const AT = Date.UTC(2026, 8, 17, 12, 0, 0)
+
+  let evtId = 0
+  function evt(type: Parameters<typeof createEvent>[0], payload: never, ts: number) {
+    evtId += 1
+    return createEvent(type, payload, { id: `evt-${evtId}`, ts })
+  }
+
+  it("a hook firing in a placed actor becomes that lane's declared attention", async () => {
+    // 1. THE WRITER. The real runner, the real door, no lane anywhere in sight.
+    expect(
+      await runHookCommand(JSON.stringify({ ...FIRING, hook_event_name: 'Stop', cwd: WT }), {
+        dataRoot: root,
+        parentPid: 4321,
+        now: () => AT,
+      }),
+    ).toBe(0)
+    const line = (await readFile(doorFile(), 'utf8')).trim()
+
+    // 2. THE PARSER. The collector's own, not a JSON.parse standing in for it.
+    const parsed = parseBeaconLine(line)
+    expect(parsed.kind).toBe('beacon')
+    if (parsed.kind !== 'beacon') return
+    // The fact the whole join exists for: the hook has never heard the lane's
+    // name, so it writes none.
+    expect(parsed.payload.lane).toBeNull()
+    expect(parsed.payload.pid).toBe(4321)
+
+    // 3. THE FOLD, through the collector's envelope — the three fields it adds
+    // around the parsed payload, spelled as `collectors/beacon/collector.ts`
+    // spells them.
+    const log = [
+      evt('session.started', { sessionId: 's1', repoPath: '/repo', repoName: 'repo' } as never, AT - 900_000),
+      evt('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true } as never, AT - 900_000),
+      evt('worktree.discovered', { path: WT, branch: '2-core', head: 'sha-2', isMain: false } as never, AT - 900_000),
+      evt(
+        'process.seen',
+        { pid: 4321, dialect: 'claude', startedAt: AT - 300_000, worktreePath: WT, placement: 'rooted', parentPid: null } as never,
+        AT - 300_000,
+      ),
+      evt(
+        'beacon.received',
+        {
+          ...parsed.payload,
+          digest: createHash('sha256').update(line, 'utf8').digest('hex'),
+          file: 'claude-hook.jsonl',
+          offset: 0,
+        } as never,
+        parsed.at,
+      ),
+    ]
+
+    // 4. THE FLEET. The lane the operator actually looks at.
+    const fleet = buildFleet(reduceAll(log), { now: AT + 40_000 })
+    const lane = fleet.lanes.find((candidate) => candidate.id === '2-core')
+    expect(lane?.declared).toMatchObject({ kind: 'working', joinedBy: 'pid', writer: 'claude-hook' })
+  })
+
+  /**
+   * AND THE GAP THIS TEST FOUND, pinned so it cannot be closed silently or
+   * forgotten quietly — #597.
+   *
+   * `KIND_BY_EVENT` writes five words and only three of them are declared
+   * attention. `BEACON_ATTENTION_KINDS` is `waiting | working | stopped`, so
+   * `PostToolUse`, `Stop` and `SessionEnd` reach the fold — and `PreToolUse`'s
+   * `tool-running` and **`Notification`'s `waiting-permission` reach nothing at
+   * all.** Those two belong to the `agent.status` vocabulary
+   * (`events/workmux.ts`), `AGENT_STATUS_SOURCES` has listed `'hook'` as its
+   * third source since #529, and **no emitter anywhere produces one.**
+   *
+   * So the single most valuable hook — `Notification`, the harness saying it
+   * has stopped for a human — is written correctly, parsed correctly, joined
+   * correctly, and then discarded. The join was necessary and is not
+   * sufficient.
+   *
+   * This test asserts the CURRENT behaviour, deliberately. It is the declared
+   * gap (ADR-0010), and when #597 lands it reddens — which is the point: the
+   * thing that made this defect survive three waves was that nothing reddened.
+   */
+  it('GAP (#597): a Notification firing reaches no lane — the hook writes a word no fold reads', async () => {
+    expect(
+      await runHookCommand(JSON.stringify({ ...FIRING, hook_event_name: 'Notification', cwd: WT }), {
+        dataRoot: root,
+        parentPid: 4321,
+        now: () => AT,
+      }),
+    ).toBe(0)
+    const line = (await readFile(doorFile(), 'utf8')).trim()
+    const parsed = parseBeaconLine(line)
+    expect(parsed.kind).toBe('beacon')
+    if (parsed.kind !== 'beacon') return
+
+    // Written, and written correctly — this is not a writer bug.
+    expect(parsed.payload.kind).toBe('waiting-permission')
+    expect(parsed.payload.pid).toBe(4321)
+    // And not one of the three words the fold's declared vocabulary holds.
+    expect([...BEACON_ATTENTION_KINDS]).not.toContain(parsed.payload.kind)
+
+    const log = [
+      evt('session.started', { sessionId: 's2', repoPath: '/repo', repoName: 'repo' } as never, AT - 900_000),
+      evt('worktree.discovered', { path: '/repo', branch: 'main', head: 'sha-0', isMain: true } as never, AT - 900_000),
+      evt('worktree.discovered', { path: WT, branch: '2-core', head: 'sha-2', isMain: false } as never, AT - 900_000),
+      evt(
+        'process.seen',
+        { pid: 4321, dialect: 'claude', startedAt: AT - 300_000, worktreePath: WT, placement: 'rooted', parentPid: null } as never,
+        AT - 300_000,
+      ),
+      evt(
+        'beacon.received',
+        {
+          ...parsed.payload,
+          digest: createHash('sha256').update(line, 'utf8').digest('hex'),
+          file: 'claude-hook.jsonl',
+          offset: 0,
+        } as never,
+        parsed.at,
+      ),
+    ]
+
+    const state = reduceAll(log)
+    expect(state.declared).toEqual({})
+    const fleet = buildFleet(state, { now: AT + 40_000 })
+    expect(fleet.lanes.find((candidate) => candidate.id === '2-core')?.declared).toBeNull()
+  })
+})
 
 describe('what the runner writes, and what it refuses to', () => {
   it('writes ONE line, and the collector can read it back', async () => {

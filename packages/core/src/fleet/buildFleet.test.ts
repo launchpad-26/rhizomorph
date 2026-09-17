@@ -843,11 +843,14 @@ describe('the harness says so (prd-27 rulings 3–4, #283)', () => {
   }
 
   /** One beacon line, as ADR-0036 shapes it: the writer's clock is the envelope `ts`. */
-  function beacon(handle: string | null, kind: string, ts: number): RhizomorphEvent {
+  function beacon(handle: string | null, kind: string, ts: number, pid?: number): RhizomorphEvent {
     return event('beacon.received', {
       writer: WRITER,
       kind,
       lane: handle,
+      // What `cli/hook.ts` writes when it cannot name a lane. Omitted entirely
+      // for a lane-named beacon, which is how `env --hooks` writes them.
+      ...(pid === undefined ? {} : { pid }),
       detail: 'hook: Notification',
       digest: 'f'.repeat(64),
       file: 'claude-hook.jsonl',
@@ -900,6 +903,78 @@ describe('the harness says so (prd-27 rulings 3–4, #283)', () => {
     expect(waiting?.since).toBe(NOW - 40_000)
     expect(waiting?.evidence).toBe('beacon (claude-hook) declares waiting 40s ago (joined by lane)')
     expect(laneIn(fleet, 'q1').declared).toEqual({ kind: 'waiting', at: NOW - 40_000, writer: WRITER, joinedBy: 'lane' })
+  })
+
+  /** The process witness placing an actor — what a lane-less beacon joins to. */
+  function actor(handle: string, pid: number, ts: number): RhizomorphEvent {
+    return event(
+      'process.seen',
+      { pid, dialect: 'claude', startedAt: ts, worktreePath: `/repo-wt/${handle}`, placement: 'rooted', parentPid: null },
+      ts,
+    )
+  }
+
+  /**
+   * THE JOIN'S SECOND HALF, and it was shipped untested.
+   *
+   * #589's own definition of done says a pid-joined beacon is folded under the
+   * actor's worktree path *"and `buildFleet` resolves it to the lane"*. The
+   * fold was covered; this resolution was not, and deleting it left the whole
+   * suite green — which would have made the commit's subject line ("a hook
+   * firing reaches its lane") false again with nothing to say so. Found in
+   * adversarial review.
+   */
+  it('a declaration placed under a WORKTREE reaches the lane that occupies it', () => {
+    const log = [
+      ...scaffold('q1', NOW - 600_000),
+      oldWork('q1', QUIET_WORK_TS),
+      actor('q1', 4321, NOW - 300_000),
+      // Exactly what `cli/hook.ts` writes: no lane, a pid. Nothing here knows
+      // what this instrument calls the lane.
+      beacon(null, 'waiting', NOW - 40_000, 4321),
+    ]
+    const state = reduceAll(log)
+    // The fold's half: recorded under the path, not the lane id.
+    expect(state.declared['/repo-wt/q1']).toBeDefined()
+    expect(state.declared.q1).toBeUndefined()
+
+    const fleet = buildFleet(state, { now: NOW })
+    expect(laneIn(fleet, 'q1').declared).toEqual({
+      kind: 'waiting',
+      at: NOW - 40_000,
+      writer: WRITER,
+      joinedBy: 'pid',
+    })
+    expect(waitingIn(fleet, 'q1')?.evidence).toBe(
+      'beacon (claude-hook) declares waiting 40s ago (joined by pid — the hook named no lane)',
+    )
+  })
+
+  /**
+   * `state.declared` is one flat namespace holding lane ids AND worktree paths,
+   * so one lane can have a record under both — an `env --hooks` writer naming
+   * it, and the hook runner placing it. The first version of this resolution
+   * read the lane id first, calling it *"an explicit name beats a placement"*,
+   * which silently inverted the law every other declaration is read by: newest
+   * wins (the fold's own monotonicity guard, and "the latest by writer clock
+   * wins" in `reduce.test.ts`). Found in adversarial review.
+   */
+  it("when a lane has a declaration under BOTH keys, the newer one is the lane's — whichever key it arrived on", () => {
+    const base = [...scaffold('q1', NOW - 600_000), oldWork('q1', QUIET_WORK_TS), actor('q1', 4321, NOW - 300_000)]
+
+    const placementIsNewer = buildFleet(
+      reduceAll([...base, beacon('q1', 'working', NOW - 200_000), beacon(null, 'waiting', NOW - 40_000, 4321)]),
+      { now: NOW },
+    )
+    expect(laneIn(placementIsNewer, 'q1').declared).toMatchObject({ kind: 'waiting', joinedBy: 'pid' })
+
+    // And the same rule in the other direction, so this is recency and not a
+    // new key precedence wearing recency's clothes.
+    const nameIsNewer = buildFleet(
+      reduceAll([...base, beacon(null, 'working', NOW - 200_000, 4321), beacon('q1', 'waiting', NOW - 40_000)]),
+      { now: NOW },
+    )
+    expect(laneIn(nameIsNewer, 'q1').declared).toMatchObject({ kind: 'waiting', joinedBy: 'lane' })
   })
 
   it('(c1) an organ inferring working never suppresses a declared waiting — and the disagreement is voiced', () => {
@@ -1024,9 +1099,13 @@ describe('the harness says so (prd-27 rulings 3–4, #283)', () => {
     }
   })
 
-  it('an unlaned beacon reaches no lane at all', () => {
+  // Retitled and STRENGTHENED with the join (#589). An unlaned beacon does
+  // reach a lane now, when its pid names a placed actor. What this case has
+  // always exercised — and now says — is the decline: no process witness ran
+  // here, so there is no actor to place it, and nothing is invented. ADR-0010.
+  it('an unlaned beacon whose pid matches no placed actor reaches no lane at all', () => {
     const base = [...scaffold('k2', NOW - 600_000), oldWork('k2', QUIET_WORK_TS)]
-    const fleet = buildFleet(reduceAll([...base, beacon(null, 'waiting', NOW - 40_000)]), { now: NOW })
+    const fleet = buildFleet(reduceAll([...base, beacon(null, 'waiting', NOW - 40_000, 4321)]), { now: NOW })
 
     expect(laneIn(fleet, 'k2').declared).toBeNull()
     expect(kindsFor(fleet, 'k2')).not.toContain('waiting')

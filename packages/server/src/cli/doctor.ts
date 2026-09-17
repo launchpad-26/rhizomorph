@@ -832,7 +832,11 @@ export function declaredAttentionChecks(state: SessionState, now: number): Docto
   }
 
   return present.map((lane): DoctorCheck => {
-    const reading = attentionReading(state.declared, lane.id, now, lane.lastWorkTs)
+    // The lane's worktree, so a declaration the hook placed BY PID is found
+    // here too (prd-57 ruling 3, #589). Without it this reported a hook-only
+    // lane `configured-silent` while its own card read "declares waiting
+    // (joined by pid)" on the same tick.
+    const reading = attentionReading(state.declared, lane.id, now, lane.lastWorkTs, lane.worktreePath)
     const id = `attention:${lane.id}`
     switch (reading.kind) {
       case 'never-declared':
