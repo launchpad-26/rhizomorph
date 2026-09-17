@@ -734,13 +734,113 @@ if [ "$LOAD" != "0" ]; then
 
   EXCL=(); for f in "${TIMING_SHORT[@]}"; do EXCL+=(--exclude "**/$f"); done
   lf=0
+  FAILED_JSONS=()
   for b in $(seq 1 "$LOAD"); do
-    for c in 1 2 3 4; do ( cd "$W" && npm test -- --maxWorkers=5 "${EXCL[@]}" >/tmp/g-$H-$b-$c.log 2>&1; echo $? >/tmp/g-$H-$b-$c.rc ) & done
+    for c in 1 2 3 4; do ( cd "$W" && npm test -- --maxWorkers=5 --reporter=default --reporter=json --outputFile=/tmp/g-$H-$b-$c.json "${EXCL[@]}" >/tmp/g-$H-$b-$c.log 2>&1; echo $? >/tmp/g-$H-$b-$c.rc ) & done
     wait
-    for c in 1 2 3 4; do [ "$(cat /tmp/g-$H-$b-$c.rc)" != "0" ] && { lf=$((lf+1)); grep -aE '×' /tmp/g-$H-$b-$c.log | head -1 | sed 's/^/    /'; }; done
+    for c in 1 2 3 4; do [ "$(cat /tmp/g-$H-$b-$c.rc)" != "0" ] && { lf=$((lf+1)); FAILED_JSONS+=("/tmp/g-$H-$b-$c.json"); grep -aE '×' "/tmp/g-$H-$b-$c.log" | head -1 | sed 's/^/    /'; }; done
   done
   echo "  under 4x load (timing tests excluded): $lf failures / $((LOAD*4))"
-  [ "$lf" != "0" ] && fail "flaky under load — remove the race (never widen a timeout)" load-flake
+  if [ "$lf" != "0" ]; then
+    # prd-59 ruling 3 (#627): name the failing FILE and whose FENCE it is
+    # in, rather than handing the lane a bare accusation. Measured
+    # 2026-09-17: two real landings were held by a file neither lane's diff
+    # could reach — a two-doc-file PRD landing held by a red in an unrelated
+    # tripwire law, and #593's evidence of this same probe failing 4/4 on an
+    # unmodified trunk.
+    #
+    # Review rounds 1 through 3 of #627 all fixed the SAME production —
+    # "which file does a FAIL line name, and whose fence is it in" — by
+    # parsing vitest's HUMAN-READABLE text reporter. Round 1 closed a
+    # path-ambiguity bug in that parse (a relative path shared by two
+    # packages, resolved by whichever a filesystem search reached first).
+    # Round 2 closed a project-provenance bug (the parsed <project> field is
+    # a configured test.name LABEL for some packages, not the package.json
+    # name the first fix assumed). Round 3 found, independently from two
+    # review seats, that the parser's own delimiter could be FORGED by a
+    # real filename containing the literal text it depends on (` > `),
+    # inverting a fence verdict outright, and — the more serious finding —
+    # that vitest emits a SECOND "FAIL " shape entirely (the one a
+    # file-level `beforeAll` timeout prints, silently dropped by every
+    # version of this parser so far) which is exactly this ruling's own
+    # motivating case: a default-timeout overrun under load, prd-59 wave 1.
+    # Four rounds closing one regex after another, each opening a sibling,
+    # is the signal that the INSTRUMENT was wrong — parsing a report meant
+    # for a human — not any one pattern inside it.
+    #
+    # So this probe asks vitest for the fact directly. `--reporter=json
+    # --outputFile=...` runs ALONGSIDE `--reporter=default` (the human
+    # summary the `×` grep above reads is unchanged), and a failed entry's
+    # `.name` in that file is an ABSOLUTE path — read once per red run,
+    # never reconstructed from report text. No <project>, no label, no
+    # package.json table, no disk search, and no delimiter to forge,
+    # because there is no report text to parse at all: every finding from
+    # rounds 1 through 3, and the class each was drawn from, ceases to
+    # exist rather than being patched again.
+    LOAD_FAIL_JSON_LOG=$(mktemp "/tmp/gate-loadfailjson-$H.XXXXXX") || fail "cannot create a scratch file for the load-flake JSON reader" setup
+    # One line per fact, never a bare exception: a file this reader cannot
+    # read or parse is named as `BAD`, and a file that parsed fine but
+    # names no failed entry — despite the run's own exit code being
+    # nonzero — is named as `EMPTY`. Both reach the report below as an
+    # honest, still-fatal "could not identify" clause; neither is silently
+    # dropped or allowed to guess a fence verdict.
+    node -e '
+      const fs = require("fs");
+      for (const p of process.argv.slice(1)) {
+        let raw;
+        try { raw = fs.readFileSync(p, "utf8"); } catch (e) { console.log("BAD " + p); continue; }
+        let data;
+        try { data = JSON.parse(raw); } catch (e) { console.log("BAD " + p); continue; }
+        const results = Array.isArray(data.testResults) ? data.testResults : [];
+        let any = false;
+        for (const r of results) {
+          if (r && r.status === "failed" && typeof r.name === "string" && r.name.length > 0) {
+            console.log("PATH " + r.name);
+            any = true;
+          }
+        }
+        if (!any) console.log("EMPTY " + p);
+      }
+    ' "${FAILED_JSONS[@]}" >"$LOAD_FAIL_JSON_LOG" 2>&1
+    LOAD_FAIL_JSON_RC=$?
+    [ "$LOAD_FAIL_JSON_RC" -ne 0 ] && { cat "$LOAD_FAIL_JSON_LOG"; rm -f "$LOAD_FAIL_JSON_LOG"; fail "cannot read the load probe's JSON reports (rc=$LOAD_FAIL_JSON_RC) — cannot safely say which file failed or whose fence it is in" setup; }
+
+    LOAD_FAIL_ABS=()
+    LOAD_FAIL_ISSUES=()
+    while IFS= read -r lfline; do
+      case "$lfline" in
+        "PATH "*)  LOAD_FAIL_ABS+=("${lfline#PATH }") ;;
+        "BAD "*)   LOAD_FAIL_ISSUES+=("a run's JSON report at ${lfline#BAD } could not be read or parsed") ;;
+        "EMPTY "*) LOAD_FAIL_ISSUES+=("a run's JSON report at ${lfline#EMPTY } named no failed file despite the run's own exit status") ;;
+      esac
+    done <"$LOAD_FAIL_JSON_LOG"
+    rm -f "$LOAD_FAIL_JSON_LOG"
+
+    LOAD_FAIL_UNIQUE=()
+    if [ "${#LOAD_FAIL_ABS[@]}" -gt 0 ]; then
+      while IFS= read -r lfa; do LOAD_FAIL_UNIQUE+=("$lfa"); done < <(printf '%s\n' "${LOAD_FAIL_ABS[@]}" | sort -u)
+    fi
+
+    LOAD_FAIL_NAMED=""
+    if [ "${#LOAD_FAIL_UNIQUE[@]}" -eq 0 ]; then
+      LOAD_FAIL_NAMED="no failing test file could be identified from the run reports; "
+    else
+      for lfa in "${LOAD_FAIL_UNIQUE[@]}"; do
+        LOAD_FAIL_REL=${lfa#"$W"/}
+        if [ "$LOAD_FAIL_REL" = "$lfa" ]; then
+          LOAD_FAIL_NAMED="${LOAD_FAIL_NAMED}${lfa} (not under this worktree — cannot state a repo-relative path); "
+        elif [[ $LOAD_FAIL_REL =~ $FENCE ]]; then
+          LOAD_FAIL_NAMED="${LOAD_FAIL_NAMED}${LOAD_FAIL_REL} — INSIDE $H's fence; "
+        else
+          LOAD_FAIL_NAMED="${LOAD_FAIL_NAMED}${LOAD_FAIL_REL} — OUTSIDE $H's fence; "
+        fi
+      done
+    fi
+    if [ "${#LOAD_FAIL_ISSUES[@]}" -gt 0 ]; then
+      while IFS= read -r lfi; do LOAD_FAIL_NAMED="${LOAD_FAIL_NAMED}${lfi}; "; done < <(printf '%s\n' "${LOAD_FAIL_ISSUES[@]}" | sort -u)
+    fi
+    fail "flaky under load: ${LOAD_FAIL_NAMED}fatal either way — an out-of-fence file is still a red trunk, not a pass. This is a failure count, not a diagnosis: it can be a genuine race, but a default-timeout overrun looks the same here (prd-59 wave 1 measured exactly that) — do not reach for 'remove the race' on the strength of this alone" load-flake
+  fi
 
   # The timing tests, alone, once — the honest measurement condition.
   # Positional args are FILTERS (substring match), not globs — verified

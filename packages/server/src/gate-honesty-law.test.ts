@@ -585,20 +585,20 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    * "still the bare, single-line form of row 1", is no longer true and is
    * corrected rather than repeated.
    *
-   * producer-citations:begin — the 20 line numbers between these markers are
+   * producer-citations:begin — the 21 line numbers between these markers are
    * checked against the real file by a law below. Do not hand-edit one
    * without re-running it; do not move a marker to make a red build green.
    *
    * Exactly 1 is flagged as structurally
-   * unchecked — :23 (`W=$(workmux path ...)`), declared before this issue
-   * and still declared, because the very next line's existence check is the
-   * verdict rather than the redirect. 0 of the 20 are undeclared: the
-   * predicate does not convict a single honest line on this file.
+   * unchecked — :23 (`W=$(workmux path ...)`), declared because the very
+   * next line's existence check (`[ -d "${W:-}" ]`) is the verdict, not the
+   * redirect. 0 of the 21 are undeclared: the predicate does not convict a
+   * single honest line on this file.
    *
-   * The other 19 pass structurally on their own merits: 12 same-line forms
-   * (:17's `|| exit 2`, written before `fail` is even defined; 9 `|| fail` at
-   * :338 (`GATE_OUTFILE`) :414 :430 :490 :585 :595 :682 :768 :823; 2
-   * `|| { ...; fail ...; }` rescue blocks at :431 :824) and 7 next-line
+   * The other 20 pass structurally on their own merits: 13 same-line forms
+   * (:17's `|| exit 2`, written before `fail` is even defined; 10 `|| fail` at
+   * :338 (`GATE_OUTFILE`) :414 :430 :490 :585 :595 :682 :780 :868 :923; 2
+   * `|| { ...; fail ...; }` rescue blocks at :431 :924) and 7 next-line
    * `_RC=$?` captures (:156's `VERDICT_LINE_RC` and :244's `BEACON_DIR_RC` —
    * both new with #274 — plus :447's `ANCESTOR_RC`, :527's `N_RC`, :531's
    * `STATUS_RC`, :559's `DIRTY_RC`, :683's `CAT_RC`). Re-derived here THREE
@@ -614,10 +614,61 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
    * smoke, pack smoke) was added to gate.sh just after the quiet gate when
    * GitHub Actions was retired for cost, inserting 23 lines above the last
    * five producers, which each moved by +23. The first fifteen sit above the
-   * insertion and did not move. Count is still 20 producers, still exactly
+   * insertion and did not move. Count was still 20 producers, still exactly
    * one declared-unchecked and none undeclared — the five added
    * `|| { ...; fail ...; }` lines are rescue blocks, a shape the predicate
    * already reads as checked.
+   *
+   * FIFTH re-derivation, prd-59 ruling 3 (#627), first version: the
+   * load-flake report grew a new producer resolving a failing test's
+   * project-relative path with a `find` glob piped to `head -1`. DECLARED
+   * rather than checked, same shape as :23 above. Count became 21
+   * producers, 2 declared-unchecked, still none undeclared. The seventeen
+   * producers at line 683 and earlier did not move; the last three
+   * (formerly at lines 768, 823 and 824) each shifted by +47.
+   *
+   * SIXTH re-derivation, review round 1 of #627: that `find` resolved a
+   * relative path that is NOT unique across this monorepo, so it could name
+   * the WRONG package's file with a confident fence verdict — measured, the
+   * same relative path exists under two different packages today. The fix
+   * replaced that one flagged producer with two: a CHECKED `mktemp` (`||
+   * fail`, same shape as every other mktemp producer here) that built a
+   * project-scope-to-directory table from every package's own package.json,
+   * and a DECLARED `awk` lookup that read it. Net that round: the
+   * flagged-unchecked count stayed at 2 (one `find` removed, one `awk`
+   * added), and the total rose by one, to 22.
+   *
+   * SEVENTH re-derivation, review round 2 of #627: the awk producer read
+   * package.json ALONE, and three of six packages here print a configured
+   * vitest `test.name` LABEL instead of that name — a real coverage gap
+   * (17% of this repo's test files went permanently unresolved on an
+   * ambiguous-looking failure), never a wrong verdict. The fix resolves by
+   * DISK UNIQUENESS first: a path unique under exactly one package
+   * directory needs no project lookup at all, and the identifier table
+   * (package.json name OR a configured label) is read only as a tie-breaker
+   * for a path disk already shows is ambiguous, via a plain `grep -qxF`
+   * used directly as an `if` condition — never a `VAR=$(...)` assignment, so
+   * it is not a producer under this predicate at all. The awk producer is
+   * REMOVED outright, nothing replacing it: total producers drops back to
+   * 21, and the flagged-unchecked count drops to 1 (only :23 remains). The
+   * three producers that follow the (now-vanished) awk line each shifted by
+   * +77, to lines 850, 934 and 989, and the closing rescue block with them,
+   * to line 990 (all four moved again by round 4, below).
+   *
+   * EIGHTH re-derivation, review round 4 of #627 (the last round): the
+   * whole text-parsing instrument — disk search, identifier table,
+   * package.json reads, label regex — is REPLACED by reading vitest's own
+   * `--reporter=json` output, which needs none of it: a failed entry's
+   * `.name` is already an absolute path, so there is no project field to
+   * resolve and no identifier table to build at all. The mktemp producer
+   * that built that table is gone; a new one in its place builds the
+   * scratch file the JSON reader writes its findings to, same shape
+   * (`|| fail`, same-line checked). Net: still 21 producers, still exactly
+   * 1 declared-unchecked (:23, unmoved), 0 undeclared — the count does not
+   * move, only what the last four producers ARE. The three that follow
+   * (formerly at lines 850, 934 and 989, with the closing rescue block at
+   * line 990) each shifted by -70, to :780, :868 and :923, and the rescue
+   * block to :924.
    *
    * NOTE for the next person: every `:<digits>` token between these markers
    * is read as a citation by the law below, so the old line numbers cannot
@@ -1163,7 +1214,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     expect(undeclared.map((u) => `${u.index + 1}: ${u.line.trim()}`), 'undeclared unchecked producer(s) in scripts/gate.sh — fix the shape (see the :82 commit-count fix below) or add a DECLARED_TOLERANCES entry with a reason').toEqual([])
   })
 
-  it('EXECUTED — the measured false-positive rate on the real file, RE-DERIVED after #179 widened the predicate, #273 added the verdict output-capture producer, and #274 added two more: still 1 of 20 flagged, it is declared, 0 undeclared', () => {
+  it('EXECUTED — the measured false-positive rate on the real file, RE-DERIVED after #179 widened the predicate, #273 added the verdict output-capture producer, #274 added two more, #627\'s review round 1 replaced one declared producer with two, and review round 2 removed the flagged one again: 1 of 21 flagged, declared, 0 undeclared', () => {
     // findAllProducers, not a codeLines()+regex filter: the widened predicate
     // recognises multi-line producers that a per-line filter cannot even
     // represent (row 7), so the count of "producers" and the count of
@@ -1193,7 +1244,40 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     // itself spans multiple lines — so "no live instance of rows 2-7" is no
     // longer true of this file, proven by count rather than left as the
     // stale claim above would still have it.
-    expect(allProducers.length, 'total producers (any spelling) in scripts/gate.sh drifted — the doc comment above cites this count').toBe(20)
+    //
+    // 20 -> 21 (#627, prd-59 ruling 3, first version): the load-flake report
+    // gained one producer, `LOAD_FAIL_FOUND=$(find "$W/packages" ... | head
+    // -1)`. It IS flagged (no same-line `||` and no next-line `_RC=$?`), and
+    // it was DECLARED, same shape as :23's `W=$(workmux path ...)`.
+    //
+    // 21 -> 22 (review round 1 of this fix, #627): that `find` resolved a project-
+    // relative path that is NOT unique across this monorepo — measured, the
+    // same relative path exists under two different packages today — so
+    // `find | head -1` could name the WRONG package's file with a confident
+    // fence verdict. The fix replaced it with two producers: a CHECKED
+    // `LOAD_PKG_MAP_LOG=$(mktemp ...) || fail ...` that built a
+    // project-scope -> directory table from every package's own
+    // package.json, and a DECLARED `LOAD_FAIL_DIR=$(awk ...)` that read it.
+    // Net that round: one flagged-unchecked producer replaced by one checked
+    // plus one flagged-unchecked, so the flagged count stayed at 2 while the
+    // total rose by one, to 22.
+    //
+    // 22 -> 21 (review round 2, #627): the awk producer read package.json
+    // ALONE, which is not always what a FAIL line's project field names —
+    // three of six packages configure a vitest `test.name` LABEL and print
+    // that instead, leaving them permanently unresolved under a
+    // package.json-only table (never a wrong verdict, but a real coverage
+    // gap: 17% of this repo's test files). The fix resolves by DISK
+    // UNIQUENESS first — a path that exists under exactly one package
+    // directory needs no project lookup at all — and reads the identifier
+    // table (now package.json name OR a configured label, either one) only
+    // as a tie-breaker for a path that disk already shows is ambiguous. That
+    // lookup is a plain `grep -qxF "..." "$LOAD_PKG_MAP_LOG"` used directly as
+    // an `if` condition, never a `VAR=$(...)` assignment, so it is not a
+    // producer at all under this predicate — the awk producer is REMOVED
+    // outright, with nothing replacing it. Net: total producers drops back
+    // to 21, and the flagged-unchecked count drops to 1 — only :23 remains.
+    expect(allProducers.length, 'total producers (any spelling) in scripts/gate.sh drifted — the doc comment above cites this count').toBe(21)
     expect(unchecked.length, 'flagged (structurally unchecked) count drifted — the doc comment above cites this count').toBe(1)
     expect(undeclared.length).toBe(0)
 
@@ -1216,7 +1300,7 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     // never by a `||`-shaped tail on the same line. `sameLine` is unmoved.
     const sameLine = allProducers.filter((p) => !p.hasKeywordPrefix && tailChecksStatus(p.tail))
     const nextLine = allProducers.filter((p) => !p.hasKeywordPrefix && !tailChecksStatus(p.tail) && nextLineCapturesRC(LINES[p.endLineIndex + 1]))
-    expect(sameLine.length, 'same-line-checked count drifted — the doc comment above cites it').toBe(12)
+    expect(sameLine.length, 'same-line-checked count drifted — the doc comment above cites it').toBe(13)
     expect(nextLine.length, 'next-line _RC=$? count drifted — the doc comment above cites it').toBe(7)
     expect(sameLine.length + nextLine.length + unchecked.length).toBe(allProducers.length)
   })
@@ -4856,6 +4940,255 @@ describe('gate honesty law: no guard in scripts/gate.sh prints a fault or a verd
     it('load-invalid is a declared category, not a fresh spelling nobody reviewed', () => {
       const vocabLine = extractLine('GATE_VERDICT_VOCAB=')
       expect(vocabLine).toContain('load-invalid')
+    })
+  })
+
+  /**
+   * prd-59 ruling 3 (#627): a load-probe failure names the failing FILE and
+   * whose FENCE it is in, instead of the old report — a bare "flaky under
+   * load — remove the race", naming only the lane handle. Measured
+   * 2026-09-17: two real landings were held by a file neither lane's diff
+   * could reach (a two-doc-file PRD landing held by a red in an unrelated
+   * tripwire law; #593's evidence of the same probe failing 4/4 on an
+   * unmodified trunk) — and the remedy it named ("remove the race") does not
+   * fit a default-timeout overrun, which prd-59 wave 1 turned out to be.
+   *
+   * FOUR ROUNDS OF REVIEW closed one regex after another on the SAME
+   * production ("which file does a FAIL line name, whose fence is it in"):
+   * round 1 a path-ambiguity bug in a `find`-based resolver, round 2 a
+   * project-provenance bug (a vitest `test.name` LABEL is not the
+   * package.json name), round 3 — two independent seats — a delimiter a
+   * real filename could forge (` > ` inside a filename inverted a fence
+   * verdict) AND a second "FAIL " shape entirely that every version of the
+   * parser had silently dropped, which is this ruling's own motivating
+   * case: a file-level `beforeAll` timeout under load, prd-59 wave 1.
+   *
+   * Round 4 changes the INSTRUMENT instead of writing a fifth regex.
+   * `scripts/gate.sh` now asks vitest for the fact as DATA
+   * (`--reporter=json --outputFile=...`, run alongside the human
+   * `--reporter=default` the `×` grep still reads) rather than parsing its
+   * human-readable text reporter. A failed entry's `.name` in that file is
+   * an ABSOLUTE path. There is no project field, no label, no package.json
+   * table, no disk search and no delimiter to forge, because there is no
+   * report TEXT to parse at all — every finding from rounds 1 through 3,
+   * and the class each was drawn from, cease to exist rather than being
+   * patched again.
+   *
+   * The extraction and the resolution are sliced whole from gate.sh's real
+   * decision logic (never retyped), same reason as everywhere else in this
+   * file. `FAILED_JSONS` — the array of red runs' JSON report paths — is
+   * supplied directly as a fixture rather than produced by actually running
+   * `npm test` under load 4x per case: the decision under test is "given
+   * these reports, which file, whose fence", not "does 4x concurrency
+   * reproduce a flake", which is gate.sh's job, not this law's. A fixture
+   * needs no real files on disk at all now — the resolver never touches the
+   * filesystem for anything but the JSON report itself, so a fixture is
+   * exactly the JSON content a real `vitest --reporter=json` run would
+   * have written, nothing more.
+   *
+   * INPUT CLASS — the JSON contract this code reads, not report text:
+   *
+   *   1. a failed entry names an absolute path, unique                -> resolved, fenced correctly (EXECUTED)
+   *   2. an absolute path containing a space AND a literal " > "      -> resolved exact, no delimiter to forge (EXECUTED — round 3's regression case)
+   *   3. more than one failed entry across one or more reports        -> each gets its OWN verdict (EXECUTED)
+   *   4. a report file that does not exist                            -> reported unresolved, never guessed (EXECUTED)
+   *   5. a report file that exists but is not valid JSON               -> reported unresolved, never guessed (EXECUTED)
+   *   6. a report that parses but names no failed entry, despite the run's own nonzero exit -> reported unresolved, never guessed (EXECUTED)
+   *   7. a failed entry's path is not under the worktree at all        -> reported unresolved, never guessed (EXECUTED)
+   *
+   * A form not listed here is a form this suite did not review.
+   */
+  describe('prd-59 ruling 3 (#627) — a load-probe failure names the failing FILE and whose FENCE it is in, not a bare accusation', () => {
+    const LOAD_FLAKE_REPORT = sliceLines(
+      'LOAD_FAIL_JSON_LOG=$(mktemp',
+      'fail "flaky under load: ${LOAD_FAIL_NAMED}fatal either way',
+    )
+
+    it('the extraction actually found the decision logic, not an empty slice', () => {
+      expect(LOAD_FLAKE_REPORT).toContain('LOAD_FAIL_JSON_LOG')
+      expect(LOAD_FLAKE_REPORT).toContain('LOAD_FAIL_REL =~ $FENCE')
+      expect(LOAD_FLAKE_REPORT).toContain('r.status === "failed"')
+    })
+
+    /** A fabricated `vitest --reporter=json --outputFile=...` report, written directly — no real files on disk, no vitest run. `entries` are `{status, name}` pairs exactly as vitest's own JSON reporter shapes `testResults[]`. */
+    function jsonReportFixture(w: string, entries: Array<{ status: string; name: string }>): string {
+      const p = join(w, `report-${Math.random().toString(36).slice(2, 8)}.json`)
+      writeFileSync(p, JSON.stringify({ testResults: entries }))
+      return p
+    }
+
+    function runLoadFlake(fence: string, jsons: string[], w: string, report = LOAD_FLAKE_REPORT): FragmentResult {
+      const script = preludeScript(
+        0,
+        `W=${JSON.stringify(w)}\nFENCE=${JSON.stringify(fence)}\nFAILED_JSONS=(${jsons.map((j) => JSON.stringify(j)).join(' ')})\n${report}\n`,
+      )
+      return runFragment(script, w)
+    }
+
+    it('EXECUTED — row 1: a unique failed entry is named and stated as INSIDE the fence', () => {
+      const w = scratchDir('load-flake-w')
+      const abs = join(w, 'packages', 'alpha', 'src', 'lib', 'marker.test.ts')
+      const json = jsonReportFixture(w, [{ status: 'failed', name: abs }])
+      const res = runLoadFlake('^packages/alpha/', [json], w)
+      expect(res.status, "still fatal — ruling 3's extent clause: reporting only, never landable").toBe(1)
+      expect(res.stdout).toContain('GATE FAILED')
+      expect(res.stdout).toContain('packages/alpha/src/lib/marker.test.ts')
+      expect(res.stdout).toContain('INSIDE')
+      expect(res.stdout).not.toContain('OUTSIDE')
+    })
+
+    it('EXECUTED — row 1: the same unique failed entry, out of fence, is stated as OUTSIDE — the exact incident this ruling exists for', () => {
+      const w = scratchDir('load-flake-w')
+      const abs = join(w, 'packages', 'alpha', 'src', 'lib', 'marker.test.ts')
+      const json = jsonReportFixture(w, [{ status: 'failed', name: abs }])
+      const res = runLoadFlake('^packages/beta/', [json], w)
+      expect(res.status, 'an out-of-fence failure is STILL a red trunk — this ruling does not make it landable').toBe(1)
+      expect(res.stdout).toContain('packages/alpha/src/lib/marker.test.ts')
+      expect(res.stdout).toContain('OUTSIDE')
+      expect(res.stdout).not.toContain('INSIDE')
+    })
+
+    it("EXECUTED — row 2, THE ROUND-3 REGRESSION CASE: a real filename containing a space AND a literal ' > ' resolves exact, with a decoy present that a text parser's delimiter would have picked instead", () => {
+      const w = scratchDir('load-flake-forged-delimiter')
+      const decoy = join(w, 'packages', 'alpha', 'src', 'lib', 'marker.test.ts') // NOT failing
+      const real = join(w, 'packages', 'beta', 'src', 'lib', 'marker > mislead.test.ts') // failing
+      const json = jsonReportFixture(w, [{ status: 'failed', name: real }])
+      const res = runLoadFlake('^packages/alpha/', [json], w)
+      expect(res.status).toBe(1)
+      expect(
+        res.stdout,
+        'a text parser capturing up to the first literal ">" would have read this as "packages/alpha/src/lib/marker" — the decoy — and reported it INSIDE the fence',
+      ).toContain('packages/beta/src/lib/marker > mislead.test.ts')
+      expect(res.stdout).not.toContain(decoy.slice(w.length + 1))
+      expect(res.stdout).toContain('OUTSIDE')
+    })
+
+    it('EXECUTED — the remedy text names both a race and a timeout as possibilities, and no longer asserts only the one that can be wrong', () => {
+      const w = scratchDir('load-flake-w')
+      const abs = join(w, 'packages', 'alpha', 'src', 'lib', 'marker.test.ts')
+      const json = jsonReportFixture(w, [{ status: 'failed', name: abs }])
+      const res = runLoadFlake('^packages/alpha/', [json], w)
+      expect(res.stdout).toMatch(/race/)
+      expect(res.stdout).toMatch(/timeout/)
+      expect(res.stdout, 'the OLD report asserted only a race, which prd-59 wave 1 disproved as the remedy').not.toContain(
+        'remove the race (never widen a timeout)',
+      )
+    })
+
+    it('EXECUTED — row 4: a report file that does not exist is reported as unresolved, never guessed, and the failure stays fatal', () => {
+      const w = scratchDir('load-flake-missing-report')
+      const res = runLoadFlake('^packages/alpha/', [join(w, 'does-not-exist.json')], w)
+      expect(res.status).toBe(1)
+      expect(res.stdout).toContain('no failing test file could be identified')
+      expect(res.stdout).toContain('could not be read or parsed')
+    })
+
+    it('EXECUTED — row 5: a report file that exists but is not valid JSON is reported as unresolved, never guessed', () => {
+      const w = scratchDir('load-flake-bad-json')
+      const p = join(w, 'report.json')
+      writeFileSync(p, 'not valid json{{{')
+      const res = runLoadFlake('^packages/alpha/', [p], w)
+      expect(res.status).toBe(1)
+      expect(res.stdout).toContain('no failing test file could be identified')
+      expect(res.stdout).toContain('could not be read or parsed')
+    })
+
+    it("EXECUTED — row 6: a report that parses fine but names no failed entry is reported as unresolved, never guessed, despite the run's own nonzero exit", () => {
+      const w = scratchDir('load-flake-empty-report')
+      const abs = join(w, 'packages', 'alpha', 'src', 'lib', 'marker.test.ts')
+      const json = jsonReportFixture(w, [{ status: 'passed', name: abs }])
+      const res = runLoadFlake('^packages/alpha/', [json], w)
+      expect(res.status).toBe(1)
+      expect(res.stdout).toContain('no failing test file could be identified')
+      expect(res.stdout).toContain('named no failed file despite the run\'s own exit status')
+    })
+
+    it('EXECUTED — row 7: a failed entry whose path is not under the worktree at all is reported as unresolved, never guessed', () => {
+      const w = scratchDir('load-flake-outside-worktree')
+      const json = jsonReportFixture(w, [{ status: 'failed', name: '/somewhere/else/entirely/z.test.ts' }])
+      const res = runLoadFlake('^packages/alpha/', [json], w)
+      expect(res.status).toBe(1)
+      expect(res.stdout).toContain('/somewhere/else/entirely/z.test.ts')
+      expect(res.stdout).toContain('not under this worktree')
+      expect(res.stdout).not.toContain('INSIDE')
+      expect(res.stdout).not.toContain('OUTSIDE')
+    })
+
+    it('EXECUTED — row 3: two distinct failed entries across two reports each get their OWN fence verdict, not one verdict for both', () => {
+      const w = scratchDir('load-flake-two-reports')
+      const a = join(w, 'packages', 'alpha', 'src', 'lib', 'marker.test.ts')
+      const b = join(w, 'packages', 'beta', 'src', 'lib', 'other.test.ts')
+      const jsonA = jsonReportFixture(w, [{ status: 'failed', name: a }])
+      const jsonB = jsonReportFixture(w, [{ status: 'failed', name: b }])
+      const res = runLoadFlake('^packages/alpha/', [jsonA, jsonB], w)
+      expect(res.status).toBe(1)
+      expect(res.stdout).toContain('packages/alpha/src/lib/marker.test.ts — INSIDE')
+      expect(res.stdout).toContain('packages/beta/src/lib/other.test.ts — OUTSIDE')
+    })
+
+    it('EXECUTED — row 3: two failed entries in the SAME report are each named, and a repeated entry across reports is deduped to one clause', () => {
+      const w = scratchDir('load-flake-multi-entry')
+      const a = join(w, 'packages', 'alpha', 'src', 'lib', 'marker.test.ts')
+      const b = join(w, 'packages', 'beta', 'src', 'lib', 'other.test.ts')
+      const jsonA = jsonReportFixture(w, [
+        { status: 'failed', name: a },
+        { status: 'failed', name: b },
+      ])
+      const jsonB = jsonReportFixture(w, [{ status: 'failed', name: a }]) // same file, a second red run
+      const res = runLoadFlake('^packages/alpha/', [jsonA, jsonB], w)
+      expect(res.status).toBe(1)
+      expect(res.stdout).toContain('packages/alpha/src/lib/marker.test.ts — INSIDE')
+      expect(res.stdout).toContain('packages/beta/src/lib/other.test.ts — OUTSIDE')
+      expect(res.stdout.split('packages/alpha/src/lib/marker.test.ts').length - 1, 'the repeated entry must not be reported twice').toBe(1)
+    })
+
+    it('EXECUTED — fatality sweep: every input class above still exits 1 with HOLDING, never a pass, never a hang', () => {
+      const w = scratchDir('load-flake-fatality-sweep')
+      const abs = join(w, 'packages', 'alpha', 'src', 'lib', 'marker.test.ts')
+      const cases: Array<{ label: string; jsons: string[]; fence: string }> = [
+        { label: 'inside', jsons: [jsonReportFixture(w, [{ status: 'failed', name: abs }])], fence: '^packages/alpha/' },
+        { label: 'outside', jsons: [jsonReportFixture(w, [{ status: 'failed', name: abs }])], fence: '^packages/beta/' },
+        { label: 'missing report', jsons: [join(w, 'nope.json')], fence: '^packages/alpha/' },
+        { label: 'empty report', jsons: [jsonReportFixture(w, [{ status: 'passed', name: abs }])], fence: '^packages/alpha/' },
+        { label: 'outside worktree', jsons: [jsonReportFixture(w, [{ status: 'failed', name: '/elsewhere/z.test.ts' }])], fence: '^packages/alpha/' },
+      ]
+      for (const c of cases) {
+        const res = runLoadFlake(c.fence, c.jsons, w)
+        expect(res.status, `case "${c.label}" must exit 1`).toBe(1)
+        expect(res.stdout, `case "${c.label}" must print GATE FAILED`).toContain('GATE FAILED')
+        expect(res.stdout, `case "${c.label}" must print HOLDING`).toContain('HOLDING')
+      }
+    })
+
+    it('MUTATION — inverting the fence-membership test reports OUTSIDE for a file that is actually INSIDE the fence; the tests above catch exactly this', () => {
+      const mutated = LOAD_FLAKE_REPORT.replace(
+        '[[ $LOAD_FAIL_REL =~ $FENCE ]]',
+        '! [[ $LOAD_FAIL_REL =~ $FENCE ]]',
+      )
+      expect(mutated, 'the mutation must actually change the extracted text, or this proves nothing').not.toBe(LOAD_FLAKE_REPORT)
+      const w = scratchDir('load-flake-mutant-fence')
+      const abs = join(w, 'packages', 'alpha', 'src', 'lib', 'marker.test.ts')
+      const json = jsonReportFixture(w, [{ status: 'failed', name: abs }])
+      const res = runLoadFlake('^packages/alpha/', [json], w, mutated)
+      expect(
+        res.stdout,
+        'the mutant reports OUTSIDE for a file that is genuinely inside the fence — exactly what the row-1 "INSIDE" test above would go red on against the real gate.sh',
+      ).toContain('OUTSIDE')
+    })
+
+    it('MUTATION — review round 4: breaking the JSON status filter (matching the wrong status instead of "failed") makes every genuinely-failing entry read as unidentified', () => {
+      const mutated = LOAD_FLAKE_REPORT.replace('r.status === "failed"', 'r.status === "not-a-real-status"')
+      expect(mutated, 'the mutation must actually change the extracted text, or this proves nothing').not.toBe(LOAD_FLAKE_REPORT)
+      const w = scratchDir('load-flake-mutant-status')
+      const abs = join(w, 'packages', 'alpha', 'src', 'lib', 'marker.test.ts')
+      const json = jsonReportFixture(w, [{ status: 'failed', name: abs }])
+      const res = runLoadFlake('^packages/alpha/', [json], w, mutated)
+      expect(res.status, 'still fatal either way — the extent clause holds even under this mutation').toBe(1)
+      expect(
+        res.stdout,
+        'the mutant can no longer see ANY failed entry in a report that genuinely has one, and falls back to "could not be identified" — exactly what the row-1 test above would go red on against the real gate.sh',
+      ).toContain('no failing test file could be identified')
+      expect(res.stdout).not.toContain('INSIDE')
     })
   })
 })
