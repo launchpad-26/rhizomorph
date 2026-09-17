@@ -437,10 +437,36 @@ renames a span is a fixture update, not a schema migration.
 ## Coexisting with Langfuse
 
 The Rhizomorph is a pure sink for the OTLP stream it receives at
-`/v1/traces` (and `/v1/metrics`, `/v1/logs`) — it only ever reads. Nothing it
-does sends that stream, or anything derived from it, anywhere else; the
-Trust section's promise (`docs/prds/done/prd-08-published-software.md` ruling 6 — "nothing is ever sent
-anywhere") holds for traces exactly as it does for the money layer.
+`/v1/traces` (and `/v1/metrics`, `/v1/logs`) — it only ever reads. It never
+relays that stream onward: no exporter of its own, no second endpoint, no
+forwarder. What it does with a span is store it as an event in this
+instrument's own ledger, and stop.
+
+**What that used to mean, and what it means now.** This paragraph read
+*"nothing it does sends that stream, or anything derived from it, anywhere
+else"*, and cited the Trust section's *"nothing is ever sent anywhere"*
+(`docs/prds/done/prd-08-published-software.md` ruling 6). Since prd-51 that is
+only true of a machine whose shipper is off, which is every machine until a
+human turns it on. Once on, the shipper — the fifth hand
+(`docs/adr/0034-the-fifth-hand.md`, `docs/prds/prd-51-the-split.md` ruling 2) —
+tails this instrument's ledger and posts its lines to one team server, and the
+money layer's own events are in that ledger: the `llm.usage` and `llm.cost`
+events this receiver writes are what the server's per-project spend projection
+(`docs/prds/prd-51-the-split.md` ruling 5) is built from, and `trace.span`
+events travel the same way. The shipper has no per-type allowlist; it ships
+every line the current schema can re-serialize
+(`packages/server/src/shipper/ship.ts`).
+
+So the precise claim, stated the way `README.md`'s Trust section states it:
+**what leaves** is record-shaped lines, spend and token counts among them,
+re-serialized through the current event schema — never the exporter's original
+payload, and never prompts, completions or transcripts, which are in no event
+and so on no wire. **To where:** the single team-server URL named in
+`rhizomorph connect team`, and nowhere else — never Langfuse, and never
+anything else an OTLP exporter can be pointed at. **Under whose act:** that
+one command, run by a human, per repo. Nothing a collector, a poll or a boot
+does can start it, and until it is run this receiver's stream stays on the
+machine that produced it.
 
 An organization already running Langfuse does not have to choose between the
 two. The fan-out happens on the **emitting** side, not the Rhizomorph's: an
@@ -469,19 +495,27 @@ curl -u <public-key>:<secret-key> \
 ```
 
 against Langfuse's public OTLP ingestion route (Basic auth — verified live
-2026-08-03 against v4.1.0). Because the operator's own `curl` is the only
-thing that ever leaves the machine, the ruling that shipped this
-(2026-08-12) needed no renegotiation of the Trust section at all: "nothing
-is ever sent anywhere" by the Rhizomorph itself stays true word for word.
+2026-08-03 against v4.1.0). `export-otlp` itself opens no socket: the
+operator's own `curl` is the only thing that carries that file off the
+machine, which is why the ruling that shipped this (2026-08-12) needed no
+renegotiation of the Trust section at all. That is still true of this command.
+It is no longer true of the instrument as a whole — the shipper above is the
+one path that sends without a `curl`, and it is a different hand, a different
+destination and a different act.
 
 An **opt-in *live* forwarder** — the Rhizomorph itself relaying to Langfuse
 or another sink as spans arrive, with no human act in between — is
-deliberately still not built. prd9 ruling 9 keeps that kind of outbound
-forwarding out until re-ruled, and unlike rung 3, building it would require
-rewriting the Trust section to say exactly what leaves and when. `export-otlp`
-becomes that forwarder's wire format if a live rung is ever ruled for later —
-its OTLP serialisation, proven here, is the transport a "C" implementation
-would sit around.
+deliberately still not built, and the reason has changed. It used to be gated
+on a re-ruling of the Trust section; that re-ruling happened
+(`docs/adr/0034-the-fifth-hand.md`), and the Trust section now says what
+leaves, when, to whom and under whose key rather than "nothing, ever". What
+stops a forwarder today is narrower and harder: ADR-0034 grants the instrument
+**one** outbound destination and **one** credential, and a Langfuse relay is a
+second of each. It needs its own argument and its own record before anyone
+builds it — [docs/roadmap.md](roadmap.md) carries that as an open candidate
+with its gate recorded as closed. `export-otlp` becomes that forwarder's wire
+format if a live rung is ever ruled for later — its OTLP serialisation, proven
+here, is the transport a "C" implementation would sit around.
 
 ## The subscription-dollars honesty note
 
