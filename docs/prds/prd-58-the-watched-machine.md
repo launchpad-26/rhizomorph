@@ -253,7 +253,9 @@ Recorded as an amendment rather than by editing the rulings above, which stand a
 Ruled on a reading of `streamState.ts` rather than argued, as ruling 3 asks. The reading changes
 the size of the question: `foldStreamEvents` checks `opensNewSession` **inside** its loop and, on a
 boundary, resets `events`, `news`, `newsCount` and `session` wholesale (`:224-230`) — and
-`StreamContext.tsx` holds exactly one `StreamState` (`:225`). So a recording rotation in one colony
+`StreamContext.tsx` holds exactly one **live** `StreamState` (`:225`; the replay scrub composes its
+own through `replayStreamState`, which is a separate fold and not a second colony). So a recording
+rotation in one colony
 would wipe every other colony's state.
 
 **The client therefore holds one `StreamState` per colony under either transport.** That is forced
@@ -274,10 +276,16 @@ Two obligations this creates, both wave 1's:
 
 Ruled the way the question itself suggests: *"watching an idle repo writes nothing at all, so it may
 need no hand."* It writes nothing because there is nothing to write — ruling 1 discovers a colony
-when an actor is placed in it, and a repo with no agent produces no facts for any collector. A pin
-would create a colony that exists only in a preference file, with an empty recording, an empty
-fleet, and a row in the selector that never changes. That is a thing to explain rather than a thing
-to use.
+when an actor is placed in it, so a repo with no agent is a repo this design never learns about. A
+pin would create a colony that exists only in a preference file, with an empty fleet and a row in
+the selector that never changes. That is a thing to explain rather than a thing to use.
+
+**Stated precisely, because a draft of this overstated it** (caught in review of the PR that filed
+these rulings): *"a repo with no agent produces no facts for any collector"* is false. Point the git
+collector at any repo and it emits `worktree.discovered`, branches and dirty state, agent or no
+agent. The honest form is narrower and is a **policy** rather than a fact about the collectors:
+ruling 1 makes an actor the thing that constitutes a colony, so an agent-free repo yields nothing
+this PRD would call a colony's facts — not nothing at all.
 
 The case the operator actually has — *"I want something running in that repo"* — is already an act
 this instrument offers: the concierge clones and launches, and the colony appears the moment the
