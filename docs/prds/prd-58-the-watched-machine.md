@@ -301,6 +301,26 @@ capabilities by name. An instrument that starts itself because it was installed 
 decision the operator did not make. Wave 4 ships the preference and the off position; turning it on
 is one click and an explicit one.
 
+## The groomed waves
+
+Filed 2026-09-17 against `prd58`, fence-linted clean wave by wave.
+
+| wave | issues |
+|---|---|
+| 1 — the fold takes a colony | #605 (colony identity), #606 (the frame carries it), #607 (one stream, N fold states) |
+| 2 — N recorders | #608 (N recorders), #609 (the measurement and the envelope — README claimant), #610 (doctor and the shipper) |
+| 3 — the selector, retarget narrowed | #611 (retarget), #612 (counts, the list, unrooted actors), #613 (README claimant) |
+| 4 — the shell and the version | #614 (apiVersion and the refusal), #615 (tray, autostart, badge — README claimant) |
+| 5 — words and closeout | #616 |
+
+**Inherited from prd-57**, because they are debts its closeout named rather than
+new work: **#597** (a `Notification` hook reaches no lane — the other half of
+prd-57's Success 6), **#590** (a lab fork starts its arms concurrently) and
+**#617** (a declined beacon is counted and named).
+
+One README claimant per wave, as `.swarm/coupling.txt` requires, and no two
+issues in a wave claim a common path.
+
 ## Open questions
 
 - ~~**The stream shape** (ruling 3).~~ **Ruled 2026-09-17** — see wave 0 above.
