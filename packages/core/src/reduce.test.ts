@@ -2389,23 +2389,33 @@ describe('reduce — beacon.received folds declared attention per lane (prd-27 w
     expect(after.declared).toEqual(base.declared)
   })
 
-  it('a cwd that matches no actor is BELIEVED when the actor is live — the symlink case, not a reuse', () => {
+  it('a cwd that matches no actor is DECLINED even when a live run holds that pid', () => {
     /**
-     * The two causes of a non-matching `cwd` need opposite answers, and the
-     * draft before this one declined both.
+     * THE FOURTH REVIEW'S FINDING, and it reversed a rule the third one asked
+     * for.
      *
-     * The strings come from different pipelines: the hook writes the harness's
-     * `cwd` verbatim, `placementOf` writes `canonicalize()` of a kernel-resolved
-     * path. A repo reached through a symlink makes them differ while naming the
-     * same directory — #217's standing macOS case — and declining THAT loses
-     * every beacon on such a machine, permanently and silently.
+     * A draft believed a live actor over a mismatch, reasoning that the only
+     * cause was cosmetic — two pipelines spelling one directory differently.
+     * There is a second cause and it is documented in the tree rather than
+     * speculative: `process.seen` fires ONLY on first sighting, and no later
+     * event carries a path, so a live actor's `worktreePath` is frozen at the
+     * cwd it had when it was first seen.
      *
-     * `goneReason` cannot tell it from a pid reuse. Liveness can: the process
-     * that fired a hook was alive when it did.
+     * Here the actor was first seen at the repo root — a conductor launching an
+     * agent before it enters a worktree — and the hook fires from `wt-a`. The
+     * believing rule lands a declared `waiting` on the MAIN lane, where nobody
+     * is working.
+     *
+     * The process collector accepts stale placement deliberately, and says
+     * exactly why it is safe to: "a fleet can show an actor on a lane it has
+     * walked out of. That is a stale fact rather than a false death, and only
+     * one of those wakes a human at 3am." Believing it here converts the stale
+     * fact into the kind that wakes a human. The collector's own reasoning
+     * forbids it.
      */
     const base = reduceAll([
       ...fixtureSession(),
-      f.processSeen({ pid: 4321, startedAt: 900, worktreePath: '/private/repo/wt-a', dialect: 'claude' }, { ts: 900 }),
+      f.processSeen({ pid: 4321, startedAt: 900, worktreePath: '/repo', dialect: 'claude' }, { ts: 900 }),
     ])
 
     const after = reduce(
@@ -2416,9 +2426,55 @@ describe('reduce — beacon.received folds declared attention per lane (prd-27 w
       ),
     )
 
-    // The witness's canonical path wins, because the witness is what `buildFleet`
-    // resolves against. The line's string is evidence, not the key.
-    expect(after.declared['/private/repo/wt-a']).toMatchObject({ joinedBy: 'pid' })
+    expect(after.declared).toEqual(base.declared)
+    // And emphatically not on the lane the actor was FIRST seen in.
+    expect(after.declared['/repo']).toBeUndefined()
+  })
+
+  it('an exact cwd match on a DEAD actor still joins — the hook fired before it died', () => {
+    // The gap the fourth review found in the new pins: every cwd fixture used a
+    // LIVE actor, so restricting the exact filter to live actors would have
+    // passed the whole suite — while breaking the ordinary hook line, because
+    // `rhizomorph hook` always writes a `cwd` and the shared door drops lines
+    // without one. The gone-actor rule was pinned only on the cwd-less path.
+    const base = reduceAll([
+      ...fixtureSession(),
+      f.processSeen({ pid: 4321, startedAt: 900, worktreePath: '/repo/wt-a', dialect: 'claude' }, { ts: 900 }),
+      f.processGone({ pid: 4321, startedAt: 900, reason: 'absent' }, { ts: 5_000 }),
+    ])
+
+    const after = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 4321, cwd: '/repo/wt-a', writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 6_000 },
+      ),
+    )
+
+    expect(after.declared['/repo/wt-a']).toMatchObject({ joinedBy: 'pid' })
+  })
+
+  it('a RECYCLED run is not the answer even when the cwd names it exactly', () => {
+    // `recycled` is the collector's word for "this number came back", so that
+    // run is definitionally not the process which just fired a hook. It is a
+    // wrong candidate, not a weak one — in BOTH branches, which the earlier
+    // draft only enforced in the cwd-less one.
+    const base = reduceAll([
+      ...fixtureSession(),
+      f.processSeen({ pid: 4321, startedAt: 900, worktreePath: '/repo/wt-a', dialect: 'claude' }, { ts: 900 }),
+      f.processGone({ pid: 4321, startedAt: 900, reason: 'recycled' }, { ts: 5_000 }),
+      f.processSeen({ pid: 4321, startedAt: 5_000, worktreePath: '/repo/wt-b', dialect: 'claude' }, { ts: 5_000 }),
+    ])
+
+    const after = reduce(
+      base,
+      f.beaconReceived(
+        { kind: 'waiting', lane: null, pid: 4321, cwd: '/repo/wt-a', writer: 'claude-hook', digest: DIGEST, file: 'claude-hook.jsonl', offset: 0 },
+        { ts: 6_000 },
+      ),
+    )
+
+    expect(after.declared).toEqual(base.declared)
   })
 
   it('the cwd match is plain EQUALITY — a containing path is not a match', () => {
