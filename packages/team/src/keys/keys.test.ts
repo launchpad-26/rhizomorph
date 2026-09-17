@@ -528,12 +528,35 @@ const SHIPPED_BEFORE_598 = [
 ]
 
 /**
- * OWED, AND DELIBERATELY NOT BUILT HERE: nothing asserts that these three strings and
- * `deploy/doctor.ts`'s three for the same states keep agreeing. They agree today, by hand and on
- * purpose. A keep-in-sync law would couple this file to `doctor.ts`, which belongs to another lane
- * while #592 is open, and a cross-fence coupling written from inside a fence is the thing this
- * repo's bundling rules exist to prevent. The property is real and unguarded and will drift; the
- * law is worth writing once that fence closes.
+ * DISCHARGED — the agreement with `deploy/doctor.ts` is a law now, and it lives in
+ * `./agreement-law.test.ts` (#623).
+ *
+ * This paragraph used to read *"OWED, AND DELIBERATELY NOT BUILT HERE"*: nothing asserted that
+ * these three refusals and `doctor.ts`'s three for the same states kept agreeing, because a
+ * keep-in-sync law would have coupled this file to `doctor.ts` while #592 held it, and a
+ * cross-fence coupling written from inside a fence is what this repo's bundling rules exist to
+ * prevent. The note is REPLACED rather than deleted: a discharged note that simply vanishes leaves
+ * the next reader unable to tell it was discharged rather than forgotten.
+ *
+ * The law drives both surfaces — {@link seedProjectIngestKey} here, `runDoctor` there — and
+ * compares the ORDERED COMMANDS each remedy names, not the sentence, so the two are free to keep
+ * their own voice. It also answered the question this note left open, in the direction the note did
+ * not expect: the two did NOT agree. The doctor's empty-project arm named `./init.sh
+ * --rotate-ingest-key` with no `cd packages/team/deploy` in front of it, alone among all six
+ * remedies across the two files.
+ *
+ * **And the odd one out was the one that was right.** #623 first read the missing `cd` as the
+ * defect and added one, reasoning that `./init.sh` is a relative path. That never asked where the
+ * reader is standing. Both surfaces are read only through `docker compose` — `exec app … doctor.ts`
+ * for one, `logs app` for the other — `compose.yml` exists only at `packages/team/deploy/`, and
+ * Compose searches the cwd and its ANCESTORS, never its descendants. So from the one cwd that can
+ * see either sentence, `cd packages/team/deploy` exits 1 and `&&` short-circuits the rotation away.
+ * All six dropped the `cd` instead, and the law holds them to naming none.
+ *
+ * `namesBareInitSh` below is `/init\.sh(?!\s+--rotate-ingest-key)/`, so it could not have caught
+ * any of this in either direction — a rotation invoked from the wrong directory is not bare, just
+ * unrunnable — and nothing else in the tree reddened when the `cd`s came out. This law is the only
+ * thing holding it.
  */
 describe('every seed-time remedy names a command that acts on the deployment that can reach it', () => {
   /** The three refusals, driven through the function rather than read out of the source. */
