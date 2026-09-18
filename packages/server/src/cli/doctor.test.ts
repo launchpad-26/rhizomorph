@@ -127,6 +127,16 @@ function metaFetch(body: unknown, init: ResponseInit = {}): typeof globalThis.fe
   }) as typeof globalThis.fetch
 }
 
+/**
+ * An empty process table, for the one test that enumerates every check id.
+ *
+ * The colony rows describe the MACHINE, so a suite run on a developer's own
+ * laptop would otherwise name whatever repos they have agents open in. Every
+ * other test here looks its checks up by id, so an extra colony row is
+ * invisible to them and they are left reading the real table.
+ */
+const NO_AGENTS_RUNNING = async () => ({ rows: [] })
+
 function checkFor(checks: readonly DoctorCheck[], id: string): DoctorCheck {
   const check = checks.find((c) => c.id === id)
   if (!check) throw new Error(`no check with id "${id}"`)
@@ -174,6 +184,7 @@ describe('runDoctor', () => {
       nodeVersion: 'v22.5.0',
       rootPackageJsonPath: path.join(repoPath, 'does-not-exist.json'),
       env: { CLAUDE_CODE_ENABLE_TELEMETRY: '1' },
+      readProcessTable: NO_AGENTS_RUNNING,
     })
 
     expect(report.exitCode).toBe(0)

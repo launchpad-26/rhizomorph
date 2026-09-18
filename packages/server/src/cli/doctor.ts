@@ -28,6 +28,7 @@ import { OTEL_CAPABILITIES } from '../collectors/otel/index.js'
 import { processWitnessCapabilitiesFor } from '../collectors/process/doctor-row.js'
 import type { AgentSighting } from '../collectors/process/index.js'
 import { takeCensus } from '../collectors/process/index.js'
+import type { ProcessTableReader } from '../collectors/process/read-table.js'
 import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/worktree-slug.js'
 import { TMUX_CAPABILITIES } from '../collectors/tmux/index.js'
@@ -133,6 +134,17 @@ export interface DoctorOptions {
   platform?: string
   /** Injectable `fetch`, so the own-server-on-a-busy-port probe needs no real socket in tests. Defaults to the global. */
   fetch?: typeof globalThis.fetch
+  /**
+   * Injectable process table, so the colony check is deterministic in a test.
+   *
+   * The colony rows are the one part of this report that describes the MACHINE
+   * rather than the repo, so without this the report would vary with whatever
+   * the person running the suite happens to have open — and it did: the
+   * enumerating test below reddened on a developer machine with agents running,
+   * naming a colony no fixture created. Production passes nothing and reads the
+   * real table, which is the whole point of the check.
+   */
+  readProcessTable?: ProcessTableReader
 }
 
 /** Falls back to this when the root `package.json` has no `engines.node` yet (README already states it). */
@@ -331,7 +343,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
   const checks: DoctorCheck[] = [
     ...withAttention,
     ...(await checkEnrichmentLadder(withAttention, repoPath, attention.declared, attention.processes)),
-    ...(await checkWatchedColonies(await takeCensus(exec), repoPath, exec)),
+    ...(await checkWatchedColonies(await takeCensus(exec, { readTable: options.readProcessTable }), repoPath, exec)),
   ]
 
   const exitCode = checks.some((check) => FAILING_CHECK_IDS.has(check.id) && check.status === 'fail') ? 1 : 0
