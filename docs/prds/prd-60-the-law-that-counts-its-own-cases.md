@@ -5,6 +5,10 @@
 > at #602. Sequenced after prd-54 (which owns `.swarm/coupling.txt` and its law)
 > and independent of prd-59 (the gate's load probe — a suite that *fails* under
 > concurrency, where this is a suite that *passes* having checked less).
+>
+> **Amended 2026-09-18 at grooming**, against `51e681cd`: the coupling-registry
+> refusal is discharged into wave 3, the two parser-agreement mirrors become one
+> issue, and wave 4's form is settled. Each is marked below where it applies.
 
 ## Problem
 
@@ -53,7 +57,12 @@ apart in maintenance terms, and neither time was found by the law itself.
   `packages/core/src/eras/eras.test.ts:29` floors `ERA_CORPUS.length`, and `:37` compares the
   corpus to `ERAS` — the registry the corpus is built from. Both shrink together.
 - **The class is wide, not a one-off.** #602 records **9 Tier-1** laws (derived set drives
-  cases) and a **Tier-2** family of ~18 grep-sweep laws whose derived list is looped inside a
+  cases) and a **Tier-2** family of 19 grep-sweep laws whose derived list is looped inside a
+  single `it`. **19, not the "~18" this PRD said until grooming on 2026-09-18** — #602 names
+  `namespace-law` once and it resolves to three files (`concierge/`, `lab/`, `recorder/`).
+  Re-derived by resolving #602's named list to paths and checking each carries a source-side
+  floor: 18 do, and `packages/app/src/host/bridge-law.test.ts` carries none, which is exactly
+  what #602 says of it. EXECUTED.
   single `it`. Tier-1 entries verified by reading the tree at `6ad1b5cf`; three were re-read
   by hand, the rest are REASONED from their quoted guards and each wants its own mutation.
 
@@ -83,9 +92,13 @@ apart in maintenance terms, and neither time was found by the law itself.
 - **Not a new shared helper or test framework.** Each law's derivation has a different shape,
   and a helper that flattens them would be a second derivation nobody reads — the exact failure
   mode in `eras.test.ts`.
-- **Not `.swarm/coupling.txt`'s law.** `packages/server/src/coupling-registry-law.test.ts` is
-  **prd-54's territory** — that PRD names `coupling.txt` throughout and has open work (#594,
-  wave 6). This PRD records the finding and refuses the file.
+- **`.swarm/coupling.txt`'s law — refused at blessing, admitted 2026-09-18.**
+  `packages/server/src/coupling-registry-law.test.ts` was refused as **prd-54's territory**, on
+  the ground that prd-54 "has open work (#594, wave 6)". That premise had already expired when
+  it was written: #594 closed 2026-09-17 and prd-54 now holds no open issue. Deferring to a
+  **finished** programme is not deferring to its owner — it leaves the entry owned by nobody,
+  which is the one outcome the refusal was not for. It joins **wave 3** as the ninth Tier-1
+  entry. Its fence is the law's own test file; no wave of this PRD edits `.swarm/coupling.txt`.
 - **Not the gate's load probe.** A suite that reddens under concurrency is prd-59's problem.
   This PRD is the opposite failure: a suite that stays green having checked less.
 
@@ -108,6 +121,13 @@ verdict, and an unwritten verdict is indistinguishable from an oversight.
   list. Do not re-sweep; extend it.
 - **The mutation shape.** Drop one name from the derivation, leave every count untouched, run
   the file. That is the only mutation that distinguishes this defect from a healthy law.
+- **The ruling already made for one Tier-2 file.** `docs/design-notes/exclusion-vacuity.md`
+  (decided 2026-09-17, cited from `packages/server/src/doc-citation-law.test.ts`) rules that **an
+  exclusion is justified by what the excluded thing IS, not by what it currently contains**, and
+  that a guard proving one asserts the sweep still *reaches* the excluded directory rather than
+  that the directory currently absorbs a violation. That is wave 4's question, already answered
+  for one of the 19. Wave 4 **extends** this note; it does not restate it. Neither this PRD nor
+  #602 knew of it at blessing — found at grooming, recorded here so the sweep does not rebuild it.
 
 ## Rulings
 
@@ -158,12 +178,13 @@ acceptable **only once written down**, in the files or in a design note, with th
 later, and this repo has the scar: a rule stated in `AGENTS.md` read as enforced for months
 while `cmd_orphans` checked a different question and printed success.
 
-*How far it extends.* The ~18 Tier-2 laws at #602. One verdict may cover all of them.
+*How far it extends.* The 19 Tier-2 laws at #602. One verdict may cover all of them.
 
 ## Sequencing (waves, each gated as ever)
 
-`packages/server/src/coupling-registry-law.test.ts` is **prd-54's territory**; no wave of this
-PRD enters it, and the finding is recorded at #602 for that PRD to consume. `scripts/gate.sh`
+`packages/server/src/coupling-registry-law.test.ts` joins **wave 3** — the refusal recorded at
+blessing rested on prd-54 being live, and it was not; see Non-goals. No wave of this PRD edits
+`.swarm/coupling.txt` itself, only the law that reads it. `scripts/gate.sh`
 and the suite's behaviour under concurrency are **prd-59's**; no wave here changes a timing
 marker or a worker count. Every wave consumes the pattern established by `83ce0e65`
 (`SERVE_READS_PINNED`) and follows it.
@@ -181,17 +202,43 @@ to itself` (`packages/web/src/theme/contrast.test.ts`) · `prd60 w2: the era cor
 an era leaves it` (`packages/core/src/eras/eras.test.ts`) · `prd60 w2: the app menu pins its
 routes` (`packages/app/src/host/app-menu.test.ts`).
 
-**Wave 3 — Parallel, fenced apart:** `prd60 w3: the parser agreement law pins both its axes`
-(`packages/server/src/comparisons/parser-agreement-law.test.ts`) · `prd60 w3: the lab's parser
-agreement mirror pins both its axes` (`packages/web/src/lab/compare/parser-agreement-law.test.ts`)
-· `prd60 w3: the tide purity law pins the module set it globs`
-(`packages/web/src/tide/purity.test.ts`). Held back from wave 2 only because the two
-parser-agreement files are mirrors and their rulings should be made together rather than
-raced.
+**Wave 3 — Parallel, fenced apart:** `prd60 w3: both parser agreement mirrors pin both their
+axes` (`packages/server/src/comparisons/parser-agreement-law.test.ts` **and**
+`packages/web/src/lab/compare/parser-agreement-law.test.ts` — one issue, see below) ·
+`prd60 w3: the tide purity law pins the module set it globs`
+(`packages/web/src/tide/purity.test.ts`) · `prd60 w3: the coupling registry law pins the entries
+it iterates` (`packages/server/src/coupling-registry-law.test.ts`).
+
+**The two parser-agreement mirrors are one issue, not two (amended 2026-09-18).** They were
+declared as a pair held back from wave 2 because "their rulings should be made together rather
+than raced" — a hope, with nothing holding it. Grooming found what makes it structural: both
+derive **axis A from the same file**, `packages/contract/src/fixtures/comparison-artifact/cases.json`,
+so two lanes would make one Ruling 2 decision twice, independently, and could make it
+differently. Only axis B differs, each reading its own package's `artifact.ts`. That file was
+also **absent from `.swarm/coupling.txt`**, which is why the pairing was invisible to the fence
+lint — and it is why the registration was done **at grooming rather than by a wave-3 lane**: the
+same wave also pins the coupling registry's own law, so a lane adding an entry while a sibling
+lane pinned the entry list would have been a stack wearing a bundle's clothes. Registering it
+before anyone is dispatched costs nothing and removes the collision outright.
+
+The theme pair in wave 2 is deliberately **not** merged on the same reasoning, and the asymmetry
+is the point: both pin `themesOf(THEME)`, but `packages/web/src/scene/palette.test.ts` already
+pins that exact derivation one directory away, so each lane copies an in-tree precedent instead
+of inventing a ruling. A shared derivation with a settled pin is safe to race; a shared
+derivation with an open ruling is not.
 
 **Wave 4 — the verdict.** `prd60 w4: the grep-sweep family's source-side floor is ruled on, not
 assumed`. Ruling 4's written outcome, and any fix it calls for. Last because it is a sweep over
-~18 files, and a sweep that runs before the Tier-1 waves re-lays ground they are about to dig.
+19 files, and a sweep that runs before the Tier-1 waves re-lays ground they are about to dig.
+
+**Its form, settled 2026-09-18.** Ruling 4 allows the verdict "in the files or in a design
+note"; Success 5 wants the reason "in the file". Those pull apart across 19 files, and both are
+met by one design note carrying the reasoning plus a one-line comment in each Tier-2 file citing
+it. The comments are additive, which keeps the risk low even in the two entries that
+`.swarm/coupling.txt` registers as both-direction tripwires —
+`packages/server/src/api/route-class-law.test.ts` and
+`packages/server/src/paths/prefix-comparison-law.test.ts`, either of which reddens from a
+directory the lane never entered if a pin is disturbed.
 
 **Unfiled work implied, described not numbered:** whether the Tier-1 inventory is complete — it
 was produced by one systematic sweep, three entries re-read by hand and the rest REASONED, so a
