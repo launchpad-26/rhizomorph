@@ -2294,12 +2294,36 @@ describe('checkWatchedColonies — doctor names every colony (prd-58 ruling 1, #
     expect(checks[1]?.message).toContain('no agent placed here right now')
   })
 
-  it('an agent in NO repository yields no colony, and is counted rather than dropped', async () => {
+  it('an agent in NO repository yields no colony, and is NAMED rather than dropped', async () => {
     // ADR-0010: the gap is declared. A shorter list with no explanation is the
-    // reading that hides it.
+    // reading that hides it — and that is what this used to be. The actor
+    // matched no colony row, and `colonies:unplaced` counts only a cwd the
+    // PLATFORM would not report, so an agent working in `~` appeared in no line
+    // of the report at all. Reachable only since the census (#645).
     const checks = await checkWatchedColonies([actor(1, R('/home/operator'))], PINNED, execOver({}))
     expect(checks[0]?.message).toBe('watching 1 colony')
     expect(checks.some((c) => c.id === 'colonies:unplaced')).toBe(false)
+
+    const unrooted = checks.find((c) => c.id === 'colonies:unrooted')
+    expect(unrooted?.message).toContain('1 agent working outside any git repository')
+    expect(unrooted?.status).toBe('ok')
+  })
+
+  it('and says nothing about unrooted agents when there are none — not a zero row', async () => {
+    // The control. Without it the assertion above passes for a report that
+    // prints the line unconditionally, which is the honest-empty failure this
+    // repo spends its gap voices avoiding.
+    const checks = await checkWatchedColonies([actor(1, R('/work/beta'))], PINNED, execOver({ [R('/work/beta')]: R('/work/beta') }))
+    expect(checks.some((c) => c.id === 'colonies:unrooted')).toBe(false)
+  })
+
+  it('separates an agent with no cwd from one whose cwd is in no repo — different gaps, different lines', async () => {
+    // Windows reports no cwd at all; an agent in `~` reports one that belongs
+    // to nothing. Collapsing them would tell a Windows operator they have
+    // agents outside git, and a Linux operator that their platform is blind.
+    const checks = await checkWatchedColonies([actor(1, null), actor(2, R('/home/operator'))], PINNED, execOver({}))
+    expect(checks.find((c) => c.id === 'colonies:unplaced')?.message).toContain('1 agent')
+    expect(checks.find((c) => c.id === 'colonies:unrooted')?.message).toContain('1 agent')
   })
 
   it('states the WINDOWS gap when the witness could place nothing', async () => {

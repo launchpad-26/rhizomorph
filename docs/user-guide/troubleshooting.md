@@ -175,6 +175,44 @@ this machine at all. And a slug dir that exists but is empty says exactly
 that instead — `a session log dir for this repo exists at <dir> but has no
 *.jsonl files yet` — which is a repo that was opened and never worked in.
 
+## It is only watching one repository
+
+`rhizomorph doctor` says `watching 1 colony` and you know agents are running in
+other repos. Three causes, and `doctor` tells you which:
+
+**You are on Windows.** The platform does not expose another process's working
+directory, so the process witness identifies agents and cannot place them. A
+repository is discovered *from* a placement, so none can be. `doctor` names the
+gap rather than implying an empty machine:
+
+```
+[ok  ] 3 agents the process witness could not place — no colony inferred for
+       them (on Windows the platform reports no working directory)
+```
+
+That line is the tell: the agents were seen, and only their location was not.
+Linux and WSL both place them; a Windows-side `claude.exe` is not visible from
+inside WSL, so run the instrument on the side the agents are on.
+
+**The agent is not one this build matches.** Only argv that names a known agent
+CLI counts, and `doctor`'s harness roster line says which are implemented. A
+process the roster does not match is not an agent as far as this instrument is
+concerned, and contributes no repository.
+
+**The agent is not in a git repository.** An agent working in `~` or in a plain
+directory is real, is counted, and yields no repository — there is nothing to
+record it under. That is a declared gap, not a dropped process.
+
+If none of those fit, check that the agents really are where you think:
+
+```
+rhizomorph doctor | grep colony
+```
+
+names every repository it is watching and counts the agents placed in each, so a
+repo you expected and do not see is a question about placement rather than about
+discovery.
+
 ## No lane manifest (off-fence detection unavailable)
 
 The single most common `warn` on a fresh dispatch:

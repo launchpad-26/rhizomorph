@@ -295,6 +295,33 @@ export async function checkWatchedColonies(
     return { id: `colony:${colony.id}`, status: 'ok', message: `colony ${colony.id} — ${colony.path}${pinned}: ${voice}` }
   })
 
+  /**
+   * AN AGENT IN NO REPOSITORY — named, because the census can now see it.
+   *
+   * Its cwd resolved fine; it simply belongs to no git repository, so it enters
+   * no colony (that refusal is discovery's, and correct — ADR-0010 declares the
+   * gap rather than inventing a home). But it matched no colony row and was not
+   * in the unplaced count either, which counts only a cwd the platform would
+   * not report. So it appeared in no line of this report at all.
+   *
+   * That was invisible until #645: before the census, an actor outside the
+   * watched repo never reached this function, so there was nothing to omit.
+   * Widening what `doctor` reads is what made the silence reachable, and
+   * prd-58 ruling 6 is the standing instruction to name such an actor rather
+   * than drop it.
+   */
+  const unrooted = placed.filter((actor) => rootOf.get(actor.worktreePath as string) === null).length
+  const unrootedRow: DoctorCheck[] =
+    unrooted > 0
+      ? [
+          {
+            id: 'colonies:unrooted',
+            status: 'ok',
+            message: `${unrooted} agent${unrooted === 1 ? '' : 's'} working outside any git repository — counted, and no colony inferred for ${unrooted === 1 ? 'it' : 'them'}`,
+          },
+        ]
+      : []
+
   // The Windows gap, stated rather than left as a short list nobody can
   // account for: the process leg yields a command line and not a working
   // directory there, so every actor is unplaced and only the pin is found.
@@ -310,7 +337,7 @@ export async function checkWatchedColonies(
         ]
       : []
 
-  return [summary, ...rows, ...gap]
+  return [summary, ...rows, ...unrootedRow, ...gap]
 }
 
 export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
