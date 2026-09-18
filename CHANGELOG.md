@@ -583,6 +583,23 @@ first; full write-ups are in the numbered `docs/prd*.md` files and
 
 ### Fixed
 
+- **`rhizomorph doctor` no longer says the instrument cannot run over a failure that does
+  not stop it (#626).** `shipper` is the one check in that command that prints a red
+  `[FAIL]` without moving the exit code — a corrupt `team.json` is a real fault and is
+  meant to be loud, but recording is local and the app runs fine without a team server.
+  The summary underneath it still read `1 check failed — fix these before rhizomorph can
+  run.`, and then the command exited **0**. It now splits the two kinds of failure and
+  names them: a non-blocking one reads `1 check failed (shipper), but it does not stop
+  rhizomorph running, so this exits 0. Each [FAIL] line above says what is broken and how
+  to fix it.`, and a mixed run reads `1 check failed and must be fixed before rhizomorph
+  can run (web-build). 1 check failed without stopping it running (shipper).` A run whose
+  failures are all blocking still ends in exactly the sentence it always has.
+  **The exit code has not moved**, and `shipper` has deliberately not been added to the
+  set that moves it: only `target-path`, `web-build` and `port` do, exactly as before.
+  [The getting-started guide](docs/user-guide/getting-started.md) stated the opposite as
+  a rule — *"everything else is a `warn` that degrades gracefully"* — and now says what
+  actually ships.
+
 - **`rhizomorph doctor`'s last line now counts the warnings it just printed (#603).** The
   summary counted failures and nothing else, so any run without a failure closed with
   `All required checks passed.` — however many `[warn]` lines had scrolled past above it.

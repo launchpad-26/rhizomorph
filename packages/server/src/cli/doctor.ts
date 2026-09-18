@@ -369,42 +369,105 @@ const STATUS_LABEL: Record<CheckStatus, string> = { ok: 'ok  ', warn: 'warn', fa
  * tell the two apart. A count splits the class; no reword can. That is #592's ruling in
  * the team deploy doctor, and the hedge does not exempt this renderer from it.
  *
+ * THE SAME ARGUMENT THEN CONVICTED THE `fail` ARM, WHICH IS WHY IT PARTITIONS (#626).
+ *
+ * #603 left one sentence emitted for the whole `failing > 0` class, and that class is
+ * not uniform either: `FAILING_CHECK_IDS` is `{target-path, web-build, port}`, and a
+ * sweep of every `status: 'fail'` site in this file yields exactly one id outside it —
+ * {@link checkShipper}, at its two fail arms. So a corrupt `team.json` printed
+ * `[FAIL] shipper: …`, then `1 check failed — fix these before rhizomorph can run.`,
+ * and then exited **0**, because the instrument runs perfectly well without a shipper.
+ * The summary told the operator something the exit code contradicted one line later.
+ *
+ * The repair ruled on this issue keeps `checkShipper` emitting `fail` — a hand-edited
+ * `team.json` is a real fault and a `warn` would give it the weight of "tmux not found
+ * — optional" — and changes the words instead. But **two kinds of `[FAIL]` now exist by
+ * design**, and a sentence that merely hedges over both is #592's ruling inverted: one
+ * state-independent line for a class it cannot split. So the summary both splits the
+ * class and NAMES the ids on each side, because a mixed report prints two `[FAIL]` lines
+ * that look identical and a bare count leaves the reader unable to say which one they
+ * are allowed to keep running with.
+ *
  * WHAT IS DELIBERATELY NOT CHANGED: the exit code. {@link runDoctor} gates it on
- * `FAILING_CHECK_IDS` and a `warn` has never moved it. This function has no part in
- * that and does not claim one — which is why the warn clause below is appended as its
- * OWN sentence rather than folded into `fix these`, so nothing here says a warning
- * blocks the app.
+ * `FAILING_CHECK_IDS`, a `warn` has never moved it, and `shipper` is deliberately still
+ * outside that set. This function does not DECIDE any of that — but it no longer
+ * pretends to know nothing about it either, which is what #603's docblock claimed here.
+ * It reads **the same constant** the exit-code expression reads, so the sentence and the
+ * exit code cannot drift apart; a second "shipper is special" predicate local to this
+ * renderer was rejected, because two sources for one fact is how the defect above
+ * happened. The warn clause stays its own sentence rather than folded into `fix these`,
+ * so nothing here says a warning blocks the app.
  */
 export function renderDoctorReport(report: DoctorReport): string {
   const lines = report.checks.map((check) => `[${STATUS_LABEL[check.status]}] ${check.message}`)
-  const failing = report.checks.filter((check) => check.status === 'fail').length
+  const failed = report.checks.filter((check) => check.status === 'fail')
+  // Report order, never sorted: the names in the summary run in the same order as the
+  // `[FAIL]` lines the reader has just scrolled past, so the two can be paired up.
+  const blocking = failed.filter((check) => FAILING_CHECK_IDS.has(check.id)).map((check) => check.id)
+  const nonBlocking = failed.filter((check) => !FAILING_CHECK_IDS.has(check.id)).map((check) => check.id)
   const warning = report.checks.filter((check) => check.status === 'warn').length
-  return [...lines, '', summarise(failing, warning)].join('\n')
+  return [...lines, '', summarise(blocking, nonBlocking, warning)].join('\n')
 }
 
 /**
- * Three arms, and each is a report shape {@link runDoctor} actually produces.
+ * Five arms, and each is a report shape {@link runDoctor} actually produces.
  *
- * The `fail` arm keeps its sentence to the letter and gains the warn clause after it,
- * because a failing report usually carries warnings too — a missing web build beside an
- * absent lane manifest — and naming only the failures there is the same silence one
- * size smaller.
+ * WHY `shipper` IS OUTSIDE `FAILING_CHECK_IDS`, since this is the function that has to
+ * describe the consequence: the app really does keep running without it. Recording is
+ * local, the shipper is the optional hand that forwards batches to a team server, and a
+ * `doctor.test.ts` case pins `exitCode === 0` over a shipper failure on purpose —
+ * *"never fails the exit code — a shipper problem does not stop the app running"*.
+ * Adding `shipper` to the set would make the second arm below unnecessary and was
+ * rejected for that reason alone: it would overturn a deliberately pinned behaviour, and
+ * the behaviour is correct. What was wrong was the sentence, so the sentence moved.
+ *
+ * The all-blocking arm keeps its wording **byte for byte** — it is the arm the old
+ * sentence was always true of, and narrowing the change to the two shapes that carry a
+ * non-blocking failure is what keeps this a fix rather than a rewrite.
+ *
+ * The `fail` arms each gain the warn clause after them, because a failing report usually
+ * carries warnings too — a missing web build beside an absent lane manifest — and naming
+ * only the failures there is the same silence one size smaller.
  *
  * The word "required" in the clean arm stays informal, and binding it to
- * `FAILING_CHECK_IDS` was rejected rather than overlooked: {@link checkShipper} can
- * return `fail` and `shipper` is not in that set, so a summary scoped to "no REQUIRED
- * check failed" would sign a real `[FAIL]` line off as an all-clear. That trades a
- * missed warning for a missed failure. The adjective is simply no longer load-bearing —
- * the summary states counts, so nobody has to infer scope from it.
+ * `FAILING_CHECK_IDS` was rejected rather than overlooked (#603): a summary scoped to
+ * "no REQUIRED check failed" would sign a real `[FAIL] shipper` line off as an
+ * all-clear, trading a missed warning for a missed failure. The adjective is simply no
+ * longer load-bearing — the summary states counts and names, so nobody has to infer
+ * scope from it.
  */
-function summarise(failing: number, warning: number): string {
+function summarise(blocking: readonly string[], nonBlocking: readonly string[], warning: number): string {
   const checks = (n: number): string => `${n} check${n === 1 ? '' : 's'}`
-  if (failing > 0) {
-    const also =
-      warning > 0
-        ? ` ${checks(warning)} also warned — each [warn] line above says what is degraded and how to fix it.`
-        : ''
-    return `${checks(failing)} failed — fix these before rhizomorph can run.${also}`
+  const also =
+    warning > 0
+      ? ` ${checks(warning)} also warned — each [warn] line above says what is degraded and how to fix it.`
+      : ''
+  const remedy = ' Each [FAIL] line above says what is broken and how to fix it.'
+
+  // DO NOT "TIDY" THIS ARM BY APPENDING `remedy`. Every other fail arm ends with that
+  // clause and this one deliberately does not: it is the sentence the doctor has always
+  // printed and it is preserved BYTE FOR BYTE (#626). The inconsistency is the price of
+  // that preservation, a test pins the exact string, and appending the clause reddens it.
+  if (blocking.length > 0 && nonBlocking.length === 0) {
+    return `${checks(blocking.length)} failed — fix these before rhizomorph can run.${also}`
+  }
+  if (blocking.length > 0) {
+    return (
+      `${checks(blocking.length)} failed and must be fixed before rhizomorph can run (${blocking.join(', ')}). ` +
+      `${checks(nonBlocking.length)} failed without stopping it running (${nonBlocking.join(', ')}).${remedy}${also}`
+    )
+  }
+  if (nonBlocking.length > 0) {
+    // The plural branch cannot render today: `shipper` is the only check outside
+    // `FAILING_CHECK_IDS` that emits `fail`, so `nonBlocking` is never longer than one
+    // and no test drives `none of them stops`. Deliberate future-proofing, recorded
+    // rather than tested — the day a second one appears, the doc law reddens first
+    // (`the paragraph under it names the exit-code set this renderer actually uses`).
+    const stops = nonBlocking.length === 1 ? 'it does not stop' : 'none of them stops'
+    return (
+      `${checks(nonBlocking.length)} failed (${nonBlocking.join(', ')}), but ${stops} rhizomorph running, ` +
+      `so this exits 0.${remedy}${also}`
+    )
   }
   if (warning > 0) {
     return (
