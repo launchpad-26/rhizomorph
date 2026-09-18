@@ -1834,6 +1834,24 @@ describe('the summary speaks for every check it prints (#603)', () => {
    * The options that make every check `ok` — the same set the "fully healthy machine"
    * case at the top of this file uses. Each test below moves exactly one lever off it,
    * so the status mix it produces is stated by the test rather than inherited.
+   *
+   * `readProcessTable` is not optional here, and the reason is a PLATFORM SPLIT
+   * that hides it on exactly one leg (review of #645). Every test in this block
+   * counts the statuses of a WHOLE report, so any extra check moves the count.
+   * `runDoctor` now always takes a census, and `defaultProcessTableReader`
+   * disagrees with itself about where that reading comes from:
+   *
+   * - on **Linux** it is `createProcTableReader()`, which reads the real `/proc`
+   *   and ignores `exec` entirely — so the census is non-null, `colonies` is
+   *   `ok`, and the counts below happen to hold;
+   * - on **macOS** it is `readMacosTable`, which runs `ps` and `lsof` THROUGH
+   *   the injected `exec` — and `healthyExec` above serves neither, so the
+   *   reading is `null`, `colonies` warns that the table could not be read, and
+   *   all six counts here are off by one.
+   *
+   * So the suite was green on the leg it was measured on and deterministically
+   * red on the other. The Linux leg is not even stable in principle: it reads
+   * whatever the person running the suite has open.
    */
   const options = (overrides: Partial<Parameters<typeof runDoctor>[0]> = {}) => ({
     path: repoPath,
@@ -1845,6 +1863,7 @@ describe('the summary speaks for every check it prints (#603)', () => {
     nodeVersion: 'v22.5.0',
     rootPackageJsonPath: path.join(repoPath, 'does-not-exist.json'),
     env: { CLAUDE_CODE_ENABLE_TELEMETRY: '1' },
+    readProcessTable: NO_AGENTS_RUNNING,
     ...overrides,
   })
 
@@ -2266,6 +2285,52 @@ describe('checkWatchedColonies — doctor names every colony (prd-58 ruling 1, #
   it('never fails the run — a colony report is a reading, not a gate', async () => {
     const checks = await checkWatchedColonies([actor(1, null)], PINNED, execOver({}))
     expect(checks.every((c) => c.status === 'ok')).toBe(true)
+  })
+
+  /**
+   * A TABLE THAT COULD NOT BE READ AT ALL — `null`, which is not an empty
+   * machine (review of #645).
+   *
+   * `takeCensus` has its own law for producing `null` (`census.test.ts`: "a
+   * table this build cannot read is NULL, and emphatically not an empty
+   * machine"). Nothing asserted what the CONSUMER does with it, so the branch
+   * that handles it here shipped unexecuted by any test — the producer's law
+   * green above a consumer nobody read. It is reached in practice on every
+   * platform whose leg goes through `exec` (macOS `ps`/`lsof`, a Windows
+   * `Get-CimInstance`) as soon as that call fails, and on any platform with no
+   * leg built at all.
+   */
+  it('a table that could not be read WARNS and says so, rather than reporting an empty machine', async () => {
+    const checks = await checkWatchedColonies(null, PINNED, execOver({}))
+
+    const colonies = checks.find((c) => c.id === 'colonies')
+    expect(colonies?.status).toBe('warn')
+    // The two facts an operator needs: why the set is short, and that the pin
+    // is still watched. "watching 1 colony" would be the silent version.
+    expect(colonies?.message).toContain('could not be read')
+    expect(colonies?.message).toContain('only the repo this instrument was started in is watched')
+  })
+
+  it('and still names the pinned colony, with its placement declared unavailable', async () => {
+    // ADR-0010: the gap is declared. Reporting "no agent placed here right
+    // now" — the wording for a readable table with nobody in it — would be a
+    // blindness written up as a fact.
+    const checks = await checkWatchedColonies(null, PINNED, execOver({}))
+
+    const row = checks.find((c) => c.id.startsWith('colony:'))
+    expect(row?.message).toContain('pinned')
+    expect(row?.message).toContain('placement unavailable')
+    expect(row?.message).not.toContain('no agent placed here right now')
+  })
+
+  it('and never fails the run, and never claims a count it could not take', async () => {
+    const checks = await checkWatchedColonies(null, PINNED, execOver({}))
+
+    expect(checks.some((c) => c.status === 'fail')).toBe(false)
+    // `colonies:unplaced` counts actors the witness could not place. With no
+    // reading at all there is no count to state, and a `0` here would be the
+    // empty-machine lie in a second costume.
+    expect(checks.some((c) => c.id === 'colonies:unplaced')).toBe(false)
   })
 })
 
