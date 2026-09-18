@@ -1944,6 +1944,231 @@ describe('the summary speaks for every check it prints (#603)', () => {
   })
 })
 
+/** The failing ids, in report order — the premise every case below states before it asserts anything. */
+const failIdsOf = (report: Report): string[] =>
+  report.checks.filter((check) => check.status === 'fail').map((check) => check.id)
+
+const lastLineOf = (report: Report): string => renderDoctorReport(report).split('\n').at(-1) as string
+
+/** The two clauses the fail arms share, spelled once so a case cannot retype one of them wrong. */
+const FAIL_REMEDY = ' Each [FAIL] line above says what is broken and how to fix it.'
+const warnClause = (n: number): string =>
+  ` ${n} check${n === 1 ? '' : 's'} also warned — each [warn] line above says what is degraded and how to fix it.`
+
+/**
+ * THE SUMMARY SAYS WHICH FAILURES STOP THE INSTRUMENT AND WHICH DO NOT (#626).
+ *
+ * #603 split the `failing === 0` class with a count. It left the `failing > 0` class
+ * whole, and that class is not uniform: `FAILING_CHECK_IDS` is
+ * `{target-path, web-build, port}`, and a sweep of every `status: 'fail'` site in
+ * `doctor.ts` yields exactly one id outside it — `shipper`, at its two fail arms
+ * (nothing else in the file emits `fail` at all, and all three members of the set do,
+ * so the disagreement runs in one direction only). A corrupt `team.json` therefore
+ * printed `[FAIL] shipper: …`, then *"fix these before rhizomorph can run"*, and then
+ * exited **0**, because it runs.
+ *
+ * The ruling on #626 keeps the `[FAIL]` loud and changes the words, which means two
+ * kinds of `[FAIL]` now exist by design — so these cases assert that the summary tells
+ * them apart BY NAME. A count alone would pass a class-wide hedge, which is the trap
+ * #592's ruling named: one state-independent sentence cannot split a class.
+ *
+ * Every case goes through `runDoctor`, never a hand-built report, and **states its own
+ * premise as the list of failing ids** rather than a count — a count of 1 is satisfied
+ * by the wrong check, which is this defect one level in.
+ *
+ * **Every assertion about the summary's wording is on the FINAL LINE, byte for byte**,
+ * because a positive substring lets an appended clause hide inside it — #592 proved that
+ * on its own sibling. The three `toContain`s below are deliberately outside that rule and
+ * none of them can hide one:
+ *
+ * - a NEGATIVE on the final line — a substring that must be ABSENT stays absent however
+ *   much is appended, so the failure mode the rule exists for cannot occur;
+ * - a positive on the WHOLE rendered report, asserting the `[FAIL] shipper:` line exists
+ *   at all. That is a premise about the lines above the summary, not a check of the
+ *   summary's wording;
+ * - a positive on the final line whose needle is DERIVED from the report
+ *   (`so this exits ${report.exitCode}.`) and which sits beside a byte-for-byte pin of
+ *   that same line. It asserts the number the sentence names is the number the report
+ *   carries, rather than a literal 0 retyped beside a literal 0, and nothing can hide
+ *   inside a line the assertion above it has already fixed in full.
+ *
+ * That list is exhaustive: no positive substring assertion in this block stands alone on
+ * an unpinned line. This paragraph used to read "never `toContain`" and was contradicted
+ * three times by the code beneath it — a tracked prose claim false about the code beside
+ * it, which is precisely the defect class this issue exists to close.
+ */
+describe('a [FAIL] outside FAILING_CHECK_IDS does not say the instrument cannot run (#626)', () => {
+  let repoPath: string
+  let webDistDir: string
+  let claudeProjectsRoot: string
+  let dataRoot: string
+
+  beforeEach(async () => {
+    repoPath = await mkdtemp(path.join(tmpdir(), 'rhizomorph-doctor-blocking-repo-'))
+    webDistDir = await mkdtemp(path.join(tmpdir(), 'rhizomorph-doctor-blocking-web-'))
+    claudeProjectsRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-doctor-blocking-claude-'))
+    dataRoot = await mkdtemp(path.join(tmpdir(), 'rhizomorph-doctor-blocking-data-'))
+    await writeFile(path.join(webDistDir, 'index.html'), '<html></html>')
+    const slugDir = path.join(claudeProjectsRoot, worktreePathToProjectSlug(repoPath))
+    await mkdir(slugDir, { recursive: true })
+    await writeFile(path.join(slugDir, 'session-1.jsonl'), '')
+  })
+
+  afterEach(async () => {
+    await Promise.all([
+      rm(repoPath, { recursive: true, force: true }),
+      rm(webDistDir, { recursive: true, force: true }),
+      rm(claudeProjectsRoot, { recursive: true, force: true }),
+      rm(dataRoot, { recursive: true, force: true }),
+    ])
+  })
+
+  /** The all-`ok` baseline, as in the block above: each case moves exactly one lever off it. */
+  const options = (overrides: Partial<Parameters<typeof runDoctor>[0]> = {}) => ({
+    path: repoPath,
+    port: 0,
+    exec: healthyExec,
+    webDistDir,
+    claudeProjectsRoot,
+    dataRoot,
+    nodeVersion: 'v22.5.0',
+    rootPackageJsonPath: path.join(repoPath, 'does-not-exist.json'),
+    env: { CLAUDE_CODE_ENABLE_TELEMETRY: '1' },
+    ...overrides,
+  })
+
+  const writeLaneManifest = async (): Promise<void> => {
+    await mkdir(path.join(repoPath, '.swarm'), { recursive: true })
+    await writeFile(path.join(repoPath, '.swarm', 'lanes.json'), JSON.stringify({ version: 1, lanes: [] }))
+  }
+
+  /** The one lever that reaches a BLOCKING fail: `web-build` is in `FAILING_CHECK_IDS`. */
+  const breakWebBuild = (): Promise<void> => rm(path.join(webDistDir, 'index.html'))
+
+  /**
+   * The one lever that reaches a NON-BLOCKING fail — the issue's own case, a `team.json`
+   * a human hand-edited into invalid JSON. `checkShipper` refuses to read that as "off".
+   */
+  const breakShipper = async (): Promise<void> => {
+    await enableShipper(sessionDirFor(repoPath, dataRoot), {
+      url: 'https://team.example',
+      project: 'acme-widgets',
+      key: 'rzk_DOCTORFIXTUREVALUE0123456789',
+      now: () => 1,
+    })
+    await writeFile(shipperTeamConfigPath(repoPath, dataRoot), '{ not json')
+  }
+
+  const SHIPPER_ALONE =
+    '1 check failed (shipper), but it does not stop rhizomorph running, so this exits 0.' + FAIL_REMEDY
+
+  /**
+   * THE HEADLINE, AND IT IS THE NEGATIVE. The old sentence is a claim about the exit
+   * code, and the exit code on this very report is 0 — so its absence is the defect
+   * going away. Asserting the new wording (the case below) reddens on a REWORD; this one
+   * reddens on a regression to the LIE. Neither is to be traded for the other.
+   */
+  it('a shipper failure does not tell the operator the instrument cannot run', async () => {
+    await writeLaneManifest()
+    await breakShipper()
+    const report = await runDoctor(options())
+
+    expect(failIdsOf(report)).toEqual(['shipper'])
+    expect(countOf(report, 'warn')).toBe(0)
+
+    expect(renderDoctorReport(report)).toContain('[FAIL] shipper:')
+    expect(lastLineOf(report)).not.toContain('fix these before rhizomorph can run')
+    expect(report.exitCode).toBe(0)
+  })
+
+  it('…and names the check that failed, as the final line', async () => {
+    await writeLaneManifest()
+    await breakShipper()
+    const report = await runDoctor(options())
+
+    expect(failIdsOf(report)).toEqual(['shipper'])
+    expect(countOf(report, 'warn')).toBe(0)
+    expect(lastLineOf(report)).toBe(SHIPPER_ALONE)
+  })
+
+  /**
+   * The warn clause is unchanged by this issue and must still arrive after the new
+   * sentence rather than instead of it. The warn count is read OFF THE REPORT, so this
+   * asserts the summary agrees with the lines above it rather than with a literal.
+   */
+  it('a shipper failure beside warnings still says both', async () => {
+    await breakShipper()
+    const report = await runDoctor(options())
+    const warns = countOf(report, 'warn')
+
+    expect(failIdsOf(report)).toEqual(['shipper'])
+    expect(warns).toBe(1)
+    expect(lastLineOf(report)).toBe(SHIPPER_ALONE + warnClause(warns))
+    expect(report.exitCode).toBe(0)
+  })
+
+  /**
+   * THE CASE A COUNT-ONLY REPAIR CANNOT PASS, and the reason the summary names ids.
+   * Both `[FAIL]` lines look identical on screen; a reader who is told "2 checks failed,
+   * 1 of them blocking" still cannot say which one they may keep running with.
+   */
+  it('a blocking and a non-blocking failure are told apart, by name', async () => {
+    await writeLaneManifest()
+    await breakWebBuild()
+    await breakShipper()
+    const report = await runDoctor(options())
+
+    expect(failIdsOf(report)).toEqual(['web-build', 'shipper'])
+    expect(countOf(report, 'warn')).toBe(0)
+
+    expect(lastLineOf(report)).toBe(
+      '1 check failed and must be fixed before rhizomorph can run (web-build). ' +
+        '1 check failed without stopping it running (shipper).' +
+        FAIL_REMEDY,
+    )
+    expect(report.exitCode).toBe(1)
+  })
+
+  /**
+   * WHY `shipper` IS OUTSIDE `FAILING_CHECK_IDS`, written down so the next reader does
+   * not rediscover it. The app keeps running without a shipper — recording is local and
+   * the shipper is the optional hand that forwards batches to a team server — so the
+   * pinned `exitCode === 0` in the shipper block above is correct, and #626 was ruled to
+   * fix the SENTENCE rather than the set. This case is that reasoning as an assertion:
+   * the set is untouched, and the rendered summary now agrees with the exit code instead
+   * of contradicting it one line later.
+   */
+  it('the exit code stays 0, and the summary now agrees with it instead of contradicting it', async () => {
+    await writeLaneManifest()
+    await breakShipper()
+    const report = await runDoctor(options())
+
+    expect(failIdsOf(report)).toEqual(['shipper'])
+    expect(report.exitCode).toBe(0)
+    // The line is pinned in full first, so the substring below cannot hide anything; its
+    // needle is read OFF THE REPORT, so this asserts the number the sentence names is the
+    // number the report carries rather than a literal 0 retyped beside a literal 0.
+    expect(lastLineOf(report)).toBe(SHIPPER_ALONE)
+    expect(lastLineOf(report)).toContain(`so this exits ${report.exitCode}.`)
+  })
+
+  /**
+   * The preserved arm, witnessed in this block too: a report whose failures are ALL
+   * blocking is the report the old sentence was always true of, and it is unchanged byte
+   * for byte. Without this, narrowing the summary to name ids everywhere would be green.
+   */
+  it('a blocking failure alone is the sentence the doctor has always printed', async () => {
+    await writeLaneManifest()
+    await breakWebBuild()
+    const report = await runDoctor(options())
+
+    expect(failIdsOf(report)).toEqual(['web-build'])
+    expect(countOf(report, 'warn')).toBe(0)
+    expect(lastLineOf(report)).toBe('1 check failed — fix these before rhizomorph can run.')
+    expect(report.exitCode).toBe(1)
+  })
+})
+
 /**
  * THE SAMPLE RUN IN THE USER GUIDE IS WHERE THIS DEFECT WAS PUBLISHED (#603).
  *
@@ -1992,6 +2217,90 @@ describe('the getting-started sample block is the output this code produces', ()
       exitCode: 0,
     }
     expect(block.split('\n').at(-1)).toBe(renderDoctorReport(asReport).split('\n').at(-1))
+  })
+
+  /**
+   * THE PROSE UNDER THE BLOCK IS THE OTHER HALF, AND IT WAS FALSE FOR EXACTLY ONE CHECK (#626).
+   *
+   * The page told readers *"everything else is a `warn` that degrades gracefully"*, which
+   * is a rule rather than an aside, and `shipper` is a `FAIL`. Rather than a second copy
+   * of the corrected sentence, the claim is READ OUT of the page and then put back
+   * through `renderDoctorReport`: the ids the page says move the exit code must be the
+   * ids the renderer treats as blocking, and the exception the page names must be one the
+   * renderer says the instrument survives. This is the block law above, one paragraph
+   * down — same file read once, no second reader.
+   *
+   * The control at the end is what stops this being about the literal string `shipper`:
+   * an id the page names nowhere renders the same non-blocking arm, so what the law
+   * pins is `FAILING_CHECK_IDS` membership.
+   */
+  it('and the paragraph under it names the exit-code set this renderer actually uses', () => {
+    const blockingSentence = GUIDE.match(/Only ([^.]*?) can make the exit code non-zero/)
+    expect(blockingSentence, 'the premise: the page still states which checks move the exit code').not.toBeNull()
+    const docBlocking = [...(blockingSentence?.[1] as string).matchAll(/`([a-z-]+)`/g)].map((m) => m[1] as string)
+    expect(docBlocking).toEqual(['target-path', 'web-build', 'port'])
+
+    const exception = GUIDE.match(/with one deliberate exception: `([a-z-]+)` prints a `FAIL`/)
+    expect(
+      exception,
+      'the premise: the page names the one check that prints a FAIL without moving the exit code',
+    ).not.toBeNull()
+    const docException = exception?.[1] as string
+
+    const lastLineFor = (id: string): string =>
+      renderDoctorReport({ checks: [{ id, status: 'fail', message: 'x' }], exitCode: 0 }).split('\n').at(-1) as string
+    const BLOCKING_SENTENCE = '1 check failed — fix these before rhizomorph can run.'
+
+    /**
+     * THE PREMISE THE PAGE'S SENTENCE RESTS ON, AND IT IS NOT "WHICH SIDE OF THE SET".
+     *
+     * Everything below tests which side of `FAILING_CHECK_IDS` an id falls on, and every
+     * id in the universe falls on one of them — so without this the page could name
+     * `session-logs`, which never emits `fail` at all, as *"the one check that prints a
+     * `FAIL`"*, and the whole law would stay green. That is this issue's own defect one
+     * size smaller: a tracked prose claim the code beside it does not support.
+     *
+     * So the ids that can actually render a `FAIL` are swept out of `doctor.ts` — each
+     * `status: 'fail'` site attributed to the nearest `id:` above it — and the page's
+     * four names must be exactly that set. This pins the sweep in BOTH directions: a new
+     * check that gains a `fail` arm reddens here until the page accounts for it (the
+     * page claims *one* deliberate exception), and a member of the exit-code set that
+     * can never fail reddens here too.
+     */
+    const DOCTOR_SOURCE = readFileSync(
+      path.join(path.dirname(fileURLToPath(import.meta.url)), 'doctor.ts'),
+      'utf8',
+    ).replace(/\r\n/g, '\n')
+
+    const failEmitters: string[] = []
+    let nearestId: string | null = null
+    for (const line of DOCTOR_SOURCE.split('\n')) {
+      // Comment lines are skipped, and the docblocks in that file DO discuss
+      // `status: 'fail'` by name — counting one attributed the nearest unrelated id and
+      // reddened this law for prose. Code only.
+      if (/^\s*(\*|\/\/|\/\*)/.test(line)) continue
+      const found = line.match(/\bid: '([a-z0-9:-]+)'/)
+      if (found !== null) nearestId = found[1] as string
+      if (/\bstatus: 'fail'/.test(line) && nearestId !== null && !failEmitters.includes(nearestId)) {
+        failEmitters.push(nearestId)
+      }
+    }
+
+    expect([...failEmitters].sort()).toEqual([...docBlocking, docException].sort())
+
+    // Every id the page calls exit-code-moving renders the arm that tells the operator to
+    // fix it first. If `FAILING_CHECK_IDS` loses a member, the page is wrong and this reddens.
+    for (const id of docBlocking) expect(lastLineFor(id), id).toBe(BLOCKING_SENTENCE)
+
+    // And the exception renders the arm that says the opposite — naming itself, and
+    // stating the exit code the page claims for it.
+    expect(lastLineFor(docException)).not.toBe(BLOCKING_SENTENCE)
+    expect(lastLineFor(docException)).toContain(docException)
+    expect(lastLineFor(docException)).toContain('so this exits 0.')
+
+    // The control: an id the page names nowhere is treated identically, so the split this
+    // law pins is set membership and not the word `shipper`.
+    expect(lastLineFor('session-logs')).toBe(lastLineFor(docException).replace(docException, 'session-logs'))
   })
 })
 

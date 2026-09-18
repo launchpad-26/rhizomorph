@@ -136,8 +136,12 @@ check, and its `warn` forms are in
 
 Every line is `ok`, `warn`, or `FAIL`, each with its exact remedy baked in.
 Only `target-path`, `web-build`, and `port` can make the exit code non-zero
-(a genuinely unrunnable state); everything else is a `warn` that degrades
-gracefully. See [troubleshooting.md](troubleshooting.md) for what the common
+(a genuinely unrunnable state). Everything else is a `warn` that degrades
+gracefully, with one deliberate exception: `shipper` prints a `FAIL` — a
+corrupt `team.json` is a real fault and should look like one — and still
+exits 0, because the instrument runs without it. The summary line names each
+failure and says which of them stop rhizomorph running. See
+[troubleshooting.md](troubleshooting.md) for what the common
 `warn`/`FAIL` lines mean.
 
 ## Your first dashboard, in five minutes
