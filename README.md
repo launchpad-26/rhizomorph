@@ -8,11 +8,17 @@ what a swarm is doing, live, and can replay the session afterward.
 
 It **draws one repository at a time**, and that is a decision rather than a
 limit: the scene composes a single colony so its supported size stays a
-question with a measured answer. Nothing is hidden by it. Every other watched
-repository is counted, its lanes are listed, and a lane anywhere that needs a
-person reaches the tray — so choosing what to look at never changes what you are
-told. Starting inside a repo puts that one first, which is why the
-zero-configuration case looks exactly like it always did.
+question with a measured answer. Nothing is dropped by it — every repository an
+agent of yours is working in gets its own recording, and a lane anywhere that
+needs a person reaches the tray whether or not you are looking at that repo.
+Starting inside a repo puts that one first, which is why the zero-configuration
+case looks exactly like it always did.
+
+**What is not built yet, said here rather than left to be discovered:** there is
+no picker in the window. The view draws the repo you started in, and the others
+are read through `rhizomorph doctor` — which names every one and counts the
+agents placed in it — and through the tray, which carries their alarms. Listing
+another repo's lanes by name is the same unbuilt surface.
 
 Watching is read-only, absolutely; there are separate, opt-in hands for
 recording, for running experiments, and for setting a repo up in the first place
@@ -856,8 +862,8 @@ Neither tmux nor workmux is required to see a working dashboard — `doctor`
 Start it inside a fresh clone of some other repo — no worktrees beyond `main`,
 no tmux session, no telemetry configured — and here's exactly what you get,
 not a placeholder. (That repo becomes the pinned colony: the one this run starts
-in, first in the selector, watched on exactly the same terms as any other it
-discovers later.)
+in, first in the watched set and the one the scene draws, watched on exactly the
+same terms as any other it discovers later.)
 
 - The **attention strip** at the top reads `ALL CLEAR`, with an evidence
   line ("0 lanes · 0 branches · 0 files checked · collisions 0") rather than
