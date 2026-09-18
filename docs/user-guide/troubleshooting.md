@@ -175,6 +175,57 @@ this machine at all. And a slug dir that exists but is empty says exactly
 that instead — `a session log dir for this repo exists at <dir> but has no
 *.jsonl files yet` — which is a repo that was opened and never worked in.
 
+## It is only watching one repository
+
+`rhizomorph doctor` says `watching 1 colony` and you know agents are running in
+other repos. Three causes, and `doctor` tells you which:
+
+**You are on Windows.** The platform does not expose another process's working
+directory, so the process witness identifies agents and cannot place them. A
+repository is discovered *from* a placement, so none can be. `doctor` names the
+gap rather than implying an empty machine:
+
+```
+[ok  ] 3 agents the process witness could not place — no colony inferred for
+       them (on Windows the platform reports no working directory)
+```
+
+That line is the tell: the agents were seen, and only their location was not.
+Linux and WSL both place them; a Windows-side `claude.exe` is not visible from
+inside WSL, so run the instrument on the side the agents are on.
+
+**The agent is not one this build matches.** Only argv that names a known agent
+CLI counts, and `doctor`'s harness roster line says which are implemented. A
+process the roster does not match is not an agent as far as this instrument is
+concerned, and contributes no repository.
+
+**`git` named no repository for the agent's working directory.** The agent is
+real, is counted, and enters no colony:
+
+```
+[ok  ] 1 agent counted with no colony inferred — git named no repository for its
+       working directory, which is either a directory outside any repository or a
+       git that could not answer
+```
+
+That line deliberately does not diagnose which. An agent working in `~` and a
+machine where `git` is missing or timed out reach this the same way, so naming
+one of them would be a guess dressed as a finding. If the agent *should* be in a
+repository, check `git` from the same directory yourself.
+
+If none of those fit, check that the agents really are where you think:
+
+```
+rhizomorph doctor | grep colony
+```
+
+names every repository it can see an agent in right now and counts the agents
+placed in each, so a repo you expected and do not see is a question about
+placement rather than about discovery. One case is neither: a repository whose
+agents have all **exited** is still watched by a running server and still has
+its recording, and `doctor` will not name it — it reads the process table, not
+the recorder's directories.
+
 ## No lane manifest (off-fence detection unavailable)
 
 The single most common `warn` on a fresh dispatch:

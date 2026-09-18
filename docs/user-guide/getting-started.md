@@ -56,12 +56,24 @@ watching <path> — N worktrees, M branches · recording to ~/.local/share/rhizo
 ```
 
 **The path you give it is where it STARTS, not the limit of what it watches.**
-That repo becomes the pinned colony — first in the selector, and the one the
-scene draws to begin with. From then on, any other repository an agent is
-working in is discovered from the process table and watched on exactly the same
-terms: its own recording under its own slug, its lanes in the fleet list, and
-its alarms on the tray whether or not you are looking at it. `rhizomorph doctor`
-names every colony it is watching, so you can check rather than assume.
+That repo becomes the pinned colony — first in the watched set, and the one the
+scene draws. From then on, any other repository an agent is working in is
+discovered from the process table and watched on exactly the same terms: its own
+recording under its own slug, and its alarms on the tray whether or not you are
+looking at it. `rhizomorph doctor` names every colony it can see an agent in
+right now and counts the agents placed in each, so you can check rather than
+assume:
+
+```
+[ok  ] watching 3 colonies
+[ok  ] colony alpha-365b21dc — /home/you/alpha (pinned — started here): 2 agents placed here
+[ok  ] colony beta-0da9c913 — /home/you/beta: 1 agent placed here
+[ok  ] colony gamma-4c91b9ca — /home/you/gamma: 1 agent placed here
+```
+
+**There is no picker in the window yet**, so `doctor` and the tray are how you
+read the repos the scene is not drawing. Naming another colony's lanes is part
+of the same unbuilt surface.
 
 There is no command that adds a repository nobody is working in. A repo with no
 agent in it produces nothing this instrument would record, so the way to start

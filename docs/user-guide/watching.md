@@ -4,6 +4,45 @@ This is the read-only hand — collectors, receiver, server, UI. It never
 writes to the repo you're watching, never sends a keystroke to an agent,
 never merges anything. This page is what the picture on screen means.
 
+## Which repositories are being watched
+
+**Every one your agents are working in**, not the one you started in. The path
+you pass is a pin, not a limit: it is watched first and it is what the scene
+draws, and any other repository an agent of yours is running in is discovered
+from the process table and watched on the same terms — its own recording, under
+its own slug, in your own data directory.
+
+A repository becomes watched by **an agent working in it**, and by nothing else.
+There is no command that adds one, and a repo nobody is running anything in
+produces no facts this design would record. Several worktrees of one repository
+are one watched repository, not several: the grouping key is what `git` calls
+the common directory, so a lane and its main checkout land together.
+
+**The window draws one at a time and there is no picker yet.** Two surfaces
+cover the rest:
+
+- `rhizomorph doctor` names every repository it can see an agent in **right
+  now**, marks the pinned one, and counts the agents placed in each. It also
+  counts the agents it could *not* place, rather than presenting a short list as
+  complete.
+
+  *"Right now"* is the exact claim, and the gap is worth knowing: the running
+  server keeps watching a repository after its agents exit — the recording is
+  still a recording — while `doctor` takes a fresh reading of the process table.
+  So `doctor` can name **fewer** repositories than the server is watching. It
+  never names more.
+- **The tray** carries alarms from anywhere. A lane that needs a person raises
+  the badge whether or not its repository is the one on screen.
+
+What is not there yet: a picker in the window, and any listing of another
+repository's lanes by name.
+
+**On Windows, only the repository you started in is watched.** The platform does
+not report another process's working directory, so agents are identified and not
+placed, and nothing can be discovered from them. `doctor` says so and counts
+them rather than reporting an empty machine — see
+[troubleshooting](troubleshooting.md#it-is-only-watching-one-repository).
+
 ## The fleet surface
 
 *Who is alive* is one surface with two representations and one toggle (prd-36

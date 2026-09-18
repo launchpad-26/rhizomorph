@@ -106,6 +106,15 @@ application group (surveyed like everything else, host-aware — it says when
 the host cannot honour it). The window and taskbar carry the app icon from
 `packages/app/build/icon.png`.
 
+**The tray badge answers for every repository, not just the drawn one.** The
+window shows the repo the server started in, and a lane that needs a person in
+any other watched repository still raises the badge — so closing to the tray
+does not narrow what you are told to the one repo on screen. Until a lane is
+reported from a server that knows about the others, the badge shows the rung
+alone and claims nothing about repositories it has not been told about; that is
+a gap rather than a zero. `rhizomorph doctor` is where you read them by name —
+see [watching](watching.md#which-repositories-are-being-watched).
+
 On WSL2 the shell re-launches itself once with the GPU environment the WSLg
 seam needs (`GALLIUM_DRIVER`, the WSL library path) — if the scene ever comes
 up software-rendered, see [troubleshooting](troubleshooting.md).

@@ -211,6 +211,16 @@ export function parseDoctorArgs(argv: readonly string[]): DoctorArgs {
  * dropping two" is a report that names them. Everything else about this PRD is
  * visible only to someone who already knows to look.
  *
+ * **A LIMIT THIS REPORT HAS, stated because the docblock below promises the
+ * opposite.** This names the repositories an agent is in **right now**, from a
+ * fresh census. The server's watched set is additive — `ColonySupervisor.sync`
+ * never removes a colony — so a repository whose agents have all exited is
+ * still being watched and still has a recording, and will not appear here.
+ * `doctor` may therefore name fewer repositories than the running instrument
+ * watches, which is a narrower disagreement than the one below but a
+ * disagreement all the same. Closing it means reading the recorder's own
+ * directories rather than the process table, and that is its own change.
+ *
  * **It runs the SAME discovery the server runs**, over the process table the
  * fold already holds, rather than a second implementation that agrees by
  * coincidence. `doctor` and the running instrument disagreeing about which
@@ -295,6 +305,42 @@ export async function checkWatchedColonies(
     return { id: `colony:${colony.id}`, status: 'ok', message: `colony ${colony.id} — ${colony.path}${pinned}: ${voice}` }
   })
 
+  /**
+   * AN AGENT IN NO REPOSITORY — named, because the census can now see it.
+   *
+   * Its cwd resolved fine; it simply belongs to no git repository, so it enters
+   * no colony (that refusal is discovery's, and correct — ADR-0010 declares the
+   * gap rather than inventing a home). But it matched no colony row and was not
+   * in the unplaced count either, which counts only a cwd the platform would
+   * not report. So it appeared in no line of this report at all.
+   *
+   * That was invisible until #645: before the census, an actor outside the
+   * watched repo never reached this function, so there was nothing to omit.
+   * Widening what `doctor` reads is what made the silence reachable, and
+   * prd-58 ruling 6 is the standing instruction to name such an actor rather
+   * than drop it.
+   *
+   * **It does not say WHY, because the resolver cannot.** `RepoRootResolver`
+   * says so itself: *"'Not a git repository' is a non-zero exit and reaches
+   * here as the same `null` as 'no git installed'"* — and a timeout is a third.
+   * A line reading "working outside any git repository" would name one of those
+   * as fact, which is a diagnosis for an agent that may be sitting in a real
+   * repository on a machine where `git` did not answer. Review of #647 caught
+   * exactly that wording here. What is known is that no root came back, so that
+   * is what this says, with both live causes named and neither asserted.
+   */
+  const unresolved = placed.filter((actor) => rootOf.get(actor.worktreePath as string) === null).length
+  const unresolvedRow: DoctorCheck[] =
+    unresolved > 0
+      ? [
+          {
+            id: 'colonies:unresolved',
+            status: 'ok',
+            message: `${unresolved} agent${unresolved === 1 ? '' : 's'} counted with no colony inferred — git named no repository for ${unresolved === 1 ? 'its' : 'their'} working directory, which is either a directory outside any repository or a git that could not answer`,
+          },
+        ]
+      : []
+
   // The Windows gap, stated rather than left as a short list nobody can
   // account for: the process leg yields a command line and not a working
   // directory there, so every actor is unplaced and only the pin is found.
@@ -310,7 +356,7 @@ export async function checkWatchedColonies(
         ]
       : []
 
-  return [summary, ...rows, ...gap]
+  return [summary, ...rows, ...unresolvedRow, ...gap]
 }
 
 export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
