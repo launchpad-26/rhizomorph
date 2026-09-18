@@ -8,6 +8,7 @@ import { runHookCommand } from './cli/hook.js'
 import { createBeaconCollector } from './collectors/beacon/collector.js'
 import { parseBeaconLine } from './collectors/beacon/parse-beacon-line.js'
 import { beaconLineBelongsTo } from './collectors/beacon/paths.js'
+import { createProcessCollector } from './collectors/process/index.js'
 import { repoSlug } from './log/paths.js'
 import { canonicalize } from './paths/containment.js'
 import { createRepoRootResolver } from './paths/repo-root.js'
@@ -250,5 +251,102 @@ describe('prd-57 + prd-58 end to end, on real repositories', () => {
     for (const beacon of beacons) {
       expect((beacon.payload as { cwd?: string }).cwd).not.toBe(betaWt)
     }
+  }, 60_000)
+})
+
+describe('prd-57 + prd-58: the witness actually produces what discovery reads (#645)', () => {
+  /**
+   * THE SEAM SEAM 1 ASSUMED.
+   *
+   * SEAM 1 hands `discover` a hand-built `[actorAt(4001, alpha), actorAt(4002,
+   * alphaWt), actorAt(4003, beta)]` and proves discovery groups them. Every
+   * actor in that list is one the running collector could not produce: it
+   * dropped anything outside `repoPath`, and `git worktree add` puts a lane
+   * outside it. So the assertion was about the shape of an input nothing made —
+   * the defect shape this repo keeps meeting, an assertion that the input is
+   * well-formed standing in for one that something reads it.
+   *
+   * Here the actors come from the collector, over the same real repositories.
+   */
+  function rowAt(pid: number, cwd: string) {
+    return { pid, argv: ['claude'], cwd, startedAt: 1_000, cpuMs: 1, rssBytes: 1, parentPid: 1 }
+  }
+
+  async function witness(repoPath: string, worktreePaths: readonly string[], cwds: string[]) {
+    const census: { pid: number; worktreePath: string | null }[] = []
+    const collector = createProcessCollector({
+      worktreePaths: () => worktreePaths,
+      onCensus: (sightings) => census.push(...sightings),
+      readTable: async () => ({ rows: cwds.map((cwd, index) => rowAt(4001 + index, cwd)) }),
+    })
+    let next = 0
+    const result = await collector.poll(
+      collector.initialSnapshot(),
+      createCollectorContext({
+        repoPath,
+        now: Date.UTC(2026, 8, 18, 12, 0, 0),
+        exec: async () => {
+          throw new Error('placement must not exec')
+        },
+        nextId: () => `proc-${(next += 1)}`,
+      }),
+    )
+    return { census, events: result.events }
+  }
+
+  it('the collector places an agent in ALPHA-WT — a lane git put outside alpha', async () => {
+    const { events } = await witness(alpha, [alphaWt], [alphaWt, betaWt, root])
+
+    const seen = events.filter((event) => event.type === 'process.seen')
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.payload).toMatchObject({ placement: 'rooted', worktreePath: alphaWt })
+  }, 60_000)
+
+  it('and records NEITHER beta nor the unrooted agent — ruling 2, each colony its own facts', async () => {
+    const { events } = await witness(alpha, [alphaWt], [alphaWt, betaWt, root])
+    const paths = events.filter((event) => event.type === 'process.seen').map((event) => event.payload.worktreePath)
+    expect(paths).not.toContain(betaWt)
+    expect(paths).not.toContain(root)
+  }, 60_000)
+
+  it('discovery, fed the CENSUS, names alpha and beta — Success 1 end to end', async () => {
+    const { census } = await witness(alpha, [alphaWt], [alphaWt, betaWt, root])
+    const discovery = createColonyDiscovery({
+      pinnedRepoPath: alpha,
+      resolver: createRepoRootResolver(realExec),
+    })
+
+    const colonies = await discovery.discover(census)
+
+    // Two colonies from three agents: alpha's lane and beta's lane resolve to
+    // their repos, and the one sitting in `root` — a directory that is no git
+    // repository — yields none rather than inventing one (ADR-0010).
+    expect(colonies.map((colony) => colony.path)).toEqual([alpha, beta])
+    expect(colonies.map((colony) => colony.id)).toEqual([repoSlug(alpha), repoSlug(beta)])
+    expect(colonies[0]?.pinned).toBe(true)
+  }, 60_000)
+
+  it('and fed the RECORDING instead, names only the pin — the defect, pinned as a fact', async () => {
+    /**
+     * The control, and the whole reason the census exists. `cli/run.ts` read
+     * `recorder.foldSoFar().processes` — which is exactly the set of actors the
+     * events below describe — so the watched set could never grow past the pin,
+     * whatever was running on the machine.
+     *
+     * This asserts the OLD wiring's answer, so a future edit that quietly
+     * points the sweep back at a colony's fold fails here with the reason
+     * written down beside it.
+     */
+    const { events } = await witness(alpha, [alphaWt], [alphaWt, betaWt, root])
+    const recorded = events
+      .filter((event) => event.type === 'process.seen')
+      .map((event) => ({ worktreePath: event.payload.worktreePath }))
+
+    const discovery = createColonyDiscovery({
+      pinnedRepoPath: alpha,
+      resolver: createRepoRootResolver(realExec),
+    })
+
+    expect((await discovery.discover(recorded)).map((colony) => colony.path)).toEqual([alpha])
   }, 60_000)
 })

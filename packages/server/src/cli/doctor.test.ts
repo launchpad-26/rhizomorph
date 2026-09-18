@@ -5,7 +5,7 @@ import { createServer, type Server } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { AgentProcess, Exec, ExecResult } from '@rhizomorph/core'
+import type { Exec, ExecResult } from '@rhizomorph/core'
 import {
   BEACON_LAPSE_MS,
   CONFIGURED_SILENT_REASON,
@@ -17,13 +17,14 @@ import {
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CAPABILITY_TOKEN_HEADER } from '../api/security.js'
 import { processWitnessCapabilitiesFor } from '../collectors/process/doctor-row.js'
+import type { AgentSighting } from '../collectors/process/index.js'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/worktree-slug.js'
 import { repoSlug, sessionDirFor } from '../log/paths.js'
-import { canonicalize } from '../paths/containment.js'
-import { exec as realExec } from '../server/exec.js'
 import { writeSessionLock } from '../log/session-lock.js'
 import { RESUME_WINDOW_MS, readResumedCount, recordResume, sessionFilePath } from '../log/session-log.js'
+import { canonicalize } from '../paths/containment.js'
 import { SessionLogWriter } from '../recorder/index.js'
+import { exec as realExec } from '../server/exec.js'
 // Through `connect-team.ts`, the hand's one declared importer, never
 // `../shipper/index.js`: a second route in is what ADR-0034's clause-3 seam
 // exists to refuse, and `shipper/hand-law.test.ts` convicts a test file for it
@@ -2160,20 +2161,12 @@ describe('checkWatchedColonies — doctor names every colony (prd-58 ruling 1, #
   const R = (p: string) => path.resolve(p)
   const PINNED = R('/repo/main')
 
-  function actor(pid: number, worktreePath: string | null): AgentProcess {
-    return {
-      pid,
-      dialect: 'claude',
-      startedAt: 1_000,
-      worktreePath,
-      placement: worktreePath === null ? 'unknown' : 'rooted',
-      parentPid: null,
-      cpuMsDelta: null,
-      rssBytes: null,
-      seenAt: 1_000,
-      goneAt: null,
-      goneReason: null,
-    }
+  // A CENSUS sighting, which is what `doctor` reads now (#645): a pid, a
+  // dialect and a cwd, with no placement word. The classification is the
+  // resolver's, and a fixture that pre-classified would be asserting its own
+  // answer back.
+  function actor(pid: number, worktreePath: string | null): AgentSighting {
+    return { pid, dialect: 'claude', worktreePath }
   }
 
   /** A `git rev-parse --git-common-dir` that answers from a fixed table. */
@@ -2189,11 +2182,7 @@ describe('checkWatchedColonies — doctor names every colony (prd-58 ruling 1, #
     // The whole criterion: "not met while any agent facts are discarded for
     // being outside a chosen repo". An operator cannot tell "watching three"
     // from "watching one and dropping two" except by a report that names them.
-    const processes = {
-      a: actor(1, R('/repo/main')),
-      b: actor(2, R('/work/beta')),
-      c: actor(3, R('/work/gamma')),
-    }
+    const processes = [actor(1, R('/repo/main')), actor(2, R('/work/beta')), actor(3, R('/work/gamma'))]
     const checks = await checkWatchedColonies(
       processes,
       PINNED,
@@ -2210,7 +2199,7 @@ describe('checkWatchedColonies — doctor names every colony (prd-58 ruling 1, #
   it('groups several worktrees of one repo into ONE colony', async () => {
     // A resolver answering with the worktree root would report three here, and
     // every other assertion in this file would still pass.
-    const processes = { a: actor(1, R('/work/beta')), b: actor(2, R('/work/beta-wt/x')), c: actor(3, R('/work/beta-wt/y')) }
+    const processes = [actor(1, R('/work/beta')), actor(2, R('/work/beta-wt/x')), actor(3, R('/work/beta-wt/y'))]
     const checks = await checkWatchedColonies(
       processes,
       PINNED,
@@ -2222,7 +2211,7 @@ describe('checkWatchedColonies — doctor names every colony (prd-58 ruling 1, #
   })
 
   it('names the pinned colony even with no agents anywhere', async () => {
-    const checks = await checkWatchedColonies({}, PINNED, execOver({}))
+    const checks = await checkWatchedColonies([], PINNED, execOver({}))
     expect(checks[0]?.message).toBe('watching 1 colony')
     expect(checks[1]?.message).toContain('pinned')
     expect(checks[1]?.message).toContain('no agent placed here right now')
@@ -2231,7 +2220,7 @@ describe('checkWatchedColonies — doctor names every colony (prd-58 ruling 1, #
   it('an agent in NO repository yields no colony, and is counted rather than dropped', async () => {
     // ADR-0010: the gap is declared. A shorter list with no explanation is the
     // reading that hides it.
-    const checks = await checkWatchedColonies({ a: actor(1, R('/home/operator')) }, PINNED, execOver({}))
+    const checks = await checkWatchedColonies([actor(1, R('/home/operator'))], PINNED, execOver({}))
     expect(checks[0]?.message).toBe('watching 1 colony')
     expect(checks.some((c) => c.id === 'colonies:unplaced')).toBe(false)
   })
@@ -2240,14 +2229,14 @@ describe('checkWatchedColonies — doctor names every colony (prd-58 ruling 1, #
     // The platform yields a command line and not a working directory, so every
     // actor is unplaced and only the pin is found. Said out loud rather than
     // left as a short list nobody can account for.
-    const checks = await checkWatchedColonies({ a: actor(1, null), b: actor(2, null) }, PINNED, execOver({}))
+    const checks = await checkWatchedColonies([actor(1, null), actor(2, null)], PINNED, execOver({}))
     const gap = checks.find((c) => c.id === 'colonies:unplaced')
     expect(gap?.message).toContain('2 agents')
     expect(gap?.message).toContain('could not place')
   })
 
   it('never fails the run — a colony report is a reading, not a gate', async () => {
-    const checks = await checkWatchedColonies({ a: actor(1, null) }, PINNED, execOver({}))
+    const checks = await checkWatchedColonies([actor(1, null)], PINNED, execOver({}))
     expect(checks.every((c) => c.status === 'ok')).toBe(true)
   })
 })
@@ -2257,18 +2246,10 @@ describe('checkWatchedColonies counts agents where agents actually are (review o
   let laneRepo: string
   let lane: string
 
-  const actorInLane = (pid: number, worktreePath: string | null): AgentProcess => ({
+  const actorInLane = (pid: number, worktreePath: string | null): AgentSighting => ({
     pid,
     dialect: 'claude',
-    startedAt: 1,
     worktreePath,
-    placement: worktreePath === null ? 'unknown' : 'rooted',
-    parentPid: null,
-    cpuMsDelta: null,
-    rssBytes: null,
-    seenAt: 1,
-    goneAt: null,
-    goneReason: null,
   })
 
   beforeAll(async () => {
@@ -2293,7 +2274,7 @@ describe('checkWatchedColonies counts agents where agents actually are (review o
   })
 
   it('an agent in a linked worktree is an agent placed in its colony', async () => {
-    const checks = await checkWatchedColonies({ '1': actorInLane(1, lane) }, laneRepo, realExec)
+    const checks = await checkWatchedColonies([actorInLane(1, lane)], laneRepo, realExec)
     const row = checks.find((check) => check.id.startsWith('colony:'))
     // Before this fix the count was `actor.worktreePath === colony.path`, so a
     // colony discovered BECAUSE an agent was working in it reported zero.
@@ -2303,7 +2284,7 @@ describe('checkWatchedColonies counts agents where agents actually are (review o
 
   it('an agent at the repo root still counts, and two agents count as two', async () => {
     const checks = await checkWatchedColonies(
-      { '1': actorInLane(1, lane), '2': actorInLane(2, laneRepo) },
+      [actorInLane(1, lane), actorInLane(2, laneRepo)],
       laneRepo,
       realExec,
     )
@@ -2313,7 +2294,7 @@ describe('checkWatchedColonies counts agents where agents actually are (review o
 
   it('an agent in no repository is still reported as unplaced, not as placed here', async () => {
     const checks = await checkWatchedColonies(
-      { '1': actorInLane(1, lane), '2': actorInLane(2, null) },
+      [actorInLane(1, lane), actorInLane(2, null)],
       laneRepo,
       realExec,
     )

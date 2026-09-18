@@ -4,7 +4,7 @@ import { type BeaconCollectorConfig, createBeaconCollector } from '../collectors
 import { gitCollector } from '../collectors/git/index.js'
 import { createJudgeCollector, DEFAULT_JUDGE_CADENCE_MS } from '../collectors/judge/index.js'
 import { createPiCollector, type PiCollectorConfig } from '../collectors/pi/index.js'
-import { createProcessCollector } from '../collectors/process/index.js'
+import { createProcessCollector, type ProcessCollectorOptions } from '../collectors/process/index.js'
 import type { DisableableSnapshot } from '../collectors/resilience.js'
 import { withResilience } from '../collectors/resilience.js'
 import {
@@ -71,6 +71,7 @@ export async function loadCollectors(
   sessionlogConfig: SessionlogCollectorConfig = {},
   piConfig: PiCollectorConfig = {},
   beaconConfig: BeaconCollectorConfig = {},
+  processConfig: ProcessCollectorOptions = {},
 ): Promise<AnyCollector[]> {
   const folded = reduceAll(priorEvents)
   function wrap<S extends DisableableSnapshot>(collector: Collector<S>): AnyCollector {
@@ -137,6 +138,6 @@ export async function loadCollectors(
     // Windows this collector polls, emits nothing, and says so through
     // `doctor` rather than reporting an empty process table as an empty
     // fleet.
-    wrap(createProcessCollector()),
+    wrap(createProcessCollector(processConfig)),
   ]
 }

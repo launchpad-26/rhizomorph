@@ -1,7 +1,15 @@
-import type { Collector, CollectorContext, PollResult } from '@rhizomorph/core'
-import { AGENT_COMMANDS, matchesAgentCommand } from '../sessionlog/process-probe.js'
-import { canonicalize, isInside } from '../../paths/containment.js'
-import { type ProcessRow, type ProcessTableReader, defaultProcessTableReader } from './read-table.js'
+import type { ActorPlacement, Collector, CollectorContext, PollResult } from '@rhizomorph/core'
+import { isInside } from '../../paths/containment.js'
+import { type AgentSighting, matchedActors, sightingOf } from './census.js'
+import { defaultProcessTableReader, type ProcessTableReader } from './read-table.js'
+
+/**
+ * Re-exported, not re-implemented. It moved to `census.ts` with the rest of the
+ * signature matching when discovery needed the same reading (#645); the name
+ * stays reachable here because this is where its own law and its mutation proof
+ * live.
+ */
+export { signatureToken } from './census.js'
 
 /**
  * THE PROCESS COLLECTOR — prd-57 ruling 1 and ruling 2, licensed by ADR-0052.
@@ -25,14 +33,28 @@ import { type ProcessRow, type ProcessTableReader, defaultProcessTableReader } f
  * not an edit to the probe — Success 3 says that file carries no edit, and it
  * does not — and it leaves exactly one place to change when a harness is added.
  *
- * ## Filtered to the watched repo, on purpose, for now
+ * ## Filtered to the watched repo — and the repo is its WORKTREES too
  *
- * An actor placed outside the watched repo is **seen and then dropped** here.
- * That is not a claim it does not matter: prd-58 ruling 6 gives an actor with
- * no lane a home, and prd-58 is where the instrument stops watching one repo.
- * Until then an event for a lane that cannot exist would be a fact no surface
- * could render, which is the shape prd-27 ruling 3 calls a false summons in a
- * new costume.
+ * An actor placed outside the watched repo is **seen and then dropped** here,
+ * because prd-58 ruling 2 says each colony records its own facts and an agent
+ * in another repo belongs in that repo's recording.
+ *
+ * What that filter may never do is mistake a LANE for another repo. `git
+ * worktree add` normally puts a linked worktree outside the repo directory, so
+ * containment in `repoPath` alone called every real agent `unrooted` — a word
+ * `actorPlacementSchema` reserves for *belongs to no repository* — and dropped
+ * it. This repo's own lanes live under `~/.local/share/rhizomorph/lab/
+ * worktrees/`, so the instrument was blind to every agent it existed to watch
+ * (#645). The known worktree paths come from the fold the git collector already
+ * fills, exactly as `beaconLineBelongsTo` routes the shared beacon door.
+ *
+ * ## The census is a different question, asked of the same reading
+ *
+ * Dropping a foreign actor from the RECORDING must not also hide it from
+ * DISCOVERY, or a repo can only be found once it has already been watched.
+ * Every matched row — placed here or not — is published through `onCensus`,
+ * off the table this collector has already read, so ruling 1's machine-wide
+ * reading costs no second read. See `census.ts`.
  */
 
 /** One actor as the last tick left it. The snapshot is the diff's other half. */
@@ -71,101 +93,74 @@ function actorKeyOf(pid: number, startedAt: number): string {
 export interface ProcessCollectorOptions {
   /** Injectable so a test needs no live process table. Defaults by platform. */
   readonly readTable?: ProcessTableReader
+  /**
+   * The watched repo's own worktrees, read fresh on every tick.
+   *
+   * A function rather than an array for the reason `BeaconCollectorConfig`
+   * takes one: a lane is added and removed while the server runs, and a
+   * boot-time copy would route by the fleet as it was at start-up forever. The
+   * caller passes only worktrees the fold still calls PRESENT — a `git worktree
+   * add` at a reused path would otherwise hand another repo's agents to this
+   * one.
+   */
+  readonly worktreePaths?: () => readonly string[]
+  /**
+   * Every agent on the machine, published once per tick.
+   *
+   * Deliberately a callback rather than an event or a snapshot field. An event
+   * would put another repo's actors into this colony's recording, which is the
+   * half of ruling 2 the placement filter exists to protect; a snapshot field
+   * would persist them to this session's snapshot directory. Discovery needs
+   * the reading, not a record of it — so it is handed over and not written
+   * down.
+   *
+   * Not called when the table could not be read: a census of `[]` would be
+   * indistinguishable from an idle machine, and `null`-is-not-empty is this
+   * collector's third law.
+   */
+  readonly onCensus?: (sightings: readonly AgentSighting[]) => void
 }
 
 /**
- * Windows executable suffixes, stripped before a signature is matched.
+ * Whether this actor belongs to the watched repo, and where it is if so.
  *
- * **Found by running the leg against a live table, not by the fixture test.**
- * On Windows an agent's argv[0] is `…\claude.exe`, whose basename is
- * `claude.exe` — and `AGENT_COMMANDS` holds `claude`. So the first live run on
- * a machine with three real agents matched **zero**, while every fixture test
- * passed, because those asserted the PARSE and not the MATCH.
+ * `cwd` arrives canonical from {@link matchedActors} — prd-57 ruling 3:
+ * `canonicalize` imports `node:fs` and ADR-0003 keeps it out of
+ * `packages/core`, so the value must reach the fold already resolved. Core
+ * compares; it never normalises.
  *
- * The probe half-anticipated this and it is worth naming: its
- * `AGENT_INTERPRETERS` already carries `node.exe` beside `node`, while its
- * `AGENT_COMMANDS` carries no `.exe` variant at all. Windows was handled for
- * the interpreter arm and not for the agent arm.
+ * **A LANE IS THE REPO.** `worktreePaths` is what stops containment in
+ * `repoPath` from calling a linked worktree a different repository. It is the
+ * same fact, from the same fold, that `beaconLineBelongsTo` routes the shared
+ * beacon door by — the git collector emits `worktree.discovered` for every
+ * worktree of the watched repo — so this asks a question the instrument has
+ * already answered rather than spawning `git` inside a collector.
  *
- * Normalising here rather than widening the probe's list is deliberate:
- * `process-probe.ts` carries no edit in this PRD (Success 3), and a suffix is a
- * property of the PLATFORM rather than of the roster — a second list with
- * `claude.exe` in it would have to be kept in step with the first forever.
- */
-const WINDOWS_EXECUTABLE_SUFFIXES = ['.exe', '.cmd', '.bat', '.com']
-
-/**
- * `C:\bin\claude.exe` -> `claude` — on Linux as well as on Windows.
- *
- * The second half of that sentence is why this splits the path itself instead
- * of leaving it to `path.basename`. `path` is the RUNTIME's flavour, and a
- * Windows row does not only appear at runtime on Windows: the committed capture
- * is parsed by whichever machine runs the suite, and under a POSIX `path` a
- * backslash is an ordinary filename character — `basename('C:\bin\claude')` is
- * the whole string, and matches nothing. A leg whose matching worked only on
- * its own platform could not be tested from its own fixture, and being testable
- * from the fixture is the property ADR-0004 exists to buy.
- *
- * The cost, stated rather than hidden: a POSIX file genuinely named
- * `weird\claude` would now match. The two failure directions are not
- * comparable — that one is a false positive on a filename nobody has written,
- * and the other was total blindness on an entire platform.
- *
- * **Exported because the property is not observable through `poll` on Windows.**
- * There, `path.basename` splits backslashes itself, so a collector-level test of
- * a Windows argv passes whether or not this function splits — proven by
- * mutation: dropping the backslash arm leaves the whole collector suite green on
- * this machine, and would redden only on a POSIX runner. A claim that holds on
- * every platform needs an assertion that can FAIL on every platform, and that
- * means asserting the function rather than the fold around it.
- */
-export function signatureToken(token: string): string {
-  const basename = token.slice(Math.max(token.lastIndexOf('/'), token.lastIndexOf('\\')) + 1)
-  const lower = basename.toLowerCase()
-  for (const suffix of WINDOWS_EXECUTABLE_SUFFIXES) {
-    if (lower.endsWith(suffix)) return basename.slice(0, -suffix.length)
-  }
-  return basename
-}
-
-/**
- * Which dialect this argv names — the first signature that matches, so the
- * event can say `claude` rather than merely "an agent".
- */
-function dialectOf(argv: readonly string[]): string | null {
-  const normalised = argv.map(signatureToken)
-  for (const command of AGENT_COMMANDS) {
-    if (matchesAgentCommand(normalised, new Set([command]))) return command
-  }
-  return null
-}
-
-/**
- * Where this actor is, canonical, or why we cannot say.
- *
- * Canonicalising HERE is prd-57 ruling 3: `canonicalize` imports `node:fs` and
- * ADR-0003 keeps it out of `packages/core`, so the value must arrive at the fold
- * already resolved. Core compares; it never normalises.
+ * The two other answers both mean *not this colony's to record*, and stay
+ * distinct because one is a fact and the other is a blindness: `unrooted` is an
+ * actor working somewhere this instrument does not watch, and `unknown` is a
+ * platform that will not say where anything is.
  */
 function placementOf(
-  row: ProcessRow,
+  cwd: string | null,
   repoPath: string,
-): { worktreePath: string | null; placement: 'rooted' | 'unrooted' | 'unknown' } {
+  worktreePaths: readonly string[],
+): { worktreePath: string | null; placement: ActorPlacement } {
   // The platform would not say. Windows reaches this for every process:
   // `Get-CimInstance` yields a command line and not a working directory, and
   // the leg declares that gap rather than guessing at it.
-  if (row.cwd === null) return { worktreePath: null, placement: 'unknown' }
-  let canonicalCwd: string
+  if (cwd === null) return { worktreePath: null, placement: 'unknown' }
   try {
-    canonicalCwd = canonicalize(row.cwd)
+    if (isInside(repoPath, cwd) || worktreePaths.some((worktree) => isInside(worktree, cwd))) {
+      return { worktreePath: cwd, placement: 'rooted' }
+    }
   } catch {
-    // A cwd that cannot be resolved (ELOOP, EACCES, a deleted directory) is a
-    // placement we cannot state. Refused, never guessed.
+    // A root that cannot be canonicalised (ELOOP, EACCES) is a comparison this
+    // cannot make. Refused, never guessed — the fail-closed posture `isInside`
+    // itself takes, and the one `beaconLineBelongsTo` takes for the same reason.
     return { worktreePath: null, placement: 'unknown' }
   }
-  return isInside(repoPath, canonicalCwd)
-    ? { worktreePath: canonicalCwd, placement: 'rooted' }
-    : { worktreePath: null, placement: 'unrooted' }
+  return { worktreePath: null, placement: 'unrooted' }
 }
 
 export function createProcessCollector(options: ProcessCollectorOptions = {}): Collector<ProcessSnapshot> {
@@ -194,19 +189,28 @@ export function createProcessCollector(options: ProcessCollectorOptions = {}): C
       const events = []
       const actors: Record<string, ActorSnapshot> = {}
       /**
-       * Every signature match, placed once.
+       * Every signature match, its cwd resolved once.
        *
-       * One `placementOf` per matched row rather than two passes over the
-       * table: it canonicalises, which touches the filesystem, and the parent
-       * lookup below needs every row's placement decided before any row's
-       * event is formed.
+       * One canonicalisation per matched row rather than two passes over the
+       * table: it touches the filesystem, and the parent lookup below needs
+       * every row's placement decided before any row's event is formed.
        */
-      const matched = []
-      for (const row of reading.rows) {
-        const dialect = dialectOf(row.argv)
-        if (dialect === null) continue // not an agent; recorded nowhere, counted nowhere
-        matched.push({ row, dialect, ...placementOf(row, context.repoPath) })
-      }
+      const sighted = matchedActors(reading.rows)
+
+      /**
+       * The machine-wide reading, handed to discovery BEFORE the repo filter
+       * below throws most of it away (#645). Ruling 1's set of repos worth
+       * recording is derived from exactly this, and deriving it from what
+       * survives the filter made it circular.
+       */
+      options.onCensus?.(sighted.map(sightingOf))
+
+      const worktreePaths = options.worktreePaths?.() ?? []
+      const matched = sighted.map((actor) => ({
+        row: actor.row,
+        dialect: actor.dialect,
+        ...placementOf(actor.cwd, context.repoPath, worktreePaths),
+      }))
 
       /**
        * Parentage among ANNOUNCED actors only — rooted, not merely matched.

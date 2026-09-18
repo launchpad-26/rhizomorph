@@ -4,6 +4,7 @@ import path from 'node:path'
 import type { CollectorContext, RhizomorphEvent } from '@rhizomorph/core'
 import { createEvent } from '@rhizomorph/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { canonicalize } from '../../paths/containment.js'
 import { createProcessCollector, type ProcessSnapshot, signatureToken } from './collector.js'
 import type { ProcessRow, ProcessTableReading } from './read-table.js'
 
@@ -437,5 +438,117 @@ describe('parentPid names an actor that was actually announced (review of #555, 
       const parent = (event.payload as { parentPid: number | null }).parentPid
       if (parent !== null) expect(announced, `parentPid ${parent} was never announced`).toContain(parent)
     }
+  })
+})
+
+describe('placement — a LANE is the repo, not another repository (#645)', () => {
+  /**
+   * The fixture every earlier test in this file got wrong, and the reason the
+   * defect shipped: `beforeEach` above puts its worktree at
+   * `repoRoot/wt/lane-a`, INSIDE the repo directory, where plain containment
+   * happens to be right. `git worktree add` normally puts a lane outside it —
+   * this repo's own lanes live under `~/.local/share/rhizomorph/lab/worktrees/`
+   * — and there containment alone called every real agent `unrooted`, a word
+   * `actorPlacementSchema` reserves for *belongs to no repository*, and dropped
+   * it. The instrument was blind to every agent it existed to watch.
+   */
+  let lane: string
+  let elsewhere: string
+
+  beforeEach(() => {
+    const outside = mkdtempSync(path.join(tmpdir(), 'rhizo-proc-lanes-'))
+    roots.push(outside)
+    lane = path.join(outside, 'worktrees', 'lane-a')
+    elsewhere = path.join(outside, 'another-repo')
+    mkdirSync(lane, { recursive: true })
+    mkdirSync(elsewhere, { recursive: true })
+  })
+
+  const pollWith = async (options: Parameters<typeof createProcessCollector>[0], cwd: string) => {
+    const collector = createProcessCollector({ ...options, readTable: readerFor({ rows: [row({ cwd })] }) })
+    return collector.poll(collector.initialSnapshot(), contextFor(1_788_000_100_000))
+  }
+
+  it('announces an agent working in a linked worktree OUTSIDE the repo directory', async () => {
+    const result = await pollWith({ worktreePaths: () => [lane] }, lane)
+
+    const seen = result.events.filter((event) => event.type === 'process.seen')
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.payload).toMatchObject({ placement: 'rooted', worktreePath: canonicalize(lane) })
+  })
+
+  it('and does NOT, given the same row, when the worktree list is empty — the control', async () => {
+    // Without this arm the test above passes for a collector that announces
+    // every agent anywhere, which is the opposite defect. The single bit of
+    // difference between the two cases is the list the instrument already holds.
+    const result = await pollWith({}, lane)
+    expect(typesOf(result.events)).not.toContain('process.seen')
+  })
+
+  it('an agent in ANOTHER repository is still not this colony to record — ruling 2 intact', async () => {
+    // Widening placement must not widen the RECORDING. Another repo's agent
+    // belongs in that repo's recording, and discovery is how it gets one.
+    const result = await pollWith({ worktreePaths: () => [lane] }, elsewhere)
+    expect(typesOf(result.events)).not.toContain('process.seen')
+  })
+
+  it('reads the worktree list FRESH on every tick, so a lane added mid-run is seen', async () => {
+    // A boot-time copy would route by the fleet as it was at start-up forever.
+    let known: string[] = []
+    const collector = createProcessCollector({
+      worktreePaths: () => known,
+      readTable: readerFor({ rows: [row({ cwd: lane })] }, { rows: [row({ cwd: lane })] }),
+    })
+
+    const first = await collector.poll(collector.initialSnapshot(), contextFor(1_788_000_100_000))
+    expect(typesOf(first.events)).not.toContain('process.seen')
+
+    known = [lane]
+    const second = await collector.poll(first.nextSnapshot, contextFor(1_788_000_200_000))
+    expect(typesOf(second.events)).toContain('process.seen')
+  })
+})
+
+describe('the census — the machine-wide reading discovery needs (#645)', () => {
+  it('publishes every matched agent, INCLUDING the ones the repo filter drops', async () => {
+    /**
+     * The circularity this breaks: discovery used to read the fold, the fold
+     * held only what survived the filter, and the filter kept only this repo —
+     * so a repo could be discovered only once an actor in it had already been
+     * recorded, and it was recorded only once its repo had been discovered.
+     */
+    const foreign = mkdtempSync(path.join(tmpdir(), 'rhizo-proc-foreign-'))
+    roots.push(foreign)
+
+    const published: { pid: number; worktreePath: string | null }[][] = []
+    const collector = createProcessCollector({
+      onCensus: (sightings) => published.push(sightings.map((s) => ({ pid: s.pid, worktreePath: s.worktreePath }))),
+      readTable: readerFor({
+        rows: [
+          row({ pid: 1, cwd: path.join(repoRoot, 'wt', 'lane-a') }),
+          row({ pid: 2, cwd: foreign }),
+          row({ pid: 3, argv: ['vim'], cwd: foreign }),
+        ],
+      }),
+    })
+
+    const result = await collector.poll(collector.initialSnapshot(), contextFor(1_788_000_100_000))
+
+    // pid 2 is in the census and in NO event: seen by discovery, recorded by
+    // nobody. pid 3 is in neither, because it is not an agent.
+    expect(published).toHaveLength(1)
+    expect(published[0]?.map((s) => s.pid)).toEqual([1, 2])
+    expect(published[0]?.find((s) => s.pid === 2)?.worktreePath).toBe(canonicalize(foreign))
+    expect(result.events.filter((event) => event.type === 'process.seen')).toHaveLength(1)
+  })
+
+  it('publishes NOTHING when the table could not be read — an empty census is a lie', async () => {
+    // `[]` would be indistinguishable from an idle machine, and the sweep that
+    // read it would stop finding colonies that are still there.
+    const published: unknown[] = []
+    const collector = createProcessCollector({ onCensus: (s) => published.push(s), readTable: readerFor(null) })
+
+    await collector.poll(collector.initialSnapshot(), contextFor(1_788_000_100_000))
+    expect(published).toHaveLength(0)
   })
 })

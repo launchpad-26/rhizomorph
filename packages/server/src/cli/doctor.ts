@@ -26,13 +26,15 @@ import { beaconCapabilitiesFor } from '../collectors/beacon/index.js'
 import { GIT_CAPABILITIES } from '../collectors/git/index.js'
 import { OTEL_CAPABILITIES } from '../collectors/otel/index.js'
 import { processWitnessCapabilitiesFor } from '../collectors/process/doctor-row.js'
+import type { AgentSighting } from '../collectors/process/index.js'
+import { takeCensus } from '../collectors/process/index.js'
 import { SESSIONLOG_CAPABILITIES } from '../collectors/sessionlog/index.js'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/worktree-slug.js'
 import { TMUX_CAPABILITIES } from '../collectors/tmux/index.js'
 import { WORKMUX_CAPABILITIES } from '../collectors/workmux/index.js'
 import { DECLARED_HARNESSES, IMPLEMENTED_HARNESS_IDS } from '../harness-roster.js'
 import { formatBytes } from '../lib/format.js'
-import { defaultDataRoot, sessionDirFor } from '../log/paths.js'
+import { defaultDataRoot, repoSlug, sessionDirFor } from '../log/paths.js'
 import { decideSessionBoot, formatBootDuration, listSessions, readSessionEvents } from '../log/session-log.js'
 import { canonicalizeRepoPath } from '../paths/containment.js'
 import { createRepoRootResolver } from '../paths/repo-root.js'
@@ -205,17 +207,36 @@ export function parseDoctorArgs(argv: readonly string[]): DoctorArgs {
  * of those, in prd-57, between a lane's card and this very command.
  */
 export async function checkWatchedColonies(
-  processes: Readonly<Record<string, AgentProcess>>,
+  census: readonly AgentSighting[] | null,
   repoPath: string,
   exec: Exec,
 ): Promise<DoctorCheck[]> {
+  // The table could not be read at all — no leg built for this platform, or the
+  // read was denied. That is not "no agents": reporting an empty machine here
+  // would be the process leg's third law broken in the one command an operator
+  // runs to find out what is wrong.
+  if (census === null) {
+    return [
+      {
+        id: 'colonies',
+        status: 'warn',
+        message:
+          'the process table could not be read on this platform, so no colony can be discovered — only the repo this instrument was started in is watched',
+      },
+      {
+        id: `colony:${repoSlug(repoPath)}`,
+        status: 'ok',
+        message: `colony ${repoSlug(repoPath)} — ${repoPath} (pinned — started here): placement unavailable`,
+      },
+    ]
+  }
   // ONE resolver for both questions below. Discovery and the placement count
   // must agree about which repo a cwd belongs to, and two resolvers would each
   // hold their own cache of the same answers.
   const resolver = createRepoRootResolver(exec)
   const discovery = createColonyDiscovery({ pinnedRepoPath: repoPath, resolver })
-  const placed = Object.values(processes).filter((actor) => actor.worktreePath !== null)
-  const colonies = await discovery.discover(Object.values(processes))
+  const placed = census.filter((actor) => actor.worktreePath !== null)
+  const colonies = await discovery.discover(census)
 
   /**
    * WHICH COLONY EACH AGENT IS IN — the same question discovery asked, asked
@@ -265,7 +286,7 @@ export async function checkWatchedColonies(
   // The Windows gap, stated rather than left as a short list nobody can
   // account for: the process leg yields a command line and not a working
   // directory there, so every actor is unplaced and only the pin is found.
-  const unplaced = Object.values(processes).filter((actor) => actor.worktreePath === null).length
+  const unplaced = census.filter((actor) => actor.worktreePath === null).length
   const gap: DoctorCheck[] =
     unplaced > 0
       ? [
@@ -310,7 +331,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
   const checks: DoctorCheck[] = [
     ...withAttention,
     ...(await checkEnrichmentLadder(withAttention, repoPath, attention.declared, attention.processes)),
-    ...(await checkWatchedColonies(attention.processes, repoPath, exec)),
+    ...(await checkWatchedColonies(await takeCensus(exec), repoPath, exec)),
   ]
 
   const exitCode = checks.some((check) => FAILING_CHECK_IDS.has(check.id) && check.status === 'fail') ? 1 : 0

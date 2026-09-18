@@ -6,7 +6,13 @@
  * barrels and asserts it, so a factory built anywhere else reddens a law this
  * directory never names.
  */
-export { createProcessCollector, PROCESS_COLLECTOR_NAME, type ProcessSnapshot } from './collector.js'
+export { type AgentSighting, takeCensus } from './census.js'
+export {
+  createProcessCollector,
+  PROCESS_COLLECTOR_NAME,
+  type ProcessCollectorOptions,
+  type ProcessSnapshot,
+} from './collector.js'
 export {
   createProcTableReader,
   defaultProcessTableReader,
