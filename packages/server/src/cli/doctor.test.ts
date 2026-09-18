@@ -2272,19 +2272,53 @@ describe('the getting-started sample block is the output this code produces', ()
       'utf8',
     ).replace(/\r\n/g, '\n')
 
+    // Comment lines are dropped, and the docblocks in that file DO discuss
+    // `status: 'fail'` by name — counting one attributed the nearest unrelated id and
+    // reddened this law for prose. Code only.
+    const codeLines = DOCTOR_SOURCE.split('\n').filter((line) => !/^\s*(\*|\/\/|\/\*)/.test(line))
+    const idOn = (line: string): string | null => line.match(/\bid: '([a-z0-9:-]+)'/)?.[1] ?? null
+
+    /**
+     * THE OWNING ID IS LOOKED FOR IN BOTH DIRECTIONS, AND THAT IS NOT A TIDY-UP.
+     *
+     * An object literal's fields have no enforced order. Attributing a fail site to the
+     * nearest id ABOVE it therefore credits `{ status: 'fail', id: 'x' }` — status first —
+     * to the PREVIOUS check, and the dedupe below then swallows it whole if that check is
+     * already in the set. EXECUTED (review of #652): planting a second non-blocking fail
+     * emitter written status-first left this file **114/114 green**, and reordering those
+     * two lines alone reddened it on
+     * `expected [ 'planted', 'port', 'shipper', …(2) ] to deeply equal [ 'port', … ]`.
+     * The difference was field order and nothing else — so the guarantee the renderer's
+     * own comment makes ("the day a second one appears, the doc law reddens first") held
+     * only under a convention no gate enforces, which is the guard-scoped-by-naming
+     * failure `AGENTS.md` records one size smaller.
+     *
+     * The forward search stops at the first `}`, so it cannot run on into the NEXT
+     * check's id: every object literal closes before the next one opens. A `}` arriving
+     * early from a `${…}` inside a `message:` template only ends the search, leaving the
+     * preceding-id answer that was already correct in that shape.
+     */
     const failEmitters: string[] = []
-    let nearestId: string | null = null
-    for (const line of DOCTOR_SOURCE.split('\n')) {
-      // Comment lines are skipped, and the docblocks in that file DO discuss
-      // `status: 'fail'` by name — counting one attributed the nearest unrelated id and
-      // reddened this law for prose. Code only.
-      if (/^\s*(\*|\/\/|\/\*)/.test(line)) continue
-      const found = line.match(/\bid: '([a-z0-9:-]+)'/)
-      if (found !== null) nearestId = found[1] as string
-      if (/\bstatus: 'fail'/.test(line) && nearestId !== null && !failEmitters.includes(nearestId)) {
-        failEmitters.push(nearestId)
+    let precedingId: string | null = null
+    codeLines.forEach((line, index) => {
+      const here = idOn(line)
+      if (here !== null) precedingId = here
+      if (!/\bstatus: 'fail'/.test(line)) return
+
+      let owner = precedingId
+      if (here === null) {
+        for (let ahead = index + 1; ahead < codeLines.length; ahead += 1) {
+          const next = codeLines[ahead] as string
+          const found = idOn(next)
+          if (found !== null) {
+            owner = found
+            break
+          }
+          if (next.includes('}')) break
+        }
       }
-    }
+      if (owner !== null && !failEmitters.includes(owner)) failEmitters.push(owner)
+    })
 
     expect([...failEmitters].sort()).toEqual([...docBlocking, docException].sort())
 
