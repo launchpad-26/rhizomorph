@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:net'
-import { tmpdir } from 'node:os'
+import { tmpdir as osTmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { AgentProcess, Exec, ExecResult } from '@rhizomorph/core'
@@ -44,6 +44,36 @@ import {
   runDoctor,
 } from './doctor.js'
 import { CAPABILITY_META_NAME } from './rotate.js'
+
+/**
+ * The temp root in the ONE spelling the product answers with (#644).
+ *
+ * `os.tmpdir()` is `/var/folders/…` on macOS and a symlink to
+ * `/private/var/folders/…`; on Linux it is neither, so the two spellings are
+ * one string there. Every repo path this instrument pins goes through
+ * `canonicalizeRepoPath` (prd-58 ruling 1, `paths/containment.ts`) — so a
+ * fixture built on the RAW spelling disagrees with the product on macOS and
+ * agrees with it vacuously on Linux.
+ *
+ * **The disagreement hides.** `repoSlug` folds the path into an eight-hex
+ * digest, so both sides still print `/var/folders/…` and only the hash moves:
+ * `env-repo-a83137d0` against `env-repo-5ef4ef53`. Grepping the output for
+ * `private/var` returns nothing. A digest of a path is a path comparison in
+ * disguise.
+ *
+ * Shadowing the import beats rewriting every call site below: a fixture added
+ * later is canonical without anyone having to remember. This only removes an
+ * ambiguity from tests that are about something else — the canonicalisation
+ * itself is witnessed by the symlink laws, which manufacture the divergence
+ * instead of borrowing it from the platform and so bite on every OS
+ * (`paths/repo-path-canonical.test.ts`, and for `runDoctor` the suite at the
+ * foot of `cli/doctor.test.ts`).
+ */
+const CANONICAL_TMP_ROOT = canonicalize(osTmpdir())
+function tmpdir(): string {
+  return CANONICAL_TMP_ROOT
+}
+
 
 /**
  * One injectable read fault for `checkDeclaredAttention`'s guard (#218). Every
@@ -2320,4 +2350,215 @@ describe('checkWatchedColonies counts agents where agents actually are (review o
     expect(checks.find((check) => check.id.startsWith('colony:'))?.message).toContain('1 agent placed here')
     expect(checks.find((check) => check.id === 'colonies:unplaced')?.message).toContain('1 agent')
   }, 60_000)
+})
+
+/**
+ * `runDoctor` PINS THE CANONICAL PATH — the third call site, which had no law
+ * of either kind (#644).
+ *
+ * `cli/doctor.ts:289` canonicalises exactly as `cli/run.ts` does, because a
+ * doctor reporting a different watched set from the server it is diagnosing is
+ * the disagreement that check exists to make visible. Nothing asserted it.
+ * `paths/canonical-call-sites.test.ts` reads the deciding line out of
+ * `cli/run.ts` and `api/retarget.ts` and stops there; `repo-path-canonical.test.ts`
+ * covers the helper and `run.ts`'s effect. Measured before this suite existed,
+ * on macOS at `51e681cd`: reverting `cli/doctor.ts`'s pin to a bare
+ * `path.resolve` reddened **nothing** across `cli/doctor.test.ts`,
+ * `api/doctor.test.ts` and all of `src/paths` — 210 passed either way.
+ *
+ * **Why the 54 fixture repairs above cannot be this law.** They hand `runDoctor`
+ * an already-canonical path, so `canonicalizeRepoPath` is a no-op on that input
+ * and a revert passes all of them. They were never a witness: before the repair
+ * they failed for encoding a raw path, not for asserting a canonical one, and
+ * on Linux they passed without exercising the canonicalisation at all.
+ *
+ * So this suite MANUFACTURES the divergence with a symlink of its own instead
+ * of borrowing the ambient one `os.tmpdir()` happens to have on macOS. That is
+ * the whole difference between a law that bites on one platform and a law that
+ * bites on every platform — on Linux the raw and canonical spellings of a temp
+ * path are one string, so a fixture that leans on the platform is vacuous
+ * there by construction.
+ *
+ * Both failure shapes the defect wears are covered, because they hide
+ * differently:
+ *   - the SLUG (`worktreePathToProjectSlug`) flattens the path into a directory
+ *     name, so `-var-folders-…` against `-private-var-folders-…` is legible in
+ *     a diff;
+ *   - the DIGEST (`repoSlug`) folds it into eight hex characters, so every
+ *     printed path is identical and only `…-a83137d0` against `…-5ef4ef53`
+ *     moves. Grep the output for `private/var` and there are zero hits.
+ */
+describe('runDoctor pins the CANONICAL repo path, on every platform (prd-58 ruling 1, #644)', () => {
+  let realRoot: string
+  let realRepo: string
+  let linkedRoot: string
+  let linkedRepo: string
+  let claudeProjectsRoot: string
+  let webDistDir: string
+
+  /**
+   * Every data root the cases below mint, so `afterAll` can remove them.
+   *
+   * Each case needs its OWN — the digest case plants a session and the naming
+   * case asserts first-run, so one shared root would make them order-dependent.
+   * Minting them inline left them uncaptured and so unremoved: **36 directories
+   * after twelve runs**, all three of these kinds and none of the four the
+   * teardown already named. A suite that litters the machine running it is what
+   * `packages/contract/src/retarget.contract.test.ts`'s own teardown comment
+   * exists to prevent.
+   */
+  const dataRoots: string[] = []
+  async function freshDataRoot(): Promise<string> {
+    const dir = await mkdtemp(path.join(tmpdir(), 'rhizo-doctor-canon-data-'))
+    dataRoots.push(dir)
+    return dir
+  }
+
+  beforeAll(async () => {
+    realRoot = canonicalize(await mkdtemp(path.join(tmpdir(), 'rhizo-doctor-canon-real-')))
+    realRepo = path.join(realRoot, 'repo')
+    await mkdir(realRepo, { recursive: true })
+
+    // The macOS filesystem's own shape, built by hand so it exists on Linux and
+    // Windows too: a symlink standing in front of the real directory.
+    //
+    // `mkdtemp` mints a fresh name every time; this one does not. Pids are
+    // reused, and a run killed before `afterAll` leaves the link behind — so
+    // the next `beforeAll` dies on EEXIST and takes the whole file with it.
+    // Clearing first makes the fixture re-runnable; `force` keeps the ordinary
+    // case, where nothing is there, silent.
+    linkedRoot = path.join(tmpdir(), `rhizo-doctor-canon-link-${process.pid}`)
+    await rm(linkedRoot, { force: true })
+    await symlink(realRoot, linkedRoot)
+    linkedRepo = path.join(linkedRoot, 'repo')
+
+    claudeProjectsRoot = await mkdtemp(path.join(tmpdir(), 'rhizo-doctor-canon-claude-'))
+    webDistDir = await mkdtemp(path.join(tmpdir(), 'rhizo-doctor-canon-web-'))
+    await writeFile(path.join(webDistDir, 'index.html'), '<html></html>')
+  }, 60_000)
+
+  afterAll(async () => {
+    // The symlink first, and WITHOUT `recursive`, so this unlinks the link
+    // rather than walking through it into `realRoot`.
+    await rm(linkedRoot, { force: true })
+    await Promise.all([
+      ...dataRoots.map((dir) => rm(dir, { recursive: true, force: true })),
+      rm(realRoot, { recursive: true, force: true }),
+      rm(claudeProjectsRoot, { recursive: true, force: true }),
+      rm(webDistDir, { recursive: true, force: true }),
+    ])
+  })
+
+  it('CONTROL: the two spellings really do derive two different names, or every case below is vacuous', () => {
+    // Without this, a platform that silently resolved the symlink at `path.join`
+    // time would make the whole suite pass while proving nothing — which is the
+    // exact failure mode the fixtures above were in.
+    expect(linkedRepo).not.toBe(realRepo)
+    expect(canonicalize(linkedRepo)).toBe(realRepo)
+    // The two shapes the defect wears, both confirmed to actually differ here.
+    expect(repoSlug(linkedRepo)).not.toBe(repoSlug(realRepo))
+    expect(worktreePathToProjectSlug(linkedRepo)).not.toBe(worktreePathToProjectSlug(realRepo))
+
+    // And the divergence is OURS, not the platform's. Both spellings sit under
+    // the SAME canonical temp root, so nothing here turns on `/var` and
+    // `/private/var` being two names for one directory — the only difference
+    // between them is the symlink this suite created. That is precisely what
+    // makes the three cases below redden on Linux, where the ambient tmpdir
+    // symlink the five repaired fixtures above used to lean on does not exist.
+    expect(realRoot.startsWith(CANONICAL_TMP_ROOT)).toBe(true)
+    expect(linkedRoot.startsWith(CANONICAL_TMP_ROOT)).toBe(true)
+
+    /**
+     * THE ROOT IS ALREADY FULLY RESOLVED — the premise the three cases below
+     * are platform-blind *because of*. Breaking it is not failing an
+     * assertion; it is making this suite macOS-only. The cases would then be
+     * riding the ambient `/var` → `/private/var` symlink again instead of the
+     * one `beforeAll` builds: passing here, vacuous everywhere else, which is
+     * the defect this issue exists to remove, reintroduced inside the law that
+     * removes it.
+     *
+     * **What it uniquely catches, stated honestly.** For a plainly raw root
+     * the two `startsWith` assertions above fire first — measured, both of
+     * them, so for that case this is defence in depth and not the only net.
+     * What it catches ALONE is a canonicalizer that does not agree with
+     * itself: `canonicalize` applied twice answering differently than once.
+     * `startsWith` is blind to that, because every path here would still share
+     * the root. Not hypothetical — it is #228's shape, the macOS Node-version
+     * disagreement `paths/containment.test.ts` simulates on purpose, and it is
+     * precisely the condition under which `realpath` stops being trustworthy.
+     *
+     * It is also cheap to break by accident from the top of this very file:
+     * the shadowed `tmpdir()` is four lines of easily-edited plumbing, and
+     * `/var` against `/private/var` going unpinned is why 54 tests failed at
+     * all (#644). Pinned here rather than argued.
+     */
+    expect(canonicalize(CANONICAL_TMP_ROOT)).toBe(CANONICAL_TMP_ROOT)
+  })
+
+  it('the SLUG shape: the session-log dir planted for the REAL path is found through the symlinked one', async () => {
+    const realSlugDir = path.join(claudeProjectsRoot, worktreePathToProjectSlug(realRepo))
+    await mkdir(realSlugDir, { recursive: true })
+    await writeFile(path.join(realSlugDir, 'session-1.jsonl'), '')
+
+    const report = await runDoctor({
+      path: linkedRepo, // what the operator typed
+      port: 0,
+      exec: healthyExec,
+      webDistDir,
+      claudeProjectsRoot,
+      dataRoot: await freshDataRoot(),
+    })
+
+    const logs = checkFor(report.checks, 'session-logs')
+    // A raw pin looks under `…/-var-folders-…-repo`, which nothing created, and
+    // this warns instead — on Linux and macOS alike.
+    expect(logs.status).toBe('ok')
+    expect(logs.message).toContain(realSlugDir)
+    expect(logs.message).not.toContain(worktreePathToProjectSlug(linkedRepo))
+  })
+
+  it('the DIGEST shape: the session recorded under the REAL path resumes through the symlinked one', async () => {
+    const dataRoot = await freshDataRoot()
+    // Planted under the REAL spelling's digest. `repoSlug` is a sha1 of the
+    // path, so this directory name and the one a raw pin computes differ in
+    // eight hex characters and in nothing else that is printed anywhere.
+    const realSessionDir = sessionDirFor(realRepo, dataRoot)
+    await new SessionLogWriter(sessionFilePath(realSessionDir, '1000')).append(
+      createEvent('session.started', { sessionId: '1000', repoPath: realRepo, repoName: 'repo' }, { id: 'evt-1', ts: 1000 }),
+    )
+
+    const report = await runDoctor({
+      path: linkedRepo,
+      port: 0,
+      exec: healthyExec,
+      webDistDir,
+      claudeProjectsRoot,
+      dataRoot,
+      now: () => 1000 + 5000, // inside the resume window
+    })
+
+    const boundary = checkFor(report.checks, 'session-boundary')
+    expect(boundary.status).toBe('ok')
+    // A raw pin keys on `repoSlug(linkedRepo)`, finds an empty directory, and
+    // reports first-run — so this exact sentence is what the digest buys.
+    expect(boundary.message).toContain('session 1000 would resume')
+    expect(boundary.message).not.toContain('no rhizomorph session recorded yet')
+  })
+
+  it('the report NAMES the canonical spelling, never the symlinked one it was handed', async () => {
+    const report = await runDoctor({
+      path: linkedRepo,
+      port: 0,
+      exec: healthyExec,
+      webDistDir,
+      claudeProjectsRoot,
+      dataRoot: await freshDataRoot(),
+    })
+
+    // An operator reading this report must be able to compare it to the server's
+    // own boot line without doing symlink arithmetic in their head.
+    const boundary = checkFor(report.checks, 'session-boundary')
+    expect(boundary.message).toContain(`no rhizomorph session recorded yet for ${realRepo}`)
+    expect(boundary.message).not.toContain(linkedRoot)
+  })
 })
