@@ -151,9 +151,11 @@ that wave 1 removes the live instance.
 - **#627, ruling 3, in `scripts/gate.sh`** — plus `packages/server/src/gate-honesty-law.test.ts`,
   the law that pins the gate's own text and encodes the load-flake path this changes, fenced
   with it up front rather than discovered at landing.
-- **#628, ruling 1, in `packages/web/src/panels/ledger/perf.test.ts`** — this file asserts a
-  sub-millisecond median and runs inside the load batches, which is ruling 1's ORIGINAL ground
-  rather than wave 1's.
+- **#628, ruling 1, in `packages/web/src/panels/ledger/perf.test.ts`** — the most expensive
+  file the probe runs, about 70s per run at 4x against 6s serial, inside a 300s budget it
+  declared itself. Wave 1's ground reached from the other end. (This bullet claimed the
+  clock-assertion ground until 2026-09-18; see open question 2 for the measurement that
+  refuted it.)
 
 **Why one wave and not two, recorded because the first draft had it the other way.** These were
 declared as waves 2 and 3 on 2026-09-18 and merged the same day, at the operator's decision.
@@ -184,11 +186,29 @@ slowest tests, so the next one is seen before it blocks a landing.
    is within a small factor, and the probe runs green.
 
    The census did surface something the question did not anticipate, which is why this is not a
-   plain "no": `panels/ledger/perf.test.ts` asserts `rows.every(row => row.afterMs < 1)` — a
-   genuine wall-clock claim — while running inside the load batches under its own 300s budget.
-   Contention cannot time it out; it invalidates what it measures instead. That is ruling 1's
-   ORIGINAL ground, not wave 1's, and it qualifies under the criterion this PRD replaced as
-   readily as under the one it wrote. It is #628, in wave 2 above.
+   plain "no": `panels/ledger/perf.test.ts` is the most expensive file the probe runs — about
+   **70s per run, four at once, against 6s serial**, held green only by the 300s bench budget
+   it declares itself. A 4.3x margin on a 12-core box, narrowing on a smaller one. It is #628,
+   in wave 2 above.
+
+   **That paragraph said something different until 2026-09-18, and the correction is the part
+   worth keeping.** It claimed the file qualifies because `rows.every(row => row.afterMs < 1)`
+   is a wall-clock assertion that contention invalidates — ruling 1's original ground rather
+   than wave 1's. A review seat measured it at exactly that condition: `afterMs` reads
+   **0.001ms alone, 0.001ms under 20 CPU spinners at loadavg 12.4, and 0.003ms under the real
+   4x probe shape** — in a run where `before` went from 1.4s to 19s, a 1300x blow-up. The
+   margin to the 1ms bound is ~300x *under load*. Structurally it is a median of three samples
+   taken either side of a single variable read, so crossing 1ms needs two sub-microsecond
+   windows each preempted for over 1ms; it essentially cannot fire under contention. It is a
+   time-**valued** assertion, not a load-sensitive one.
+
+   The conclusion survived and the reason did not, which is the failure mode this PRD is about
+   in its own subject matter: the census MEASURED cost (6005-10063ms alone, the outlier by a
+   wide margin) and the answer written from it asserted a clock. Ruling 1 demands the ground be
+   stated with the measurement behind it precisely so that a wrong ground cannot travel; here
+   it travelled from this document into the issue, the lane prompt, a commit subject and a file
+   comment before anything measured it. Nothing was caught by the tests, because the tests
+   encoded the same premise.
 
    One measurement is recorded as refuted rather than dropped: a review seat reported
    `view/useFrameLoop.test.ts` failing the probe 2 of 4 runs. It was not reproducible — the
