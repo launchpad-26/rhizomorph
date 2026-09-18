@@ -2,6 +2,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createEvent, createIdFactory, selectBranches, selectWorktreeViews } from '@rhizomorph/core'
 import { recordSessionBootMeta } from '../api/meta.js'
+import { presentWorktreePaths } from '../collectors/beacon/paths.js'
+import type { AgentSighting } from '../collectors/process/index.js'
 import { defaultDataRoot, repoSlug, sessionDirFor, sessionFileName, snapshotDirFor } from '../log/paths.js'
 import { LOCK_HEARTBEAT_INTERVAL_MS, removeSessionLock, writeSessionLock } from '../log/session-lock.js'
 import {
@@ -10,7 +12,6 @@ import {
   recordResume,
   type SessionBootDecision,
 } from '../log/session-log.js'
-import { presentWorktreePaths } from '../collectors/beacon/paths.js'
 import { canonicalizeRepoPath } from '../paths/containment.js'
 import { createRepoRootResolver } from '../paths/repo-root.js'
 import { createColonyRecorders } from '../recorder/colony-recorders.js'
@@ -132,6 +133,22 @@ export async function runServerCommand(
     lastBootReason: decision.reason,
   })
 
+  /**
+   * THE MACHINE-WIDE READING, as the pinned loop last took it (#645).
+   *
+   * Discovery used to read `recorder.foldSoFar().processes`, and that fold
+   * holds only the actors this colony recorded — which are only ever actors in
+   * this repo. So the watched set could never grow past the pin, whatever was
+   * running: a repo was discoverable only once an actor in it had been
+   * recorded, and it was recorded only once its repo had been discovered.
+   *
+   * `[]` until the first tick, which is the honest start: nothing has been read
+   * yet. The supervisor's `sync` is additive, so an empty census starts nothing
+   * and retires nothing — a tick that could not read the table costs a sweep,
+   * never a colony.
+   */
+  let census: readonly AgentSighting[] = []
+
   const collectors =
     options.collectors ??
     (await loadCollectors(
@@ -149,6 +166,16 @@ export async function runServerCommand(
       // lines to this one. The function form exists precisely so a worktree
       // that VANISHES stops being routed, which keys alone do not deliver.
       { worktreePaths: () => presentWorktreePaths(recorder.foldSoFar().worktrees) },
+      // The process witness needs the same list for the same reason the beacon
+      // door does — a lane is a linked worktree and `git worktree add` puts it
+      // outside the repo — and it is the one collector positioned to publish
+      // the machine-wide census, because it reads the whole table already.
+      {
+        worktreePaths: () => presentWorktreePaths(recorder.foldSoFar().worktrees),
+        onCensus: (sightings) => {
+          census = sightings
+        },
+      },
     ))
   const pollLoop = createPollLoop({
     repoPath,
@@ -209,6 +236,10 @@ export async function runServerCommand(
         // The shared beacon door is routed by where a hook fired, and an agent
         // fires from a LANE — a linked worktree, which git normally puts outside
         // the repo directory. Containment in the repo alone drops every one.
+        { worktreePaths: () => presentWorktreePaths(colonyRecorder.foldSoFar().worktrees) },
+        // Its own lanes, its own containment. No `onCensus`: every loop reads
+        // the same machine and a second publisher would only race the pinned
+        // one to write the same answer.
         { worktreePaths: () => presentWorktreePaths(colonyRecorder.foldSoFar().worktrees) },
       )
       const loop = createPollLoop({
@@ -316,11 +347,17 @@ export async function runServerCommand(
   await pollLoop.tick()
 
   /**
-   * Discovery, reading the pinned fold, at the pinned loop's cadence.
+   * Discovery, reading the pinned loop's census, at the pinned loop's cadence.
    *
    * `sync` is additive and idempotent, so running it every tick costs one
    * `Map` lookup per already-watched colony — the resolver caches per cwd, so
    * a steady machine spawns no `git` at all after the first sighting of each.
+   *
+   * It reads the CENSUS and not the fold (#645). The saving the paragraph above
+   * claims is unchanged — the census is the same reading the process witness
+   * already took this tick, handed over rather than re-derived — but the answer
+   * is now the machine's rather than this colony's, which is what ruling 1
+   * actually asks for.
    *
    * **This promise is deliberately untracked, and the supervisor is what makes
    * that safe.** A sweep awaits `discover` — which execs `git` with a 5 s
@@ -331,8 +368,7 @@ export async function runServerCommand(
    */
   const syncColonies = async () => {
     try {
-      const actors = Object.values(recorder.foldSoFar().processes)
-      await colonies.sync(await discovery.discover(actors))
+      await colonies.sync(await discovery.discover(census))
     } catch (cause) {
       // Discovery failing must never take the pinned colony down with it: the
       // instrument watching one repo beats the instrument watching none.

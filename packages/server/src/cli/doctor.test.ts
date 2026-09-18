@@ -5,7 +5,7 @@ import { createServer, type Server } from 'node:net'
 import { tmpdir as osTmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { AgentProcess, Exec, ExecResult } from '@rhizomorph/core'
+import type { Exec, ExecResult } from '@rhizomorph/core'
 import {
   BEACON_LAPSE_MS,
   CONFIGURED_SILENT_REASON,
@@ -17,13 +17,14 @@ import {
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CAPABILITY_TOKEN_HEADER } from '../api/security.js'
 import { processWitnessCapabilitiesFor } from '../collectors/process/doctor-row.js'
+import type { AgentSighting } from '../collectors/process/index.js'
 import { worktreePathToProjectSlug } from '../collectors/sessionlog/worktree-slug.js'
 import { repoSlug, sessionDirFor } from '../log/paths.js'
-import { canonicalize } from '../paths/containment.js'
-import { exec as realExec } from '../server/exec.js'
 import { writeSessionLock } from '../log/session-lock.js'
 import { RESUME_WINDOW_MS, readResumedCount, recordResume, sessionFilePath } from '../log/session-log.js'
+import { canonicalize } from '../paths/containment.js'
 import { SessionLogWriter } from '../recorder/index.js'
+import { exec as realExec } from '../server/exec.js'
 // Through `connect-team.ts`, the hand's one declared importer, never
 // `../shipper/index.js`: a second route in is what ADR-0034's clause-3 seam
 // exists to refuse, and `shipper/hand-law.test.ts` convicts a test file for it
@@ -156,6 +157,23 @@ function metaFetch(body: unknown, init: ResponseInit = {}): typeof globalThis.fe
   }) as typeof globalThis.fetch
 }
 
+/**
+ * An empty process table, for the tests that read a report WHOLE.
+ *
+ * The colony rows describe the MACHINE, so a suite run on a developer's own
+ * laptop would otherwise name whatever repos they have agents open in.
+ *
+ * Two tests read a report whole and both need this: the enumerating check-id
+ * test, and Success 7's pair — which runs `runDoctor` TWICE and diffs every
+ * check, so an agent that starts or exits between the two runs fails a test
+ * about tmux. An earlier version of this comment claimed every other test
+ * looks its checks up by id; that was false, and review caught it.
+ *
+ * The rest genuinely do look checks up by id (`checkFor`), so an extra colony
+ * row is invisible to them and they are left reading the real table.
+ */
+const NO_AGENTS_RUNNING = async () => ({ rows: [] })
+
 function checkFor(checks: readonly DoctorCheck[], id: string): DoctorCheck {
   const check = checks.find((c) => c.id === id)
   if (!check) throw new Error(`no check with id "${id}"`)
@@ -203,6 +221,7 @@ describe('runDoctor', () => {
       nodeVersion: 'v22.5.0',
       rootPackageJsonPath: path.join(repoPath, 'does-not-exist.json'),
       env: { CLAUDE_CODE_ENABLE_TELEMETRY: '1' },
+      readProcessTable: NO_AGENTS_RUNNING,
     })
 
     expect(report.exitCode).toBe(0)
@@ -619,7 +638,17 @@ describe('runDoctor', () => {
       if (command === 'tmux' || command === 'workmux') return missingBinary(command)
       return healthyExec(command, args)
     }
-    const options = { path: repoPath, port: 0, webDistDir, claudeProjectsRoot, dataRoot }
+    // `readProcessTable` matters DOUBLE here: this compares two whole reports,
+    // so an agent starting or exiting between the two runs would change the
+    // colony rows of the second and fail a test about tmux.
+    const options = {
+      path: repoPath,
+      port: 0,
+      webDistDir,
+      claudeProjectsRoot,
+      dataRoot,
+      readProcessTable: NO_AGENTS_RUNNING,
+    }
 
     const rigged = await runDoctor({ ...options, exec: healthyExec })
     const bare = await runDoctor({ ...options, exec: withoutRig })
@@ -1835,6 +1864,24 @@ describe('the summary speaks for every check it prints (#603)', () => {
    * The options that make every check `ok` — the same set the "fully healthy machine"
    * case at the top of this file uses. Each test below moves exactly one lever off it,
    * so the status mix it produces is stated by the test rather than inherited.
+   *
+   * `readProcessTable` is not optional here, and the reason is a PLATFORM SPLIT
+   * that hides it on exactly one leg (review of #645). Every test in this block
+   * counts the statuses of a WHOLE report, so any extra check moves the count.
+   * `runDoctor` now always takes a census, and `defaultProcessTableReader`
+   * disagrees with itself about where that reading comes from:
+   *
+   * - on **Linux** it is `createProcTableReader()`, which reads the real `/proc`
+   *   and ignores `exec` entirely — so the census is non-null, `colonies` is
+   *   `ok`, and the counts below happen to hold;
+   * - on **macOS** it is `readMacosTable`, which runs `ps` and `lsof` THROUGH
+   *   the injected `exec` — and `healthyExec` above serves neither, so the
+   *   reading is `null`, `colonies` warns that the table could not be read, and
+   *   all six counts here are off by one.
+   *
+   * So the suite was green on the leg it was measured on and deterministically
+   * red on the other. The Linux leg is not even stable in principle: it reads
+   * whatever the person running the suite has open.
    */
   const options = (overrides: Partial<Parameters<typeof runDoctor>[0]> = {}) => ({
     path: repoPath,
@@ -1846,6 +1893,7 @@ describe('the summary speaks for every check it prints (#603)', () => {
     nodeVersion: 'v22.5.0',
     rootPackageJsonPath: path.join(repoPath, 'does-not-exist.json'),
     env: { CLAUDE_CODE_ENABLE_TELEMETRY: '1' },
+    readProcessTable: NO_AGENTS_RUNNING,
     ...overrides,
   })
 
@@ -2190,20 +2238,12 @@ describe('checkWatchedColonies — doctor names every colony (prd-58 ruling 1, #
   const R = (p: string) => path.resolve(p)
   const PINNED = R('/repo/main')
 
-  function actor(pid: number, worktreePath: string | null): AgentProcess {
-    return {
-      pid,
-      dialect: 'claude',
-      startedAt: 1_000,
-      worktreePath,
-      placement: worktreePath === null ? 'unknown' : 'rooted',
-      parentPid: null,
-      cpuMsDelta: null,
-      rssBytes: null,
-      seenAt: 1_000,
-      goneAt: null,
-      goneReason: null,
-    }
+  // A CENSUS sighting, which is what `doctor` reads now (#645): a pid, a
+  // dialect and a cwd, with no placement word. The classification is the
+  // resolver's, and a fixture that pre-classified would be asserting its own
+  // answer back.
+  function actor(pid: number, worktreePath: string | null): AgentSighting {
+    return { pid, dialect: 'claude', worktreePath }
   }
 
   /** A `git rev-parse --git-common-dir` that answers from a fixed table. */
@@ -2219,11 +2259,7 @@ describe('checkWatchedColonies — doctor names every colony (prd-58 ruling 1, #
     // The whole criterion: "not met while any agent facts are discarded for
     // being outside a chosen repo". An operator cannot tell "watching three"
     // from "watching one and dropping two" except by a report that names them.
-    const processes = {
-      a: actor(1, R('/repo/main')),
-      b: actor(2, R('/work/beta')),
-      c: actor(3, R('/work/gamma')),
-    }
+    const processes = [actor(1, R('/repo/main')), actor(2, R('/work/beta')), actor(3, R('/work/gamma'))]
     const checks = await checkWatchedColonies(
       processes,
       PINNED,
@@ -2240,7 +2276,7 @@ describe('checkWatchedColonies — doctor names every colony (prd-58 ruling 1, #
   it('groups several worktrees of one repo into ONE colony', async () => {
     // A resolver answering with the worktree root would report three here, and
     // every other assertion in this file would still pass.
-    const processes = { a: actor(1, R('/work/beta')), b: actor(2, R('/work/beta-wt/x')), c: actor(3, R('/work/beta-wt/y')) }
+    const processes = [actor(1, R('/work/beta')), actor(2, R('/work/beta-wt/x')), actor(3, R('/work/beta-wt/y'))]
     const checks = await checkWatchedColonies(
       processes,
       PINNED,
@@ -2252,7 +2288,7 @@ describe('checkWatchedColonies — doctor names every colony (prd-58 ruling 1, #
   })
 
   it('names the pinned colony even with no agents anywhere', async () => {
-    const checks = await checkWatchedColonies({}, PINNED, execOver({}))
+    const checks = await checkWatchedColonies([], PINNED, execOver({}))
     expect(checks[0]?.message).toBe('watching 1 colony')
     expect(checks[1]?.message).toContain('pinned')
     expect(checks[1]?.message).toContain('no agent placed here right now')
@@ -2261,7 +2297,7 @@ describe('checkWatchedColonies — doctor names every colony (prd-58 ruling 1, #
   it('an agent in NO repository yields no colony, and is counted rather than dropped', async () => {
     // ADR-0010: the gap is declared. A shorter list with no explanation is the
     // reading that hides it.
-    const checks = await checkWatchedColonies({ a: actor(1, R('/home/operator')) }, PINNED, execOver({}))
+    const checks = await checkWatchedColonies([actor(1, R('/home/operator'))], PINNED, execOver({}))
     expect(checks[0]?.message).toBe('watching 1 colony')
     expect(checks.some((c) => c.id === 'colonies:unplaced')).toBe(false)
   })
@@ -2270,15 +2306,61 @@ describe('checkWatchedColonies — doctor names every colony (prd-58 ruling 1, #
     // The platform yields a command line and not a working directory, so every
     // actor is unplaced and only the pin is found. Said out loud rather than
     // left as a short list nobody can account for.
-    const checks = await checkWatchedColonies({ a: actor(1, null), b: actor(2, null) }, PINNED, execOver({}))
+    const checks = await checkWatchedColonies([actor(1, null), actor(2, null)], PINNED, execOver({}))
     const gap = checks.find((c) => c.id === 'colonies:unplaced')
     expect(gap?.message).toContain('2 agents')
     expect(gap?.message).toContain('could not place')
   })
 
   it('never fails the run — a colony report is a reading, not a gate', async () => {
-    const checks = await checkWatchedColonies({ a: actor(1, null) }, PINNED, execOver({}))
+    const checks = await checkWatchedColonies([actor(1, null)], PINNED, execOver({}))
     expect(checks.every((c) => c.status === 'ok')).toBe(true)
+  })
+
+  /**
+   * A TABLE THAT COULD NOT BE READ AT ALL — `null`, which is not an empty
+   * machine (review of #645).
+   *
+   * `takeCensus` has its own law for producing `null` (`census.test.ts`: "a
+   * table this build cannot read is NULL, and emphatically not an empty
+   * machine"). Nothing asserted what the CONSUMER does with it, so the branch
+   * that handles it here shipped unexecuted by any test — the producer's law
+   * green above a consumer nobody read. It is reached in practice on every
+   * platform whose leg goes through `exec` (macOS `ps`/`lsof`, a Windows
+   * `Get-CimInstance`) as soon as that call fails, and on any platform with no
+   * leg built at all.
+   */
+  it('a table that could not be read WARNS and says so, rather than reporting an empty machine', async () => {
+    const checks = await checkWatchedColonies(null, PINNED, execOver({}))
+
+    const colonies = checks.find((c) => c.id === 'colonies')
+    expect(colonies?.status).toBe('warn')
+    // The two facts an operator needs: why the set is short, and that the pin
+    // is still watched. "watching 1 colony" would be the silent version.
+    expect(colonies?.message).toContain('could not be read')
+    expect(colonies?.message).toContain('only the repo this instrument was started in is watched')
+  })
+
+  it('and still names the pinned colony, with its placement declared unavailable', async () => {
+    // ADR-0010: the gap is declared. Reporting "no agent placed here right
+    // now" — the wording for a readable table with nobody in it — would be a
+    // blindness written up as a fact.
+    const checks = await checkWatchedColonies(null, PINNED, execOver({}))
+
+    const row = checks.find((c) => c.id.startsWith('colony:'))
+    expect(row?.message).toContain('pinned')
+    expect(row?.message).toContain('placement unavailable')
+    expect(row?.message).not.toContain('no agent placed here right now')
+  })
+
+  it('and never fails the run, and never claims a count it could not take', async () => {
+    const checks = await checkWatchedColonies(null, PINNED, execOver({}))
+
+    expect(checks.some((c) => c.status === 'fail')).toBe(false)
+    // `colonies:unplaced` counts actors the witness could not place. With no
+    // reading at all there is no count to state, and a `0` here would be the
+    // empty-machine lie in a second costume.
+    expect(checks.some((c) => c.id === 'colonies:unplaced')).toBe(false)
   })
 })
 
@@ -2287,18 +2369,10 @@ describe('checkWatchedColonies counts agents where agents actually are (review o
   let laneRepo: string
   let lane: string
 
-  const actorInLane = (pid: number, worktreePath: string | null): AgentProcess => ({
+  const actorInLane = (pid: number, worktreePath: string | null): AgentSighting => ({
     pid,
     dialect: 'claude',
-    startedAt: 1,
     worktreePath,
-    placement: worktreePath === null ? 'unknown' : 'rooted',
-    parentPid: null,
-    cpuMsDelta: null,
-    rssBytes: null,
-    seenAt: 1,
-    goneAt: null,
-    goneReason: null,
   })
 
   beforeAll(async () => {
@@ -2323,7 +2397,7 @@ describe('checkWatchedColonies counts agents where agents actually are (review o
   })
 
   it('an agent in a linked worktree is an agent placed in its colony', async () => {
-    const checks = await checkWatchedColonies({ '1': actorInLane(1, lane) }, laneRepo, realExec)
+    const checks = await checkWatchedColonies([actorInLane(1, lane)], laneRepo, realExec)
     const row = checks.find((check) => check.id.startsWith('colony:'))
     // Before this fix the count was `actor.worktreePath === colony.path`, so a
     // colony discovered BECAUSE an agent was working in it reported zero.
@@ -2333,7 +2407,7 @@ describe('checkWatchedColonies counts agents where agents actually are (review o
 
   it('an agent at the repo root still counts, and two agents count as two', async () => {
     const checks = await checkWatchedColonies(
-      { '1': actorInLane(1, lane), '2': actorInLane(2, laneRepo) },
+      [actorInLane(1, lane), actorInLane(2, laneRepo)],
       laneRepo,
       realExec,
     )
@@ -2343,7 +2417,7 @@ describe('checkWatchedColonies counts agents where agents actually are (review o
 
   it('an agent in no repository is still reported as unplaced, not as placed here', async () => {
     const checks = await checkWatchedColonies(
-      { '1': actorInLane(1, lane), '2': actorInLane(2, null) },
+      [actorInLane(1, lane), actorInLane(2, null)],
       laneRepo,
       realExec,
     )

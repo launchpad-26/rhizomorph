@@ -1,4 +1,3 @@
-import type { AgentProcess } from '@rhizomorph/core'
 import { repoSlug } from '../log/paths.js'
 import type { RepoRootResolver } from '../paths/repo-root.js'
 
@@ -31,6 +30,21 @@ export interface Colony {
 }
 
 /**
+ * The only thing discovery reads off an actor: where it is working.
+ *
+ * Narrower than `AgentProcess` on purpose. The actors that matter here come
+ * from the machine-wide census (`collectors/process/census.ts`), which reports
+ * a pid, a dialect and a canonical cwd and classifies nothing — it has no
+ * watched repo to classify against, and a `placement` invented to satisfy a
+ * type would be a word written against `actorPlacementSchema`'s definition.
+ * `AgentProcess` still satisfies this, so a fold's actors remain a valid input.
+ */
+export interface PlacedActor {
+  /** Canonical, or null where the witness could not say. */
+  readonly worktreePath: string | null
+}
+
+/**
  * The watched set, discovered from where the agents actually are.
  *
  * **Discovered, never declared.** The process witness already enumerates every
@@ -39,10 +53,16 @@ export interface Colony {
  * reading into the set of repos worth recording, which is the whole of ruling
  * 1's first half.
  *
+ * **The input must be the census, not a colony’s fold.** A fold holds only the
+ * actors that colony recorded, so discovering from one made the question
+ * circular — a repo could be found only if an actor in it had already been
+ * recorded, and it was recorded only if its repo had already been found. The
+ * instrument found the pin and nothing else, whatever was running (#645).
+ *
  * Three facts this deliberately does NOT infer:
  *
- * - **An actor in no repository yields no colony.** It is not lost — it stays
- *   in `state.processes`, and ruling 6 gives it a home in wave 3 — but it never
+ * - **An actor in no repository yields no colony.** It is not lost — the census
+ *   still reports it, and ruling 6 gives it a home in wave 3 — but it never
  *   invents one. ADR-0010: declare the gap.
  * - **An actor the witness could not place yields no colony.** On Windows the
  *   process leg reports no cwd for any process, so `worktreePath` is null for
@@ -54,7 +74,7 @@ export interface Colony {
  */
 export interface ColonyDiscovery {
   /** The watched set for this reading of the process table. Pinned colony first, then by id. */
-  discover(actors: readonly AgentProcess[]): Promise<Colony[]>
+  discover(actors: readonly PlacedActor[]): Promise<Colony[]>
 }
 
 export interface ColonyDiscoveryOptions {
@@ -67,7 +87,7 @@ export function createColonyDiscovery(options: ColonyDiscoveryOptions): ColonyDi
   const { pinnedRepoPath, resolver } = options
 
   return {
-    async discover(actors: readonly AgentProcess[]): Promise<Colony[]> {
+    async discover(actors: readonly PlacedActor[]): Promise<Colony[]> {
       // The pin is in the set before any actor is read, because it is the
       // zero-configuration case: an operator who starts inside a repo and runs
       // nothing yet still sees that repo. It is the ONE colony that does not
