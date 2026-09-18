@@ -2304,9 +2304,23 @@ describe('checkWatchedColonies — doctor names every colony (prd-58 ruling 1, #
     expect(checks[0]?.message).toBe('watching 1 colony')
     expect(checks.some((c) => c.id === 'colonies:unplaced')).toBe(false)
 
-    const unrooted = checks.find((c) => c.id === 'colonies:unrooted')
-    expect(unrooted?.message).toContain('1 agent working outside any git repository')
-    expect(unrooted?.status).toBe('ok')
+    const unresolved = checks.find((c) => c.id === 'colonies:unresolved')
+    expect(unresolved?.message).toContain('1 agent counted with no colony inferred')
+    expect(unresolved?.status).toBe('ok')
+  })
+
+  it('does NOT diagnose the cause, because the resolver returns one null for three of them', async () => {
+    // `RepoRootResolver` conflates "not a git repository", "git is not
+    // installed" and "git timed out" into a single null, by design and in its
+    // own docblock. A line reading "working outside any git repository" would
+    // hand an operator a diagnosis for an agent that may be sitting in a real
+    // repository on a machine where git did not answer (review of #647).
+    const checks = await checkWatchedColonies([actor(1, R('/home/operator'))], PINNED, execOver({}))
+    const message = checks.find((c) => c.id === 'colonies:unresolved')?.message ?? ''
+    expect(message).not.toMatch(/working outside any git repository/)
+    // Both live causes named, neither asserted.
+    expect(message).toContain('outside any repository')
+    expect(message).toContain('could not answer')
   })
 
   it('and says nothing about unrooted agents when there are none — not a zero row', async () => {
@@ -2314,7 +2328,7 @@ describe('checkWatchedColonies — doctor names every colony (prd-58 ruling 1, #
     // prints the line unconditionally, which is the honest-empty failure this
     // repo spends its gap voices avoiding.
     const checks = await checkWatchedColonies([actor(1, R('/work/beta'))], PINNED, execOver({ [R('/work/beta')]: R('/work/beta') }))
-    expect(checks.some((c) => c.id === 'colonies:unrooted')).toBe(false)
+    expect(checks.some((c) => c.id === 'colonies:unresolved')).toBe(false)
   })
 
   it('separates an agent with no cwd from one whose cwd is in no repo — different gaps, different lines', async () => {
@@ -2323,7 +2337,7 @@ describe('checkWatchedColonies — doctor names every colony (prd-58 ruling 1, #
     // agents outside git, and a Linux operator that their platform is blind.
     const checks = await checkWatchedColonies([actor(1, null), actor(2, R('/home/operator'))], PINNED, execOver({}))
     expect(checks.find((c) => c.id === 'colonies:unplaced')?.message).toContain('1 agent')
-    expect(checks.find((c) => c.id === 'colonies:unrooted')?.message).toContain('1 agent')
+    expect(checks.find((c) => c.id === 'colonies:unresolved')?.message).toContain('1 agent')
   })
 
   it('states the WINDOWS gap when the witness could place nothing', async () => {

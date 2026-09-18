@@ -199,9 +199,19 @@ CLI counts, and `doctor`'s harness roster line says which are implemented. A
 process the roster does not match is not an agent as far as this instrument is
 concerned, and contributes no repository.
 
-**The agent is not in a git repository.** An agent working in `~` or in a plain
-directory is real, is counted, and yields no repository — there is nothing to
-record it under. That is a declared gap, not a dropped process.
+**`git` named no repository for the agent's working directory.** The agent is
+real, is counted, and enters no colony:
+
+```
+[ok  ] 1 agent counted with no colony inferred — git named no repository for its
+       working directory, which is either a directory outside any repository or a
+       git that could not answer
+```
+
+That line deliberately does not diagnose which. An agent working in `~` and a
+machine where `git` is missing or timed out reach this the same way, so naming
+one of them would be a guess dressed as a finding. If the agent *should* be in a
+repository, check `git` from the same directory yourself.
 
 If none of those fit, check that the agents really are where you think:
 
@@ -209,9 +219,12 @@ If none of those fit, check that the agents really are where you think:
 rhizomorph doctor | grep colony
 ```
 
-names every repository it is watching and counts the agents placed in each, so a
-repo you expected and do not see is a question about placement rather than about
-discovery.
+names every repository it can see an agent in right now and counts the agents
+placed in each, so a repo you expected and do not see is a question about
+placement rather than about discovery. One case is neither: a repository whose
+agents have all **exited** is still watched by a running server and still has
+its recording, and `doctor` will not name it — it reads the process table, not
+the recorder's directories.
 
 ## No lane manifest (off-fence detection unavailable)
 

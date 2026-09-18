@@ -60,8 +60,9 @@ That repo becomes the pinned colony — first in the watched set, and the one th
 scene draws. From then on, any other repository an agent is working in is
 discovered from the process table and watched on exactly the same terms: its own
 recording under its own slug, and its alarms on the tray whether or not you are
-looking at it. `rhizomorph doctor` names every colony it is watching and counts
-the agents placed in each, so you can check rather than assume:
+looking at it. `rhizomorph doctor` names every colony it can see an agent in
+right now and counts the agents placed in each, so you can check rather than
+assume:
 
 ```
 [ok  ] watching 3 colonies

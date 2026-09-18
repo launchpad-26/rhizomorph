@@ -21,9 +21,16 @@ the common directory, so a lane and its main checkout land together.
 **The window draws one at a time and there is no picker yet.** Two surfaces
 cover the rest:
 
-- `rhizomorph doctor` names every repository it is watching, marks the pinned
-  one, and counts the agents placed in each. It also counts the agents it could
-  *not* place, rather than presenting a short list as complete.
+- `rhizomorph doctor` names every repository it can see an agent in **right
+  now**, marks the pinned one, and counts the agents placed in each. It also
+  counts the agents it could *not* place, rather than presenting a short list as
+  complete.
+
+  *"Right now"* is the exact claim, and the gap is worth knowing: the running
+  server keeps watching a repository after its agents exit — the recording is
+  still a recording — while `doctor` takes a fresh reading of the process table.
+  So `doctor` can name **fewer** repositories than the server is watching. It
+  never names more.
 - **The tray** carries alarms from anywhere. A lane that needs a person raises
   the badge whether or not its repository is the one on screen.
 
