@@ -128,12 +128,19 @@ function metaFetch(body: unknown, init: ResponseInit = {}): typeof globalThis.fe
 }
 
 /**
- * An empty process table, for the one test that enumerates every check id.
+ * An empty process table, for the tests that read a report WHOLE.
  *
  * The colony rows describe the MACHINE, so a suite run on a developer's own
- * laptop would otherwise name whatever repos they have agents open in. Every
- * other test here looks its checks up by id, so an extra colony row is
- * invisible to them and they are left reading the real table.
+ * laptop would otherwise name whatever repos they have agents open in.
+ *
+ * Two tests read a report whole and both need this: the enumerating check-id
+ * test, and Success 7's pair — which runs `runDoctor` TWICE and diffs every
+ * check, so an agent that starts or exits between the two runs fails a test
+ * about tmux. An earlier version of this comment claimed every other test
+ * looks its checks up by id; that was false, and review caught it.
+ *
+ * The rest genuinely do look checks up by id (`checkFor`), so an extra colony
+ * row is invisible to them and they are left reading the real table.
  */
 const NO_AGENTS_RUNNING = async () => ({ rows: [] })
 
@@ -601,7 +608,17 @@ describe('runDoctor', () => {
       if (command === 'tmux' || command === 'workmux') return missingBinary(command)
       return healthyExec(command, args)
     }
-    const options = { path: repoPath, port: 0, webDistDir, claudeProjectsRoot, dataRoot }
+    // `readProcessTable` matters DOUBLE here: this compares two whole reports,
+    // so an agent starting or exiting between the two runs would change the
+    // colony rows of the second and fail a test about tmux.
+    const options = {
+      path: repoPath,
+      port: 0,
+      webDistDir,
+      claudeProjectsRoot,
+      dataRoot,
+      readProcessTable: NO_AGENTS_RUNNING,
+    }
 
     const rigged = await runDoctor({ ...options, exec: healthyExec })
     const bare = await runDoctor({ ...options, exec: withoutRig })

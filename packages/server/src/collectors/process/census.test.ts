@@ -83,7 +83,13 @@ describe('takeCensus — every agent on the machine, wherever it is', () => {
   })
 
   it('canonicalises the cwd, because the resolver compares it by string equality', async () => {
-    const indirect = path.join(root, 'alpha', '..', 'alpha')
+    // Built by concatenation, NOT `path.join`: join collapses `..` itself, so a
+    // fixture built with it hands the census an already-canonical path and
+    // passes for a `canonicalCwdOf` that returns its argument untouched. Review
+    // caught exactly that — the first version of this test asserted nothing.
+    const indirect = `${path.join(root, 'alpha')}${path.sep}..${path.sep}alpha`
+    expect(indirect).not.toBe(path.join(root, 'alpha')) // the control: it really is un-normalised
+
     const sightings = await census([row({ cwd: indirect })])
     expect(sightings?.[0]?.worktreePath).toBe(path.join(root, 'alpha'))
   })
@@ -134,6 +140,19 @@ describe('the sweep reads the census — a source law, because no unit test sees
     expect(runSource).toContain('discovery.discover(census)')
   })
 
+  it('and the collector is actually asked to publish one — the law that was missing', () => {
+    /**
+     * Review's sharpest finding: every other assertion here survives deleting
+     * `census = sightings` from the collector's config. `census` would stay `[]`
+     * for the life of the process, `discovery.discover(census)` would still be
+     * the source text, and the watched set would be the pin forever — the exact
+     * defect, with the law green above it.
+     */
+    const wiring = runSource.slice(runSource.indexOf('const collectors ='), runSource.indexOf('const pollLoop ='))
+    expect(wiring).toContain('onCensus:')
+    expect(wiring).toContain('census = sightings')
+  })
+
   it('and no longer derives the watched set from any recorder fold', () => {
     // The circular question: a repo was discoverable only once an actor in it
     // had been recorded, and it was recorded only once its repo had been
@@ -159,5 +178,7 @@ describe('the sweep reads the census — a source law, because no unit test sees
     // vacuous the moment the file it reads stops containing anything.
     expect(runSource).toContain('const syncColonies')
     expect(runSource).toContain('const colonySweep')
+    expect(runSource).toContain('const collectors =')
+    expect(runSource).toContain('const pollLoop =')
   })
 })

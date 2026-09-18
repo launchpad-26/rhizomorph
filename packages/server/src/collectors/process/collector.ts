@@ -140,6 +140,15 @@ export interface ProcessCollectorOptions {
  * distinct because one is a fact and the other is a blindness: `unrooted` is an
  * actor working somewhere this instrument does not watch, and `unknown` is a
  * platform that will not say where anything is.
+ *
+ * **The cost, stated rather than hidden** (review of #645): an independent repo
+ * nested inside a worktree — a submodule, a vendored checkout — is contained by
+ * it, so its agent is recorded here as well as in its own colony once discovery
+ * finds it. That is not new and not asymmetric: the same was already true of a
+ * repo nested inside `repoPath`, and `beaconLineBelongsTo` routes hook lines by
+ * the identical rule. Fixing it would mean asking git per actor per tick, which
+ * is the exec ADR-0013's budget exists to avoid — and the failure it would buy
+ * back is a fact recorded twice, not a fact lost.
  */
 function placementOf(
   cwd: string | null,
