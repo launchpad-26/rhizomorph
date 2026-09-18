@@ -511,12 +511,129 @@ describe('the ingest key', () => {
     expect(check.message).toContain(`${ENV_INGEST_KEY_SHA256} is not a sha-256 digest`)
   })
 
-  it('no row for this deployment\'s own digest fails, and the remedy is up -d, not restart', async () => {
+  /**
+   * THIS LAW REPLACES ITS OWN INVERSE, AND EVERY CLAIM IT USED TO MAKE SURVIVES INSIDE IT (#604).
+   *
+   * It was named "…and the remedy is up -d, not restart" and asserted
+   * `'docker compose restart will not'` — so it pinned the defect in place rather than catching it.
+   * It is restated here at greater strength, not weakened: the two claims it made about the arm's
+   * identity (it fails, it names the missing row) are kept verbatim, and the claims about WHICH
+   * command it names are inverted to what was measured.
+   *
+   * What was measured, EXECUTED on Docker Compose v5.4.0 against this repo's own compose.yml: with
+   * `.env` unchanged — which is this arm's whole situation, since the digest is already in the
+   * running container's environment — `docker compose up -d app` answers "Container … Running" and
+   * leaves the container id AND its StartedAt untouched, so no boot and no seed; `docker compose
+   * restart app` re-runs the boot and the row comes back. The doctor is only ever read through
+   * `docker compose exec app … doctor.ts`, so the app is up by construction when this line is read.
+   *
+   * The anchored `/Remedy: docker compose restart app/` is the load-bearing assertion: it pins the
+   * command the operator is told to run to the one that immediately follows "Remedy:", so a message
+   * that merely mentions `restart` somewhere in a paragraph does not satisfy it. Every `not.toMatch`
+   * below sits beside a positive match on the same string, so none of them can pass vacuously on an
+   * empty or garbled message.
+   */
+  it('no row for this deployment\'s own digest names RESTART — the only command that re-seeds from a running container', async () => {
     const check = byId(await doctor(fullEnv(), fakeStorage({ key: null })), 'ingest-key')
     expect(check.status).toBe('fail')
     expect(check.message).toContain('has no row in ingest_keys')
-    expect(check.message).toContain('docker compose up -d app')
-    expect(check.message).toContain('docker compose restart will not')
+
+    // The command the operator is sent to is the one right after "Remedy:", and it is restart.
+    expect(check.message).toMatch(/Remedy: docker compose restart app\b/)
+
+    // `up -d app` is still named — but only to rule it out, never as the fix.
+    expect(check.message).toMatch(/NOT docker compose up -d app/)
+    expect(check.message).not.toMatch(/Remedy: docker compose up -d/)
+
+    // And the sentence that sent the operator to the no-op is gone rather than merely outvoted.
+    expect(check.message).not.toMatch(/docker compose restart will not/)
+    expect(check.message).not.toMatch(/NOT docker compose restart/)
+  })
+
+  /**
+   * THE SIBLING GUARD: "restart is the answer" MUST NOT SPREAD TO THE ARMS IT IS WRONG FOR.
+   *
+   * The fix above could be satisfied by flipping every arm of this check from `up -d` to `restart`,
+   * and that would be a worse defect than the one it fixes — four of this check's other five arms
+   * are reached by an operator who is about to EDIT `.env` (set the project, rotate the key), and a
+   * restart against a changed `.env` is exactly what strands a deployment. EXECUTED, same session,
+   * same Compose: after `./init.sh --rotate-ingest-key`, `docker compose restart app` booted the
+   * container still holding the SUPERSEDED digest while `.env` named the new one;
+   * `docker compose up -d app` recreated it and seeded the new digest. So the warning stays on
+   * these four, and this test is what stops the #604 fix leaking into them.
+   *
+   * The fifth — the `ingest_keys`-unreadable arm — is deliberately NOT swept here: it needs no
+   * `.env` edit and carries no restart warning, so holding it to either assertion would be wrong.
+   * It is one of the siblings `doctor.ts` enumerates, and it wants the follow-up issue, not this law.
+   *
+   * WHAT THE TWO ASSERTIONS AT THE BOTTOM GUARD, AND THE ONE GAP THAT REMAINS.
+   *
+   * `expect(arms.length).toBe(4)` is a literal beside a HAND-AUTHORED array, so on its own it
+   * catches the array SHRINKING and nothing else. That is not enough, and the shortfall was
+   * measured rather than reasoned. Replacing one entry with a duplicate of another holds the length
+   * at 4 while an arm silently drops out of the sweep. Duplicating an entry in this file's own array
+   * cannot of course redden another file; the question that matters is what is left watching that
+   * arm's REMEDY once this law stops looking at it — and the answer depends on WHICH arm went dark:
+   *
+   *   - a SHARED state (no project / bad digest / wrong project) -> `../src/keys/agreement-law.test.ts`
+   *     is still watching, because the seed refuses those same three states and that law compares
+   *     the two surfaces' remedies. EXECUTED: with the arm dropped from this sweep, flipping the
+   *     wrong-project remedy in `doctor.ts` reddened that law, 3 tests.
+   *   - the REVOKED arm -> **nothing anywhere was watching**. With that arm dropped from the sweep
+   *     and its remedy flipped, this test stayed green AND the whole team package stayed green at
+   *     948/948, because the agreement law's own docblock excludes `ingest_keys` unreadable, digest
+   *     has no row, and digest revoked from what it compares — the seed cannot reach them. EXECUTED,
+   *     and it is why the distinctness assertion below exists rather than a note saying "a different
+   *     law covers this": for a quarter of the swept set, no law did.
+   *
+   * So the second assertion compares the four MESSAGES, which come out of `doctor.ts`, not the four
+   * labels, which are written by hand right here. Two entries that produce the same message mean an
+   * arm is unswept, whatever the labels say.
+   *
+   * THE GAP THAT IS LEFT, stated rather than papered over: neither assertion can notice a NEW
+   * `.env`-editing arm being added to `checkIngestKey` and never added to this array. Closing that
+   * needs the arm set DERIVED from the source, which is the right shape and is out of #604's scope
+   * — this issue is one remedy string. A guard whose limits are written down beats one whose limits
+   * are assumed.
+   */
+  it('the four arms whose fix DOES change .env still name up -d, and still warn about restart', async () => {
+    const revoked: IngestKeyRow = {
+      keyHash: KEY_HASH,
+      projectId: PROJECT,
+      createdAtMs: Date.UTC(2026, 8, 1),
+      revokedAtMs: Date.UTC(2026, 8, 10),
+    }
+    const otherProject: IngestKeyRow = {
+      keyHash: KEY_HASH,
+      projectId: 'some-other-project',
+      createdAtMs: Date.UTC(2026, 8, 1),
+      revokedAtMs: null,
+    }
+    const arms: readonly (readonly [string, Promise<DoctorReport>])[] = [
+      ['the project is empty', doctor(fullEnv({ [ENV_PROJECT]: '' }))],
+      ['the digest is not a sha-256', doctor(fullEnv({ [ENV_INGEST_KEY_SHA256]: 'not-a-digest' }))],
+      ['the row is held for another project', doctor(fullEnv(), fakeStorage({ key: otherProject }))],
+      ['the row is revoked', doctor(fullEnv(), fakeStorage({ key: revoked }))],
+    ]
+
+    const seen: string[] = []
+    for (const [state, report] of arms) {
+      const message = byId(await report, 'ingest-key').message
+      expect(message, `${state}: its fix rewrites .env, so up -d is what applies it`).toMatch(
+        /docker compose up -d\b/,
+      )
+      expect(message, `${state}: a restart would boot the container on the OLD .env`).toMatch(
+        /NOT docker compose restart, which does not re-read \.env/,
+      )
+      seen.push(message)
+    }
+
+    expect(arms.length, 'four arms reach this check by way of an .env edit').toBe(4)
+    // DISTINCT MESSAGES, not distinct labels: the labels are hand-written here, the messages come
+    // out of `doctor.ts`. Without this, an entry replaced by a duplicate of another keeps the count
+    // at 4 while one arm silently loses coverage — and the arm that loses it may be the REVOKED one,
+    // which `agreement-law.test.ts` does not compare either, so nothing anywhere would catch it.
+    expect(new Set(seen).size, 'each arm must contribute its OWN message, or one is unswept').toBe(4)
   })
 
   it('a REVOKED row fails — which "at least one row exists" would have called healthy', async () => {
