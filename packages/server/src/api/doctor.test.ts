@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { Dirent } from 'node:fs'
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { tmpdir as osTmpdir } from 'node:os'
 import path from 'node:path'
 import type { Exec, ExecResult } from '@rhizomorph/core'
 import { createEvent } from '@rhizomorph/core'
@@ -21,6 +21,37 @@ import type * as ExecModule from '../server/exec.js'
 import { SessionRecorder } from '../server/recorder.js'
 import { createRouteDoctorProbe, PROBE_CACHE_TTL_MS, ROUTE_EXEC_TIMEOUT_MS, runServerDoctor } from './doctor.js'
 import { capabilityHeaders } from './test-support.js'
+import { canonicalize } from '../paths/containment.js'
+
+/**
+ * The temp root in the ONE spelling the product answers with (#644).
+ *
+ * `os.tmpdir()` is `/var/folders/…` on macOS and a symlink to
+ * `/private/var/folders/…`; on Linux it is neither, so the two spellings are
+ * one string there. Every repo path this instrument pins goes through
+ * `canonicalizeRepoPath` (prd-58 ruling 1, `paths/containment.ts`) — so a
+ * fixture built on the RAW spelling disagrees with the product on macOS and
+ * agrees with it vacuously on Linux.
+ *
+ * **The disagreement hides.** `repoSlug` folds the path into an eight-hex
+ * digest, so both sides still print `/var/folders/…` and only the hash moves:
+ * `env-repo-a83137d0` against `env-repo-5ef4ef53`. Grepping the output for
+ * `private/var` returns nothing. A digest of a path is a path comparison in
+ * disguise.
+ *
+ * Shadowing the import beats rewriting every call site below: a fixture added
+ * later is canonical without anyone having to remember. This only removes an
+ * ambiguity from tests that are about something else — the canonicalisation
+ * itself is witnessed by the symlink laws, which manufacture the divergence
+ * instead of borrowing it from the platform and so bite on every OS
+ * (`paths/repo-path-canonical.test.ts`, and for `runDoctor` the suite at the
+ * foot of `cli/doctor.test.ts`).
+ */
+const CANONICAL_TMP_ROOT = canonicalize(osTmpdir())
+function tmpdir(): string {
+  return CANONICAL_TMP_ROOT
+}
+
 
 function okResult(stdout = ''): ExecResult {
   return { stdout, stderr: '', code: 0, failed: false }

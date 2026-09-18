@@ -483,13 +483,97 @@ async function checkIngestKey(storage: DoctorStorage, env: DoctorDeps['env']): P
     )
   }
 
+  // THE ONE ARM IN THIS CHECK WHOSE FIX IS `restart`, AND THE ONLY ONE WHOSE `.env` IS UNCHANGED (#604).
+  //
+  // FOUR of this function's other five remedies are reached by an operator who is ABOUT TO EDIT
+  // `.env` — set the project, rotate the key — so each names `docker compose up -d` and warns that
+  // `restart` will not re-read `.env`. That warning is true there. It was pasted onto this arm,
+  // where the digest being complained about is ALREADY in the running container's environment and
+  // nothing in `.env` has changed or needs to. So the remedy named the one command that does
+  // nothing here and ruled out the one that works.
+  //
+  // FOUR, not five: the `ingest_keys`-unreadable arm above is the exception on BOTH counts — no
+  // `.env` edit is involved in its fix and it carries no restart warning at all. It is not a
+  // counter-example to the paragraph above; it is one of the siblings enumerated at the bottom of
+  // this comment. Said explicitly because the first draft of this block wrote "every other remedy
+  // in this function", which that arm falsifies.
+  //
+  // EXECUTED against this repo's own compose.yml — Docker Compose v5.4.0, engine 29.7.2 — by
+  // deleting the row from under a running container, which is the state this arm reports (a
+  // database restored from a pre-rotation dump, or a row removed by hand; `deploy/serve.ts` logs
+  // the seed refusal and deliberately does NOT exit, so the container stays up carrying a digest
+  // with no row). All four cells were run, because the two that already had evidence are the two
+  // that made the wrong sentence look right:
+  //
+  //   .env unchanged + up -d app   -> "Container … Running", SAME container id AND SAME StartedAt,
+  //                                   no boot, `ingest_keys` still empty. THE NO-OP.
+  //   .env unchanged + restart app -> same id, NEW StartedAt, row re-seeded 0.5 s later. THE FIX.
+  //   .env changed   + restart app -> boots with the OLD environment: the container still held the
+  //                                   superseded digest while `.env` named the new one.
+  //   .env changed   + up -d app   -> NEW container id, recreated, seeded from the new digest.
+  //
+  // Rows 3 and 4 are why the `up -d` / "NOT restart" wording STAYS wherever an `.env` edit IS part
+  // of the fix — stated as the rule rather than as a tally, for the reason recorded below — and
+  // they are what `docs/research/2026-09-17-prd51-vps-upgrade-drill.md` measured on a real host.
+  // Rows 1 and 2 are what that drill could not have seen: its operator had always just edited
+  // `.env`, so `up -d` genuinely recreated every time and the unchanged-config case never arose.
+  //
+  // THE SIBLINGS ARE KNOWN AND ARE NOT FIXED HERE. The remedies below — in this file — tell an
+  // operator inside a running container to `up -d app` so that a boot re-does something, with no
+  // `.env` change in sight.
+  //
+  // THE LIST IS THE FACT. A COUNT OF IT IS A COPY OF THE FACT, AND EVERY COPY HERE HAS ROTTED.
+  // Three separate wrong counts of this one list reached review, over two rounds:
+  //
+  //   - draft 1 said "three more remedies" — short by three — and, in another paragraph, "the other
+  //     five remedies", of which only four ever carried the wording it was describing;
+  //   - draft 2 replaced the first with this enumeration and added a paragraph that said "one of
+  //     the five siblings listed at the bottom", three lines above a list of six — while the second
+  //     wrong count from draft 1 sat untouched a few lines up, made wronger by the same edit.
+  //
+  // The enumeration was right every time. Only the summary numbers were ever wrong, and each was
+  // written by someone with the correct list in front of them — which is the whole lesson: a count
+  // is not checked when it is read, it is checked when someone stops and recounts, and nobody does
+  // that for a number that looks settled. So: add to or remove from the list, and do not restate
+  // its length in prose, here or in another file. The counts left in this comment ("FOUR of this
+  // function's other five") are about `checkIngestKey`'s own arms, which are on screen a few lines
+  // up and can be recounted where they are read; they are not a copy of this list.
+  //
+  //   1. `checkMigrations`, the "N of M tracked migrations are NOT applied" arm.
+  //   2. `checkMigrations`, the "the _migrations table could not be read" arm.
+  //   3. `checkIngestKey`, the `ingest_keys`-unreadable arm above — in THIS function.
+  //   4. `checkPartitions`, the catch arm: "…then docker compose up -d app, which tops the window
+  //      up at boot."
+  //   5. `checkFoldCursor`, the cursor-at-zero arm: "docker compose up -d app (the boot drain folds
+  //      everything the journal holds)". #514's drill measured that state on a live host.
+  //   6. `checkFoldCursor`, the cursor-ahead-of-tail arm: "docker compose exec app rm -f <cursor>
+  //      && docker compose up -d app". The sharpest of them — it deletes a file inside the
+  //      running container and then names the command that will not restart it.
+  //
+  // Number 1 was reproduced the same way as this arm: delete a `_migrations` row under a running
+  // container, `up -d app` answers "Running" and changes nothing, `restart app` restores it.
+  //
+  // Numbers 5 and 6 carry a caveat, and it is the honest version rather than the alarming one. The
+  // fold supervisor calls `readCursor` at the top of EVERY pass and a missing or cold cursor reads
+  // as COLD_START (`src/fold/cursor.ts`, `src/fold/worker.ts`), so on a deployment with the tick
+  // armed — the default — the next tick re-folds on its own and `up -d app` is merely INERT rather
+  // than the difference between working and not. It is that difference only where the tick is
+  // disabled (`RZ_TEAM_FOLD_TICK_MS=0`), leaving the boot drain as the only thing that re-folds.
+  // The shape is the same either way; the cost is not.
+  //
+  // Every one of them is the same defect as this arm, and every one is out of #604's scope, which
+  // is this arm alone. {@link reapplyRemedy} is the one place that already had it right — it says
+  // "docker compose up -d app changes nothing here" in its own words.
   if (row === null) {
     return check(
       'ingest-key',
       'fail',
       `ingest key: the digest in ${ENV_INGEST_KEY_SHA256} has no row in ingest_keys, so this server holds no live key ` +
-        'and refuses every batch as an unknown key. Remedy: docker compose up -d app — the boot seeds the digest from ' +
-        'the environment; docker compose restart will not, because it does not re-read .env.',
+        'and refuses every batch as an unknown key. Remedy: docker compose restart app — the row is written by the ' +
+        "boot seed, and the digest to seed is already in this running container's environment, so there is nothing " +
+        'to re-read. NOT docker compose up -d app: nothing in .env changed, so compose leaves the container Running ' +
+        'and no boot happens. (up -d is the right command once .env HAS changed, which is what the other remedies ' +
+        'here name it for.)',
     )
   }
   if (row.projectId !== projectId) {
